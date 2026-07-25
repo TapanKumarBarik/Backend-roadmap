@@ -414,6 +414,34 @@ kubectl delete role pod-reader -n demo
 kubectl delete serviceaccount ci-bot -n demo
 ```
 
+## Independent challenge
+
+No YAML or commands given here — figure it out yourself using what you
+know from this module and earlier ones.
+
+**Task:** On a Calico-enabled kind cluster, deploy a two-tier app — a
+`backend` Deployment/Service and a `frontend` Deployment — and enforce two
+independent least-privilege controls. First, on the network side: lock the
+backend down so it accepts traffic *only* from the frontend's Pods, then
+prove both that the frontend still reaches it and that an unrelated Pod
+cannot. Second, on the API side: give the frontend a dedicated
+ServiceAccount that is allowed to `get`/`list` Pods in its own namespace
+but nothing else, and prove from inside a Pod running as that account that
+it can list Pods but is `Forbidden` from reading Secrets. This combines
+this module's NetworkPolicy and RBAC with Deployments/Services (modules
+03/04).
+
+<details>
+<summary>Stuck? One hint</summary>
+
+The NetworkPolicy uses a `podSelector` for `backend` plus an `ingress
+.from.podSelector` matching the frontend's labels; for the API side, a
+Role + RoleBinding on a ServiceAccount, verified with `kubectl auth can-i
+... --as=system:serviceaccount:<ns>:<sa>` and by `kubectl exec` into a Pod
+whose `serviceAccountName` is set.
+
+</details>
+
 ## Common mistakes & troubleshooting
 
 - **Creating a Role/ClusterRole with no binding**: grants nobody
@@ -447,6 +475,8 @@ kubectl delete serviceaccount ci-bot -n demo
   care about.
 
 ## Checkpoint quiz
+
+Write down your answer to each question before expanding it — checking without attempting first is the single easiest way to fool yourself into thinking you've learned this.
 
 1. What's the difference between a Role and a RoleBinding — which one
    actually grants access?
@@ -492,6 +522,123 @@ kubectl delete serviceaccount ci-bot -n demo
    policy selects `backend` for ingress, only what its rules explicitly
    allow gets through, and a broken selector means the intended legitimate
    traffic also gets blocked, not just the unintended traffic.
+
+</details>
+
+## Cumulative review
+
+Closed-book. Don't reopen earlier modules while attempting these — the
+point is to find out what actually stuck.
+
+1. Ingress (module 08), NetworkPolicy (module 11), and HPA (module 09)
+   each depend on something being installed in the cluster before the
+   object you write has any effect. Name what each one needs, and describe
+   the identical failure symptom all three share when that dependency is
+   missing.
+2. You add a NetworkPolicy that locks a `backend` Pod's ingress to only
+   the `frontend` Pods, and simultaneously the backend is fronted by an
+   Ingress for external users. Explain why external HTTP traffic through
+   the Ingress could suddenly stop, and what the policy would need to also
+   allow.
+3. An HPA scales a Deployment from 2 to 8 Pods under load. Explain how the
+   Service in front of it (module 04) and any Ingress routing to that
+   Service (module 08) both keep working across the scale-up without you
+   touching either object.
+4. A backend Pod that a NetworkPolicy is supposed to allow traffic to is
+   unreachable, and its logs across all replicas show nothing useful. Give
+   the ordered set of checks you'd run drawing on module 10 (aggregated
+   logs / events), module 11 (policy selector), and module 04 (Service
+   endpoints) to isolate whether it's a policy bug, a routing bug, or an
+   app bug.
+5. You grant a ServiceAccount a Role to `get`/`list` Pods in `demo`, and a
+   Pod runs as that account. The Pod also needs to read cluster-wide Node
+   metrics. Why does the Role fall short, and what RBAC objects (module
+   11) plus what add-on (module 09) are both required for that to work?
+6. A NetworkPolicy label typo (`app: frontendd`) and a Service selector
+   typo (`app: webb`) produce different-feeling but structurally identical
+   failures. Describe what each one silently breaks, and why "the object
+   was created with no error" is true in both cases.
+7. Your HPA is stuck at `<unknown>` targets and, separately, your
+   `kubectl top pods` returns an error. Explain how these two symptoms can
+   share a single root cause, and one they might not.
+8. You want to observe (module 10) whether a NetworkPolicy is actually
+   blocking traffic versus the backend simply being down. Which
+   observability signals (logs, events, `kubectl top`, a test Pod's
+   connection result) actually distinguish "blocked by policy" from
+   "backend crashed," and which would mislead you?
+9. RBAC is deny-by-default-and-additive (module 11); NetworkPolicy is
+   open-by-default-until-selected (module 11); an Ingress with no matching
+   controller is silently ignored (module 08). For a Pod that should be
+   reachable only by one peer and whose ServiceAccount should read only
+   ConfigMaps, state which default each control starts from and therefore
+   what you must explicitly write for each.
+10. You deploy the Prometheus/Grafana stack (module 10) into its own
+    namespace and then apply a default-deny-ingress NetworkPolicy in the
+    application namespace. Explain whether metrics scraping of your app
+    Pods could break, and what the policy would need to permit for
+    cross-namespace scraping to still work.
+
+<details>
+<summary>Show answers</summary>
+
+1. Ingress needs an Ingress controller running; NetworkPolicy needs a CNI
+   that enforces policy (e.g. Calico); HPA needs metrics-server. In all
+   three, the object you create is accepted by the API server with no
+   error but has zero real effect — a silent no-op — because nothing is
+   present to act on it.
+2. Once any ingress policy selects the backend, its ingress becomes
+   deny-by-default except what's listed — and the Ingress controller's
+   Pods are not the `frontend` Pods, so their forwarded traffic is now
+   blocked. The policy would need to also allow ingress from the
+   ingress-nginx controller's Pods (by their namespace/labels).
+3. The Service continuously tracks endpoints by label selector, so each
+   new HPA-created Pod automatically becomes an endpoint once `Ready`; the
+   Ingress routes to the Service (by name/port), not to Pods, so it never
+   needs updating. Both adjust to the changed Pod set on their own.
+4. Aggregate logs and events first (`kubectl logs -l <label>
+   --all-containers`, `kubectl get events`) to see if the app is even
+   starting/crashing; check `kubectl get endpoints <svc>` to confirm the
+   Service has healthy backends (module 04) — `<none>` points at a
+   selector/readiness problem, not the policy; then compare the
+   NetworkPolicy's `from` selector against the real Pod labels
+   (`kubectl get pods --show-labels`) to spot a policy typo. App logs
+   clean + endpoints populated + a test Pod timing out points at the
+   policy.
+5. Nodes are cluster-scoped (no namespace), so a namespaced Role can never
+   grant access to them — you need a ClusterRole plus a
+   ClusterRoleBinding (or a RoleBinding referencing the ClusterRole) for
+   the ServiceAccount, and metrics-server must be installed for Node
+   metrics to exist at all.
+6. The NetworkPolicy typo makes its `from` selector match no Pods, so once
+   it selects the backend for ingress the intended legitimate traffic is
+   silently blocked; the Service selector typo makes the Service match no
+   Pods, so it has zero endpoints and routes nowhere. Both are "created
+   with no error" because the API server validates object schema, not
+   whether a selector matches any real Pod.
+7. Shared root cause: metrics-server is missing/unreachable — both
+   `kubectl top` and a resource-metric HPA depend on it, so both fail
+   together. A cause they might *not* share: an HPA can also read
+   `<unknown>` because the target Deployment has no CPU `request` (a
+   per-workload problem) while `kubectl top` still works fine cluster-wide.
+8. A test Pod's connection *result* (times out vs. connects vs. refused)
+   and the backend's own logs/events best distinguish the two: policy-
+   blocked traffic times out while the backend logs show no incoming
+   request and its events/`kubectl top` show a healthy, running Pod; a
+   crashed backend shows CrashLoopBackOff events, restart counts, and
+   empty or error logs. `kubectl top` alone can mislead — a policy-blocked
+   but healthy backend looks perfectly normal there.
+9. RBAC starts denied, so you must explicitly write a Role/ClusterRole
+   granting ConfigMap reads plus a binding to the ServiceAccount.
+   NetworkPolicy starts open, so you must explicitly write a policy
+   selecting the Pod for ingress and allowing only the one peer (which
+   flips the rest to denied). The Ingress needs an installed controller
+   and a correct `ingressClassName`, or it's silently ignored — so you
+   must ensure the controller exists and the class matches.
+10. Yes, it could break — a default-deny-ingress policy in the app
+    namespace blocks Prometheus (in another namespace) from scraping the
+    app Pods' metrics endpoints. The policy would need to allow ingress
+    from the monitoring namespace/Pods (by namespace selector and/or Pod
+    labels) on the metrics port for cross-namespace scraping to continue.
 
 </details>
 

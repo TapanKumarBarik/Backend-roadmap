@@ -91,6 +91,19 @@ Almost nothing you manage professionally sits on the machine in front of you - s
 
 11. If you have access to a real remote machine or cloud VM (optional but recommended for realism), run `ssh-copy-id user@<that-machine's-address>` to copy your public key there, then `ssh user@<that-machine's-address>` to confirm passwordless login works against an actual separate machine, not just `localhost`. This is the scenario the WSL2 NAT note above described as the realistic way to practice SSH.
 
+## Independent challenge
+
+No commands given here — figure it out yourself using what you know from this module and earlier ones.
+
+**Task:** Set up passwordless SSH from your WSL2 instance to itself (over `localhost`) using a brand-new key pair kept in its own file, separate from your default `id_ed25519`. Wire it up so a single short command — a host alias — connects you without you naming the user, key file, or host on the command line. Once it works, deliberately loosen the private key's permissions so that other users could read it, observe exactly how SSH reacts, and then restore the correct permissions (connect this to the permission model from module 03). Explain why SSH treats a too-readable private key as unusable.
+
+<details>
+<summary>Stuck? One hint</summary>
+
+`ssh-keygen -f` lets you name a non-default key file; its public half gets appended to `~/.ssh/authorized_keys`, and a `Host` block in `~/.ssh/config` bundles the hostname/user/IdentityFile — while a private key must be `600` (owner read/write only), not group- or world-readable.
+
+</details>
+
 ## Common mistakes & troubleshooting
 
 - **"Permission denied (publickey)" when connecting.** This almost always means either the public key was never added to the remote's `authorized_keys`, or the permissions on the remote's `~/.ssh` or `authorized_keys` are too loose (SSH refuses to trust them) or too strict for the wrong owner. Re-check both the key placement and permissions.
@@ -102,6 +115,8 @@ Almost nothing you manage professionally sits on the machine in front of you - s
 - **Forgetting `sudo systemctl enable --now ssh` after installing the server.** Installing the package doesn't automatically start or enable the service; you must do that explicitly, as covered in module 11.
 
 ## Checkpoint quiz
+
+Write down your answer to each question before expanding it — checking without attempting first is the single easiest way to fool yourself into thinking you've learned this.
 
 1. What specific security problem does SSH solve that `telnet` does not?
 2. In a key pair, which key goes on the remote machine you're connecting to, and which never leaves your own machine?

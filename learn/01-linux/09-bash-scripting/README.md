@@ -184,6 +184,19 @@ Every time you find yourself typing the same three commands in a row, that's a s
     ```
     Confirm it prints your hostname, the current time, and a disk usage line. Notice this script reuses `awk` from module 08 inside a bash script - this is exactly how real-world scripts combine tools.
 
+## Independent challenge
+
+No commands given here — figure it out yourself using what you know from this module and earlier ones.
+
+**Task:** Write a script that takes a directory path as its argument and, for every `.log` file it finds in that directory, prints the filename alongside how many of its lines contain the word `ERROR` (reuse the text-filtering tools from module 08 inside the script). Define an error-count threshold of your own; if any single file exceeds it, the script should exit with a non-zero status, otherwise exit zero — so a scheduler could tell "clean" from "problems found." Handle the awkward cases cleanly rather than letting bash spew raw errors: no argument given, or a path that isn't an existing directory. Remember the file needs to be made runnable (module 03) before you can invoke it with `./`.
+
+<details>
+<summary>Stuck? One hint</summary>
+
+`grep -c` counts matching lines in a file without you looping over lines yourself; guard the input with a `-z "$1"` check and a `-d "$dir"` test up front, and drive the outcome with `exit 0` versus `exit 1`.
+
+</details>
+
 ## Common mistakes & troubleshooting
 
 - **Spaces around `=` in assignments.** `name = "Alice"` (with spaces) is *not* a variable assignment in bash - it's interpreted as running a command called `name` with arguments `=` and `Alice`, producing a "command not found" error. Always write `name="Alice"` with no spaces.
@@ -196,6 +209,8 @@ Every time you find yourself typing the same three commands in a row, that's a s
 - **Comparing an empty variable in `[ ]` without quotes.** `[ $var -eq 5 ]` breaks with a syntax error if `var` is empty, because it becomes `[ -eq 5 ]`. Quoting (`[ "$var" -eq 5 ]`) avoids this, though it still errors if `$var` is genuinely empty or non-numeric - which is often exactly the check you want to add (`-z "$var"`) beforehand.
 
 ## Checkpoint quiz
+
+Write down your answer to each question before expanding it — checking without attempting first is the single easiest way to fool yourself into thinking you've learned this.
 
 1. What does the shebang line `#!/bin/bash` actually do, and what happens if you omit it?
 2. Why does `./script.sh` fail with "Permission denied" the first time you create a script, and what fixes it?

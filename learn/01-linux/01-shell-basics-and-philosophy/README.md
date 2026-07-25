@@ -129,6 +129,19 @@ For example, in `echo -n hello`, `echo` is the command, `-n` is a flag (meaning 
     ```
     Confirm the screen is now empty except for a fresh prompt. Then run `history` again to confirm your past commands are still remembered even though the screen was cleared.
 
+## Independent challenge
+
+No commands given here — figure it out yourself using what you know from this module and earlier ones.
+
+**Task:** You want `date` to print today's date in ISO form (four-digit year, then month, then day, e.g. `2026-07-24`), but you don't remember the option that controls its output format. Without anyone handing you the flag, discover the correct option using only the built-in help facilities this module introduced, then run the command to produce exactly that ISO date. In the same shell session, also confirm which Linux user you are and where you currently are in the filesystem (the identity/location commands from module 00). Afterward, be able to say which part of what you did came from module 00 and which part came from module 01's help-and-discovery tools.
+
+<details>
+<summary>Stuck? One hint</summary>
+
+The full manual page and the terse `--help` summary both document a formatting option; look for the one that takes a `+` followed by format codes, or a shorthand option whose name hints at "ISO."
+
+</details>
+
 ## Common mistakes & troubleshooting
 
 - **Confusing the terminal app with the shell**: Closing a Windows Terminal tab doesn't "reset" Linux - the shell (bash) and your files persist independently of which terminal app you used to view them.
@@ -139,6 +152,8 @@ For example, in `echo -n hello`, `echo` is the command, `-n` is a flag (meaning 
 - **Expecting Tab to always complete instantly**: If there are multiple possible completions, one Tab press does nothing visible - press Tab a second time to see the list of options.
 
 ## Checkpoint quiz
+
+Write down your answer to each question before expanding it — checking without attempting first is the single easiest way to fool yourself into thinking you've learned this.
 
 1. What is the difference between a terminal and a shell?
 2. In the command `echo -n hello`, identify the command, the flag, and the argument.

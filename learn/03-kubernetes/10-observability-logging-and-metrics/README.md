@@ -277,6 +277,31 @@ kubectl delete namespace monitoring
 kubectl delete deployment web
 ```
 
+## Independent challenge
+
+No YAML or commands given here — figure it out yourself using what you
+know from this module and earlier ones.
+
+**Task:** Run a Deployment at 3 replicas and, using only built-in
+`kubectl`, answer three operational questions without inspecting Pods one
+at a time: (1) show the most recent log lines across all three replicas at
+once, attributed to their Pods; (2) identify which Pod in the whole
+cluster is currently using the most CPU; and (3) capture a failing Pod's
+logs to a local file *before* deliberately deleting that Pod, then prove
+the logs are unrecoverable from the cluster afterward but still present in
+your file. This combines this module's aggregation techniques with label
+selectors (modules 03/04) and metrics-server from module 09.
+
+<details>
+<summary>Stuck? One hint</summary>
+
+`kubectl logs -l <label>` aggregates across matching Pods; `kubectl top
+pods -A --sort-by=cpu` ranks by CPU; redirect `kubectl logs <pod> >
+file.txt` before `kubectl delete pod`, after which `kubectl logs` on the
+gone Pod errors with `NotFound`.
+
+</details>
+
 ## Common mistakes & troubleshooting
 
 - **Treating `kubectl logs` as durable storage**: once a Pod is deleted,
@@ -299,6 +324,8 @@ kubectl delete deployment web
   requests (as exercise 7 does) or free up capacity elsewhere first.
 
 ## Checkpoint quiz
+
+Write down your answer to each question before expanding it — checking without attempting first is the single easiest way to fool yourself into thinking you've learned this.
 
 1. Why is there no single built-in `kubectl` command to get "all logs
    for my Deployment," and what's the closest equivalent?

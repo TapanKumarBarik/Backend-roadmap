@@ -142,6 +142,19 @@ nodes, networking configuration, RBAC, and cost. You'll see this
    `az group delete --name rg-aks-learn --yes --no-wait` and recreate it
    when module 01 asks you to.
 
+## Independent challenge
+
+No commands given here — figure it out yourself using what you know from this module and earlier ones.
+
+**Task:** Before you spend a cent on nodes in module 01, do a full cost-hygiene audit of your Azure account from scratch. Confirm which subscription `az` is actually pointed at, then enumerate every resource group it currently contains and reason about which ones might still be billing you (including anything left over from the Docker track's ACR/ACI work — conceptually building on the registry-and-container resources you created there). Then stand up one clean, correctly-named, empty resource group in a region of your choosing to hold your future AKS cluster, and prove to yourself the AKS resource provider is registered so module 01's `az aks create` won't fail on first use. When you're done exploring, remove any throwaway resource groups you created purely for this audit so nothing lingers — empty groups are free, but the habit of tearing down what you no longer need is the whole point.
+
+<details>
+<summary>Stuck? One hint</summary>
+
+Everything here is reachable with the `az account` and `az group` command families plus the provider-registration check; start by making the active subscription unambiguous before you list or create anything.
+
+</details>
+
 ## Common mistakes & troubleshooting
 
 - **Running commands against the wrong subscription.** If you have a
@@ -168,6 +181,8 @@ nodes, networking configuration, RBAC, and cost. You'll see this
   of every study session so nothing billable is left running unnoticed.
 
 ## Checkpoint quiz
+
+Write down your answer to each question before expanding it — checking without attempting first is the single easiest way to fool yourself into thinking you've learned this.
 
 1. What's the difference between an Azure subscription and a resource
    group?

@@ -131,6 +131,19 @@ the AKS cluster's own lifecycle in some setups.
    by itself delete already-ingested data or the workspace — delete the
    workspace explicitly if you want that gone too.
 
+## Independent challenge
+
+No commands given here — figure it out yourself using what you know from this module and earlier ones.
+
+**Task:** Prove to yourself that persistent monitoring answers a question live `kubectl` cannot. Enable Container Insights on your cluster, then deploy a workload that fails in a way that destroys its own live evidence — for example a container that crash-loops and is eventually replaced, so that once the old pod is gone `kubectl logs --previous` has nothing left to show (this reuses the crash/diagnosis instinct from module 02's Pending-vs-CrashLoop material, conceptually building on that module). After the pod is gone, reconstruct what happened purely from the collected data: find the crash history and the container's log lines for that specific pod in the Log Analytics workspace. Separately, locate exactly which workspace your cluster is shipping to and which resource group it lives in. When done, disable the add-on and decide whether the workspace should be deleted too — remember it is a separate billable resource that a plain `az group delete` on the cluster's group will not necessarily remove.
+
+<details>
+<summary>Stuck? One hint</summary>
+
+The workspace wiring is visible under `az aks show --query addonProfiles.omsagent.config`; once you know the workspace, a KQL query against `ContainerLogV2` (and pod inventory tables) filtered to the pod name surfaces history that outlives the pod itself.
+
+</details>
+
 ## Common mistakes & troubleshooting
 
 - **Expecting portal data instantly.** Ingestion lag means log/metric
@@ -158,6 +171,8 @@ the AKS cluster's own lifecycle in some setups.
   --output table` across your subscription when doing final cleanup.
 
 ## Checkpoint quiz
+
+Write down your answer to each question before expanding it — checking without attempting first is the single easiest way to fool yourself into thinking you've learned this.
 
 1. What's the relationship between Azure Monitor, Container Insights, and
    a Log Analytics workspace?

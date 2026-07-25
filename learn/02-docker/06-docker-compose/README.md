@@ -304,6 +304,19 @@ Compose file. Nothing is downloaded.
     Expect no containers or volumes left over from this project. In Docker
     Desktop, the `compose-lab` group disappears from the Containers tab.
 
+## Independent challenge
+
+No commands given here — figure it out yourself using what you know from this module and earlier ones.
+
+**Task:** Take the two-container setup you wired up by hand in module 05 (the app plus a second service on a shared network) and reproduce the *entire* thing as a single `compose.yaml`, with no manual `docker network create`, `docker volume create`, or individual `docker run` commands. Your file must give the app a published port, attach a second service (a database or Redis from an official image), give that second service a named volume for its data, and make the app wait for the second service to be genuinely ready — not merely started — before it comes up. Then prove two things: that the two services resolve each other by service name (module 05's DNS, now automatic), and that the second service's data survives a teardown that keeps volumes but is wiped by the teardown that removes them.
+
+<details>
+<summary>Stuck? One hint</summary>
+
+You need a top-level `volumes:` key referenced by the second service, a `healthcheck:` on that service using a tool the image actually ships, and `depends_on:` with `condition: service_healthy` on the app — then contrast `docker compose down` with `docker compose down -v`.
+
+</details>
+
 ## Common mistakes & troubleshooting
 
 - **Editing a running service's `build:` context and expecting `docker
@@ -331,6 +344,8 @@ Compose file. Nothing is downloaded.
   it before assuming a "stuck" `up` is a networking problem.
 
 ## Checkpoint quiz
+
+Write down your answer to each question before expanding it — checking without attempting first is the single easiest way to fool yourself into thinking you've learned this.
 
 <details>
 <summary>Show questions</summary>

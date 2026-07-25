@@ -144,6 +144,19 @@ roles yourself. None of this is automatic just because it's "AKS."
    Disable the CSI driver add-on if unused going forward:
    `az aks disable-addons --resource-group rg-aks-learn --name aks-learn --addons azure-keyvault-secrets-provider`.
 
+## Independent challenge
+
+No commands given here — figure it out yourself using what you know from this module and earlier ones.
+
+**Task:** Get a real secret into a running Pod without ever creating a Kubernetes `Secret` object by hand, and then prove the access control is what's actually gating it. Put a secret value into a Key Vault, enable the Key Vault CSI driver add-on, and mount that secret into a Pod as a file so the container can read it live from the vault. Then deliberately break it: revoke the add-on identity's access to the vault, force the Pod to be recreated, and confirm from the Pod's own status that it now fails to start with an access/authorization error rather than any image or scheduling problem — a useful contrast with the `ImagePullBackOff` authentication failures you diagnosed back in module 03 (conceptually building on that module's "which identity is allowed to do what" thinking). Restore access, confirm the mount succeeds again, then clean up: delete the test Pod and its `SecretProviderClass`, and remember Key Vault's soft-delete means a deleted vault may linger unless you purge it.
+
+<details>
+<summary>Stuck? One hint</summary>
+
+The add-on's own managed identity (find it under `az aks show --query addonProfiles.azureKeyvaultSecretsProvider.identity`) must be granted `get` on the vault's secrets via `az keyvault set-policy`; removing that policy is what turns a working mount into a `Forbidden`/access-denied failure visible in `kubectl describe pod`.
+
+</details>
+
 ## Common mistakes & troubleshooting
 
 - **Enabling Azure AD RBAC and then locking yourself out.** Always bind
@@ -174,6 +187,8 @@ roles yourself. None of this is automatic just because it's "AKS."
   assuming `delete` alone is final.
 
 ## Checkpoint quiz
+
+Write down your answer to each question before expanding it — checking without attempting first is the single easiest way to fool yourself into thinking you've learned this.
 
 1. What's the difference between plain Kubernetes RBAC and Azure
    AD-integrated Kubernetes RBAC?
@@ -219,6 +234,119 @@ roles yourself. None of this is automatic just because it's "AKS."
    (and may still hold its unique name / incur minor effects), so full
    cleanup sometimes requires an explicit purge rather than relying on
    `delete` alone.
+
+</details>
+
+## Cumulative review
+
+Closed-book. Don't reopen earlier modules while attempting these — the
+point is to find out what actually stuck.
+
+1. You expose two apps to the internet through one Ingress, put an HPA on
+   one of them, and drive load until the Cluster Autoscaler adds a node.
+   Explain how many public IPs this whole setup uses and why, and why the
+   new node appearing does *not* change that IP count.
+2. Three different failures all surface as a Pod that won't run correctly:
+   an Ingress whose `ADDRESS` stays empty, a Pod stuck `Pending` during an
+   HPA-driven scale-up, and a Pod that won't start because it can't mount a
+   Key Vault secret. For each, name the layer at fault and the single
+   command whose output points you at the real cause.
+3. `--max-count` on the Cluster Autoscaler and verbose application logging
+   under Container Insights are both described as "cost knobs" distinct
+   from node/disk cost. Explain what each one actually bills you for and
+   why each is easy to leave running unnoticed.
+4. Your HPA won't scale under load and its target shows `<unknown>`. What's
+   the most likely cause, and how does that same missing piece also affect
+   whether the Cluster Autoscaler makes correct decisions?
+5. Compare the three managed identities you've touched by module 07: the
+   cluster's identity used for ACR pulls (module 03), the Key Vault CSI
+   add-on's identity, and a user's Azure AD identity used for cluster
+   access. For each, what grant makes it actually able to do its job?
+6. You enable Azure AD-integrated RBAC on a cluster and immediately can't
+   do anything even though login succeeds. What happened, and how does this
+   failure mode differ conceptually from being unable to *authenticate* at
+   all?
+7. Container Insights and a Key Vault can both outlive an
+   `az group delete` on the cluster's resource group. Explain why each can
+   survive, and what you'd run during final cleanup to catch each one.
+8. Walk the request path for a user hitting one of your apps through
+   Ingress: from the public IP, to the ingress controller, to the backing
+   Service type, to the Pod. Why is the backing Service a `ClusterIP` and
+   not a `LoadBalancer`, and where would monitoring let you see this
+   traffic historically rather than live?
+9. You want to prove, after the fact, that a Pod OOM-killed or crash-looped
+   last night and was then replaced. Why is `kubectl logs --previous`
+   insufficient, and what module-06 capability answers the question
+   instead?
+10. Rank these by how quickly they react to a sudden traffic spike, fastest
+    first, and say which two work together to fully absorb the spike: the
+    HPA adding replicas, the Cluster Autoscaler adding a node, an Azure AD
+    role assignment taking effect. Explain the one that's a distractor.
+
+<details>
+<summary>Show answers</summary>
+
+1. One public IP — owned by the single ingress controller's own
+   `LoadBalancer` Service, which fronts both apps by host/path routing. The
+   Cluster Autoscaler adds a *node* (a VM) so more pods can schedule; nodes
+   are not public IPs, and Ingress routing is unchanged, so the IP count
+   stays at one.
+2. Empty Ingress `ADDRESS`: the ingress/networking layer — `kubectl
+   describe ingress <name>` (check the `ingressClassName` matches an
+   existing `IngressClass`). `Pending` during scale-up: the
+   scheduling/capacity layer — `kubectl describe pod <name>` (Events show
+   "Insufficient cpu" until the autoscaler adds a node). Key Vault mount
+   failure: the secrets/identity layer — `kubectl describe pod <name>`
+   (Events show a CSI mount `Forbidden`/access-denied).
+3. `--max-count` bills you for every additional node VM the autoscaler is
+   *allowed* to add and does add under load or a misconfiguration; it's
+   easy to miss because a runaway HPA or a load test left running can push
+   you to the ceiling silently. Container Insights bills for log/metric
+   data ingested and retained; verbose logging that was free and ephemeral
+   under `kubectl logs` now accrues ongoing ingestion cost the moment it's
+   shipped to Log Analytics.
+4. The target Deployment is missing a CPU `request`, so HPA has no
+   denominator to compute a CPU percentage against and reports `<unknown>`.
+   The same requests drive the Cluster Autoscaler's scheduling-fit
+   decisions, so absent or wrong requests break correct node-scaling
+   decisions too — both layers depend on requests, not raw usage.
+5. The cluster's identity needs the `AcrPull` role assignment on the ACR
+   (via `--attach-acr`). The Key Vault CSI add-on's identity needs a vault
+   access grant (`az keyvault set-policy` for `get`/`list`, or an
+   equivalent Azure RBAC role on the vault). A user's Azure AD identity
+   needs a Kubernetes `Role`/`ClusterRole` binding (or an Azure RBAC role
+   assignment, if the cluster uses Azure RBAC for Kubernetes
+   Authorization) to be authorized on the cluster.
+6. You authenticated successfully via Azure AD but have no Kubernetes
+   permissions bound to your identity, so you're authorized for nothing —
+   an *authorization* gap. That's different from an *authentication*
+   failure, where you can't even prove who you are; here login works, you
+   just can't do anything until a role is bound to you.
+7. A Log Analytics workspace is a separate Azure resource, sometimes in a
+   different resource group, so deleting the cluster's group doesn't remove
+   it — check `az monitor log-analytics workspace list`. A Key Vault has
+   soft-delete, so a "deleted" vault can linger recoverably (and hold its
+   name) — check `az keyvault list` / `az keyvault list-deleted` and purge
+   if needed.
+8. Public IP → ingress controller's `LoadBalancer` Service → the app's
+   `ClusterIP` Service → Pods. The backing Service is `ClusterIP` because
+   the ingress controller is the single external entry point; backends only
+   need to be reachable *inside* the cluster, so giving each its own
+   `LoadBalancer`/public IP would waste money. Historical view of that
+   traffic/behavior lives in Container Insights / Log Analytics, versus
+   live `kubectl`.
+9. Once the crashed Pod has been deleted and replaced, `kubectl logs
+   --previous` has no prior container instance left to read from — it's
+   live-only. Container Insights retains the shipped logs and pod inventory
+   (queryable via KQL against `ContainerLogV2`/pod inventory tables), so
+   the crash history survives the Pod's deletion.
+10. Fastest first: HPA adding replicas (seconds to a couple minutes) →
+    Cluster Autoscaler adding a node (minutes, real VM provisioning). Those
+    two work together to absorb the spike — HPA reacts first, and when the
+    replicas don't fit, the autoscaler adds capacity. The Azure AD role
+    assignment is the distractor: it governs *who is allowed to do what*,
+    not runtime capacity, and has nothing to do with absorbing traffic
+    load.
 
 </details>
 

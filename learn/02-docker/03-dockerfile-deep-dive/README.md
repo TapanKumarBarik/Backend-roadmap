@@ -333,6 +333,19 @@ Dockerfile throughout. Nothing is downloaded.
     Expect no `lab:*` images remaining. You can also delete these from the
     **Images** tab in Docker Desktop and confirm `docker images` agrees.
 
+## Independent challenge
+
+No commands given here — figure it out yourself using what you know from this module and earlier ones.
+
+**Task:** Author a Dockerfile from scratch for a tiny app of your own (a two-file script plus a dependency manifest is plenty) that satisfies three constraints at once: editing the application code must *not* invalidate the dependency-install layer's cache; the container must have a fixed program it always runs, with a default argument that a `docker run` argument can override without replacing the whole command; and a value you pass only at build time must end up readable as an environment variable inside the running container. Then prove each of the three properties actually holds. Build on module 02: use the same "each instruction is a layer" inspection you did with `docker history` there to confirm which layers rebuilt and which stayed cached after a code-only change.
+
+<details>
+<summary>Stuck? One hint</summary>
+
+Think about instruction ordering for the caching property, `ENTRYPOINT` paired with `CMD` for the fixed-program-with-overridable-argument property, and an `ARG` promoted into an `ENV` for the build-time-to-runtime property — then verify with a rebuild, a `docker run` with an extra argument, and `docker run ... env`.
+
+</details>
+
 ## Common mistakes & troubleshooting
 
 - **Copying the whole project before installing dependencies.** Kills
@@ -358,6 +371,8 @@ Dockerfile throughout. Nothing is downloaded.
   (`python:3.12-slim`).
 
 ## Checkpoint quiz
+
+Write down your answer to each question before expanding it — checking without attempting first is the single easiest way to fool yourself into thinking you've learned this.
 
 <details>
 <summary>Show questions</summary>
@@ -410,6 +425,102 @@ Dockerfile throughout. Nothing is downloaded.
    `COPY`/`ADD`, the copied files' content); if an earlier layer is
    invalidated, every later layer rebuilds too. In Docker Desktop, click
    the image in the **Images** tab to see its layers and sizes.
+
+</details>
+
+## Cumulative review
+
+Closed-book. Don't reopen earlier modules while attempting these — the
+point is to find out what actually stuck.
+
+1. You run `docker run hello-world` from your Ubuntu WSL2 terminal and it
+   works, but a teammate reports the same command fails on their machine
+   with only a `Client:` block and a daemon-connection error. Walk through
+   where the engine actually runs on Windows and what single per-distro
+   setting most likely differs between the two machines.
+2. A container's main process shows as PID 1 inside the container, its
+   image is only tens of MB on disk, and it shares your host's exact
+   kernel version. Explain how all three facts trace back to the same
+   underlying reason a container is not a VM.
+3. You build an image, run a container from it, write a file into that
+   container, then `docker rm` the container and `docker run` a fresh one
+   from the same image. The file is gone. Which layer held the file, why
+   didn't it survive, and what would you have changed in the Dockerfile if
+   you wanted that file present in *every* container from the start?
+4. A Dockerfile copies `app.py` before `COPY requirements.txt` and the
+   `pip install` step. Describe concretely what happens to build time on
+   the tenth code-only edit, and connect your answer to what `docker
+   history` would show about the image's layers.
+5. Explain why `EXPOSE 8000` in a Dockerfile, a container showing `Up` in
+   `docker ps`, and a failed `curl http://localhost:8000` can all be true
+   at the same time — and what you'd actually need to change to make the
+   curl succeed.
+6. You override a container's command with `docker run <image> python -c
+   "print('hi')"` and it exits immediately with status 0. Explain why,
+   referencing both what `docker run` does to the image's default `CMD`
+   and what "the container's life is tied to its PID 1" means.
+7. Two images both start `FROM python:3.12-slim`. You already have the
+   first pulled; pulling the second is much faster than the first was.
+   Explain the mechanism, and say where in Docker Desktop you could
+   visually confirm the shared layers.
+8. You want a build-time version string (`--build-arg APP_VERSION=1.4.0`)
+   to be visible as an environment variable inside the running container.
+   A colleague used only `ARG APP_VERSION` and it isn't showing up at
+   runtime. What's missing, and why does `ARG` alone behave that way?
+9. Give two independent reasons a project directory living under
+   `/mnt/c/...` and lacking a `.dockerignore` would make `docker build`
+   slower than the same project in your Linux home directory with a tight
+   `.dockerignore` — one reason rooted in the WSL2 filesystem boundary,
+   one in the build context upload.
+
+<details>
+<summary>Show answers</summary>
+
+1. The engine (`dockerd`) runs inside the lightweight Linux VM Docker
+   Desktop manages via WSL2, not natively in Ubuntu; the `docker` CLI in
+   Ubuntu is a client pointed at that shared engine. The most likely
+   difference is that the teammate hasn't enabled WSL Integration for
+   their distro (Settings → Resources → WSL Integration), so their CLI has
+   no engine to reach.
+2. All three follow from a container being an ordinary host process with a
+   restricted view rather than a separate machine: PID 1 is a PID-namespace
+   illusion over a real host PID; the small image size is because it ships
+   no kernel/boot infrastructure; and the identical kernel version is
+   because there is only one kernel (the host's / the WSL2 VM's), shared by
+   every container.
+3. The file lived in the container's thin writable layer, which is created
+   fresh per container and deleted with `docker rm` — a new `docker run`
+   starts a brand-new empty writable layer. To have it present in every
+   container from the start, bake it into the image with a `COPY` (or
+   generate it in a `RUN`) so it becomes a read-only image layer.
+4. Because the code is copied before dependencies are installed, every
+   code edit invalidates the `COPY app.py` layer and therefore every layer
+   after it — including `pip install` — so each of the ten edits re-runs a
+   full dependency install. `docker history` would show those later layers
+   rebuilt (new sizes/timestamps) rather than reused.
+5. `EXPOSE` is only metadata/documentation; `Up` only means PID 1 is
+   running inside the container's own network namespace; and `localhost`
+   from the host doesn't reach the container's namespace without a
+   published port. Making the curl succeed requires publishing the port
+   with `-p 8000:8000` (or a Compose `ports:` entry) at run time.
+6. Passing a command after the image name replaces the image's default
+   `CMD` entirely, so the long-running server never starts; the `python -c`
+   one-liner finishes instantly, and because a container exits when its
+   PID 1 exits, the container is immediately `Exited (0)`.
+7. `docker pull` only downloads layers not already present locally; the
+   shared `python:3.12-slim` base layers are reused, so only the second
+   image's unique layers are fetched. Clicking an image in Docker Desktop's
+   Images tab shows its layers, letting you see the common base.
+8. An `ARG` is build-time only and isn't part of the running container's
+   environment; you must assign it into an `ENV` (`ENV
+   APP_VERSION=${APP_VERSION}`) for it to persist into image metadata and
+   be visible at runtime.
+9. First, paths under `/mnt/c/...` cross the WSL2 Windows/Linux filesystem
+   translation boundary, adding per-file overhead the native Linux home
+   directory avoids. Second, with no `.dockerignore`, the entire directory
+   (including things like `.git` or virtual envs) is uploaded as build
+   context to the daemon before the build starts, which is slower
+   regardless of what the Dockerfile actually copies.
 
 </details>
 

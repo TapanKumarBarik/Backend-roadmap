@@ -255,6 +255,19 @@ use only `alpine`. Nothing is downloaded.
     ```
     Expect `applab` gone, only the built-in networks remaining.
 
+## Independent challenge
+
+No commands given here — figure it out yourself using what you know from this module and earlier ones.
+
+**Task:** Build the small Flask app (reuse the pattern from module 02) and stand up a two-container scenario entirely by hand that demonstrates three of this module's claims in one setup: a second container reaching the app *by name* on a shared network, the same lookup *failing* when the containers are only on the default bridge, and the fact that container-to-container traffic uses the app's internal container port rather than any host-published port. Publish the app to your host as well, but bind that published port so that only your own machine — not other devices on your network — can reach it. Explain why the port number the second container uses to reach the app differs from the number you'd type in a browser on the host.
+
+<details>
+<summary>Stuck? One hint</summary>
+
+Create a user-defined network and attach both containers with `--name`s; from the second container reach the first at `http://<name>:<container-port>`, and repeat the name lookup with both containers left on the default bridge to see it fail. For the host-only publish, put a loopback address in front of the `-p` mapping.
+
+</details>
+
 ## Common mistakes & troubleshooting
 
 - **Assuming containers on the default `bridge` network can resolve each
@@ -280,6 +293,8 @@ use only `alpine`. Nothing is downloaded.
   the containers first.
 
 ## Checkpoint quiz
+
+Write down your answer to each question before expanding it — checking without attempting first is the single easiest way to fool yourself into thinking you've learned this.
 
 <details>
 <summary>Show questions</summary>

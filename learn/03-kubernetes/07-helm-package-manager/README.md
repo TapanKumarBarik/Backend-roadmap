@@ -281,6 +281,33 @@ Expected: `No resources found` (aside from anything left from earlier
 modules) — `helm uninstall` removed every object the release created, in
 one command.
 
+## Independent challenge
+
+No YAML or commands given here — figure it out yourself using what you
+know from this module and earlier ones.
+
+**Task:** Take a working application you've already built by hand across
+earlier modules — a Deployment with resource requests/limits, a Service, a
+ConfigMap consumed as env vars, and a PVC mounted for durable data — and
+package all of it as a single Helm chart. Expose, at minimum, the replica
+count, the image tag, and the ConfigMap's log-level value as chart values.
+Then install it once as `app-dev` with 1 replica and again as `app-stg`
+with 3 replicas from the *same* chart, in the same namespace, and confirm
+both releases coexist without their objects colliding. Verify the rendered
+output before installing anything, and demonstrate a rollback of one
+release. This pulls together modules 03 (Deployments), 04 (Services), 05
+(ConfigMaps), and 06 (PVCs) under this module's templating.
+
+<details>
+<summary>Stuck? One hint</summary>
+
+Two releases avoid collisions only if object names incorporate
+`{{ .Release.Name }}`; run `helm template <release> <chart>` to inspect
+the YAML before `helm install`, and `helm rollback <release> <revision>`
+after an upgrade.
+
+</details>
+
 ## Common mistakes & troubleshooting
 
 - **Typo'd `--set` keys being silently ignored**: Helm doesn't validate
@@ -307,6 +334,8 @@ one command.
   expected a clean slate.
 
 ## Checkpoint quiz
+
+Write down your answer to each question before expanding it — checking without attempting first is the single easiest way to fool yourself into thinking you've learned this.
 
 1. What's the relationship between a chart, a release, and `values.yaml`?
 2. What does `helm template` do, and why is it useful before ever
@@ -344,6 +373,99 @@ one command.
    templates, overwriting any manual edit back to what the chart/values
    specify — manual edits to Helm-managed objects don't survive the next
    upgrade.
+
+</details>
+
+## Cumulative review
+
+Closed-book. Don't reopen earlier modules while attempting these — the
+point is to find out what actually stuck.
+
+1. A Helm chart renders a Deployment, a ClusterIP Service, and a
+   ConfigMap. After `helm install`, `kubectl get endpoints <svc>` shows
+   `<none>`. Explain how a templating mistake in the chart could cause
+   this even though every object was "created successfully," and which two
+   labels must agree for it to route.
+2. Your chart mounts a ConfigMap as env vars and also templates the image
+   tag. You `helm upgrade` to change only the ConfigMap's value. Do the
+   running Pods see the new value? Explain why or why not, and what the
+   answer would be if the ConfigMap were mounted as a file instead.
+3. You install the same chart twice in one namespace as `web-a` and
+   `web-b`. What Helm mechanism keeps their Deployments and Services from
+   colliding, and what would collide anyway if the chart hard-coded a
+   PVC's `metadata.name` instead of templating it?
+4. A `LoadBalancer` Service defined in your chart shows `EXTERNAL-IP:
+   <pending>` forever on kind. Is this a chart bug? What would you use
+   locally to reach it instead, and what changes on a real cloud cluster?
+5. Your chart's Deployment sets a `targetPort` of 8080 but the container
+   listens on 80, and the Service's `port` is 80. Trace exactly where
+   traffic breaks when a client hits the Service, and how
+   `kubectl get endpoints` would look.
+6. You run `helm upgrade <release> <chart> --set image.tag=1.28` and it
+   completes, but the Pods still run the old image. Give the most likely
+   Helm-specific cause (module 07) and how you'd confirm it in one command
+   before assuming the cluster is broken.
+7. A chart mounts a Secret as a file for a database password and also
+   references a PVC for the database's data. After `helm uninstall`,
+   which of these two is most likely to survive, and why does that
+   default exist?
+8. Explain how Helm's release-revision history and `kubectl rollout
+   undo` differ in scope: if a single `helm upgrade` changed a
+   Deployment's image *and* a ConfigMap's value, what does `helm rollback`
+   revert versus what `kubectl rollout undo` on that Deployment reverts?
+9. You want a Pod from the chart to only be sent traffic once it can serve
+   requests, and its PVC-backed data to survive a rolling update. Name the
+   two distinct fields (from modules 02/04 and module 06) that give you
+   each guarantee, and confirm neither is a Helm concept — Helm only
+   templates them.
+
+<details>
+<summary>Show answers</summary>
+
+1. If the Service's `spec.selector` labels don't match the labels the
+   chart puts on the Deployment's Pod template
+   (`spec.template.metadata.labels`), the Service has zero endpoints even
+   though both objects exist — a templating typo (e.g. a value used in one
+   place but not the other) is a common cause. The Service selector and
+   the Pod template labels must agree.
+2. No — env-var values are read only at container start, so an upgrade
+   that changes just the ConfigMap won't reach already-running Pods unless
+   the Pods are also restarted (Helm doesn't roll them for a ConfigMap-only
+   change by default). Mounted as a file, the kubelet would sync the new
+   value into the container without a restart (though the app must notice).
+3. Helm charts incorporate `{{ .Release.Name }}` into object names, so
+   `web-a-*` and `web-b-*` objects don't collide. A PVC with a hard-coded
+   `metadata.name` would collide — both releases would try to create/own
+   the same claim.
+4. Not a bug — there's no cloud load-balancer controller on kind to fulfill
+   a `LoadBalancer`, so it stays `<pending>` by design. Locally you'd reach
+   it via `kubectl port-forward` (or NodePort/Ingress); on a real cloud
+   cluster the provider provisions an actual load balancer and populates
+   `EXTERNAL-IP`.
+5. The Service has healthy endpoints (Pods match its selector), but it
+   forwards to `targetPort` 8080 inside the Pod where nothing is
+   listening, so the connection times out / resets. `kubectl get
+   endpoints` shows `<pod-ip>:8080` — pointing at the wrong port on
+   otherwise-healthy Pods.
+6. Most likely a typo'd `--set` key (e.g. `--set image.taag=...`), which
+   Helm silently records but never applies since it validates nothing
+   against the templates. Confirm with `helm template <release> <chart>
+   --set image.tag=1.28 | grep image:` (or `helm get values`) to see
+   whether the override actually lands in the rendered YAML.
+7. The PVC is most likely to survive — many charts (and Helm's defaults
+   for some resources) do not delete PVCs on uninstall specifically to
+   protect data from accidental loss, whereas the Secret is a normal
+   release-owned object that gets removed.
+8. `helm rollback` reverts the *entire release* to a previous revision's
+   rendered state — both the Deployment's image and the ConfigMap's value
+   go back together. `kubectl rollout undo` on that Deployment only reverts
+   the Deployment's Pod template (the image); it knows nothing about the
+   ConfigMap, which would stay at its new value.
+9. A `readinessProbe` (modules 02/04) gates whether the Pod receives
+   Service traffic; referencing a PVC by `claimName` in the Pod's volumes
+   (module 06) makes the data outlive Pod replacement during a rolling
+   update. Both are ordinary Kubernetes fields — Helm only fills them in
+   from values, it doesn't provide the behavior itself.
 
 </details>
 

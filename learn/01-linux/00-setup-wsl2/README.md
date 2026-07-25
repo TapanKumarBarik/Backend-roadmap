@@ -85,6 +85,19 @@ Almost all production servers, containers, and cloud infrastructure run Linux, n
     ```
     Expected output: a table showing `Ubuntu` with `VERSION` equal to `2` and `STATE` equal to `Running` or `Stopped`.
 
+## Independent challenge
+
+No commands given here — figure it out yourself using what you know from this module and earlier ones.
+
+**Task:** Verify a brand-new WSL2 setup end to end without retracing the exercise steps line by line. Starting from an ordinary (non-administrator) PowerShell window on Windows, confirm that your Ubuntu distribution is genuinely running under WSL version 2 rather than version 1, then drop into the Ubuntu shell, establish which Linux user you are and where your home directory lives, and finally prove the machine can actually reach Ubuntu's package servers over the network. As you go, decide for yourself which single one of these steps would have required an Administrator PowerShell and which did not, and why.
+
+<details>
+<summary>Stuck? One hint</summary>
+
+One command run from the Windows side lists every installed distro with its WSL version in its own column; the "can it reach the package servers" check is the very same catalog-refresh command that needed superuser rights when you ran it inside Linux.
+
+</details>
+
 ## Common mistakes & troubleshooting
 
 - **"WSL 2 requires an update to its kernel component" error**: This means the WSL2 Linux kernel package needs updating separately. Follow the link Windows shows, or run `wsl --update` from an admin PowerShell.
@@ -96,6 +109,8 @@ Almost all production servers, containers, and cloud infrastructure run Linux, n
 - **Multiple Ubuntu windows feeling "different"**: They're not - every way of opening Ubuntu (Start menu, Windows Terminal, or `wsl` from PowerShell) drops you into the exact same Linux environment and files. Nothing is duplicated.
 
 ## Checkpoint quiz
+
+Write down your answer to each question before expanding it — checking without attempting first is the single easiest way to fool yourself into thinking you've learned this.
 
 1. What is the difference between WSL2 and Ubuntu - are they the same thing?
 2. Why did you need to run the installation command as an Administrator, but not your day-to-day Ubuntu commands?

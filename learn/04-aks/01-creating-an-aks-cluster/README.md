@@ -156,6 +156,19 @@ command assuming the wrong one is active.
    continuing straight into module 02, you may leave the cluster running
    — just don't forget it's billing while it exists.
 
+## Independent challenge
+
+No commands given here — figure it out yourself using what you know from this module and earlier ones.
+
+**Task:** Provision a learning cluster the cost-conscious way, then investigate one thing the exercises above never make you look at: exactly how much of each small node the system add-ons have already claimed before you deploy anything of your own. Create a minimal two-node cluster in the resource group you set up in module 00 (conceptually building on module 00's resource-group and subscription work), wire `kubectl` to it, and confirm both nodes are healthy. Then, without deploying any workload, determine how much CPU and memory on each node is already reserved or requested by the cluster's own system components, and form an opinion on how many of your own pods a node this size could realistically hold. Finally, decide whether to pause billing or tear the cluster down for the day, and actually do it — leaving a two-node cluster idle overnight is exactly the charge this track keeps warning you about.
+
+<details>
+<summary>Stuck? One hint</summary>
+
+`kubectl describe node <name>` reports both the node's total capacity and its already-allocated requests near the bottom; compare "Allocatable" against the "Allocated resources" table to see the real headroom.
+
+</details>
+
 ## Common mistakes & troubleshooting
 
 - **Picking too large a VM size "to be safe."** `Standard_D4s_v5` or
@@ -180,6 +193,8 @@ command assuming the wrong one is active.
   clusters idle "just in case."
 
 ## Checkpoint quiz
+
+Write down your answer to each question before expanding it — checking without attempting first is the single easiest way to fool yourself into thinking you've learned this.
 
 1. What's the difference between the system node pool and a user node
    pool?

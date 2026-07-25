@@ -158,6 +158,19 @@ Docker images, Kubernetes pods, and every Linux server you'll ever touch organiz
     ```
     Confirm it's gone with `ls ~`. Before running any `rm -r` or `rm -rf` command in the future, always double check the path with `pwd` and `ls` first - unlike Windows, there is no recycle bin, and `rm -rf` in particular will delete without asking for confirmation and without any way to undo it. Never run `rm -rf` on a path you haven't carefully verified, and never run it on `/` or your home directory root.
 
+## Independent challenge
+
+No commands given here — figure it out yourself using what you know from this module and earlier ones.
+
+**Task:** In a single command, build the nested directory path `~/reports/2026/q3` (all three levels at once, even though none of them exist yet). Inside `q3`, create several empty files whose names follow a pattern like `report-a.txt`, `report-b.txt`, `report-1.log`, `report-2.log`. Then, using wildcards rather than typing each filename, copy only the `.txt` files into a brand-new sibling backup directory `~/reports/2026/q3-backup`, and finally prove the copy worked by searching the whole `~/reports` tree for every `.txt` file at once. If you're unsure whether a command supports a flag you need (for instance, to create parents in one shot), reach for the help facilities from module 01 rather than guessing.
+
+<details>
+<summary>Stuck? One hint</summary>
+
+One flag on `mkdir` builds a whole chain of missing parents at once; a `*` glob lets you name a group of files by their shared ending; and `find` with a name pattern searches recursively from wherever you point it.
+
+</details>
+
 ## Common mistakes & troubleshooting
 
 - **Running `rm -rf` on the wrong path**: Always run `pwd` and `ls` immediately before a recursive delete to confirm exactly where you are and what you're about to remove. There is no undo.
@@ -170,6 +183,8 @@ Docker images, Kubernetes pods, and every Linux server you'll ever touch organiz
 - **Wildcard matched nothing and the command errors oddly**: If `*.txt` doesn't match any files, some commands will pass the literal string `*.txt` through unexpanded, causing confusing "No such file" errors. Double-check with a plain `ls` first.
 
 ## Checkpoint quiz
+
+Write down your answer to each question before expanding it — checking without attempting first is the single easiest way to fool yourself into thinking you've learned this.
 
 1. What is the difference between an absolute path and a relative path? Give an example of each.
 2. What do `.` and `..` mean when used in a path?

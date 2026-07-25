@@ -62,6 +62,19 @@ When something breaks - a service won't start, a login fails, a container crashe
 
 11. Practice a safe vacuum. Run `sudo journalctl --vacuum-time=2weeks`. Even if nothing is old enough to delete, confirm the command reports how much space (if any) it reclaimed, and that it completes without error - this is the command you'd reach for on a real machine that's running low on space due to journal growth.
 
+## Independent challenge
+
+No commands given here — figure it out yourself using what you know from this module and earlier ones.
+
+**Task:** Using the journal rather than raw files, produce a list of every failed or unsuccessful SSH authentication attempt from the last day against the SSH service you set up in module 13 — you'll need to scope to the right unit, bound the time window, and filter the text down to just the failure lines (reach for module 08's filtering on top of `journalctl`). Separately, find out how much disk the journal itself is currently consuming, and determine what command you would run to cap the journal at a fixed maximum size if it were growing out of control — tying back to the WSL2 virtual-disk concern from module 12.
+
+<details>
+<summary>Stuck? One hint</summary>
+
+`journalctl -u ssh --since "1 day ago"` piped into `grep -i` for words like "fail" or "invalid" isolates the attempts; `--disk-usage` reports current journal size, and the size-capping tool is one of the `--vacuum-*` options.
+
+</details>
+
 ## Common mistakes & troubleshooting
 
 - **Running `journalctl -u <name>` with the wrong unit name and assuming logging is broken.** systemd unit names must match exactly (e.g., `ssh` vs `sshd` can differ by distro/package); run `systemctl list-units --type=service` (from module 11) to confirm the exact unit name first if you get no results.
@@ -73,6 +86,8 @@ When something breaks - a service won't start, a login fails, a container crashe
 - **Assuming the journal is unbounded and never checking its size.** Especially on constrained disks (including your WSL2 virtual disk from module 12), an ever-growing journal can quietly consume significant space; check periodically with `--disk-usage` and vacuum when needed.
 
 ## Checkpoint quiz
+
+Write down your answer to each question before expanding it — checking without attempting first is the single easiest way to fool yourself into thinking you've learned this.
 
 1. What's the practical difference between looking at `/var/log/syslog` directly and querying the same information through `journalctl`?
 2. If you wanted to see only serious problems and ignore routine informational messages, which `journalctl` flag would you reach for, and why?

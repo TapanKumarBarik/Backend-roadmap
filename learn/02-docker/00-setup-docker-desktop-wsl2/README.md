@@ -204,6 +204,19 @@ Flag breakdown for the multi-part commands above:
     knowing what the broken state looks like saves you a confused half
     hour later.
 
+## Independent challenge
+
+No commands given here — figure it out yourself using what you know from this module and earlier ones.
+
+**Task:** The module claims there is one single Docker engine shared across every WSL2 distro and Windows itself, not a separate engine per shell. Prove it to yourself empirically without trusting the claim. Start a long-running container from one shell (your PowerShell prompt), then, from a *different* shell (your WSL2 Ubuntu terminal), confirm you can see that exact container, read the same status, and stop it from there — and confirm the change is reflected back in Docker Desktop's Containers tab. Lean on the shell fluency from the Linux track (running a background process and referring to it later by a stable name) to keep the container alive long enough to inspect it from the other side.
+
+<details>
+<summary>Stuck? One hint</summary>
+
+Give the container a fixed `--name` and a command that keeps it alive (something that sleeps) when you start it detached in one shell, then list and stop it by that name from the other shell.
+
+</details>
+
 ## Common mistakes & troubleshooting
 
 - **"Cannot connect to the Docker daemon" in WSL2 but Docker Desktop
@@ -231,6 +244,8 @@ Flag breakdown for the multi-part commands above:
   internet connection.
 
 ## Checkpoint quiz
+
+Write down your answer to each question before expanding it — checking without attempting first is the single easiest way to fool yourself into thinking you've learned this.
 
 <details>
 <summary>Show questions</summary>

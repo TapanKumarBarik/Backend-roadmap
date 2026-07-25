@@ -138,3 +138,13 @@ managed AKS cluster, backed by real Azure Disks/Files, a real Azure Load
 Balancer, and Azure Container Registry for your images — the exact same
 manifests and the exact same `helm upgrade --install` you practiced here,
 just pointed at a cloud cluster instead of kind.
+
+## Before you move on
+
+A day or two after you finish, delete the whole thing — the cluster (or at
+least every resource this project created) — and rebuild it from memory:
+the manifests, the Helm chart, the Ingress, the HPA, all of it, without
+re-reading your own notes or this README. If you can stand it back up and
+pass the acceptance checklist again cold, the concepts have genuinely
+stuck; wherever you get stuck is exactly the module worth a quick reread
+before you start the AKS track.

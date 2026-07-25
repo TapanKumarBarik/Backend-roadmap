@@ -64,6 +64,19 @@ Every file you touch, every process you run, and every permission check you saw 
 
 10. Clean up: exit back to your original user, then delete the practice account entirely: `sudo deluser --remove-home student1`. Confirm it's gone: `cat /etc/passwd | grep student1` should print nothing.
 
+## Independent challenge
+
+No commands given here — figure it out yourself using what you know from this module and earlier ones.
+
+**Task:** Set up a small shared-access scenario from scratch. Create one new group and two new users, and make both users members of that group. Then create a single file, give it that shared group ownership, and set its permissions (combine this with the permission model from module 03) so that both group members can read and write the file, but no other user on the system can even read it. Finally, prove it actually works: become the second user and successfully edit the file, then reason about why a random third user could not. Clean up your practice users and group afterward.
+
+<details>
+<summary>Stuck? One hint</summary>
+
+Group ownership is set with `chgrp` (or the `user:group` form of `chown`), and a mode like `rw-` for owner and group but nothing for other is exactly what module 03's octal digits are for; switch identities with `su -` to test as the second user.
+
+</details>
+
 ## Common mistakes & troubleshooting
 
 - **Forgetting `-a` with `usermod -G`:** running `sudo usermod -G newgroup user` (without `-a`) *replaces* all of the user's supplementary groups with just `newgroup`, silently kicking them out of `sudo` and everything else. Always use `-aG`.
@@ -74,6 +87,8 @@ Every file you touch, every process you run, and every permission check you saw 
 - **Deleting a user without `--remove-home`/`-r`:** the account disappears from `/etc/passwd`, but their home directory and files remain on disk, silently owned by a now-nonexistent UID.
 
 ## Checkpoint quiz
+
+Write down your answer to each question before expanding it — checking without attempting first is the single easiest way to fool yourself into thinking you've learned this.
 
 1. What is the difference between a user's primary group and a supplementary group?
 2. Why does `sudo` exist instead of everyone just working as `root` all the time?

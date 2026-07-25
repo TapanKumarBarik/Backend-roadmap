@@ -357,6 +357,32 @@ kubectl delete pod stuck-pod
 kubectl delete pvc data-claim-explicit too-big-claim
 ```
 
+## Independent challenge
+
+No YAML or commands given here — figure it out yourself using what you
+know from this module and earlier ones.
+
+**Task:** Stand up a tiny "notes" service backed by durable storage:
+a Deployment whose container appends a startup timestamp to a file on a
+mounted PersistentVolumeClaim every time it starts, fronted by a Service.
+Write at least one line, then prove the data is genuinely persistent by
+forcing the Pod to be replaced (not just restarted in place) and reading
+the file back to confirm the earlier line is still there alongside the new
+one. Finally, explain — before you test it — what you'd expect to happen
+to that data if you deleted the PVC given the default reclaim policy your
+kind cluster uses. This combines this module's PVC mechanics with
+Deployments (module 03) and Services (module 04).
+
+<details>
+<summary>Stuck? One hint</summary>
+
+Deleting the Pod (or `kubectl rollout restart` on the Deployment) forces a
+brand-new Pod that re-mounts the same claim by `claimName`; check the
+bound PV's reclaim policy with `kubectl get pv` — on kind it defaults to
+`Delete`.
+
+</details>
+
 ## Common mistakes & troubleshooting
 
 - **Confusing a PVC with the storage itself**: a PVC is a request/claim;
@@ -386,6 +412,8 @@ kubectl delete pvc data-claim-explicit too-big-claim
   StatefulSets.
 
 ## Checkpoint quiz
+
+Write down your answer to each question before expanding it — checking without attempting first is the single easiest way to fool yourself into thinking you've learned this.
 
 1. What is the difference between a PersistentVolume and a
    PersistentVolumeClaim?

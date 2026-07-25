@@ -242,6 +242,19 @@ exercises only need the `alpine` image. Nothing is downloaded.
     Expect no leftover containers, and `appdata`/`permtest` gone from
     `docker volume ls`.
 
+## Independent challenge
+
+No commands given here — figure it out yourself using what you know from this module and earlier ones.
+
+**Task:** Using only the `alpine` (or another small) image, demonstrate the full contrast between the three places data can live that this track has now covered: a container's writable layer, a named volume, and a bind mount. Write a distinct marker into each of the three, then remove and recreate the container and show which markers survive and which don't. Then reproduce and fix a permission failure: make a non-root container process (a specific UID) unable to write into a volume, then adjust ownership so it can. Explicitly connect the surviving-vs-lost outcome back to module 02's writable-layer lesson, and the permission fix back to ordinary Linux ownership reasoning.
+
+<details>
+<summary>Stuck? One hint</summary>
+
+Mount a named volume and a host directory into the same throwaway container, write to `/data` in the volume and to the bind path and to a plain in-container path, then `docker rm` and re-run; for the permission part, run with a non-root `-u` and use a short-lived root container to `chown` the volume to that UID.
+
+</details>
+
 ## Common mistakes & troubleshooting
 
 - **Using a bind mount for a database's data directory.** Works, but
@@ -270,6 +283,8 @@ exercises only need the `alpine` image. Nothing is downloaded.
   stopped ones).
 
 ## Checkpoint quiz
+
+Write down your answer to each question before expanding it — checking without attempting first is the single easiest way to fool yourself into thinking you've learned this.
 
 <details>
 <summary>Show questions</summary>

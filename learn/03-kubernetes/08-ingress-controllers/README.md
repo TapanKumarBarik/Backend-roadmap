@@ -401,6 +401,32 @@ kubectl delete deployment app-one app-two
 kubectl delete svc app-one app-two
 ```
 
+## Independent challenge
+
+No YAML or commands given here — figure it out yourself using what you
+know from this module and earlier ones.
+
+**Task:** With the ingress-nginx controller running on your kind cluster,
+expose two different backend applications through a single entry point so
+that `shop.local.test/` reaches one app and `shop.local.test/admin`
+reaches the other — same host, two paths — and confirm both from your
+machine without editing `/etc/hosts`. Each backend should be a Deployment
+with its own Service (the Ingress must target the Service's port, not the
+container's). Then break it on purpose by pointing one path's backend at a
+port the Service doesn't expose, observe the exact HTTP status the
+controller returns, and fix it. This combines this module's routing with
+Deployments (module 03) and Service port mechanics (module 04).
+
+<details>
+<summary>Stuck? One hint</summary>
+
+One Ingress with a single `host` and two `paths` (each `pathType: Prefix`)
+does the routing; `curl --resolve shop.local.test:80:127.0.0.1 ...` fakes
+DNS, and a wrong backend port surfaces as a `503` because the Ingress
+backend port refers to the Service's `port`.
+
+</details>
+
 ## Common mistakes & troubleshooting
 
 - **Creating an Ingress with no controller installed**: the object is
@@ -426,6 +452,8 @@ kubectl delete svc app-one app-two
   config.
 
 ## Checkpoint quiz
+
+Write down your answer to each question before expanding it — checking without attempting first is the single easiest way to fool yourself into thinking you've learned this.
 
 1. What's the difference between an Ingress object and an Ingress
    controller?

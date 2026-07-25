@@ -61,6 +61,19 @@ Almost no real Linux work happens with only the tools that ship in a base instal
 
 10. Clean up unused dependencies: run `sudo apt autoremove`, and read whether it reports anything to remove (on a fresh WSL install with only the exercises above, there may be nothing — that's fine, the point is knowing the command exists and what it targets).
 
+## Independent challenge
+
+No commands given here — figure it out yourself using what you know from this module and earlier ones.
+
+**Task:** Pick a small command-line tool you have not installed yet (for example `cowsay`, `ncal`, `jq`, or `figlet`). Before installing anything, inspect its metadata to learn what it does, what it depends on, and how big it is. Then install it, and — using the file-location skills from module 02 combined with this module's tooling — find exactly where its executable landed on disk. Run the program once to confirm it works. Finally, remove it in the way that also wipes any configuration it left behind, and prove the binary is truly gone by trying to locate it again.
+
+<details>
+<summary>Stuck? One hint</summary>
+
+`apt show` reveals metadata before you commit to installing; `which` reports the on-disk path of an installed command; and the removal variant that also deletes config files is the "purge" one, not plain "remove."
+
+</details>
+
 ## Common mistakes & troubleshooting
 
 - **Running `apt install` without `sudo`:** you'll get a permission error, because installing software modifies system directories that ordinary users can't write to. Prefix with `sudo`.
@@ -72,6 +85,8 @@ Almost no real Linux work happens with only the tools that ship in a base instal
 - **Interrupting an install midway (e.g. closing the terminal):** can leave `dpkg` in a partially-configured state. If a later `apt` command complains about this, `sudo apt --fix-broken install` (or `sudo dpkg --configure -a`) is the standard recovery — good to know exists, even if you don't need it today.
 
 ## Checkpoint quiz
+
+Write down your answer to each question before expanding it — checking without attempting first is the single easiest way to fool yourself into thinking you've learned this.
 
 1. Why is a package manager generally safer and more maintainable than manually downloading a binary from a website?
 2. What exactly does `apt update` do, and what does it deliberately not do?

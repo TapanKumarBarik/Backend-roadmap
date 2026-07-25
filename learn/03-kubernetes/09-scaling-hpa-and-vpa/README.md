@@ -348,6 +348,31 @@ kubectl delete deployment loadtest norequests
 kubectl delete svc loadtest
 ```
 
+## Independent challenge
+
+No YAML or commands given here — figure it out yourself using what you
+know from this module and earlier ones.
+
+**Task:** With metrics-server installed, take a CPU-burning Deployment and
+attach an autoscaler, expressed as a version-controllable manifest (not
+the imperative one-liner), that keeps it between 2 and 6 replicas at a 50%
+CPU target. Drive load into it, watch it scale up, then remove the load
+and watch it scale back down — and be able to explain why the scale-down
+lags the scale-up. As a second part, reproduce the single most common
+reason an HPA sits at `<unknown>` forever, then fix it. This builds on
+this module's HPA mechanics plus resource requests (module 02) and
+Deployment scaling (module 03).
+
+<details>
+<summary>Stuck? One hint</summary>
+
+A `HorizontalPodAutoscaler` manifest with `scaleTargetRef`, `minReplicas`,
+`maxReplicas`, and a CPU `averageUtilization` target is the version-
+controlled form; `<unknown>` almost always means the target Deployment's
+container has no CPU `request` for the percentage to be computed against.
+
+</details>
+
 ## Common mistakes & troubleshooting
 
 - **No resource requests set on the target workload**: the single most
@@ -373,6 +398,8 @@ kubectl delete svc loadtest
   "stuck."
 
 ## Checkpoint quiz
+
+Write down your answer to each question before expanding it — checking without attempting first is the single easiest way to fool yourself into thinking you've learned this.
 
 1. What metric does a basic HPA use by default, and what does it
    compare that metric against to compute a percentage?

@@ -100,6 +100,19 @@ Every long-running background process on a modern Linux server - web servers, da
 
 13. Clean up (optional but good practice): `sudo systemctl stop heartbeat.service`, `sudo systemctl disable heartbeat.service`, then remove the file with `sudo rm /etc/systemd/system/heartbeat.service` and run `sudo systemctl daemon-reload` once more so systemd forgets about it.
 
+## Independent challenge
+
+No commands given here — figure it out yourself using what you know from this module and earlier ones.
+
+**Task:** Write a small script of your own (module 09) that appends a timestamped line to a file every few seconds, make it runnable (module 03), and wrap it in a custom systemd service unit that restarts automatically if the script crashes. Configure the service to start at boot, but do NOT start it right now — leave it in the "enabled but stopped" state. Then, without starting it, predict out loud exactly what will be true immediately (is the process running?) versus after the next reboot, and use the appropriate commands to confirm your prediction about its two independent states. Clean up the unit afterward.
+
+<details>
+<summary>Stuck? One hint</summary>
+
+Your unit file belongs in `/etc/systemd/system/`, its `ExecStart` needs the absolute path to an executable script, and `enable` (without `--now`) versus `start` is precisely the "boots automatically" versus "running now" distinction — check them with `is-enabled` and `status` respectively, remembering `daemon-reload` after creating the file.
+
+</details>
+
 ## Common mistakes & troubleshooting
 
 - **Forgetting `wsl --shutdown` after editing `/etc/wsl.conf`.** Closing the terminal window is not enough - the WSL2 virtual machine keeps running in the background until you explicitly shut it down from Windows (`wsl --shutdown`) or reboot Windows. The systemd setting only applies on the VM's next cold boot.
@@ -112,6 +125,8 @@ Every long-running background process on a modern Linux server - web servers, da
 - **Not checking `journalctl -u <service>` when a service fails.** `systemctl status` gives a summary and a few recent log lines, but `journalctl -u <service>` shows the fuller output and is usually where the real error message (a missing file, a permission error, a script bug) becomes visible.
 
 ## Checkpoint quiz
+
+Write down your answer to each question before expanding it — checking without attempting first is the single easiest way to fool yourself into thinking you've learned this.
 
 1. What's the difference between a service being "enabled" and a service being "running," and why are they tracked independently?
 2. Why doesn't editing `/etc/wsl.conf` take effect immediately after you save the file?
@@ -133,6 +148,38 @@ Every long-running background process on a modern Linux server - web servers, da
 6. Run `ps -p 1` and check the `CMD` column - if it shows `systemd` (or `/sbin/init` symlinked to it), systemd is PID 1; alternatively, `systemctl status` succeeding (rather than erroring that the system wasn't booted with systemd) confirms the same thing.
 7. `systemctl status` only shows a short summary plus a handful of the most recent log lines, which may truncate or omit the actual underlying error. `journalctl -u <service>` shows the fuller captured log output for that unit, which usually contains the specific error (missing file, permission denied, script exception) that explains why it failed.
 8. `/etc/systemd/system/` is specifically designated as the administrator/local-configuration location and is intentionally given higher precedence in systemd's unit file search order than the package-provided directories (like `/lib/systemd/system/`), so that local customizations always win over defaults without needing to modify package-managed files (which could be overwritten on the next package update anyway).
+
+</details>
+
+## Cumulative review
+
+Closed-book. Don't reopen earlier modules while attempting these — the
+point is to find out what actually stuck.
+
+1. You just started a network service. Combine a module-10 command with a module-08 filter to list only the listening TCP sockets and confirm your service's port is among them.
+2. Your systemd unit's `ExecStart` points at a script that refuses to run. Name the two things that must be true of the script *file itself* (drawing on modules 03 and 09) for systemd to execute it, and name the command that surfaces the actual error when it fails.
+3. The module-09 `syscheck.sh` example computed disk usage with `df -h / | tail -n 1 | awk '{print $5}' | tr -d '%'`. Explain what each of the four stages contributes to producing a bare number.
+4. SSH runs as a systemd unit. Which command tells you whether it's running right now, and which tells you whether it will come back on the next boot — and why are those genuinely two different questions?
+5. Why must a systemd `ExecStart` use an absolute path, and how does that connect to the reason you must type `./script.sh` rather than just `script.sh` at your own prompt?
+6. `dig google.com` prints a lot. Using a pipe and a module-08 tool, extract just the line(s) showing the resolved IP address from its answer section.
+7. Inside a script, distinguish `$1`, `$@`, and `$#`, then write a one-line `for` loop that prints a greeting for every argument passed to the script.
+8. A service can listen on `127.0.0.1` or on `0.0.0.0`. Networking-wise (module 10), what's the practical difference, and why is checking this a sensible thing to do right after starting a new systemd service?
+9. You want a script that scans a log for `ERROR` and exits non-zero when it finds any, then have systemd react to that by restarting it. Which module-09 concept does `Restart=on-failure` depend on to know the run "failed"?
+10. Using two `ping` invocations — one against a hostname and one against a raw IP — explain how you'd prove that a problem is DNS resolution rather than raw connectivity.
+
+<details>
+<summary>Show answers</summary>
+
+1. `ss -tulwn | grep <port>` (or `ss -tuln | grep LISTEN`) — `ss` lists sockets, and the `grep` filter narrows to the port or the listening lines you care about.
+2. The script must have its execute bit set (module 03, `chmod +x`) and must begin with a correct shebang / be a valid runnable program (module 09); `journalctl -u <unit>` surfaces the real error (e.g. a `203/EXEC` for a bad path or a permission failure), more fully than `systemctl status`.
+3. `df -h /` reports usage for the root filesystem in human-readable form; `tail -n 1` drops the header and keeps the data row; `awk '{print $5}'` pulls out the "Use%" column; `tr -d '%'` strips the percent sign so what remains is a bare number you can compare numerically.
+4. `systemctl status ssh` (or `systemctl is-active ssh`) tells you if it's running now; `systemctl is-enabled ssh` tells you if it's set to auto-start at boot. They differ because a service can be running-but-not-enabled (won't survive reboot) or enabled-but-stopped (will start next boot, not active now).
+5. systemd doesn't run inside your interactive login shell, so shell conveniences like `~` and "search the current directory" don't apply — it needs the full path. Similarly, bash doesn't search the current directory for commands by default (a security choice), so you must qualify a local script with `./`.
+6. `dig google.com | grep -A1 "ANSWER SECTION"` or, more simply, `dig +short google.com` — but using this module's tools, piping `dig`'s output through `grep` for the `A` record / answer lines isolates the IP.
+7. `$1` is the first positional argument; `$@` expands to all arguments as separate words; `$#` is the count of arguments. Loop: `for a in "$@"; do echo "Hello, $a"; done`.
+8. Listening on `127.0.0.1` accepts connections only from the same machine (unreachable from the network); listening on `0.0.0.0` accepts connections on every interface, so it's reachable externally if a firewall allows. Checking right after starting a service tells you whether you've just exposed it more broadly than intended.
+9. Exit codes (`$?`): the script must `exit` non-zero when it finds errors and zero otherwise; systemd reads that exit status, and `Restart=on-failure` acts only on the non-zero (failure) case.
+10. Ping the raw IP (e.g. `ping -c2 8.8.8.8`) and the hostname (e.g. `ping -c2 google.com`). If the IP succeeds but the name fails with "could not resolve host," connectivity is fine and the problem is DNS resolution specifically; if both fail with timeouts, it's a connectivity problem instead.
 
 </details>
 

@@ -284,6 +284,19 @@ inline in exercise 2 — there is nothing to download.
     delete the `webapp` image from the **Images** tab, and the CLI will
     reflect the same result.
 
+## Independent challenge
+
+No commands given here — figure it out yourself using what you know from this module and earlier ones.
+
+**Task:** Build the small Flask example image this module uses, then design an experiment that proves the "one image, many independent writable layers" claim rather than just reading it. Run two containers from the same image, make a distinct change inside each one's filesystem (write a different file, or different contents to the same path), and demonstrate that neither container can see the other's change and that neither change is present in the image itself. Then show that one of those changes survives a stop/start but is destroyed by a remove-and-recreate. Connect this back to module 01: explain why the writable layer is per-container in the same way each container's PID and network namespace was per-container there.
+
+<details>
+<summary>Stuck? One hint</summary>
+
+Use `docker exec` to write into each running container and to read back from the other, and remember that a fresh `docker run` after `docker rm` starts a brand-new writable layer while `docker stop`/`docker start` reuses the existing one.
+
+</details>
+
 ## Common mistakes & troubleshooting
 
 - **"My container exited immediately and I don't know why."** Almost
@@ -308,6 +321,8 @@ inline in exercise 2 — there is nothing to download.
   Persistent data needs a volume (module 04).
 
 ## Checkpoint quiz
+
+Write down your answer to each question before expanding it — checking without attempting first is the single easiest way to fool yourself into thinking you've learned this.
 
 <details>
 <summary>Show questions</summary>

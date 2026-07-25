@@ -62,6 +62,19 @@ Every command you run, every server you start, and every script that hangs or mi
 
 10. Test `nohup`: run `nohup sleep 120 &`. Confirm a file named `nohup.out` appeared in your current directory (`ls`). Then run `pgrep sleep` to confirm it's running, and clean up with `pkill sleep` to stop it (and optionally `rm nohup.out` to tidy up the file it created).
 
+## Independent challenge
+
+No commands given here — figure it out yourself using what you know from this module and earlier ones.
+
+**Task:** Start three separate background `sleep` processes with three clearly different durations. Without writing any PID down by hand as you launch them, later find and gracefully terminate only the longest-running one, leaving the other two alive and running. Then prove those two survivors are still there. If you'd like a live view of all three at once while you work, use the `htop` tool you installed back in module 05. Do the whole thing without copying the exact command sequence from the exercises above.
+
+<details>
+<summary>Stuck? One hint</summary>
+
+`pgrep` can list the PIDs of processes by name after the fact, and `ps` shows you each one's command (including the sleep duration) so you can pick out the longest; then a plain `kill` on just that one PID asks it to stop gracefully.
+
+</details>
+
 ## Common mistakes & troubleshooting
 
 - **Confusing `Ctrl+C` and `Ctrl+Z`:** `Ctrl+C` ends the process; `Ctrl+Z` only pauses it (the process is still alive, just stopped, and will keep occupying resources like open ports until you `fg`/`bg` it or kill it). A "stopped" job left forgotten is a classic source of "why is this port still in use" confusion.
@@ -72,6 +85,8 @@ Every command you run, every server you start, and every script that hangs or mi
 - **Not redirecting `nohup` output and being surprised by a `nohup.out` file:** if you don't redirect stdout/stderr yourself, `nohup` writes them into `nohup.out` in your current directory by default, which can pile up if forgotten.
 
 ## Checkpoint quiz
+
+Write down your answer to each question before expanding it — checking without attempting first is the single easiest way to fool yourself into thinking you've learned this.
 
 1. What's the difference between a process's PID and its PPID?
 2. Why does `Ctrl+Z` not actually end a running program, and what state is that program left in?

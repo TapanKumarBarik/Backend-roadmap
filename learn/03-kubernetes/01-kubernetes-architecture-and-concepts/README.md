@@ -282,6 +282,31 @@ Expected: `Ready` returns, and Pods that existed before are still there
 (their desired state was safely recorded in etcd, which lives on disk in
 that same node container).
 
+## Independent challenge
+
+No YAML or commands given here — figure it out yourself using what you
+know from this module and earlier ones.
+
+**Task:** Create a fresh namespace called `arch-lab`, run a single nginx
+Pod in it, and then demonstrate — end to end, using only observation
+commands — the reconciliation chain this module describes. Specifically:
+find the concrete evidence that the scheduler placed the Pod on a node,
+that the kubelet then started its container, and that etcd's record of the
+Pod survives a control-plane restart. Prove the last part by taking the
+node down and bringing it back (as you did with the kind node container),
+then confirming the Pod is still there afterward. Clean up the namespace
+when done. This builds on the context/namespace switching from module 00.
+
+<details>
+<summary>Stuck? One hint</summary>
+
+The `Events` section of `kubectl describe pod` shows the `Scheduled` and
+`Started` lines you need; stopping/starting the kind node container is the
+same `docker stop`/`docker start` move from this module's node-NotReady
+exercise.
+
+</details>
+
 ## Common mistakes & troubleshooting
 
 - **Trying to "log into" the control plane to fix things**: almost
@@ -305,6 +330,8 @@ that same node container).
   the API server / `kubectl`.
 
 ## Checkpoint quiz
+
+Write down your answer to each question before expanding it — checking without attempting first is the single easiest way to fool yourself into thinking you've learned this.
 
 1. What is the one component that everything else — including
    `kubectl` — talks to, and never bypasses?

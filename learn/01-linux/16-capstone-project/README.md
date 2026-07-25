@@ -98,3 +98,7 @@ thinking about how this same job would run as a Kubernetes CronJob later
 in the curriculum.
 
 Back to [01-linux/README.md](../README.md) · Continue to [02-docker](../../02-docker/README.md).
+
+## Before you move on
+
+A day or two after you finish Log Watchdog, come back and add one new capability to it entirely from memory — don't reread this page or copy from your earlier work while you do it. Invent the extension yourself (a new kind of check, a new report field, a tighter permission, whatever you like), and only look things up once you're genuinely stuck. Rebuilding a piece of it cold is the single best way to find out what actually stuck before you carry these skills into the Docker track.

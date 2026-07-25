@@ -275,6 +275,31 @@ Kubernetes errors — always check `kubectl config current-context` (or use
 `kubectl get nodes` as a sanity check) before assuming a command failed
 for some deeper reason.
 
+## Independent challenge
+
+No YAML or commands given here — figure it out yourself using what you
+know from this module and earlier ones.
+
+**Task:** A teammate needs a throwaway cluster named `staging-sim` that
+mimics a small production topology: one control-plane node and three
+worker nodes. Stand it up, prove all four nodes reached `Ready`, and then
+— without deleting `staging-sim` — make sure your `kubectl` is pointed
+back at your original `learning` cluster so you don't accidentally run
+later exercises against the wrong place. Finally, confirm from the Docker
+side (the container-runtime view you already know from the Docker track)
+that the four nodes really are just containers on your host. Tear
+`staging-sim` down when you're done.
+
+<details>
+<summary>Stuck? One hint</summary>
+
+Multiple nodes come from a cluster config file listing one
+`role: control-plane` and three `role: worker` entries; `kubectl config
+use-context` switches which cluster you target, and `docker ps` shows the
+node containers.
+
+</details>
+
 ## Common mistakes & troubleshooting
 
 - **Docker not running / WSL2 integration off**: `kind create cluster`
@@ -299,6 +324,8 @@ for some deeper reason.
   running containers consuming resources.
 
 ## Checkpoint quiz
+
+Write down your answer to each question before expanding it — checking without attempting first is the single easiest way to fool yourself into thinking you've learned this.
 
 1. What relationship does `kubectl` have to a cluster, compared to what
    `docker` has to the Docker daemon?

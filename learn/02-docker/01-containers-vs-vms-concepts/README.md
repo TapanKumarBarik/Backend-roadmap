@@ -244,6 +244,19 @@ Flag breakdown for `docker run --rm -it ubuntu bash`:
     doesn't need. You can see the same image size in Docker Desktop's
     **Images** tab, in the `Size` column next to `ubuntu`.
 
+## Independent challenge
+
+No commands given here — figure it out yourself using what you know from this module and earlier ones.
+
+**Task:** This module explained cgroups as "what a process can *use*" and stated that a container's PID 1 exiting takes the whole container down. Put both ideas together in one experiment: start a container with a hard memory cap well below what a memory-hungry process would need, then run something inside it that deliberately tries to allocate more memory than that cap. Watch what happens to the container, and explain the outcome in terms of both the cgroup limit (this module) and the fact that the container's life is tied to its PID 1 process. Tie it back to module 00 as well: relate the per-container cap you set to the global VM-wide memory limit Docker Desktop enforces in its Settings, and reason about why one is per-container and the other is not.
+
+<details>
+<summary>Stuck? One hint</summary>
+
+Run a container with a low `-m` cap and give it a command that keeps allocating memory (a short loop that appends to a growing list, or a tool that stresses memory) — then check the container's exit status and reason about which process died and why.
+
+</details>
+
 ## Common mistakes & troubleshooting
 
 - **Expecting `docker exec` to "log into a machine."** It attaches a new
@@ -267,6 +280,8 @@ Flag breakdown for `docker run --rm -it ubuntu bash`:
   controlled separately by cgroup limits.
 
 ## Checkpoint quiz
+
+Write down your answer to each question before expanding it — checking without attempting first is the single easiest way to fool yourself into thinking you've learned this.
 
 <details>
 <summary>Show questions</summary>

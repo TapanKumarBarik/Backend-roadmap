@@ -64,6 +64,19 @@ Almost nothing you'll do next in this curriculum - pulling Docker images, exposi
 
 12. (Optional, if `traceroute` is installed - install with `sudo apt install traceroute` if needed) Run `traceroute google.com` and observe the list of hops. Some hops may show `* * *` (no response) - this is common for routers that don't reply to traceroute probes and doesn't necessarily indicate a problem.
 
+## Independent challenge
+
+No commands given here — figure it out yourself using what you know from this module and earlier ones.
+
+**Task:** For a website of your choice, determine three separate things and be able to state which tool answered each: the IP address the name resolves to, whether the host is reachable at the network level at all, and what HTTP status code the web service returns. Then deliberately reason through how you would tell apart three different failure modes using these tools — a DNS resolution failure, a network-connectivity failure, and a "host is up but the web service is down" situation. If you want the check to be repeatable, wrap the whole sequence in a small script using module 09's skills.
+
+<details>
+<summary>Stuck? One hint</summary>
+
+`dig` gives you the resolved address, `ping` (against both a name and a raw IP) separates DNS problems from connectivity problems, and `curl -I` reports the HTTP status without downloading the whole page body.
+
+</details>
+
 ## Common mistakes & troubleshooting
 
 - **Assuming WSL2's IP address is fixed.** WSL2's virtual network adapter IP can change between reboots or `wsl --shutdown` cycles. If a script or bookmark hardcodes WSL2's IP, it may break later - prefer `localhost` where forwarding applies, or re-check `hostname -I` when something stops connecting.
@@ -75,6 +88,8 @@ Almost nothing you'll do next in this curriculum - pulling Docker images, exposi
 - **Assuming `wget` and `curl` behave identically by default.** `wget` saves to a file by default; `curl` prints to stdout by default (requiring `-o`/`-O` to save). Mixing up the default behavior is a common source of "why did it dump garbage in my terminal" or "where did my file go" confusion.
 
 ## Checkpoint quiz
+
+Write down your answer to each question before expanding it — checking without attempting first is the single easiest way to fool yourself into thinking you've learned this.
 
 1. Why does WSL2 have its own IP address separate from the Windows host's IP address?
 2. What's the practical difference between what an IP address identifies versus what a port number identifies?

@@ -104,6 +104,19 @@ Real servers produce mountains of text: logs, config files, CSV exports, command
 
 13. Use `tail -f` to watch the log live. In one terminal run `tail -f app.log`. In a second WSL2 terminal (open a new tab/window), run `echo "2024-01-10 09:00:00 INFO New line appended live" >> ~/textprocessing/app.log` and watch the first terminal update instantly. Press Ctrl+C in the first terminal to stop following.
 
+## Independent challenge
+
+No commands given here — figure it out yourself using what you know from this module and earlier ones.
+
+**Task:** Skip the sample `app.log` and work directly on the real `/etc/passwd` file (recall from module 04 that it's a colon-separated file, one account per line, with the login shell as its last field). In a single pipeline, produce a tally of how many user accounts use each distinct login shell, sorted so the most common shell appears first. Combine this module's field-extraction and counting tools with the pipes you learned in module 07. As a follow-up, adjust the pipeline to print only the single most-used shell and its count.
+
+<details>
+<summary>Stuck? One hint</summary>
+
+`awk` with a `:` field separator can isolate the shell field, and the classic "count each unique value" idiom is to sort, then run `uniq -c`, then sort again numerically in reverse to rank them.
+
+</details>
+
 ## Common mistakes & troubleshooting
 
 - **Forgetting `sed -i` writes are permanent.** Without `-i`, `sed` only prints the transformed text to your terminal; the file is untouched. With `-i`, there's no confirmation and no undo - test your `s///` pattern without `-i` first.
@@ -115,6 +128,8 @@ Real servers produce mountains of text: logs, config files, CSV exports, command
 - **Piping into `grep` and expecting file-only behavior.** `grep pattern` with no file argument reads from stdin - this is intentional and lets you filter pipeline output, but beginners sometimes think it hung (it's actually waiting on stdin) if run with no pipe and no file.
 
 ## Checkpoint quiz
+
+Write down your answer to each question before expanding it — checking without attempting first is the single easiest way to fool yourself into thinking you've learned this.
 
 1. Why does `uniq` fail to collapse duplicate lines that appear in an unsorted file, and how do you fix it?
 2. What is the difference between running `sed 's/a/b/'` on a file versus `sed -i 's/a/b/'` on the same file?

@@ -82,6 +82,19 @@ Every server you'll ever operate eventually runs low on disk space, mounts the w
 
 10. Clean up and check overall usage reporting one more time: run `cd ~ && rm -rf linktest` then `df -h /`. Confirm the filesystem is still mounted and note that deleting a few small files barely moves the `Used`/`Avail` numbers - real space investigations need `du` on larger directories, which is why you practiced step 6.
 
+## Independent challenge
+
+No commands given here — figure it out yourself using what you know from this module and earlier ones.
+
+**Task:** Find the three largest immediate subdirectories under `/var` without eyeballing everything by hand — build a single pipeline that measures their sizes and ranks them largest-first (lean on module 08's sorting and module 07's pipes to do the ranking). Then create a symbolic link in your home directory that points at whichever one came out largest, so you can reach it quickly by a short name. Finally, prove the key property of a symlink: delete the link and confirm the real directory it pointed at is completely untouched.
+
+<details>
+<summary>Stuck? One hint</summary>
+
+`du --max-depth=1` on `/var` gives per-subdirectory sizes, and piping that into `sort -rh` then `head` ranks and trims them; `ln -s` makes the pointer, and removing a symlink only removes the pointer, never the target.
+
+</details>
+
 ## Common mistakes & troubleshooting
 
 - **Expecting `lsblk` or `fdisk -l` to show a real disk layout in WSL2.** They usually won't, because WSL2 storage is virtualized differently than bare-metal Linux. Don't assume your WSL2 skills transfer 1:1 to disk partitioning on a real server without checking - the concepts do, the specific output often won't.
@@ -93,6 +106,8 @@ Every server you'll ever operate eventually runs low on disk space, mounts the w
 - **Running `mount` or `umount` on system paths without understanding the effect.** Unmounting `/` or `/mnt/c` while you're actively using them can break your shell session. Practice mount/unmount concepts on things you create yourself, not on paths you rely on.
 
 ## Checkpoint quiz
+
+Write down your answer to each question before expanding it — checking without attempting first is the single easiest way to fool yourself into thinking you've learned this.
 
 1. What's the conceptual difference between what `df` reports and what `du` reports?
 2. Why does `/mnt/c` show a different filesystem type than `/` when you run `df -h` or `mount`?

@@ -139,6 +139,19 @@ in edge cases.
    If you're done with the cluster for the day, stop or delete it per
    module 01's cleanup commands.
 
+## Independent challenge
+
+No commands given here — figure it out yourself using what you know from this module and earlier ones.
+
+**Task:** Demonstrate the "one public IP for many apps" economics for yourself, end to end. Get two different small apps running on your cluster (reuse your ACR-hosted image workflow from module 03, conceptually building on that module, for at least one of them), then arrange things so that both are reachable from the public internet through a single shared entry point — not through a dedicated `LoadBalancer` Service per app. Prove at the Azure level that you provisioned only one public IP for the pair, and reach each app from your own machine over that one address to confirm the routing actually distinguishes them. Then tear the whole thing down and independently confirm no public IP is left dangling in the node resource group — a forgotten public IP or load balancer is exactly the overnight charge this module warns about.
+
+<details>
+<summary>Stuck? One hint</summary>
+
+An Ingress object with two host/path rules pointing at two `ClusterIP` Services shares the single load balancer/IP owned by the ingress controller; compare `az network public-ip list` on the `MC_*` resource group before and after to prove only one IP existed.
+
+</details>
+
 ## Common mistakes & troubleshooting
 
 - **Creating one `LoadBalancer` Service per app "because it's easy."**
@@ -167,6 +180,8 @@ in edge cases.
   `LoadBalancer` Services (and their IPs) before they bill you overnight.
 
 ## Checkpoint quiz
+
+Write down your answer to each question before expanding it — checking without attempting first is the single easiest way to fool yourself into thinking you've learned this.
 
 1. What real Azure resources get created when you apply a Service with
    `type: LoadBalancer` on AKS, and how is that different from a local

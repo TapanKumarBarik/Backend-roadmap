@@ -373,6 +373,32 @@ Expected: accepted, `2/2` ready. Clean up:
 kubectl delete deployment web broken mismatch
 ```
 
+## Independent challenge
+
+No YAML or commands given here — figure it out yourself using what you
+know from this module and earlier ones.
+
+**Task:** Deploy a web application at 4 replicas, each container carrying
+resource requests and limits, then roll it out to a new image tag under a
+strategy you configure explicitly so that at no moment during the rollout
+are fewer than 4 Pods available and never more than 5 exist at once.
+Trigger the rollout, and while it's happening, capture evidence that your
+surge/unavailability bounds were actually respected. Then deliberately
+roll out a *broken* image tag, observe the rollout stall, and recover to
+the last working version without looking up what that tag was. This builds
+on module 02's resource requests and the self-healing model from module
+01.
+
+<details>
+<summary>Stuck? One hint</summary>
+
+`maxUnavailable: 0` with `maxSurge: 1` gives you the "never drop below
+desired" guarantee; `kubectl rollout undo` restores the previous revision
+without you naming the old tag, and `kubectl get pods -l <label> --watch`
+during the rollout is where you see the bounds hold.
+
+</details>
+
 ## Common mistakes & troubleshooting
 
 - **Editing a ReplicaSet directly**: changes get overwritten/fought by
@@ -397,6 +423,8 @@ kubectl delete deployment web broken mismatch
   the API accepted the new desired state, not that Pods are updated yet.
 
 ## Checkpoint quiz
+
+Write down your answer to each question before expanding it — checking without attempting first is the single easiest way to fool yourself into thinking you've learned this.
 
 1. What's the division of responsibility between a Deployment and the
    ReplicaSet it creates?
@@ -435,6 +463,105 @@ kubectl delete deployment web broken mismatch
    completing even though nothing is crashing.
 7. The Deployment's ReplicaSet controller notices the Pod count dropped
    below desired and creates a replacement, typically within seconds.
+
+</details>
+
+## Cumulative review
+
+Closed-book. Don't reopen earlier modules while attempting these — the
+point is to find out what actually stuck.
+
+1. You run `kubectl get pods` and see `No resources found`, yet you're
+   certain you created a Deployment earlier. Name the two independent
+   things (one from module 00, one from module 01) that could each
+   explain this even though the Deployment really does exist somewhere.
+2. Trace what happens, component by component, from the instant you
+   `kubectl apply` a 3-replica Deployment to the moment three containers
+   are actually running — naming the API server, etcd, the Deployment/
+   ReplicaSet controller, the scheduler, and the kubelet, and what each
+   contributes.
+3. You delete a bare Pod (module 02) and, separately, delete a Pod that
+   belongs to a Deployment (module 03). Both had one container. Which
+   comes back, which doesn't, and what mechanism accounts for the
+   difference?
+4. A Pod is stuck `Pending` right after creation on your single-node kind
+   cluster. Give one module-01 reason (scheduling-related) and one
+   module-02 reason (resource-related) it might be stuck, and how you'd
+   tell them apart.
+5. Why does a rolling update (module 03) depend on readiness probes
+   (module 02) to actually deliver zero-downtime — what goes wrong during
+   the rollout if the probe is missing or wrong?
+6. You have a Deployment whose Pods show `Running` but `0/1` in the
+   `READY` column and the rollout never completes. Explain the exact
+   chain: what `READY` reflects, why the rollout waits on it, and where
+   you'd look first.
+7. On your kind cluster you created a second cluster earlier (module 00).
+   Explain how a Deployment created "successfully" could be completely
+   invisible to your current `kubectl get deployments`, and the one
+   command that would reveal the mistake.
+8. A ReplicaSet is a control loop (module 01) and so is the thing that
+   restarted a container under a bare Pod. Both keep "observed" matching
+   "desired," yet only one recreates a whole deleted Pod object. Reconcile
+   these two facts precisely.
+9. You scale a Deployment from 2 to 5 replicas and, seconds later, change
+   its image tag. Which of these creates a new ReplicaSet and which just
+   resizes the existing one, and why?
+
+<details>
+<summary>Show answers</summary>
+
+1. Wrong context — your active `kubectl` context points at a different
+   cluster than the one you created the Deployment on (module 00); and/or
+   wrong namespace — the Deployment lives in a namespace other than the
+   one your context defaults to, and you didn't pass `-n`/`-A` (module
+   01). Either makes an existing resource invisible to a plain `get`.
+2. `kubectl` sends YAML to the API server, which validates it and records
+   the desired state in etcd. The Deployment controller notices new
+   desired state and creates a ReplicaSet; the ReplicaSet controller
+   creates three Pod objects to reach its desired count. The scheduler
+   notices those unscheduled Pods and assigns each to a node. The kubelet
+   on that node sees Pods assigned to it and tells the container runtime
+   to start the containers.
+3. The Deployment's Pod comes back (its ReplicaSet controller notices the
+   count dropped below desired and creates a replacement within seconds);
+   the bare Pod does not (nothing owns it — only the kubelet would restart
+   its *container* if the container died, but a deleted Pod object has no
+   controller to recreate it).
+4. Module-01 reason: the scheduler simply hasn't run yet (normal for a
+   brief moment right after creation). Module-02 reason: the Pod's
+   resource requests exceed the node's allocatable capacity so no node can
+   fit it. `kubectl describe pod` distinguishes them — a `FailedScheduling`
+   event citing insufficient CPU/memory points to the resource cause,
+   while no scheduling event yet (and quick resolution) points to normal
+   timing.
+5. During a rolling update Kubernetes only counts a new Pod as available
+   once it's `Ready`; the readiness probe is what makes "Ready" mean
+   "actually able to serve." Without it (or with a wrong probe), Pods are
+   treated as ready the moment they're `Running`, so traffic can be sent
+   to a Pod that isn't actually serving yet — reintroducing the downtime
+   the rolling update was meant to avoid — or the rollout stalls forever
+   waiting on a probe that never passes.
+6. `READY` reflects whether each container's readiness probe is passing,
+   not whether the process is running. A rollout waits for new Pods to
+   become `Ready` before continuing (and before it reports success), so a
+   never-passing readiness probe blocks it even with nothing crashing.
+   Look first at `kubectl describe pod` Events for repeated readiness
+   probe failures.
+7. The Deployment was created against a different cluster/context (e.g.
+   the second kind cluster), so it's real but on a cluster your current
+   context isn't pointed at. `kubectl config get-contexts` (spotting the
+   `*`) — or `kubectl config current-context` — reveals the mismatch.
+8. The ReplicaSet controller reconciles the *count of Pod objects* — it
+   creates a whole new Pod object when one is missing. The kubelet
+   reconciles the *containers of a Pod already assigned to its node* — it
+   restarts a dead container but never creates a new Pod object. A bare
+   Pod has a kubelet keeping its containers alive but no controller
+   watching the Pod-object count, which is why deleting the Pod itself is
+   unrecoverable.
+9. Changing `spec.replicas` (2→5) only resizes the existing ReplicaSet —
+   no template change, so no new ReplicaSet. Changing the image is a
+   change to `spec.template`, which creates a brand-new ReplicaSet with
+   the new template and rolls Pods over to it.
 
 </details>
 

@@ -418,6 +418,30 @@ kubectl delete svc web-wrongport web
 kubectl delete deployment web
 ```
 
+## Independent challenge
+
+No YAML or commands given here — figure it out yourself using what you
+know from this module and earlier ones.
+
+**Task:** Run two independent Deployments in `demo` — call them `blue` and
+`green` — each serving a different response, then create a single
+ClusterIP Service whose selector currently routes only to `blue`. From a
+throwaway Pod inside the cluster, confirm by DNS name that you reach only
+`blue`. Now, without deleting or recreating the Service, cut over all its
+traffic to `green` and re-confirm from inside the cluster that the same
+DNS name now reaches only `green`. Explain to yourself why the Service's
+virtual IP and DNS name never changed even though the backing Pods did.
+This builds on the label-selector and Deployment mechanics from module 03.
+
+<details>
+<summary>Stuck? One hint</summary>
+
+The cutover is a change to the Service's `spec.selector` (the labels are
+the only thing binding it to Pods); verify which Pod IPs it currently
+targets with `kubectl get endpoints <svc>` before and after.
+
+</details>
+
 ## Common mistakes & troubleshooting
 
 - **Selector typos or mismatches**: the single most common Service bug —
@@ -442,6 +466,8 @@ kubectl delete deployment web
   same namespace.
 
 ## Checkpoint quiz
+
+Write down your answer to each question before expanding it — checking without attempting first is the single easiest way to fool yourself into thinking you've learned this.
 
 1. Why do Pods need a Service in front of them at all, given each Pod
    already has an IP?

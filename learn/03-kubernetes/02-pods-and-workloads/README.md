@@ -408,6 +408,31 @@ kubectl get pods
 
 Expected: `No resources found in demo namespace.`
 
+## Independent challenge
+
+No YAML or commands given here — figure it out yourself using what you
+know from this module and earlier ones.
+
+**Task:** Write a single Pod manifest for a web container that (a) declares
+both CPU and memory requests and limits, (b) does not start serving until
+an init container has finished a short "warm-up" step, and (c) is only
+reported `Ready` once an HTTP health check against its serving port
+passes — but is *not* restarted merely for being slow to warm up. Apply it
+into the `demo` namespace, then prove each of the three behaviors actually
+took effect by observing the Pod as it starts and inspecting its
+describe output. This combines this module's probes/init-containers/
+resources with the namespace discipline from module 01.
+
+<details>
+<summary>Stuck? One hint</summary>
+
+You want an `initContainers` entry plus a `readinessProbe` (not a
+liveness probe) for the "ready but never restarted for slowness" part;
+watch the phase transitions with `kubectl get pod <name> --watch` and
+confirm the limits in `kubectl describe pod`.
+
+</details>
+
 ## Common mistakes & troubleshooting
 
 - **Creating bare Pods for real workloads**: if the Pod dies (node
@@ -433,6 +458,8 @@ Expected: `No resources found in demo namespace.`
   fastest way to see *why* something is stuck, before diving into logs.
 
 ## Checkpoint quiz
+
+Write down your answer to each question before expanding it — checking without attempting first is the single easiest way to fool yourself into thinking you've learned this.
 
 1. What do all containers inside the same Pod share that containers in
    separate Pods do not?

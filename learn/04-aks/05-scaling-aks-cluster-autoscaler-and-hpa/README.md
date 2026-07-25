@@ -126,6 +126,19 @@ triggers unnecessary node adds).
    Cluster Autoscaler left you at a different count. If you're done for
    the day, stop or delete the cluster per module 01.
 
+## Independent challenge
+
+No commands given here — figure it out yourself using what you know from this module and earlier ones.
+
+**Task:** Engineer a situation where you can watch both scaling layers act in sequence, safely and cheaply. Enable the Cluster Autoscaler on your node pool with a deliberately tight ceiling so a runaway can't spend much, put an HPA on a CPU-burning workload, and then drive enough load that the HPA wants more replicas than your current nodes can hold. Watch the handoff: the HPA adds replicas, some go `Pending` because they don't fit (the same insufficient-resources scheduling reality from module 02, conceptually building on that module), and the Cluster Autoscaler then adds a node so they can run. Stop the load and observe both layers retreat. The critical discipline here: before you walk away, confirm the load generator is truly gone and the node count has settled back toward your minimum — an autoscaler left scaled out on a forgotten load test is a real bill. Tear down the test workload and reset the pool when done.
+
+<details>
+<summary>Stuck? One hint</summary>
+
+The HPA's scale target is driven by the pod's CPU *request*, so give the workload a small request and set `--cpu-percent` low enough that load pushes it over; watch `kubectl get hpa -w`, `kubectl get pods -o wide`, and `kubectl get nodes -w` side by side to see the layers act.
+
+</details>
+
 ## Common mistakes & troubleshooting
 
 - **Setting `--max-count` too high "to be safe."** Every extra node
@@ -152,6 +165,8 @@ triggers unnecessary node adds).
   before ending a session.
 
 ## Checkpoint quiz
+
+Write down your answer to each question before expanding it — checking without attempting first is the single easiest way to fool yourself into thinking you've learned this.
 
 1. What's the difference between what HPA scales and what Cluster
    Autoscaler scales?

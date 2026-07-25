@@ -75,6 +75,19 @@ Everything you've learned so far - users and permissions, package management, ne
 
 12. Tie it all together: run `sudo journalctl -u ssh --since "1 hour ago" | grep -i "fail\|invalid"` (module 14 recap) to look for any failed or invalid login attempts against your own practice SSH server from earlier exercises. Explain in your own words, out loud or in a note, why this single command connects modules 08, 11, 13, and 14 together.
 
+## Independent challenge
+
+No commands given here — figure it out yourself using what you know from this module and earlier ones.
+
+**Task:** Audit your machine's exposure and tighten one privilege, end to end. First, enumerate every port currently listening and classify each as bound to all interfaces versus localhost only (reuse the socket-inspection skill from module 10, applied here with a security eye). Second, grant one specific user passwordless `sudo` for exactly one harmless command via a drop-in file — then prove the grant is genuinely narrow by showing that same user still gets prompted (or refused) for a different command. Remove the drop-in when done. Tie the "who can do what as root" reasoning back to the user model from module 04.
+
+<details>
+<summary>Stuck? One hint</summary>
+
+`ss -tuln` and reading its Local Address column tells you `0.0.0.0`/`*` (exposed) from `127.0.0.1` (local only); the narrow grant goes in a file under `/etc/sudoers.d/` edited via `visudo -f`, using a `NOPASSWD:` rule naming one absolute command path and nothing more.
+
+</details>
+
 ## Common mistakes & troubleshooting
 
 - **Editing `/etc/sudoers` directly with a plain text editor instead of `visudo`.** A syntax error saved this way can break `sudo` for everyone on the machine, including yourself, with no safety net. Always use `visudo` (or `visudo -f` for files in `/etc/sudoers.d/`).
@@ -86,6 +99,8 @@ Everything you've learned so far - users and permissions, package management, ne
 - **Treating `fail2ban` as a replacement for good SSH hygiene.** It reduces the effectiveness of brute-force password guessing but doesn't replace disabling root login, keeping software patched, or using key-based auth - it's one layer among several, not a silver bullet.
 
 ## Checkpoint quiz
+
+Write down your answer to each question before expanding it — checking without attempting first is the single easiest way to fool yourself into thinking you've learned this.
 
 1. Why is `visudo` used instead of editing `/etc/sudoers` with a normal text editor?
 2. What does the principle of least privilege mean in the context of a sudoers rule, with a concrete example?
@@ -105,6 +120,38 @@ Everything you've learned so far - users and permissions, package management, ne
 5. Because it removes the ability to authenticate directly as the all-powerful root account over the network at all - forcing administrators to log in as a named personal account and use `sudo` for privileged actions, which preserves an audit trail and means a single leaked root credential can't be used for direct SSH access.
 6. `fail2ban` watches authentication-related logs (like `/var/log/auth.log`, tied to module 14's logging concepts) for patterns of repeated failed login attempts and automatically, temporarily blocks the offending source (typically via firewall rules) once a threshold is exceeded, mitigating automated brute-force login attempts.
 7. Because a large share of real-world compromises exploit already-known vulnerabilities in outdated software for which patches already exist; regularly applying updates closes those specific, already-solved holes with comparatively minimal effort, delivering more practical risk reduction than many more elaborate, narrowly-scoped hardening measures.
+
+</details>
+
+## Cumulative review
+
+Closed-book. Don't reopen earlier modules while attempting these — the
+point is to find out what actually stuck.
+
+1. The systemd journal physically lives on your WSL2 virtual disk. Explain, tying module 12's `ext4.vhdx` behaviour to module 14, why an unbounded journal is a real disk-space concern, and name the command that caps its size.
+2. You've set `PermitRootLogin no`. Explain the audit-trail benefit of that (module 15) and how key-based auth from module 13 still lets you administer the box — specifically, which key ends up on the server and where.
+3. After a burst of SSH login attempts, name both the traditional `/var/log` file and the `journalctl` unit you'd inspect to see them, and give the module-08 filter that isolates just the failed/invalid ones.
+4. SSH refuses to use your private key because its mode is `644`. Connect this to the permission model from module 03, and state the correct modes for the private key file and for the `~/.ssh` directory.
+5. `fail2ban` bans IPs after repeated failures. Which log/tooling from module 14 does it watch to detect the failures, and which enforcement layer from this module does it use to actually block the offending address?
+6. A hard link and a symlink both point at a sensitive log file. If you tighten the permissions on the original file's inode, does the hard link reflect the new permissions? Does the symlink? Explain each using the inode concept from module 12.
+7. Why is `visudo` used instead of a plain editor, and what does dropping a single-purpose file into `/etc/sudoers.d/` let you express in the spirit of least privilege?
+8. `ss -tuln` shows a service listening on `0.0.0.0:22`. Describe how you'd confirm it's genuinely exposed and how you'd use `ufw` to allow exactly that port before turning the firewall on — and why the ordering matters.
+9. `df -h` reports `/` is nearly full. Walk through how you'd use `du` (module 12) and `journalctl --disk-usage` (module 14) to determine whether logs are the culprit and reclaim space.
+10. Explain how modules 13, 14, and 15 all converge in the single command `sudo journalctl -u ssh --since "1 hour ago" | grep -i "fail\|invalid"`.
+
+<details>
+<summary>Show answers</summary>
+
+1. The WSL2 `ext4.vhdx` grows to accommodate data but doesn't automatically shrink when data is freed, so a journal that grows without bound permanently inflates that virtual disk on the Windows side. `sudo journalctl --vacuum-size=<size>` (e.g. `500M`) caps the journal's total size.
+2. Disabling root SSH login forces admins to log in as a named personal account and use `sudo`, preserving an audit trail and removing the single all-powerful credential from being directly reachable over the network. Key-based auth still works: your public key goes on the server in that user's `~/.ssh/authorized_keys`, while the private key never leaves your machine.
+3. `/var/log/auth.log` is the traditional file; `journalctl -u ssh` (or `sshd`) is the journal unit. Pipe either through `grep -i "fail\|invalid"` (module 08) to isolate failed/invalid attempts.
+4. Read/write/execute bits (module 03) govern who can read the key; a `644` key is readable by group and other, which SSH rejects as insecure. The private key must be `600` (owner read/write only) and the `~/.ssh` directory `700` (owner-only).
+5. `fail2ban` watches authentication logs — `/var/log/auth.log` / the journal from module 14 — for repeated failures, and enforces bans by adding firewall rules (the firewall layer this module covers), temporarily blocking the offending IP.
+6. The hard link is another name for the same inode, and permissions live on the inode, so the hard link reflects the change (they're the same file). The symlink just stores a path to the filename and holds no permissions of its own, so it simply resolves to the same target and shows whatever the target now has.
+7. `visudo` validates syntax before saving, preventing a malformed sudoers file from locking everyone out of `sudo`. A focused file in `/etc/sudoers.d/` lets you grant one user permission to run exactly one specific command (optionally NOPASSWD), isolated and easy to remove — capping the blast radius if that account is misused.
+8. Confirm exposure by reading `ss -tuln`'s Local Address column showing `0.0.0.0:22` (all interfaces). Run `sudo ufw allow OpenSSH` (or `allow 22`) first, then `sudo ufw enable`. Ordering matters because enabling the firewall immediately enforces rules; if you enable before allowing your own access port, you can cut off the very SSH session you're using.
+9. Use `du -h --max-depth=1 /var/log | sort -rh` to see which log files/dirs are largest and `journalctl --disk-usage` to see how much the journal specifically consumes. If the journal is the culprit, reclaim with `--vacuum-size`/`--vacuum-time`; if a flat log file is, rotation/compression or clearing old archives addresses it.
+10. It uses the SSH server from module 13 (the `ssh` unit whose auth events are being inspected), module 14's `journalctl` querying with unit and time filters, module 08's `grep -i` text filtering in a pipe, and module 15's security purpose of hunting for failed/invalid login attempts — a single line spanning services, logging, text processing, and security.
 
 </details>
 

@@ -385,6 +385,31 @@ kubectl delete secret db-creds acr-secret -n demo
 kubectl delete namespace other
 ```
 
+## Independent challenge
+
+No YAML or commands given here — figure it out yourself using what you
+know from this module and earlier ones.
+
+**Task:** Deploy a small web application (a Deployment, not a bare Pod)
+whose container reads a non-sensitive setting (say, a `LOG_LEVEL`) from a
+ConfigMap as an environment variable, and reads a database password from a
+Secret as a mounted file. Put a Service in front of it. Now change the
+`LOG_LEVEL` value in the ConfigMap and get the running Pods to actually
+pick up the new value — reasoning first about whether an env-var
+consumer can see the change without a restart, and doing whatever is
+required to make it take effect. This combines this module's ConfigMap/
+Secret consumption with Deployments (module 03) and Services (module 04).
+
+<details>
+<summary>Stuck? One hint</summary>
+
+Env-var values are read only at container start, so a ConfigMap edit
+alone won't reach a running Pod — you need to roll the Deployment's Pods
+(e.g. `kubectl rollout restart deployment/<name>`); mounted-file
+consumption would have updated on its own.
+
+</details>
+
 ## Common mistakes & troubleshooting
 
 - **Treating base64 as encryption**: anyone with API read access to a
@@ -409,6 +434,8 @@ kubectl delete namespace other
   a pipeline, or a proper secrets-management tool in production).
 
 ## Checkpoint quiz
+
+Write down your answer to each question before expanding it — checking without attempting first is the single easiest way to fool yourself into thinking you've learned this.
 
 1. Structurally, what's actually different between a ConfigMap and a
    Secret?

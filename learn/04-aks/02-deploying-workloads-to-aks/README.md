@@ -124,6 +124,19 @@ something won't schedule — none of that is automated away by AKS.
    or `az group delete --name rg-aks-learn --yes --no-wait` if you don't
    need the cluster again soon.
 
+## Independent challenge
+
+No commands given here — figure it out yourself using what you know from this module and earlier ones.
+
+**Task:** Given a fixed two-node `Standard_B2s` cluster (from module 01 — conceptually building on that module's node sizing), figure out empirically how many replicas of a modest workload it can actually run before the scheduler runs out of room, and prove the failure is a resource problem rather than anything else. Pick any simple image, give each replica a deliberate, realistic CPU/memory request, and scale the replica count up until new pods stop being placed. Confirm from the pods' own status why the last ones won't schedule, then bring the workload back down to a count that fully fits. Do all of this in a throwaway namespace and delete that namespace when you're done, and decide whether the cluster itself should keep running afterward — the nodes bill whether or not anything is scheduled on them.
+
+<details>
+<summary>Stuck? One hint</summary>
+
+The scheduler compares each pod's `resources.requests` against each node's allocatable capacity; when a pod can't fit, `kubectl describe pod` on the stuck pod spells out the reason in its Events, using a phrase like "Insufficient cpu."
+
+</details>
+
 ## Common mistakes & troubleshooting
 
 - **No resource requests/limits on a small cluster.** Locally this was
@@ -152,6 +165,8 @@ something won't schedule — none of that is automated away by AKS.
   done with instead of leaving them "for later."
 
 ## Checkpoint quiz
+
+Write down your answer to each question before expanding it — checking without attempting first is the single easiest way to fool yourself into thinking you've learned this.
 
 1. Why can a Deployment manifest that worked on kind/minikube fail to
    fully schedule on a small AKS cluster with no changes to the YAML

@@ -305,6 +305,19 @@ Nothing is downloaded.
     Expect no `app:*` images left. You can also delete them from the
     **Images** tab and confirm `docker images` agrees.
 
+## Independent challenge
+
+No commands given here — figure it out yourself using what you know from this module and earlier ones.
+
+**Task:** Author a Dockerfile where a multi-stage build produces a *meaningfully* smaller final image — not the marginal win you get with pure-Python dependencies. Pick something whose build genuinely needs a toolchain the runtime doesn't: for example, an app with a dependency that has to be compiled (pulling in a compiler/build headers during install) but needs none of that at run time. Build a naive single-stage version and your multi-stage version, and quantify the size difference between them. On top of the multi-stage split, apply at least one same-layer cleanup and one base-image choice from this module, and confirm each contributed. Reuse module 03's Dockerfile-authoring discipline (layer ordering) so your build stage still caches well across rebuilds.
+
+<details>
+<summary>Stuck? One hint</summary>
+
+Do the heavy install (with build tooling) in a `builder` stage, then `COPY --from=builder` only the finished artifacts into a clean slim/distroless final stage — and compare the two images with `docker images` and their per-layer breakdown.
+
+</details>
+
 ## Common mistakes & troubleshooting
 
 - **Installing and cleaning up in separate `RUN` layers.** As shown in
@@ -330,6 +343,8 @@ Nothing is downloaded.
   need a file to persist into the shipped image.
 
 ## Checkpoint quiz
+
+Write down your answer to each question before expanding it — checking without attempting first is the single easiest way to fool yourself into thinking you've learned this.
 
 <details>
 <summary>Show questions</summary>
@@ -381,6 +396,115 @@ Nothing is downloaded.
 7. The **Images** tab shows each image's `Size` (matching `docker
    images`), and clicking an image shows its per-layer breakdown (matching
    `docker history`).
+
+</details>
+
+## Cumulative review
+
+Closed-book. Don't reopen earlier modules while attempting these — the
+point is to find out what actually stuck.
+
+1. A database container writes its data files into a path backed by a
+   named volume. You `docker rm -f` the container and start a brand-new
+   one from the same image with the same volume mounted, and the data is
+   still there — but a colleague who instead relied on the container's
+   writable layer lost everything. Explain both outcomes in terms of what
+   a volume is versus what a writable layer is.
+2. You mount your source directory into a container with a bind mount for
+   live editing, and separately point a `compose.yaml` service at a named
+   volume for its database. Explain why a bind mount is the right tool for
+   the first and a named volume for the second, referencing who manages
+   the storage in each case.
+3. Two containers need to talk to each other. Describe why putting them on
+   a user-defined bridge network (or letting Compose create one) gives you
+   name-based addressing that the default bridge network does not, and
+   what port number the calling container should use to reach the other.
+4. A `compose.yaml` app service crashes on startup because its database
+   "wasn't ready," even though `depends_on` lists the database. Explain
+   the gap between "container started" and "service ready," and the two
+   configuration pieces that close it.
+5. You publish a container with `-p 8000:8000`, and from another container
+   on the same network `curl http://<name>:8000` works while `curl
+   http://localhost:8000` does not. Explain both results in one coherent
+   picture of what `localhost` means inside a container and how the
+   published port relates to container-to-container traffic.
+6. A teammate's Dockerfile installs build tooling with apt in one `RUN`
+   and deletes the apt cache in a separate later `RUN`, and is puzzled the
+   image didn't shrink. Explain why, and how a multi-stage build attacks
+   the same bloat problem from a different angle.
+7. For a pure-Python Flask app, converting to a multi-stage build barely
+   changes the image size, but for a Go program it can shrink the image
+   dramatically. Explain the difference in terms of what each language
+   needs at build time versus run time.
+8. A Compose project you didn't name explicitly still produced a network
+   called something like `myapp_default` and a volume prefixed the same
+   way. Explain where that prefix comes from and why it's useful when you
+   run several projects on one machine.
+9. You want repeated image builds to stop re-downloading the same pip
+   wheels, but you do *not* want those cached wheels shipped inside the
+   final image. Name the BuildKit feature that fits, and contrast where
+   its contents live versus a normal image layer's contents.
+10. Give the sequence of concepts, in order, that lets a `docker compose
+    up` recreate — in one command — everything you built by hand across
+    modules 04 and 05 (storage that persists, a network with name
+    resolution, and multiple containers started together).
+
+<details>
+<summary>Show answers</summary>
+
+1. A named volume is storage Docker manages independently of any
+   container's lifecycle, so it persists across `docker rm` and remounts
+   into a fresh container intact. A container's writable layer is created
+   per container and destroyed with `docker rm`, so data that only ever
+   lived there is permanently gone once the container is removed.
+2. A bind mount points directly at an existing host directory you manage,
+   so host edits appear instantly inside the container with no copy step —
+   ideal for live-editing source. A named volume is Docker-managed storage
+   (living inside the Docker Desktop VM), consistent for ownership and
+   location and not meant for host editing — ideal for a database's data
+   files.
+3. Docker provides built-in DNS-based service discovery only on
+   user-defined networks (and Compose's project network), so containers
+   resolve each other by `--name`/service name there but not on the default
+   bridge. The caller should use the target's *container* port (the port
+   the app listens on inside), not any host-published port.
+4. `depends_on` alone only orders container *start* — it confirms the
+   dependency's process began, not that the app inside is accepting
+   connections. Closing the gap needs a `healthcheck:` on the dependency
+   plus `depends_on: <svc>: condition: service_healthy` on the dependent
+   service.
+5. `localhost` inside a container is always that container's own loopback,
+   so it never reaches another container — hence the failing `curl
+   localhost`. Container-to-container traffic on a shared network goes
+   directly to the other container by name and its internal port (8000),
+   bypassing the host-side `-p` mapping entirely, so `curl http://<name>:8000`
+   works.
+6. Layers are additive and immutable: the earlier `RUN` layer that
+   installed the tooling still ships it, and a later separate `RUN` that
+   deletes files can't shrink that earlier layer — only install-and-clean
+   within the *same* `RUN` avoids shipping it. A multi-stage build sidesteps
+   this by doing the messy install in a builder stage and copying only the
+   finished artifacts into a clean final stage, leaving the tooling behind
+   entirely.
+7. A compiled language needs a full toolchain (compiler, headers) to
+   produce a binary that needs none of it at run time, so multi-stage
+   discards the whole toolchain — a big win. An interpreted language still
+   ships its interpreter and source to run in production, so separating
+   build from runtime removes much less.
+8. Compose derives the project name from the directory containing the
+   Compose file by default and prefixes resource names (networks, volumes)
+   with it. That prefixing keeps multiple projects' resources from
+   colliding on one machine.
+9. A BuildKit cache mount (`RUN --mount=type=cache,...`). Its contents
+   persist across builds but are never committed into any image layer,
+   whereas a normal layer's contents become a permanent part of the
+   shipped image.
+10. Named volumes (module 04) for storage that outlives containers; a
+    user-defined bridge network with automatic name resolution (module 05);
+    and multiple services started together and wired to both — all declared
+    once in `compose.yaml` (module 06) and brought up in a single `docker
+    compose up`, which internally does the `volume create`, `network
+    create`, `build`, and `run` steps for you.
 
 </details>
 
