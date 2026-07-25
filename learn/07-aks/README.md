@@ -1,11 +1,17 @@
-# Track 4: Azure Kubernetes Service (AKS)
+# Track 7: Azure Kubernetes Service (AKS)
 
 This is the capstone track of the whole curriculum. You've done Linux,
 Docker (including pushing to ACR and deploying to ACI/App Service), and
-Kubernetes on a local cluster (kind/minikube). This track takes everything
-you know about `kubectl`, Deployments, Services, ConfigMaps/Secrets,
-Ingress, HPA, and Helm, and points it at a **real, managed, billable
-Kubernetes cluster in Azure**.
+Kubernetes on a local cluster (kind/minikube) — then took a deliberate
+detour through general networking, Azure networking, and Azure Container
+Apps. This track takes everything you know about `kubectl`, Deployments,
+Services, ConfigMaps/Secrets, Ingress, HPA, and Helm, and points it at a
+**real, managed, billable Kubernetes cluster in Azure** — the hand-operated
+alternative to the Container Apps platform that was quietly managing all of
+this for you last track. Where Container Apps abstracted away the cluster,
+the node pools, and the Environment's networking, AKS hands all of that back
+to you — which is exactly the trade-off the previous track's capstone left
+you asking about.
 
 > **Cost warning:** every module that creates an AKS cluster should be
 > cleaned up with `az group delete` when you're done for the day. An idle

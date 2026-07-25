@@ -47,6 +47,8 @@ Back to main curriculum: [../README.md](../README.md)
 
 ---
 
-Once you've completed this track, the next one — **04-aks** — takes the
-exact same objects and Helm charts you built here and runs them on a real,
-managed Kubernetes cluster in Azure (AKS).
+Once you've completed this track, the next one is **04-networking-fundamentals**
+— a detour through general and Azure networking, then Azure Container
+Apps, before **07-aks** finally takes the exact same objects and Helm
+charts you built here and runs them on a real, managed Kubernetes cluster
+in Azure.

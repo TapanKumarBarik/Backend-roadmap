@@ -9,8 +9,10 @@ Real applications need all of these working together at once, packaged
 in a way someone else (or your future self, or a CI pipeline) can deploy
 reliably. This capstone has you build one realistic multi-component
 application end to end, then package the whole thing as a Helm chart —
-the exact artifact you'll hand to the AKS track next and deploy, largely
-unchanged, to a real managed cluster.
+the exact artifact you'll later hand to the AKS track and deploy, largely
+unchanged, to a real managed cluster. Before that, the next few tracks take
+a detour through networking and Azure Container Apps; the Helm chart you
+build here will be waiting when you get to AKS.
 
 ## The project
 
@@ -147,4 +149,11 @@ the manifests, the Helm chart, the Ingress, the HPA, all of it, without
 re-reading your own notes or this README. If you can stand it back up and
 pass the acceptance checklist again cold, the concepts have genuinely
 stuck; wherever you get stuck is exactly the module worth a quick reread
-before you start the AKS track.
+before you start the next track.
+
+## Next
+
+Continue to
+[04-networking-fundamentals](../../04-networking-fundamentals/README.md) —
+a detour through general networking and Azure networking before Azure
+Container Apps and, eventually, AKS.
