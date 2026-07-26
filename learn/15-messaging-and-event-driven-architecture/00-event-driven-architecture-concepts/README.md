@@ -159,12 +159,18 @@ created here.
    email, (e) decrementing inventory. Verify: anything with a real-world side
    effect that must not double should land on effectively-once.
 
-3. **Make a non-idempotent operation idempotent.** Given a consumer that runs
+3. **Diagnose and fix: a duplicate side-effect from a non-idempotent consumer
+   (on paper).** A billing consumer runs
    `UPDATE accounts SET balance = balance - :amount WHERE id = :id` on every
-   `FundsWithdrawn` event, write down two concrete redesigns that make a
-   duplicate delivery harmless. Verify at least one uses a **dedup key** (the
-   event's id recorded and checked) and the other reframes the operation to be
-   naturally idempotent (e.g. applying an absolute target balance).
+   `FundsWithdrawn` event, and support reports a customer was debited **twice**
+   for one withdrawal. **Diagnose**: the broker delivers at-least-once, a
+   redelivery (after a crash/retry) re-ran a *non-idempotent* subtraction, so one
+   logical event applied twice. **Fix**: write down two concrete redesigns that
+   make a duplicate delivery harmless — verify at least one uses a **dedup key**
+   (the event's id recorded and checked before applying) and the other reframes
+   the operation to be naturally idempotent (e.g. applying an absolute target
+   balance rather than a relative delta). This is the exact bug you'll reproduce
+   against a live broker in module 04.
 
 4. **Draw the coupling.** On paper, sketch `OrderService → PaymentService` as
    (a) a synchronous command call and (b) an event on a durable queue. For each,
