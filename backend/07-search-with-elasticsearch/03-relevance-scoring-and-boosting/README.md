@@ -434,6 +434,59 @@ plus the function multipliers to write requirement 5.
   `replace` produce very different rankings; if a signal seems to have no or
   too much effect, check `boost_mode` and the function's `factor`/`modifier`.
 
+## Checkpoint quiz
+
+Write down your answer to each question before expanding it — checking without attempting first is the single easiest way to fool yourself into thinking you've learned this.
+
+1. What is `_score`, and at a high level what are the two signals (TF and IDF)
+   that determine it?
+2. What two corrections does BM25 add on top of raw TF-IDF, and what problem
+   does each one fix?
+3. Why should a gating condition go in `filter` context rather than `must`?
+   Name both effects putting it in `must` would have.
+4. A field boost like `title^3` did not force the result you expected to the
+   top. Give one reason a boost is not a guarantee of order.
+5. What does the `_explain` API give you, and why is it the right first move
+   when tuning relevance instead of guessing at boost numbers?
+6. In `function_score`, what does `boost_mode` control, and why can the same
+   function seem to have no effect (or far too much) if it's set wrong?
+
+<details>
+<summary>Answers</summary>
+
+1. `_score` is the relevance number Elasticsearch computes per matching
+   document; higher means more relevant. It rises with **Term Frequency** (how
+   often the query's terms appear in this document) and with **Inverse
+   Document Frequency** (how rare/distinctive those terms are across the whole
+   index).
+2. **Saturation** — TF has diminishing returns, so the 20th occurrence of a
+   term barely adds more than the 10th, preventing keyword stuffing from
+   dominating. **Length normalization** — a term appearing N times in a short
+   document counts for more than N times in a very long one, so long documents
+   don't win just by being long.
+3. `filter` context only includes/excludes documents (yes/no) and does not
+   contribute to `_score`, and its results are cacheable. Putting the same
+   condition in `must` would (a) perturb `_score` with the clause's relevance
+   contribution and (b) lose the filter cache. Gate in `filter`; rank in
+   `must`/`should`.
+4. Boosts are *relative* multipliers that interact with TF, IDF, and length
+   normalization. A strong match on a rare term in another field can still
+   outscore a boosted match on a common term. Verify the actual contributions
+   with `_explain` rather than just increasing the `^` number.
+5. `_explain` returns the scoring breakdown tree for a specific document and
+   query — the exact contribution of each clause and each factor (TF, IDF,
+   boosts, length norm). It's the right first move because it tells you *why* a
+   document scored what it did, so you tune the factor that actually matters
+   instead of guessing.
+6. `boost_mode` controls how the function's computed score is combined with the
+   original query `_score` (`multiply`, `sum`, `replace`, etc.). If it's set
+   wrong — say `replace` when you meant `multiply`, or `sum` with a tiny
+   base — the function can swamp the query score or contribute almost nothing,
+   so the ranking looks broken even though the function "works." Check
+   `boost_mode` (and the function's `factor`/`modifier`) first.
+
+</details>
+
 ## Next
 
 [04-aggregations-and-fuzzy-search](../04-aggregations-and-fuzzy-search/README.md)

@@ -552,6 +552,59 @@ rejected document instead of a silent phantom field. Facet by author with a
 - **Mapping explosion from data-in-field-names.** Model varying keys as data
   (`{metric, value}` documents), not as an ever-growing set of fields.
 
+## Checkpoint quiz
+
+Write down your answer to each question before expanding it — checking without attempting first is the single easiest way to fool yourself into thinking you've learned this.
+
+1. What is the practical difference between a `text` field and a `keyword`
+   field, and which one do you need for aggregating, sorting, or an exact
+   `term` match?
+2. What is dynamic mapping, and why is letting Elasticsearch guess the mapping
+   for a schema you already know a risky default? What does `dynamic: strict`
+   buy you?
+3. A `multi-field` maps the same source value two ways at once. Give the
+   canonical example (`text` + `.keyword`) and explain when each sub-field is
+   used.
+4. Why can't you change an existing field's type in place, and what is the
+   standard procedure for correcting a wrong mapping without downtime?
+5. Why should money be stored as `scaled_float` (or integer cents) rather than
+   `float`?
+6. What is a "mapping explosion," what commonly causes it, and how do you model
+   varying keys to avoid it?
+
+<details>
+<summary>Answers</summary>
+
+1. A `text` field is run through an analyzer and broken into terms for
+   full-text `match` search; it is not stored in a form you can aggregate,
+   sort, or exact-match efficiently. A `keyword` field is stored verbatim as a
+   single token. Aggregations, sorting, and exact `term` matches need
+   `keyword`; full-text `match` needs `text`.
+2. Dynamic mapping is Elasticsearch inferring a field's type from the first
+   document that contains it. It's risky because a single odd first value
+   (e.g. a date-looking id) locks in the wrong type, and typos silently become
+   new phantom fields. `dynamic: strict` makes unexpected fields fail loudly
+   (rejected) instead of being silently added.
+3. The canonical multi-field maps a field as `text` (analyzed, for `match`)
+   with a `.keyword` sub-field (verbatim, for aggregations/sorting/exact
+   `term`). You search the `text` field and aggregate/sort on `field.keyword`.
+4. Most mappings are immutable because the field's data is already written into
+   the inverted index/doc-values in that type's on-disk form; changing the
+   type would invalidate existing data. The fix is to create a new index with
+   the corrected mapping, reindex into it, and swap an **alias** so application
+   code never sees the change. (You *can* add brand-new fields — just not
+   retype existing ones.)
+5. Floats can't represent many decimal values exactly, so arithmetic and
+   comparisons drift. `scaled_float` (with a scaling_factor like 100) or plain
+   integer cents keep money exact — the same lesson as the relational track.
+6. A mapping explosion is an index accumulating a huge number of fields, which
+   bloats cluster state and memory. It's typically caused by encoding *data in
+   field names* (e.g. one field per metric id) combined with dynamic mapping.
+   Model the varying keys as data instead — documents like
+   `{ "metric": "...", "value": ... }` — so the field count stays bounded.
+
+</details>
+
 ## Cumulative review
 
 Closed-book. Cover the answers, write yours down, and only then check. These

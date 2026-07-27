@@ -476,6 +476,59 @@ and a corrupted/failed shard with no replica to recover from.
   nothing if the time range excludes your data or the wrong field is set as the
   time field — check the time picker before concluding the index is empty.
 
+## Checkpoint quiz
+
+Write down your answer to each question before expanding it — checking without attempting first is the single easiest way to fool yourself into thinking you've learned this.
+
+1. What is a Kibana **Data View** (index pattern), and why does Discover show
+   nothing even when the underlying index has documents — name the two settings
+   to check first?
+2. What is the practical difference between a **yellow** and a **red** cluster,
+   and which one actually warrants paging someone?
+3. Why should application code query an **alias** rather than a raw index name?
+   What does that make possible during a reindex?
+4. What problem does **ILM** (with rollover / data streams) solve for
+   time-series data, and what are the two failure modes of hand-managing those
+   indexes yourself?
+5. What are the disk **watermarks** at roughly 85% and 95%, and why is disk the
+   first thing to check when writes fail or shards won't assign with no node
+   down?
+6. On a red cluster, which API tells you the exact reason a shard won't assign,
+   and why is that better than guessing during an outage?
+
+<details>
+<summary>Answers</summary>
+
+1. A Data View is the Kibana object that tells Kibana which index (or pattern
+   of indices, e.g. `logs-*`) to read and which field is the time field.
+   Discover can show nothing because (a) the **time range** in the picker
+   excludes your data, or (b) the wrong (or no) **time field** was configured
+   on the Data View. Check the time picker and the time field before concluding
+   the index is empty.
+2. **Yellow** means replica shards are unassigned — redundancy is reduced but
+   all data is still fully available and searchable. **Red** means a *primary*
+   shard is unassigned — some data is actually unavailable. Red is the real
+   incident worth paging over; a yellow single-node dev cluster is normal.
+3. Querying an alias decouples application code from the physical index name, so
+   a reindex or mapping change (create new index → reindex → repoint the alias)
+   is an invisible, atomic swap rather than a breaking change to every caller.
+4. ILM automates size- and age-based rollover and retention for continuously
+   growing time-series data. Hand-managing it fails two ways: one ever-growing
+   index becomes a single giant shard (unmanageable, slow), while thousands of
+   tiny per-day indices over-shard the cluster with fixed per-shard overhead.
+   A policy plus rollover/data streams keeps shard sizes and retention sane.
+5. At the ~85% **high watermark** Elasticsearch stops allocating new shards to
+   that node; at the ~95% **flood-stage watermark** it forces affected indices
+   to read-only to protect the node. So failing writes or shards that won't
+   assign with every node still up almost always mean disk — check
+   `_cat/allocation` first.
+6. The **cluster allocation explain** API (`_cluster/allocation/explain`)
+   reports the specific reason a given shard cannot be allocated. During an
+   outage that's far faster and safer than guessing, because it points you
+   directly at the cause (disk, no valid node, corrupted shard, etc.).
+
+</details>
+
 ## Next
 
 [07-capstone-project](../07-capstone-project/README.md) — you now have every

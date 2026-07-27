@@ -431,6 +431,66 @@ the default returns by `_score`; the price-ascending variant adds
   aggregations; `post_filter` narrows only the hits, after aggs are computed.
   Use `post_filter` only for the "keep other facet options visible" UX.
 
+## Checkpoint quiz
+
+Write down your answer to each question before expanding it — checking without attempting first is the single easiest way to fool yourself into thinking you've learned this.
+
+1. What is the difference between a **bucket** aggregation and a **metric**
+   aggregation? Give one example of each.
+2. Why does a `terms` aggregation belong on a `keyword` field and not on a
+   `text` field, and what goes wrong if you run it on `text`?
+3. Why do you set `size: 0` on a request that only needs facet counts, and what
+   does it save you?
+4. Why are `terms` and `cardinality` counts described as *approximate* on a
+   multi-shard index, and what knob influences their accuracy?
+5. What does `fuzziness: "AUTO"` do, and why are `prefix_length` and *not*
+   fuzzing every field important for precision and performance?
+6. Distinguish fuzzy matching, prefix/autocomplete, and wildcard queries — what
+   is each actually for, and why is a *leading* wildcard the wrong tool for
+   typo tolerance?
+7. What is the difference between `filter` and `post_filter`, and when is
+   `post_filter` the right choice?
+
+<details>
+<summary>Answers</summary>
+
+1. A **bucket** aggregation groups documents into buckets (e.g. `terms` by
+   brand, `date_histogram` by day, `range` by price band). A **metric**
+   aggregation computes a number over a set of documents (e.g. `avg`, `sum`,
+   `max`, `cardinality`). Buckets are the "group by," metrics are the
+   "aggregate function," and metrics are usually nested inside buckets.
+2. `terms` needs the verbatim value as a single token, which lives in
+   doc-values on a `keyword` field. On an analyzed `text` field it either
+   errors (fielddata disabled by default) or, if fielddata is enabled, buckets
+   by individual *word* and is memory-dangerous. Aggregate on the `.keyword`
+   sub-field.
+3. `size: 0` tells Elasticsearch to return no document hits — only the
+   aggregations. It saves the cost of fetching and scoring hit documents you
+   were going to throw away, which is pure waste for a pure-facet request.
+4. Each shard computes its own top terms / distinct-count estimate and the
+   coordinating node merges them, so a term that's just below the cutoff on
+   each shard can be under- or over-counted, and `cardinality` uses a
+   probabilistic (HyperLogLog) estimate. `shard_size` (how many terms each
+   shard returns before merging) trades accuracy for cost.
+5. `fuzziness: "AUTO"` allows an edit distance that scales with term length
+   (short terms tolerate fewer typos, longer terms more), which is safer than a
+   fixed distance. `prefix_length` requires the first N characters to match
+   exactly, which both improves precision and drastically cuts the number of
+   terms considered; not fuzzing every field avoids the slowdown and
+   precision loss on fields where exact matching is expected.
+6. **Fuzzy** = tolerate typos via edit distance (`runing` → `running`).
+   **Prefix/autocomplete** = match the beginning of a term as the user types
+   (`run` → `running`, `runner`). **Wildcard** = arbitrary patterns (`r*n`),
+   and it's slow. A *leading* wildcard (`*unning`) can't use the index
+   efficiently and doesn't model typos at all — use fuzzy for typo tolerance.
+7. `filter` narrows *both* the returned hits and the documents the
+   aggregations see; `post_filter` is applied only to the hits *after*
+   aggregations are computed. Use `post_filter` for the faceted-navigation UX
+   where you want to filter the visible results by one facet while still
+   showing the counts for the other facet options.
+
+</details>
+
 ## Cumulative review
 
 Closed-book, mixing modules 00-04. Cover the answers; if a question from an
