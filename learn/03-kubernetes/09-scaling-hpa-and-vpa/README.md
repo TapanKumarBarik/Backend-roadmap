@@ -20,6 +20,15 @@ Kubernetes automates both, but with two different, independent objects —
 they solve different problems and, as you'll see, generally shouldn't
 target CPU/memory on the same workload simultaneously.
 
+```
+   HORIZONTAL (HPA)              VERTICAL (VPA)
+   more copies, same size        same count, bigger copies
+
+   [▪] ──► [▪][▪][▪][▪]          [▪]  ──►  [ ▪▪▪ ]
+   changes spec.replicas          changes requests/limits
+   existing pods untouched        pod must be RECREATED to resize
+```
+
 **The Horizontal Pod Autoscaler (HPA)** watches a metric (by default,
 average CPU utilization across a Deployment/ReplicaSet/StatefulSet's
 Pods, compared against their resource *requests* — not limits) and
@@ -43,6 +52,18 @@ which then flows through the exact same ReplicaSet mechanics from module
 03. The HPA never talks to Pods directly; it only ever changes a number
 on the Deployment, same as if you'd typed `kubectl scale` yourself, just
 continuously and automatically.
+
+```
+   ┌──────────────┐  reads CPU%   ┌──────────────┐
+   │metrics-server│ ────────────► │     HPA      │
+   └──────────────┘               │ desired =    │
+          ▲                        │ ceil(cur ×   │
+     kubelets report               │  cur%/target%)│
+          │                        └──────┬───────┘
+   ┌──────┴───────┐   sets replicas       │
+   │    Pods      │ ◄── ReplicaSet ◄───────┘
+   └──────────────┘     (module 03)   updates Deployment.replicas
+```
 
 **Scale-up and scale-down behavior**: HPA scales up fairly readily but
 deliberately scales down cautiously (a default stabilization window
@@ -436,6 +457,14 @@ Write down your answer to each question before expanding it — checking without
    flag added, since kind's kubelets use self-signed certs).
 
 </details>
+
+## Further reading & sources
+
+- [Horizontal Pod Autoscaling](https://kubernetes.io/docs/tasks/run-application/horizontal-pod-autoscale/) - the definitive reference for how the HPA algorithm and behavior work.
+- [HorizontalPodAutoscaler Walkthrough](https://kubernetes.io/docs/tasks/run-application/horizontal-pod-autoscale-walkthrough/) - a hands-on tutorial mirroring this module's scale-up/scale-down exercises.
+- [Kubernetes Metrics Server](https://github.com/kubernetes-sigs/metrics-server) - the add-on `kubectl top` and resource-metric HPAs depend on, including the `--kubelet-insecure-tls` note.
+- [Vertical Pod Autoscaler](https://github.com/kubernetes/autoscaler/tree/master/vertical-pod-autoscaler) - the VPA project, its update modes, and installation.
+- [Cluster Autoscaler](https://github.com/kubernetes/autoscaler/tree/master/cluster-autoscaler) - the node-level autoscaler referenced by name, relevant later on AKS.
 
 ## Next
 

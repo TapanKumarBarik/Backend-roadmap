@@ -69,6 +69,22 @@ exercises install a minimal version of this via a community Helm chart
 (tying back directly to module 07) so you can see real dashboards
 without hand-building the whole stack yourself.
 
+```
+   three signals, three lifetimes:
+
+   Pods (many nodes) ──logs──► kubectl logs -l <label>  (gone with the Pod)
+        │             ──events─► kubectl get events      (expire ~1h)
+        │
+        └── kubelet/exporters
+                 │ scraped over time
+                 ▼
+           ┌───────────┐  query   ┌──────────┐
+           │Prometheus │ ───────► │ Grafana  │  history + dashboards
+           │(time series)│         └──────────┘
+           └───────────┘
+   kubectl top = one live snapshot; Prometheus = the history
+```
+
 ## Command reference
 
 | Command | What it does | Example |
@@ -369,6 +385,14 @@ Write down your answer to each question before expanding it — checking without
    dashboards/graphs.
 
 </details>
+
+## Further reading & sources
+
+- [Logging Architecture](https://kubernetes.io/docs/concepts/cluster-administration/logging/) - how container logs work and why centralized aggregation matters.
+- [Troubleshooting Applications with kubectl logs](https://kubernetes.io/docs/tasks/debug/debug-application/) - reading logs, events, and status to debug workloads.
+- [Resource Metrics Pipeline (kubectl top)](https://kubernetes.io/docs/tasks/debug/debug-cluster/resource-metrics-pipeline/) - what `kubectl top`/metrics-server expose and their point-in-time limitation.
+- [Prometheus documentation](https://prometheus.io/docs/introduction/overview/) - the de facto metrics/time-series system introduced in this module.
+- [kube-prometheus-stack Helm chart](https://github.com/prometheus-community/helm-charts/tree/main/charts/kube-prometheus-stack) - the community chart the exercises install for Prometheus + Grafana.
 
 ## Next
 

@@ -26,6 +26,24 @@ tag), it creates a *new* ReplicaSet with the new template, and gradually
 shifts Pods from the old ReplicaSet to the new one — a **rolling
 update** — instead of you manually juggling two ReplicaSets.
 
+```
+   the ownership chain (owner references point upward):
+
+            ┌────────────────┐
+            │   Deployment   │   manages rollout + history
+            │      web       │
+            └───────┬────────┘
+                    │ owns
+            ┌───────▼────────┐
+            │  ReplicaSet    │   keeps exactly N pods alive
+            │  web-<hash>    │
+            └───┬────┬───┬───┘
+          owns  │    │   │
+           ┌────▼┐ ┌─▼──┐ ┌▼───┐
+           │Pod │ │Pod │ │Pod │
+           └────┘ └────┘ └────┘
+```
+
 **The label selector is the glue between all three layers** (Deployment
 → ReplicaSet → Pods), and it's worth being precise about: a
 Deployment's `spec.selector.matchLabels` must match the labels in its own
@@ -43,6 +61,19 @@ the desired count during the rollout. This is why deploying a new version
 doesn't cause downtime: at every moment, enough old-or-new Pods are
 `Ready` to serve traffic (once you add a Service in module 04 to route
 that traffic).
+
+```
+   rolling update: old ReplicaSet scales down as new scales up
+
+   start:   old RS [■ ■ ■ ■]      new RS [        ]
+            step:   old RS [■ ■ ■]        new RS [□        ]  (+maxSurge)
+            step:   old RS [■ ■]          new RS [□ □      ]
+            step:   old RS [■]            new RS [□ □ □    ]
+   done:    old RS [        ]      new RS [□ □ □ □]
+
+   ■ = old-version Ready pod   □ = new-version Ready pod
+   at every step enough Ready pods remain to serve traffic
+```
 
 **Rollout history and rollback**: every change to a Deployment's Pod
 template creates a new ReplicaSet revision. Kubernetes keeps old
@@ -564,6 +595,14 @@ point is to find out what actually stuck.
    the new template and rolls Pods over to it.
 
 </details>
+
+## Further reading & sources
+
+- [Deployments](https://kubernetes.io/docs/concepts/workloads/controllers/deployment/) - the authoritative reference for rollouts, scaling, and rollback behavior.
+- [ReplicaSet](https://kubernetes.io/docs/concepts/workloads/controllers/replicaset/) - what a ReplicaSet guarantees and why you rarely create one directly.
+- [Perform a Rolling Update](https://kubernetes.io/docs/tutorials/kubernetes-basics/update/update-intro/) - an interactive tutorial of the rolling-update mechanics shown here.
+- [Labels and Selectors](https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/) - the selector model that glues Deployments, ReplicaSets, and Pods together.
+- [kubectl rollout reference](https://kubernetes.io/docs/reference/kubectl/generated/kubectl_rollout/) - the full command surface for status, history, undo, and pause/resume.
 
 ## Next
 

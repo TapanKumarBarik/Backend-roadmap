@@ -151,6 +151,14 @@ pass the acceptance checklist again cold, the concepts have genuinely
 stuck; wherever you get stuck is exactly the module worth a quick reread
 before you start the next track.
 
+## Further reading & sources
+
+- [Helm Best Practices](https://helm.sh/docs/chart_best_practices/) - conventions for structuring the multi-component chart this capstone asks you to build.
+- [Kubernetes Configuration Best Practices](https://kubernetes.io/docs/concepts/configuration/overview/) - general guidance on labels, resources, and manifest hygiene across all the objects here.
+- [Recommended Labels](https://kubernetes.io/docs/concepts/overview/working-with-objects/common-labels/) - the `app.kubernetes.io/*` labels that keep multiple components distinguishable in one chart.
+- [Twelve-Factor App](https://12factor.net/) - the config/backing-services principles behind splitting config into ConfigMaps/Secrets and databases into their own Deployments.
+- [DigitalOcean: Package a Kubernetes app with Helm](https://www.digitalocean.com/community/tutorials/how-to-create-a-helm-chart-and-deploy-your-kubernetes-app) - a worked example of turning working manifests into a reusable chart.
+
 ## Next
 
 Continue to

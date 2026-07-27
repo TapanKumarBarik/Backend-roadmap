@@ -47,6 +47,19 @@ concern, not something you configure per-Secret.
    a Pod authenticates to pull an image from a private registry like
    Azure Container Registry.
 
+```
+   ConfigMap / Secret            how the Pod consumes it
+   ┌────────────────┐
+   │ LOG_LEVEL=debug│──► env vars ──► $LOG_LEVEL in the container
+   │ password=***** │       (read once at container start)
+   │                │
+   │                │──► volume  ──► /etc/config/LOG_LEVEL  (a file)
+   │                │    mount       /etc/secrets/password  (a file)
+   └────────────────┘       (files can update live, no restart)
+
+   env-var values are frozen at start; mounted files re-sync
+```
+
 **Why the split into two object types at all**, given they're
 structurally so similar: it's a signal to humans and tooling. RBAC rules
 (module 11) commonly grant broad read access to ConfigMaps but restrict
@@ -474,6 +487,14 @@ Write down your answer to each question before expanding it — checking without
    `spec.imagePullSecrets` in the Pod spec.
 
 </details>
+
+## Further reading & sources
+
+- [ConfigMaps](https://kubernetes.io/docs/concepts/configuration/configmap/) - the concept page for storing non-sensitive configuration in the cluster.
+- [Secrets](https://kubernetes.io/docs/concepts/configuration/secret/) - what Secrets are, their types, and why base64 is encoding not encryption.
+- [Configure a Pod to Use a ConfigMap](https://kubernetes.io/docs/tasks/configure-pod-container/configure-pod-configmap/) - the task guide for env-var and volume consumption.
+- [Pull an Image from a Private Registry](https://kubernetes.io/docs/tasks/configure-pod-container/pull-image-private-registry/) - creating and using a docker-registry Secret, as you will for ACR.
+- [Encrypting Confidential Data at Rest](https://kubernetes.io/docs/tasks/administer-cluster/encrypt-data/) - the cluster-admin control that gives Secrets real protection in production.
 
 ## Next
 

@@ -42,6 +42,18 @@ inert until bound, the same way an Ingress object does nothing without a
 controller (module 08) — a recurring Kubernetes pattern of "definition"
 objects that are inert until something else activates them.
 
+```
+   permission set              the grant              the identity
+   ┌──────────────┐        ┌───────────────┐      ┌────────────────┐
+   │    Role      │◄───────│  RoleBinding  │─────►│ ServiceAccount │
+   │ (verbs on    │ roleRef│  (connects the │subject│  (or user/    │
+   │  resources)  │        │   two)         │      │   group)       │
+   └──────────────┘        └───────────────┘      └───────┬────────┘
+        Role alone grants NOTHING                          │ Pod runs as
+        until a binding attaches it                        ▼
+   ClusterRole + ClusterRoleBinding = same, but cluster-wide / cluster-scoped
+```
+
 **A ServiceAccount is an identity for a process, not a person** — every
 Pod runs as some ServiceAccount (a default one, unless you specify
 otherwise), and any code inside that Pod calling the Kubernetes API
@@ -67,6 +79,16 @@ rules; once *any* NetworkPolicy selects a given Pod for a given direction
 except for what's explicitly allowed — an important asymmetry to
 internalize: adding a policy can only *restrict* previously-open traffic,
 never grant new traffic beyond what's listed.
+
+```
+   NO policy selects backend        policy selects backend (ingress)
+   (default: open)                  (deny-by-default for that direction)
+
+   frontend ──►┐                    frontend (app=frontend) ──► allowed
+   other    ──►│ backend            other    ──────────────────► blocked
+   anything ──►┘  (all reach it)    internet ─────────────────► blocked
+                                    only sources listed in `from` get in
+```
 
 **NetworkPolicy requires a CNI plugin that implements it** — like
 Ingress needing a controller (module 08) or HPA needing metrics-server
@@ -641,6 +663,14 @@ point is to find out what actually stuck.
     labels) on the metrics port for cross-namespace scraping to continue.
 
 </details>
+
+## Further reading & sources
+
+- [Using RBAC Authorization](https://kubernetes.io/docs/reference/access-authn-authz/rbac/) - the definitive reference for Roles, ClusterRoles, and their bindings.
+- [Configure Service Accounts for Pods](https://kubernetes.io/docs/tasks/configure-pod-container/configure-service-account/) - how Pods get an identity for calling the API.
+- [Network Policies](https://kubernetes.io/docs/concepts/services-networking/network-policies/) - the concept page for pod-to-pod traffic rules and deny-by-default-once-selected.
+- [Declare Network Policy (walkthrough)](https://kubernetes.io/docs/tasks/administer-cluster/declare-network-policy/) - a hands-on tutorial requiring a policy-enforcing CNI, as this module does.
+- [Calico for kind / quickstart](https://docs.tigera.io/calico/latest/getting-started/kubernetes/kind) - installing the CNI that actually enforces the policies here.
 
 ## Next
 

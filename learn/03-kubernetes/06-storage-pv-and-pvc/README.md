@@ -44,6 +44,17 @@ project) that provisions storage as a directory on the kind node
 container's filesystem — functionally durable across Pod restarts, but
 tied to that one node and gone if you delete the whole kind cluster.
 
+```
+   dynamic provisioning chain (bottom drives the one above it):
+
+   Pod  ──references──► PVC  ──bound to──► PV  ──backed by──► real disk
+   spec.volumes         "I need           "here is           (local dir,
+   .persistentVolume     5Gi RWO"          5Gi RWO"           Azure Disk…)
+   Claim.claimName          │                 ▲
+                            │   StorageClass  │
+                            └──► provisioner ─┘  creates the PV on demand
+```
+
 **Access modes** describe how many nodes can mount a volume at once and
 how:
 - `ReadWriteOnce` (RWO): read-write by a single node at a time (most
@@ -455,6 +466,14 @@ Write down your answer to each question before expanding it — checking without
    offer.
 
 </details>
+
+## Further reading & sources
+
+- [Persistent Volumes](https://kubernetes.io/docs/concepts/storage/persistent-volumes/) - the authoritative reference for PVs, PVCs, access modes, and reclaim policies.
+- [Storage Classes](https://kubernetes.io/docs/concepts/storage/storage-classes/) - how dynamic provisioning is configured and defaulted.
+- [Configure a Pod to Use a PersistentVolume for Storage](https://kubernetes.io/docs/tasks/configure-pod-container/configure-persistent-volume-storage/) - a hands-on task mirroring this module's exercises.
+- [local-path-provisioner (Rancher)](https://github.com/rancher/local-path-provisioner) - the default provisioner kind ships, including its RWO-only limitation.
+- [StatefulSets](https://kubernetes.io/docs/concepts/workloads/controllers/statefulset/) - the natural next topic for per-replica PVCs with stateful workloads.
 
 ## Next
 

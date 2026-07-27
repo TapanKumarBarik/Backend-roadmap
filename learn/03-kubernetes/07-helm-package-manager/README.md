@@ -35,6 +35,17 @@ key=value` or `-f my-values.yaml`, without touching the chart's
 templates at all. This is the mechanism that turns "one chart" into "one
 chart deployable to dev, staging, and prod with different settings."
 
+```
+   templates/*.yaml  ┐
+   {{ .Values.x }}   │            ┌───────────────────┐   helm install
+                     ├──render──► │ rendered manifests │ ──────────────►
+   values.yaml       │            │ (plain Deployment, │   ┌───────────┐
+   + --set / -f      ┘            │  Service, ...)     │   │  release  │
+   (overrides layer                └───────────────────┘   │  in the   │
+    on top)                        `helm template` shows     │  cluster  │
+                                    this without installing  └───────────┘
+```
+
 **Templates use Go template syntax** embedded in otherwise-normal YAML:
 `{{ .Values.foo }}` pulls from values, `{{ .Release.Name }}` gives you
 the current release's name (handy for uniquely naming objects so
@@ -468,6 +479,14 @@ point is to find out what actually stuck.
    from values, it doesn't provide the behavior itself.
 
 </details>
+
+## Further reading & sources
+
+- [Helm Documentation](https://helm.sh/docs/) - the official home for all Helm concepts and commands.
+- [Charts](https://helm.sh/docs/topics/charts/) - the anatomy of a chart, templates, and `Chart.yaml`.
+- [Values Files](https://helm.sh/docs/chart_template_guide/values_files/) - how `values.yaml` and `--set`/`-f` overrides layer together.
+- [The Chart Template Developer's Guide](https://helm.sh/docs/chart_template_guide/) - Go templating, built-in objects like `.Release.Name`, and control structures.
+- [Helm Commands (helm install / upgrade / rollback)](https://helm.sh/docs/helm/helm/) - the full CLI reference for the release lifecycle used here.
 
 ## Next
 

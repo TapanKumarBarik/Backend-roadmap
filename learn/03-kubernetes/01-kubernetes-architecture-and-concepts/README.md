@@ -20,6 +20,21 @@ executes it — except in Kubernetes, the "brain" (control plane) and the
 "muscle" (nodes) are separate components, possibly on separate machines,
 constantly talking to each other over the network.
 
+```
+        CONTROL PLANE ("brain")              WORKER NODE ("muscle")
+┌─────────────────────────────────┐   ┌──────────────────────────────┐
+│  ┌───────────┐   ┌───────────┐   │   │  ┌──────────┐                 │
+│  │ API server│◄─►│   etcd    │   │   │  │ kubelet  │──► containers   │
+│  └─────┬─────┘   └───────────┘   │   │  └────┬─────┘   (via runtime) │
+│        │  ▲                      │◄─►│       │                       │
+│  ┌─────▼──┴──┐   ┌───────────┐   │   │  ┌────▼─────┐   ┌──────────┐  │
+│  │ scheduler │   │controller │   │   │  │kube-proxy│   │containerd│  │
+│  └───────────┘   │ manager   │   │   │  └──────────┘   └──────────┘  │
+│                  └───────────┘   │   │                               │
+└─────────────────────────────────┘   └──────────────────────────────┘
+       everything goes THROUGH the API server — nothing bypasses it
+```
+
 **The API server** is the single front door to everything in the
 cluster. Every `kubectl` command, every internal component, every change
 to the cluster's state goes *through* the API server — nothing talks to
@@ -49,6 +64,22 @@ it** — you never issue one-time imperative commands like "start this
 container" the way you do with `docker run`. If a Pod dies, the
 corresponding controller notices the gap and creates a replacement,
 without you doing anything.
+
+```
+        the reconciliation loop, running forever:
+
+   ┌──────────────┐      compare      ┌──────────────┐
+   │ DESIRED state│ ───────────────►  │ OBSERVED state│
+   │ (what you    │                   │ (what is      │
+   │  declared)   │  ◄─── gap? ────   │  actually     │
+   └──────────────┘                   │  running)     │
+          ▲                           └───────┬───────┘
+          │                                   │ gap found
+          │         ┌───────────────────┐     │
+          └─────────│ controller acts to │◄────┘
+                    │  close the gap     │
+                    └───────────────────┘
+```
 
 **The kubelet** is the agent running on every node. It watches the API
 server for Pods assigned to *its* node and makes sure the containers
@@ -371,6 +402,15 @@ Write down your answer to each question before expanding it — checking without
    any single one.
 
 </details>
+
+## Further reading & sources
+
+- [Kubernetes Components](https://kubernetes.io/docs/concepts/overview/components/) - the official breakdown of control-plane and node components this module walks through.
+- [The Kubernetes API](https://kubernetes.io/docs/concepts/overview/kubernetes-api/) - how the API server acts as the single front door to cluster state.
+- [Controllers](https://kubernetes.io/docs/concepts/architecture/controller/) - the reconciliation/control-loop model that underpins Kubernetes self-healing.
+- [Nodes](https://kubernetes.io/docs/concepts/architecture/nodes/) - what a node is and how the kubelet reports its status.
+- [Namespaces](https://kubernetes.io/docs/concepts/overview/working-with-objects/namespaces/) - partitioning a cluster into virtual clusters for organization.
+- [etcd documentation](https://etcd.io/docs/) - the key-value store that holds all cluster state.
 
 ## Next
 

@@ -30,6 +30,22 @@ no extra virtualization layer, fast to start, fast to tear down and
 recreate. This is why we recommend it for a learning loop where you'll
 create and destroy clusters often.
 
+```
+┌───────────────────────────────────────────────────────────┐
+│                 Windows 11 host  +  WSL2 Ubuntu            │
+│  ┌──────────────────────────────────────────────────────┐ │
+│  │              Docker Desktop engine                    │ │
+│  │  ┌───────────────────────┐  ┌─────────────────────┐   │ │
+│  │  │ "control-plane" node  │  │   "worker" node      │   │ │
+│  │  │   = 1 Docker container│  │   = 1 Docker container│   │ │
+│  │  │  kubelet, etcd,       │  │  kubelet,             │   │ │
+│  │  │  apiserver, scheduler │  │  your workload pods   │   │ │
+│  │  └───────────────────────┘  └─────────────────────┘   │ │
+│  └──────────────────────────────────────────────────────┘ │
+│   kubectl ─────► API server (inside the control-plane node)│
+└───────────────────────────────────────────────────────────┘
+```
+
 **minikube** runs Kubernetes inside a single VM (or, in Docker-driver
 mode, a single large container) and ships with an extensive addon system
 (`minikube addons enable ingress`, a built-in dashboard, metrics-server
@@ -49,6 +65,22 @@ it explicitly on kind so you understand what's actually happening.
 containers actually run). A default `kind create cluster` gives you one
 node that plays both roles. You can ask for more nodes if you want to
 simulate a multi-node cluster.
+
+```
+Default `kind create cluster` — 1 node, both roles:
+┌────────────────────────────────┐
+│   learning-control-plane        │
+│   ┌──────────┐  ┌────────────┐  │
+│   │ control  │+ │  worker    │  │
+│   │ plane    │  │  role      │  │
+│   └──────────┘  └────────────┘  │
+└────────────────────────────────┘
+
+Multi-node (`--config kind-multi.yaml`):
+┌───────────────┐  ┌──────────┐  ┌──────────┐
+│ control-plane │  │  worker  │  │  worker  │
+└───────────────┘  └──────────┘  └──────────┘
+```
 
 ## Command reference
 
@@ -361,6 +393,14 @@ Write down your answer to each question before expanding it — checking without
    `role: worker` entries, then `kind create cluster --config <file>`.
 
 </details>
+
+## Further reading & sources
+
+- [Install Tools (kubectl, kind, minikube)](https://kubernetes.io/docs/tasks/tools/) - the official Kubernetes page for installing the CLI and a local cluster tool.
+- [kind Quick Start](https://kind.sigs.k8s.io/docs/user/quick-start/) - the canonical guide for creating, using, and deleting kind clusters.
+- [kind Configuration reference](https://kind.sigs.k8s.io/docs/user/configuration/) - how to write the cluster config file used for multi-node topologies here.
+- [minikube Get Started](https://minikube.sigs.k8s.io/docs/start/) - the minikube equivalent, for the optional comparison exercise.
+- [kubectl overview and cheat sheet](https://kubernetes.io/docs/reference/kubectl/quick-reference/) - a fast reference for the commands and context switching you use throughout this track.
 
 ## Next
 

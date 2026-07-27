@@ -35,6 +35,20 @@ Service B) and/or URL path (`/api` → Service B, `/` → Service A) — all
 through one external entry point (one IP, one set of ports 80/443),
 unlike giving every Service its own LoadBalancer.
 
+```
+                       one entry point (ports 80/443)
+                                   │
+   internet ──► Ingress controller (NGINX reverse proxy)
+                                   │  reads Ingress rules, routes by
+                                   │  Host header and/or URL path
+              ┌────────────────────┼────────────────────┐
+        Host: app.example.com   /api path          Host: admin.example.com
+              ▼                    ▼                     ▼
+        Service app          Service api           Service admin
+              ▼                    ▼                     ▼
+           Pods                  Pods                  Pods
+```
+
 **IngressClass** tells Kubernetes which controller should handle a given
 Ingress, useful when a cluster has more than one controller installed.
 Most single-controller setups (including what you'll install here) mark
@@ -493,6 +507,14 @@ Write down your answer to each question before expanding it — checking without
    private key.
 
 </details>
+
+## Further reading & sources
+
+- [Ingress](https://kubernetes.io/docs/concepts/services-networking/ingress/) - the concept page for routing rules, hosts, paths, and pathType.
+- [Ingress Controllers](https://kubernetes.io/docs/concepts/services-networking/ingress-controllers/) - why an Ingress needs a running controller to do anything.
+- [ingress-nginx on kind](https://kind.sigs.k8s.io/docs/user/ingress/) - the exact kind port-mapping setup this module uses to reach the controller.
+- [ingress-nginx documentation](https://kubernetes.github.io/ingress-nginx/) - the controller's own docs, including annotations like rewrite-target.
+- [DigitalOcean: Kubernetes Ingress with nginx](https://www.digitalocean.com/community/tutorials/how-to-set-up-an-nginx-ingress-on-digitalocean-kubernetes-using-helm) - a well-known end-to-end ingress tutorial for extra practice.
 
 ## Next
 

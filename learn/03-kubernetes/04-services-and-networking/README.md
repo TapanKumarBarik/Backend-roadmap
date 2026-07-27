@@ -27,6 +27,17 @@ doesn't match your Deployment's Pod template labels) and the Service has
 zero endpoints — it exists, but routes nowhere, which is one of the most
 common real-world Kubernetes networking bugs.
 
+```
+   Service (selector: app=web)          Pods
+   ┌───────────────────────┐    match   ┌───────────────┐
+   │ stable ClusterIP + DNS│ ─────────► │ app=web  Pod A │──► endpoint
+   │  web.demo.svc...      │ ─────────► │ app=web  Pod B │──► endpoint
+   └───────────────────────┘ ─────────► │ app=web  Pod C │──► endpoint
+                              ╳ no match │ app=db   Pod X │   (ignored)
+                                         └───────────────┘
+   endpoints are recomputed continuously as Pods come and go
+```
+
 **ClusterIP** (the default type) gives the Service a virtual IP reachable
 only from *inside* the cluster. This is what you use for internal
 service-to-service traffic (e.g. a frontend Pod calling a backend
@@ -57,6 +68,20 @@ a `LoadBalancer` Service, minikube's `minikube tunnel` or kind's port
 mappings are used as workarounds; in this track we mainly use
 `port-forward` and NodePort for local access, and Ingress (module 08) for
 the realistic pattern.
+
+```
+   the three Service types, by how far traffic can reach in:
+
+   ClusterIP    [ inside cluster only ]
+                   client Pod ──► ClusterIP ──► Pod
+
+   NodePort     [ any node's IP : 30000-32767 ]
+                   host ──► node:30080 ──► ClusterIP ──► Pod
+
+   LoadBalancer [ external IP from cloud provider ]
+                   internet ──► cloud LB ──► node ──► ClusterIP ──► Pod
+                   (EXTERNAL-IP stays <pending> locally — no cloud LB)
+```
 
 **kube-proxy**, introduced in module 01, is what actually implements a
 Service's routing on every node — it watches the API server for
@@ -507,6 +532,14 @@ Write down your answer to each question before expanding it — checking without
    `Running`.
 
 </details>
+
+## Further reading & sources
+
+- [Service](https://kubernetes.io/docs/concepts/services-networking/service/) - the definitive reference for ClusterIP, NodePort, and LoadBalancer types.
+- [DNS for Services and Pods](https://kubernetes.io/docs/concepts/services-networking/dns-pod-service/) - how the `<svc>.<ns>.svc.cluster.local` names resolve.
+- [Connecting Applications with Services](https://kubernetes.io/docs/tutorials/services/connect-applications-service/) - a walkthrough tying Deployments, Services, and endpoints together.
+- [Debug Services](https://kubernetes.io/docs/tasks/debug/debug-application/debug-service/) - the official checklist for the zero-endpoints and wrong-port bugs in this module.
+- [Virtual IPs and Service Proxies (kube-proxy)](https://kubernetes.io/docs/reference/networking/virtual-ips/) - how kube-proxy programs the routing that makes a Service's virtual IP work.
 
 ## Next
 

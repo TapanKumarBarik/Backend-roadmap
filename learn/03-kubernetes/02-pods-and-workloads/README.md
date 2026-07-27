@@ -20,6 +20,19 @@ two processes on the same machine. Most Pods have exactly one container;
 multi-container Pods are for tightly-coupled helpers (a "sidecar," like a
 log shipper that reads files the main container writes).
 
+```
+                       ┌─────── Pod ───────┐
+   one IP address ────►│  10.244.0.7        │
+                       │  ┌──────┐ ┌──────┐ │
+                       │  │ main │ │sidecar│ │  both reach each other
+                       │  │ ctr  │ │ ctr  │ │  on localhost:<port>
+                       │  └──┬───┘ └──┬───┘ │
+                       │     └────┬────┘     │
+                       │   shared volume     │  (emptyDir, etc.)
+                       │   shared network ns │
+                       └────────────────────┘
+```
+
 **A Pod is meant to be disposable.** Pods don't move between nodes, and
 if a Pod dies, nothing brings back that exact Pod (as you saw in module
 01's exercise 9, only its containers get restarted by the kubelet, not
@@ -55,6 +68,18 @@ healthy, instead of just "is the process still running":
   database connection).
 - A **startup probe** gives a slow-starting container extra time before
   liveness probes start counting against it.
+
+```
+   probe          what it gates on failure
+  ───────────────────────────────────────────────────────────
+  startup   ──►  holds off liveness/readiness until app booted
+  liveness  ──►  kubelet KILLS + RESTARTS the container
+  readiness ──►  Pod REMOVED from Service endpoints (no restart)
+
+     start ──► [startup passes] ──► [readiness passes] ──► gets traffic
+                     │                     │
+                liveness keeps container alive the whole time
+```
 
 **Pod phases**: `Pending` (accepted by the API, not yet fully scheduled
 or its images not yet pulled), `Running` (at least one container
@@ -501,6 +526,14 @@ Write down your answer to each question before expanding it — checking without
    starts.
 
 </details>
+
+## Further reading & sources
+
+- [Pods](https://kubernetes.io/docs/concepts/workloads/pods/) - the official concept page for what a Pod is and how its containers relate.
+- [Configure Liveness, Readiness and Startup Probes](https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/) - the definitive task guide for the three probe types.
+- [Resource Management for Pods and Containers](https://kubernetes.io/docs/concepts/configuration/manage-resources-containers/) - how requests and limits drive scheduling and enforcement.
+- [Init Containers](https://kubernetes.io/docs/concepts/workloads/pods/init-containers/) - the ordered run-to-completion containers used in this module.
+- [Pod Lifecycle](https://kubernetes.io/docs/concepts/workloads/pods/pod-lifecycle/) - Pod phases and container states like CrashLoopBackOff and OOMKilled.
 
 ## Next
 
