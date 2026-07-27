@@ -55,6 +55,16 @@ class PasswordReset(BaseModel):
         return self
 ```
 
+```
+  @field_validator("password")      @model_validator(mode="after")
+  sees ONE field:                   sees the WHOLE object:
+   ┌───────────┐                     ┌──────────────────────────────┐
+   │ password  │ ✓                   │ password ─┐                  │
+   └───────────┘                     │           ├─ compare ✓/✗     │
+   confirm_password  ✗ (invisible)   │ confirm ──┘                  │
+   can't reach it                    └──────────────────────────────┘
+```
+
 `mode="after"` receives `self` (the built instance) and returns `self`.
 `mode="before"` receives the raw dict *before* field parsing — useful when
 the very shape depends on some field, but you lose type safety, so prefer
@@ -126,6 +136,14 @@ on *who benefits*.
 - For **expensive or security-sensitive checks**, fail fast wins: don't run a
   database uniqueness query if the email is already syntactically invalid;
   don't reveal *which* credential was wrong.
+
+```
+  FAIL FAST                         AGGREGATE
+  check A ─✗─► stop, return         check A ─✗─┐
+  (B, C never run)                  check B ─✗─┼─► collect → one 422
+   best for: cost, security         check C ─✓─┘   [A failed, B failed]
+                                     best for: form UX (fix all at once)
+```
 
 Pydantic gives you aggregation for free across field validators. Within a
 single validator (or across manual checks in a handler), *you* choose. When
@@ -655,6 +673,15 @@ to find out what actually stuck.
    problem or gather several.
 
 </details>
+
+## Further reading & sources
+
+- [Pydantic — Model validators](https://docs.pydantic.dev/latest/concepts/validators/#model-validators) - the reference for `@model_validator`, its `before`/`after` modes, and what each must return.
+- [FastAPI — Handling Errors](https://fastapi.tiangolo.com/tutorial/handling-errors/) - custom exception handlers and overriding `RequestValidationError` to standardize your error envelope.
+- [OWASP — Authentication Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Authentication_Cheat_Sheet.html) - why login/reset errors must be generic to avoid an account-enumeration oracle.
+- [OWASP — WSTG: Testing for Account Enumeration](https://owasp.org/www-project-web-security-testing-guide/latest/4-Web_Application_Security_Testing/03-Identity_Management_Testing/04-Testing_for_Account_Enumeration_and_Guessable_User_Account) - how attackers exploit message and timing differences to enumerate users.
+- [MDN — 422 Unprocessable Content](https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/422) - the status code FastAPI returns for semantic validation failures, and how it differs from 400.
+- [MDN — 400 Bad Request](https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/400) - the right response for malformed JSON and other client-side syntax errors, versus a 500.
 
 ## Next
 

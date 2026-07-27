@@ -133,6 +133,16 @@ async def list_tasks(limit: int = Query(20, ge=1, le=100),
     return {"items": items, "next_cursor": next_cursor}
 ```
 
+```
+  OFFSET ?offset=40&limit=20        CURSOR ?cursor=<id:40>&limit=20
+  rows: [..skip 40..][ 41..60 ]     rows: WHERE id > 40 LIMIT 20 → [41..60]
+   insert at front ↓                 insert at front ↓
+  [NEW][..skip 40..][ 40..59 ]      WHERE id > 40 → still [41..60]
+        ↑ window shifted:                 ↑ window anchored to a key:
+          row 40 seen TWICE                 no dupes, no skips
+   can jump to page N ✓ but drifts    walk forward only, but stable + fast
+```
+
 The tradeoff: you can't jump to "page 50" directly, only walk forward
 (sometimes backward). For infinite-scroll feeds and huge tables, that's a fine
 price for stability and speed. Rule of thumb: offset for small admin lists
@@ -153,6 +163,17 @@ Beginners conflate these; they're distinct:
   `?q=quarterly+report`. It's ranked and approximate, not an exact filter.
   (Real full-text search is track 07 of the curriculum; here, a `LIKE`/`ILIKE`
   or simple contains is enough to understand the shape.)
+
+```
+  all rows
+     │  FILTER   status=open, min_total>100   (WHERE — exact/range)
+     ▼
+  ┌──────┐  SEARCH  q="report"                (fuzzy match, ranked)
+  │ rows │─────────►┌──────┐  SORT  -created_at (ORDER BY, whitelisted)
+  └──────┘          │ rows │────────►┌──────┐  PAGINATE  limit/offset
+                    └──────┘         │ rows │──────────► one capped page
+                                     └──────┘
+```
 
 ```python
 ALLOWED_SORT = {"created_at", "title", "priority"}   # whitelist!
@@ -602,6 +623,15 @@ to find out what actually stuck.
    pipeline-wide middleware that runs for every request.
 
 </details>
+
+## Further reading & sources
+
+- [MDN — HTTP request methods](https://developer.mozilla.org/en-US/docs/Web/HTTP/Methods) - the semantics of POST/GET/PUT/PATCH/DELETE and their idempotency that CRUD maps onto.
+- [MDN — 201 Created](https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/201) - the correct create response and the `Location` header pointing at the new resource.
+- [MDN — PATCH](https://developer.mozilla.org/en-US/docs/Web/HTTP/Methods/PATCH) - partial-update semantics and how they differ from a full PUT replace.
+- [FastAPI — Query Parameters and Validations](https://fastapi.tiangolo.com/tutorial/query-params-str-validations/) - capping and validating `limit`/`offset`/`sort` query parameters.
+- [FastAPI — Response Model](https://fastapi.tiangolo.com/tutorial/response-model/) - using a dedicated `*Out` model to redact sensitive fields by construction.
+- [Google API Design Guide — List pagination](https://cloud.google.com/apis/design/design_patterns#list_pagination) - the page-token (cursor) pagination pattern for large, changing collections.
 
 ## Next
 

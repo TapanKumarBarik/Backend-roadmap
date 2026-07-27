@@ -73,6 +73,15 @@ API edge:
 - **Canonicalizing** formats: collapsing internal whitespace, standardizing
   separators, adding a default country code to a bare phone number.
 
+```
+   many equivalent inputs                    one canonical form
+   ┌─────────────────────┐
+   │ "Ada@Example.COM"   │ ─┐
+   │ "  ada@example.com "  │ ├─► trim → lower ─► "ada@example.com"
+   │ "ADA@EXAMPLE.COM"     │ ─┘                   (compare & store this)
+   └─────────────────────┘
+```
+
 In Pydantic v2 you do this with a validator (they both validate *and*
 transform — same tool) or, for the common trim/lower cases, with a reusable
 annotated type:
@@ -189,6 +198,17 @@ Pydantic, `mode="before"` validators do casting/parsing of raw input,
 default (`mode="after"`) validators normalize and validate the typed value,
 and `Field` constraints add declarative bounds — they compose into exactly
 this pipeline.
+
+```
+  raw "  25 "     ┌───────┐   ┌───────────┐   ┌──────────┐   clean
+  from URL/body ─►│ CAST  │──►│ NORMALIZE │──►│ VALIDATE │──► int 25 → use
+                  │(before│   │ trim/lower│   │  bounds  │
+                  │  → type)   └───────────┘   │  & rules │
+                  └───────┘    (after)         └──────────┘
+     coercion         ▲            ▲                ▲
+     failure → 422 ───┘            │        rule fail → 422
+                          Field constraints + @field_validator
+```
 
 ## Command reference
 
@@ -545,6 +565,15 @@ Write down your answer to each question before expanding it — checking without
    consistently.
 
 </details>
+
+## Further reading & sources
+
+- [Pydantic — Validators](https://docs.pydantic.dev/latest/concepts/validators/) - covers `mode="before"` vs `mode="after"` and how a validator both transforms and validates in one step.
+- [Pydantic — Custom types with `Annotated`](https://docs.pydantic.dev/latest/concepts/types/#using-the-annotated-pattern) - the reusable `Annotated[str, BeforeValidator(...)]` pattern behind `TrimmedStr`.
+- [FastAPI — Query Parameters and String Validations](https://fastapi.tiangolo.com/tutorial/query-params-str-validations/) - how query/path strings are cast to typed values and constrained.
+- [OWASP — SQL Injection Prevention Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/SQL_Injection_Prevention_Cheat_Sheet.html) - why parameterized queries, not string sanitization, are the real injection defense.
+- [OWASP — Cross Site Scripting Prevention Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Cross_Site_Scripting_Prevention_Cheat_Sheet.html) - the output-encoding side of "sanitization" and why it is a rendering concern.
+- [Wikipedia — E.164](https://en.wikipedia.org/wiki/E.164) - the international phone-number format your normalization canonicalizes toward.
 
 ## Next
 

@@ -85,6 +85,17 @@ async def timing(request: Request, call_next):
 
 One function, both sides of the handler. That's the defining feature.
 
+```
+   async def timing(request, call_next):
+   ┌───────────────────────────────────────────┐
+   │  start = ...            ◄── PRE-REQUEST     │  (before call_next)
+   │  response = await call_next(request) ───────┼──► inner layers + handler
+   │  response.headers[...] = ...  ◄── POST-RESP │  (after call_next)
+   │  return response                            │
+   └───────────────────────────────────────────┘
+        call_next is the boundary between the two phases
+```
+
 ### The chain and execution order (the onion)
 
 Register three middlewares and you get three nested layers. With FastAPI's
@@ -123,6 +134,14 @@ async def block_legacy_paths(request: Request, call_next):
         # Return immediately; the handler is never invoked.
         return JSONResponse(status_code=410, content={"error": "API v0 is retired"})
     return await call_next(request)   # only reached for non-/v0 paths
+```
+
+```
+  normal:   req ─► [ gate ] ─► [ inner ] ─► Handler ─► resp
+  short-circuit:
+            req ─► [ gate ]──✗ return 410      Handler + inner
+                      │                         NEVER run
+                      └──► resp travels straight back out
 ```
 
 Short-circuiting is a feature, not an escape hatch: auth middleware
@@ -480,6 +499,14 @@ Write down your answer to each question before expanding it — checking without
    injection (per-route auth, loading the current user, permission checks).
 
 </details>
+
+## Further reading & sources
+
+- [FastAPI — Middleware](https://fastapi.tiangolo.com/tutorial/middleware/) - the official guide to `@app.middleware("http")`, `call_next`, and the pre/post-response phases.
+- [FastAPI — Advanced Middleware](https://fastapi.tiangolo.com/advanced/middleware/) - `app.add_middleware`, built-in middleware classes, and how ordering works.
+- [Starlette — Middleware](https://www.starlette.io/middleware/) - the underlying ASGI middleware model FastAPI builds on, including the onion execution order.
+- [MDN — 503 Service Unavailable](https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/503) - the status a maintenance-gate middleware short-circuits with.
+- [MDN — 410 Gone](https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/410) - the correct status for a retired API path returned by a short-circuiting middleware.
 
 ## Next
 

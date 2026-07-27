@@ -45,6 +45,16 @@ PATCH  /orders/42        modify order 42
 DELETE /orders/42        delete order 42
 ```
 
+```
+  RPC-STYLE (verb in URL)          RESOURCE-ORIENTED (verb in method)
+  POST /createOrder            ►   POST   /orders
+  POST /getOrderById           ►   GET    /orders/42
+  POST /updateOrderTotal       ►   PATCH  /orders/42
+  POST /deleteOrderNow         ►   DELETE /orders/42
+  one endpoint per action          one URL per resource, methods = verbs
+  client must learn each           any REST client already knows it
+```
+
 Not `POST /createOrder`, `POST /getOrder`, `POST /updateOrder`. The verb is
 already in the HTTP method. Collections are plural nouns (`/orders`), a single
 item is `/orders/{id}`. When an operation genuinely isn't CRUD — "cancel this
@@ -121,6 +131,18 @@ and, on the next request, sends `If-None-Match: <etag>`. If the resource
 hasn't changed, the server replies `304 Not Modified` **with no body** — the
 client reuses its cached copy. Huge bandwidth savings for frequently-fetched,
 rarely-changed resources.
+
+```
+  1st request:  client ──GET /orders/42──► server
+                client ◄─200 + ETag:abc123─ server   (stores body + etag)
+
+  2nd request:  client ──GET /orders/42, If-None-Match: abc123──► server
+                                                              compares etag
+      unchanged ◄─304 Not Modified (no body)─────────────────────┤ same
+        changed ◄─200 + body + ETag:def456────────────────────── ┘ differs
+```
+
+
 
 ```python
 import hashlib
@@ -468,6 +490,15 @@ Write down your answer to each question before expanding it — checking without
    over-nesting/over-fetching and streaming for huge bodies (module 08).
 
 </details>
+
+## Further reading & sources
+
+- [MDN — HTTP conditional requests](https://developer.mozilla.org/en-US/docs/Web/HTTP/Conditional_requests) - how `ETag`/`If-None-Match` (caching) and `If-Match` (concurrency) work end to end.
+- [MDN — ETag](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/ETag) - the validator header, strong vs weak ETags, and stable computation.
+- [MDN — Content negotiation](https://developer.mozilla.org/en-US/docs/Web/HTTP/Content_negotiation) - the `Accept`/`Content-Type` mechanism and when to return `406`.
+- [Microsoft REST API Guidelines](https://github.com/microsoft/api-guidelines/blob/vNext/Guidelines.md) - an industry reference for resource modeling, versioning, and error conventions.
+- [Google API Design Guide — Resource-oriented design](https://cloud.google.com/apis/design/resources) - modeling APIs around resources and standard methods rather than RPC verbs.
+- [FastAPI — Bigger Applications (routers)](https://fastapi.tiangolo.com/tutorial/bigger-applications/) - mounting versioned routers (`/v1`, `/v2`) side by side.
 
 ## Next
 

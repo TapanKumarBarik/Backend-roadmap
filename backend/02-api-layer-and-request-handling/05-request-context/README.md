@@ -54,6 +54,14 @@ Dependencies resolve just before the handler and can also *produce* context
 that context. Then cleanup runs (close the DB session) and the response goes
 out. Everything in that window is one isolated request-world.
 
+```
+  GLOBAL (app-scoped)            REQUEST-SCOPED (isolated)
+  ┌─────────────────┐            req A ─► [ user=A, id=A1, db=A ] ─► sent
+  │ CURRENT_USER = ?│  ◄─ A & B   req B ─► [ user=B, id=B7, db=B ] ─► sent
+  └─────────────────┘    clobber        each request its own world;
+   B overwrites A's value               B can never see A's user
+```
+
 ### What belongs in request context
 
 Keep it **lightweight** and request-specific:
@@ -143,6 +151,14 @@ def require_admin(user=Depends(get_current_user)):
 @app.delete("/users/{user_id}")
 async def delete_user(user_id: int, admin=Depends(require_admin), db=Depends(get_db)):
     ...
+```
+
+```
+                       ┌─ Depends(require_admin) ─► Depends(get_current_user)
+   delete_user handler ┤                                    │
+                       └─ Depends(get_db)                   ▼
+                                              reads request.state.user
+   FastAPI resolves this graph per request (get_current_user cached, runs once)
 ```
 
 `delete_user` doesn't know *how* the admin check works or *where* the user
@@ -532,6 +548,15 @@ Write down your answer to each question before expanding it — checking without
    "who is it."
 
 </details>
+
+## Further reading & sources
+
+- [FastAPI — Dependencies](https://fastapi.tiangolo.com/tutorial/dependencies/) - the core `Depends(...)` model for injecting request-scoped context declaratively.
+- [FastAPI — Dependencies with yield](https://fastapi.tiangolo.com/tutorial/dependencies/dependencies-with-yield/) - setup/teardown dependencies that guarantee cleanup (e.g. DB sessions) even when a handler raises.
+- [FastAPI — Global Dependencies](https://fastapi.tiangolo.com/tutorial/dependencies/global-dependencies/) - attaching dependencies at the router/app level to protect whole groups of routes.
+- [Starlette — Requests (`request.state`)](https://www.starlette.io/requests/#other-state) - the per-request attribute bag used for the middleware-to-handler hand-off.
+- [Python docs — `contextvars`](https://docs.python.org/3/library/contextvars.html) - request-safe implicit context that avoids the concurrency hazards of module-level globals.
+- [Python docs — `asyncio.timeout`](https://docs.python.org/3/library/asyncio-task.html#asyncio.timeout) - bounding and cancelling long-running work, the deadline side of request context.
 
 ## Next
 

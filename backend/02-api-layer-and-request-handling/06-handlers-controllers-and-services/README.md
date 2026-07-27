@@ -58,6 +58,17 @@ also cooks and manages inventory is how small kitchens collapse.
   Services call it; handlers never do. Swapping Postgres for something else
   touches only here.
 
+```
+             HTTP-AWARE  │  HTTP-IGNORANT (plain Python)
+                         │
+   request ─► HANDLER ───┼──► SERVICE ───► REPOSITORY ───► DB
+              validate   │    rules,        the only
+              & shape    │    invariants    DB access
+              response ◄─┼──◄ raises  ◄──── returns rows
+                         │   domain errors
+   each layer depends only DOWNWARD; test each in isolation
+```
+
 ### Why the handler must stay thin
 
 A fat handler — validation + rules + DB + formatting in one function — can't
@@ -130,6 +141,15 @@ async def _not_found(request: Request, exc: OrderNotFound):
 async def _stock(request: Request, exc: InsufficientStockError):
     return JSONResponse(status_code=409, content=error_body("insufficient_stock",
                         f"not enough stock for {exc.sku}", request))
+```
+
+```
+  service raises          one central mapping        HTTP response
+  ┌────────────────────┐   ┌───────────────────┐
+  │ OrderNotFound      │─► │ @exception_handler│─► 404 {"error": ...}
+  │ InsufficientStock  │─► │  (registered once)│─► 409 {"error": ...}
+  │ EmptyOrderError    │─► │                   │─► 422 {"error": ...}
+  └────────────────────┘   └───────────────────┘   same envelope every time
 ```
 
 Now every handler that calls a service is freed from `try/except` around
@@ -528,6 +548,14 @@ Write down your answer to each question before expanding it — checking without
    no duplication, one place to change it.
 
 </details>
+
+## Further reading & sources
+
+- [FastAPI — Bigger Applications](https://fastapi.tiangolo.com/tutorial/bigger-applications/) - structuring an app into routers/modules, the physical counterpart to layering.
+- [FastAPI — Handling Errors](https://fastapi.tiangolo.com/tutorial/handling-errors/) - registering `@app.exception_handler` to map domain exceptions to consistent HTTP envelopes.
+- [FastAPI — Testing dependencies with overrides](https://fastapi.tiangolo.com/advanced/testing-dependencies/) - `dependency_overrides` for swapping real services with fakes in tests.
+- [Martin Fowler — Repository pattern (PoEAA)](https://martinfowler.com/eaaCatalog/repository.html) - the classic definition of the data-access layer services delegate to.
+- [Microsoft — Layered application architecture](https://learn.microsoft.com/en-us/dotnet/architecture/modern-web-apps-azure/common-web-application-architectures) - a broader treatment of handler/service/repository separation and why each layer depends only downward.
 
 ## Next
 

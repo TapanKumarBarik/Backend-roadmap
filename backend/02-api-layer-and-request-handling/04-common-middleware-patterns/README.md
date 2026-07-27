@@ -242,6 +242,16 @@ bottom in reverse):
 8. Security headers / compression   (applied on the way OUT)
 ```
 
+```
+  req ─►┌────────┐─►┌────────┐─►┌──────┐─►┌──────┐─►┌──────┐─► Handler
+        │ error  │  │logging │  │ CORS │  │ rate │  │ auth │
+        │handler │  │        │  │      │  │limit │  │      │
+        └────────┘  └────────┘  └──┬───┘  └──┬───┘  └──┬───┘
+   ◄── security headers added on the way back out ◄────────────┘
+                          preflight┘   429┘      401┘
+        exits short-circuit here, still logged + header-stamped on the way out
+```
+
 Why this order, concretely:
 
 - **Rate limiting before auth**: so brute-force login attempts are throttled
@@ -572,6 +582,15 @@ Write down your answer to each question before expanding it — checking without
    count is global across workers.
 
 </details>
+
+## Further reading & sources
+
+- [FastAPI — CORS](https://fastapi.tiangolo.com/tutorial/cors/) - configuring `CORSMiddleware`, preflight handling, and the wildcard-plus-credentials footgun.
+- [MDN — Cross-Origin Resource Sharing (CORS)](https://developer.mozilla.org/en-US/docs/Web/HTTP/CORS) - the same-origin policy, preflight `OPTIONS` requests, and the `Access-Control-Allow-*` headers.
+- [OWASP — Secure Headers Project](https://owasp.org/www-project-secure-headers/) - the reference for the security response headers (CSP, HSTS, X-Frame-Options, nosniff) this module stamps on responses.
+- [OWASP — Cross-Site Request Forgery (CSRF)](https://owasp.org/www-community/attacks/csrf) - what CSRF is and why cookie-based auth needs token protection that bearer-token APIs largely don't.
+- [MDN — 429 Too Many Requests](https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/429) - the rate-limit status code and the `Retry-After` header.
+- [Starlette — GZipMiddleware](https://www.starlette.io/middleware/#gzipmiddleware) - the built-in response-compression middleware and its `minimum_size` option.
 
 ## Next
 

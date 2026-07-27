@@ -172,6 +172,15 @@ it everywhere via `responses=` so the error shape is documented once in
 
 </details>
 
+## Further reading & sources
+
+- [FastAPI — Full Tutorial (User Guide)](https://fastapi.tiangolo.com/tutorial/) - the end-to-end reference covering every building block this capstone integrates.
+- [FastAPI — Bigger Applications](https://fastapi.tiangolo.com/tutorial/bigger-applications/) - structuring a multi-router, versioned app cleanly for a project this size.
+- [Pydantic — Models](https://docs.pydantic.dev/latest/concepts/models/) - the schema and validation foundation for your `*Create`/`*Update`/`*Out` models.
+- [MDN — HTTP response status codes](https://developer.mozilla.org/en-US/docs/Web/HTTP/Status) - the authoritative status-code reference for verifying your CRUD and REST semantics.
+- [OpenAPI Specification (spec.openapis.org)](https://spec.openapis.org/oas/latest.html) - confirm your auto-generated contract matches the standard.
+- [OWASP API Security Top 10](https://owasp.org/API-Security/editions/2023/en/0x11-t10/) - a checklist of the API risks (broken auth, excessive data exposure, injection) your safeguards defend against.
+
 ## Next
 
 You've finished the API layer. Next is track 03, where every endpoint you

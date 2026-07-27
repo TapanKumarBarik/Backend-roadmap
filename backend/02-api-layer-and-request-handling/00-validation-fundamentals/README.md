@@ -51,6 +51,25 @@ and the date on it says you were born tomorrow." Each check only makes sense
 once the previous one has passed — you can't ask whether a birth date is in
 the future until you're sure it *is* a date.
 
+```
+  incoming value  "3000-01-01"
+        │
+        ▼
+  ┌──────────────┐   is it even a date?      fail → 422 (type)
+  │ TYPE         │ ────────────────────────►
+  └──────┬───────┘   pass
+         ▼
+  ┌──────────────┐   YYYY-MM-DD well-formed? fail → 422 (syntactic)
+  │ SYNTACTIC    │ ────────────────────────►
+  └──────┬───────┘   pass
+         ▼
+  ┌──────────────┐   in the past? sensible?  fail → 422 (semantic)  ◄── caught here
+  │ SEMANTIC     │ ────────────────────────►
+  └──────┬───────┘   pass
+         ▼
+   clean value → business logic
+```
+
 - **Type validation** — is the value the correct primitive/structured type?
   Integer vs. string vs. array vs. object. `{"age": "25"}` sends a string;
   do you accept it, coerce it, or reject it? (Transformation, module 01,
@@ -76,6 +95,15 @@ skip the UI entirely and hit your API with `curl`, Postman, or a script.
 curl -X POST https://api.example.com/users \
   -H "Content-Type: application/json" \
   -d '{"email": "not-an-email", "age": -5, "role": "superadmin"}'
+```
+
+```
+  browser form ──[client validation]──►╳ (UX only, easily skipped)
+                                         \
+  curl / Postman / script ───────────────┼──► ┌──────────────────┐
+  (skips the browser entirely)           /     │ SERVER VALIDATION│──► business
+  edited DOM / disabled JS ─────────────/       │  (the real gate) │    logic + DB
+                                                └──────────────────┘
 ```
 
 Therefore: **the server treats every incoming request as hostile until
@@ -508,6 +536,15 @@ Write down your answer to each question before expanding it — checking without
    produces its own entry.
 
 </details>
+
+## Further reading & sources
+
+- [Pydantic — Validators](https://docs.pydantic.dev/latest/concepts/validators/) - the official reference for `field_validator`/`model_validator`, the classmethod idiom, and how raised `ValueError`s become validation errors.
+- [Pydantic — Fields](https://docs.pydantic.dev/latest/concepts/fields/) - the full set of `Field(...)` constraints (`ge`, `le`, `min_length`, `pattern`, and more) used for declarative type/syntactic/semantic bounds.
+- [FastAPI — Request Body](https://fastapi.tiangolo.com/tutorial/body/) - how declaring a Pydantic model parameter binds and validates the request body before your handler runs.
+- [FastAPI — Handling Errors](https://fastapi.tiangolo.com/tutorial/handling-errors/) - using `HTTPException` to fail fast from a handler and the shape of the automatic `422` validation response.
+- [OWASP — Input Validation Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Input_Validation_Cheat_Sheet.html) - why the server is the real security boundary and how to think about validating untrusted input.
+- [MDN — Client-side form validation](https://developer.mozilla.org/en-US/docs/Learn/Forms/Form_validation) - what client-side validation is good for (UX) and its explicit caveat that it is not a security control.
 
 ## Next
 

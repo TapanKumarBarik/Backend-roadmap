@@ -122,6 +122,15 @@ downstream tool only understands 3.0, and know that `Optional[str]` /
 
 ### How FastAPI generates the spec — and how to enrich it
 
+```
+  YOUR CODE                 GENERATED SPEC          TOOLS CONSUME IT
+  Pydantic models  ─┐       ┌──────────────┐   ┌─► /docs  (Swagger UI)
+  Field(...) rules ─┼─FastAPI►│ openapi.json │──┼─► /redoc (reference)
+  response_model   ─┤ builds │ (OpenAPI 3.1)│   ├─► client SDK generators
+  status_code      ─┤        └──────────────┘   ├─► mock servers
+  security utils   ─┘         one artifact      └─► Postman / contract tests
+```
+
 FastAPI builds the OpenAPI document from your route declarations and Pydantic
 models automatically, and serves:
 
@@ -186,6 +195,15 @@ of the contract automatically.)
 ### API-first / spec-first development
 
 Two workflows:
+
+```
+  CODE-FIRST (FastAPI default)      SPEC-FIRST (API-first)
+  write code ─► generate spec       write spec ─► review with teams
+       │                                 │              │
+       ▼                                 ▼              ▼
+  spec = side effect              implement to it   mock in parallel
+  (can't drift, but agreed late)  (agreed up front, before code exists)
+```
 
 - **Code-first** (FastAPI's default): write code, generate the spec. Fast,
   and the spec can't drift from the code because it *is* the code. Risk: the
@@ -485,6 +503,15 @@ Write down your answer to each question before expanding it — checking without
    supply it.
 
 </details>
+
+## Further reading & sources
+
+- [OpenAPI Specification (spec.openapis.org)](https://spec.openapis.org/oas/latest.html) - the authoritative current specification (OAS 3.1) describing every document section.
+- [FastAPI — First Steps / interactive docs](https://fastapi.tiangolo.com/tutorial/first-steps/) - how FastAPI serves `/docs`, `/redoc`, and `/openapi.json` out of your code.
+- [FastAPI — Metadata and Docs URLs](https://fastapi.tiangolo.com/tutorial/metadata/) - enriching the spec with `title`, `version`, `tags`, and operation metadata.
+- [FastAPI — Path Operation Configuration](https://fastapi.tiangolo.com/tutorial/path-operation-configuration/) - documenting `summary`, `description`, `responses`, and status codes.
+- [swagger.io — What is OpenAPI?](https://swagger.io/docs/specification/about/) - the OpenAPI-vs-Swagger history and the tooling ecosystem around the spec.
+- [JSON Schema](https://json-schema.org/) - the schema standard OpenAPI 3.1 aligns with and that Pydantic emits.
 
 ## Next
 
