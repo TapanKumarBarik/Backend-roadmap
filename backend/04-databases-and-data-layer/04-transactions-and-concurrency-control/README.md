@@ -129,6 +129,17 @@ are held, so no blocking and no deadlocks — but you must write the
 detect-and-retry logic, and it's only a good fit when conflicts are genuinely
 rare (retries are cheap only if they're infrequent).
 
+```
+  Pessimistic (lock first)          Optimistic (check version at write)
+  ─────────────────────────         ──────────────────────────────────
+  SELECT ... FOR UPDATE  ─lock─►    read balance, version=7
+  compute new value                 compute new value
+  UPDATE                            UPDATE ... WHERE version = 7
+  COMMIT  ─────────────unlock         ├─ 1 row  → success (version→8)
+                                       └─ 0 rows → someone won → re-read + retry
+  others BLOCK while locked         nobody blocks; loser retries
+```
+
 **Choosing:** pessimistic when contention is high or the critical section is
 short and you can't afford retries (inventory decrement in a flash sale);
 optimistic when contention is low and holding locks would hurt throughput
@@ -137,7 +148,18 @@ optimistic when contention is low and holding locks would hurt throughput
 ### Deadlocks: what they are, how to avoid them
 
 A **deadlock** is a cycle of waiting: T1 holds lock on row A and wants row B;
-T2 holds lock on row B and wants row A. Neither can proceed. Postgres detects
+T2 holds lock on row B and wants row A. Neither can proceed.
+
+```
+        holds A            wants B
+   T1 ──────────►[A]  ┌───────────────► [B]
+                      │                   ▲
+        wants A       │       holds B     │
+   T1 ◄──────────┐    └── T2 ─────────────┘
+                 └──────── T2 wants A ── cycle: neither can move
+
+   Fix: both lock the LOWER id first (A before B) → no cycle possible.
+``` Postgres detects
 the cycle automatically (after `deadlock_timeout`, default 1s), **kills one
 transaction** with `ERROR: deadlock detected`, and lets the other proceed. Your
 app must catch that error and retry the victim.
@@ -514,6 +536,14 @@ Write down your answer to each question before expanding it — checking without
    deadlocks can form.
 
 </details>
+
+## Further reading & sources
+
+- [PostgreSQL: Transaction Isolation](https://www.postgresql.org/docs/current/transaction-iso.html) - the authoritative description of each level and exactly which anomalies it permits in Postgres.
+- [PostgreSQL: Explicit Locking (FOR UPDATE, SKIP LOCKED)](https://www.postgresql.org/docs/current/explicit-locking.html) - row-level locks, lock modes, and deadlock detection.
+- [SQLAlchemy: Configuring a Version Counter](https://docs.sqlalchemy.org/en/20/orm/versioning.html) - built-in optimistic locking via version_id_col.
+- [2ndQuadrant/EDB: What is SELECT SKIP LOCKED for](https://www.2ndquadrant.com/en/blog/what-is-select-skip-locked-for-in-postgresql-9-5/) - the canonical job-queue pattern explained.
+- [A Beginner's Guide to Read and Write Skew (Vlad Mihalcea)](https://vladmihalcea.com/a-beginners-guide-to-read-and-write-skew-phenomena/) - concrete walk-through of the concurrency anomalies isolation levels prevent.
 
 ## Next
 

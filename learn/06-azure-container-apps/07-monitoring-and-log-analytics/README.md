@@ -346,4 +346,3 @@ concepts from modules 04–07.
 together: a VNet-integrated, multi-revision, Dapr-connected, autoscaling app
 with secrets from Key Vault and monitoring wired up, built and torn down end to
 end.
-</content>

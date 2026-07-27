@@ -105,6 +105,18 @@ for c in customers:
     print(len(c.orders))                             # N queries (one per customer)
 ```
 
+```
+  N+1 (lazy)                        Eager (selectinload)
+  ──────────                        ────────────────────
+  SELECT customers          (1)     SELECT customers                 (1)
+  SELECT orders WHERE c=1   (2)     SELECT orders WHERE c IN (1,2,   (2)
+  SELECT orders WHERE c=2   (3)            ...,500)  ← one round trip
+  ...                       ...
+  SELECT orders WHERE c=500 (501)
+  ─────────────────────────         ─────────────────────────
+  501 round trips for 500 rows      2 round trips, any number of rows
+```
+
 The fix is **eager loading**: tell the ORM to fetch the children up front, in
 *one or two* queries instead of N. SQLAlchemy's main strategies:
 
@@ -141,6 +153,18 @@ gigabytes and heavy scheduler contention).
 A **connection pool** solves this by opening a fixed set of connections once and
 *reusing* them: a request borrows a connection, runs its queries, and returns it
 to the pool instead of closing it. SQLAlchemy pools by default:
+
+```
+  Pool (pool_size=10, max_overflow=5):
+
+  requests ──►  [ idle | idle | idle ]   ready to lend
+                [ ACTIVE | ACTIVE ]      borrowed, running a query
+                [ waiting... ]           all busy → wait up to pool_timeout,
+                                          then overflow (temp conns) or error
+
+  borrow ─► run ─► RETURN to pool (never close). A session left unclosed
+  keeps its connection ACTIVE forever → pool exhaustion.
+```
 
 ```python
 engine = create_engine(
@@ -495,6 +519,15 @@ Write down your answer to each question before expanding it — checking without
    balance) rather than merely slightly-old data.
 
 </details>
+
+## Further reading & sources
+
+- [PostgreSQL: Using EXPLAIN](https://www.postgresql.org/docs/current/using-explain.html) - how to read plan nodes, costs, and the estimate-vs-actual comparison.
+- [PostgreSQL: pg_stat_statements](https://www.postgresql.org/docs/current/pgstatstatements.html) - find the queries costing the most total time across your workload.
+- [SQLAlchemy: Relationship Loading Techniques](https://docs.sqlalchemy.org/en/20/orm/queryguide/relationships.html) - selectinload, joinedload, and how to kill N+1.
+- [SQLAlchemy: Connection Pooling](https://docs.sqlalchemy.org/en/20/core/pooling.html) - pool_size, max_overflow, pre-ping, and recycle explained.
+- [PgBouncer documentation](https://www.pgbouncer.org/) - the external transaction pooler you point apps at once you have many instances.
+- [Use The Index, Luke: Slow Indexes / execution plans](https://use-the-index-luke.com/sql/explain-plan) - reading execution plans across databases.
 
 ## Next
 

@@ -118,6 +118,22 @@ Wide-column is right for things like time-series/event data, activity feeds,
 and IoT telemetry at a scale where a single Postgres box genuinely can't keep
 up on writes.
 
+The same order, seen through each family's native data shape:
+
+```
+  Relational (split + linked)      Document (one nested aggregate)
+  customers                        { _id: order_8842,
+  ┌────┬─────────────┐               customer: { id, name },
+  │ id │ email  name │◄──┐           items: [ {sku,qty}, {sku,qty} ],
+  └────┴─────────────┘   │           total_cents: 2200 }
+  orders                 │ FK
+  ┌────┬─────────────┐   │        Key-value (opaque blob by key)
+  │ id │ customer_id ├───┘         "order:8842" ──► <bytes>  (look up by key only)
+  └────┴─────────────┘
+                                   Wide-column (table built per query)
+  join at read time                (device_id, ts) ──► one fast single-node read
+```
+
 ### Structured vs flexible schemas — the real trade
 
 The "SQL vs NoSQL" debate is mostly a **schema** debate. It's tempting to hear
@@ -160,7 +176,20 @@ Real systems rarely pick one. A single product might keep users and orders in
 (speed matters), a product catalog with per-category attributes in
 **MongoDB** (shape varies), and clickstream events in **Cassandra** (volume is
 enormous). Using several stores, each for what it's best at, is called
-**polyglot persistence**. The skill isn't memorizing which database is
+**polyglot persistence**.
+
+```
+  One application, one access pattern per store:
+
+              ┌──────────────► Postgres    users, orders, payments   (integrity)
+              │
+   app ───────┼──────────────► Redis       sessions, hot cache       (speed)
+              │
+              ├──────────────► MongoDB      product catalog           (variable shape)
+              │
+              └──────────────► Cassandra    clickstream events        (write volume)
+```
+ The skill isn't memorizing which database is
 "best" — it's decomposing a system into access patterns and matching each to
 the store whose trade-offs fit. The cost of polyglot persistence is real
 (more operational surface, no cross-store joins, more ways for data to drift
@@ -478,6 +507,15 @@ Write down your answer to each question before expanding it — checking without
    monitor, and no cross-store integrity, so data can drift out of sync.
 
 </details>
+
+## Further reading & sources
+
+- [PostgreSQL: Data Definition](https://www.postgresql.org/docs/current/ddl.html) - how tables, constraints, and foreign keys enforce the relational contract at write time.
+- [MongoDB: Data Modeling Introduction](https://www.mongodb.com/docs/manual/core/data-modeling-introduction/) - the document/embedding mindset and when a flexible schema helps or hurts.
+- [Redis: An introduction to Redis data types](https://redis.io/docs/latest/develop/data-types/) - what a key-value store is actually good at (caches, sessions, counters).
+- [Apache Cassandra: Data modeling](https://cassandra.apache.org/doc/latest/cassandra/developing/data-modeling/index.html) - the "design the table around the query" philosophy of wide-column stores.
+- [Martin Fowler: Polyglot Persistence](https://martinfowler.com/bliki/PolyglotPersistence.html) - the original framing of using multiple stores, each for its best-fit access pattern.
+- [Designing Data-Intensive Applications (Kleppmann), Ch. 2](https://dataintensive.net/) - a rigorous comparison of relational, document, and graph data models.
 
 ## Next
 

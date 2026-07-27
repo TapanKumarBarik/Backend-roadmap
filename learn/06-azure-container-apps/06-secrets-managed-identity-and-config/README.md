@@ -288,4 +288,3 @@ you've learned this.
 [07-monitoring-and-log-analytics](../07-monitoring-and-log-analytics/README.md)
 — see what your apps are actually doing: console vs system logs, live
 streaming, KQL queries, metrics, and alerts.
-</content>

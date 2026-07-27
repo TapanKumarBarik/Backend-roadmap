@@ -114,4 +114,3 @@ Continue to
 [07-aks](../../07-aks/README.md), where you'll run the same kinds of
 workloads on a cluster you operate directly, and see firsthand everything
 Container Apps was quietly doing for you here.
-</content>

@@ -116,6 +116,17 @@ but a crash can lose the last fraction of a second of "committed" transactions.
 That's a real, deliberate trade some systems make; just know when you've made
 it.
 
+Each guarantee earns its keep by the exact corruption it prevents:
+
+```
+  Guarantee      Prevents (what breaks without it)
+  ---------------------------------------------------------
+  Atomicity   →  half-done txn: A debited, B never credited
+  Consistency →  invalid state committed: balance goes to -50
+  Isolation   →  concurrent corruption: lost update (+5 vanishes)
+  Durability  →  "saved" then gone: crash eats an acked commit
+```
+
 ### The CAP theorem — what it actually says
 
 Now data lives on multiple nodes (replicas, a distributed cluster). The **CAP
@@ -154,6 +165,21 @@ A write arrives at node 1. Node 1 can't reach node 2 to replicate it.
   vectors, etc.). You get **answers always, but possibly stale ones.** Choose
   this when uptime beats momentary correctness: a social feed, a "likes"
   counter, a shopping cart that can merge conflicting versions.
+
+```
+  During a partition, the link between nodes is cut — you must pick a side:
+
+                          C  (all nodes agree)
+                         / \
+                        /   \      Partition tolerance (P) is not optional:
+                       /  P  \     networks DO fail. So the real axis is C vs A.
+                      /       \
+                     A ─── ✂ ─── (other node)
+                (always answers)
+
+     CP: refuse / error until nodes agree   → never wrong, sometimes down
+     AP: answer on both nodes, reconcile     → always up, sometimes stale
+```
 
 Postgres with a single primary is a CP-flavoured system: if the primary is
 unreachable, writes stop rather than diverge. Classic AP systems include
@@ -495,6 +521,15 @@ Write down your answer to each question before expanding it — checking without
    failures.
 
 </details>
+
+## Further reading & sources
+
+- [PostgreSQL: Transactions (tutorial)](https://www.postgresql.org/docs/current/tutorial-transactions.html) - how BEGIN/COMMIT/ROLLBACK give you atomicity in practice.
+- [PostgreSQL: Reliability and the Write-Ahead Log](https://www.postgresql.org/docs/current/wal-intro.html) - exactly how the WAL delivers durability across crashes.
+- [Julia Evans: The CAP theorem](https://jvns.ca/blog/2016/10/23/cap-theorem/) - a short, honest explainer that dismantles the "pick two of three" myth.
+- [Martin Kleppmann: Please stop calling databases CP or AP](https://martin.kleppmann.com/2015/05/11/please-stop-calling-databases-cp-or-ap.html) - why CAP is narrower and subtler than the marketing suggests.
+- [PACELC theorem (overview)](https://en.wikipedia.org/wiki/PACELC_theorem) - the extension that captures the latency-vs-consistency trade-off even without a partition.
+- [Designing Data-Intensive Applications (Kleppmann), Ch. 7-9](https://dataintensive.net/) - the definitive treatment of transactions, isolation, and distributed consistency.
 
 ## Next
 

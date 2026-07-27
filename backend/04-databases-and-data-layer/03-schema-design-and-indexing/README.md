@@ -73,6 +73,23 @@ the key, the whole key, and nothing but the key.** The payoff of a normalized
 design: each fact lives in exactly one place, so there's no way for copies to
 disagree, and updates touch one row.
 
+```
+  orders_bad (everything in one row)
+  | order | cust_name | cust_email | product1 | product2 | city |
+        │
+   1NF  │ split the repeating group (product1, product2) into rows
+        ▼
+  order_items (order, product_name, quantity)
+        │
+   2NF  │ product_name depends on product_id, not the whole key → own table
+        ▼
+  products (id, name, price)     order_items (order_id, product_id, qty)
+        │
+   3NF  │ cust_email depends on the customer, not the order → own table
+        ▼
+  customers (id, name, email)    orders (id, customer_id, city)
+```
+
 ### When to deliberately denormalize
 
 Normalization optimizes for *write integrity* (no redundancy, no drift).
@@ -130,6 +147,19 @@ matching rows, so "find all orders for customer 17" becomes a quick tree
 descent (a few page reads) instead of a **sequential scan** of the whole table.
 The speedup grows with table size: on a 10-million-row table an index turns a
 full scan into a handful of reads.
+
+```
+  B-tree on orders(customer_id) — sorted, a few reads to reach any value:
+
+                     [ 40 | 80 ]           ← root
+                    /     |     \
+             [10|25]   [55|70]   [90|99]   ← branch (still sorted)
+              / | \      ...       ...
+        →  ...leaf: 17 → row-ptr, 17 → row-ptr, 18 → row-ptr...
+                    (sorted leaves = equality AND range AND ORDER BY for free)
+
+  Write cost: every INSERT/UPDATE/DELETE must also thread the row into the tree.
+```
 
 Because a B-tree is *sorted*, one index accelerates several access patterns:
 equality (`= 17`), range (`created_at > '2026-01-01'`), sorting (`ORDER BY
@@ -569,6 +599,14 @@ expanding — no peeking at earlier modules.
    per item — a join-grain error.
 
 </details>
+
+## Further reading & sources
+
+- [PostgreSQL: Indexes](https://www.postgresql.org/docs/current/indexes.html) - the full chapter on index types, multicolumn indexes, partial indexes, and index-only scans.
+- [PostgreSQL: Constraints](https://www.postgresql.org/docs/current/ddl-constraints.html) - primary keys, foreign keys, and the ON DELETE actions that protect integrity.
+- [Use The Index, Luke!](https://use-the-index-luke.com/) - the definitive, vendor-neutral guide to B-tree indexing and why composite-column order matters.
+- [Use The Index, Luke: The Where Clause](https://use-the-index-luke.com/sql/where-clause) - deep dive on selectivity and the leftmost-prefix rule.
+- [Database Normalization (overview)](https://en.wikipedia.org/wiki/Database_normalization) - a concise reference for 1NF through higher normal forms.
 
 ## Next
 

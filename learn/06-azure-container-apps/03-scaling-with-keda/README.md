@@ -358,4 +358,3 @@ concepts from modules 00–03.
 — the networking module: internal vs external ingress, custom VNet/subnet
 integration, private environments, and DNS. This is where the Azure networking
 track pays off.
-</content>

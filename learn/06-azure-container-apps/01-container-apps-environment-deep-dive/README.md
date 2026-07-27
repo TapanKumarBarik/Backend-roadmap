@@ -285,4 +285,3 @@ you've learned this.
 [02-deploying-your-first-container-app](../02-deploying-your-first-container-app/README.md)
 — put an actual app in an Environment: create it from an image, expose ingress,
 update it, and inspect what got deployed.
-</content>

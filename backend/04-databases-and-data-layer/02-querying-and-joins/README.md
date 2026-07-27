@@ -108,10 +108,37 @@ when you forget a join condition — which is how a query that should return
 1,000 rows returns 1,000,000 and hangs. If a join result is suspiciously huge,
 suspect an accidental cross join (a missing or wrong `ON`).
 
+Which rows survive, as sets (L = left/customers, R = right/orders):
+
+```
+  INNER          LEFT           RIGHT          FULL
+   L   R          L   R          L   R          L   R
+  ( (███) )      (███(███) )    ( (███)███)    (███(███)███)
+   only the      all L +        all R +        all L + all R,
+   matches       matched R      matched L      matched where they line up
+                 (unmatched R-cols = NULL, and vice-versa)
+```
+
 ### Subqueries vs joins vs CTEs — three ways to say similar things
 
 Often you can express the same question three ways. They're not always
 interchangeable in performance, but they're a vocabulary you must have.
+
+```
+  "customers with a big order" — same intent, three shapes:
+
+  Subquery   SELECT * FROM customers
+             WHERE id IN ( ─────────────┐  nested set, filter the outer rows
+                           SELECT ... )─┘
+
+  Join       customers ──┐
+                          ├─► matched rows ─► GROUP BY   pull columns from both
+             orders ─────┘
+
+  CTE        WITH big_orders AS ( ... )  ─► name a stage, then query it
+             SELECT ... FROM customers JOIN big_orders ...   reads top-down
+```
+
 
 **Subquery** (a query nested inside another). Handy for "filter by a set" or
 "compute a scalar":
@@ -509,6 +536,14 @@ Write down your answer to each question before expanding it — checking without
    non-recursive CTEs, so the performance gap with subqueries largely closed.
 
 </details>
+
+## Further reading & sources
+
+- [PostgreSQL: Joins Between Tables (tutorial)](https://www.postgresql.org/docs/current/tutorial-join.html) - the official walk-through of inner and outer joins.
+- [PostgreSQL: Table Expressions - Joined Tables](https://www.postgresql.org/docs/current/queries-table-expressions.html#QUERIES-JOIN) - the precise semantics of every join type and the ON-vs-WHERE distinction.
+- [PostgreSQL: WITH Queries (Common Table Expressions)](https://www.postgresql.org/docs/current/queries-with.html) - CTEs, recursion, and the MATERIALIZED / NOT MATERIALIZED hints.
+- [PostgreSQL: Aggregate Functions](https://www.postgresql.org/docs/current/functions-aggregate.html) - how count/sum/avg behave, including their treatment of NULL.
+- [Modern SQL: NULL confusion (Markus Winand)](https://modern-sql.com/concept/null) - why NULL is "unknown," not a value, and how it silently breaks comparisons.
 
 ## Next
 

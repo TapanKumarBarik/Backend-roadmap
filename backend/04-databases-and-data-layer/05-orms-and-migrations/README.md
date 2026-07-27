@@ -65,6 +65,18 @@ with Session(engine) as s:
         print(o.total_cents)
 ```
 
+```
+  The round trip the ORM manages for you:
+
+   Python objects        generated SQL              result rows
+   ───────────────       ─────────────              ───────────
+   select(Order)     ──► SELECT * FROM orders   ──► (1, 17, 500)
+     .where(...)          WHERE total_cents>100      (2, 17, 900)
+                                                        │
+   [Order(id=1,...),  ◄── rows mapped back to     ◄────┘
+    Order(id=2,...)]      Python instances
+```
+
 What you bought: no manual SQL for CRUD, no manual result-tuple unpacking,
 type-checked models, relationship navigation, and — importantly — **portable,
 composable query building** (`select(Order).where(...).order_by(...)`) plus
@@ -137,6 +149,19 @@ right order. That's what a **migration tool** does. **Alembic** (SQLAlchemy's
 migration tool) represents each schema change as a versioned script with an
 `upgrade()` and a `downgrade()`, chained in a linear (or branched) history, each
 identified by a revision id and pointing at its parent (`down_revision`).
+
+```
+  Migration history = a linked chain; upgrade walks forward, downgrade back:
+
+   (base) ──► 9f8e ──────► a1b2 ──────► c3d4  ◄── head
+              initial      add status    add index
+                schema
+
+     alembic upgrade head   ─────────────►  (apply each up() in order)
+     alembic downgrade -1    ◄────────────  (run c3d4.down(), step back one)
+
+   each revision: down_revision points at its parent (a1b2.down_revision = 9f8e)
+```
 
 ```python
 # alembic/versions/a1b2_add_status_to_orders.py
@@ -531,6 +556,15 @@ Write down your answer to each question before expanding it — checking without
    each transaction short.
 
 </details>
+
+## Further reading & sources
+
+- [SQLAlchemy 2.0: ORM Quick Start](https://docs.sqlalchemy.org/en/20/orm/quickstart.html) - declarative models, sessions, and relationships in the modern 2.x style.
+- [SQLAlchemy: Session Basics (unit of work)](https://docs.sqlalchemy.org/en/20/orm/session_basics.html) - how the Session tracks changes and when it actually hits the database.
+- [Alembic: Tutorial](https://alembic.sqlalchemy.org/en/latest/tutorial.html) - creating, autogenerating, and running versioned migrations.
+- [Alembic: Auto Generating Migrations](https://alembic.sqlalchemy.org/en/latest/autogenerate.html) - what autogenerate can and cannot detect (why you must review it).
+- [PostgreSQL: ALTER TABLE](https://www.postgresql.org/docs/current/sql-altertable.html) - which schema changes rewrite or lock a table and which are metadata-only.
+- [Strong Migrations (safe schema change patterns)](https://github.com/ankane/strong_migrations) - a practical catalog of dangerous operations and their safe expand/contract rewrites.
 
 ## Next
 

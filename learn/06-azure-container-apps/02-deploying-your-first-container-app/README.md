@@ -272,4 +272,3 @@ you've learned this.
 [03-scaling-with-keda](../03-scaling-with-keda/README.md) — make the app scale
 on demand: scale-to-zero, HTTP and custom KEDA rules, and diagnosing a rule
 that never fires.
-</content>

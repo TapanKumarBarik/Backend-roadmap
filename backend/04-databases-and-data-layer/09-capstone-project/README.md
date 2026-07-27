@@ -182,6 +182,14 @@ outside.
 
 </details>
 
+## Further reading & sources
+
+- [PostgreSQL 16 Documentation](https://www.postgresql.org/docs/16/index.html) - the complete reference for the database you are building against.
+- [SQLAlchemy 2.0 Documentation](https://docs.sqlalchemy.org/en/20/) - models, sessions, relationships, and loading strategies for the implementation.
+- [Alembic Documentation](https://alembic.sqlalchemy.org/en/latest/) - authoring and running the migration history this capstone requires.
+- [Use The Index, Luke!](https://use-the-index-luke.com/) - to justify each index from its query pattern and execution plan.
+- [Designing Data-Intensive Applications (Kleppmann)](https://dataintensive.net/) - the reference for the transactional-correctness and scaling reasoning in the design doc.
+
 ## Next
 
 [../../05-caching-and-performance/README.md](../../05-caching-and-performance/README.md)

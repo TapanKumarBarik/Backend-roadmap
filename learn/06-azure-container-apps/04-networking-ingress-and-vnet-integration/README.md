@@ -299,4 +299,3 @@ you've learned this.
 [05-revisions-traffic-splitting-and-dapr](../05-revisions-traffic-splitting-and-dapr/README.md)
 — run multiple revisions at once, split traffic for blue/green and canary
 releases, and wire Dapr service invocation between apps.
-</content>

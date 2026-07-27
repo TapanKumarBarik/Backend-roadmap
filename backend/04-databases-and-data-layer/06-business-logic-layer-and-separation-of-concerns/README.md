@@ -44,6 +44,24 @@ Track 02 introduced handler → service → repository. Restated as the classic
   database (SQLAlchemy sessions, queries, transactions). Everything about
   "we use Postgres via SQLAlchemy" is confined here.
 
+```
+  Dependencies point DOWN only (arrows), knowledge is confined per layer:
+
+   HTTP / JSON  ──►  Presentation (handlers)     knows HTTP, not SQL
+                          │  domain objects in/out
+                          ▼
+                     Business (services)         knows rules, not HTTP or SQL
+                          │  repository INTERFACE
+                          ▼
+                     Data (repositories)         the ONLY place SQL/ORM lives
+                          │
+                          ▼
+                       Postgres
+
+   Domain model (rules, plain Python)  ◄─map─►  DB model (SQLAlchemy row)
+                     ▲ lives in Business              ▲ lives in Data only
+```
+
 Dependencies point **downward only**: presentation depends on business, business
 depends on data. Nothing points up. The payoff, concretely: you can swap
 Postgres for another store, or the ORM for raw SQL, and only the data layer
@@ -563,6 +581,14 @@ track. Write each answer before expanding.
    loading strategy (module 07).
 
 </details>
+
+## Further reading & sources
+
+- [Martin Fowler: PresentationDomainDataLayering](https://martinfowler.com/bliki/PresentationDomainDataLayering.html) - the classic case for separating presentation, domain, and data layers.
+- [Martin Fowler: Repository pattern](https://martinfowler.com/eaaCatalog/repository.html) - the original definition of the collection-like abstraction over data access.
+- [Cosmic Python: Repository Pattern](https://www.cosmicpython.com/book/chapter_02_repository.html) - a Python/SQLAlchemy walk-through of repositories, fakes, and dependency inversion.
+- [SOLID principles (overview)](https://en.wikipedia.org/wiki/SOLID) - concise definitions of SRP, OCP, and DIP as applied here.
+- [FastAPI: Dependencies](https://fastapi.tiangolo.com/tutorial/dependencies/) - how Depends wires a per-request session and repository into handlers.
 
 ## Next
 

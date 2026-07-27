@@ -285,4 +285,3 @@ you've learned this.
 [06-secrets-managed-identity-and-config](../06-secrets-managed-identity-and-config/README.md)
 — stop putting connection strings in plaintext: secrets, Key Vault references,
 managed identity, and the role assignments that make them work.
-</content>

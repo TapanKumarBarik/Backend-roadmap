@@ -125,6 +125,20 @@ strategies:
   own shard) — but the directory is an extra hop and a potential single point of
   failure that must itself be highly available.
 
+```
+  Splitting rows across shards by the shard key (e.g. customer_id):
+
+  Range          Hash                       Directory
+  A–H │ ┌──┐     hash(key) % 3              ┌──────────────┐
+  I–P │ │s1│      0 → ┌──┐                  │ key → shard  │ lookup map
+  Q–Z │ └──┘      1 → │s1│  (even spread)   │  17 → s2     │
+        ┌──┐      2 → └──┘                  │  42 → s1     │──► s1 s2 s3
+        │s2│  ... range queries stay on     └──────────────┘
+        └──┘      one shard, hash scatters   flexible, but map is an extra hop
+   simple, but    them; even load, no        + must be highly available
+   hot spots      hot spots
+```
+
 A closely related pattern is **partitioning within a single Postgres**
 (declarative partitioning: one logical table split into partitions by range/
 hash/list on one node) — it helps manageability and some query performance, but
@@ -532,6 +546,15 @@ Write down your answer to each question before expanding it — checking without
    touching business logic — the separation-of-concerns rule from module 06.
 
 </details>
+
+## Further reading & sources
+
+- [PostgreSQL: High Availability, Load Balancing, and Replication](https://www.postgresql.org/docs/current/high-availability.html) - the official overview of streaming replication, standbys, and failover.
+- [PostgreSQL: Monitoring pg_stat_replication](https://www.postgresql.org/docs/current/monitoring-stats.html#MONITORING-PG-STAT-REPLICATION-VIEW) - how to observe replica state and replication lag.
+- [PostgreSQL: Table Partitioning](https://www.postgresql.org/docs/current/ddl-partitioning.html) - declarative partitioning within one node, and why it is not sharding.
+- [Designing Data-Intensive Applications (Kleppmann), Ch. 5-6](https://dataintensive.net/) - the definitive treatment of replication and partitioning/sharding trade-offs.
+- [Citus: Distributed PostgreSQL / sharding](https://docs.citusdata.com/en/stable/sharding/data_modeling.html) - shard keys, co-location, and distributed query patterns in practice.
+- [Instagram Engineering: Sharding & IDs](https://instagram-engineering.com/sharding-ids-at-instagram-1cf5a71e5a5c) - a real-world account of shard-aware id generation.
 
 ## Next
 

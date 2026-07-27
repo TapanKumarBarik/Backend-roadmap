@@ -284,4 +284,3 @@ you've learned this.
 — dissect the Environment: the shared Log Analytics workspace, the shared
 virtual network, and how billing and scaling attach to it versus to individual
 apps.
-</content>

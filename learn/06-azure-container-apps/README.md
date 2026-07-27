@@ -68,5 +68,3 @@ Finishing the capstone in module 08 completes the whole curriculum.
 [Back to main curriculum](../README.md)
 
 Start here → [00-container-apps-concepts-and-prerequisites/README.md](00-container-apps-concepts-and-prerequisites/README.md)
-</content>
-</invoke>
