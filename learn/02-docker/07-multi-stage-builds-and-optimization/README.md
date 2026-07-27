@@ -27,6 +27,23 @@ with `COPY --from=<stage>`, discarding everything else that stage produced
 whichever stage is *last* in the file — anything from earlier stages not
 explicitly copied forward simply isn't in the final image at all.
 
+```
+  STAGE 1: builder                      STAGE 2: final (shipped image)
+  ┌────────────────────────────┐        ┌───────────────────────────┐
+  │ FROM ... AS builder        │        │ FROM python:3.12-slim     │
+  │ compiler / build tools     │        │ COPY --from=builder ──┐   │
+  │ pip install --prefix=/inst │        │   /install /usr/local │   │
+  │ intermediate artifacts     │        │ COPY app.py .         │   │
+  │  ┌──────────────┐          │        │ CMD ["python","app.py"]   │
+  │  │ /install ────────────────────────┘                       │   │
+  │  └──────────────┘          │        └──────────┬────────────┘   │
+  │  toolchain, caches ✗       │                   │ only /install
+  └────────────┬───────────────┘                   ▼ carried forward
+               │ DISCARDED — never in final    slim runtime image
+               ▼ image
+        (whole stage thrown away)
+```
+
 ### The workshop-and-showroom analogy
 
 Think of a workshop and a showroom: the workshop stage has all the tools,
@@ -58,6 +75,16 @@ earlier layer that already shipped it. So `--no-cache-dir` for pip,
 `--no-install-recommends` for apt, and deleting package caches must all
 happen *in the same `RUN`* that created them. Install and clean up in one
 `RUN`, or the cleanup does nothing for image size.
+
+```
+  TWO RUNs (wasteful)              ONE RUN (clean)
+  RUN apt-get install curl        RUN apt-get install curl \
+      → layer: +40 MB  ┐              && rm -rf /var/lib/apt/lists/*
+  RUN rm -rf caches    │              → layer: +8 MB (net)
+      → layer: -0 MB   ┘
+  earlier layer STILL ships        nothing extra ever committed
+  the 40 MB (layers are additive)
+```
 
 ### Ordering, .dockerignore, and BuildKit
 
@@ -507,6 +534,14 @@ point is to find out what actually stuck.
     create`, `build`, and `run` steps for you.
 
 </details>
+
+## Further reading & sources
+
+- [Docker: Multi-stage builds](https://docs.docker.com/build/building/multi-stage/) - the authoritative guide to multiple `FROM` stages and `COPY --from`.
+- [Docker: Building best practices (image size)](https://docs.docker.com/build/building/best-practices/) - official advice on minimizing layers and image size.
+- [Docker: Cache mounts with RUN --mount=type=cache](https://docs.docker.com/build/cache/optimize/#use-cache-mounts) - how the BuildKit cache mount used in exercise 7 works.
+- [GoogleContainerTools: distroless images](https://github.com/GoogleContainerTools/distroless) - the shell-free, package-manager-free base images referenced in the concepts.
+- [Docker: BuildKit overview](https://docs.docker.com/build/buildkit/) - background on the modern build engine that parallelizes stages and enables cache mounts.
 
 ## Next
 

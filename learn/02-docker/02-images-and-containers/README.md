@@ -38,6 +38,24 @@ they share that base's layers on disk instead of duplicating them. This
 is why `docker pull` for an image that shares a base with one you already
 have is fast — it only downloads the layers you don't already have.
 
+```
+   Container A                 Container B
+ ┌──────────────┐           ┌──────────────┐
+ │ writable ▲   │           │ writable ▲   │   ← per-container, thin, R/W
+ │ layer (R/W)  │           │ layer (R/W)  │
+ └──────┬───────┘           └──────┬───────┘
+        └───────────┬──────────────┘
+        ┌───────────▼──────────────┐
+        │  CMD ["python","app.py"] │  (image metadata)
+        │  COPY app.py .           │  ← layer  ┐
+        │  RUN pip install ...     │  ← layer  │ read-only
+        │  COPY requirements.txt . │  ← layer  │ image layers,
+        │  FROM python:3.12-slim   │  ← layers ┘ SHARED on disk
+        └──────────────────────────┘
+   Both containers reuse the same read-only layers; only their
+   writable top layer differs.
+```
+
 > In Docker Desktop: the **Images** tab lists every local image and its
 > size, the GUI equivalent of `docker images`. Click an image to see its
 > layers and the command that created each — the same information
@@ -60,6 +78,14 @@ The lifecycle states line up with process states you already know from
   with `kill` and `sleep`).
 - `docker rm` — deletes a stopped container's writable layer and metadata
   permanently.
+
+```
+  image ──create──► [Created] ──start──► [Running] ──stop──► [Exited]
+                         ▲                    │                 │
+                         │                    │ start           │ rm
+                         └────────────────────┘                 ▼
+        (docker run = create + start + attach)              (gone)
+```
 
 > In Docker Desktop: the **Containers** tab shows each container's state
 > (`Running`, `Exited`) live. The Start/Stop/Delete buttons on each row
@@ -373,6 +399,14 @@ Write down your answer to each question before expanding it — checking without
    entirely new writable layer with none of the previous changes.
 
 </details>
+
+## Further reading & sources
+
+- [Docker: Images and layers (storage drivers)](https://docs.docker.com/storage/storagedriver/) - the authoritative explanation of stacked read-only layers plus the writable container layer.
+- [Docker: The container lifecycle / docker run reference](https://docs.docker.com/reference/cli/docker/container/run/) - full reference for the create/start/stop states and every `docker run` flag used here.
+- [Docker: docker exec reference](https://docs.docker.com/reference/cli/docker/container/exec/) - details on running an additional process inside a live container's namespaces.
+- [Docker: docker logs reference](https://docs.docker.com/reference/cli/docker/container/logs/) - how the daemon buffers stdout/stderr and why containers should log there.
+- [Docker: Overlay filesystem driver overview](https://docs.docker.com/storage/storagedriver/overlayfs-driver/) - ties image layering back to the `overlayfs` mechanism you met on the Linux track.
 
 ## Next
 

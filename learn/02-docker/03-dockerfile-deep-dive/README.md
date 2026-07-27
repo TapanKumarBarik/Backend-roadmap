@@ -19,6 +19,20 @@ filesystem layer (module 02). The final image is the stack of those
 layers. Reading a Dockerfile is like reading a build script — except each
 step's result is cached and reusable.
 
+```
+  Dockerfile                          docker build
+  ┌────────────────────────┐          produces layers, bottom-up
+  │ FROM python:3.12-slim  │ ───────►  [ base layers ]
+  │ WORKDIR /code          │ ───────►  [ + metadata  ]
+  │ COPY requirements.txt .│ ───────►  [ layer       ]
+  │ RUN pip install ...    │ ───────►  [ layer       ]
+  │ COPY app.py .          │ ───────►  [ layer       ]
+  │ CMD ["python","app.py"]│ ───────►  [ + metadata  ]
+  └────────────────────────┘                  │
+                                               ▼
+                                        tagged image  (lab:v1)
+```
+
 ### Layer caching keys on the instruction and its inputs
 
 Docker caches each layer keyed on the instruction plus its inputs. If an
@@ -27,6 +41,16 @@ copies changed), every layer *after* it must rebuild too. This is why
 **instruction order matters**: put things that change rarely (installing
 dependencies) before things that change often (copying application code),
 so a code edit doesn't force a dependency reinstall.
+
+```
+  edit app.py  ─►  which layers rebuild?
+
+  FROM python:3.12-slim     CACHED  ┐
+  COPY requirements.txt .   CACHED  │ unchanged inputs → cache hit
+  RUN pip install ...       CACHED  ┘
+  COPY app.py .             REBUILD ◄── first invalidated layer
+  CMD ["python","app.py"]   REBUILD ◄── everything AFTER also rebuilds
+```
 
 ### The build context is uploaded before the build starts
 
@@ -523,6 +547,14 @@ point is to find out what actually stuck.
    regardless of what the Dockerfile actually copies.
 
 </details>
+
+## Further reading & sources
+
+- [Dockerfile reference](https://docs.docker.com/reference/dockerfile/) - the complete, authoritative reference for every instruction covered in this module.
+- [Docker: Building best practices](https://docs.docker.com/build/building/best-practices/) - official guidance on instruction ordering, cache efficiency, and small images.
+- [Docker: Optimize cache usage in builds](https://docs.docker.com/build/cache/) - deep dive on how the layer cache is keyed and invalidated.
+- [Docker: .dockerignore file](https://docs.docker.com/build/concepts/context/#dockerignore-files) - how to trim the build context, the file this module has you author.
+- [Docker: CMD vs ENTRYPOINT interaction](https://docs.docker.com/reference/dockerfile/#understand-how-cmd-and-entrypoint-interact) - the exact table describing how run arguments combine with the two instructions.
 
 ## Next
 

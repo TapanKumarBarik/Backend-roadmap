@@ -20,6 +20,21 @@ services, the networks connecting them, and the volumes they use. Running
 `docker compose up` reads that file and does, in one step, everything you
 did by hand in module 05.
 
+```
+  compose.yaml                     docker compose up
+  ┌─────────────────────┐          creates one project:
+  │ services:           │
+  │   web:  build ./web │──┐       ┌──── project "compose-lab" ─────┐
+  │   cache: redis:7    │──┤  ──►  │  network: compose-lab_default  │
+  │ volumes:            │  │       │   ┌────────┐    ┌───────────┐  │
+  │   cachedata:        │──┘       │   │  web   │──► │  cache    │  │
+  └─────────────────────┘          │   │ :8000  │DNS │  redis    │  │
+                                   │   └────────┘    └────┬──────┘  │
+                                   │                 volume:cachedata│
+                                   └─────────────────────────────────┘
+   one YAML file  =  network + volumes + services, wired automatically
+```
+
 ### A service is one component of the app
 
 A **service** is a named entry under `services:` describing how to run one
@@ -43,6 +58,15 @@ starting and the database accepting connections are different moments.
 Adding `condition: service_healthy` (paired with a `healthcheck:` on the
 dependency) makes Compose actually wait for health, the reliable way to
 sequence "app waits for database."
+
+```
+  depends_on (order only)        depends_on + condition: service_healthy
+  cache container STARTED        cache healthcheck PASSES
+        │                              │
+        ▼ (immediately)                ▼ (waits for readiness)
+  web starts — db may not         web starts — db proven ready
+  be accepting connections yet    to accept connections
+```
 
 ### Networks and volumes come for free
 
@@ -397,6 +421,14 @@ Write down your answer to each question before expanding it — checking without
    status.
 
 </details>
+
+## Further reading & sources
+
+- [Docker: Docker Compose overview](https://docs.docker.com/compose/) - the top-level introduction to describing multi-container apps declaratively.
+- [Compose file reference](https://docs.docker.com/reference/compose-file/) - the authoritative specification for every key (`services`, `volumes`, `networks`, `depends_on`, `healthcheck`).
+- [Compose: Control startup and shutdown order](https://docs.docker.com/compose/how-tos/startup-order/) - explains the `depends_on` / `condition: service_healthy` readiness distinction this module stresses.
+- [docker compose CLI reference](https://docs.docker.com/reference/cli/docker/compose/) - reference for `up`, `down`, `ps`, `logs`, `exec`, and their flags.
+- [Compose: Environment variables and .env files](https://docs.docker.com/compose/how-tos/environment-variables/) - how project naming and `${VAR}` substitution work.
 
 ## Next
 

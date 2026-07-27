@@ -78,6 +78,16 @@ Linux side and are fast to bind-mount into containers. Files under
 boundary and are noticeably slower for heavy I/O. Keep project files in
 your Linux home directory for anything performance-sensitive.
 
+```
+  Linux side (fast)                Windows side (slow across boundary)
+  ┌─────────────────────┐         ╎        ┌──────────────────────────┐
+  │ /home/you/project   │  native ╎ 9P     │ C:\Users\you\project     │
+  │  → bind-mount ──────────────► ╎ ◄────── │  seen as /mnt/c/... in   │
+  │     into container  │  fast   ╎ xlate   │  WSL2 (per-file overhead)│
+  └─────────────────────┘         ╎         └──────────────────────────┘
+                          translation boundary
+```
+
 ### Integration is per-distro; resources are global
 
 WSL2 integration is a per-distro toggle: enabling it for "Ubuntu" injects
@@ -314,6 +324,14 @@ Write down your answer to each question before expanding it — checking without
    would print.
 
 </details>
+
+## Further reading & sources
+
+- [Docker Desktop WSL 2 backend on Windows](https://docs.docker.com/desktop/features/wsl/) - official guide to how Docker Desktop uses the WSL2 engine and how to enable per-distro integration.
+- [Install Docker Desktop on Windows](https://docs.docker.com/desktop/install/windows-install/) - the canonical install steps and system requirements this module walks through.
+- [Microsoft: What is WSL 2?](https://learn.microsoft.com/en-us/windows/wsl/about) - background on the lightweight utility VM and real Linux kernel that Docker's engine runs inside.
+- [Microsoft: Comparing WSL versions and file-system performance](https://learn.microsoft.com/en-us/windows/wsl/filesystems) - explains the `/mnt/c` cross-OS translation cost behind this module's "keep files on the Linux side" advice.
+- [docker version / docker info reference](https://docs.docker.com/reference/cli/docker/version/) - the CLI reference for the client/server verification commands used here.
 
 ## Next
 

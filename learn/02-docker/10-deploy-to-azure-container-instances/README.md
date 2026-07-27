@@ -25,6 +25,20 @@ namespace and, optionally, volumes. For a single-container deployment
 `docker run`, but hosted on Azure-managed infrastructure with a public IP
 instead of your machine's.
 
+```
+   your machine          Azure
+  ┌───────────┐  push   ┌──────────────────────────────────────────┐
+  │ az acr    │────────►│ ACR  myacr.azurecr.io/webapp:v1          │
+  │ build     │         └───────────────┬──────────────────────────┘
+  └───────────┘                         │ pull (registry creds)
+                                        ▼
+                    ┌─────────── container group "webapp-aci" ─────┐
+                    │  ┌──────────────┐   public FQDN:             │
+   browser ────────────►│ webapp :8000 │  <label>.<region>         │
+   :8000            │  └──────────────┘  .azurecontainer.io        │
+                    └───────────────────────────────────────────────┘
+```
+
 ### ACI needs to authenticate to your registry to pull the image
 
 Since your image lives in a private ACR instance (module 08), ACI needs
@@ -353,6 +367,14 @@ Write down your answer to each question before expanding it — checking without
    you must delete the group (or resource group) to stop being charged.
 
 </details>
+
+## Further reading & sources
+
+- [Azure: What is Azure Container Instances?](https://learn.microsoft.com/en-us/azure/container-instances/container-instances-overview) - the official overview of container groups and the ACI service.
+- [Azure: Quickstart — deploy a container to ACI with the CLI](https://learn.microsoft.com/en-us/azure/container-instances/container-instances-quickstart) - the walkthrough this module's exercises mirror.
+- [Azure: Deploy to ACI from Azure Container Registry](https://learn.microsoft.com/en-us/azure/container-instances/container-instances-using-azure-container-registry) - how ACI authenticates and pulls a private ACR image.
+- [az container CLI reference](https://learn.microsoft.com/en-us/cli/azure/container) - the full reference for `create`, `show`, `logs`, and `delete`.
+- [Azure: Container Instances pricing](https://azure.microsoft.com/en-us/pricing/details/container-instances/) - the per-second CPU/memory billing model behind this module's cleanup warnings.
 
 ## Next
 

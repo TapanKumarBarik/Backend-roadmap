@@ -19,6 +19,22 @@ it, exactly like `mount --bind` on a Linux host makes one directory
 appear at another path. They differ in *what* is mounted and *who
 manages it*.
 
+```
+        BIND MOUNT                          NAMED VOLUME
+  host path you manage                Docker-managed storage
+  ┌───────────────────┐               ┌───────────────────────┐
+  │ ~/project/app.py  │               │  volume "appdata"     │
+  └─────────┬─────────┘               │  (inside WSL2 VM)     │
+            │ -v $(pwd)/app.py:...     └───────────┬───────────┘
+            ▼                                      │ -v appdata:/data
+  ┌───────────────────┐               ┌────────────▼──────────┐
+  │ container /code/  │               │ container /data/      │
+  │  app.py (live)    │               │  (Docker owns it)     │
+  └───────────────────┘               └───────────────────────┘
+  edit on host = instant              survives docker rm; not
+  inside container                    browsable from Explorer
+```
+
 ### Bind mount: your host path, your responsibility
 
 A **bind mount** mounts an existing path from your host filesystem
@@ -49,6 +65,14 @@ Because the writable layer is deleted with the container (`docker rm`),
 and it makes multiple containers unable to share state. A mounted volume
 is what lets a database container's data survive a `docker rm` + fresh
 `docker run`, or lets two containers share a directory.
+
+```
+  Where data can live      Survives docker rm?
+  ─────────────────────    ───────────────────
+  writable layer           NO   (deleted with the container)
+  named volume             YES  (Docker-managed, independent)
+  bind mount               YES  (it's a host path, untouched)
+```
 
 ### Permissions carry over from Linux
 
@@ -337,6 +361,14 @@ Write down your answer to each question before expanding it — checking without
    reachable from your normal Windows/WSL2 filesystem.
 
 </details>
+
+## Further reading & sources
+
+- [Docker: Manage data in Docker (storage overview)](https://docs.docker.com/storage/) - the top-level guide comparing volumes, bind mounts, and tmpfs.
+- [Docker: Volumes](https://docs.docker.com/storage/volumes/) - the reference for creating, inspecting, and managing named volumes.
+- [Docker: Bind mounts](https://docs.docker.com/storage/bind-mounts/) - details on mounting host paths, including read-only and the `--mount` syntax.
+- [Docker: docker volume CLI reference](https://docs.docker.com/reference/cli/docker/volume/) - full reference for `create`, `ls`, `inspect`, `rm`, and `prune`.
+- [Docker: Troubleshoot volume and permission issues](https://docs.docker.com/storage/troubleshooting_volume_errors/) - background for the UID/GID ownership problem exercise 8 reproduces.
 
 ## Next
 

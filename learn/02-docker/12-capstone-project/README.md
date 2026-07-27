@@ -139,6 +139,15 @@ earlier modules freely).
   right response — you've actually deployed something, not just gotten
   a command to exit successfully once.
 
+## Further reading & sources
+
+- [Docker: Multi-stage builds](https://docs.docker.com/build/building/multi-stage/) - for the two-stage Dockerfile the capstone requires.
+- [Compose file reference](https://docs.docker.com/reference/compose-file/) - for the multi-service `compose.yaml` with a named volume and health-gated `depends_on`.
+- [Azure: Deploy a multi-container group to ACI with YAML](https://learn.microsoft.com/en-us/azure/container-instances/container-instances-multi-container-yaml) - the `az container create --file` path referenced in the multi-container hint.
+- [Azure: Run a custom container in App Service](https://learn.microsoft.com/en-us/azure/app-service/quickstart-custom-container) - the App Service deployment option for the capstone.
+- [OWASP: Docker Security Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Docker_Security_Cheat_Sheet.html) - to sanity-check the non-root, minimal-image requirements before you ship.
+- [Docker: Build best practices](https://docs.docker.com/build/building/best-practices/) - a final checklist for image size, caching, and `.dockerignore` before deploying.
+
 ## Next
 
 This is the last module in the Docker track. From here, continue to the

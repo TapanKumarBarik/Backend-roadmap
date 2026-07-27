@@ -22,6 +22,17 @@ image reference looks like
 with no registry host, Docker assumes `docker.io` (Docker Hub) — Docker
 Hub is the default, not the only option.
 
+```
+   local machine                    registry (Docker Hub / ACR)
+  ┌───────────────┐   docker push   ┌──────────────────────────────┐
+  │ webapp:v1     │ ───────────────►│ <repo>/webapp                │
+  │ (image layers)│                 │   :v1  → manifest + layers   │
+  └───────────────┘ ◄─────────────── │   :v2  → manifest + layers  │
+        another         docker pull  └──────────────────────────────┘
+        machine ◄────────────────────────────┘
+   push/pull transfer only layers the other side is missing
+```
+
 ### Tagging is a local, free operation
 
 `docker tag <source> <target>` doesn't copy or rebuild anything — it adds
@@ -29,6 +40,16 @@ a second name pointing at the same image ID (same layers), exactly like a
 hard link pointing at the same inode. This is how you take an image you
 built with a plain local name (`webapp`) and give it the fully-qualified
 name a specific registry expects before pushing.
+
+```
+  docker tag webapp myregistry.azurecr.io/webapp:v1
+
+     webapp:latest ──────────┐
+                             ├──► IMAGE ID sha256:abc…  (one set of layers)
+     myregistry.azurecr.io/  │
+       webapp:v1 ────────────┘
+   two names, one image — no copy, no rebuild (like a hard link)
+```
 
 > In Docker Desktop: the **Images** tab shows every tag pointing at an
 > image. Tag two names to the same build and you'll see both listed
@@ -330,6 +351,14 @@ Write down your answer to each question before expanding it — checking without
    `<name>.azurecr.io` coexist independently.
 
 </details>
+
+## Further reading & sources
+
+- [Docker: docker push / docker pull reference](https://docs.docker.com/reference/cli/docker/image/push/) - the CLI reference for uploading and downloading images, including tag semantics.
+- [Docker Hub quickstart](https://docs.docker.com/docker-hub/quickstart/) - how repositories, tags, and namespaces work on the default registry.
+- [Azure: Introduction to Azure Container Registry](https://learn.microsoft.com/en-us/azure/container-registry/container-registry-intro) - overview of ACR, SKUs, and how it fits into Azure.
+- [Azure: Build images with az acr build (ACR Tasks)](https://learn.microsoft.com/en-us/azure/container-registry/container-registry-quickstart-task-cli) - the cloud-build workflow used in this module's exercises.
+- [Azure: Authenticate with an Azure container registry](https://learn.microsoft.com/en-us/azure/container-registry/container-registry-authentication) - explains `az acr login`, tokens, admin credentials, and managed identity.
 
 ## Next
 

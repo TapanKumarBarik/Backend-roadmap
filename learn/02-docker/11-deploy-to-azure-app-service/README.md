@@ -30,7 +30,20 @@ instead of a code deployment.
 Once configured with a container image, App Service does conceptually
 what `docker run` does locally: pulls the image from the registry you
 specify, starts a container from it, and routes public HTTPS traffic to
-whatever port the container listens on internally. The two commands that
+whatever port the container listens on internally.
+
+```
+                    ┌──────── App Service Plan (B1 compute) ────────┐
+   ACR              │  ┌──────── Web App ─────────────────────────┐ │
+  ┌──────────────┐  │  │  pulls image ─► runs container            │ │
+  │ webapp:v1    │──┼─►│  WEBSITES_PORT=8000 ─► routes here        │ │
+  └──────────────┘  │  └──────────────────────────────────────────┘ │
+   (registry creds) └─────────────────────┬─────────────────────────┘
+                                           │ managed HTTPS
+   browser ─── https://<name>.azurewebsites.net ◄──── auto TLS cert
+```
+
+The two commands that
 matter are `az webapp create --deploy-container-image-name` (set the
 image at creation time) and `az webapp config container set` (change it
 later, e.g. to deploy a new tag) — both ultimately configure the same
@@ -45,6 +58,13 @@ port — like this track's example Flask app on `8000` — you must set the
 traffic to your container even though it started successfully. This is
 the App Service equivalent of getting the container-side port right in
 `docker run -p` or ACI's `--ports`.
+
+```
+  WEBSITES_PORT=8000 (correct)      WEBSITES_PORT unset/9999 (broken)
+  App Service ──► :8000 ◄─ app      App Service ──► :80/:9999   app on :8000
+     traffic reaches app               nothing listening → "Application Error"
+                                       (container started fine — routing gap)
+```
 
 ### Registry authentication works the same way as ACI
 
@@ -478,6 +498,14 @@ point is to find out what actually stuck.
     property.
 
 </details>
+
+## Further reading & sources
+
+- [Azure: App Service overview](https://learn.microsoft.com/en-us/azure/app-service/overview) - the platform overview, including App Service Plans and Web Apps.
+- [Azure: Run a custom container in App Service](https://learn.microsoft.com/en-us/azure/app-service/quickstart-custom-container) - the container-hosting workflow this module follows, including `WEBSITES_PORT`.
+- [Azure: Configure a custom container (WEBSITES_PORT, registry auth)](https://learn.microsoft.com/en-us/azure/app-service/configure-custom-container) - reference for the port and private-registry settings used here.
+- [az webapp CLI reference](https://learn.microsoft.com/en-us/cli/azure/webapp) - the full reference for `create`, `config container set`, `log tail`, and `restart`.
+- [Azure: App Service pricing](https://azure.microsoft.com/en-us/pricing/details/app-service/linux/) - the per-plan hourly billing model behind this module's cleanup warnings.
 
 ## Next
 

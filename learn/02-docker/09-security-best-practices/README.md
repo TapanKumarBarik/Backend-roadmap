@@ -53,6 +53,15 @@ all — if an attacker can't get a shell, many post-exploitation techniques
 simply don't work. This is the same "smaller surface, fewer things that
 can go wrong" logic as disabling unused services on a bare Linux server.
 
+```
+  attack surface, largest → smallest
+  python:3.12       [ shell + apt + many utils + app ]  ██████████
+  python:3.12-slim  [ shell + minimal utils + app    ]  █████
+  python:3.12-alpine[ busybox shell + app            ]  ███
+  distroless        [ app + runtime only, NO shell   ]  █
+                    fewer tools = fewer post-exploit options
+```
+
 ### Secrets don't belong in layers
 
 Anything written into an image layer (an `ENV` with a password, a `COPY`
@@ -66,6 +75,19 @@ all: inject them at **runtime** via environment variables
 (`docker run -e`, or Compose's `environment:`/`env_file:`) or mounted
 files, so they exist only in the running container's memory/writable
 layer, never baked into the shareable image.
+
+```
+  BAKED IN (leaks)                     INJECTED AT RUNTIME (safe)
+  Dockerfile                           Dockerfile ships no secret
+  ┌──────────────────────────┐         ┌──────────────────────────┐
+  │ RUN echo KEY > creds  ← still in    │ CMD uses $API_KEY        │
+  │ RUN rm creds          │ history!    └──────────────────────────┘
+  └──────────────────────────┘                    │
+      layer 1: creds  ✗ shipped                    │ docker run -e API_KEY=…
+      layer 2: (rm)   removes view only            ▼
+   docker history --no-trunc → SECRET       secret lives only in the
+                                            running container's memory
+```
 
 ### BuildKit secret mounts keep build-time secrets out of layers too
 
@@ -416,6 +438,14 @@ Write down your answer to each question before expanding it — checking without
    about the packages you've installed.
 
 </details>
+
+## Further reading & sources
+
+- [OWASP: Docker Security Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Docker_Security_Cheat_Sheet.html) - a concise, authoritative checklist covering non-root users, minimal images, and secrets.
+- [Docker: Build secrets (RUN --mount=type=secret)](https://docs.docker.com/build/building/secrets/) - how to supply build-time secrets without baking them into layers.
+- [Docker Scout overview](https://docs.docker.com/scout/) - the built-in image vulnerability scanner used in this module's exercises.
+- [Docker: Engine security](https://docs.docker.com/engine/security/) - official background on the container threat model and the shared-kernel caveat.
+- [Trivy: open-source image scanner](https://trivy.dev/latest/docs/target/container_image/) - a popular alternative CVE scanner to cross-check Docker Scout findings.
 
 ## Next
 

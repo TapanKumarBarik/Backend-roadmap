@@ -36,6 +36,14 @@ observe. Docker uses several:
 You already met this reasoning indirectly on the Linux track: a namespace
 is just "this process sees a private version of X."
 
+```
+        Host reality                    What the container "sees"
+  real PID 48213 ──────────────────►  PID 1  (via PID namespace)
+  host rootfs /var/lib/docker/... ──►  /      (via mount namespace)
+  veth + host IP 172.17.0.1  ───────►  eth0 172.17.0.2 (net namespace)
+                                        localhost = only itself
+```
+
 ### Cgroups control what a process can use
 
 Where namespaces limit what a process can *see*, **cgroups** (control
@@ -52,6 +60,24 @@ hardware-assisted virtual) CPU, memory, and disk. Two VMs on one host are
 two fully independent operating systems that happen to share a physical
 machine. Two containers on one host are two processes that happen to
 share one kernel with different views of it.
+
+```
+        CONTAINERS                               VIRTUAL MACHINES
+ ┌──────────┐ ┌──────────┐            ┌──────────────┐ ┌──────────────┐
+ │  App A   │ │  App B   │            │    App A     │ │    App B     │
+ ├──────────┤ ├──────────┤            ├──────────────┤ ├──────────────┤
+ │ bins/libs│ │ bins/libs│            │  bins/libs   │ │  bins/libs   │
+ └────┬─────┘ └────┬─────┘            ├──────────────┤ ├──────────────┤
+      │            │                  │  Guest OS    │ │  Guest OS    │
+      │ namespaces │                  │  + kernel    │ │  + kernel    │
+      │ + cgroups  │                  └──────┬───────┘ └──────┬───────┘
+ ┌────▼────────────▼────┐            ┌───────▼─────────────────▼───────┐
+ │   Shared host kernel │            │           Hypervisor            │
+ ├──────────────────────┤            ├─────────────────────────────────┤
+ │        Hardware      │            │            Hardware             │
+ └──────────────────────┘            └─────────────────────────────────┘
+  one kernel, many views              one kernel per VM, hardware-virtualized
+```
 
 ### The apartment-building analogy
 
@@ -332,6 +358,14 @@ Write down your answer to each question before expanding it — checking without
    (add `--no-stream` for a single snapshot).
 
 </details>
+
+## Further reading & sources
+
+- [Docker: What is a container?](https://www.docker.com/resources/what-container/) - Docker's own overview of containers vs VMs and where the isolation comes from.
+- [man7: namespaces(7)](https://man7.org/linux/man-pages/man7/namespaces.7.html) - the authoritative Linux manual page on the PID, mount, and network namespaces that make a process a "container".
+- [man7: cgroups(7)](https://man7.org/linux/man-pages/man7/cgroups.7.html) - the manual page for the control groups that cap a container's CPU, memory, and I/O.
+- [Docker: Container runtime overview](https://docs.docker.com/engine/#docker-architecture) - how the Docker engine turns these kernel features into the containers you run.
+- [DigitalOcean: The Docker ecosystem — containers vs VMs](https://www.digitalocean.com/community/tutorials/the-docker-ecosystem-an-introduction-to-common-components) - a beginner-friendly tutorial reinforcing the shared-kernel model.
 
 ## Next
 

@@ -26,6 +26,24 @@ link add type bridge`) that containers plug into like virtual network
 cards. Containers on the same bridge can reach each other directly by IP;
 the host can reach them only through explicitly published ports.
 
+```
+                    Host (WSL2 VM)
+   browser :8000 ─► ┌─────────────────────────────────────┐
+                    │  -p 8000:8000  (NAT / iptables)      │
+                    │            │                         │
+                    │   ┌────────▼─── docker bridge ───────┐
+                    │   │  (virtual switch)                │
+                    │   │    │                │            │
+                    │   │ ┌──▼───────┐   ┌────▼─────────┐  │
+                    │   │ │ web      │   │ db           │  │
+                    │   │ │172.18.0.2│   │ 172.18.0.3   │  │
+                    │   │ │ :8000    │   │ :5432        │  │
+                    │   │ └──────────┘   └──────────────┘  │
+                    │   └──────────────────────────────────┘
+                    └─────────────────────────────────────┘
+   web ↔ db talk directly by IP/name; host only via -p mapping
+```
+
 ### Publishing a port forwards host traffic inward
 
 **Publishing a port** with `-p host:container` sets up a mapping so
@@ -51,6 +69,15 @@ each container can reach another by its `--name` as a hostname, resolved
 automatically, no hardcoded IPs. The *default* bridge network (where
 containers land if you don't specify one) does **not** provide this
 automatic name resolution — a key, easy-to-miss difference.
+
+```
+  user-defined bridge "applab"        default "bridge"
+  ┌──────────────────────────┐       ┌──────────────────────────┐
+  │  svcB ──"svcA"──► svcA   │       │  svcB ──"svcA"──► ✗ fail  │
+  │        (DNS resolves)    │       │     (no name resolution)  │
+  └──────────────────────────┘       └──────────────────────────┘
+      reach peers by --name             must use raw IPs only
+```
 
 ### Three things to keep straight
 
@@ -346,6 +373,14 @@ Write down your answer to each question before expanding it — checking without
    its IP and the network it's attached to.
 
 </details>
+
+## Further reading & sources
+
+- [Docker: Networking overview](https://docs.docker.com/network/) - the top-level guide to bridge, host, and none network drivers.
+- [Docker: Bridge network driver](https://docs.docker.com/network/drivers/bridge/) - explains user-defined bridges, DNS-based service discovery, and how they differ from the default bridge.
+- [Docker: Published ports and packet filtering](https://docs.docker.com/network/packet-filtering-firewalls/) - how `-p` maps host ports via NAT/iptables and how to restrict binding.
+- [Docker: docker network CLI reference](https://docs.docker.com/reference/cli/docker/network/) - full reference for `create`, `inspect`, `connect`, and `rm`.
+- [Docker Desktop: Explore networking features (host.docker.internal)](https://docs.docker.com/desktop/features/networking/) - documents the special host DNS name and Docker Desktop networking specifics.
 
 ## Next
 
