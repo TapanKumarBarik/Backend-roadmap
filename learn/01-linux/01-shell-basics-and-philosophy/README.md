@@ -31,11 +31,56 @@ command [flags/options] [arguments]
 
 For example, in `echo -n hello`, `echo` is the command, `-n` is a flag (meaning "don't print a trailing newline"), and `hello` is the argument.
 
+```
+   echo   -n        hello
+   │      │         │
+   │      │         └── argument: the text acted on
+   │      └── flag: modifies HOW echo behaves (suppress newline)
+   └── command: WHAT program to run
+```
+
+**Where the shell sits in the stack.** The terminal, shell, and OS kernel are three different layers, easy to conflate as a beginner:
+
+```
+┌─────────────────────────────────────────────┐
+│  Terminal emulator (Ubuntu app / Windows      │
+│  Terminal tab) — draws the window, fonts,     │
+│  colors. Just I/O plumbing, does no             │
+│  interpreting.                                │
+└───────────────────┬───────────────────────────┘
+                    │ keystrokes in, text out
+┌───────────────────▼───────────────────────────┐
+│  Shell (bash) — reads the line you typed,      │
+│  parses command/flags/arguments, decides       │
+│  what to run, shows you the result.            │
+└───────────────────┬───────────────────────────┘
+                    │ system calls
+┌───────────────────▼───────────────────────────┐
+│  Linux kernel — actually creates the process,   │
+│  manages memory/files/devices, runs the         │
+│  program for real.                              │
+└─────────────────────────────────────────────────┘
+```
+
+Closing the terminal window only kills that top layer's view; the shell process and anything it started go with it, but your files (owned by the kernel/filesystem layer) are untouched — which is *why* exercise-11's "did closing the window reset Linux?" question earlier always answers "no."
+
 **The Unix philosophy.** Linux tools were designed around a few core ideas that still shape how you use the terminal today:
 - **Do one thing well.** Each command tends to have a single, narrow job (e.g. `echo` just prints text; it doesn't also search files or manage processes).
 - **Everything is text.** Programs communicate by reading and writing plain text, which means any tool's output can become another tool's input.
 - **Compose small tools together.** Rather than one giant program with every feature, you combine small, focused programs to accomplish bigger tasks. You'll see this later with the pipe symbol (`|`), which sends one command's output into another command as input - you don't need to use it yet, just know the idea exists.
 - **Everything is a file.** In Linux, not just documents but devices, settings, and even some running process information are represented and accessed as files. This is why file-related skills (coming in modules 02-03) generalize so widely across the system.
+
+Composition in practice looks like this (you're not expected to run this yet — it's previewing the `|` pipe you'll use for real starting in module 03):
+
+```
+   command A          command B          command C
+  ┌──────────┐  text  ┌──────────┐  text  ┌──────────┐
+  │ produces │ ─────► │ filters/ │ ─────► │ formats/ │ ──► final output
+  │  output  │  pipe  │transforms│  pipe  │ displays │
+  └──────────┘        └──────────┘        └──────────┘
+```
+
+Each box is a small, single-purpose program that knows nothing about the others — they only agree on "plain text in, plain text out," which is what makes chaining them together possible.
 
 **Getting help without leaving the terminal.** You will constantly forget exact flag names - that's normal, even for experienced engineers. Linux gives you two built-in ways to check:
 - `command --help` prints a short summary of what a command does and its available flags, directly in your terminal.
@@ -177,6 +222,14 @@ Write down your answer to each question before expanding it — checking without
 8. The error tells you `--bogusflag` is not a recognized option for the `date` command - it's a literal, specific complaint about an unknown flag, not a vague failure. To fix it, remove the invalid flag or replace it with an actual valid one (checkable via `date --help` or `man date`).
 
 </details>
+
+## Further reading & sources
+
+- [The Art of Unix Programming, ch. 1 (Basics of the Unix Philosophy)](http://www.catb.org/~esr/writings/taoup/html/ch01s06.html) - Eric Raymond's classic, the definitive source for "do one thing well," "everything is text," and the other principles this module summarizes.
+- [GNU Bash Reference Manual](https://www.gnu.org/software/bash/manual/bash.html) - the canonical, exhaustive reference for bash specifically (not just POSIX shell in general).
+- [`explainshell.com`](https://explainshell.com/) - paste any command and it breaks down every flag and argument inline; genuinely useful once commands get longer than this module's examples.
+- [tldr.sh](https://tldr.sh/) - community-maintained, example-first alternative to `man` pages — good for "just show me a working example" when a full man page feels like too much.
+- [`man7.org` Linux man-pages online](https://man7.org/linux/man-pages/) - the same content as local `man` pages, browsable from any device, useful for looking things up before you even have Ubuntu open.
 
 ## Next
 Continue to [02-filesystem-navigation](../02-filesystem-navigation/README.md) to learn how Linux organizes files and directories, and how to move around and manage them from the command line.

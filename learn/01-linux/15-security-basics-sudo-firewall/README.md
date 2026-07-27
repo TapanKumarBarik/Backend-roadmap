@@ -14,9 +14,33 @@ Everything you've learned so far - users and permissions, package management, ne
 
 **Least privilege in sudo rules, concretely.** A sudoers rule can be as broad as "this user can run any command as any user" or as narrow as "this user can run exactly this one command, with exactly these arguments, as root, without even needing to type a password." The narrower version is almost always safer: if that account is ever compromised, the damage is capped at exactly what the rule allows, not "anything root can do."
 
+```
+  sudoers rule spectrum:
+
+  ALL=(ALL) ALL                     ← full root access, any command
+  ALL=(ALL) NOPASSWD: ALL           ← full root access, no password even
+  ALL=(ALL) NOPASSWD: /usr/bin/uptime  ← exactly one command, nothing else
+
+  narrower ─────────────────────────────────────► broader
+  (blast radius if compromised: one command)  (blast radius: everything)
+```
+
 **Firewalls, conceptually.** A firewall is a set of rules that decides which network traffic is allowed in or out of a machine, based on things like port number and protocol. You already used `ss` in module 10 to see which ports are actually listening on your machine - a firewall is the layer that decides whether traffic reaching those listening ports from outside is allowed to arrive at all. The security logic is simple: if nothing needs to reach a port from the outside, block it; if only a specific service needs to be reachable, allow only that.
 
 **`ufw` (Uncomplicated Firewall).** `ufw` is a simplified, human-friendly front end for Ubuntu's underlying firewall system. Instead of writing low-level rules, you express intent directly: allow this port, deny that one, check overall status. It has a single on/off state (enabled or disabled) and a list of rules evaluated for traffic that isn't otherwise already permitted (e.g., you don't need a rule for traffic your own machine initiated and is waiting on a reply for).
+
+```
+  ss -tuln shows:  Local Address:Port
+
+   127.0.0.1:5432   ← bound to localhost only, unreachable from outside
+                       no matter what the firewall says
+
+   0.0.0.0:22        ← bound to ALL interfaces, reachable from the network
+                       IF the firewall (ufw) allows it through
+
+  firewall (ufw) only matters for the second case — it can't expose
+  a service that was never listening externally in the first place
+```
 
 **Checking exposure with `ss` (recap + new angle).** Module 10 introduced `ss` for inspecting sockets. In a security context, the key question becomes: "what is actually listening for incoming connections on this machine, and did I intend for that?" A service listening on `0.0.0.0` (all network interfaces) is reachable from outside if the firewall allows it; a service listening only on `127.0.0.1` (localhost) is not reachable from other machines regardless of firewall rules, because it never accepts connections from outside in the first place. Reviewing listening ports regularly is a simple, high-value habit: unexpected listeners are one of the most common signs of misconfiguration or compromise.
 
@@ -155,6 +179,14 @@ point is to find out what actually stuck.
 
 </details>
 
+## Further reading & sources
+
+- [`man7.org`: sudoers(5)](https://man7.org/linux/man-pages/man5/sudoers.5.html) - the full sudoers rule syntax beyond the `NOPASSWD:` single-command pattern used here.
+- [Ubuntu Server docs: UncomplicatedFirewall (ufw)](https://ubuntu.com/server/docs/security-firewall) - the official ufw reference, including application profiles (`ufw app list`) beyond raw ports.
+- [`man7.org`: sshd_config(5)](https://man7.org/linux/man-pages/man5/sshd_config.5.html) - full server-side SSH config reference, including `PermitRootLogin` and other hardening directives beyond this module's scope.
+- [fail2ban official docs](https://github.com/fail2ban/fail2ban/wiki) - configuration reference if you want to go past the "installed and running" level this module stops at.
+- [CIS Benchmarks for Ubuntu Linux](https://www.cisecurity.org/benchmark/ubuntu_linux) - the industry-standard, much more exhaustive hardening checklist for when you administer a real production machine.
+
 ## Next
 
-This completes the Linux track. Continue to the Docker track to start containerizing applications, building on the process management, networking, and permissions foundations you've built here.
+Continue to [16-capstone-project](../16-capstone-project/README.md), the Log Watchdog project that combines everything from this track — scripting, permissions, systemd, logging, and security — into one piece of work.

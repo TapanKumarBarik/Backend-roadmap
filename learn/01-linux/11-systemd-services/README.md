@@ -14,6 +14,33 @@ Every long-running background process on a modern Linux server - web servers, da
 
 **A service file describes how to run and supervise a program.** It's a plain text file with sections in square brackets. `[Unit]` holds metadata and ordering info (like "start after the network is up"). `[Service]` describes how to actually run it - the command to execute (`ExecStart`), and what to do if it crashes (`Restart=`). `[Install]` describes how the service hooks into the boot process, primarily via `WantedBy=`, which says which "target" (a grouping of units, roughly analogous to a traditional runlevel) should pull this service in when enabled.
 
+```
+[Unit]
+Description=Heartbeat test service        ← metadata, shown in `systemctl status`
+
+[Service]
+ExecStart=/home/paresh/scripts/heartbeat.sh  ← what to actually run (absolute path)
+Restart=on-failure                          ← supervision: restart if it exits non-zero
+
+[Install]
+WantedBy=multi-user.target                  ← which boot target pulls this in when enabled
+```
+
+And the four states this module keeps distinguishing:
+
+```
+                enabled          disabled
+             ┌───────────────┬───────────────┐
+   running   │ running now,  │ running now,   │
+             │ survives      │ won't survive  │
+             │ reboot        │ reboot         │
+             ├───────────────┼───────────────┤
+   stopped   │ not running,  │ not running,   │
+             │ will start at │ won't start    │
+             │ next boot     │ at all         │
+             └───────────────┴───────────────┘
+```
+
 **Custom unit files live in a specific, well-known location.** System-defined services shipped by packages typically live in `/lib/systemd/system/` or `/usr/lib/systemd/system/`. Your own custom unit files belong in `/etc/systemd/system/` - this is the standard, expected place for administrator-created services, and it takes precedence over the package-provided locations if names collide.
 
 **systemd needs to be told when unit files change.** Because systemd reads unit files once and keeps them in memory, editing or adding a `.service` file doesn't take effect until you tell systemd to reload its configuration from disk.
@@ -183,6 +210,14 @@ point is to find out what actually stuck.
 
 </details>
 
+## Further reading & sources
+
+- [`man7.org`: systemd.service(5)](https://man7.org/linux/man-pages/man5/systemd.service.5.html) - the full directive reference for `[Service]` sections (this module used only `ExecStart` and `Restart`; there are dozens more).
+- [`man7.org`: systemd.unit(5)](https://man7.org/linux/man-pages/man5/systemd.unit.5.html) - `[Unit]`/`[Install]` directives, dependency ordering (`After=`, `Requires=`, `Wants=`).
+- [Microsoft: systemd support in WSL](https://learn.microsoft.com/en-us/windows/wsl/systemd) - the official doc for the `/etc/wsl.conf` setting and `wsl --shutdown` behavior this module walks through.
+- [DigitalOcean: Understanding Systemd Units and Unit Files](https://www.digitalocean.com/community/tutorials/understanding-systemd-units-and-unit-files) - a widely-used second explanation with more unit-type examples (timers, sockets) beyond `.service`.
+- [freedesktop.org: systemd project docs index](https://www.freedesktop.org/wiki/Software/systemd/) - the project's own documentation hub if you want to go beyond `.service` units later (targets, timers as a cron alternative, etc.).
+
 ## Next
 
-You've completed the Linux fundamentals track modules on text processing, scripting, networking, and services - these skills carry directly into the Docker track, where you'll use exactly this foundation (permissions, scripting, networking, and process/service management) to understand how containers are built, run, and networked.
+Continue to [12-disk-storage-and-mounts](../12-disk-storage-and-mounts/README.md) to learn how Linux tracks disk usage, mounts filesystems, and how WSL2's `/mnt` bridge to your Windows drives actually works.

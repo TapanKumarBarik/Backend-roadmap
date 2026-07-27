@@ -10,9 +10,36 @@ Every time you find yourself typing the same three commands in a row, that's a s
 
 **Making a script runnable.** Module 03 taught you that files have permission bits, including "execute." A script needs its execute bit set (`chmod +x script.sh`) before you can run it as `./script.sh`. Without execute permission, you'd have to run it as `bash script.sh` instead.
 
+```
+  #!/bin/bash                    ← shebang: which interpreter runs this file
+                                 (uses module 06's process-start mechanism)
+  if [ -z "$1" ]; then           ← conditional: test + branch
+    echo "Error: no name"        ← module 01's echo, still just printing text
+    exit 1                        ← exit code, checkable via $? after running
+  fi
+  for name in "$@"; do           ← loop: repeat for each argument
+    echo "Hello, $name!"
+  done
+```
+
+Nothing here is new syntax invented for scripts — it's the same commands and streams from modules 01-08, just written into a file instead of typed one line at a time.
+
 **Variables hold values.** A bash variable is just a name bound to a piece of text. You assign with `name=value` (no spaces around `=`), and you read it back with `$name` or `${name}`. Variables are untyped - everything is text unless you specifically do arithmetic.
 
 **Quoting changes how the shell reads your text.** Double quotes (`"..."`) let variables and command substitutions expand inside them, but protect spaces from being split into separate arguments. Single quotes (`'...'`) turn off all expansion - what you type is exactly what you get, literally. Backticks (`` `command` ``) or the modern equivalent `$(command)` run a command and substitute its output as text - this is called command substitution.
+
+```
+  filename="my file.txt"
+
+  touch $filename    → shell word-splits on the space →
+                        touch "my" "file.txt"   (creates TWO files)
+
+  touch "$filename"  → quotes protect the space →
+                        touch "my file.txt"     (creates ONE file, correctly)
+
+  echo 'Hello $filename'   → single quotes: prints literally, no expansion
+  echo "Hello $filename"   → double quotes: expands to "Hello my file.txt"
+```
 
 **Arguments are how scripts take input.** When you run `./script.sh foo bar`, inside the script `$1` is `foo`, `$2` is `bar`, `$#` is the count of arguments (2), and `$@` expands to all arguments. This is how you make a script flexible instead of hardcoded.
 
@@ -234,6 +261,14 @@ Write down your answer to each question before expanding it — checking without
 8. `$(( ))` evaluates its contents as an arithmetic expression and returns the numeric result as text, e.g. `$((3 + 4))` becomes `7`. Plain assignment like `total = 3 + 4` isn't valid bash arithmetic syntax at all - bash would try to run `total` as a command with arguments `=`, `3`, `+`, `4`, `5`.
 
 </details>
+
+## Further reading & sources
+
+- [GNU Bash Manual](https://www.gnu.org/software/bash/manual/bash.html) - the canonical, complete reference for every construct this module introduced (and many it didn't: arrays, `case` statements, traps).
+- [ShellCheck](https://www.shellcheck.net/) - paste a script in and it flags exactly the kinds of mistakes this module's "Common mistakes" section warns about (unquoted variables, missing `local`, etc.) - worth running on every script you write from here on.
+- [Google Shell Style Guide](https://google.github.io/styleguide/shellguide.html) - a widely-used real-world convention set for writing bash scripts that stay readable as they grow.
+- [`man7.org`: bash(1)](https://man7.org/linux/man-pages/man1/bash.1.html) - the man-page form of the bash reference, useful for quick lookups without leaving the terminal.
+- [Advanced Bash-Scripting Guide (tldp.org)](https://tldp.org/LDP/abs/html/) - older but famously thorough, good for when you outgrow this module and want the deep end (arrays, traps, here-documents in full).
 
 ## Next
 

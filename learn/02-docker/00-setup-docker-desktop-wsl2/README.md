@@ -45,6 +45,27 @@ Containers you start from Ubuntu and containers you start from PowerShell
 are the same containers, visible in the same `docker ps` and in the same
 Docker Desktop window.
 
+```
+┌──────────────────────── Windows 11 Host ─────────────────────────┐
+│                                                                   │
+│  ┌──────────┐   ┌──────────────┐   ┌────────────────────────┐     │
+│  │ Ubuntu   │   │ PowerShell   │   │ Docker Desktop GUI     │     │
+│  │ docker   │   │ docker       │   │ (dashboard client)     │     │
+│  └────┬─────┘   └──────┬───────┘   └───────────┬────────────┘     │
+│       │  clients       │                       │                  │
+│       └────────────────┴───────────┬───────────┘                  │
+│                                     │ Docker socket                │
+│                        ┌────────────▼───────────────┐             │
+│                        │   WSL2 utility VM           │             │
+│                        │  ┌───────────────────────┐  │             │
+│                        │  │ dockerd (the engine)   │  │             │
+│                        │  │  + Linux kernel        │  │             │
+│                        │  └───────────────────────┘  │             │
+│                        └─────────────────────────────┘             │
+└───────────────────────────────────────────────────────────────────┘
+     One engine, many clients — all see the same containers/images
+```
+
 > In Docker Desktop: the Containers tab lists every container regardless
 > of which shell started it. Start something from Ubuntu and it appears
 > in that list immediately — proof there's one engine, not one per shell.

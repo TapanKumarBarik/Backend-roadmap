@@ -10,6 +10,22 @@ Every server you'll ever operate eventually runs low on disk space, mounts the w
 
 **The /mnt convention in WSL2.** You've already used `/mnt/c` to reach your `C:` drive from earlier modules. This is exactly the mounting concept in action: WSL2 takes the Windows filesystem and mounts it at `/mnt/c` (and `/mnt/d`, etc., for other drives), so from Linux's point of view, your Windows files are just another directory tree grafted onto the Linux one. This is why `cd /mnt/c/Users/yourname` gets you to your Windows user folder. The reverse isn't automatic in the same way - Windows sees your WSL2 filesystem through the special `\\wsl$\` or `\\wsl.localhost\` network path, not as a normal drive letter, because the Linux filesystem actually lives inside a virtual disk.
 
+```
+  Windows host
+   C:\ (NTFS, managed by Windows) ─┐
+                                    │ mounted into WSL2 as
+                                    ▼
+  WSL2 filesystem tree:
+   /                        ← ext4, lives inside ext4.vhdx (WSL2's own disk)
+   ├── home/paresh/          ← native Linux files, fast, real ext4
+   ├── etc/, var/, usr/       ← same
+   └── mnt/
+        └── c/                ← YOUR C:\, grafted on via the drvfs driver
+             └── Users/you/    ← reachable as /mnt/c/Users/you
+```
+
+Two different filesystems, two different drivers (`ext4` vs `drvfs`), stitched into one tree by mounting — exactly the "mounting" concept this module defines, made concrete.
+
 **The WSL2 virtual disk.** Your entire Ubuntu installation - `/`, `/home`, `/var`, everything except `/mnt/c` and friends - physically lives inside a single file on your Windows machine called `ext4.vhdx` (a virtual hard disk). WSL2 runs a real, lightweight Linux kernel in a lightweight VM, and that VM's "disk" is this file. This matters for two practical reasons covered in the exercises below: `df -h` inside WSL2 will show usage for this virtual disk, and the `.vhdx` file grows as you use more space but does **not** automatically shrink back down when you delete files.
 
 **Disk usage vs. individual file/directory size.** `df` (disk free) reports usage at the filesystem level - how full each mounted filesystem is, as a whole. `du` (disk usage) reports how much space specific files or directories are consuming, so you can find out *what* is eating the space that `df` says is full. These two tools answer different questions and you'll usually use them together: `df` tells you there's a problem, `du` helps you find where.
@@ -17,6 +33,18 @@ Every server you'll ever operate eventually runs low on disk space, mounts the w
 **Inodes, briefly.** Every file and directory on a Linux filesystem has metadata - permissions, owner, timestamps, and pointers to where its actual data blocks live - stored in a structure called an inode. The filename you see is really just a label pointing at an inode number. This matters because a filesystem can theoretically run out of inodes (too many small files) even when there's plenty of raw disk space left, though this is rare for a beginner to hit directly. The important takeaway for now: a "file" is really "a name pointing at an inode," and that's what makes hard links possible (see below).
 
 **Hard links vs. symbolic links.** A hard link is a second filename pointing at the *same inode* as an existing file - it's not a copy, it's another name for the identical data on disk. If you edit through one name, the other name shows the same change, because they're the same underlying file. Delete one name, the data survives as long as at least one link remains. A symbolic link (symlink) is different: it's a small special file that just contains a path, pointing at another file by name. If you delete the target, the symlink still exists but becomes "broken" (dangling), because it never held the data itself, just a reference to a path. Think of a hard link as two street addresses for the identical house, and a symlink as a signpost pointing toward an address - if the house at that address gets demolished, the signpost is still standing but now points at nothing.
+
+```
+  Hard link:                          Symlink:
+
+  original.txt ──┐                    original.txt ──► [data]
+  hardlink.txt ──┼──► inode 8842      symlink.txt ────► "original.txt" (a path)
+                 │     [data]                                │
+  same inode,    │                    delete original.txt:   │
+  same data,     │                     symlink.txt still     ▼
+  either name    │                     exists, but now      dangling —
+  keeps it alive │                     points at nothing     points at nothing
+```
 
 **Mounting and unmounting.** `mount` (with no arguments) lists everything currently mounted; with arguments it attaches a filesystem to a directory (a "mount point"). `umount` detaches it. You won't typically need to mount/unmount things by hand in ordinary WSL2 use since Windows drives are already mounted for you, but understanding the command matters for external drives, ISO images, and (later in this curriculum) container volumes and Kubernetes persistent storage, which are all built on this same mounting concept.
 
@@ -129,6 +157,13 @@ Write down your answer to each question before expanding it — checking without
 7. `du -h --max-depth=1 /var/log | sort -rh` to drill one level further into `/var/log` and see which specific log subdirectory or file is large, repeating/drilling down as needed until you find the actual large file(s).
 
 </details>
+
+## Further reading & sources
+
+- [Microsoft: File system support in WSL](https://learn.microsoft.com/en-us/windows/wsl/filesystems) - the official explanation of `/mnt/c`, `drvfs`, `\\wsl$\`, and why cross-filesystem performance differs.
+- [`man7.org`: mount(8)](https://man7.org/linux/man-pages/man8/mount.8.html) and [df(1)](https://man7.org/linux/man-pages/man1/df.1.html) / [du(1)](https://man7.org/linux/man-pages/man1/du.1.html) - full option references beyond this module's `-h`/`--max-depth`.
+- [`man7.org`: ln(1)](https://man7.org/linux/man-pages/man1/ln.1.html) and [inode(7)](https://man7.org/linux/man-pages/man7/inode.7.html) - the hard-link/symlink mechanics and the inode structure underpinning them.
+- [Microsoft: Compact a WSL2 virtual hard disk](https://learn.microsoft.com/en-us/windows/wsl/disk-space) - the official steps for reclaiming space from `ext4.vhdx` after deleting large files, referenced in this module's troubleshooting section.
 
 ## Next
 

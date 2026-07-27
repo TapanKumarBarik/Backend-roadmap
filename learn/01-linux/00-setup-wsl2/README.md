@@ -13,6 +13,31 @@ Almost all production servers, containers, and cloud infrastructure run Linux, n
 
 **Why "admin PowerShell" for installation?** Installing WSL2 changes low-level Windows settings (enabling a virtualization feature), so Windows requires you to run that one command as an Administrator. Once WSL2 and Ubuntu are installed, you will NOT need admin rights for your day-to-day Linux work.
 
+**How WSL2 actually fits together.** It helps to see the layers instead of just trusting that "it works":
+
+```
+┌───────────────────────────────────────────────────────────┐
+│                       Windows 11 Host                      │
+│                                                             │
+│   ┌───────────────┐         ┌────────────────────────────┐│
+│   │ Windows apps   │         │   WSL2 (utility VM)         ││
+│   │ PowerShell,    │  wsl.exe│  ┌────────────────────────┐││
+│   │ Windows Terminal│◄──────►│  │  Real Linux kernel      │││
+│   │ VS Code, etc.  │         │  │  (Microsoft-maintained) │││
+│   └───────────────┘         │  └───────────┬────────────┘││
+│                              │              │             ││
+│                              │   ┌──────────▼──────────┐  ││
+│                              │   │   Ubuntu distro      │  ││
+│                              │   │  (files, apt, bash)  │  ││
+│                              │   └──────────────────────┘  ││
+│                              └────────────────────────────┘│
+│           Hyper-V / Virtual Machine Platform (hardware      │
+│                virtualization, enabled during install)      │
+└───────────────────────────────────────────────────────────┘
+```
+
+The key thing this diagram makes concrete: **WSL2 is a real lightweight VM with a real Linux kernel**, not a translation layer. That's the architectural difference from WSL1, which instead intercepted Linux system calls and reimplemented them on top of the Windows kernel directly (no VM, no real kernel, faster to start but incompatible with some Linux software - notably Docker's own use of kernel features). This is also *why* WSL2 needs Hyper-V-style virtualization enabled at the Windows level, and why that one step needs admin rights while everything after it doesn't.
+
 ## Command reference
 
 | Command | What it does | Example |
@@ -132,6 +157,14 @@ Write down your answer to each question before expanding it — checking without
 7. It confirms Ubuntu is running under the newer, faster WSL2 architecture (a real lightweight virtual machine with a full Linux kernel) rather than the older WSL1 (which translated Linux system calls to Windows ones without a real Linux kernel).
 
 </details>
+
+## Further reading & sources
+
+- [Microsoft: WSL documentation](https://learn.microsoft.com/en-us/windows/wsl/) - the official docs, including install troubleshooting and advanced config (`.wslconfig`).
+- [Microsoft: WSL architecture deep dive](https://learn.microsoft.com/en-us/windows/wsl/compare-versions) - the real technical comparison of WSL1 vs WSL2 this module's diagram summarizes.
+- [Microsoft: Basic commands for WSL](https://learn.microsoft.com/en-us/windows/wsl/basic-commands) - the fuller command reference beyond what's listed above (`wsl --shutdown`, `--set-version`, `--export`/`--import`, etc.).
+- [Ubuntu on WSL documentation](https://documentation.ubuntu.com/wsl/) - Ubuntu's own guide, useful once you outgrow the Microsoft docs' generic distro coverage.
+- [Windows Terminal on GitHub](https://github.com/microsoft/terminal) - source and issue tracker for the terminal app installed in exercise 8, if you want to see what's actively being built.
 
 ## Next
 Continue to [01-shell-basics-and-philosophy](../01-shell-basics-and-philosophy/README.md) to learn what a shell actually is, how commands are structured, and the Unix philosophy that shapes everything else in this curriculum.

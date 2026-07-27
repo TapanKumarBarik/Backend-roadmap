@@ -10,6 +10,24 @@ Almost no real Linux work happens with only the tools that ship in a base instal
 
 **APT and the Debian/Ubuntu ecosystem.** Ubuntu is built on Debian, and both use the `.deb` package format managed by a lower-level tool called `dpkg`. APT (Advanced Package Tool) sits on top of `dpkg` and adds the parts people actually want: fetching packages from remote servers ("repositories"), resolving dependencies automatically, and upgrading everything in one command. When you type `apt install something`, APT looks up `something` in its local index of available packages, works out anything it needs, downloads it all, and hands it to `dpkg` to actually unpack and install onto your filesystem.
 
+```
+  Remote repositories (Canonical's servers, or a PPA)
+             │
+             │  apt update  (refresh local index)
+             ▼
+  Local package index (metadata cache: names, versions, deps)
+             │
+             │  apt install <pkg>  (resolve deps, download .deb files)
+             ▼
+  APT hands the downloaded .deb files to dpkg
+             │
+             │  dpkg unpacks and registers the package
+             ▼
+  Installed on disk: /usr/bin, /usr/lib, /etc, ...
+```
+
+APT is the layer you talk to; `dpkg` is the layer that actually does the unpacking. You'll rarely call `dpkg` directly except to inspect state (like `dpkg -l`), because APT's dependency resolution is the whole reason it exists on top of `dpkg`.
+
 **The package index and why you `update` before you `upgrade`.** APT doesn't ask the internet "does this package exist" every single time — it keeps a local cache of what's available and at what version, per configured repository. `apt update` refreshes that local cache from the repositories (it does not install or upgrade anything by itself). Only after that cache is fresh does `apt upgrade` know which installed packages have newer versions available. Skipping `update` means you might be told everything is "up to date" when it isn't — the local cache is just stale.
 
 **`upgrade` vs `full-upgrade`.** `apt upgrade` installs newer versions of packages you already have, but it will refuse to remove any currently installed package to do so — if upgrading one package would require removing another, it just leaves that package alone. `apt full-upgrade` (older tutorials may call it `dist-upgrade`) is willing to remove packages if that's what's needed to complete every available upgrade, which matters more when major version jumps happen. For routine updates, `upgrade` is the safer everyday habit.
@@ -110,6 +128,13 @@ Write down your answer to each question before expanding it — checking without
 8. A PPA (Personal Package Archive) is a third-party repository, often maintained by an individual or small project rather than Canonical/Ubuntu itself. Before adding one, keep in mind you are extending trust to whoever publishes it, since APT will treat packages from it the same as official ones.
 
 </details>
+
+## Further reading & sources
+
+- [Debian: APT User's Guide](https://www.debian.org/doc/manuals/apt-guide/index.en.html) - the canonical explanation of how APT itself works, written by the Debian project APT originated from.
+- [Ubuntu: Package Management (official docs)](https://ubuntu.com/server/docs/package-management) - Ubuntu-specific coverage including PPAs and `snap` (a different, newer packaging system you'll encounter but that this module intentionally didn't cover).
+- [`man7.org`: apt(8)](https://man7.org/linux/man-pages/man8/apt.8.html) and [dpkg(1)](https://man7.org/linux/man-pages/man1/dpkg.1.html) - full command references beyond this module's table.
+- [DigitalOcean: How To Manage Packages Using APT](https://www.digitalocean.com/community/tutorials/how-to-manage-packages-in-ubuntu-and-debian-with-apt-get-apt) - another worked walkthrough if you want a second explanation of the same commands.
 
 ## Next
 

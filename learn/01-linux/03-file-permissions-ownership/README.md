@@ -31,6 +31,15 @@ Broken down:
 
 So `-rwxr-xr--` means: it's a regular file; the owner can read, write, and execute it; the group can read and execute it (but not write); and everyone else can only read it.
 
+```
+  -    rwx    r-x    r--
+  │     │      │      │
+  │     │      │      └── other: read only
+  │     │      └── group: read + execute
+  │     └── owner: read + write + execute
+  └── type: '-' regular file ('d' would mean directory)
+```
+
 Further along an `ls -l` line, you'll also see the owner's username and the group name printed as separate columns, e.g.:
 ```
 -rwxr-xr-- 1 alice developers 220 Jul 24 10:03 deploy.sh
@@ -54,6 +63,13 @@ So `chmod u+x script.sh` adds execute permission for the owner only, and `chmod 
 - `0` = no permissions at all.
 
 So `chmod 750 script.sh` means: owner gets 7 (rwx), group gets 5 (r-x), other gets 0 (nothing) - which matches the `-rwxr-x---` string you'd see in `ls -l`.
+
+```
+                owner    group    other
+   permission:   rwx      r-x      ---
+   bit values:  4+2+1    4+0+1    0+0+0
+   digit:         7        5        0     →  chmod 750
+```
 
 **Ownership: `chown` and `chgrp`.** While `chmod` changes *what* is allowed, `chown` changes *who owns* the file, and `chgrp` changes *which group* owns it. Changing ownership to another user typically requires `sudo`, since you can't just hand your files to someone else without administrator rights (and vice versa, you can't take files from other users without it either).
 
@@ -264,5 +280,13 @@ point is to find out what actually stuck.
 
 </details>
 
+## Further reading & sources
+
+- [`man7.org`: chmod(1)](https://man7.org/linux/man-pages/man1/chmod.1.html) - the full option reference, including symbolic-mode edge cases (like `chmod +X` for directories) not covered in this module.
+- [`man7.org`: chown(1)](https://man7.org/linux/man-pages/man1/chown.1.html) and [chgrp(1)](https://man7.org/linux/man-pages/man1/chgrp.1.html) - full ownership-command references.
+- [Linux Foundation: Special file permissions - setuid, setgid, sticky bit](https://www.linuxfoundation.org/blog/blog/classic-sysadmin-understanding-linux-file-permissions) - the next layer beyond rwx this module intentionally left out (you'll want this once you hit shared directories and privileged binaries).
+- [`man7.org`: umask(2)](https://man7.org/linux/man-pages/man2/umask.2.html) - the system-call-level reference behind the `umask` shell builtin covered briefly above.
+- [Docker docs: understanding user namespaces](https://docs.docker.com/engine/security/userns-remap/) - a preview of why file ownership inside a container maps to numeric UIDs the way this module's "owner is really a UID" point sets up.
+
 ## Next
-This completes Track 1: Linux fundamentals. Continue to Track 2 (Docker) to start containerizing applications, building on the filesystem, permissions, and shell skills you've just practiced.
+Continue to [04-users-and-groups](../04-users-and-groups/README.md) to learn how the "owner" and "group" in every permission string are actually managed - creating users, creating groups, and understanding what root really is.

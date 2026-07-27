@@ -21,6 +21,29 @@ You will work independently. This document gives you requirements,
 acceptance criteria, and hints — not a solution. Expect to spend real time
 on this; that's the point.
 
+The moving pieces, at a glance (you're wiring this together, not being
+handed the wiring):
+
+```
+  systemd timer (OnCalendar=... , module 11 + new: timers)
+        │  fires periodically
+        ▼
+  systemd service (runs logwatch.sh as the `logwatch` user, NOT root)
+        │
+        ▼
+  logwatch.sh
+        ├─ reads   /opt/logwatch/logs/       (grep/awk/sed, module 08)
+        ├─ archives old files → /opt/logwatch/archive/  (module 12)
+        ├─ checks  df/du against a threshold  (module 12)
+        ├─ writes  /opt/logwatch/reports/     (only if a threshold trips)
+        └─ logs its own run via `logger`      (→ journald, module 14)
+```
+
+Note this project introduces one new systemd concept beyond module 11:
+**timer units** (`.timer`, paired with a `.service`) for scheduled,
+recurring runs — module 11 only covered starting a service once by hand.
+The further-reading link below covers the syntax you'll need.
+
 ### Part 1 — Set the stage
 
 1. Create a dedicated system user for this project (module 04), e.g. `logwatch`, with no login shell needed for interactive use but able to own files.
@@ -87,6 +110,13 @@ Requirements:
 - `systemctl status`, `journalctl -u <unit> -f`, and `systemctl list-timers --all` are your three best friends for debugging the systemd half.
 - If the timer never fires, check `OnCalendar=`/`OnBootSec=` syntax carefully and remember to `systemctl daemon-reload` after editing unit files (module 11).
 - If permissions block the script from writing where it needs to, resist the urge to `chmod 777` — figure out which specific user/group needs which specific access and grant only that (module 03/04 mindset).
+
+## Further reading & sources
+
+- [`man7.org`: systemd.timer(5)](https://man7.org/linux/man-pages/man5/systemd.timer.5.html) - the unit type this project needs that module 11 didn't cover; `OnCalendar=`/`OnBootSec=` syntax and examples.
+- [Ubuntu docs: Scheduling Tasks with Cron/Timers](https://ubuntu.com/server/docs/scheduling-tasks-with-cron) - covers the older `cron` approach alongside timers for context, even though this project specifically wants a timer.
+- [`man7.org`: logger(1)](https://man7.org/linux/man-pages/man1/logger.1.html) - how to send a script's own run log into journald, referenced in the Part 2 requirements.
+- [`man7.org`: find(1)](https://man7.org/linux/man-pages/man1/find.1.html) - full reference for `-mtime` and related time-based filters used to find "old" log files.
 
 ## What's next
 

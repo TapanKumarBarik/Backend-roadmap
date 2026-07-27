@@ -8,11 +8,37 @@ When something breaks - a service won't start, a login fails, a container crashe
 
 **Two logging worlds that coexist.** Modern Ubuntu has two overlapping ways logs get stored: traditional flat text files under `/var/log` (a long-standing Unix convention), and `journald`, systemd's own logging service, which stores log data in a structured, indexed binary format and is queried with `journalctl`. Some things log to both, some log mainly to one. You already met systemd services in module 11 - `journald` is what's capturing the console output of everything systemd starts and manages.
 
+```
+   systemd-managed services (module 11)        traditional programs
+              │                                        │
+              ▼                                        ▼
+        journald (structured,               /var/log/*.log (plain text,
+        indexed, binary)                    rotated by logrotate)
+              │                                        │
+              ▼                                        ▼
+         journalctl                          cat / tail / grep / awk
+    (filter by unit, time,                    (module 07/08 tools,
+     priority, boot)                           same as any text file)
+```
+
+Some things land in both worlds, some in only one — that's why this module teaches both query paths instead of picking one.
+
 **A tour of `/var/log`.** This directory is where most traditional log files live. `/var/log/syslog` is the general-purpose system log, historically the first place to look for broad system activity. `/var/log/auth.log` records authentication-related events - logins, `sudo` usage, SSH connection attempts - which becomes directly relevant after module 13's SSH work and ties into this module's security angle. `/var/log/dpkg.log` records package installation/removal history from `apt`/`dpkg` (module 05), so if a package suddenly appears broken, this log can tell you when and how it was installed or changed. There are others (`/var/log/kern.log` for kernel messages, per-application logs in their own subdirectories, etc.) but these three are the ones you'll reach for constantly.
 
 **Why `journald` exists alongside plain text files.** Plain text log files are simple but have real limitations: no built-in way to filter by exact time range, no built-in severity filtering, and every application picks its own format, making them awkward to search consistently. `journald` solves this by capturing log entries as structured records (with fields like timestamp, originating service/unit, priority level, and the message itself) and giving you one consistent tool, `journalctl`, to query all of it regardless of which service produced it.
 
 **Priority/severity levels.** Log messages carry a priority level indicating how serious they are, following the traditional syslog scale from most to least severe: `emerg`, `alert`, `crit`, `err`, `warning`, `notice`, `info`, `debug`. When you filter `journalctl` by priority, you're asking "show me this severity and everything more severe," which is how you cut through noise to find real problems.
+
+```
+  emerg    ▲  most severe
+  alert    │
+  crit     │  journalctl -p err  shows THIS and everything
+  err      │◄─ above it (err, crit, alert, emerg) — not below
+  warning  │
+  notice   │
+  info     │
+  debug    ▼  least severe, routine noise
+```
 
 **Boots.** Because `journald` is aware of system boots (start-up to shutdown cycles), it can show you logs scoped to "this boot," "the previous boot," etc. This is invaluable when troubleshooting something that happens "since the last restart" without having to guess at timestamps.
 
@@ -109,6 +135,13 @@ Write down your answer to each question before expanding it — checking without
 7. `--since "1 hour ago"` filters by an actual time boundary regardless of how many entries fall in that window; `-n 50` returns a fixed count of the most recent entries regardless of how much time they span. Prefer `--since` when you care about a specific time window (e.g., "since I restarted the service"); prefer `-n` when you just want a quick recent sample regardless of timing.
 
 </details>
+
+## Further reading & sources
+
+- [`man7.org`: journalctl(1)](https://man7.org/linux/man-pages/man1/journalctl.1.html) - full option reference, including output formats (`-o json`) not covered here.
+- [freedesktop.org: systemd-journald docs](https://www.freedesktop.org/software/systemd/man/latest/systemd-journald.service.html) - how the journal itself is structured and configured (`/etc/systemd/journald.conf`).
+- [`man7.org`: logrotate(8)](https://man7.org/linux/man-pages/man8/logrotate.8.html) - full config directive reference for the traditional text-log rotation this module introduced.
+- [DigitalOcean: How To Use Journalctl to View and Manipulate Systemd Logs](https://www.digitalocean.com/community/tutorials/how-to-use-journalctl-to-view-and-manipulate-systemd-logs) - another worked walkthrough with additional filtering examples.
 
 ## Next
 

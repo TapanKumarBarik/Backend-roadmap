@@ -15,11 +15,36 @@ Docker images, Kubernetes pods, and every Linux server you'll ever touch organiz
 - `/tmp` - temporary files; anything here may be deleted automatically on reboot, so never store anything important there.
 - `/usr` - most installed user programs and their supporting files live under here (not to be confused with `/home` - despite the name, `/usr` historically stood for "Unix System Resources," not "user").
 
+```
+/                        ← root: everything lives under here
+├── home/
+│   └── yourusername/    ← your personal space (≈ Windows' C:\Users\you)
+├── etc/                 ← system-wide config files
+├── var/
+│   └── log/              ← logs that grow while the system runs
+├── tmp/                 ← scratch space, may vanish on reboot
+└── usr/                 ← installed programs' supporting files
+```
+
+Compare this to Windows, where `C:\`, `D:\`, and a mounted USB drive are all separate roots with no common ancestor. In Linux, a second disk or a USB stick doesn't get its own letter — it gets *mounted* as just another folder somewhere under `/` (often under `/mnt` or `/media`), so from the shell's point of view there is always exactly one tree, no matter how many physical devices back it.
+
 **Absolute vs. relative paths.** A path is just an address for a file or folder.
 - An **absolute path** always starts with `/` and describes the full route from the root, no matter where you currently are, e.g. `/home/yourusername/notes.txt`.
 - A **relative path** describes a location starting from wherever you currently are, e.g. `notes.txt` (a file right here) or `subfolder/notes.txt` (a file inside a folder right here). Relative paths don't start with `/`.
 - Two special shorthand names are used inside relative paths: `.` means "this current directory," and `..` means "one directory up (the parent)." So `cd ..` moves you up one level, and `./script.sh` refers to a file named `script.sh` right where you are.
 - `~` is shorthand for your home directory (e.g. `/home/yourusername`), usable in either absolute-feeling or relative-feeling contexts - `cd ~` always takes you home from anywhere.
+
+If you're standing in `/home/yourusername/linux-practice`, here's how the same target resolves both ways:
+
+```
+Current location:  /home/yourusername/linux-practice
+Target: the "photos" folder inside linux-practice
+
+  Absolute:  /home/yourusername/linux-practice/photos   (works from anywhere)
+  Relative:  photos                                       (works only from here)
+  Relative:  ./photos                                      (same thing, explicit)
+  Relative:  ../linux-practice/photos                      (up, then back down)
+```
 
 **Wildcards / globbing.** The shell can match multiple filenames at once using special characters, expanded by the shell itself before the command even runs:
 - `*` matches any number of characters (including none). `*.txt` matches every file ending in `.txt`.
@@ -208,6 +233,13 @@ Write down your answer to each question before expanding it — checking without
 8. Two hidden dangers: (1) it never asks for confirmation, so a typo in the path can delete the wrong folder instantly and irreversibly; (2) there is no recycle bin or undo in Linux, so recovery after the fact is generally not possible. A helpful habit: always run `pwd` and `ls` right before the command to double-check exactly where you are and what you're about to delete.
 
 </details>
+
+## Further reading & sources
+
+- [The Linux Filesystem Hierarchy Standard (FHS)](https://refspecs.linuxfoundation.org/FHS_3.0/fhs-3.0.pdf) - the actual specification defining what `/etc`, `/var`, `/usr`, etc. are supposed to contain, maintained by the Linux Foundation.
+- [`man7.org`: hier(7)](https://man7.org/linux/man-pages/man7/hier.7.html) - the same hierarchy explained as a man page, browsable online; also available locally via `man hier`.
+- [GNU Coreutils manual](https://www.gnu.org/software/coreutils/manual/html_node/index.html) - the official reference for `ls`, `cp`, `mv`, `rm`, `mkdir`, and nearly every other command in this module's reference table.
+- [`find` command full option reference (man7.org)](https://man7.org/linux/man-pages/man1/find.1.html) - this module only scratches the surface of `find`; the man page covers matching by time, size, permissions, and running commands on results.
 
 ## Next
 Continue to [03-file-permissions-ownership](../03-file-permissions-ownership/README.md) to learn how Linux controls who can read, write, or execute each file, and how to read and change those permissions yourself.

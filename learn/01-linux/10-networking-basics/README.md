@@ -10,6 +10,18 @@ Almost nothing you'll do next in this curriculum - pulling Docker images, exposi
 
 **Ports identify a specific service on that machine.** An IP address gets you to the right building; a port number gets you to the right door. A single machine can run many services at once (a web server, a database, an SSH daemon), each listening on a different port number - port 80 for HTTP, 443 for HTTPS, 22 for SSH, by long-standing convention, though any program can choose any free port.
 
+```
+  https://google.com/search
+    │       │           │
+    │       │           └── path: which resource on that service
+    │       └── hostname → resolved via DNS to an IP address
+    └── protocol: HTTPS (TCP under the hood), implies port 443 by convention
+
+  Full picture for one request:
+   hostname → DNS lookup → IP address → : port → protocol conversation
+   google.com   (dig)      142.250...    443     TLS + HTTP
+```
+
 **Protocols are the agreed "rules of conversation."** TCP and UDP are the two most common transport protocols. TCP is connection-oriented and reliable (used by HTTP, SSH, most everyday traffic) - it guarantees delivery and order. UDP is connectionless and faster but doesn't guarantee delivery - used for things like DNS queries and video streaming where occasional loss is tolerable.
 
 **Routing decides which path traffic takes.** When your machine sends a packet destined for an address outside its local network, it needs to know which "next hop" to send it to - this is the routing table, and the default route is essentially "if you don't know a more specific path, send it here" (usually your router/gateway).
@@ -17,6 +29,22 @@ Almost nothing you'll do next in this curriculum - pulling Docker images, exposi
 **DNS translates names into addresses.** You type `google.com`, not an IP address, because DNS (Domain Name System) is a distributed lookup service that translates human-readable names into IP addresses. Your machine also has a local override file, `/etc/hosts`, that's checked before DNS is consulted - useful for testing or for pointing a hostname at a specific IP without touching real DNS.
 
 **WSL2 networking is a virtual machine behind the scenes.** WSL2 runs Linux inside a lightweight, real virtual machine (unlike WSL1, which translated Linux syscalls directly on Windows). That means WSL2 gets its own virtual network adapter and its own IP address, distinct from Windows' IP address. Microsoft added "localhost forwarding" so that, in most default configurations, a service listening on `localhost`/`127.0.0.1` inside WSL2 is also reachable at `localhost` from Windows (and vice versa) - but this forwarding is a convenience layer, not literally the same network stack, and it can behave differently depending on Windows version, WSL version, and firewall/VPN software. Understanding that WSL2 has its own IP is the key to debugging when localhost forwarding doesn't behave as expected.
+
+```
+┌─────────────────────────┐         ┌─────────────────────────┐
+│  Windows host             │         │  WSL2 (own lightweight   │
+│  its own IP on your        │◄───────►│  VM, own virtual NIC,    │
+│  physical/Wi-Fi network    │ vEthernet│  own IP - e.g. 172.x.x.x)│
+│                             │ (WSL)   │                          │
+│  ipconfig → "vEthernet     │         │  ip a → eth0 inet ...    │
+│  (WSL)" adapter shows      │         │                          │
+│  the bridge's own subnet   │         │  hostname -I → the same  │
+└─────────────────────────┘         │  address, from inside    │
+                                     └─────────────────────────┘
+        both sides: localhost forwarding makes 127.0.0.1 usually
+        reach across this boundary automatically - convenience,
+        not evidence they share one network stack
+```
 
 ## Command reference
 
@@ -113,6 +141,14 @@ Write down your answer to each question before expanding it — checking without
 8. WSL2's virtual network adapter can be assigned a different IP address after a reboot or after `wsl --shutdown`, since the address isn't guaranteed to be static across restarts - a script relying on the old hardcoded IP would then fail to connect.
 
 </details>
+
+## Further reading & sources
+
+- [Microsoft: Accessing network applications with WSL](https://learn.microsoft.com/en-us/windows/wsl/networking) - the official, current explanation of WSL2 networking modes (NAT vs. mirrored) and localhost forwarding behavior, including known limitations.
+- [`man7.org`: ip(8)](https://man7.org/linux/man-pages/man8/ip.8.html) and [ss(8)](https://man7.org/linux/man-pages/man8/ss.8.html) - full option references for the modern `ip`/`ss` toolset this module favors over the legacy `ifconfig`/`netstat`.
+- [`man7.org`: curl(1)](https://man7.org/linux/man-pages/man1/curl.1.html) - curl has dozens of flags beyond `-I`/`-o`; worth a skim once you start scripting HTTP checks.
+- [Cloudflare Learning: What is DNS?](https://www.cloudflare.com/learning/dns/what-is-dns/) - a clear, vendor-neutral explanation of the DNS resolution process `dig`'s output represents.
+- [Julia Evans: "A few reasons DNS is slow" / networking zines](https://wizardzines.com/zines/dns/) - practitioner-written, approachable deep dives if you want more networking intuition beyond this module.
 
 ## Next
 

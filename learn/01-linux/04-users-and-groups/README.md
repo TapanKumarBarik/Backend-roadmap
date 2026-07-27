@@ -14,9 +14,43 @@ Every file you touch, every process you run, and every permission check you saw 
 
 **`/etc/group`** is the group equivalent: one line per group, with group name, a placeholder, GID (group ID), and a comma-separated list of member usernames.
 
+```
+/etc/passwd line:
+  paresh : x : 1000 : 1000 : Paresh : /home/paresh : /bin/bash
+    │      │     │      │      │           │              │
+ username  │    UID  primary  comment   home dir      login shell
+      password    (own GID)
+      placeholder
+      (real hash → /etc/shadow)
+
+/etc/group line:
+  sudo : x : 27 : paresh,student1
+    │    │    │        │
+  group  │   GID   comma-separated
+  name   │        supplementary members
+    password
+    placeholder
+```
+
+A user's identity is really just a number (the UID) — the username is a human-friendly label mapped to it. This is exactly why file ownership survives things like renaming an account, and why Docker containers (which you'll meet in the next track) can run "as UID 1000" without any username existing inside the container at all.
+
 **`sudo` and the principle of least privilege.** Running everything as `root` all the time is dangerous — one typo in a root shell can wipe a filesystem or misconfigure the whole system. Instead, ordinary users run as themselves day to day, and prefix a single command with `sudo` ("superuser do") when they need root privileges just for that one command. Linux then logs the action and asks (usually) for your own password to confirm. This "escalate only when needed, only for what's needed" approach is the principle of least privilege: you don't hand out more power than a task requires.
 
 **`su`** ("substitute user" or "switch user") starts a new shell as a different user (root by default), and you stay in that shell until you `exit`. `sudo` is generally preferred today because it runs one command at a time and keeps a clear audit trail, rather than dropping you into an open-ended root shell.
+
+```
+  sudo apt update              su - student1
+  ┌──────────────┐             ┌──────────────┐
+  │ your shell    │             │ your shell    │
+  │  ├─ elevated  │             │  └─ su starts  │
+  │  │  one-shot  │             │      a WHOLE   │
+  │  │  command   │             │      new shell │
+  │  └─ back to   │             │      as them,  │
+  │     your      │             │      until you │
+  │     shell     │             │      `exit`    │
+  └──────────────┘             └──────────────┘
+   scoped, audited              open-ended, session-based
+```
 
 **WSL specifics.** When you installed Ubuntu on WSL2, the setup wizard created one Linux user for you and made that user a member of the `sudo` group automatically — this is why `sudo` usually works for you without needing anyone else to configure it. WSL also has a real `root` account (UID 0), just like any Linux system; you can reach it with `sudo` or `su`, and some WSL configurations even let a distro default to logging in as `root` (checked via `/etc/wsl.conf`), though that isn't the normal beginner setup. Being in the `sudo` group is what makes your everyday WSL user "an administrator" of the Linux distro — it is a group membership, not some special WSL-only magic.
 
@@ -112,6 +146,13 @@ Write down your answer to each question before expanding it — checking without
 8. Because `id` reflects the group memberships of your *current login session*, which were computed when that shell/session started. A group added afterward only takes effect in new sessions/shells (or after `newgrp`), not the already-running one.
 
 </details>
+
+## Further reading & sources
+
+- [`man7.org`: passwd(5)](https://man7.org/linux/man-pages/man5/passwd.5.html) and [group(5)](https://man7.org/linux/man-pages/man5/group.5.html) - the authoritative field-by-field spec for the two files this module reads directly.
+- [`man7.org`: sudo(8)](https://man7.org/linux/man-pages/man8/sudo.8.html) and [sudoers(5)](https://man7.org/linux/man-pages/man5/sudoers.5.html) - how `sudo` decides who can run what; worth skimming once you're curious why `sudo` "just works" for your WSL user.
+- [Microsoft: Advanced WSL config (`/etc/wsl.conf`)](https://learn.microsoft.com/en-us/windows/wsl/wsl-config#configuration-settings-for-wslconf) - covers the `[user] default=` setting mentioned above for making a distro log in as a specific user (including root).
+- [DigitalOcean: Linux Users and Groups Explained](https://www.digitalocean.com/community/tutorials/linux-basics-users-and-groups) - a widely-used, beginner-friendly walkthrough covering the same ground with different worked examples.
 
 ## Next
 

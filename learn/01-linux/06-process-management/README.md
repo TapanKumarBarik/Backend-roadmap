@@ -10,11 +10,37 @@ Every command you run, every server you start, and every script that hangs or mi
 
 **PID and PPID.** Every process gets a unique number called a PID (process ID) the moment it starts. Every process (except the very first one at boot) is started by some other process, called its parent, whose PID is recorded as the child's PPID (parent process ID). For example, when you run a command in your terminal, your shell (like `bash`) is the parent, and the command you launched is its child. This parent-child relationship forms a tree all the way back to the first process the kernel starts at boot.
 
+```
+PID 1 (init, the first process at boot)
+  └── PID 842  bash (your login shell)          PPID=1
+        ├── PID 1105  htop                       PPID=842
+        └── PID 1201  sleep 300                  PPID=842
+              (backgrounded with &, still a child of bash)
+```
+
+Every box in that tree traces back to PID 1 — this is why `ps aux` output has a PPID column at all, and why closing a parent shell (without `nohup`) tends to take its children down with it.
+
 **Foreground vs background.** A foreground process has control of your terminal — your prompt won't come back until it finishes, and it can read your keyboard input directly. A background process runs without holding onto your terminal, so you get your prompt back immediately and can keep typing other commands while it runs.
 
 **Signals.** A signal is a small, standardized message sent to a process asking it to do something — most commonly, to stop. `SIGTERM` ("terminate") politely asks a process to shut down, giving it a chance to clean up open files or save state before exiting; well-behaved programs honor this. `SIGKILL` is not a request — the kernel terminates the process immediately, with no chance for it to clean up anything. `SIGKILL` is a last resort for processes that ignore `SIGTERM` or are stuck (unresponsive).
 
 **`Ctrl+C` and `Ctrl+Z` from the keyboard.** While a foreground process has your terminal, `Ctrl+C` sends it `SIGINT` (interrupt), which by default also ends the process — this is your everyday "stop this program" keystroke. `Ctrl+Z` is different: it sends `SIGTSTP`, which merely pauses (suspends) the process and hands your prompt back, without ending it — the paused process is still in memory, just not running, until you resume it.
+
+```
+  kill <PID>          SIGTERM (15)   "please stop" — process can catch it,
+                                      clean up, and exit on its own terms
+
+  kill -9 <PID>        SIGKILL (9)   "you're stopped" — kernel ends it
+                                      instantly, no cleanup, can't be caught
+
+  Ctrl+C                SIGINT (2)   "interrupt" — default action ends it,
+                                      same idea as SIGTERM but from a keypress
+
+  Ctrl+Z               SIGTSTP (20)  "pause" — process frozen in memory,
+                                      resume later with fg/bg, not terminated
+```
+
+The escalation path for a stuck process is always: `SIGTERM` first (`kill <PID>`), give it a moment, only reach for `SIGKILL` (`kill -9`) if it truly won't respond.
 
 **Jobs: backgrounding and resuming from your shell.** Your shell keeps track of processes you started from it as numbered "jobs." Appending `&` to a command starts it directly in the background. A process you `Ctrl+Z`-suspended, or backgrounded with `&`, can later be resumed in the foreground or background. This is entirely a convenience your interactive shell provides — it's tracking jobs launched in that shell session.
 
@@ -110,6 +136,13 @@ Write down your answer to each question before expanding it — checking without
 8. Because PIDs get reused as processes start and finish over time; a PID you noted earlier may since have been recycled and now belong to an entirely different, unrelated process, so killing it "from memory" risks terminating the wrong thing.
 
 </details>
+
+## Further reading & sources
+
+- [`man7.org`: signal(7)](https://man7.org/linux/man-pages/man7/signal.7.html) - the full list of Unix signals (this module only covers the four you'll use daily) and how processes can catch or ignore them.
+- [`man7.org`: ps(1)](https://man7.org/linux/man-pages/man1/ps.1.html) - `ps` has dozens of output formats beyond `aux`; worth a skim once `ps aux` feels routine.
+- [htop explained (official site)](https://htop.dev/) - htop's own docs, covering the keyboard shortcuts and columns this module only lightly introduced.
+- [`man7.org`: nohup(1)](https://man7.org/linux/man-pages/man1/nohup.1.html) - the nohup reference; also worth knowing `disown` and `setsid` exist as related tools for detaching processes from a shell.
 
 ## Next
 

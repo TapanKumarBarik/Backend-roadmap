@@ -8,6 +8,22 @@ Nearly every useful Linux command you'll ever run in practice isn't used alone �
 
 **Every process has three standard "streams."** When any program runs, Linux automatically gives it three communication channels, each identified by a small number called a file descriptor: **stdin** (standard input, file descriptor `0`) is where the program reads input from — by default, your keyboard. **stdout** (standard output, file descriptor `1`) is where the program writes its normal output — by default, your terminal screen. **stderr** (standard error, file descriptor `2`) is a *separate* channel for error/diagnostic messages — also shown on your terminal screen by default, but kept distinct from stdout so the two can be handled independently. The reason errors get their own channel: it lets you save a command's real output to a file while still seeing any errors on screen (or vice versa), instead of errors getting mixed into your saved results.
 
+```
+                    ┌───────────────┐
+   keyboard  ──────►│  0  stdin      │
+                    │                │
+                    │   your program │
+                    │                │
+                    │  1  stdout   ──┼──────► screen (default)
+                    │  2  stderr   ──┼──────► screen (default)
+                    └───────────────┘
+
+  redirection just swaps a destination:
+   command > file        redirect stdout (1) → file
+   command 2> file       redirect stderr (2) → file
+   command < file         redirect stdin (0)  ← file
+```
+
 **Redirection changes where a stream goes.** Normally stdout and stderr both land on your screen, and stdin comes from your keyboard. Redirection lets you swap any of these for a file instead, using special symbols in your command line, without the program itself needing to know or care.
 
 **`>` overwrites, `>>` appends.** Redirecting stdout to a file with `>` creates the file if it doesn't exist, or completely replaces its contents if it does. `>>` instead adds new content to the end of an existing file (creating it if needed), preserving whatever was already there. Reaching for `>` when you meant `>>` is one of the most common ways beginners accidentally destroy a file's previous contents.
@@ -23,6 +39,16 @@ Nearly every useful Linux command you'll ever run in practice isn't used alone �
 **Pipes (`|`) connect two commands directly.** A pipe takes the stdout of the command on its left and feeds it directly into the stdin of the command on its right — no temporary file involved. This lets you chain simple commands into a more powerful one, each doing one small job and passing its results along, which is a core Unix philosophy you'll lean on heavily once `grep`/`sed`/`awk` enter the picture in the next module.
 
 **`tee` splits a stream in two.** Normally, once you pipe or redirect stdout somewhere, you don't see it on screen anymore. `tee` reads from stdin and writes what it received to *both* a file *and* stdout simultaneously, letting you save a command's output while still watching it scroll by live (like a plumbing "T" junction splitting a pipe).
+
+```
+  ps aux | tee processes.txt | less
+   │            │                │
+   │            │                └── still scrollable on screen
+   │            └── ALSO written to processes.txt
+   └── produces the process list (stdout)
+
+  stdout flows through tee unchanged — it's a splitter, not a dead end.
+```
 
 ## Command reference
 
@@ -144,6 +170,13 @@ point is to find out what actually stuck.
 
 </details>
 
+## Further reading & sources
+
+- [GNU Bash Manual: Redirections](https://www.gnu.org/software/bash/manual/bash.html#Redirections) - the canonical, exhaustive reference for every redirection form, including ones this module didn't cover (like `<<` here-documents and `<<<` here-strings).
+- [`man7.org`: pipe(7)](https://man7.org/linux/man-pages/man7/pipe.7.html) - the kernel-level explanation of what a pipe actually is beneath the shell syntax.
+- [`man7.org`: tee(1)](https://man7.org/linux/man-pages/man1/tee.1.html) - full `tee` option reference, including `-a` (append) covered above.
+- [Julia Evans: "Bite Size Command Line" zine excerpt on stdin/stdout/stderr](https://jvns.ca/blog/2021/04/12/a-few-things-i-'ve-learned-about-bash/) - an approachable, practitioner-written take on the same streams model, useful as a second explanation.
+
 ## Next
 
-This completes the Linux fundamentals track. Continue on to the Docker track to start applying these skills to containers.
+Continue to [08-text-processing-grep-sed-awk](../08-text-processing-grep-sed-awk/README.md) to put pipes to real work — searching, filtering, and transforming text with `grep`, `sed`, and `awk`.

@@ -12,6 +12,23 @@ Almost nothing you manage professionally sits on the machine in front of you - s
 
 **Password vs. key-based authentication.** When you `ssh` into a machine, you need to prove who you are. The simplest way is a password, typed each time. The stronger and more convenient way, used almost everywhere professionally, is a key pair: a mathematically related pair of files, a private key (which never leaves your machine and must be kept secret) and a public key (which you can hand out freely, because it's only useful for verifying, not impersonating, you). You put your public key on the remote machine; when you connect, the remote machine challenges your client to prove it holds the matching private key, without the private key or a password ever crossing the network. This is why file permissions on your private key matter so much (see below) - anyone who obtains it can pretend to be you.
 
+```
+  Your machine (client)              Remote machine (server)
+  ┌─────────────────────┐            ┌─────────────────────┐
+  │  ~/.ssh/id_ed25519    │            │  ~/.ssh/              │
+  │  (PRIVATE — never     │            │   authorized_keys      │
+  │   leaves this box)     │            │   (holds your PUBLIC   │
+  │                        │            │    key, one per line)  │
+  │  ~/.ssh/id_ed25519.pub │──copied───►│                        │
+  │  (public — safe to      once, via   │  sshd challenges the   │
+  │   hand out)             ssh-copy-id │  client to prove it    │
+  └─────────────────────┘            │  holds the matching    │
+                                      │  private key — the      │
+       ssh alice@host ───────────────►│  private key itself     │
+       (connection attempt)           │  never crosses the wire │
+                                      └─────────────────────┘
+```
+
 **Why the permissions on `~/.ssh` and your private key matter.** You already learned in module 03 that Linux permissions control who can read/write/execute a file. SSH is unusually strict about this: if your private key file or your `~/.ssh` directory are readable by anyone other than you, SSH will refuse to use them and print a warning, because a private key readable by other users defeats the entire point of it being private. The convention is `700` (owner: read/write/execute, nobody else: anything) for the `~/.ssh` directory, and `600` (owner: read/write, nobody else: anything) for private key files.
 
 **`authorized_keys` and how key-based login actually gets granted.** On the machine you're connecting *to*, there's a file at `~/.ssh/authorized_keys` (one line per public key) listing which public keys are allowed to log in as that user. Adding your public key there is what grants you access - there's no separate "user database" for SSH keys beyond this file. `ssh-copy-id` automates appending your public key to that file over an existing (usually password-based) connection, so you don't have to do it by hand.
@@ -138,6 +155,13 @@ Write down your answer to each question before expanding it — checking without
 7. `ssh` opens an interactive remote shell session for running commands; `scp` uses the same SSH authentication to copy files to or from a remote machine instead of giving you a shell. They share credentials/keys but serve different purposes (interactive session vs. file transfer).
 
 </details>
+
+## Further reading & sources
+
+- [`man7.org`: ssh(1)](https://man7.org/linux/man-pages/man1/ssh.1.html), [ssh-keygen(1)](https://man7.org/linux/man-pages/man1/ssh-keygen.1.html), and [ssh_config(5)](https://man7.org/linux/man-pages/man5/ssh_config.5.html) - full references for the client, key generation, and `~/.ssh/config` syntax.
+- [DigitalOcean: SSH Essentials - Working with SSH Servers, Clients, and Keys](https://www.digitalocean.com/community/tutorials/ssh-essentials-working-with-ssh-servers-clients-and-keys) - a well-regarded, thorough walkthrough covering the same ground with additional worked scenarios.
+- [Microsoft: Get started using OpenSSH in WSL](https://learn.microsoft.com/en-us/windows/wsl/connect-ssh) - the official doc that expands on this module's WSL2/NAT limitation, including options for accepting inbound connections if you need that later.
+- [Mozilla OpenSSH security guidelines](https://infosec.mozilla.org/guidelines/openssh) - a widely-cited reference for hardening `sshd_config` beyond this module's beginner scope, worth bookmarking for when you administer a real internet-facing server.
 
 ## Next
 

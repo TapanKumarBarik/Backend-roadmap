@@ -10,9 +10,30 @@ Real servers produce mountains of text: logs, config files, CSV exports, command
 
 **Streams, not files, in your head.** Just like module 07 taught you that a pipe connects stdout of one command to stdin of the next, think of `grep`, `sed`, and `awk` as filters sitting in the middle of a pipeline: text flows in one end, transformed or filtered text flows out the other.
 
+```
+  grep ERROR app.log  |  awk '{print $2}'  |  sort
+       │                      │                │
+   filter: only          transform: keep    order: sort
+   ERROR lines           only field 2       the results
+   (10 lines → 3)        (3 lines → 3        (3 lines →
+                          timestamps)        3, alphabetical)
+```
+
+Each stage does exactly one job and knows nothing about the others — the same "do one thing well, compose via text" idea from module 01, now with real filtering tools instead of just `echo`.
+
 **Substitution with sed.** `sed` (stream editor) reads text line by line and applies edit commands to it, most commonly "find this pattern, replace with that text" using the `s/pattern/replacement/` syntax. Think of it as "find and replace," but scriptable and usable in a pipeline or against a file.
 
 **Fields and columns with awk.** Many text files are organized into columns - fields separated by whitespace, commas, or some other delimiter (think of a log line: timestamp, log level, message). `awk` treats each line as a row split into fields you can refer to as `$1`, `$2`, and so on, with `$0` meaning the whole line and `NF` meaning "number of fields." This makes awk excellent for pulling out "just the 3rd column" or "lines where the 5th column is greater than 100."
+
+```
+  2024-01-10  08:03:44  ERROR  Failed to connect to cache
+      $1          $2       $3          $4  $5 $6 $7 $8
+
+  $0  = the whole line
+  $4  = "ERROR"          (4th whitespace-separated field)
+  NF  = 8                 (total field count on this line)
+  $NF = "cache"           ($NF means "the field numbered NF" = the last one)
+```
 
 **Sorting and deduplicating.** `sort` and `uniq` are simple but critical companions: `sort` orders lines (alphabetically or numerically), and `uniq` collapses adjacent duplicate lines, optionally counting how many times each appeared. Because `uniq` only collapses *adjacent* duplicates, you almost always `sort` first.
 
@@ -153,6 +174,14 @@ Write down your answer to each question before expanding it — checking without
 8. It would mean every line in the file contains the string "DEBUG" - since `-v` inverts the match and prints only non-matching lines, an empty result means no lines failed to match.
 
 </details>
+
+## Further reading & sources
+
+- [GNU grep manual](https://www.gnu.org/software/grep/manual/grep.html) - full regex syntax reference (basic vs. extended vs. Perl-compatible modes).
+- [GNU sed manual](https://www.gnu.org/software/sed/manual/sed.html) - covers far more than substitution: multi-line patterns, hold space, in-place editing options.
+- [GNU awk (gawk) User's Guide](https://www.gnu.org/software/gawk/manual/gawk.html) - awk is effectively its own small programming language; this module only scratches field-printing and filtering.
+- [regex101.com](https://regex101.com/) - an interactive regex tester with live explanations, useful for building/debugging a `grep -E` or `sed` pattern before running it for real.
+- [`man7.org`: sort(1)](https://man7.org/linux/man-pages/man1/sort.1.html) and [uniq(1)](https://man7.org/linux/man-pages/man1/uniq.1.html) - full option references for the sort/dedup companions covered above.
 
 ## Next
 
