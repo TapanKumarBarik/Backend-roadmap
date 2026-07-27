@@ -61,5 +61,3 @@ caching strategy at the right layer, finding and fixing real performance
 bottlenecks, and reasoning about concurrency versus parallelism. Tracks 07
 (Elasticsearch) and 10 (distributed systems patterns) also list this track as a
 prerequisite.
-</content>
-</invoke>

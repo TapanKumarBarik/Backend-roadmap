@@ -128,6 +128,14 @@ Your build is done when you can demonstrate all of the following:
   token, forged CSRF, rapid-fire login): a permission system is only as good as
   the denials you've proven.
 
+## Further reading & sources
+
+- [OWASP Application Security Verification Standard (ASVS)](https://owasp.org/www-project-application-security-verification-standard/) - a checklist to verify your finished auth system against, chapter by chapter.
+- [OWASP Authentication Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Authentication_Cheat_Sheet.html) - the end-to-end reference tying together password storage, MFA, and generic errors.
+- [OWASP Session Management Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Session_Management_Cheat_Sheet.html) - the cookie/session hardening the browser flow must satisfy.
+- [FastAPI Security documentation](https://fastapi.tiangolo.com/tutorial/security/) - the dependency/OAuth2 primitives you assemble the dual-auth core from.
+- [OWASP Top 10](https://owasp.org/www-project-top-ten/) - the risk categories (Broken Access Control, Identification/Auth Failures) this capstone is designed to defend against.
+
 ## Next
 
 [../../04-databases-and-data-layer/README.md](../../04-databases-and-data-layer/README.md)

@@ -126,6 +126,16 @@ you've handed attackers the session. The security-critical ones:
 - **`Path` / `Domain`** — scope the cookie to a path prefix and/or domain.
   Default `Path=/` (whole origin) is usually what you want for a session.
 
+Each attribute blunts a specific attack — the three security-critical ones map
+one-to-one onto three threats:
+
+```
+  Set-Cookie: session=…
+     ├─ HttpOnly ───► JS can't read it        ► blunts XSS session theft
+     ├─ Secure ─────► HTTPS-only on the wire   ► blunts network sniffing
+     └─ SameSite=Lax► not sent cross-site      ► blunts CSRF
+```
+
 A correct session cookie in FastAPI looks like:
 
 ```python
@@ -166,7 +176,16 @@ The fix is one line of discipline: **on every successful login, destroy any
 existing session and generate a fresh, random session ID**, then set the cookie
 to the new one. The attacker's known ID is now worthless because logging in
 rotated it. The same rotate-on-privilege-change rule applies to any privilege
-elevation (e.g. stepping up to admin via MFA). Also rotate/expire aggressively:
+elevation (e.g. stepping up to admin via MFA).
+
+```
+  VULNERABLE (keep the ID)              FIXED (rotate at login)
+  anon "s_FIXED" ─► login ─► still      anon "s_FIXED" ─► login ─► DROP s_FIXED,
+     "s_FIXED" = user 42                    mint "s_NEW" = user 42
+  attacker knew s_FIXED → owns you      attacker's s_FIXED → now worthless (401)
+```
+
+Also rotate/expire aggressively:
 set an absolute lifetime (e.g. 8 hours) and an idle timeout (e.g. 30 min of
 inactivity), and always fully delete the server-side record on logout so the ID
 can't be replayed.
@@ -473,6 +492,15 @@ Write down your answer to each question before expanding it — checking without
    deletes the server-side record *and* clears the client cookie.
 
 </details>
+
+## Further reading & sources
+
+- [OWASP Session Management Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Session_Management_Cheat_Sheet.html) - session ID entropy, rotation, timeouts, and cookie hardening, all covered here.
+- [OWASP: Session fixation](https://owasp.org/www-community/attacks/Session_fixation) - the attack this module reproduces, with defenses.
+- [MDN: Set-Cookie](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Set-Cookie) - the authoritative reference for `HttpOnly`, `Secure`, `SameSite`, `Max-Age`, and friends.
+- [RFC 6265 - HTTP State Management Mechanism](https://datatracker.ietf.org/doc/html/rfc6265) - the cookie spec itself, including how browsers scope and return cookies.
+- [Redis: EXPIRE / key TTL](https://redis.io/docs/latest/commands/expire/) - how the `EX` TTL that auto-cleans idle sessions works.
+- [Starlette SessionMiddleware](https://www.starlette.io/middleware/#sessionmiddleware) - the signed-cookie session middleware and why it differs from a server-side store.
 
 ## Next
 

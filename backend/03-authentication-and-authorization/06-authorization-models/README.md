@@ -34,6 +34,15 @@ the user's roles, arbitrary attributes, or relationships between subject and
 resource. Keep that frame and the three models below are just three answers to
 "what does `allow?` look at."
 
+The three models are just three answers to "what does `allow?` look at":
+
+```
+  allow?(subject, action, resource)
+     RBAC  ─► subject's ROLES            "is alice an admin?"
+     ABAC  ─► ATTRIBUTES + policy         "dept match AND clearance≥class AND hours?"
+     ReBAC ─► RELATIONSHIP graph          "is alice owner of / shared this doc?"
+```
+
 Two more framing rules that prevent whole bug classes:
 
 - **Deny by default.** The absence of an explicit "allow" is a deny. Never
@@ -146,6 +155,14 @@ so it's consistent and auditable, not sprinkled across handlers as raw `if`s
 natural tool is a **dependency** that performs the check and raises `403` on
 deny — composed *after* the `get_current_user` dependency (authentication) that
 you built in earlier modules.
+
+```
+  every request ─► get_current_user ─► require_permission(perm) ─► handler
+                     (AuthN: who?)       ONE central gate            (runs only
+                     fail → 401          deny by default → 403        if allowed)
+                                          ▲
+                     role→perm map / policy / ownership check (DATA, one place to audit)
+```
 
 ```python
 from fastapi import Depends, HTTPException, status
@@ -422,6 +439,15 @@ Write down your answer to each question before expanding it — checking without
    existence (an information-disclosure concern, module 07).
 
 </details>
+
+## Further reading & sources
+
+- [OWASP: Broken Access Control (Top 10 A01)](https://owasp.org/Top10/A01_2021-Broken_Access_Control/) - why authorization bugs (including IDOR) top the risk list, with prevention guidance.
+- [OWASP Authorization Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Authorization_Cheat_Sheet.html) - deny-by-default, enforce-at-the-resource, and centralized enforcement.
+- [NIST: Role Based Access Control (RBAC)](https://csrc.nist.gov/projects/role-based-access-control) - the formal RBAC model, roles, and hierarchies.
+- [Google Zanzibar paper](https://research.google/pubs/pub48190/) - the design behind ReBAC relation tuples and graph-based checks at scale.
+- [OpenFGA documentation](https://openfga.dev/docs/authorization-concepts) - an open-source Zanzibar-style service and a clear intro to ReBAC concepts.
+- [Casbin documentation](https://casbin.org/docs/overview) - the policy engine used here for externalized, auditable RBAC/ABAC.
 
 ## Next
 

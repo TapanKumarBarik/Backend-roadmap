@@ -96,6 +96,17 @@ Decision rule: **web app with backend → Authorization Code (+PKCE). SPA/mobile
 → Authorization Code + PKCE. Service-to-service → Client Credentials.** Never
 Implicit; avoid Password grant.
 
+```
+  Authorization Code + PKCE
+                         FRONT-CHANNEL (browser, exposable)
+  client ──challenge=hash(verifier)──► authz server ──login+consent──┐
+     ▲                                                                  │
+     └───────────── redirect ?code=… ──────────────────────────────────┘
+                         BACK-CHANNEL (server-to-server, private)
+  client ──code + verifier(+secret)──► /token ──► {access, id_token}
+     an intercepted code alone is useless: no verifier → no tokens
+```
+
 ### The `state` parameter and CSRF
 
 The authorization-code flow bounces the user out to the authorization server and
@@ -133,6 +144,16 @@ The one-line distinction to burn in: **access token = what you can do (OAuth2,
 for the resource server); ID token = who you are (OIDC, for the client).** Use
 the ID token to establish the user's identity in *your* app; use the access
 token to call *the provider's* APIs. Don't authenticate with the access token.
+
+```
+  ┌─ OIDC ──────────────────────────────┐  scope: openid
+  │  ID TOKEN (JWT) → for the CLIENT       │  aud = your client_id
+  │  "who you are": sub, email, iss, exp    │  → log the user in
+  ├─ OAuth2 ────────────────────────────┤
+  │  ACCESS TOKEN → for the RESOURCE server │  scope: read:photos …
+  │  "what you can do"                       │  → call provider APIs
+  └────────────────────────────────────┘
+```
 
 ### "Login with Google," end to end
 
@@ -425,6 +446,15 @@ Write down your answer to each question before expanding it — checking without
    intercepted code can't be redeemed.
 
 </details>
+
+## Further reading & sources
+
+- [RFC 6749 - The OAuth 2.0 Authorization Framework](https://datatracker.ietf.org/doc/html/rfc6749) - the core spec: roles, grant types, and the authorization-code flow.
+- [RFC 7636 - Proof Key for Code Exchange (PKCE)](https://datatracker.ietf.org/doc/html/rfc7636) - the spec for the `code_verifier`/`code_challenge` hardening this module builds.
+- [OpenID Connect Core 1.0](https://openid.net/specs/openid-connect-core-1_0.html) - what OIDC adds on top of OAuth2: the ID token, `openid` scope, and UserInfo.
+- [OAuth 2.0 Security Best Current Practice (RFC 9700)](https://datatracker.ietf.org/doc/html/rfc9700) - the modern guidance that makes PKCE and `state` mandatory and deprecates Implicit.
+- [OWASP: OAuth 2.0 Protocol Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/OAuth2_Cheat_Sheet.html) - practical pitfalls including `state`/CSRF and token-substitution.
+- [Authlib documentation](https://docs.authlib.org/en/latest/client/fastapi.html) - the FastAPI OAuth client used here, and what it handles for you (PKCE, `state`, id_token verification).
 
 ## Next
 

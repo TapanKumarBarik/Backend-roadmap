@@ -76,6 +76,16 @@ crucially, **on the server side, store only a hash of it, never the plaintext**:
   problem. Allow multiple active keys per account so a client can rotate
   without downtime (create new, migrate, delete old).
 
+```
+  ISSUE (once)                        VERIFY (every request)
+  token_urlsafe(32)                   presented key ─► sha256(key)
+     │  sk_live_9f3a…                              │
+     ├─► show plaintext to user ONCE                └─► look up hash in store
+     └─► store sha256(key) only                          hit → identity+scopes
+                                                          miss → 401
+  DB leak exposes only hashes → useless without the plaintext
+```
+
 ```python
 import hashlib, secrets
 from fastapi import Depends, FastAPI, HTTPException, Security
@@ -168,6 +178,14 @@ but the server learns nothing cryptographic about the client. **Mutual TLS**
 makes it two-way: the **client also presents a certificate**, and the server
 verifies it against a trusted Certificate Authority. Now the TLS handshake
 itself authenticates *both* ends — before a single byte of HTTP is exchanged.
+
+```
+  One-way TLS (ordinary HTTPS)        Mutual TLS (mTLS)
+  client ──"who are you?"──► server   client ◄──cert──► server
+  server ──cert──► client verifies      BOTH present certs,
+  client identity: UNKNOWN               BOTH verify against a trusted CA
+  (auth happens later, in HTTP)          client identity: PROVEN in handshake
+```
 
 Why this is attractive for M2M:
 
@@ -409,6 +427,15 @@ Write down your answer to each question before expanding it — checking without
    host otherwise reaches everything.
 
 </details>
+
+## Further reading & sources
+
+- [OWASP REST Security Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/REST_Security_Cheat_Sheet.html) - API-key transport, header vs query string, and general API hardening.
+- [OWASP Secrets Management Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Secrets_Management_Cheat_Sheet.html) - storing, rotating, and detecting leaked keys and credentials.
+- [RFC 6749 - OAuth 2.0 Client Credentials Grant](https://datatracker.ietf.org/doc/html/rfc6749#section-4.4) - the standardized no-user M2M token flow to compare against raw API keys.
+- [RFC 8446 - TLS 1.3](https://datatracker.ietf.org/doc/html/rfc8446) - the handshake underlying one-way and mutual TLS, including client certificates.
+- [FastAPI: API Key security](https://fastapi.tiangolo.com/tutorial/security/) - the `APIKeyHeader` / `Security` primitives used in this module.
+- [Istio: Mutual TLS](https://istio.io/latest/docs/concepts/security/#mutual-tls-authentication) - how a service mesh automates per-workload certs and zero-trust mTLS at scale.
 
 ## Next
 

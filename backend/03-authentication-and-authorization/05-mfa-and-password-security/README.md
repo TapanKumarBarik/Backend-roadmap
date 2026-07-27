@@ -59,6 +59,16 @@ seed) and works entirely offline. How it works:
   skew, the server accepts the code for the adjacent window(s) too (a small
   `valid_window`).
 
+```
+  enroll: server ──shared seed (QR)──► authenticator app   (both hold the seed)
+
+  every 30s, INDEPENDENTLY on each side, no network:
+     seed + current_time_window ─► HMAC ─► truncate ─► 6 digits
+  server ─┐                                                 ┌─ phone
+          └── same seed + same clock → same code ───────────┘
+  login: user types code ─► server recomputes ─► compare (±1 window for skew)
+```
+
 Security properties and pitfalls:
 
 - The seed is a **shared secret** — store it server-side *encrypted*, not
@@ -168,6 +178,15 @@ Both bcrypt and argon2 **generate and embed the salt for you** and produce a
 single self-describing string containing the algorithm, parameters, salt, and
 hash — so verification just re-runs the function with the embedded parameters
 and compares. You never manage salts by hand.
+
+```
+  STORE (one-way, irreversible)
+  "hunter2" ─► + random salt ─► argon2id(slow, tunable) ─► $argon2id$…$salt$hash
+                                                              (this is all you keep)
+  VERIFY
+  login pw ─► re-run argon2id with embedded salt+params ─► compare ─► match / no
+     no way back from the stored hash to "hunter2"
+```
 
 ```python
 # argon2id via passlib — salting + slow adaptive hashing, both automatic
@@ -524,6 +543,15 @@ Closed-book. Don't reopen modules 00-05 while attempting these.
    all-powerful token whose leak compromises everything at once.
 
 </details>
+
+## Further reading & sources
+
+- [OWASP Password Storage Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html) - the definitive guidance on argon2id/bcrypt parameters, salting, and peppering.
+- [OWASP Multifactor Authentication Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Multifactor_Authentication_Cheat_Sheet.html) - factor categories, TOTP, and recovery-code design.
+- [RFC 6238 - TOTP: Time-Based One-Time Password Algorithm](https://datatracker.ietf.org/doc/html/rfc6238) - the spec the `HMAC(seed, time_window)` code generation follows.
+- [webauthn.guide](https://webauthn.guide/) - an approachable walkthrough of the WebAuthn registration/authentication ceremonies and origin binding.
+- [FIDO Alliance: Passkeys](https://fidoalliance.org/passkeys/) - what passkeys are and why they are phishing-resistant and passwordless.
+- [passlib CryptContext docs](https://passlib.readthedocs.io/en/stable/lib/passlib.context.html) - the `hash`/`verify`/`needs_update` API used here for adaptive rehashing.
 
 ## Next
 

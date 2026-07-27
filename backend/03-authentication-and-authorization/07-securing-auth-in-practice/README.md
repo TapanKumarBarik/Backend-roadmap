@@ -62,6 +62,13 @@ authenticated request. Defenses (use more than one):
   reason SPAs often use bearer tokens. But then you must guard those tokens
   against XSS instead.
 
+```
+  forged POST from evil.com ─► bank.com
+     SameSite=Lax ─────► cookie NOT attached cross-site ─► no session ─► reject
+     CSRF token ───────► attacker can't read same-origin token ─► header missing ─► 403
+  legit POST from bank.com ─► cookie + matching X-CSRF-Token ─► accepted
+```
+
 ### XSS — Cross-Site Scripting (and why it's the auth killer)
 
 XSS is injecting attacker-controlled JavaScript into your page (via unescaped
@@ -199,6 +206,14 @@ controls:
 
 The two work together: rate limiting protects the *endpoint* from volume;
 lockout/backoff protects a *targeted account*. Both feed audit logging.
+
+```
+  per-account failure state machine (backoff, not hard lock)
+   OK ──fail──► fail#1 ──fail──► fail#2 ─…─► fail#N ──► THROTTLED
+    ▲            │                                        │ delay/CAPTCHA
+    └── success ─┴────────────────────────────────────────┘ (reset counter)
+   per-IP window (parallel): INCR rl:ip ; >limit within window → 429 Retry-After
+```
 
 ### Audit logging of auth events
 
@@ -499,6 +514,15 @@ Write down your answer to each question before expanding it — checking without
    investigation/forensics and for compliance/anomaly detection.
 
 </details>
+
+## Further reading & sources
+
+- [OWASP Cross-Site Request Forgery Prevention Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Cross-Site_Request_Forgery_Prevention_Cheat_Sheet.html) - SameSite, synchronizer tokens, and double-submit patterns.
+- [OWASP Cross Site Scripting Prevention Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Cross_Site_Scripting_Prevention_Cheat_Sheet.html) - output encoding and CSP, the root XSS fixes.
+- [OWASP Authentication Cheat Sheet: enumeration & generic errors](https://cheatsheetseries.owasp.org/cheatsheets/Authentication_Cheat_Sheet.html#authentication-and-error-messages) - why failure responses and timing must be uniform.
+- [MDN: Strict-Transport-Security (HSTS)](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Strict-Transport-Security) - forcing HTTPS to defeat SSL-stripping MITM.
+- [Python secrets.compare_digest](https://docs.python.org/3/library/secrets.html#secrets.compare_digest) - the constant-time comparison this module insists on for secrets.
+- [OWASP Logging Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Logging_Cheat_Sheet.html) - what to record in an audit trail and what must never be logged.
 
 ## Next
 

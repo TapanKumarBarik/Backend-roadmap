@@ -31,6 +31,14 @@ A JWT is three base64url-encoded chunks joined by dots:
 eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiI0MiIsImV4cCI6MTcyMDAwMDAwMH0.dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk
 ```
 
+```
+  eyJhbGci…   .   eyJzdWIi…   .   dBjftJeZ…
+  └─ HEADER ─┘     └─ PAYLOAD ┘     └─ SIGNATURE ─┘
+   {alg,typ}     {sub,exp,role…}    HMAC/RSA over header.payload
+   base64url      base64url          binary → base64url
+   readable       readable           proves integrity, needs the key
+```
+
 Split on the dots and base64url-decode the first two parts (the third is
 binary signature bytes):
 
@@ -105,6 +113,15 @@ architectural consequences:
 Rule of thumb: **HS256 when the issuer and verifier are the same trust domain;
 RS256 when they're separate** (third parties verify, or many services verify
 tokens a central auth server issues).
+
+```
+  HS256 (symmetric)                 RS256 (asymmetric)
+  ┌───────────────────┐           ┌── auth server ──┐   ┌── verifiers ──┐
+  │ one SHARED secret   │           │ PRIVATE key      │   │ PUBLIC key     │
+  │ signs AND verifies   │           │ signs only        │──►│ verify only    │
+  │ verifier = can forge │           │ (never shared)    │   │ can't forge    │
+  └───────────────────┘           └────────────────┘   └── ×N services ─┘
+```
 
 Two notorious attacks come straight from mishandling `alg`, and they're why you
 never trust the token's own header blindly:
@@ -536,6 +553,15 @@ find out what actually stuck.
    for what it needs instead of reading the cookie).
 
 </details>
+
+## Further reading & sources
+
+- [RFC 7519 - JSON Web Token (JWT)](https://datatracker.ietf.org/doc/html/rfc7519) - the spec itself: registered claims (`sub`, `exp`, `aud`, `iss`, `jti`) and how validation works.
+- [jwt.io](https://jwt.io/) - paste a token to decode header/payload and experiment with signing algorithms interactively.
+- [OWASP JSON Web Token Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/JSON_Web_Token_for_Java_Cheat_Sheet.html) - the practical do's and don'ts, including `alg:none` and algorithm pinning.
+- [Critical vulnerabilities in JSON Web Token libraries (Auth0)](https://auth0.com/blog/critical-vulnerabilities-in-json-web-token-libraries/) - the original write-up of the `alg:none` and HS256/RS256 confusion attacks.
+- [PyJWT documentation](https://pyjwt.readthedocs.io/en/stable/) - the `encode`/`decode` API used here, including `algorithms`, `audience`, and `issuer` enforcement.
+- [RFC 6819 - OAuth 2.0 Threat Model](https://datatracker.ietf.org/doc/html/rfc6819) - background on token theft, replay, and the refresh-rotation defenses this module builds.
 
 ## Next
 

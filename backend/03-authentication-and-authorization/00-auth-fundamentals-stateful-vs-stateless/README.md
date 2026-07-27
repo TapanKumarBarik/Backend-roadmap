@@ -52,6 +52,15 @@ different status codes — `401 Unauthorized` really means *unauthenticated*, an
 `403 Forbidden` means *authenticated but not allowed*. HTTP named them
 confusingly; you don't have to think confusingly.
 
+```
+  request ─► ┌── AuthN ──────────┐    ┌── AuthZ ─────────────┐ ─► handler
+             │ who are you?        │    │ may THIS user do THIS? │
+             │ get_current_user()   │──► │ require_role("admin")   │
+             │ credential → User    │    │ User → allow / deny      │
+             └── fail: 401 ────────┘    └── fail: 403 ───────────┘
+              (unauthenticated)          (authenticated, forbidden)
+```
+
 ### The core problem: HTTP is stateless
 
 HTTP has no memory. Each request is an island — the protocol itself gives the
@@ -455,6 +464,15 @@ Write down your answer to each question before expanding it — checking without
    is exposed on every call.
 
 </details>
+
+## Further reading & sources
+
+- [OWASP Authentication Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Authentication_Cheat_Sheet.html) - the canonical checklist for getting AuthN right, from credential handling to error messages.
+- [OWASP Session Management Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Session_Management_Cheat_Sheet.html) - deep guidance on the stateful (session) side of the fork this module draws.
+- [MDN: HTTP authentication](https://developer.mozilla.org/en-US/docs/Web/HTTP/Authentication) - how the `Authorization` header, `WWW-Authenticate`, and HTTP Basic actually work on the wire.
+- [RFC 7617 - The 'Basic' HTTP Authentication Scheme](https://datatracker.ietf.org/doc/html/rfc7617) - the spec behind base64-encoded Basic auth and exactly why it needs TLS.
+- [FastAPI Security docs](https://fastapi.tiangolo.com/tutorial/security/) - the framework's own tour of `HTTPBasic`, dependencies, and the `401`/`403` distinction you built here.
+- [MDN: 401 Unauthorized](https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/401) - the reference confirming `401` means *unauthenticated*, the naming trap this module warns about.
 
 ## Next
 
