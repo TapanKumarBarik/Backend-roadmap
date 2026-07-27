@@ -48,6 +48,13 @@ Both share the core split: **the scheduler decides *when*; the worker decides
 *how*.** Keep the scheduled entry a thin trigger that enqueues a real task;
 don't do heavy work inside the scheduler process itself.
 
+```
+  cron entry            scheduler (Beat)         broker        worker
+  "0 2 * * *"  ──tick──► due? enqueue msg ──────► queue ─────► run backup_database()
+  (the WHEN)            (thin: no work here)                   (the HOW: retries,
+                                                                idempotency, result)
+```
+
 ### Cron expressions and interval schedules
 
 A **cron expression** is five fields — minute, hour, day-of-month, month,
@@ -89,6 +96,13 @@ Here's the trap. A single Beat process is a single point of failure — if it's
 down, nothing gets scheduled. The obvious fix is to run two Beat processes for
 high availability. But now **both** are ticking through the same schedule, and
 at 02:00 *both* enqueue the backup task. You get duplicate runs of everything.
+
+```
+  BUG: two Beats, no guard          FIX: single execution via a window lock
+  Beat A ─02:00─► enqueue ─► run     Beat A ─► SET lock:backup:2026-07-27 NX ─► WON ─► run
+  Beat B ─02:00─► enqueue ─► run     Beat B ─► SET lock:backup:2026-07-27 NX ─► lost ─► no-op
+        = TWO backups (bad)                = ONE backup; loser skips
+```
 
 There are three correct answers, in rough order of preference:
 
@@ -540,6 +554,14 @@ to find out what actually stuck.
    plus a run-level window lock so at most one send happens per user per week.
 
 </details>
+
+## Further reading & sources
+
+- [Celery: Periodic Tasks (Beat)](https://docs.celeryq.dev/en/stable/userguide/periodic-tasks.html) - defining `beat_schedule`, `crontab`, and running a single Beat process.
+- [Celery: crontab schedules](https://docs.celeryq.dev/en/stable/reference/celery.schedules.html#celery.schedules.crontab) - the full field reference for cron-style entries.
+- [APScheduler documentation](https://apscheduler.readthedocs.io/en/3.x/userguide.html) - triggers, `misfire_grace_time`, `coalesce`, `max_instances`, and persistent job stores.
+- [Redis: SET with NX and EX](https://redis.io/docs/latest/commands/set/) - the atomic primitive behind the time-window distributed lock.
+- [Redis: Distributed locks with Redlock](https://redis.io/docs/latest/develop/use/patterns/distributed-locks/) - the reasoning and caveats for locks that guarantee single execution.
 
 ## Next
 

@@ -95,6 +95,17 @@ The task, tying together everything from modules 00-02:
   at-least-once redelivery or a retry-after-partial-success can't send two
   receipts for one order.
 
+```
+  handler                worker (send_receipt task)
+  POST /confirm          re-fetch order ─► already_sent()? ─► render text+HTML
+   .delay(order_id) ──►     │                  │ no              template (autoescaped)
+   return 202               │                  ▼                     │
+   (instant)                └──────────► SMTP / provider API ◄────────┘
+                                              │ 5xx? ─► retry w/ backoff
+                                              ▼ ok
+                                         mark_sent(order_id, "receipt")
+```
+
 ### Deliverability basics: SPF, DKIM, DMARC (conceptually)
 
 Getting into the inbox is a trust problem. Receiving servers ask: "is this
@@ -440,6 +451,15 @@ Write down your answer to each question before expanding it — checking without
    whether hard bounces/complaints are being suppressed.
 
 </details>
+
+## Further reading & sources
+
+- [MDN: multipart/alternative and email MIME](https://developer.mozilla.org/en-US/docs/Web/HTTP/Basics_of_HTTP/MIME_types) - how a message carries both a text and an HTML part.
+- [Python: email.message.EmailMessage](https://docs.python.org/3/library/email.message.html) - the stdlib API used to build the MIME message.
+- [Jinja2: autoescaping](https://jinja.palletsprojects.com/en/stable/api/#autoescaping) - turning on HTML escaping so personalization data can't inject markup.
+- [Google: Email sender guidelines (SPF/DKIM/DMARC)](https://support.google.com/mail/answer/81126) - the authoritative bar a major receiver sets for landing in the inbox.
+- [dmarc.org: Overview](https://dmarc.org/overview/) - what DMARC is and how it ties SPF and DKIM together.
+- [MailHog](https://github.com/mailhog/MailHog) - the local SMTP capture server used in the exercises.
 
 ## Next
 

@@ -160,6 +160,17 @@ with thousands at once — and may slow to a crawl or fall over. Worse, the
 overload makes the recompute *slower*, widening the window, admitting *more*
 stampeding requests: a self-amplifying collapse.
 
+```
+  STAMPEDE (no defense)           SINGLE-FLIGHT (lock / coalesce)
+  key expires ▼                   key expires ▼
+  req1 ─miss─┐                    req1 ─miss─► wins lock ─► DB (1 query)
+  req2 ─miss─┤                    req2 ─miss─► sees lock ─► wait/retry ─┐
+  req3 ─miss─┼─► DB (all at once) req3 ─miss─► sees lock ─► wait/retry ─┤
+  ...        │   ▓▓▓▓ overload    ...                                   │
+  reqN ─miss─┘                    reqN ─miss─► sees lock ─► wait/retry ─┘
+   N queries hit a DB sized for 1  all read the ONE fresh value ◄───────┘
+```
+
 This is counterintuitive and important: **the cache didn't just stop helping at
 expiry — it created a synchronized load spike that plain uncached access would
 never produce.** Uncached, the 5,000 req/s would be spread as a steady 5,000
@@ -503,6 +514,15 @@ Write down your answer to each question before expanding it — checking without
    expire, only one recompute runs across processes.
 
 </details>
+
+## Further reading & sources
+
+- [MDN: HTTP caching](https://developer.mozilla.org/en-US/docs/Web/HTTP/Caching) - authoritative reference for `Cache-Control`, `max-age`, `s-maxage`, `private`/`public`, and `no-store`.
+- [MDN: ETag](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/ETag) - how conditional requests and `304 Not Modified` revalidation work.
+- [web.dev: HTTP caching](https://web.dev/articles/http-cache) - a practical guide to fingerprinting assets and cache-forever + revalidation strategies.
+- [FastAPI: Response](https://fastapi.tiangolo.com/advanced/response-headers/) - setting `Cache-Control` and other response headers on FastAPI endpoints.
+- [Redis: SET (NX/EX options)](https://redis.io/docs/latest/commands/set/) - the atomic set-if-absent-with-TTL primitive behind the single-flight stampede lock.
+- [Instagram Engineering: thundering herds & promises](https://instagram-engineering.com/thundering-herds-promises-82191c8af57d) - a real-world write-up of cache stampedes and request coalescing.
 
 ## Next
 

@@ -70,6 +70,20 @@ battle:
   fire-and-forget and need no result backend at all — sending an email
   doesn't return anything you care about.
 
+```
+  Producer (FastAPI handler)          Worker pool (separate processes)
+  ────────────────────────            ────────────────────────────────
+  POST /signup                              ┌──► worker 1 ─┐
+    task.delay(user_id) ──┐                 │   runs the   │
+    return 202 (instant) ─┘   ┌─────────┐   ├──► worker 2 ─┼──► Result
+                          └──► │ Broker  │ ──┤   task func  │    backend
+     ~3ms, user unblocked      │ (Redis) │   └──► worker 3 ─┘   (optional)
+                               │  queue  │        (slow work)    r.get()
+                               └─────────┘
+  The handler returns while the message still sits in the queue; a worker
+  picks it up and does the 4-second job long after the user got their 202.
+```
+
 The critical mental shift: your web process and your worker process are
 **different programs** that only communicate through the broker. They don't
 share memory. Anything a task needs must be in the message (its arguments) or
@@ -450,6 +464,15 @@ Write down your answer to each question before expanding it — checking without
    `task_ignore_result=True`.
 
 </details>
+
+## Further reading & sources
+
+- [Celery: First Steps with Celery](https://docs.celeryq.dev/en/stable/getting-started/first-steps-with-celery.html) - the official walkthrough of defining an app, a task, and running a worker against a broker.
+- [Celery: Introduction to Celery](https://docs.celeryq.dev/en/stable/getting-started/introduction.html) - the producer/broker/worker/result-backend architecture straight from the source.
+- [Celery: Calling Tasks](https://docs.celeryq.dev/en/stable/userguide/calling.html) - `.delay()` vs `.apply_async()`, `AsyncResult`, countdown, and options.
+- [RQ (Redis Queue) docs](https://python-rq.org/) - the lighter Redis-only alternative with the same four-role architecture.
+- [Redis documentation](https://redis.io/docs/latest/) - the broker and result backend used throughout this track.
+- [Celery: Task serializers](https://docs.celeryq.dev/en/stable/userguide/calling.html#serializers) - why arguments must be serializable and how JSON is the safe default.
 
 ## Next
 

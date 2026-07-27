@@ -75,6 +75,18 @@ lookup. That's why the exact same idea appears at every layer of a system: any
 time there's a big latency gap between where data *is* and where it's *needed*,
 a cache in the gap pays off.
 
+```
+  FAST ▲  L1 cache      ~1 ns     ┐
+       │  RAM           ~100 ns   │ a cache MOVES an answer
+       │  in-proc dict  ~100 ns   │ UP this ladder:
+       │  SSD           ~100 µs   │
+       │  Redis (LAN)   ~1 ms   ◄─┘ 200ms query ──► 1ms Redis  (~200×)
+       │  PG indexed    ~1-10 ms       1ms Redis ──► 100ns dict (~10,000×)
+       │  PG aggregate  ~50-500 ms
+  SLOW ▼  slow upstream ~0.1-2 s
+        each rung ~10-1000× slower than the one above it
+```
+
 Two things are being reduced at once, and it's worth separating them:
 
 - **Latency** — the individual request gets faster (the user waits less).
@@ -126,6 +138,16 @@ data. Knowing the layers keeps you from solving a problem at the wrong one.
 A single user request can hit several of these in sequence: browser cache →
 CDN → app in-process cache → Redis → Postgres buffer pool → disk. Each layer it
 *stops* at is a layer of work everything below it didn't have to do.
+
+```
+  user ──► [browser] ──► [CDN/edge] ──► [ your servers ] ──► [Postgres]
+           cache          cache          L1 in-proc dict      buffer pool
+             │              │            L2 Redis (shared)      + disk
+             │              │                  │                   │
+        hit = 0 work    hit = origin      hit = no DB         the source
+        for backend     never touched     query               of truth
+        └──────────────── stop as early as you can ───────────────┘
+```
 
 ### Client-side vs server-side caching: a real distinction, not a synonym
 
@@ -523,6 +545,15 @@ Write down your answer to each question before expanding it — checking without
    entirely serves stale data forever. Modules 01 and 02 are devoted to it.
 
 </details>
+
+## Further reading & sources
+
+- [Latency Numbers Every Programmer Should Know](https://gist.github.com/jboner/2841832) - Jeff Dean's canonical latency ladder; the source of the orders-of-magnitude intuition this module is built on.
+- [Redis documentation](https://redis.io/docs/latest/) - the official docs for the distributed cache (L2) used throughout this track.
+- [redis-py documentation](https://redis-py.readthedocs.io/en/stable/) - the Python client whose `get`/`set`/`ex` you use in the cache-aside lookup here.
+- [MDN: HTTP caching](https://developer.mozilla.org/en-US/docs/Web/HTTP/Caching) - how `Cache-Control`, `ETag`, and `Last-Modified` drive client-side caching (revisited in module 04).
+- [Martin Fowler: TwoHardThings](https://martinfowler.com/bliki/TwoHardThings.html) - the "cache invalidation and naming things" joke and why the first half is deadly serious.
+- [PostgreSQL: EXPLAIN](https://www.postgresql.org/docs/current/using-explain.html) - reading `shared hit` vs `read` to watch Postgres's own buffer-pool cache warm up.
 
 ## Next
 

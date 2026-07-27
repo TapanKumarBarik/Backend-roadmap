@@ -74,6 +74,15 @@ def update_user(uid: int, changes: dict) -> None:
     r.delete(f"user:{uid}")                         # invalidate; next read repopulates
 ```
 
+```
+  cache-aside READ                    cache-aside WRITE
+  app ─►cache  hit? ─► return         app ─► DB (write, authoritative)
+       └► miss                             └► cache: DEL key
+          app ─► DB (load)                    (next read misses, repopulates)
+          app ─► cache (store)
+   the APP is the one talking to both the cache and the DB
+```
+
 - **Pros:** simplest to reason about; the cache only ever holds data that's
   actually been asked for (no wasted memory on cold keys); the database stays
   the source of truth; resilient — if Redis is down, reads just always "miss"
@@ -134,6 +143,14 @@ def update_user(uid: int, changes: dict) -> None:
     user = db_update_user(uid, changes)             # 1. write to source (authoritative)
     r.set(f"user:{uid}", json.dumps(user), ex=300)  # 2. write to cache, synchronously
     # only now is the write considered done
+```
+
+```
+  write-through:  caller ─► DB write ─► cache write ─► ACK
+                          (both finish before the write is acknowledged)
+  write-behind:   caller ─► cache write ─► ACK          (fast!)
+                                  └┄┄► background flush ┄┄► DB  (later, batched)
+                                        ▲ crash here = those writes LOST
 ```
 
 - **Pros:** the cache is never stale relative to writes it processed — a read
@@ -502,6 +519,14 @@ Write down your answer to each question before expanding it — checking without
    to expire and reload.
 
 </details>
+
+## Further reading & sources
+
+- [AWS: Caching patterns (lazy loading, write-through, TTL)](https://docs.aws.amazon.com/AmazonElastiCache/latest/red-ug/Strategies.html) - a clear side-by-side of cache-aside vs write-through and their tradeoffs.
+- [Redis: client-side caching](https://redis.io/docs/latest/develop/reference/client-side-caching/) - how Redis itself thinks about keeping application and cache in agreement.
+- [redis-py commands](https://redis-py.readthedocs.io/en/stable/commands.html) - reference for `set`, `delete`, `incr`, `getdel`, and the `nx`/`xx`/`ex` flags used here.
+- [Martin Fowler: TwoHardThings](https://martinfowler.com/bliki/TwoHardThings.html) - the invalidation problem the write strategies are ultimately fighting.
+- [Microsoft: Cache-Aside pattern](https://learn.microsoft.com/en-us/azure/architecture/patterns/cache-aside) - a formal write-up of the default strategy, including the invalidate-on-write races.
 
 ## Next
 

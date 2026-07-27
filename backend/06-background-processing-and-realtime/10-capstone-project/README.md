@@ -170,6 +170,15 @@ almost nothing this track cared about.
 
 </details>
 
+## Further reading & sources
+
+- [Celery: Canvas — Designing Work-flows](https://docs.celeryq.dev/en/stable/userguide/canvas.html) - composing the processing pipeline as a chain with retries and idempotency.
+- [microservices.io: Transactional Outbox pattern](https://microservices.io/patterns/data/transactional-outbox.html) - emitting the `file.processed` webhook atomically with the completion state.
+- [Stripe: Verify webhook signatures](https://docs.stripe.com/webhooks/signatures) - the HMAC + timestamp receiver checks the capstone's receiver must implement.
+- [AWS: Sharing objects with presigned URLs](https://docs.aws.amazon.com/AmazonS3/latest/userguide/ShareObjectPreSignedURL.html) - direct-to-storage uploads/downloads that keep the API out of the byte path.
+- [MDN: Using server-sent events](https://developer.mozilla.org/en-US/docs/Web/API/Server-sent_events/Using_server-sent_events) - the real-time progress channel and its automatic reconnection.
+- [Redis: Pub/Sub](https://redis.io/docs/latest/develop/interact/pubsub/) - the multi-process backplane for delivering progress regardless of which process the client hit.
+
 ## Next
 
 [../../07-search-with-elasticsearch/README.md](../../07-search-with-elasticsearch/README.md)

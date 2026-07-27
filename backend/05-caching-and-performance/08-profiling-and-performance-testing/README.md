@@ -100,6 +100,16 @@ A **flame graph** visualizes a (usually sampling) profile as stacked bars:
   time *at the leaf* (doing actual work, not just calling down). That plateau is
   your bottleneck. Following its tower *down* shows the call path that led there.
 
+```
+  width = time (proportion of samples) ─────────────────────►
+  depth │ ┌──────────────── get_report ────────────────┐
+    ▲   │ ┌── load_orders ──────────────┐ ┌ serialize ┐
+    │   │ ┌──── execute ───────────────┐│ └───────────┘
+  deeper │ │▓▓▓▓ WIDE plateau = hot ▓▓▓▓││  ◄─ the bottleneck:
+  stacks │ └─────────────────────────────┘   widest leaf box
+        (x-axis is NOT time order — read for WIDTH, not left-to-right)
+```
+
 The skill is one glance: **the widest towers/plateaus are where the time is.** A
 flame graph makes "80% of the time is in this one call path" visually obvious in a
 way a 500-row cProfile table doesn't. `py-spy record -o out.svg` produces one
@@ -172,6 +182,16 @@ The two instruments combine into the payoff. The workflow:
 4. **Fix that one thing** with the right tool from the track (a cache, an
    eager-load/batch, a concurrency fix, a leak fix, an atomic op) and **re-load-
    test** to prove the top-level metric moved (steps 4–5).
+
+```
+   ┌──────────────────── the profiler-guided loop ───────────────────┐
+   │  load test  ──►  profile   ──►  find the   ──►  fix that ONE     │
+   │ (get p99/RPS)  (under load)     widest plateau    thing          │
+   │      ▲                                              │            │
+   │      └──────────── re-load-test ◄────────────────── ┘            │
+   │           (did the top-level metric actually move?)              │
+   └── stop when fast enough; the bottleneck MOVES after each fix ────┘
+```
 
 The whole point, restated: you do not optimize what you *believe* is slow; you
 optimize what the profiler *shows* is slow. The gap between those two is where
@@ -473,6 +493,15 @@ Write down your answer to each question before expanding it — checking without
    believe is slow.**
 
 </details>
+
+## Further reading & sources
+
+- [Python: cProfile / the Python Profilers](https://docs.python.org/3/library/profile.html) - the built-in deterministic profiler and the `ncalls`/`tottime`/`cumtime` columns.
+- [py-spy](https://github.com/benfred/py-spy) - the low-overhead sampling profiler that attaches to live processes and records flame graphs.
+- [Brendan Gregg: Flame Graphs](https://www.brendangregg.com/flamegraphs.html) - the definitive guide to what flame graphs are and how to read them.
+- [Locust documentation](https://docs.locust.io/en/stable/) - scriptable, scenario-based load testing in Python.
+- [speedscope](https://github.com/jlfwong/speedscope) - an interactive flame-graph viewer for profiles from py-spy and others.
+- [Wikipedia: Little's Law](https://en.wikipedia.org/wiki/Little%27s_law) - the throughput/concurrency/latency relationship behind the saturation knee.
 
 ## Next
 

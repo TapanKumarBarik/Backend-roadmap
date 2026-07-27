@@ -65,6 +65,14 @@ The decision rule:
 | Server pushes to client, client just listens | **SSE** |
 | Both sides send, interactive, low latency | **WebSockets** |
 
+```
+  HTTP request/response      SSE (one-way stream)        WebSocket (full-duplex)
+  client ──req──► server     client ──GET──► server      client ◄════════► server
+  client ◄─resp── server     client ◄─event─ server        both send anytime,
+     one shot, then closed    ◄─event─  (stays open,        persistent, until
+                              ◄─event─   server pushes)      either side closes
+```
+
 A huge number of features people build with WebSockets ("show me
 notifications," "update this progress bar") only ever push *server→client* and
 would be simpler, more robust, and reconnection-free as SSE. Reach for
@@ -119,6 +127,15 @@ class ConnectionManager:
                 dead.append(ws)             # sending failed -> it's gone
         for ws in dead:
             self.disconnect(ws)             # prune the ones that failed
+```
+
+```
+  broadcast fan-out                       the leak (missing unregister)
+  one message ─► registry `active`         active = {c1, c2, DEAD, DEAD, c5, DEAD...}
+        ┌─► client 1 (send ok)                     │            │      │
+        ├─► client 2 (send ok)              grows forever; every broadcast
+        ├─► client 3 (send fails) ─► prune  still tries the DEAD sockets
+        └─► client 4 (send ok)              until memory/fds run out
 ```
 
 The **leak** happens when a connection is added to `active` on connect but
@@ -544,6 +561,14 @@ Closed-book. Don't reopen modules 00-07 while attempting these.
    marks the delivery failed and retries, amplifying load and duplicates.
 
 </details>
+
+## Further reading & sources
+
+- [MDN: WebSockets API](https://developer.mozilla.org/en-US/docs/Web/API/WebSockets_API) - the client protocol, lifecycle, and framing.
+- [MDN: Using server-sent events](https://developer.mozilla.org/en-US/docs/Web/API/Server-sent_events/Using_server-sent_events) - `EventSource`, the `text/event-stream` format, and automatic reconnection.
+- [FastAPI: WebSockets](https://fastapi.tiangolo.com/advanced/websockets/) - accepting connections, the receive loop, and `WebSocketDisconnect`.
+- [MDN: WebSockets vs Server-sent events](https://developer.mozilla.org/en-US/docs/Web/API/Server-sent_events) - when one-way SSE is the simpler, more robust choice.
+- [RFC 6455: The WebSocket Protocol](https://datatracker.ietf.org/doc/html/rfc6455) - the handshake, framing, and ping/pong heartbeats.
 
 ## Next
 

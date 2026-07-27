@@ -158,6 +158,16 @@ poller/relay reads committed outbox rows and enqueues deliveries. The event is
 recorded atomically with the state change, so you never emit a webhook for a
 rolled-back change and never lose one for a committed change.
 
+```
+  ONE DB transaction                        separate relay (poller)
+  ┌───────────────────────────────┐
+  │ UPDATE orders SET shipped=true │        reads committed
+  │ INSERT INTO outbox (evt...)    │──commit─► outbox rows ──► enqueue deliver()
+  └───────────────────────────────┘             │
+        rolls back? BOTH vanish ─► no event      └─ nothing to relay = no webhook
+  The event row and the fact commit together, or neither does.
+```
+
 ## Command reference
 
 | Concern | Approach |
@@ -496,6 +506,14 @@ Write down your answer to each question before expanding it — checking without
    ones — each endpoint's delivery retries and succeeds/fails independently.
 
 </details>
+
+## Further reading & sources
+
+- [microservices.io: Transactional Outbox pattern](https://microservices.io/patterns/data/transactional-outbox.html) - the canonical description of emitting events atomically with a state change.
+- [Stripe: Webhooks](https://docs.stripe.com/webhooks) - a reference design for event objects, delivery, and retries from a major sender.
+- [GitHub: About webhooks](https://docs.github.com/en/webhooks/about-webhooks) - event types, payloads, and delivery semantics from another well-known sender.
+- [Stripe: Event object & types](https://docs.stripe.com/api/events) - how a self-describing event payload (id, type, created, data) is structured.
+- [Celery: Retrying tasks](https://docs.celeryq.dev/en/stable/userguide/tasks.html#retrying) - the backoff-over-a-long-window retry policy webhook delivery relies on.
 
 ## Next
 

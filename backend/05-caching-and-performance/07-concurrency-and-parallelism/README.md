@@ -47,6 +47,14 @@ async server running on multiple processes). The reason it matters for
 performance is *what each one speeds up*, which depends entirely on whether the
 work is waiting or computing.
 
+```
+  CONCURRENCY (1 core, interleaved)   PARALLELISM (N cores, simultaneous)
+  core: A─B─A─C─B─A─C─B  (time →)      core1: AAAAAAAA
+        └ tasks take turns, none       core2: BBBBBBBB   all run at the
+          blocking while others wait   core3: CCCCCCCC   SAME instant
+  "dealing with many at once"          "doing many at once"
+```
+
 ### I/O-bound vs CPU-bound: the distinction that picks your tool
 
 Every workload is dominated by one of two things:
@@ -152,6 +160,18 @@ for:
   simultaneously. The cost is that processes don't share memory (data must be
   *serialized* and copied between them — real overhead) and are heavier to start.
   This is the tool for CPU-bound work.
+
+```
+  the GIL = one lane for Python bytecode:
+
+  threads (CPU-bound)          processes (CPU-bound)
+  T1 ─┐                        P1 [own GIL] ═══► core1
+  T2 ─┼─► [ GIL ] ═► 1 core    P2 [own GIL] ═══► core2   truly
+  T3 ─┘   one-at-a-time        P3 [own GIL] ═══► core3   parallel
+   serialized: no speedup       N interpreters, N cores
+
+  BUT a thread blocked on I/O RELEASES the GIL → threads DO overlap I/O waits
+```
 
 So the Python-specific tool matrix:
 
@@ -523,6 +543,15 @@ Write down your answer to each question before expanding it — checking without
    atomicity do the work instead of orchestrating it yourself.
 
 </details>
+
+## Further reading & sources
+
+- [Python: asyncio](https://docs.python.org/3/library/asyncio.html) - the event loop, coroutines, `gather`, and `to_thread` for I/O-bound concurrency.
+- [Python: multiprocessing](https://docs.python.org/3/library/multiprocessing.html) - process-based parallelism that sidesteps the GIL for CPU-bound work.
+- [Python: GlobalInterpreterLock](https://wiki.python.org/moin/GlobalInterpreterLock) - what the GIL is and why it serializes Python bytecode.
+- [Rob Pike: Concurrency Is Not Parallelism](https://go.dev/blog/waza-talk) - the canonical framing of the distinction this module rests on.
+- [FastAPI: async and await](https://fastapi.tiangolo.com/async/) - when to use `async def` vs `def`, and the event-loop-blocking footgun.
+- [PEP 703: making the GIL optional](https://peps.python.org/pep-0703/) - the free-threaded CPython work behind the "the exceptions are coming" caveat.
 
 ## Next
 

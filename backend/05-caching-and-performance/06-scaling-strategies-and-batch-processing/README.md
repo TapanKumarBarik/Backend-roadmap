@@ -57,6 +57,16 @@ times for 1,000 rows and you pay ~1,000ms of *pure overhead* on top of the work.
 Batch it into one statement and you pay ~1ms of overhead total. The work is the
 same; the overhead collapses.
 
+```
+  N individual calls:   app ─►│ ─► app ─►│ ─► app ─►│ ─►  ... (N times)
+                         [o|w] [o|w] [o|w]   o = per-call overhead (round-trip)
+                         └── N×o overhead ──┘   w = the actual work
+
+  1 batched call:       app ─►│═══════════════│─► app
+                         [o|wwwwwwwwwwwwwwwww]   ONE overhead, same total work
+                         └ 1×o ┘                 overhead collapsed N→1
+```
+
 Where batching applies (all the same idea):
 
 - **Database writes:** `INSERT ... VALUES (...), (...), (...)` or SQLAlchemy's
@@ -165,6 +175,17 @@ Classic examples of work that's usually *not* critical to the response:
 - Writing an analytics/audit event.
 - Warming a cache, updating a search index, syncing to a third party.
 - Any slow third-party call whose result the user doesn't immediately need.
+
+```
+  ON the request path (slow):
+  request ─► create order ─► send email ─► write analytics ─► respond
+            |<-- 40ms -->|<-- 800ms -->|<-- 120ms -->|   user waits ~960ms
+
+  OFFLOADED (fast):
+  request ─► create order ─► enqueue{email, analytics} ─► respond
+            |<-- 40ms -->|<-1ms->|   user waits ~41ms
+                             └┄► worker: email, analytics  (later, off-path)
+```
 
 For these, the request should do the *minimal* critical work (create the order,
 persist the record), enqueue the rest as a **background job**, and return
@@ -574,6 +595,15 @@ full answers before expanding; if one stumps you, redo that module's exercises.
    for bounded eventual completion to cut latency.
 
 </details>
+
+## Further reading & sources
+
+- [SQLAlchemy: ORM bulk INSERT](https://docs.sqlalchemy.org/en/20/orm/queryguide/dml.html) - batching writes into one round-trip instead of N single-row commits.
+- [Redis: pipelining](https://redis.io/docs/latest/develop/use/pipelining/) - collapsing many Redis round-trips into one to amortize network overhead.
+- [FastAPI: dependencies with yield](https://fastapi.tiangolo.com/tutorial/dependencies/dependencies-with-yield/) - per-request acquire/release scoping that guarantees resource cleanup on every path.
+- [FastAPI: GZip middleware](https://fastapi.tiangolo.com/advanced/middleware/#gzipmiddleware) - compressing responses to cut bytes-on-the-wire.
+- [Python: itertools.batched](https://docs.python.org/3/library/itertools.html#itertools.batched) - chunking a stream into bounded batches (3.12+).
+- [FastAPI: background tasks](https://fastapi.tiangolo.com/tutorial/background-tasks/) - the in-process way to offload non-critical work off the request path (and its durability limits).
 
 ## Next
 

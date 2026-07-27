@@ -44,6 +44,17 @@ they match, the message came from someone who holds the secret (the real
 sender) and hasn't been altered in transit. An attacker who doesn't know the
 secret can't produce a valid signature for their forged body.
 
+```
+  SENDER (holds secret)                 RECEIVER (holds same secret)
+  payload bytes ─┐                      raw bytes received ─┐
+   secret ───────┼─► HMAC-SHA256 ─► sig  secret ────────────┼─► HMAC-SHA256 ─► expected
+                 │        │                                 │
+                 └── POST body + header ──────────────────► compare_digest(sig, expected)
+                          (X-Signature)                        match  ─► trust, process
+                                                               differ ─► 401, reject
+  Attacker can POST the public URL but, lacking the secret, can't forge `sig`.
+```
+
 Two details that are easy to get catastrophically wrong:
 
 1. **Sign the raw bytes, not the parsed-and-reserialized JSON.** If you
@@ -425,6 +436,14 @@ Write down your answer to each question before expanding it — checking without
    (bad/forged signature) → well-behaved sender never retries.
 
 </details>
+
+## Further reading & sources
+
+- [Stripe: Verify webhook signatures](https://docs.stripe.com/webhooks/signatures) - the timestamp+HMAC scheme and replay-window check this module models.
+- [GitHub: Validating webhook deliveries](https://docs.github.com/en/webhooks/using-webhooks/validating-webhook-deliveries) - `X-Hub-Signature-256` HMAC verification with constant-time comparison.
+- [Python: hmac module](https://docs.python.org/3/library/hmac.html) - `hmac.new`, `hexdigest`, and `compare_digest` for constant-time comparison.
+- [OWASP: Webhook / SSRF and secure design cheat sheets](https://cheatsheetseries.owasp.org/cheatsheets/Server_Side_Request_Forgery_Prevention_Cheat_Sheet.html) - hardening a public endpoint that acts on untrusted input.
+- [ngrok documentation](https://ngrok.com/docs) - exposing a local receiver over HTTPS to test against real senders.
 
 ## Next
 

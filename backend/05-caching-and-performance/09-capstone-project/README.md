@@ -186,6 +186,15 @@ bottleneck after your fixes.
 
 </details>
 
+## Further reading & sources
+
+- [py-spy](https://github.com/benfred/py-spy) - attach to the live FastAPI worker under load and record the flame graph that finds each bottleneck.
+- [Locust documentation](https://docs.locust.io/en/stable/) - scripting the realistic load test that establishes the baseline and proves the fixes.
+- [SQLAlchemy: relationship loading (eager/selectinload)](https://docs.sqlalchemy.org/en/20/orm/queryguide/relationships.html) - the eager-loading techniques that collapse the N+1 into one or two queries.
+- [SQLAlchemy: connection pooling](https://docs.sqlalchemy.org/en/20/core/pooling.html) - sizing a real pool instead of a connection per request.
+- [Redis: SET (NX/EX)](https://redis.io/docs/latest/commands/set/) - the single-flight lock primitive that defends the newly-cached aggregate against a stampede.
+- [FastAPI: async and await](https://fastapi.tiangolo.com/async/) - deciding `async def` vs `def` and keeping blocking work off the event loop.
+
 ## Next
 
 [../../06-background-processing-and-realtime/README.md](../../06-background-processing-and-realtime/README.md)

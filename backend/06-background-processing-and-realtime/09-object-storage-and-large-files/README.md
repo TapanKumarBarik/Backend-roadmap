@@ -73,6 +73,14 @@ The mental test: could your endpoint handle a file larger than your server's
 RAM? With chunked streaming, yes. With `data = await file.read()` followed by
 storing `data`, no — you're one big upload away from an out-of-memory crash.
 
+```
+  Buffering (read() it all)          Streaming (chunked)
+  client ─2GB─► [API holds 2GB       client ─► [API holds 1 MiB at a time] ─► storage
+                 in RAM] ─► storage            chunk ─► write ─► chunk ─► write ─► ...
+        memory = whole file ✗              memory = one chunk, flat ✓
+        a few at once = OOM                any file size, any concurrency
+```
+
 ### Multipart form uploads in FastAPI
 
 Browser file uploads arrive as `multipart/form-data` (the encoding you met in
@@ -484,6 +492,15 @@ Write down your answer to each question before expanding it — checking without
    records the pointer and enqueues the processing task.
 
 </details>
+
+## Further reading & sources
+
+- [AWS: Sharing objects with presigned URLs](https://docs.aws.amazon.com/AmazonS3/latest/userguide/ShareObjectPreSignedURL.html) - what a presigned URL is and how it scopes and expires access.
+- [AWS: Uploading and copying objects using multipart upload](https://docs.aws.amazon.com/AmazonS3/latest/userguide/mpuoverview.html) - initiate/upload-part/complete for large, resumable objects.
+- [boto3: S3 client reference](https://boto3.amazonaws.com/v1/documentation/api/latest/reference/services/s3.html) - `put_object`, `upload_fileobj`, `generate_presigned_url`, and multipart APIs.
+- [MinIO documentation](https://min.io/docs/minio/linux/developers/python/API.html) - the S3-compatible store you run locally in the exercises.
+- [FastAPI: Request files](https://fastapi.tiangolo.com/tutorial/request-files/) - `UploadFile`, `File`, and streaming form uploads.
+- [MDN: HTTP Range requests](https://developer.mozilla.org/en-US/docs/Web/HTTP/Range_requests) - `Range`/`206 Partial Content` for resumable, seekable downloads.
 
 ## Next
 

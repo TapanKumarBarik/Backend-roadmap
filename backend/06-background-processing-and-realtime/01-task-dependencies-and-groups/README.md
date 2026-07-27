@@ -114,6 +114,21 @@ the hood the chord needs a result backend to know when the header is complete
 — chords don't work without one. A failure in any header task by default
 prevents the callback from running.
 
+```
+  chain (sequential, output feeds input)
+     A ──► B ──► C ──► D          each result becomes the next task's 1st arg
+
+  group (parallel fan-out)
+        ┌─► B ─┐
+     A ─┼─► C ─┼─► [b, c, d]      all run at once; results collected in order
+        └─► D ─┘
+
+  chord (fan-out, THEN one callback after all finish)
+        ┌─► B ─┐
+        ├─► C ─┼─► callback([b, c, d])   body runs once, only when header done
+        └─► D ─┘
+```
+
 ### Chaining vs. calling `.delay()` from inside a task
 
 You *can* make a task enqueue the next task itself:
@@ -484,6 +499,14 @@ Write down your answer to each question before expanding it — checking without
    so it needs no backend.
 
 </details>
+
+## Further reading & sources
+
+- [Celery: Canvas — Designing Work-flows](https://docs.celeryq.dev/en/stable/userguide/canvas.html) - the definitive reference for signatures, chains, groups, chords, and maps.
+- [Celery: Signatures](https://docs.celeryq.dev/en/stable/userguide/canvas.html#signatures) - `.s()` vs `.si()` (immutable) and how partial args are prepended.
+- [Celery: Chords](https://docs.celeryq.dev/en/stable/userguide/canvas.html#chords) - why a chord needs a result backend and how the callback fires.
+- [Celery: Groups](https://docs.celeryq.dev/en/stable/userguide/canvas.html#groups) - parallel fan-out and ordered result collection.
+- [Celery: Tasks user guide](https://docs.celeryq.dev/en/stable/userguide/tasks.html) - task semantics that underpin composing them into workflows.
 
 ## Next
 

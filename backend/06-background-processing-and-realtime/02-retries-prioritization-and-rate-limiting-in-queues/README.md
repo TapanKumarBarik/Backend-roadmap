@@ -60,6 +60,14 @@ conditional update, not a read-then-write race). A task that does a bare
 `balance -= amount` is a landmine — one redelivery and the customer is charged
 twice.
 
+```
+  charge(order=42, key="order-42")   1st delivery ─► key unseen ─► CHARGE $150
+  charge(order=42, key="order-42")   redelivery   ─► key seen   ─► skip, return
+                                                                   original result
+  Same key twice  ==  one side effect. Without the key:
+  charge / charge ─────────────────────────────► $150 + $150 = double charge
+```
+
 ### Automatic retries with exponential backoff
 
 Celery tasks retry by re-enqueuing themselves. The modern, declarative way is
@@ -83,6 +91,14 @@ the delay so that a thousand tasks that all failed at the same instant don't
 all retry at the same instant (the "thundering herd" that keeps the service
 down). **`max_retries`** bounds the attempts so a permanently-broken
 dependency doesn't retry forever.
+
+```
+  attempt:   1      2         3               4                     5   (max_retries)
+  try ──✗    │      │         │               │                     │
+  wait:      └─1s─► └──2s───► └────4s──────► └──────8s──────────► └── give up
+             (each delay doubles; jitter nudges each ± a little so 1000 failed
+              tasks don't all retry on the same tick — the thundering herd)
+```
 
 Two failure categories deserve different handling: **transient** (timeout,
 `503`, connection reset) — retry; **permanent** (`400 bad request`, `404`,
@@ -526,6 +542,15 @@ Write down your answer to each question before expanding it — checking without
    complains that the thing never happened.
 
 </details>
+
+## Further reading & sources
+
+- [Celery: Retrying tasks](https://docs.celeryq.dev/en/stable/userguide/tasks.html#retrying) - `autoretry_for`, `retry_backoff`, `retry_jitter`, and `max_retries`.
+- [Celery: Task options & rate limits](https://docs.celeryq.dev/en/stable/userguide/tasks.html#Task.rate_limit) - the per-worker `rate_limit` and why it isn't a global cap.
+- [Celery: Routing Tasks](https://docs.celeryq.dev/en/stable/userguide/routing.html) - separate queues and `-Q high,low` worker routing for prioritization.
+- [Stripe: Idempotent requests](https://docs.stripe.com/api/idempotent_requests) - how an idempotency key makes a retried charge return the original result.
+- [AWS: Timeouts, retries, and backoff with jitter](https://aws.amazon.com/builders-library/timeouts-retries-and-backoff-with-jitter/) - the canonical write-up on backoff and jitter defeating retry storms.
+- [RabbitMQ: Dead Letter Exchanges](https://www.rabbitmq.com/docs/dlx) - broker-level dead-lettering for tasks that exhaust their retries.
 
 ## Next
 

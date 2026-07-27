@@ -89,6 +89,15 @@ separate, durable, log-based structure with consumer groups and replay, for
 when you need durability *and* pub/sub-like fan-out — reach for Streams or a
 real log like Kafka when "lost if nobody's listening" is unacceptable.)
 
+```
+  Pub/Sub (fire-and-forget)          Durable queue (Celery/Redis broker)
+  publish ─► channel ─► (no sub?)    enqueue ─► queue ─► (no worker?)
+                          message         │                 message
+                          DROPPED ✗       │                 WAITS ⏳ ──► runs
+                        gone, no error    │                            when a
+  good for: live signals you can miss     └─ good for: work you must not lose
+```
+
 ```python
 import redis
 r = redis.Redis()
@@ -449,6 +458,14 @@ Write down your answer to each question before expanding it — checking without
    idempotency; keep pub/sub only for the ephemeral live-UI signal if desired.
 
 </details>
+
+## Further reading & sources
+
+- [Redis: Pub/Sub](https://redis.io/docs/latest/develop/interact/pubsub/) - the `PUBLISH`/`SUBSCRIBE`/`PSUBSCRIBE` model and its fire-and-forget semantics.
+- [Redis: Streams introduction](https://redis.io/docs/latest/develop/data-types/streams/) - the durable, replayable log with consumer groups for when pub/sub isn't enough.
+- [redis-py: Pub/Sub usage](https://redis.readthedocs.io/en/stable/advanced_features.html#publish-subscribe) - the Python client API, including `redis.asyncio` for the backplane.
+- [Enterprise Integration Patterns: Publish-Subscribe Channel](https://www.enterpriseintegrationpatterns.com/patterns/messaging/PublishSubscribeChannel.html) - the canonical description of fan-out vs point-to-point.
+- [RabbitMQ: Publish/Subscribe tutorial](https://www.rabbitmq.com/tutorials/tutorial-three-python) - fan-out exchanges as an alternative pub/sub substrate.
 
 ## Next
 

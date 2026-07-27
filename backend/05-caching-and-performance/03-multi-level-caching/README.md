@@ -100,6 +100,16 @@ front, that same `DEL` removes only the L2 copy. **Every process that has
 or is evicted — and you cannot easily reach into 20 replicas' heaps to delete a
 key.
 
+```
+  writer does DEL product:42  ──►  L2 (Redis): busted ✓
+
+  Process A       Process B       Process C
+  L1[42]=OLD ✗    L1[42]=OLD ✗    L1[42]=OLD ✗   ◄─ DEL didn't reach
+     │               │               │              any of these heaps
+  still serves    still serves    still serves      → stale until each
+  stale value     stale value     stale value         L1's own TTL expires
+```
+
 So multi-level caching reintroduces the stale-cache problem *per process*, and
 the usual explicit-invalidation fix doesn't cover it. The standard responses:
 
@@ -458,6 +468,14 @@ Write down your answer to each question before expanding it — checking without
    copies would be a correctness bug, not a cosmetic one.
 
 </details>
+
+## Further reading & sources
+
+- [Redis: client-side caching (tracking)](https://redis.io/docs/latest/develop/reference/client-side-caching/) - Redis's productized version of the L1-over-L2 pattern with server-driven L1 invalidation.
+- [cachetools documentation](https://cachetools.readthedocs.io/en/stable/) - the `TTLCache`/`LRUCache` used to build the in-process L1 here.
+- [functools.lru_cache](https://docs.python.org/3/library/functools.html#functools.lru_cache) - the simplest in-process cache, and its no-TTL/no-per-key-invalidation limits.
+- [Redis: Pub/Sub](https://redis.io/docs/latest/develop/interact/pubsub/) - the broadcast channel used to invalidate every process's L1 on a write.
+- [Redis: INFO](https://redis.io/docs/latest/commands/info/) - reading `keyspace_hits`/`keyspace_misses` for the server-side L2 hit ratio.
 
 ## Next
 

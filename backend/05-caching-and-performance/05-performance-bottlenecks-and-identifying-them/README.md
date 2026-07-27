@@ -54,6 +54,20 @@ throughput is the system's capacity, and utilization is the explanation.** You
 watch latency and throughput to know you *have* a problem; you watch utilization
 to find *where* it is.
 
+```
+  three lenses on ONE slow system:
+  ┌───────────────┬──────────────────────┬──────────────────────────┐
+  │ response time │ how long ONE request │ the USER's experience    │
+  │  (p50/p95/p99)│ takes                │  → do we HAVE a problem? │
+  ├───────────────┼──────────────────────┼──────────────────────────┤
+  │ throughput    │ how MANY req/sec the │ the system's CAPACITY    │
+  │  (RPS)        │ system handles       │  → does it hold up?      │
+  ├───────────────┼──────────────────────┼──────────────────────────┤
+  │ utilization   │ how BUSY each        │ the EXPLANATION          │
+  │  (CPU/IO/pool)│ resource is          │  → WHERE is the problem? │
+  └───────────────┴──────────────────────┴──────────────────────────┘
+```
+
 ### What a bottleneck actually is
 
 A **bottleneck** is the single resource that limits the whole system's
@@ -79,6 +93,15 @@ neck of a bottle. Its defining properties:
   worker; a request spending 90% of its time *blocked* while everything sits idle
   points at a waiting bottleneck (a serial dependency, a lock, an undersized
   pool).
+
+```
+  one request's wall-clock time, broken down:
+  |<-- queue -->|<-- wait ------------------->|<-service->|
+   waiting for a  blocked on DB / network /     actually
+   worker/conn    lock (idle CPU, not working)  computing
+   ▲ throughput   ▲ the usual backend           ▲ rarely the
+     problem        bottleneck lives HERE         bottleneck
+```
 
 ### The systematic bottleneck-hunting procedure
 
@@ -466,6 +489,14 @@ Write down your answer to each question before expanding it — checking without
    improvement the change produced.
 
 </details>
+
+## Further reading & sources
+
+- [Wikipedia: Amdahl's Law](https://en.wikipedia.org/wiki/Amdahl%27s_law) - why the speedup from optimizing a component is capped by its fraction of total time.
+- [Google SRE Book: Monitoring distributed systems](https://sre.google/sre-book/monitoring-distributed-systems/) - latency, traffic, errors, and saturation as the metrics that describe performance.
+- [The Tail at Scale (Dean & Barroso)](https://research.google/pubs/the-tail-at-scale/) - the classic paper on why p99 tail latency dominates fan-out requests.
+- [brendangregg.com: the USE method](https://www.brendangregg.com/usemethod.html) - a systematic utilization/saturation/errors procedure for finding the bottleneck resource.
+- [PostgreSQL: pg_stat_statements](https://www.postgresql.org/docs/current/pgstatstatements.html) - surfacing the N+1 "huge call count, tiny per-call time" signature in the database.
 
 ## Next
 

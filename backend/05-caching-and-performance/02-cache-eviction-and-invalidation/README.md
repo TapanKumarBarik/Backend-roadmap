@@ -91,6 +91,16 @@ stale-popular key while LRU correctly follows the moving working set. *There is
 no universally best policy; it depends on your access pattern*, which is why you
 measure hit ratio (module 03) rather than assume.
 
+```
+  policy   evicts the entry with the...     tracks per key
+  ─────────────────────────────────────────────────────────
+  LRU      oldest LAST-ACCESS time          when it was last read
+  LFU      lowest ACCESS COUNT (decaying)   how often it's read
+  TTL      soonest EXPIRY                    its expiry timestamp
+  FIFO     oldest INSERT time               when it was written
+           └─ usage-blind ─┘   └─ usage-aware: LRU, LFU ─┘
+```
+
 ### Redis's `maxmemory` and eviction policies (the real config)
 
 Redis makes this operational. You cap memory, then choose a policy:
@@ -173,6 +183,17 @@ subscriber turns into cache invalidations.
   at-least-once delivery introduce their own correctness puzzles (which track 06
   and track 10 pick up). This is where caching meets the background-processing
   world track 06 opens.
+
+```
+  three invalidation triggers, three flows:
+
+  manual    write ──► your code ──► DEL key        (precise, must instrument
+                                                    every write path)
+  TTL       write ──► (nothing)     key expires    (self-heals, but stale
+                        ...Ns later ─► gone          up to one TTL)
+  event     write ──► publish event ──► subscriber ──► DEL key(s)
+                      (decoupled; writer needn't know which caches exist)
+```
 
 The mature pattern is usually **event-based (or manual) for promptness + a TTL
 backstop for safety**: bust explicitly when you can, and let a bounded TTL clean
@@ -567,6 +588,14 @@ stumps you, redo that module's exercises before moving on.
    misconfiguration). One drops committed writes; the other refuses new ones.
 
 </details>
+
+## Further reading & sources
+
+- [Redis: key eviction & maxmemory policies](https://redis.io/docs/latest/develop/reference/eviction/) - the authoritative reference for `allkeys-lru`, `volatile-*`, LFU tuning, and `noeviction`.
+- [Redis: EXPIRE / TTL](https://redis.io/docs/latest/commands/expire/) - how TTL-based expiry works, including active vs lazy expiration.
+- [Redis: SCAN](https://redis.io/docs/latest/commands/scan/) - the non-blocking cursor iteration to use instead of the server-blocking `KEYS`.
+- [Redis: Using LFU mode](https://redis.io/docs/latest/develop/reference/eviction/#the-new-lfu-mode) - the decaying frequency counter that fixes LRU's scan-pollution weakness.
+- [Martin Fowler: TwoHardThings](https://martinfowler.com/bliki/TwoHardThings.html) - the invalidation-is-hard proverb the storefront scenario demonstrates.
 
 ## Next
 
