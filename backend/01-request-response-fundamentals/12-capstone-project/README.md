@@ -180,6 +180,14 @@ now read a raw HTTP exchange, reason about every header, choose correct
 status codes, design a cache strategy, negotiate formats, and version an
 evolving API — the vocabulary every remaining backend track assumes.
 
+## Further reading & sources
+
+- [Python docs: http.server](https://docs.python.org/3/library/http.server.html) - `BaseHTTPRequestHandler`, the raw handler you subclass for this project.
+- [Python docs: socket](https://docs.python.org/3/library/socket.html) and [gzip](https://docs.python.org/3/library/gzip.html) - the lower-level transport and the compression you set by hand.
+- [RFC 9110: HTTP Semantics](https://www.rfc-editor.org/rfc/rfc9110) and [RFC 9111: HTTP Caching](https://www.rfc-editor.org/rfc/rfc9111) - the specs to check your hand-written status codes, headers, and `ETag`/`304` behavior against.
+- [Protocol Buffers: Python tutorial](https://protobuf.dev/getting-started/pythontutorial/) - compiling a `.proto` and using `SerializeToString()` for the binary body.
+- [MDN: HTTP messages](https://developer.mozilla.org/en-US/docs/Web/HTTP/Messages) - the message anatomy your raw response writer must reproduce exactly, including `Content-Length`.
+
 ## Next
 
 Track 02 builds directly on this: [../../02-api-layer-and-request-handling/README.md](../../02-api-layer-and-request-handling/README.md)

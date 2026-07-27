@@ -53,7 +53,21 @@ all). What matters is grouping them by *purpose*:
 
 When you meet an unfamiliar header, ask: *who sets it, and is it about the
 message, the client's wishes, the server, the body, or browser security?*
-That places it instantly.
+That places it instantly. Here are the categories mapped onto a real pair:
+
+```
+  REQUEST (client → server)                RESPONSE (server → client)
+  ┌──────────────────────────┐             ┌──────────────────────────┐
+  │ GET /users HTTP/1.1       │             │ HTTP/1.1 200 OK          │
+  │ Host: api.example.com     │ request     │ Server: nginx        ────┼─ response
+  │ Accept: application/json  │ (client-set)│ Set-Cookie: s=abc    ────┼─ response
+  │ Authorization: Bearer …   │             │ Date: …              ────┼─ general
+  │ Cookie: s=abc             │             │ Cache-Control: …     ────┼─ general
+  │ Date: …              ─────┼─ general    │ Content-Type: json   ────┼─ representation
+  │ Content-Type: … (if body) │ repr.       │ Content-Length: 52   ────┼─ representation
+  │                           │             │ Content-Security-… ──────┼─ security
+  └──────────────────────────┘             └──────────────────────────┘
+```
 
 ### Request headers: what the client tells the server
 
@@ -122,6 +136,14 @@ The `Accept*` request headers and the `Content-*` representation headers
 are two halves of a conversation: the client says what it *accepts*, the
 server states what it *sent*. That pairing is the whole of content
 negotiation (module 08).
+
+```
+   client asks (request)            server answers (response)
+   Accept: application/json   ──►    Content-Type: application/json
+   Accept-Language: en-US     ──►    Content-Language: en-US
+   Accept-Encoding: gzip, br  ──►    Content-Encoding: gzip
+        "what I'll take"               "what I actually sent"
+```
 
 ### General headers: about the message and connection
 
@@ -493,6 +515,15 @@ Write down your answer to each question before expanding it — checking without
    anyone who doesn't use it.
 
 </details>
+
+## Further reading & sources
+
+- [MDN: HTTP headers reference](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers) - the full, searchable catalog grouped much the way this module categorizes them.
+- [RFC 9110 §5–6: Fields and field values](https://www.rfc-editor.org/rfc/rfc9110#name-fields) - the authoritative rules for header syntax, case-insensitivity, and semantics.
+- [MDN: Set-Cookie](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Set-Cookie) - the response header and its security-critical attributes (HttpOnly, Secure, SameSite).
+- [OWASP Secure Headers Project](https://owasp.org/www-project-secure-headers/) - the practical checklist of security response headers most APIs are missing.
+- [MDN: Content-Type](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Content-Type) - why an honest media type (and charset) matters, tying to exercise 8.
+- [RFC 6648: Deprecating "X-" prefixes](https://www.rfc-editor.org/rfc/rfc6648) - the reasoning behind dropping the `X-` convention for custom headers.
 
 ## Next
 

@@ -45,6 +45,16 @@ produce and states its choice in the matching `Content-*` header. This is
 "server-driven negotiation" — the common case. The client proposes, the
 server disposes.
 
+```
+   CLIENT proposes (ranked)                 SERVER disposes (picks one)
+   Accept: application/json, xml;q=0.5 ─►    Content-Type: application/json
+   Accept-Language: fr-FR, en;q=0.8    ─►    Content-Language: fr-FR
+   Accept-Encoding: br, gzip           ─►    Content-Encoding: br
+                                             Vary: Accept, Accept-Language,
+                                                   Accept-Encoding
+   one URL /report ─────────────────────────► many possible representations
+```
+
 ### Quality values (`q`): ranking preferences
 
 Accept headers can carry **quality values** (`q`, from 0 to 1, default 1)
@@ -139,6 +149,15 @@ headers." **Whenever you negotiate, you must `Vary`.** Forgetting `Vary:
 Accept-Encoding` is the single most common negotiation-caching bug — a CDN
 caches the gzipped body and hands it to a client that said it can't
 decompress, which then displays garbage.
+
+```
+  WITHOUT Vary (broken):              WITH Vary: Accept-Encoding (correct):
+   cache key = /report                 cache key = /report + Accept-Encoding
+      │                                    ├─ /report | gzip   ─► [gzipped body]
+      ▼ stores whatever it saw first       └─ /report | (none) ─► [plain body]
+   gzipped body served to a client
+   that can't decode it → garbage      each client gets a form it can read
+```
 
 ### Persistent connections revisited
 
@@ -488,6 +507,15 @@ Closed-book. Pulls from modules 00-08. Write each answer before expanding.
    refetching — which DNS has no equivalent of.
 
 </details>
+
+## Further reading & sources
+
+- [MDN: Content negotiation](https://developer.mozilla.org/en-US/docs/Web/HTTP/Content_negotiation) - the full explanation of server-driven negotiation and the `Accept*` headers.
+- [RFC 9110 §12: Content Negotiation](https://www.rfc-editor.org/rfc/rfc9110#name-content-negotiation) - the authoritative rules, including quality (`q`) values.
+- [MDN: Accept-Encoding](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Accept-Encoding) and [Content-Encoding](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Content-Encoding) - the compression negotiation pair.
+- [web.dev: Reduce network payloads with text compression](https://web.dev/articles/reduce-network-payloads-using-text-compression) - practical gzip/Brotli guidance and measured wins.
+- [FastAPI: GZip middleware](https://fastapi.tiangolo.com/advanced/middleware/#gzipmiddleware) - the middleware used in the exercises and how it sets `Vary`.
+- [MDN: 406 Not Acceptable](https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/406) - the correct signal when no acceptable representation exists.
 
 ## Next
 

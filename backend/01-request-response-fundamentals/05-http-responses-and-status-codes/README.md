@@ -40,6 +40,16 @@ The first digit classifies the response:
 - **`5xx` Server error** — *the server* failed; the request may be fine
   and worth retrying. `500`, `502`, `503`, `504`.
 
+```
+  1xx ┤ informational   "hold on, interim update"     100, 101
+  2xx ┤ success         "here you go"                  200 201 202 204
+  3xx ┤ redirection     "go look elsewhere / use cache"301 302 304 307 308
+  4xx ┤ client error    "YOU broke it — don't retry"   400 401 403 404 409 422 429
+  5xx ┤ server error    "I broke it — retry may work"  500 502 503 504
+      └──────────────────────────────────────────────────────────►
+                        ▲ the 4xx│5xx line: whose fault, and retry-or-not
+```
+
 The `4xx`/`5xx` split is the most consequential distinction in all of
 HTTP: `4xx` means "you broke it, fixing your request might help"; `5xx`
 means "I broke it, your request might be fine — retry may succeed." Retry
@@ -137,6 +147,27 @@ When writing a handler, walk this:
    Nothing to return? → `204`. Otherwise → `200`.
 10. If *your* code fails doing the work → `500` (or `502/503/504` at the
     infra layer).
+
+```
+  request ─► parse OK? ──no──► 400
+              │yes
+              ▼ authenticated? ──no──► 401
+              │yes
+              ▼ allowed? ──────────no──► 403
+              │yes
+              ▼ resource exists? ──no──► 404
+              │yes
+              ▼ method OK? ────────no──► 405 (+ Allow)
+              │yes
+              ▼ body valid? ──────no──► 422
+              │yes
+              ▼ conflicts? ──────yes──► 409
+              │no
+              ▼ over rate limit? ─yes──► 429 (+ Retry-After)
+              │no
+              ▼ do the work ──► created? 201 (+Location) · empty? 204 · else 200
+                        └─ blew up? ──► 500 / 502 / 503 / 504
+```
 
 ### The response body for errors
 
@@ -442,6 +473,14 @@ Write down your answer to each question before expanding it — checking without
    must parse the body to learn success vs. failure. (Any two.)
 
 </details>
+
+## Further reading & sources
+
+- [MDN: HTTP response status codes](https://developer.mozilla.org/en-US/docs/Web/HTTP/Status) - the complete reference, one page per code, grouped by class.
+- [RFC 9110 §15: Status Codes](https://www.rfc-editor.org/rfc/rfc9110#name-status-codes) - the authoritative definitions and the semantics of each class.
+- [RFC 9457: Problem Details for HTTP APIs](https://www.rfc-editor.org/rfc/rfc9457) - the standard error-body shape shown in Concepts.
+- [MDN: 422 Unprocessable Content](https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/422) - the validation-vs-parse distinction that trips people (400 vs 422).
+- [FastAPI: Handling errors](https://fastapi.tiangolo.com/tutorial/handling-errors/) - how `HTTPException` and validation map to the codes used in the exercises.
 
 ## Next
 

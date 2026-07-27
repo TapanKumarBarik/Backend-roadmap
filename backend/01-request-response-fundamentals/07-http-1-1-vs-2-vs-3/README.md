@@ -54,6 +54,14 @@ body. Two performance characteristics define it:
   broken in practice and effectively unused). So a slow response *blocks*
   everything behind it on that connection.
 
+```
+  HTTP/1.1 on one connection — serial; a slow req 1 blocks 2 and 3:
+     ├─[ req1 ═══════ slow ═══════ ]
+     │                             ├─[ req2 ══ ]
+     │                                         ├─[ req3 ══ ]
+     └──────────────────── time ──────────────────────────►
+```
+
 Browsers worked around this by opening **6+ parallel TCP connections** per
 origin — 6 requests at once, but each connection still serial, and each
 paying its own handshake cost. This is why front-end performance advice
@@ -91,6 +99,18 @@ retransmitted — even streams that had all their bytes. This is
 **TCP-level head-of-line blocking**: HTTP/2 solved HOL blocking at the
 HTTP layer but inherited it at the TCP layer. On a lossy network (mobile,
 congested Wi-Fi), one lost packet stalls every concurrent request.
+
+```
+  HTTP/2 — multiplexed streams over ONE TCP connection:
+     stream1 ▓▓░▓▓   ┐
+     stream2 ▓▓▓▓▓   ├─ interleaved frames, concurrent...
+     stream3 ▓▓▓▓░   ┘   but a lost TCP packet (░) stalls ALL streams
+
+  HTTP/3 — independent streams over QUIC/UDP:
+     stream1 ▓▓░▓▓   ← only stream1 waits for its retransmit
+     stream2 ▓▓▓▓▓   ← keeps flowing
+     stream3 ▓▓▓▓▓   ← keeps flowing
+```
 
 ### HTTP/3: QUIC over UDP kills TCP head-of-line blocking
 
@@ -378,6 +398,15 @@ Write down your answer to each question before expanding it — checking without
    invalidate the whole bundle's cache (module 06).
 
 </details>
+
+## Further reading & sources
+
+- [MDN: Evolution of HTTP](https://developer.mozilla.org/en-US/docs/Web/HTTP/Basics_of_HTTP/Evolution_of_HTTP) - a readable history of the 0.9 → 1.1 → 2 → 3 progression and why each changed.
+- [RFC 9113: HTTP/2](https://www.rfc-editor.org/rfc/rfc9113) - the authoritative spec for binary framing, streams, and HPACK.
+- [RFC 9114: HTTP/3](https://www.rfc-editor.org/rfc/rfc9114) and [RFC 9000: QUIC](https://www.rfc-editor.org/rfc/rfc9000) - the HTTP/3 mapping and the QUIC transport it rides on.
+- [Cloudflare: HTTP/3 vs HTTP/2](https://blog.cloudflare.com/http3-the-past-present-and-future/) - a clear explainer of QUIC, HOL blocking, and connection migration.
+- [caniuse: HTTP/3](https://caniuse.com/http3) and [HTTP/2](https://caniuse.com/http2) - real-world browser and version support you can cite.
+- [MDN: Alt-Svc](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Alt-Svc) - the header that advertises HTTP/3 availability, from exercise 3.
 
 ## Next
 

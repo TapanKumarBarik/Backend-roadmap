@@ -50,6 +50,16 @@ Two properties define its personality:
   front of ten identical servers (module 00, step 7) and any of them can
   handle any request — none of them needs to "own" your session.
 
+```
+   client                         server (remembers nothing between these)
+     │  ── request 1 ──────────►     │  handled fresh from request 1 alone
+     │  ◄──────────── response 1 ─   │
+     │                               │   ⌛ (server forgets everything)
+     │  ── request 2 ──────────►     │  handled fresh from request 2 alone
+     │  ◄──────────── response 2 ─   │
+   each exchange is independent; continuity (login) = a token re-sent every time
+```
+
 ### The anatomy of an HTTP request
 
 Every HTTP/1.x request has exactly this structure:
@@ -169,6 +179,14 @@ big performance win and the reason `Connection: keep-alive` exists. The
 deeper story — pipelining, multiplexing, and how HTTP/2 and /3 change it —
 is module 07 and module 08. For now: know that "one connection = one
 request" is *not* generally true; connections are reused.
+
+```
+  without keep-alive:  [TCP+TLS setup][req/resp][close]  [TCP+TLS setup][req/resp][close]
+                        └─ pay setup cost every single request ─┘
+
+  with keep-alive:     [TCP+TLS setup][req/resp][req/resp][req/resp]...[close]
+                        └─ pay setup once, reuse the pipe for many exchanges ─┘
+```
 
 ## Command reference
 
@@ -475,6 +493,14 @@ Write down your answer to each question before expanding it — checking without
    handle any request identically — so the load balancer can route freely.
 
 </details>
+
+## Further reading & sources
+
+- [MDN: An overview of HTTP](https://developer.mozilla.org/en-US/docs/Web/HTTP/Overview) - a clear description of HTTP as a stateless, text-based request/response protocol.
+- [MDN: HTTP Messages](https://developer.mozilla.org/en-US/docs/Web/HTTP/Messages) - the exact request-line/status-line/headers/body anatomy this module drills.
+- [RFC 9112: HTTP/1.1 message syntax](https://www.rfc-editor.org/rfc/rfc9112) - the authoritative wire format, including CRLF and the blank-line terminator.
+- [RFC 9110: HTTP Semantics](https://www.rfc-editor.org/rfc/rfc9110) - version-independent meaning of methods, headers, and status; your reference for the rest of the track.
+- [MDN: Connection management in HTTP/1.x](https://developer.mozilla.org/en-US/docs/Web/HTTP/Connection_management_in_HTTP_1.x) - keep-alive and persistent connections previewed at the end of this module.
 
 ## Next
 

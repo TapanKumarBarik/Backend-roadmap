@@ -109,6 +109,18 @@ This is why `304` (module 05) is a `3xx`: it directs the client to use its
 cache. Validation is the "cheap check" half of caching; freshness is the
 "don't even check" half.
 
+```
+  1st request (nothing cached yet)         later request (copy is stale)
+  client ─ GET /doc ───────────► server    client ─ GET /doc ───────────► server
+         ◄─ 200 OK              ─                  │  If-None-Match: "a1b2c3"
+           ETag: "a1b2c3"                          │
+           Cache-Control: max-age=30               ▼  server compares ETag
+           <full 1 MB body>                  ┌── unchanged ──► 304 Not Modified
+  client stores copy + ETag                  │                 (no body — reuse cache)
+                                             └── changed ────► 200 OK + new ETag
+                                                               <full new body>
+```
+
 ### Strong vs. weak ETags
 
 An ETag can be **strong** (`"a1b2c3"` — byte-for-byte identical) or
@@ -134,6 +146,14 @@ Vary: Accept, Accept-Encoding
 `Vary` when you negotiate and a cache will serve the wrong representation
 to someone. This header is the bridge between caching (this module) and
 content negotiation (module 08).
+
+```
+  shared cache keyed by URL + the Vary'd headers:
+
+   key: /doc | Accept: application/json | Accept-Encoding: gzip  ─► [gzipped JSON]
+   key: /doc | Accept: application/xml  | Accept-Encoding: (none)─► [plain XML]
+                     ▲ same URL, different stored copies — no cross-serving
+```
 
 ### Putting freshness + validation together
 
@@ -433,6 +453,15 @@ Write down your answer to each question before expanding it — checking without
    a given URL's bytes never change, so a cached copy is never stale.
 
 </details>
+
+## Further reading & sources
+
+- [MDN: HTTP caching](https://developer.mozilla.org/en-US/docs/Web/HTTP/Caching) - the end-to-end guide to freshness, validation, and the `private`/`public` split.
+- [RFC 9111: HTTP Caching](https://www.rfc-editor.org/rfc/rfc9111) - the authoritative spec for `Cache-Control`, `Vary`, and conditional requests.
+- [MDN: Cache-Control](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Cache-Control) - every directive (`max-age`, `no-cache`, `no-store`, `immutable`) defined precisely.
+- [MDN: ETag](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/ETag) and [If-None-Match](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/If-None-Match) - the validator and the conditional-request header that yields `304`.
+- [web.dev: HTTP caching](https://web.dev/articles/http-cache) - a practical, strategy-focused walkthrough including the fingerprinted-asset pattern.
+- [MDN: Vary](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Vary) - how the cache key changes under content negotiation, bridging to module 08.
 
 ## Next
 

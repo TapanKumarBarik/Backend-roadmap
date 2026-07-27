@@ -106,7 +106,23 @@ this idea in later tracks).
 | POST | No | No | Create / trigger a process |
 
 Memorize this table. Almost every "should this be PUT or POST?" and "is it
-safe to retry?" question is answered by reading a row.
+safe to retry?" question is answered by reading a row. The same facts as a
+2×2 grid — safe implies idempotent, but not the reverse:
+
+```
+                      IDEMPOTENT                    NOT IDEMPOTENT
+                ┌───────────────────────┬───────────────────────┐
+      SAFE      │  GET   HEAD  OPTIONS  │       (empty —         │
+   (read-only)  │  reading never mutates│   safe ⇒ idempotent)   │
+                ├───────────────────────┼───────────────────────┤
+     UNSAFE     │  PUT      DELETE      │  POST                  │
+    (mutates)   │  retry = same state   │  PATCH (usually)       │
+                │                       │  retry may double-act  │
+                └───────────────────────┴───────────────────────┘
+```
+
+Anything in the right-hand "not idempotent" column is unsafe to blindly
+retry — that column is where idempotency keys earn their keep.
 
 ### Request bodies and methods
 
@@ -474,6 +490,14 @@ expanding.
    must ask again" — a time-to-live on cached data.
 
 </details>
+
+## Further reading & sources
+
+- [MDN: HTTP request methods](https://developer.mozilla.org/en-US/docs/Web/HTTP/Methods) - the per-method reference with safe/idempotent/cacheable annotations.
+- [RFC 9110 §9: Methods](https://www.rfc-editor.org/rfc/rfc9110#name-methods) - the authoritative definitions, including the formal safe and idempotent properties.
+- [MDN: Safe (HTTP methods)](https://developer.mozilla.org/en-US/docs/Glossary/Safe/HTTP) and [Idempotent](https://developer.mozilla.org/en-US/docs/Glossary/Idempotent) - concise glossary entries for the two properties this module hinges on.
+- [MDN: 405 Method Not Allowed](https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/405) - the status and its `Allow` header, from exercise 7.
+- [Stripe: Idempotent requests](https://docs.stripe.com/api/idempotent_requests) - a real-world idempotency-key design for making POST retries safe.
 
 ## Next
 

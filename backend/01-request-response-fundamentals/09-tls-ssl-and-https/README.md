@@ -105,6 +105,15 @@ Server authentication rests on **certificates** and a **chain of trust**:
   signature up to a trusted root. If the chain is complete and valid, the
   identity is trusted.
 
+```
+   leaf cert           intermediate CA        root CA (in your trust store)
+  ┌──────────────┐    ┌──────────────┐        ┌──────────────┐
+  │ CN=example.com│   │ CN=R3        │        │ CN=ISRG Root │
+  │ signed by ────┼──►│ signed by ───┼───────►│ self-signed  │ ◄─ already trusted
+  └──────────────┘    └──────────────┘        └──────────────┘
+   server presents leaf + intermediate; client walks signatures up to a root
+```
+
 Certificates **expire** (Let's Encrypt certs last 90 days) — hence
 auto-renewal, and hence the classic outage: a cert expires unnoticed and
 every client suddenly rejects the connection. Certs are also revocable
@@ -128,6 +137,18 @@ HTTP:
    giving **forward secrecy** — even if the server's long-term key later
    leaks, past sessions stay unreadable).
 5. **Encrypted channel established:** from here, all HTTP flows encrypted.
+
+```
+   CLIENT                                              SERVER
+     │ ── ClientHello ────────────────────────────────► │  versions, ciphers,
+     │    (TLS versions, ciphers, key share, SNI, ALPN)  │  key share, SNI=host
+     │ ◄──────────── ServerHello + Certificate chain ─── │  picks version/cipher,
+     │               + server key share                  │  sends cert + key share
+     │  verify: chain → trusted root? hostname? dates?   │
+     │  derive shared session keys (ephemeral DH)        │
+     │ ═══════════ encrypted channel established ═══════ │
+     │ ── GET / HTTP/1.1 (now encrypted) ──────────────► │  ← HTTP finally flows
+```
 
 TLS 1.3 streamlined this to a single round trip (1-RTT), and supports
 0-RTT resumption — part of why it's faster, and echoing module 07's point
@@ -433,6 +454,15 @@ Write down your answer to each question before expanding it — checking without
    s_client ... | openssl x509 -noout -dates`) and check `notAfter`.
 
 </details>
+
+## Further reading & sources
+
+- [MDN: Transport Layer Security (TLS)](https://developer.mozilla.org/en-US/docs/Web/Security/Transport_Layer_Security) - the overview of what TLS provides and how HTTPS layers on it.
+- [RFC 8446: TLS 1.3](https://www.rfc-editor.org/rfc/rfc8446) - the authoritative spec for the modern handshake and forward secrecy.
+- [Cloudflare: What happens in a TLS handshake?](https://www.cloudflare.com/learning/ssl/what-happens-in-a-tls-handshake/) - a step-by-step visual walkthrough of the handshake in Concepts.
+- [MDN: Strict-Transport-Security (HSTS)](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Strict-Transport-Security) - the header that forces HTTPS and defeats SSL stripping.
+- [Let's Encrypt: How it works](https://letsencrypt.org/how-it-works/) - free automated certificates and the renewal automation that prevents expiry outages.
+- [Mozilla SSL Configuration Generator](https://ssl-config.mozilla.org/) - practical, secure TLS config for nginx and other servers where TLS terminates.
 
 ## Next
 

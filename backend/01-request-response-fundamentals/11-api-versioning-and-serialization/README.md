@@ -60,6 +60,16 @@ Four common strategies, with real trade-offs:
 - **No explicit version (continuous/additive)** — never break; only add.
   Elegant when achievable but hard to sustain for real breaking changes.
 
+```
+  where the "2" lives, for the same logical request:
+
+  URL path      GET /v2/users/42                          ← visible, cacheable
+  query param   GET /users/42?version=2                   ← mixes with filters
+  header        GET /users/42                             ← clean URL, needs Vary
+                Accept: application/vnd.example.v2+json
+  media type    (as above — version rides content negotiation, module 08)
+```
+
 The pragmatic default for most APIs: **URL path versioning** (`/v1`,
 `/v2`), because it's explicit, cache-friendly, and trivially routable.
 
@@ -136,6 +146,18 @@ languages and across the network.
   **protobuf** (used by gRPC, a later track) is the prominent one:
   significantly smaller and faster than JSON, at the cost of needing a
   compiled `.proto` schema on both ends.
+
+```
+  same record {id: 42, name: "Ada"}  serialized two ways:
+
+  JSON (text, self-describing)          protobuf (binary, schema-driven)
+  ┌────────────────────────────┐        ┌──────────────────────────────┐
+  │ {"id":42,"name":"Ada"}      │        │ 08 2A 12 03 41 64 61          │
+  │  ~22 bytes, human-readable  │        │  ~7 bytes, needs .proto to read│
+  │  no schema needed to parse  │        │  field #s + types from schema │
+  └────────────────────────────┘        └──────────────────────────────┘
+       debuggable · universal                smaller · faster · opaque
+```
 
 The tradeoff in one line: **text = debuggable and universal; binary =
 smaller and faster.** Choose JSON for public/web APIs and human-facing
@@ -612,6 +634,15 @@ Write down your answer to each question before expanding it — checking without
    prefix first (performance).
 
 </details>
+
+## Further reading & sources
+
+- [web.dev / REST API versioning: Microsoft REST API Guidelines](https://github.com/microsoft/api-guidelines/blob/vNext/graph/Guidelines-deprecated.md) - a widely-cited take on versioning and deprecation practice.
+- [MDN: Deprecation](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Deprecation) and [Sunset (RFC 8594)](https://www.rfc-editor.org/rfc/rfc8594) - the headers that signal a retiring version programmatically.
+- [FastAPI: Bigger Applications - Multiple Files (APIRouter)](https://fastapi.tiangolo.com/tutorial/bigger-applications/) - route grouping for versioning, shared dependencies, and permissions.
+- [json.org](https://www.json.org/json-en.html) and [RFC 8259: JSON](https://www.rfc-editor.org/rfc/rfc8259) - the JSON data model and its deliberately small type system.
+- [Protocol Buffers: Overview](https://protobuf.dev/overview/) - the schema-driven binary format contrasted with JSON here.
+- [OWASP: Deserialization Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Deserialization_Cheat_Sheet.html) - why unsafe deserializers (pickle, native Java) are an RCE risk and how to validate.
 
 ## Next
 

@@ -50,6 +50,19 @@ URL, different verbs, different behavior. When no route matches the path at
 all → `404`; when the path matches but not the method → `405` with an
 `Allow` header (module 05).
 
+```
+   incoming: GET /users/42
+        │
+        ▼          route table (checked in order)
+   ┌─────────────────────────────────────────────┐
+   │ (GET,  /health)          ─ path no match     │
+   │ (GET,  /users)           ─ path no match     │
+   │ (GET,  /users/{id})   ◄── MATCH → get_user(id=42)
+   │ (POST, /users/{id})      ─ (not reached)     │
+   └─────────────────────────────────────────────┘
+     no path matches → 404      path but wrong method → 405 + Allow
+```
+
 ### The URL, dissected
 
 Routing operates on the **path** portion of the URL, but you should know
@@ -128,6 +141,13 @@ routes should win over more general ones**, but the *mechanism* varies:
   declare the more specific static route first.**
 - Catch-all/wildcard routes must generally be declared **last**, or they
   swallow everything after them.
+
+```
+  WRONG order (static shadowed):        RIGHT order (specific first):
+   1. /users/{user_id}  ◄─ /users/me     1. /users/me       ◄─ /users/me wins
+      captured as id="me"                2. /users/{user_id} ◄─ /users/42 falls here
+   2. /users/me         ✗ unreachable
+```
 
 The classic ambiguity: `/users/new` (a static "new user form") vs.
 `/users/{user_id}` (dynamic). If the dynamic one is declared first,
@@ -447,6 +467,14 @@ Write down your answer to each question before expanding it — checking without
    indexed by prefix cleanly) and slow matching.
 
 </details>
+
+## Further reading & sources
+
+- [FastAPI: Path Parameters](https://fastapi.tiangolo.com/tutorial/path-params/) and [Query Parameters](https://fastapi.tiangolo.com/tutorial/query-params/) - the path-vs-query distinction with the type-constraint behavior used here.
+- [FastAPI: Path Parameters and Numeric Validations](https://fastapi.tiangolo.com/tutorial/path-params-numeric-validations/) - constrained/typed dynamic routes in depth.
+- [Starlette: Routing](https://www.starlette.io/routing/) - the declaration-order matching that underlies FastAPI and the shadowing bug.
+- [MDN: What is a URL?](https://developer.mozilla.org/en-US/docs/Learn/Common_questions/Web_mechanics/What_is_a_URL) - the scheme/host/path/query/fragment anatomy routing operates on.
+- [MDN: 404 Not Found](https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/404) and [405 Method Not Allowed](https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/405) - what the router returns when a path or method fails to match.
 
 ## Next
 

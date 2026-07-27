@@ -87,6 +87,21 @@ trip, in order, before your backend function runs:
    through the proxy, the load balancer, back across the internet, into
    your browser, which parses it and hands the data to the page.
 
+The same journey, drawn with where the milliseconds actually go — notice
+how little of the total is your handler:
+
+```
+  browser        DNS         TCP          TLS         internet      LB/proxy     your code
+ (parse URL)   resolve     handshake    handshake      transit      dispatch     runs
+     │            │            │            │             │            │            │
+     ▼            ▼            ▼            ▼             ▼            ▼            ▼
+ ┌───────┐   ┌────────┐   ┌────────┐   ┌────────┐   ┌─────────┐  ┌────────┐   ┌────────┐
+ │  ~0ms │──►│ ~20ms  │──►│  1 RTT │──►│ 1-2 RTT│──►│  ~40ms  │─►│  ~2ms  │──►│  ~2ms  │
+ └───────┘   └────────┘   └────────┘   └────────┘   └─────────┘  └────────┘   └────────┘
+  step 1       step 2       step 3       step 4       step 6      step 7       step 8
+                └──────── setup + transit: the bulk of the 250ms ───────┘      └─ handler ─┘
+```
+
 The reader who internalizes this list stops being surprised by latency
 ("why is my API 300ms even though my handler runs in 2ms?" — because
 steps 2-4 and 6 dominate) and stops being confused by "phantom" behavior
@@ -101,6 +116,16 @@ service. The same physical machine can be a server for one connection and
 a client for another, simultaneously. This is the same idea you met with
 containers in `learn/02-docker` talking to each other — "who dials whom"
 is what defines the roles, not the hardware.
+
+```
+   role: CLIENT              role: SERVER + CLIENT           role: SERVER
+  ┌───────────┐   request   ┌──────────────────┐   request  ┌───────────┐
+  │  browser  │ ──────────► │   your backend   │ ─────────► │  database │
+  │           │ ◄────────── │ (serves browser, │ ◄───────── │           │
+  └───────────┘   response  │  dials the DB)   │  response  └───────────┘
+                            └──────────────────┘
+   who initiates = client; who listens/answers = server (same box can be both)
+```
 
 The relationship is **request/response**: the client sends exactly one
 request and gets back exactly one response, per exchange. The server
@@ -481,6 +506,15 @@ Write down your answer to each question before expanding it — checking without
    or misrouting it; TLS failure before any HTTP is exchanged.
 
 </details>
+
+## Further reading & sources
+
+- [MDN: What is a URL?](https://developer.mozilla.org/en-US/docs/Learn/Common_questions/Web_mechanics/What_is_a_URL) - breaks down the scheme/host/port/path the browser parses in step 1.
+- [MDN: How the web works](https://developer.mozilla.org/en-US/docs/Learn/Getting_started_with_the_web/How_the_Web_works) - a beginner-level narration of the same client → DNS → server journey.
+- [Cloudflare: What is DNS?](https://www.cloudflare.com/learning/dns/what-is-dns/) - clear explanation of recursive resolution and TTL caching from step 2.
+- [Cloudflare: What is a load balancer?](https://www.cloudflare.com/learning/performance/what-is-load-balancing/) - the step-7 load balancer and reverse-proxy layer explained.
+- [MDN: X-Forwarded-For](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/X-Forwarded-For) - why your app sees the proxy IP and where the real client IP hides.
+- [High Performance Browser Networking (free book)](https://hpbn.co/) - Ilya Grigorik's deep dive into TCP, TLS, and latency that underpins this whole module.
 
 ## Next
 

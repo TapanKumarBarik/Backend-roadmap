@@ -118,6 +118,18 @@ So: your typical `fetch('/api', {method: 'POST', headers: {'Content-Type':
 'application/json', 'Authorization': 'Bearer ...'}})` is **always
 preflighted**.
 
+```
+  SIMPLE request (GET, safelisted headers)   PREFLIGHTED request (PUT/JSON/auth)
+
+  browser ── GET /data ──────────► server    browser ─ OPTIONS /users ──► server
+          ◄─ 200 + A-C-A-Origin ──                 ◄─ 204 + Allow-Methods ─
+    │                                                │  (browser checks grant)
+    ▼ browser checks header,                         ▼ only if approved:
+      lets script read                        browser ── PUT /users/1 ───► server
+                                                     ◄─ 200 + A-C-A-Origin ─
+   one round trip                             two round trips (extra OPTIONS)
+```
+
 ### What a preflight actually looks like on the wire
 
 The browser sends this **before** the real request, automatically — your
@@ -471,6 +483,14 @@ Write down your answer to each question before expanding it — checking without
    per-request preflight matters.
 
 </details>
+
+## Further reading & sources
+
+- [MDN: Cross-Origin Resource Sharing (CORS)](https://developer.mozilla.org/en-US/docs/Web/HTTP/CORS) - the definitive explainer, including the simple-vs-preflight distinction.
+- [MDN: Same-origin policy](https://developer.mozilla.org/en-US/docs/Web/Security/Same-origin_policy) - the browser rule CORS selectively relaxes.
+- [Fetch Standard (WHATWG): CORS protocol](https://fetch.spec.whatwg.org/#http-cors-protocol) - the authoritative spec that defines preflights and the `Access-Control-*` headers.
+- [FastAPI: CORS (Cross-Origin Resource Sharing)](https://fastapi.tiangolo.com/tutorial/cors/) - how `CORSMiddleware` maps to the concepts here, used in the exercises.
+- [MDN: Access-Control-Allow-Origin](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Access-Control-Allow-Origin) - the grant header and the wildcard-plus-credentials prohibition.
 
 ## Next
 
