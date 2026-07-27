@@ -368,4 +368,144 @@ the alternative — collapsing data into fewer databases and/or a saga — and a
 which you'd actually ship and why. Be concrete about the consistency model each
 option gives the user.
 
-<parameter name="hidden">
+<details>
+<summary>Hint</summary>
+
+Start by asking what a user actually experiences in the bad window. If the wallet
+is debited but the bet record isn't yet created, the user momentarily sees money
+gone and no bet — alarming, and if the event starts before it heals, genuinely
+wrong. That argues the *debit and the bet record* want to be strongly consistent
+together, which is the tell that they probably belong in **one** database (the
+"don't distribute the data" escape hatch): collapse wallet + bets into one service
+and one local transaction, and the hardest part of the problem disappears. The
+liability reservation against the risk pool can then be a **saga** step with a
+compensating "release liability" transaction, because a brief window where the bet
+exists but liability isn't yet reserved is tolerable to the *business* (it's an
+internal risk metric, not something the user sees) as long as it converges and is
+idempotent. Reserve genuine 2PC only if regulation forbids any window at all across
+systems you cannot merge — and if you do, name blocking-on-coordinator-failure as
+the failure you're buying and mitigate with a persisted decision log and an HA
+coordinator. The senior answer is almost never "2PC across three services"; it's
+"merge the two that must be atomic, saga the third."
+
+</details>
+
+## Common mistakes & troubleshooting
+
+- **Reaching for 2PC before trying to un-distribute the data.** The overwhelming
+  majority of "we need a distributed transaction" problems are self-inflicted by
+  splitting data across services too eagerly. Before any cross-system protocol, ask
+  "can the pieces that must change atomically live in one database?" One local
+  transaction beats any distributed commit on every axis — latency, availability,
+  simplicity, failure modes.
+- **Underestimating how long locks are held.** A local transaction holds locks for
+  microseconds; a 2PC participant holds them from `PREPARE` until the phase-2
+  decision arrives — across multiple network round-trips, and on *every* participant
+  at once. Under contention on hot rows (the popular flash-sale SKU, the busy
+  account) this collapses throughput long before anything crashes.
+- **Treating the coordinator as reliable.** The coordinator is a single point of
+  failure whose crash *between* phase 1 and phase 2 wedges every participant with
+  locks held, unable to commit or abort until it recovers. If you run 2PC you must
+  persist its decision log and make it highly available — and even then you've only
+  reduced, not removed, the blocking window.
+- **Forgetting participants can't self-heal after voting YES.** Once a participant
+  votes `YES` it has surrendered its right to abort; it *must* block until told the
+  decision. It can't ask its peers, because it doesn't know whether the coordinator
+  already told someone else to commit. "The participants will just time out and
+  roll back" is wrong and will split-brain your data.
+- **Leaking prepared transactions in Postgres.** Every `PREPARE TRANSACTION` that is
+  never resolved holds locks and pins the WAL forever, silently degrading the
+  database. Monitor `pg_prepared_xacts`, alarm on dangling ones, and have a recovery
+  procedure — an orphaned prepared transaction is an outage waiting to happen.
+- **Using 2PC to talk to a third party over the internet.** 2PC needs all
+  participants up, reachable, and speaking a prepare/commit protocol for the whole
+  exchange. A chatty, high-latency, independently-owned external API (a payment
+  provider) fits none of these. Use an idempotent call plus a saga/outbox, not XA.
+- **Confusing "strict atomicity" the business *stated* with what it *needs*.**
+  Stakeholders will say "these must be atomic" reflexively. Push on it: what does a
+  user or the business actually experience during a one-second inconsistent window?
+  Usually the honest answer makes a saga's eventual consistency perfectly
+  acceptable, and 2PC's cost unjustified.
+
+## Checkpoint quiz
+
+Write down your answer to each question before expanding it — checking without attempting first is the single easiest way to fool yourself into thinking you've learned this.
+
+1. Why does the "free" atomicity of a database transaction disappear the moment an
+   operation spans two databases or a database and an external service?
+2. Walk through the two phases of 2PC. What exactly does a `YES` vote in phase 1
+   commit a participant to, and what has it given up?
+3. Explain the coordinator-failure blocking problem: what state are participants in,
+   why can't they resolve it themselves, and what does "blocking protocol" mean?
+4. Give three distinct reasons 2PC scales poorly as you add participants and load.
+5. Name the conditions under which 2PC is actually the right tool, and the three
+   common alternatives you'd reach for instead in the far more usual case.
+6. When would you accept a saga's brief window of inconsistency over 2PC's strict
+   atomicity, and how do you decide? Give the concrete question you ask.
+
+<details>
+<summary>Answers</summary>
+
+1. A local transaction's atomicity comes from a single resource manager controlling
+   a single write-ahead log: it can flip every change to committed in one durable
+   act or discard them all. When the work spans two independent systems that don't
+   share that log, there is no single act that commits both — "commit A, then commit
+   B" leaves you exposed the instant A commits and B fails, with A already durable
+   and unrollbackable. Atomicity across independent resource managers is exactly the
+   hard problem 2PC exists to solve.
+2. Phase 1 (prepare/voting): the coordinator sends `PREPARE`; each participant does
+   all the work — writes to its log, takes locks, checks constraints — but does
+   *not* commit, then votes `YES` or `NO`. Phase 2 (decision): if all voted `YES`
+   the coordinator durably records COMMIT and tells everyone to finalize; if any
+   voted `NO` (or timed out) it records ABORT and everyone discards. A `YES` vote is
+   a *binding promise* — the participant must keep the prepared state durably
+   recoverable and hold its locks until it hears the decision, even across a crash
+   and restart. It has given up its right to unilaterally abort.
+3. Worst moment: all participants have voted `YES` (holding locks, having given up
+   the right to abort) and then the coordinator crashes before sending the phase-2
+   decision. Each participant can't commit (it wasn't told to) and can't abort (it
+   promised not to), so it must block — holding its locks — until the coordinator
+   recovers and reveals the decision. They can't resolve it among themselves because
+   no participant knows whether the coordinator already told some *other* participant
+   to commit before dying. "Blocking protocol" means a single failure at the wrong
+   instant can freeze all participants indefinitely with locks held.
+4. (Any three) Locks are held for the full protocol duration — across multiple
+   round-trips, on every participant simultaneously — crushing throughput under
+   contention. Latency is at least two round-trips to the slowest participant, paid
+   on every transaction. It's synchronous and tightly coupled: all participants must
+   be up and reachable for the whole exchange, so one slow/down participant stalls
+   everyone, re-coupling the independent availability that services were split to
+   gain. And the coordinator is a single point of failure that can wedge everyone.
+5. 2PC is right only when *all* hold: you genuinely need strict immediate atomicity
+   (no inconsistent window is tolerable), participants support prepare/commit (XA,
+   `PREPARE TRANSACTION`), the participant count is small, and they're in one
+   administrative/latency domain (not a chatty call to a third party over the
+   internet). Otherwise: (a) don't distribute the data — keep atomically-changing
+   data in one DB and use one local transaction; (b) a saga — a sequence of local
+   transactions with compensating transactions, accepting eventual consistency; (c)
+   transactional outbox + idempotent consumers — commit the DB change and an outbox
+   event in one local transaction, deliver asynchronously with at-least-once +
+   idempotency.
+6. You accept a saga's window whenever a brief, well-defined period of partial
+   update causes no unacceptable real-world harm — which is most of the time. The
+   concrete question is: *"What does a user or the business actually experience
+   during the inconsistent window, and is that experience tolerable and
+   self-correcting?"* If the answer is "an order sits as 'pending' for a second
+   until payment confirms" — tolerable, ship the saga. If it's "money can be
+   withdrawn from one legal account and never appear in the other, and that's
+   forbidden" — that's the rare case for strict atomicity (and even then, prefer
+   merging those two datasets into one database over running 2PC).
+
+</details>
+
+## Next
+
+[04-the-saga-pattern](../04-the-saga-pattern/README.md) — you now understand why
+strict cross-system atomicity is expensive, fragile, and usually the wrong tool.
+The saga pattern is what high-throughput systems reach for instead: model the
+distributed operation as a *sequence of local transactions*, each committing
+independently, and when a later step fails, run **compensating transactions** to
+semantically undo the earlier ones. The next module builds real choreographed and
+orchestrated sagas — the order/payment/inventory checkout you just diagnosed as a
+2PC failure — and shows how idempotency (module 01) and locking (module 02) combine
+to make them correct.
