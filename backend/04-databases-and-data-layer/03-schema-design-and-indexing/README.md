@@ -576,5 +576,3 @@ expanding — no peeking at earlier modules.
 — your schema is designed and indexed; now the hard part of "I" in ACID gets
 its own module. You'll learn isolation levels, the exact anomalies each allows,
 optimistic vs pessimistic locking, and how to diagnose and prevent deadlocks.
-</content>
-</invoke>

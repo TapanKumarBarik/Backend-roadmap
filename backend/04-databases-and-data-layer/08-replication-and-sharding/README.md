@@ -540,5 +540,3 @@ complete. The capstone puts them together: design and build a properly
 normalized, indexed, transactionally-correct data layer for a real domain with
 SQLAlchemy and Alembic, and write the scaling design note that decides where
 replicas and shards would go if it had to grow 100×.
-</content>
-</invoke>

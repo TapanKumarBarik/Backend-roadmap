@@ -486,5 +486,3 @@ decided *when* relational is the right tool; next you'll learn the precise
 guarantees it makes (ACID) and the fundamental limits every distributed data
 system runs into (CAP), so "integrity" and "consistency" become exact terms
 instead of hand-waving.
-</content>
-</invoke>

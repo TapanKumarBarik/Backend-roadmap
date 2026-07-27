@@ -516,5 +516,3 @@ Write down your answer to each question before expanding it — checking without
 you can now ask precise questions of your data; next you'll learn to *design*
 the tables those questions run against (normalization, keys) and how indexes
 make the right queries fast — and the wrong indexes make writes slow.
-</content>
-</invoke>

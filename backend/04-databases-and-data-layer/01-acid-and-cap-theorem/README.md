@@ -502,5 +502,3 @@ Write down your answer to each question before expanding it — checking without
 guarantees a relational database makes; time to actually *ask it questions*.
 You'll learn SQL querying and the join types in depth, including exactly which
 join is silently wrong for a given question.
-</content>
-</invoke>

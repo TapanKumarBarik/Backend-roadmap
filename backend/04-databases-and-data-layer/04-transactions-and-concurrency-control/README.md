@@ -522,5 +522,3 @@ writing raw SQL by hand; now you'll use SQLAlchemy to map Python objects to
 rows, understand what an ORM buys and costs you, and manage schema change over
 time with Alembic migrations — including how to alter a live production table
 without taking an outage.
-</content>
-</invoke>

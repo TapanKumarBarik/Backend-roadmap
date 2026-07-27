@@ -539,5 +539,3 @@ Write down your answer to each question before expanding it — checking without
 layer in its proper place within a layered architecture (revisiting track 02's
 handlers/services), formalize the repository pattern, and get domain models and
 database models cleanly separated.
-</content>
-</invoke>

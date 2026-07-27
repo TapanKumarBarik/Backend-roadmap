@@ -503,5 +503,3 @@ made a single database node fast; the final concept module is about what happens
 when one node isn't enough: read replicas and replication lag, synchronous vs
 asynchronous replication, sharding strategies, and — importantly — how to tell
 when you actually need any of it versus when a bigger single box is simpler.
-</content>
-</invoke>

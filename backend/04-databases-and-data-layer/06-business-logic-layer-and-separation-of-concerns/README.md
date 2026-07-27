@@ -570,5 +570,3 @@ track. Write each answer before expanding.
 — your architecture is clean; now make it fast. You'll read `EXPLAIN ANALYZE`
 plans properly, hunt down and fix the N+1 problem you saw in module 05, size a
 connection pool, and cache query results at the data layer.
-</content>
-</invoke>

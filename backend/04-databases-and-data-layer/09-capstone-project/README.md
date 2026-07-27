@@ -192,5 +192,3 @@ module 07), finding and fixing performance bottlenecks systematically, and
 reasoning about concurrency versus parallelism. The data layer is where your
 data *lives correctly*; caching and performance are how you make it *fast at
 scale* — and that's the next track.
-</content>
-</invoke>
