@@ -198,6 +198,15 @@ for the first handful of shallow pages a human actually clicks.
 
 </details>
 
+## Further reading & sources
+
+- [Search your data](https://www.elastic.co/guide/en/elasticsearch/reference/current/search-your-data.html) - the reference hub tying together queries, aggregations, pagination, and highlighting for a full search feature.
+- [Query DSL](https://www.elastic.co/guide/en/elasticsearch/reference/current/query-dsl.html) - the complete query language you'll assemble the `multi_match` + `bool` + `function_score` search from.
+- [Completion suggester](https://www.elastic.co/guide/en/elasticsearch/reference/current/search-suggesters.html#completion-suggester) - the autocomplete-oriented option for the type-ahead requirement.
+- [Elasticsearch: The Definitive Guide](https://www.elastic.co/guide/en/elasticsearch/guide/current/index.html) - the free book-length treatment covering mapping, relevance, and aggregations end to end.
+- [Tune for search speed](https://www.elastic.co/guide/en/elasticsearch/reference/current/tune-for-search-speed.html) - practical levers for the profile-and-optimize requirement.
+- [Set up a data stream](https://www.elastic.co/guide/en/elasticsearch/reference/current/set-up-a-data-stream.html) - the modern ILM-backed lifecycle pattern for the operability deliverable.
+
 ## Next
 
 You've completed **07-search-with-elasticsearch** — you can now design a mapping,

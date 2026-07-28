@@ -137,6 +137,17 @@ The value is that a stray `log.info(settings)` or an f-string interpolation
 prints `**********` instead of the real secret — a passive guardrail against
 the single most common secret-leak vector (module 05's core sin).
 
+```
+   plain str "hunter2"                SecretStr("hunter2")
+        │                                   │
+   log.info(settings) ──▶ hunter2      log.info(settings) ──▶ **********  ✓
+   f"{pw}"            ──▶ hunter2      f"{pw}"            ──▶ **********  ✓
+   traceback repr    ──▶ hunter2      traceback repr    ──▶ **********  ✓
+                          ▲                                   │
+                    LEAKED to logs                  .get_secret_value() ──▶ hunter2
+                                                   (deliberate, greppable, only here)
+```
+
 ### Pydantic Settings: typed config as a contract
 
 `pydantic-settings` (a separate package from `pydantic`) is the standard way to
@@ -200,6 +211,18 @@ The precedence order (highest wins) is: values passed directly to
 field defaults. So env vars override the `.env` file — exactly what you want:
 `.env` for local dev convenience, real env vars injected by the platform in
 prod.
+
+```
+   HIGHEST  ┌──────────────────────────────┐  wins if present
+      │     │ Settings(port=9999)  kwargs  │  (tests, explicit override)
+      │     ├──────────────────────────────┤
+      │     │ process env var  APP_PORT    │  ◄─ platform injects in prod
+      │     ├──────────────────────────────┤
+      │     │ .env file        APP_PORT=   │  ◄─ dev convenience, git-ignored
+      │     ├──────────────────────────────┤
+      ▼     │ field default    port = 8000 │  used only if nothing above set it
+   LOWEST   └──────────────────────────────┘
+```
 
 Inject the single `settings` object via FastAPI's dependency system rather than
 importing a global everywhere, so it's overridable in tests:
@@ -557,6 +580,15 @@ Write down your answer to each question before expanding it — checking without
    kill switch) without rolling back the deploy.
 
 </details>
+
+## Further reading & sources
+
+- [pydantic-settings documentation](https://docs.pydantic.dev/latest/concepts/pydantic_settings/) - the authoritative reference for `BaseSettings`, sources, and precedence used throughout this module.
+- [pydantic — SecretStr](https://docs.pydantic.dev/latest/api/types/#pydantic.types.SecretStr) - the type whose masked `repr` is your passive guardrail against leaking secrets in logs.
+- [The Twelve-Factor App — III. Config](https://12factor.net/config) - the rationale for environment variables as the default config source.
+- [OWASP — Secrets Management Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Secrets_Management_Cheat_Sheet.html) - practical rules for storing, rotating, and injecting secrets safely.
+- [GitHub — Removing sensitive data from a repository](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/removing-sensitive-data-from-a-repository) - why a committed secret must be rotated, not just deleted, and how to scrub history.
+- [Martin Fowler — Feature Toggles](https://martinfowler.com/articles/feature-toggles.html) - the reference on runtime feature flags and decoupling deploy from release.
 
 ## Next
 

@@ -118,6 +118,18 @@ reliability.
   concrete, spendable quantity of unreliability. Over 30 days at a given traffic
   level it's a specific number of failed requests you can "afford."
 
+```
+   SLI  ── measure ──▶  successful requests / total          (from RED metrics)
+                              │
+   SLO  ── target  ──▶  "99.9% succeed over 30 days"          (the promise)
+                              │
+   ERROR BUDGET = 100% − 99.9% = 0.1%  ── allowed to fail
+                              │
+   at 1,000,000 req/30d  ──▶  1,000 failures you can "afford"  (spendable)
+                              │
+   alert when you SPEND IT TOO FAST, not on every single error
+```
+
 The error budget reframes reliability from "never fail" (impossible, paralysing)
 to "stay within budget" (finite, manageable), and it directly powers good
 alerting: you don't alert on *every* error (you have a budget for some), you alert
@@ -151,6 +163,14 @@ The power of burn-rate alerting:
   window) while still catching real fast burns quickly. A *lower* burn rate
   (e.g. ≥ 3 over 6h) fires a non-paging ticket. This is precisely the
   noise-suppression the whole module is about, expressed as math.
+
+```
+   30-sec blip:   5m window ✓ HIGH   1h window ✗ low    ─▶  NO page (false alarm killed)
+   fast outage:   5m window ✓ HIGH   1h window ✓ HIGH   ─▶  PAGE now (burn≥14.4, ~2 days to empty)
+   slow simmer:   6h window ✓ ≥3     (single window)    ─▶  ticket, business hours
+   healthy:       burn ≈ 1  (spending exactly on plan)  ─▶  silence
+        short window = FAST to fire   long window = TRUSTWORTHY (no blips)
+```
 
 ```promql
 # error-budget burn rate for a 99.9% availability SLO (budget = 0.001)
@@ -652,6 +672,15 @@ exercises rather than just reading the answer.
    trustworthy signals; noise and silence both break them.
 
 </details>
+
+## Further reading & sources
+
+- [Google SRE Book — Service Level Objectives](https://sre.google/sre-book/service-level-objectives/) - the definitive treatment of SLIs, SLOs, and error budgets this module builds on.
+- [Google SRE Workbook — Alerting on SLOs](https://sre.google/workbook/alerting-on-slos/) - the multi-window, multi-burn-rate alerting pattern in full, with the burn-rate math.
+- [Google SRE Book — Being On-Call](https://sre.google/sre-book/being-on-call/) - the human side: alert fatigue, actionable pages, and sustainable rotations.
+- [Prometheus — Alerting rules](https://prometheus.io/docs/prometheus/latest/configuration/alerting_rules/) - how to express alert conditions as PromQL plus a `for:` duration.
+- [Alertmanager documentation](https://prometheus.io/docs/alerting/latest/alertmanager/) - routing, grouping, deduplication, and silencing — the anti-fatigue plumbing.
+- [My Philosophy on Alerting — Rob Ewaschuk](https://docs.google.com/document/d/199PqyG3UsyXlwieHaqbGiWVa8eMWi8zzAn0YfcApr8Q/edit) - the original memo behind "page on symptoms, not causes."
 
 ## Next
 

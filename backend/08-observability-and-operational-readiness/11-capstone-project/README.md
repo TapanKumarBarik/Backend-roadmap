@@ -190,6 +190,15 @@ readiness is defined by behaviour under failure.
 
 </details>
 
+## Further reading & sources
+
+- [Google SRE Book](https://sre.google/sre-book/table-of-contents/) - the foundational text tying together SLOs, error budgets, alerting, and operational readiness across this whole track.
+- [The Twelve-Factor App](https://12factor.net/) - the checklist to audit your capstone service against for portability, statelessness, and disposability.
+- [OpenTelemetry documentation](https://opentelemetry.io/docs/) - the one instrumentation layer that produces the traces, metrics, and correlated logs the capstone integrates.
+- [Prometheus documentation](https://prometheus.io/docs/) - metrics, PromQL, and the alerting rules behind the RED metrics and burn-rate alerts.
+- [Grafana documentation](https://grafana.com/docs/grafana/latest/) - the single pane of glass over Loki logs, Prometheus metrics, and Tempo/Jaeger traces for the failure demonstrations.
+- [FastAPI documentation](https://fastapi.tiangolo.com/) - the framework reference for the middleware, lifespan, and exception handlers the operational qualities are built around.
+
 ## Next
 
 You've completed **08-observability-and-operational-readiness**. Your services can

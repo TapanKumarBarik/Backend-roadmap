@@ -101,6 +101,19 @@ wrong causes exactly the errors you're trying to prevent.
    await background tasks, flush buffers, close files. (Below.)
 6. **Exit.** Process ends with status 0, ideally well within the grace period.
 
+```
+  SIGTERM                                                        exit(0)
+    │                                                               │
+    ▼                                                               ▼
+    ├─ fail readiness ─┬─ drain in-flight ──┬─ close pools ──┬─ done │
+    │  (LB stops new)  │  (finish old work) │  cancel tasks  │       │
+    │                  │                    │  flush buffers │       │
+    │◄────────── all of this INSIDE the grace period (e.g. 30s) ─────┤
+    │                                                               ╎
+    └─ liveness KEEPS PASSING the whole time ───────────────────────╎─▶ SIGKILL
+                                                          (only if you overrun)
+```
+
 The subtle ordering bug: if you close active connections *before* draining (or
 signal ready-too-late), you cut off requests mid-response → the client gets a
 reset → an error that graceful shutdown was supposed to prevent. Stop *new*
@@ -566,6 +579,15 @@ Write down your answer to each question before expanding it — checking without
    finish exiting cleanly.
 
 </details>
+
+## Further reading & sources
+
+- [The Twelve-Factor App — IX. Disposability](https://12factor.net/disposability) - the factor that names fast startup and graceful shutdown as a property of production-ready processes.
+- [Kubernetes — Pod Lifecycle (termination & grace period)](https://kubernetes.io/docs/concepts/workloads/pods/pod-lifecycle/#pod-termination) - how SIGTERM, `terminationGracePeriodSeconds`, `preStop`, and SIGKILL fit together.
+- [Kubernetes — Configure Liveness, Readiness and Startup Probes](https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/) - the authoritative distinction between the probe types this module hinges on.
+- [Uvicorn — Deployment & graceful shutdown](https://www.uvicorn.org/deployment/) - how the ASGI server catches SIGTERM and drains in-flight requests.
+- [FastAPI — Lifespan Events](https://fastapi.tiangolo.com/advanced/events/) - the idiomatic place to put startup and shutdown (cleanup) code.
+- [Python — signal module](https://docs.python.org/3/library/signal.html) - the standard-library reference for handling SIGTERM/SIGINT when you're not behind an ASGI server.
 
 ## Next
 

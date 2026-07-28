@@ -151,6 +151,26 @@ That `request_id` in *both* the log and the response is the thread that ties a
 user's "I got an error, here's the ID" to the exact traceback in your logs —
 the payoff of request-context (track 02, module 05) meeting error handling.
 
+```
+  raise in ANY route
+        │
+        ▼  FastAPI routes by exception type (most-specific-wins)
+  ┌─────────────────────────┬────────────────────────────┐
+  │ subclass of AppError?   │ anything else (KeyError,    │
+  │ (you raised on purpose) │  driver error, a bug)       │
+  └───────────┬─────────────┴──────────────┬─────────────┘
+              ▼                             ▼
+   handle_app_error              handle_unexpected (catch-all)
+   status = exc.status_code      status = 500
+   message = exc.message  ✓      message = generic string ✓
+   (authored, safe)              log.exception(full traceback)
+              │                             │
+              └──────────────┬──────────────┘
+                             ▼
+              ONE envelope: {error:{code, message, request_id, details?}}
+              client always sees the same shape — internals never leak
+```
+
 ### A consistent error response shape
 
 Pick one envelope and use it for *every* error the API emits — your handlers,
@@ -561,6 +581,14 @@ Write down your answer to each question before expanding it — checking without
    built in track 02 (02-api-layer, module 05).
 
 </details>
+
+## Further reading & sources
+
+- [FastAPI — Handling Errors](https://fastapi.tiangolo.com/tutorial/handling-errors/) - the official guide to `@app.exception_handler`, `HTTPException`, and overriding validation errors.
+- [Starlette — Exceptions and handlers](https://www.starlette.io/exceptions/) - the underlying framework mechanism FastAPI builds its exception handling on.
+- [RFC 9457 — Problem Details for HTTP APIs](https://www.rfc-editor.org/rfc/rfc9457.html) - the IETF standard error envelope, a reference point when designing your own consistent shape.
+- [MDN — HTTP response status codes](https://developer.mozilla.org/en-US/docs/Web/HTTP/Status) - the authority on `4xx` (client) vs `5xx` (server) semantics that drive retry and alerting behaviour.
+- [OWASP — Improper Error Handling](https://owasp.org/www-community/Improper_Error_Handling) - why leaking stack traces and internal details in error responses is a real security weakness.
 
 ## Next
 

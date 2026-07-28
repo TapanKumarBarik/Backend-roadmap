@@ -71,6 +71,16 @@ the point after `[149.5, "abc123"]` and read the next 10 — no materializing
 10,000 rows to throw away. The cost of page 1,000 is the same as page 2. This is
 how "load more" / infinite scroll and full-dataset exports should work.
 
+```
+  from=9990 size=10 (5 shards)
+    each shard builds top 10,000 ─► coordinator sorts ~50,000 ─► keeps 10, discards rest
+    cost grows with page depth  ─► errors past max_result_window (10,000)
+
+  search_after [149.5,"abc123"] size=10
+    each shard SEEKS past the cursor ─► reads next 10 ─► merges 50
+    page 1,000 costs the same as page 2   (forward-only, needs a tiebreaker)
+```
+
 The trade-off: `search_after` gives you **forward, sequential** paging — you
 can't jump directly to "page 500," only walk from where you are. That's fine for
 infinite scroll and exports (the real large-pagination use cases) and is exactly
@@ -147,6 +157,15 @@ rules:
 - **`elasticsearch-py` gives you `helpers.bulk`** which handles batching,
   serialization, and error collection for you — use it rather than hand-rolling
   the NDJSON.
+
+```
+  one-at-a-time:  [doc]→HTTP  [doc]→HTTP  [doc]→HTTP ...   (N round trips)
+
+  _bulk — one request, NDJSON (action line + source line per doc):
+    {"index":{"_id":1}}\n {..doc..}\n {"index":{"_id":2}}\n {..doc..}\n
+    └─► single request ─► often 10-100× faster
+        returns HTTP 200 even if some items fail ─► must check "errors": true
+```
 
 ### Query anti-patterns that quietly destroy latency
 
@@ -539,6 +558,15 @@ Write down your answer to each question before expanding it — checking without
    not a leading wildcard.
 
 </details>
+
+## Further reading & sources
+
+- [Paginate search results](https://www.elastic.co/guide/en/elasticsearch/reference/current/paginate-search-results.html) - `from`/`size`, `search_after`, and why deep offsets are capped by `max_result_window`.
+- [Point in time API](https://www.elastic.co/guide/en/elasticsearch/reference/current/point-in-time-api.html) - the stable snapshot that pairs with `search_after` for consistent deep paging.
+- [Bulk API](https://www.elastic.co/guide/en/elasticsearch/reference/current/docs-bulk.html) - the NDJSON format and the per-item error reporting behind silent partial failures.
+- [Tune for indexing speed](https://www.elastic.co/guide/en/elasticsearch/reference/current/tune-for-indexing-speed.html) - batch sizing, `refresh_interval`, and replica tuning for backfills.
+- [Size your shards](https://www.elastic.co/guide/en/elasticsearch/reference/current/size-your-shards.html) - the official guidance behind the over-sharding tax and shard-size targets.
+- [Profile API](https://www.elastic.co/guide/en/elasticsearch/reference/current/search-profile.html) - the per-component timing breakdown for diagnosing slow queries.
 
 ## Next
 

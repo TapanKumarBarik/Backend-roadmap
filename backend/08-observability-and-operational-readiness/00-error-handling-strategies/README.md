@@ -59,6 +59,17 @@ one that raises in production, which is cheaper than a logical error a customer
 reports a week later. Every technique in this module is about moving errors
 earlier and making the ones that remain impossible to ignore.
 
+```
+  cheapest ┌──────────┬─────────┬─────────────┬──────────────────┐ costliest
+  to fix   │ syntax   │ type/   │ runtime     │ logical error    │ to fix
+           │ error    │ lint    │ error       │ (wrong answer,   │
+           │          │ error   │ (raises)    │  no exception)   │
+           └──────────┴─────────┴─────────────┴──────────────────┘
+   caught:   parse      pre-run    in prod       maybe never
+             time       (mypy)     (traceback)   (customer finds it)
+             ◄──────── push errors leftward ────────
+```
+
 ### Fail-fast vs fail-safe
 
 When something goes wrong, you have two broad strategies, and choosing the
@@ -94,6 +105,20 @@ The dangerous middle ground is *accidental* fail-safe: a broad `try/except`
 that catches everything and returns a default, silently converting a critical
 failure into a wrong-but-quiet answer. That's not fail-safe design; that's a
 swallowed error wearing a disguise.
+
+```
+              something went wrong
+                       │
+          ┌────────────┴────────────┐
+     startup / invariant?      request path?
+          │                         │
+      FAIL-FAST          ┌──────────┴──────────┐
+   crash on boot,   critical dep?         non-critical dep?
+   don't take          │                       │
+   traffic         FAIL-FAST              FAIL-SAFE
+                   clean 503,         degrade + LOG + meter
+                   don't fake it      (serve reduced result)
+```
 
 ### Graceful degradation
 
@@ -622,6 +647,14 @@ Write down your answer to each question before expanding it — checking without
    the new error and lose the diagnostic trail to what actually went wrong.
 
 </details>
+
+## Further reading & sources
+
+- [Python: Errors and Exceptions](https://docs.python.org/3/tutorial/errors.html) - the language reference on exceptions, chaining (`raise ... from`), and `try`/`except` semantics used throughout this module.
+- [Python logging: `logger.exception`](https://docs.python.org/3/library/logging.html#logging.Logger.exception) - the standard-library method that captures the active traceback, the single most important logging habit here.
+- [Google SRE Book — Handling Overload](https://sre.google/sre-book/handling-overload/) - how graceful degradation and load-shedding keep a service usefully alive instead of collapsing entirely.
+- [Martin Fowler — Fail Fast](https://www.martinfowler.com/ieeeSoftware/failFast.pdf) - the canonical short essay on why crashing loudly at the first sign of a broken assumption beats limping on.
+- [AWS Builders' Library — Timeouts, retries, and backoff with jitter](https://aws.amazon.com/builders-library/timeouts-retries-and-backoff-with-jitter/) - practical guidance on retrying transient failures without amplifying an outage.
 
 ## Next
 

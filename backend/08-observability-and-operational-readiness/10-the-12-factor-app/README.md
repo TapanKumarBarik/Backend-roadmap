@@ -187,6 +187,24 @@ Concretely, a 12-factor FastAPI service looks like:
 - **Parity** by running the same backing services locally in Docker as in prod
   (X).
 
+```
+   the twelve factors mapped onto one FastAPI service
+   ┌─ CODE (the immutable build image) ─────────────────────────────┐
+   │  pyproject.toml (II)   app code, one repo (I)   Uvicorn :8000 (VII)
+   └────────────────────────────────────────────────────────────────┘
+                  │ release = image + config (V)
+   ┌─ ENVIRONMENT (injected, never in the image) ───────────────────┐
+   │  env vars / SecretStr (III)     ENV=dev|staging|prod, parity (X)
+   └────────────────────────────────────────────────────────────────┘
+   ┌─ STATE (externalized to backing services) ─────────────────────┐
+   │  Postgres · Redis · S3/MinIO · SMTP  ── attached by URL (IV)
+   └────────────────────────────────────────────────────────────────┘
+   ┌─ PROCESSES (stateless, disposable) ────────────────────────────┐
+   │  N replicas behind LB (VI, VIII)   lifespan drain (IX)
+   │  JSON → stdout (XI)   alembic one-off job (XII)
+   └────────────────────────────────────────────────────────────────┘
+```
+
 A note on judgment: 12-factor is a strong *default*, not dogma. Some modern
 patterns extend or bend it — stateful services (databases themselves, stateful
 stream processors) deliberately break factor VI; some argue config-in-env doesn't
@@ -512,6 +530,14 @@ Write down your answer to each question before expanding it — checking without
    specific reason.
 
 </details>
+
+## Further reading & sources
+
+- [The Twelve-Factor App](https://12factor.net/) - the original methodology by Adam Wiggins and Heroku engineers; read all twelve factors in full.
+- [The Twelve-Factor App — VI. Processes](https://12factor.net/processes) - the statelessness factor that enables horizontal scaling and disposability.
+- [The Twelve-Factor App — IV. Backing services](https://12factor.net/backing-services) - treating databases, caches, and queues as attached, swappable resources.
+- [Beyond the Twelve-Factor App (VMware/O'Reilly)](https://www.vmware.com/docs/beyond-the-12-factor-app) - Kevin Hoffman's updated take that extends and revises the factors for modern cloud-native apps.
+- [pydantic-settings documentation](https://docs.pydantic.dev/latest/concepts/pydantic_settings/) - the concrete implementation of factor III (config in the environment) for a FastAPI service.
 
 ## Next
 

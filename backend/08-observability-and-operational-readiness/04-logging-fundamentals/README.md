@@ -80,6 +80,16 @@ A useful heuristic: *if you'd want to be woken up for it → `ERROR`/`CRITICAL`;
 if you'd want to see it in tomorrow's review → `WARNING`; if it's the normal
 story → `INFO`; if it's only useful while actively debugging → `DEBUG`.*
 
+```
+  CRITICAL ▲  app going down          "page me / it's a fire"
+  ERROR    │  operation failed        "someone might need to act"
+  WARNING  │  handled, degraded       "look at this soon"
+  ─────────┼──◄─ prod threshold usually HERE (INFO): emit ≥ this
+  INFO     │  normal milestone        "the story of normal ops"
+  DEBUG    ▼  step-by-step detail     "only while actively debugging"
+     raise threshold to DEBUG in dev → see everything, no code change
+```
+
 ### Structured vs unstructured logging
 
 This is the single most consequential choice in the module.
@@ -112,6 +122,19 @@ regex, no fragility. Every field is typed, filterable, and aggregatable. This
 is *why structured wins*: production logs are read by machines (log
 aggregators, dashboards, alerts — modules 05-08), and machines need fields, not
 prose.
+
+```
+  UNSTRUCTURED: one opaque string ── machine must regex it, breaks on rewording
+  "User ada (id 8123) placed order A-4417 for $59.90 ... in 142ms"
+
+  STRUCTURED: named fields ── query any field directly, forever stable
+  ┌───────────┬───────┬──────────────┬─────────┬────────┬──────────┬────────────┐
+  │ timestamp │ level │ event        │ user_id │ amount │ duration │ request_id │
+  ├───────────┼───────┼──────────────┼─────────┼────────┼──────────┼────────────┤
+  │ 03:14:07Z │ info  │ order_placed │ 8123    │ 59.90  │ 142      │ 3f9a-...   │
+  └───────────┴───────┴──────────────┴─────────┴────────┴──────────┴────────────┘
+     └ processors/context add these ┘   └──── per-event fields you pass ────┘
+```
 
 Concrete advantages of structured logs:
 
@@ -173,6 +196,17 @@ log.info("db_query", table="orders", duration_ms=12)
 This is how you get a `request_id` (from track 02's request-context middleware)
 onto *every* log line in a request without threading it through every function
 signature — the foundation of the correlation story in module 05.
+
+```
+  request in ──▶ middleware: bind_contextvars(request_id, user_id)
+                     │
+                     ▼   (no ids passed to any of these calls)
+     route handler ─── log.info("greeting")        ─┐
+        service fn ─── log.info("cache_miss")        ├─ EACH line auto-carries
+          db layer ─── log.info("db_query")         ─┘  request_id + user_id
+                     │
+                 clear_contextvars()  ◄── end of request, wipe the context
+```
 
 A production-ready configuration that renders pretty console output in dev and
 JSON in prod, driven by config (module 02):
@@ -588,6 +622,14 @@ Write down your answer to each question before expanding it — checking without
    containers, and duplicates what the runtime already does (module 05/10).
 
 </details>
+
+## Further reading & sources
+
+- [structlog documentation](https://www.structlog.org/en/stable/) - the official docs for the structured-logging library, processors, and context binding used throughout this module.
+- [structlog — Context Variables](https://www.structlog.org/en/stable/contextvars.html) - how `bind_contextvars` puts a `request_id` on every line without threading it through calls.
+- [Python logging — Logging Levels](https://docs.python.org/3/library/logging.html#logging-levels) - the standard severity ladder that DEBUG/INFO/WARNING/ERROR/CRITICAL map onto.
+- [The Twelve-Factor App — XI. Logs](https://12factor.net/logs) - why an app should treat logs as an event stream on stdout rather than managing files.
+- [OWASP — Logging Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Logging_Cheat_Sheet.html) - what to log, what to never log, and how to avoid turning your log store into a breach.
 
 ## Next
 

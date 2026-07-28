@@ -143,6 +143,16 @@ in module 03; for now the takeaway is just: `_score` is TF-style "how much
 this doc is about the term" times IDF-style "how rare/informative the term is,"
 tuned so long documents and repeated words don't dominate unfairly.
 
+```
+  _score(doc, "photosynthesis") is nudged by three factors:
+
+    TF   how often the term appears in THIS doc ──► more  = higher (saturates)
+     ×
+    IDF  how rare the term is across ALL docs   ──► rarer = higher
+     ×
+    len  short field for the same match         ──► shorter = higher
+```
+
 ### Shards and replicas: how one index spans many machines
 
 An Elasticsearch index is not one big file. It's split into **shards**, and
@@ -164,6 +174,14 @@ documents. Two reasons this matters:
   dominates. You'll see this "over-sharding" performance trap again in
   module 05. For small datasets, **one primary shard is often the right
   answer**, and that's the default in modern Elasticsearch.
+
+```
+  index "books"  (1 primary + 1 replica)      single-node cluster
+  ┌─────────────┐                             ┌──────── node 1 ────────┐
+  │ primary  P0 │ ─────────────────────────►  │  P0  STARTED           │
+  │ replica  R0 │ ─ must live on ANOTHER node │  R0  no other node ────┼─► UNASSIGNED
+  └─────────────┘                             └────────────────────────┘  → health YELLOW
+```
 
 **Replicas** are copies of a shard. A replica shard is a redundant copy of a
 primary shard, kept on a *different* node. Replicas do two jobs: **fault
@@ -542,6 +560,15 @@ Write down your answer to each question before expanding it — checking without
    rebuildable secondary index.
 
 </details>
+
+## Further reading & sources
+
+- [Elasticsearch: What is Elasticsearch?](https://www.elastic.co/guide/en/elasticsearch/reference/current/elasticsearch-intro.html) - the official orientation on what the engine is and the problems it targets.
+- [Elasticsearch: The Definitive Guide — Inverted Index](https://www.elastic.co/guide/en/elasticsearch/guide/current/inverted-index.html) - the canonical worked explanation of the data structure this module is built around.
+- [Data in: documents and indices](https://www.elastic.co/guide/en/elasticsearch/reference/current/documents-indices.html) - how documents, indices, shards, and near-real-time refresh relate.
+- [Practical BM25 (Part 2): The BM25 algorithm and its variables](https://www.elastic.co/blog/practical-bm25-part-2-the-bm25-algorithm-and-its-variables) - Elastic's plain-language walkthrough of TF, IDF, saturation, and length normalization.
+- [Apache Lucene](https://lucene.apache.org/core/) - the underlying search library each Elasticsearch shard is an instance of.
+- [Scalability and resilience: clusters, nodes, and shards](https://www.elastic.co/guide/en/elasticsearch/reference/current/scalability.html) - how sharding and replication give scale and fault tolerance.
 
 ## Next
 

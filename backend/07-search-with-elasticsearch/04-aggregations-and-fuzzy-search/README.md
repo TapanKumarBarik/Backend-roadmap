@@ -38,6 +38,14 @@ matching documents. Two fundamental families:
   run a metric (avg price per brand) or another bucket agg (price histogram per
   brand). This nesting is what makes aggregations expressive.
 
+```
+  terms "by_brand"              (bucket: one per distinct keyword value)
+  ├─ "Summit"  doc_count 3
+  │    └─ avg "avg_price" 142.6 (metric nested inside the bucket)
+  └─ "Pace"    doc_count 2
+       └─ avg "avg_price"  82.2
+```
+
 A defining feature: you can ask for aggregations **and** search hits in one
 request, or ask for *only* aggregations by setting `"size": 0` (return no
 document hits, just the computed buckets/metrics). For a facet sidebar you
@@ -99,6 +107,15 @@ Users misspell. **Fuzzy** matching finds terms within a small **edit distance**
 insertions, deletions, substitutions, or transpositions needed to turn one word
 into another. `runing → running` is edit distance 1 (insert an `n`);
 `shoez → shoes` is 1 (substitute `z`→`s`); `from → form` is 1 (a transposition).
+
+```
+  Levenshtein edit distance = min single-char edits to turn one term into another:
+
+    runing → running   insert  'n'      distance 1
+    shoez  → shoes      substitute z→s   distance 1
+    from   → form       transpose r/o    distance 1
+    fuzziness: AUTO ─► allowed edits scale with term length (0 / 1 / 2)
+```
 
 You enable it with `fuzziness`:
 
@@ -558,6 +575,15 @@ earlier module stumps you, go redo that module's exercises rather than peeking.
    under-counted. Hence approximate counts, tunable with `shard_size`.
 
 </details>
+
+## Further reading & sources
+
+- [Aggregations](https://www.elastic.co/guide/en/elasticsearch/reference/current/search-aggregations.html) - the reference overview of bucket, metric, and pipeline aggregations.
+- [Terms aggregation](https://www.elastic.co/guide/en/elasticsearch/reference/current/search-aggregations-bucket-terms-aggregation.html) - the facet workhorse, including the `shard_size`/approximate-count caveats.
+- [Cardinality aggregation](https://www.elastic.co/guide/en/elasticsearch/reference/current/search-aggregations-metrics-cardinality-aggregation.html) - the HyperLogLog-based approximate distinct count.
+- [Fuzzy query](https://www.elastic.co/guide/en/elasticsearch/reference/current/query-dsl-fuzzy-query.html) - edit-distance matching, `fuzziness`, `prefix_length`, and `max_expansions`.
+- [Common options: fuzziness](https://www.elastic.co/guide/en/elasticsearch/reference/current/common-options.html#fuzziness) - what `AUTO` actually maps to by term length.
+- [Filter aggregation and post_filter](https://www.elastic.co/guide/en/elasticsearch/reference/current/filter-search-results.html) - how `post_filter` narrows hits after aggregations for faceted-navigation UX.
 
 ## Next
 

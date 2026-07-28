@@ -120,6 +120,19 @@ it. Treating a feature flag like static config (baking it into the build)
 means a redeploy to flip a switch — exactly what dynamic config exists to
 avoid. The taxonomy tells you *how* to handle each.
 
+```
+                    ┌──────────────────────────────────────┐
+   STATIC     ──────┤ log_level, db_host, port, ENV name    │  restart to change
+                    │ safe to display                       │
+                    ├──────────────────────────────────────┤
+   DYNAMIC    ──────┤ feature flags, rate limits, sampling  │  change at RUNTIME
+                    │ usually safe to display               │  (no redeploy)
+                    ├──────────────────────────────────────┤
+   SENSITIVE  ──────┤ passwords, API keys, signing keys     │  NEVER logged
+                    │ secret manager only ── exposure=breach│  never in git
+                    └──────────────────────────────────────┘
+```
+
 ### The dev / staging / prod problem
 
 Real services run in multiple **environments**, and the entire reason they
@@ -146,6 +159,20 @@ different code. So the design constraint is: one build, N sets of config, and
 the config injected per environment. The value of `ENVIRONMENT=staging` vs
 `ENVIRONMENT=prod` should be the *only* difference between how those two
 identical artifacts behave.
+
+```
+   ONE build artifact  ────────────────────────────────────┐
+        │                     │                     │       │  same code,
+        ▼                     ▼                     ▼        │  differs ONLY
+   ┌─────────┐          ┌───────────┐         ┌─────────┐    │  by injected
+   │  DEV    │          │  STAGING  │         │  PROD   │    │  config
+   │ fake DB │  ≈≈≈≈≈▶  │ prod-mirror│ ══════▶ │ real DB │    │
+   │ test key│  parity  │ same build │ promote │ live key│    │
+   │ DEBUG   │          │  INFO      │         │  INFO   │    │
+   └─────────┘          └───────────┘         └─────────┘    │
+   if STAGING ≈ PROD, a bug shows up in staging ─────────────┘
+   if they drift, staging passes and prod breaks
+```
 
 Common failure modes this framing prevents:
 - **Config drift** — staging and prod configs diverge over time until they no
@@ -397,6 +424,82 @@ can degrade rather than crash.
 
 </details>
 
+## Common mistakes & troubleshooting
+
+- **Hardcoding environment-specific values in source.** Breaks
+  same-build-everywhere, buries secrets in git history, turns a config tweak
+  into a redeploy. The root sin this whole module exists to prevent.
+- **Conflating secrets with static config.** Putting a password in a
+  checked-in `.env` or a ConfigMap leaks it. Secrets get their own handling
+  (module 03).
+- **Baking feature flags into the build.** Turns a runtime toggle into a
+  redeploy. Dynamic config must come from a source that can change under the
+  running app.
+- **Scattered `os.environ[...]` reads.** No single source of truth, easy to get
+  two names for one value, no validation. Load once into a typed object.
+- **No fail-fast on missing required config.** The app boots and fails
+  confusingly on the 500th request instead of crashing on line one. Validate
+  required config at startup.
+- **Staging that doesn't resemble prod.** Config drift makes "passed in
+  staging" meaningless. Keep parity, especially for the things that only break
+  under prod-like conditions.
+- **Shared credentials across environments.** Lets dev code reach prod
+  resources by accident. Distinct, least-privilege credentials per environment.
+
+## Checkpoint quiz
+
+Write down your answer to each question before expanding it — checking without attempting first is the single easiest way to fool yourself into thinking you've learned this.
+
+1. State the litmus test for whether a value is "config," and give one example
+   that is config and one that is code.
+2. Name the three flavours of config and the single handling rule unique to
+   each.
+3. Why must the *same build artifact* run in dev, staging, and prod — what
+   goes wrong if you instead ship different code per environment?
+4. What is dev/prod parity and why does breaking it make staging useless as a
+   safety net?
+5. Give two distinct problems caused by hardcoding a prod database URL in
+   source code.
+6. Why should config be loaded once into a typed, validated object at startup
+   rather than read via `os.environ[...]` wherever it's needed?
+
+<details>
+<summary>Answers</summary>
+
+1. Litmus test: *would two deployments of the same code legitimately need
+   different values?* If yes, it's config. Config example: the database host
+   (`localhost` in dev, an internal hostname in prod). Code example: how a
+   discount is computed / your routing table — identical everywhere the code
+   runs.
+2. **Static** — rarely changes, restart to change; unique rule: safe to
+   display. **Dynamic** — changes at runtime without redeploy (feature flags,
+   limits); unique rule: must come from a source changeable under the running
+   process. **Sensitive** — exposure is an incident; unique rule: never in
+   source control or logs, from a secret manager.
+3. So that "it passed in staging" actually predicts prod behaviour and a
+   config tweak (not a code change) moves the artifact between environments. If
+   you ship different code per environment, staging tests a *different program*
+   than prod runs, so staging guarantees nothing about prod, and you lose
+   build reproducibility — every environment becomes a bespoke, separately-built
+   thing.
+4. Parity = keeping staging (and dev, as far as feasible) as close to prod as
+   possible, differing only by config. Breaking it means bugs that only appear
+   under prod-specific conditions (multiple instances, shared cache, real data
+   volumes) never surface in staging, so staging passes and prod breaks —
+   staging stops being predictive.
+5. (a) The same source can no longer run in another environment without editing
+   code, destroying build reproducibility and forcing per-environment code. (b)
+   If it contains credentials, they're now in git history permanently (leaked),
+   and even changing a non-secret URL now requires a commit + rebuild + redeploy
+   instead of a config change.
+6. A typed object validates config *once at startup* (fail-fast on a missing
+   secret or malformed value, rather than a confusing error deep in a request),
+   and gives a single documented source of truth so you can't accidentally read
+   two different names for the same value or scatter unvalidated reads
+   everywhere.
+
+</details>
+
 ## Cumulative review
 
 Closed-book. This covers modules 00-02. Write each answer before expanding —
@@ -473,81 +576,13 @@ answer.
 
 </details>
 
-## Common mistakes & troubleshooting
+## Further reading & sources
 
-- **Hardcoding environment-specific values in source.** Breaks
-  same-build-everywhere, buries secrets in git history, turns a config tweak
-  into a redeploy. The root sin this whole module exists to prevent.
-- **Conflating secrets with static config.** Putting a password in a
-  checked-in `.env` or a ConfigMap leaks it. Secrets get their own handling
-  (module 03).
-- **Baking feature flags into the build.** Turns a runtime toggle into a
-  redeploy. Dynamic config must come from a source that can change under the
-  running app.
-- **Scattered `os.environ[...]` reads.** No single source of truth, easy to get
-  two names for one value, no validation. Load once into a typed object.
-- **No fail-fast on missing required config.** The app boots and fails
-  confusingly on the 500th request instead of crashing on line one. Validate
-  required config at startup.
-- **Staging that doesn't resemble prod.** Config drift makes "passed in
-  staging" meaningless. Keep parity, especially for the things that only break
-  under prod-like conditions.
-- **Shared credentials across environments.** Lets dev code reach prod
-  resources by accident. Distinct, least-privilege credentials per environment.
-
-## Checkpoint quiz
-
-Write down your answer to each question before expanding it — checking without attempting first is the single easiest way to fool yourself into thinking you've learned this.
-
-1. State the litmus test for whether a value is "config," and give one example
-   that is config and one that is code.
-2. Name the three flavours of config and the single handling rule unique to
-   each.
-3. Why must the *same build artifact* run in dev, staging, and prod — what
-   goes wrong if you instead ship different code per environment?
-4. What is dev/prod parity and why does breaking it make staging useless as a
-   safety net?
-5. Give two distinct problems caused by hardcoding a prod database URL in
-   source code.
-6. Why should config be loaded once into a typed, validated object at startup
-   rather than read via `os.environ[...]` wherever it's needed?
-
-<details>
-<summary>Answers</summary>
-
-1. Litmus test: *would two deployments of the same code legitimately need
-   different values?* If yes, it's config. Config example: the database host
-   (`localhost` in dev, an internal hostname in prod). Code example: how a
-   discount is computed / your routing table — identical everywhere the code
-   runs.
-2. **Static** — rarely changes, restart to change; unique rule: safe to
-   display. **Dynamic** — changes at runtime without redeploy (feature flags,
-   limits); unique rule: must come from a source changeable under the running
-   process. **Sensitive** — exposure is an incident; unique rule: never in
-   source control or logs, from a secret manager.
-3. So that "it passed in staging" actually predicts prod behaviour and a
-   config tweak (not a code change) moves the artifact between environments. If
-   you ship different code per environment, staging tests a *different program*
-   than prod runs, so staging guarantees nothing about prod, and you lose
-   build reproducibility — every environment becomes a bespoke, separately-built
-   thing.
-4. Parity = keeping staging (and dev, as far as feasible) as close to prod as
-   possible, differing only by config. Breaking it means bugs that only appear
-   under prod-specific conditions (multiple instances, shared cache, real data
-   volumes) never surface in staging, so staging passes and prod breaks —
-   staging stops being predictive.
-5. (a) The same source can no longer run in another environment without editing
-   code, destroying build reproducibility and forcing per-environment code. (b)
-   If it contains credentials, they're now in git history permanently (leaked),
-   and even changing a non-secret URL now requires a commit + rebuild + redeploy
-   instead of a config change.
-6. A typed object validates config *once at startup* (fail-fast on a missing
-   secret or malformed value, rather than a confusing error deep in a request),
-   and gives a single documented source of truth so you can't accidentally read
-   two different names for the same value or scatter unvalidated reads
-   everywhere.
-
-</details>
+- [The Twelve-Factor App — III. Config](https://12factor.net/config) - the canonical statement of "strict separation of config from code" that this whole module builds on.
+- [The Twelve-Factor App — X. Dev/prod parity](https://12factor.net/dev-prod-parity) - why keeping environments as similar as possible makes staging predictive of prod.
+- [pydantic-settings documentation](https://docs.pydantic.dev/latest/concepts/pydantic_settings/) - the library module 03 uses to turn this taxonomy into a validated, typed settings object.
+- [OWASP — Secrets Management Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Secrets_Management_Cheat_Sheet.html) - practical guidance on why secrets need dedicated handling distinct from static config.
+- [Feature flags — Martin Fowler](https://martinfowler.com/articles/feature-toggles.html) - the reference article on dynamic config: toggles you flip at runtime without a redeploy.
 
 ## Next
 

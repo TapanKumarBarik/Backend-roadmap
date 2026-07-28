@@ -172,6 +172,17 @@ Rate, Errors, Duration is the minimum viable instrumentation for any web service
 and maps directly onto the "golden signals" of SLO-based alerting (module 08).
 If you measure nothing else, measure RED.
 
+```
+                    ┌──────── one FastAPI service ────────┐
+                    │                                     │
+   RATE     ──lens─▶│ how many requests/sec?   Counter    │──▶ rate(...)
+   ERRORS   ──lens─▶│ what fraction failing?   Counter    │──▶ {status=~"5.."}
+   DURATION ──lens─▶│ how slow (p50/p95/p99)?  Histogram  │──▶ histogram_quantile()
+                    │                                     │
+                    └─────────────────────────────────────┘
+   three views of the SAME traffic — the user-facing health of the service
+```
+
 **USE — for resources** (CPU, memory, disk, connection pools, queues):
 
 - **U**tilization — how busy (% CPU, pool-in-use / pool-size).
@@ -202,6 +213,17 @@ Good labels: `method` (a handful), `status` (a few dozen), `endpoint`
 request*, which will OOM your Prometheus), raw `path` with ids in it
 (`/orders/8123`, `/orders/8124`, … unbounded), email, full URL with query
 strings.
+
+```
+   http_requests_total{...}
+
+   GOOD (bounded)                         CATASTROPHIC (unbounded)
+   method:  GET POST ...     ~5           user_id:     millions of values
+   status:  200 404 500 ...  ~30          request_id:  NEW series every request
+   route:   /orders/{id} ... ~50          path:        /orders/8123, /8124, ...
+   ───────────────────────────            ────────────────────────────────────
+   ~5 × 30 × 50 = 7,500 series            → series count → ∞ → Prometheus OOM
+```
 
 The mental split, and it's the same one from module 05's logs: **high-cardinality
 identifying data belongs in *logs* (as fields) and *traces* (module 07); low-
@@ -597,6 +619,15 @@ Write down your answer to each question before expanding it — checking without
    log.
 
 </details>
+
+## Further reading & sources
+
+- [Prometheus — Metric types](https://prometheus.io/docs/concepts/metric_types/) - the authoritative description of counter, gauge, histogram, and summary and when to use each.
+- [Prometheus — Querying basics (PromQL)](https://prometheus.io/docs/prometheus/latest/querying/basics/) - the query language behind `rate()`, `histogram_quantile()`, and the alert expressions of module 08.
+- [prometheus-client (Python) documentation](https://prometheus.github.io/client_python/) - the library used to instrument the FastAPI app and expose `/metrics`.
+- [Google SRE Book — Monitoring Distributed Systems (Golden Signals)](https://sre.google/sre-book/monitoring-distributed-systems/) - the four golden signals that RED extends and that health dashboards are built on.
+- [The RED Method — Grafana/Weaveworks](https://grafana.com/blog/2018/08/02/the-red-method-how-to-instrument-your-services/) - the request-centric Rate/Errors/Duration framing applied in this module.
+- [Prometheus — Naming and labels best practices](https://prometheus.io/docs/practices/naming/) - conventions for base units, the `_total` suffix, and keeping label cardinality bounded.
 
 ## Next
 

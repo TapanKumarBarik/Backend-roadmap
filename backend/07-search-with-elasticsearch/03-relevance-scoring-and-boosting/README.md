@@ -39,6 +39,14 @@ every clause scores:
   or a `term` on `in_stock` usually shouldn't influence how relevant a document
   is, so it belongs in `filter`, not `must`.
 
+```
+  bool query
+  ├─ must     match "running"      QUERY  ─► contributes to _score
+  ├─ should   brand=Summit (boost) QUERY  ─► optional, adds to _score
+  ├─ filter   in_stock=true        FILTER ─► yes/no, _score += 0, cacheable
+  └─ must_not category=clearance   FILTER ─► exclude, no scoring
+```
+
 This is why the idiomatic full-text-with-constraints query puts the `match` in
 `must` (it should rank) and the `in_stock`/`price` conditions in `filter` (they
 should gate, not rank). Getting this split right is both a correctness and a
@@ -91,6 +99,14 @@ labels like `idf`, `tf`, `boost`, and the field-length norm, each with numbers.
 Reading it, you can literally see "document A scored higher because the term's
 `tf` was higher and the field was shorter." This is the single best way to
 build real intuition for scoring; the exercises make you read it.
+
+```
+  _explanation for doc A, query "running" on name^3:
+    2.13  weight(name:running)
+     ├─ boost    3.0    (name^3 field boost, multiplied in)
+     ├─ idf      1.41   (rarer term across the index ─► larger)
+     └─ tf-norm  0.50   (term freq, saturated by k1, ÷ field-length norm b)
+```
 
 ### Boosting: reshaping relevance on purpose
 
@@ -486,6 +502,15 @@ Write down your answer to each question before expanding it — checking without
    `boost_mode` (and the function's `factor`/`modifier`) first.
 
 </details>
+
+## Further reading & sources
+
+- [Relevance scoring and the practical scoring function](https://www.elastic.co/guide/en/elasticsearch/reference/current/query-filter-context.html) - the reference on query vs filter context and where `_score` comes from.
+- [The BM25 similarity](https://www.elastic.co/guide/en/elasticsearch/reference/current/index-modules-similarity.html) - how Lucene/Elasticsearch's default BM25 works and the `k1`/`b` parameters you can tune.
+- [Practical BM25 (Part 1): How shards affect relevance scoring](https://www.elastic.co/blog/practical-bm25-part-1-how-shards-affect-relevance-scoring-in-elasticsearch) - Elastic's grounded series on BM25 behaviour in real indexes.
+- [Explain API](https://www.elastic.co/guide/en/elasticsearch/reference/current/search-explain.html) - the `_explain` endpoint that decomposes a document's score.
+- [function_score query](https://www.elastic.co/guide/en/elasticsearch/reference/current/query-dsl-function-score-query.html) - `field_value_factor`, decay functions, and `boost_mode` for blending business signals into relevance.
+- [The Probabilistic Relevance Framework: BM25 and Beyond](https://www.staff.city.ac.uk/~sbrp622/papers/foundations_bm25_review.pdf) - Robertson & Zaragoza's foundational paper on the BM25 model.
 
 ## Next
 

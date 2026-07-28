@@ -87,6 +87,13 @@ Rule of thumb: **if a human reads it as a sentence and searches within it →
 value → `keyword`.** A product *name* is usually `text` (users search "brown
 fox"), a product *SKU*, *brand*, *status*, or *category* is `keyword`.
 
+```
+  "Trail Running Shoes"
+
+  text    ─► analyzer ─► [trail] [running] [shoes]     match / full-text ✓   aggregate/sort ✗
+  keyword ─► verbatim  ─► ["Trail Running Shoes"]       exact term / sort / aggregate ✓
+```
+
 ### The multi-field pattern: having it both ways
 
 Very often you need both behaviors for the same field. A product name should be
@@ -116,6 +123,17 @@ aggregate). This is *the* idiomatic Elasticsearch pattern and you'll use it
 constantly. In fact, dynamic mapping (below) creates this pattern automatically
 for strings — a field `name` becomes `text` with a `name.keyword` sub-field —
 which is convenient but has a sharp edge worth knowing.
+
+```
+  source value "Wireless Headphones"
+                    │  indexed two ways from ONE field
+          ┌─────────┴──────────┐
+     name (text)          name.raw (keyword)
+     [wireless]           "Wireless Headphones"
+     [headphones]                 │
+          │                       └─► sort · aggregate · exact term
+          └─► match "wireless headphones"
+```
 
 ### Dynamic mapping and its pitfalls
 
@@ -662,6 +680,15 @@ that module's exercises rather than peeking.
    swap is invisible to callers. You can't retype the field in place.
 
 </details>
+
+## Further reading & sources
+
+- [Mapping](https://www.elastic.co/guide/en/elasticsearch/reference/current/mapping.html) - the official reference on defining an index's fields and types.
+- [Field data types](https://www.elastic.co/guide/en/elasticsearch/reference/current/mapping-types.html) - the full catalogue of types (`text`, `keyword`, `scaled_float`, `date`, `nested`, and more).
+- [Text vs. keyword — the field type dilemma](https://www.elastic.co/blog/strings-are-dead-long-live-strings) - Elastic's explainer on why strings split into `text` and `keyword` and how multi-fields bridge them.
+- [Dynamic mapping](https://www.elastic.co/guide/en/elasticsearch/reference/current/dynamic-mapping.html) - how Elasticsearch guesses types, and the `dynamic` settings (`true`/`runtime`/`false`/`strict`).
+- [Reindex API](https://www.elastic.co/guide/en/elasticsearch/reference/current/docs-reindex.html) - the mechanism for "changing" an immutable mapping by copying into a new index.
+- [Mapping limit settings](https://www.elastic.co/guide/en/elasticsearch/reference/current/mapping-settings-limit.html) - the field-count limits behind mapping-explosion failures.
 
 ## Next
 

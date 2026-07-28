@@ -27,6 +27,16 @@ Kibana is a web app (from your Docker Compose, at `http://localhost:5601`) that
 talks to Elasticsearch's REST API on your behalf. It has many features; two
 matter most while learning:
 
+```
+  ┌──────────── Kibana  (localhost:5601) ─────────────┐
+  │  Dev Tools · Discover · Lens · Dashboards · ILM UI │
+  └────────────────────────┬───────────────────────────┘
+                           │  REST / JSON — the SAME API as curl
+                   ┌───────▼────────┐
+                   │  Elasticsearch │  (localhost:9200)
+                   └────────────────┘
+```
+
 - **Dev Tools → Console.** This is the single most useful tool in Kibana for a
   developer. It's a two-pane editor: you type Query DSL on the left (with
   **autocomplete** for endpoints and query keywords, and syntax checking) and
@@ -115,6 +125,16 @@ of time-series indexes through phases:
 - **Cold / Frozen** — rarely queried old data, minimal resources.
 - **Delete** — removed after a retention period (e.g. delete logs older than 90
   days).
+
+```
+  index age ─────────────────────────────────────────►
+  ┌───────┐   ┌───────┐   ┌───────────┐   ┌────────┐
+  │  HOT  │─► │ WARM  │─► │ COLD/     │─► │ DELETE │
+  │ write │   │ query │   │ FROZEN    │   │ removed│
+  │+query │   │ only  │   │ rare query│   │        │
+  └───────┘   └───────┘   └───────────┘   └────────┘
+       ▲ rollover at max size/age/docs starts a fresh hot index
+```
 
 ILM works together with **rollover**: writes go to an alias, and when the
 current backing index hits a size/age/doc-count condition (e.g. 50GB or 1 day),
@@ -528,6 +548,15 @@ Write down your answer to each question before expanding it — checking without
    directly at the cause (disk, no valid node, corrupted shard, etc.).
 
 </details>
+
+## Further reading & sources
+
+- [Kibana Guide](https://www.elastic.co/guide/en/kibana/current/index.html) - the official Kibana documentation home.
+- [Run Elasticsearch API requests (Dev Tools Console)](https://www.elastic.co/guide/en/kibana/current/console-kibana.html) - the interactive query editor you develop in.
+- [Create a data view](https://www.elastic.co/guide/en/kibana/current/data-views.html) - how Discover and visualizations know which indices and time field to use.
+- [Aliases](https://www.elastic.co/guide/en/elasticsearch/reference/current/aliases.html) - the indirection that makes zero-downtime reindexing and rollover possible.
+- [ILM: Manage the index lifecycle](https://www.elastic.co/guide/en/elasticsearch/reference/current/index-lifecycle-management.html) - hot/warm/cold/delete phases and rollover for time-series data.
+- [Fix a red or yellow cluster: allocation explain](https://www.elastic.co/guide/en/elasticsearch/reference/current/cluster-allocation-explain.html) - the diagnostic that tells you why a shard won't allocate, plus disk-watermark causes.
 
 ## Next
 

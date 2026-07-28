@@ -86,6 +86,18 @@ The canonical debugging loop uses all three in order:
 Metrics → traces → logs: *that/when* → *where* → *why*. No single pillar gets you
 there; the *correlation between them* does.
 
+```
+   ONE request  ─────────── joined by one correlation id (trace_id) ───────────┐
+        │                                                                       │
+   ┌────▼─────┐  that/when   ┌──────────┐  where      ┌──────────┐  why         │
+   │ METRICS  │ ───pivot───▶ │  TRACES  │ ──pivot──▶  │   LOGS   │              │
+   │ p99 > 2s │              │ 2.8s in  │             │ pool     │              │
+   │ @ 14:03  │              │ billing  │             │ timeout  │              │
+   └──────────┘              └──────────┘             └──────────┘              │
+   how much/fast             the request flow          the exact failure        │
+        └───────────────── same trace_id on all three ────────────────────────┘
+```
+
 ### Traces and spans: the anatomy of a request's journey
 
 A **trace** represents the entire journey of one request through your system. It's
@@ -141,6 +153,16 @@ traceparent: 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01
   span's context into `traceparent`.
 - **Extract** on the way in (in service B's server): read `traceparent`, and make
   B's root span a *child* of A's span in the *same* trace.
+
+```
+   service A                          service B
+   ┌──────────────────┐               ┌──────────────────┐
+   │ span: GET /checkout              │ span: charge     │
+   │  trace_id = abc  │  traceparent  │  trace_id = abc  │  ← SAME trace_id
+   │  span_id  = 111  │ ──00-abc-111─▶│  parent  = 111   │  ← child of A's span
+   └──────────────────┘   (inject)    └──────────────────┘   (extract)
+   without propagation: B starts trace_id=xyz → two disconnected traces
+```
 
 The payoff: a single `trace_id` now spans every service the request touched, so
 the waterfall reassembles across process boundaries into one tree. This is
@@ -516,6 +538,15 @@ Write down your answer to each question before expanding it — checking without
    traces before deciding.
 
 </details>
+
+## Further reading & sources
+
+- [OpenTelemetry documentation](https://opentelemetry.io/docs/) - the vendor-neutral standard for producing traces, metrics, and logs from one instrumentation layer.
+- [OpenTelemetry — Traces](https://opentelemetry.io/docs/concepts/signals/traces/) - the concepts of spans, trace trees, and the anatomy this module builds on.
+- [W3C Trace Context](https://www.w3.org/TR/trace-context/) - the `traceparent` header specification that standardizes context propagation across services.
+- [Jaeger documentation](https://www.jaegertracing.io/docs/latest/) - the tracing backend used in the exercises to store and visualize waterfalls.
+- [Grafana Tempo documentation](https://grafana.com/docs/tempo/latest/) - the Grafana-native trace backend that pairs with Loki and Prometheus under one UI.
+- [Google SRE Book — Monitoring Distributed Systems](https://sre.google/sre-book/monitoring-distributed-systems/) - context for monitoring vs observability and why correlated signals matter.
 
 ## Next
 

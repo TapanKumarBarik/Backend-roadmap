@@ -150,6 +150,19 @@ async def call_billing(payload: dict):
                                  headers={"X-Request-ID": rid})
 ```
 
+```
+   client ──▶ [ API ]  rid=3f9a  ──X-Request-ID:3f9a──▶ [ billing ]  rid=3f9a
+                 │                                            │
+                 ▼ ships stdout                               ▼ ships stdout
+        ┌───────────────────── central store ──────────────────────┐
+        │  api      3f9a  request_start                             │
+        │  api      3f9a  db_query                                  │  query
+        │  billing  3f9a  charge_attempt      ◄── request_id=3f9a ──┤  once
+        │  billing  3f9a  charge_ok                                 │
+        └──────────────────────────────────────────────────────────┘
+        one id, generated at the edge, propagated → the whole story reassembles
+```
+
 The failure mode to avoid: each service generating its *own* id. Then the API
 logs say `req-1`, billing says `req-2`, and you've lost the thread between them —
 you can see each service's half of the story but not that they're the same
@@ -188,6 +201,17 @@ kind of miserable). Controlling volume is a first-class operational skill:
   body) not as an indexed *label*. High-cardinality data goes in the line;
   low-cardinality dimensions (service, level, env, endpoint-*template*) are
   labels.
+
+```
+   50,000 info/sec + 5 errors/sec ──▶ sampler ──▶ shipped to store
+   ┌────────────────────────────┐              ┌────────────────────────┐
+   │ INFO  request_end  ××××××× │  keep ~1% ──▶│ INFO  request_end  ×    │  cost ÷100
+   │ INFO  request_end  ××××××× │              │ (pattern still visible) │
+   ├────────────────────────────┤   keep       ├────────────────────────┤
+   │ ERROR payment_failed  ●●●● │  100% ──────▶│ ERROR payment_failed ●●●●│  never dropped
+   └────────────────────────────┘              └────────────────────────┘
+        sample the boring          ───           keep every error
+```
 
 The mindset: every line has a cost, so each one should earn its place. This is
 the same discipline that makes alerting sane (module 08) — noise is expensive
@@ -723,6 +747,15 @@ the answer.
    event as `ERROR` also defeats your volume control by making it un-sampleable.
 
 </details>
+
+## Further reading & sources
+
+- [Grafana Loki documentation](https://grafana.com/docs/loki/latest/) - the label-indexed, cost-efficient log store used in this module's exercises, and its LogQL query language.
+- [Promtail documentation](https://grafana.com/docs/loki/latest/send-data/promtail/) - the agent that collects container stdout and ships it to Loki, the "collect" stage of the pipeline.
+- [Elastic — The ELK Stack](https://www.elastic.co/elastic-stack) - the index-everything alternative (Elasticsearch + Logstash/Beats + Kibana) referenced as the other archetype.
+- [The Twelve-Factor App — XI. Logs](https://12factor.net/logs) - why the app emits an event stream and the environment owns collection, routing, and retention.
+- [OWASP — Logging Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Logging_Cheat_Sheet.html) - the sensitive-data rules that matter most once logs are aggregated into one high-value store.
+- [Elasticsearch — Index Lifecycle Management (ILM)](https://www.elastic.co/guide/en/elasticsearch/reference/current/index-lifecycle-management.html) - how retention is implemented as a hot → warm → cold → delete lifecycle.
 
 ## Next
 

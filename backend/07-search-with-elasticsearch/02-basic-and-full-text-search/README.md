@@ -40,6 +40,18 @@ document `"The Quick Brown Fox"` in a field using the **standard analyzer** (the
 default for `text`) is stored as the terms `[the, quick, brown, fox]` — note the
 lowercasing.
 
+```
+  "The Quick-Brown Fox!"
+        │
+   char filters  ─► (optional) strip HTML, map & → and
+        │
+   tokenizer     ─► [The] [Quick] [Brown] [Fox]
+        │
+   token filters ─► lowercase (+ optional stopwords / stemming)
+        ▼
+   indexed terms ─► [the] [quick] [brown] [fox]
+```
+
 The crucial, non-obvious rule: **the same analysis is applied to your query
 text at search time** (for analyzed queries like `match`). So when you `match`
 the query string `"Brown"`, it's analyzed to the term `brown`, which matches
@@ -81,6 +93,13 @@ Line them up:
 
 Mnemonic: **`term` for `keyword`, `match` for `text`.** If you remember only
 one thing from this module, remember that pairing.
+
+```
+  text field "name" indexed as: [running] [shoes]   (analyzer lowercased them)
+
+  match "Running" ─► analyzed ─► [running]  ─► term exists ─► HIT ✓
+  term  "Running" ─► NOT analyzed ─► "Running" ─► no such term ─► 0 hits ✗
+```
 
 ### `match` in depth: operator, and why word order is flexible
 
@@ -522,6 +541,15 @@ Write down your answer to each question before expanding it — checking without
    analyzer); if they don't overlap, that mismatch is why nothing matched.
 
 </details>
+
+## Further reading & sources
+
+- [Text analysis](https://www.elastic.co/guide/en/elasticsearch/reference/current/analysis.html) - the reference on analyzers, char filters, tokenizers, and token filters.
+- [match query](https://www.elastic.co/guide/en/elasticsearch/reference/current/query-dsl-match-query.html) - full-text matching, `operator`, and `minimum_should_match`.
+- [term query](https://www.elastic.co/guide/en/elasticsearch/reference/current/query-dsl-term-query.html) - exact-term matching and the standard warning against using it on `text` fields.
+- [Analyze API](https://www.elastic.co/guide/en/elasticsearch/reference/current/indices-analyze.html) - the `_analyze` endpoint for inspecting exactly which terms text produces.
+- [match_phrase query](https://www.elastic.co/guide/en/elasticsearch/reference/current/query-dsl-match-query-phrase.html) - position-aware phrase matching for adjacent, in-order terms.
+- [Boolean query](https://www.elastic.co/guide/en/elasticsearch/reference/current/query-dsl-bool-query.html) - combining `must`/`should`/`filter`/`must_not` clauses.
 
 ## Next
 
