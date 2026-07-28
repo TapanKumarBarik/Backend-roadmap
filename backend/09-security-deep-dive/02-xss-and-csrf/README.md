@@ -50,6 +50,12 @@ parsed as a real script tag and executes. It comes in three flavors, defined by
   `eval`). Your server-side escaping can't help here because the server never
   sees the sink; the fix lives in the frontend.
 
+```
+  Reflected: ?q=<script> ─► server echoes into response ─► fires once, per crafted link
+  Stored:    POST <script> ─► DB ─► served to EVERY later viewer ─► fires for all (worst)
+  DOM:       #<script> ─► client JS writes it to an innerHTML sink ─► server never sees it
+```
+
 Whatever the variant, the impact is identical: script running on your origin can
 read the DOM, make authenticated requests as the user, exfiltrate anything JS
 can reach, and rewrite the page (fake login prompts).
@@ -170,6 +176,13 @@ what the browser attaches automatically. Bearer-token APIs (module 02 of track
 — an attacker's page can't read or set your token — which is a real point in
 favor of bearer tokens for SPAs. (But then you owe XSS extra vigilance; see the
 tradeoff below.)
+
+```
+  CSRF attack:                            SameSite=Lax defense:
+  evil.com auto-submits form ─► bank.com  cross-site POST ─► browser WITHHOLDS
+  browser AUTO-ATTACHES session cookie    the session cookie ─► server sees no
+  server sees valid session ─► transfer!  session ─► forged request rejected
+```
 
 ### CSRF defenses — SameSite, and anti-CSRF tokens
 
@@ -556,6 +569,15 @@ Closed-book. Don't reopen modules 00-02 while attempting these.
    must be server-side.
 
 </details>
+
+## Further reading & sources
+
+- [OWASP Cross Site Scripting Prevention Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Cross_Site_Scripting_Prevention_Cheat_Sheet.html) - context-aware output encoding rules for each injection context.
+- [OWASP Cross-Site Request Forgery Prevention Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Cross-Site_Request_Forgery_Prevention_Cheat_Sheet.html) - synchronizer tokens, double-submit, and `SameSite` in depth.
+- [MDN - Content Security Policy (CSP)](https://developer.mozilla.org/en-US/docs/Web/HTTP/CSP) - how the browser enforces script sources and why `'unsafe-inline'` guts it.
+- [MDN - SameSite cookies](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Set-Cookie/SameSite) - the cookie attribute that blocks cross-site cookie attachment.
+- [OWASP DOM based XSS Prevention Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/DOM_based_XSS_Prevention_Cheat_Sheet.html) - safe DOM sinks for the client-only variant your server never sees.
+- [CWE-79: Cross-site Scripting](https://cwe.mitre.org/data/definitions/79.html) - the formal weakness definition (see CWE-352 for CSRF).
 
 ## Next
 

@@ -102,6 +102,16 @@ headers, an uploaded file, a webhook body, a third-party API's response, even a
 value you read back out of your own database that a user put there earlier — all
 of it is **untrusted input** the moment it crosses into your code.
 
+```
+  UNTRUSTED (you don't control)     TRUST BOUNDARY      TRUSTED (your app)
+  browser / query string / headers ──────┐
+  uploaded file / webhook body ──────────┤   ┌─► SQL interpreter    (A03 injection)
+  a third-party API's response ──────────┼───┼─► browser HTML parser (A03 XSS)
+  a value a user stored earlier ─────────┘   ├─► HTTP client         (A10 SSRF)
+                                             └─► deserializer        (A08 integrity)
+       every Top 10 category = one crossing where "untrusted" wasn't enforced
+```
+
 Almost every Top 10 category is a specific failure to treat untrusted input as
 untrusted at a specific boundary:
 
@@ -143,6 +153,13 @@ the disabled button, the client-side length check — is trivially bypassed by a
 attacker who talks to your API directly. **All security controls must live on
 the server.** A huge fraction of real breaches are just someone `curl`-ing the
 endpoint the UI never intended them to reach.
+
+```
+  What the UI lets a user do:   dropdown ─► [3 valid choices] ─► POST ─► server
+  What curl can actually send:  anything ──────────────────────► POST ─► server
+                                     ▲ the JS constraint never reaches the boundary
+   the attacker mindset: find the boundary the frontend "guards" but the server doesn't
+```
 
 ### Defense in depth and secure-by-design
 
@@ -382,6 +399,14 @@ Write down your answer to each question before expanding it — checking without
    should overlap too — no single control covers everything.
 
 </details>
+
+## Further reading & sources
+
+- [OWASP Top 10](https://owasp.org/www-project-top-ten/) - the canonical awareness document this whole module and track are built around.
+- [OWASP Application Security Verification Standard (ASVS)](https://owasp.org/www-project-application-security-verification-standard/) - the detailed, testable *standard* the Top 10 is often mistaken for.
+- [OWASP Cheat Sheet Series](https://cheatsheetseries.owasp.org/) - practical, per-topic defensive guidance you'll return to for every later module.
+- [OWASP Threat Modeling](https://owasp.org/www-community/Threat_Modeling) - how to systematically find trust boundaries and enumerate what crosses them.
+- [CWE - Common Weakness Enumeration](https://cwe.mitre.org/) - MITRE's catalog of specific weakness classes each Top 10 category maps onto.
 
 ## Next
 

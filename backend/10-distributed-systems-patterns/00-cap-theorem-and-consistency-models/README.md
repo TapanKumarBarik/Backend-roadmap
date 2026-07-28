@@ -51,6 +51,20 @@ misleading: what you're really saying is "*during a partition*, we prefer to kee
 serving over staying consistent." The rest of the time the distinction is
 invisible.
 
+```
+        A write arrives DURING a partition (nodes can't talk)
+                              │
+         ┌────────────────────┴────────────────────┐
+         ▼                                          ▼
+   ┌───────────┐        ╳ partition ╳         ┌───────────┐
+   │  Node A   │  ─ ─ ─ ─ ─ ✕ ─ ─ ─ ─ ─ ─    │  Node B   │
+   └───────────┘                              └───────────┘
+   CP: refuse / block                    AP: serve local data,
+   (consistent, unavailable)             reconcile later (available, stale)
+
+   No partition (99.9% of the time)  ──►  you get BOTH C and A
+```
+
 ### The C in CAP is not the C in ACID
 
 This trips up everyone coming from track 04, so nail it now. **ACID's C**
@@ -484,6 +498,15 @@ Write down your answer to each question before expanding it — checking without
    (strong) just wastes latency and availability for a benefit nobody needs.
 
 </details>
+
+## Further reading & sources
+
+- [Please stop calling databases CP or AP (Martin Kleppmann)](https://martin.kleppmann.com/2015/05/11/please-stop-calling-databases-cp-or-ap.html) - argues the blunt CP/AP labels mislead, reinforcing this module's "choose consistency per operation, not per system" thesis.
+- [CAP Twelve Years Later: How the "Rules" Have Changed (Eric Brewer)](https://www.infoq.com/articles/cap-twelve-years-later-how-the-rules-have-changed/) - the CAP author clarifying that the trade-off only bites during a partition, exactly as framed here.
+- [Consistency Tradeoffs in Modern Distributed Database System Design (Daniel Abadi)](https://www.cs.umd.edu/~abadi/papers/abadi-pacelc.pdf) - the paper that introduced PACELC and its "Else, Latency-vs-Consistency" clause.
+- [Jepsen: Consistency Models](https://jepsen.io/consistency) - a precise map of strong, causal, and eventual consistency, matching the spectrum this module defines.
+- [Dynamo: Amazon's Highly Available Key-value Store](https://www.allthingsdistributed.com/files/amazon-dynamo-sosp2007.pdf) - the classic AP, eventually-consistent design with quorum (W/R/N) tuning.
+- [PostgreSQL: High Availability, Load Balancing, and Replication](https://www.postgresql.org/docs/current/high-availability.html) - the primary/replica streaming replication and lag mechanics the exercises rely on.
 
 ## Next
 

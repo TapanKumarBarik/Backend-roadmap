@@ -62,6 +62,20 @@ and releases locks. If *any* voted `NO` (or timed out), the coordinator records
 coordinator has decided, that decision is final and it retries delivery until every
 participant acknowledges.
 
+```
+                       ┌─────────────┐
+                       │ Coordinator │
+                       └──────┬──────┘
+   Phase 1: PREPARE ─────────►│──►  P1   P2   P3      (do work, hold locks)
+            vote YES/NO ◄─────│◄──  YES  YES  YES     (binding promise)
+                              │
+   Phase 2: COMMIT ──────────►│──►  P1   P2   P3      (finalize, release locks)
+                              │
+                    ✗ coordinator CRASHES here?
+                      P1/P2/P3 BLOCK holding locks — can't commit, can't abort —
+                      until it recovers and reveals the decision
+```
+
 The guarantee this buys: no participant commits unless *all* promised they could, so
 you never get a partial commit — real atomicity across systems. Postgres implements
 its side of this with `PREPARE TRANSACTION 'gid'` (phase 1) and `COMMIT PREPARED
@@ -497,6 +511,15 @@ Write down your answer to each question before expanding it — checking without
    merging those two datasets into one database over running 2PC).
 
 </details>
+
+## Further reading & sources
+
+- [PostgreSQL: PREPARE TRANSACTION](https://www.postgresql.org/docs/current/sql-prepare-transaction.html) - the participant side of 2PC (`PREPARE`/`COMMIT PREPARED`/`ROLLBACK PREPARED`) driven directly in the exercises.
+- [Two-phase commit protocol (Wikipedia)](https://en.wikipedia.org/wiki/Two-phase_commit_protocol) - a clear statement of the protocol and the coordinator-failure blocking problem this module centers on.
+- [Distributed Transaction Processing: The XA Specification (The Open Group)](https://pubs.opengroup.org/onlinepubs/009680699/toc.pdf) - the cross-vendor DTP/XA standard that 2PC implements across heterogeneous resource managers.
+- [Life beyond Distributed Transactions: an Apostate's Opinion (Pat Helland)](https://queue.acm.org/detail.cfm?id=3025012) - the classic argument for avoiding distributed transactions, motivating the saga/outbox escape hatches.
+- [Transactional outbox pattern (microservices.io)](https://microservices.io/patterns/data/transactional-outbox.html) - the "commit state change + event in one local transaction" alternative preferred over 2PC here.
+- [Saga pattern (microservices.io)](https://microservices.io/patterns/data/saga.html) - the eventual-consistency-with-compensations alternative this module points you toward next.
 
 ## Next
 

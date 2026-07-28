@@ -167,6 +167,15 @@ is scattered across handlers, that's a finding in your own code review.
 
 </details>
 
+## Further reading & sources
+
+- [OWASP Top 10](https://owasp.org/www-project-top-ten/) - the full attack model your hardened app must defend against, end to end.
+- [OWASP Cheat Sheet Series](https://cheatsheetseries.owasp.org/) - per-category defensive references for every fix in the acceptance checklist.
+- [OWASP Web Security Testing Guide](https://owasp.org/www-project-web-security-testing-guide/) - how to systematically test each vulnerability class you're closing.
+- [OWASP Application Security Verification Standard (ASVS)](https://owasp.org/www-project-application-security-verification-standard/) - a testable checklist to verify your hardened app against.
+- [FastAPI - Security](https://fastapi.tiangolo.com/tutorial/security/) - framework-level security primitives for the app you're hardening.
+- [OWASP Proactive Controls](https://owasp.org/www-project-proactive-controls/) - the secure-by-design controls this capstone asks you to build in from the start.
+
 ## Next
 
 [../../10-distributed-systems-patterns/README.md](../../10-distributed-systems-patterns/README.md)

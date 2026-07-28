@@ -90,6 +90,18 @@ The mechanism, precisely:
    (typically `409`) so two concurrent copies don't both run.
 3. The record has a TTL (24h is common) after which the key can be reused.
 
+```
+  Client  ── POST /charges  (Idempotency-Key: K) ───────┐
+     │                                                  ▼
+     │  (timeout → retry, SAME key K)         ┌───────────────────────────┐
+     └──────────────────────────────────────►│ atomic claim on key K?    │
+                                              │  new     ─► run op ONCE   │
+                                              │            ─► store result│
+                                              │  seen+done ─► return saved│
+                                              │  in-flight ─► 409 retry   │
+                                              └───────────────────────────┘
+```
+
 The subtle, critical part is step 2's *atomicity*. If two retries arrive
 simultaneously, a naive "check then insert" has a race: both check (not found),
 both proceed, both charge. The check-and-record must be a single atomic operation
@@ -504,6 +516,15 @@ Write down your answer to each question before expanding it — checking without
    to a request hash to detect this.
 
 </details>
+
+## Further reading & sources
+
+- [Stripe API: Idempotent Requests](https://docs.stripe.com/api/idempotent_requests) - the canonical `Idempotency-Key` header design, TTL, and stored-response behavior this module mirrors.
+- [Designing robust and predictable APIs with idempotency (Stripe)](https://stripe.com/blog/idempotency) - a deeper walk-through of key generation, request hashing, and safe retries.
+- [Making retries safe with idempotent APIs (Amazon Builders' Library)](https://aws.amazon.com/builders-library/making-retries-safe-with-idempotent-APIs/) - AWS on why at-least-once retries demand idempotent operations.
+- [RFC 9110 §9.2.2: Idempotent Methods](https://www.rfc-editor.org/rfc/rfc9110.html#name-idempotent-methods) - the HTTP spec defining GET/PUT/DELETE as idempotent and POST as not.
+- [The Idempotency-Key HTTP Header Field (IETF draft)](https://datatracker.ietf.org/doc/draft-ietf-httpapi-idempotency-key-header/) - the emerging standard header for the technique used throughout this module.
+- [PostgreSQL: INSERT ... ON CONFLICT](https://www.postgresql.org/docs/current/sql-insert.html#SQL-ON-CONFLICT) - the upsert that powers the natural-idempotency and processed-event-log patterns here.
 
 ## Next
 

@@ -57,6 +57,19 @@ command handlers and query handlers, maybe separate read-optimized views); in it
 fuller form the read model is a *physically separate datastore* kept up to date from
 the write side.
 
+```
+  Command (PlaceOrder) ──► [ Write model ]   normalized, invariants,
+                                 │           strongly consistent
+                                 │ event (via outbox)
+                                 ▼
+                            Projector        async — this lag is your
+                                 │           staleness budget
+                                 ▼
+                           [ Read model ]    denormalized, fast,
+                                 ▲           eventually consistent
+  Query (GetOrderSummary) ───────┘
+```
+
 ### The two flavors: same database vs separate read store
 
 CQRS is a spectrum, not a binary, and most of the complexity — and most of the
@@ -529,6 +542,14 @@ Write down your answer to each question before expanding it — checking without
    "our read data is wrong" incidents into a recoverable rebuild.
 
 </details>
+
+## Further reading & sources
+
+- [CQRS (Martin Fowler)](https://martinfowler.com/bliki/CQRS.html) - the canonical definition, and its explicit warning that CQRS is easy to misuse.
+- [CommandQuerySeparation (Martin Fowler)](https://martinfowler.com/bliki/CommandQuerySeparation.html) - the CQS principle that CQRS lifts from the method level to the architecture level.
+- [CQRS pattern (Microsoft Azure)](https://learn.microsoft.com/en-us/azure/architecture/patterns/cqrs) - practical guidance on when the read/write split earns its complexity and when it's overkill.
+- [Materialized View pattern (Microsoft Azure)](https://learn.microsoft.com/en-us/azure/architecture/patterns/materialized-view) - the read-optimized projection technique used for the logical-CQRS read model here.
+- [Clarified CQRS (Udi Dahan)](https://udidahan.com/2009/12/09/clarified-cqrs/) - a widely-cited clarification of what CQRS actually is and the problems it does and doesn't solve.
 
 ## Next
 

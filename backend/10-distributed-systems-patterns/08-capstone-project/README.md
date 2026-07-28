@@ -39,6 +39,25 @@ idempotency/dedupe tables), optionally Redis (locks, fast idempotency claims), a
 FastAPI for the command entrypoint. Reuse the code shapes from modules 01, 04, 05, 06,
 and 07 — this is an integration exercise, so leaning on those references is expected.
 
+```
+  POST /orders (Idempotency-Key)
+        │  [01] dedupe at the door — one saga per key
+        ▼
+  Saga orchestrator ──► T1 capture ──► T2 reserve ──► T3 confirm
+     [04] compensations   payment        inventory      order
+     on failure              │            │ [02] atomic conditional
+        │                    │            │      write: no oversell
+        ▼                    ▼            ▼
+  ┌──────────────────────────────────────────────┐
+  │ Event log (source of truth) [06]             │  OrderPlaced,
+  │ current state = fold(events)                 │  PaymentCaptured, ...
+  └───────────────┬──────────────────────────────┘
+                  │ project (async, lags)
+                  ▼
+          order_summary read model [05]  ◄── read-your-writes [00]
+                                              for the customer who just ordered
+```
+
 ### What it must do
 
 1. **Accept `POST /orders` with a client-supplied `Idempotency-Key`.** A retried
@@ -156,6 +175,15 @@ script or test that *proves* it rather than an assertion that it's true:
   hand-roll consensus.
 
 </details>
+
+## Further reading & sources
+
+- [Microservices Patterns (Chris Richardson) / microservices.io](https://microservices.io/patterns/index.html) - the pattern language (saga, outbox, CQRS) this capstone integrates into one system.
+- [Saga pattern (microservices.io)](https://microservices.io/patterns/data/saga.html) - the multi-step order transaction with compensations at the capstone's core.
+- [Transactional outbox pattern (microservices.io)](https://microservices.io/patterns/data/transactional-outbox.html) - reliably emitting the events the saga and the projection both depend on.
+- [Event Sourcing pattern (Microsoft Azure)](https://learn.microsoft.com/en-us/azure/architecture/patterns/event-sourcing) - the order-lifecycle event log used as the system's source of truth.
+- [CQRS pattern (Microsoft Azure)](https://learn.microsoft.com/en-us/azure/architecture/patterns/cqrs) - the `order_summary` read model served to customers, rebuildable from the log.
+- [Stripe API: Idempotent Requests](https://docs.stripe.com/api/idempotent_requests) - the `Idempotency-Key` design guarding the order endpoint against duplicate submissions.
 
 ## Next
 

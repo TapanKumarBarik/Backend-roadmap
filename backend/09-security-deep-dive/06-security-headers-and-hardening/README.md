@@ -61,6 +61,14 @@ Each header flips on a browser-enforced defense. The must-haves:
 - **`Permissions-Policy`** — disables browser features you don't use (camera,
   geolocation, microphone) so a compromised page can't invoke them.
 
+```
+  HSTS ────────────► SSL-strip / downgrade (MITM)
+  CSP ─────────────► XSS  (injected & inline script refused)
+  X-Frame-Options ─► clickjacking  (hostile iframe refused)
+  nosniff ─────────► MIME-sniffing → XSS
+  each header hands ONE specific defense to the browser to enforce on your behalf
+```
+
 And the anti-patterns — headers to *remove*: `Server`, `X-Powered-By`, framework
 version banners. They tell an attacker exactly which version you run so they can
 look up its CVEs (information leakage, module 00's attacker-mindset point).
@@ -192,6 +200,12 @@ Python flags many of these automatically (`shell=True`, `yaml.load`, hardcoded
 passwords, `pickle`, weak hashes) — run in CI alongside dependency scanning.
 Automate what you can; reserve human attention for logic and authorization,
 which tools are worst at.
+
+```
+  PR ─► [ secret scan ]─► [ dependency scan ]─► [ SAST ]─► [ tests ] ─► merge ✓
+          gitleaks          pip-audit / Trivy     bandit       │
+          any stage fails ───────────────────────────────────► block the merge ✗
+```
 
 ## Command reference
 
@@ -421,6 +435,15 @@ Write down your answer to each question before expanding it — checking without
    spot.
 
 </details>
+
+## Further reading & sources
+
+- [OWASP Secure Headers Project](https://owasp.org/www-project-secure-headers/) - reference values and rationale for every security header in this module.
+- [MDN - HTTP security headers overview](https://developer.mozilla.org/en-US/docs/Web/Security) - browser-side documentation for HSTS, CSP, `X-Frame-Options`, and cookie flags.
+- [MDN - Strict-Transport-Security (HSTS)](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Strict-Transport-Security) - how HSTS works and why `max-age` is sticky.
+- [pip-audit](https://pypi.org/project/pip-audit/) - the Python dependency CVE scanner used here.
+- [Bandit documentation](https://bandit.readthedocs.io/) - the Python SAST tool that flags `shell=True`, `pickle`, `yaml.load`, and more.
+- [OWASP Dependency-Check](https://owasp.org/www-project-dependency-check/) - background on scanning components for known vulnerabilities (A06).
 
 ## Next
 

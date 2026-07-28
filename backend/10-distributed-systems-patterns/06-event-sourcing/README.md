@@ -55,6 +55,16 @@ fact that a transition happened, when, and from what. Event sourcing keeps the
 *transitions* as the primary data and treats state as a disposable, recomputable
 consequence. The order's state is the *answer*; the event log is the *source*.
 
+```
+  Event log (append-only, immutable — the source of truth):
+   ┌──────┬──────┬──────┬─ ─ ─┬───────┬───────┬─ ─ ─┐
+   │  e1  │  e2  │  e3  │ ... │ e950  │ e951  │ ... │  ◄── new events appended
+   └──────┴──────┴──────┴─ ─ ─┴───┬───┴───────┴─ ─ ─┘
+                          snapshot @ v950 (cached fold, NOT truth)
+                                   └──► replay e951..now ──► CURRENT STATE
+   Lose the state tables? Re-fold the log. Fix apply()? Recompute snapshots.
+```
+
 ### Commands, events, and rebuilding an aggregate
 
 The write path in an event-sourced system has a precise shape, and keeping the roles
@@ -560,6 +570,14 @@ Write down your answer to each question before expanding it — checking without
    mental model — applying it reflexively adds cost for no benefit.
 
 </details>
+
+## Further reading & sources
+
+- [Event Sourcing (Martin Fowler)](https://martinfowler.com/eaaDev/EventSourcing.html) - the foundational article on storing state as an immutable log and deriving current state by replay.
+- [Event Sourcing pattern (Microsoft Azure)](https://learn.microsoft.com/en-us/azure/architecture/patterns/event-sourcing) - practical guidance covering snapshots, projections, and the CQRS pairing.
+- [EventStoreDB Documentation](https://developers.eventstore.com/) - docs for a purpose-built event store with streams, optimistic concurrency, and snapshots.
+- [Versioning in an Event Sourced System (Greg Young)](https://leanpub.com/esversioning/read) - the definitive treatment of event schema evolution and upcasting, the biggest long-term burden this module flags.
+- [CQRS Documents (Greg Young, PDF)](https://cqrs.wordpress.com/wp-content/uploads/2010/11/cqrs_documents.pdf) - foundational writing pairing event sourcing with CQRS read models.
 
 ## Next
 

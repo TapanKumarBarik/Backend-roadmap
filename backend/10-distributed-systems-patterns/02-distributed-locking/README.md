@@ -100,6 +100,17 @@ write. A lock without fencing is best-effort mutual exclusion (great for
 efficiency — "usually only one worker rebuilds the cache"); a lock *with* fencing
 is the only thing that's correct when a duplicate write would corrupt data.
 
+```
+  A acquires lock ─► fence=33 ─► [long pause; TTL expires]
+                                       │
+  B acquires lock ─► fence=34 ─► writes ─► resource records highest=34
+                                       │
+  A resumes (still "thinks" it holds) ─► writes with fence=33
+                                       │
+                                       ▼
+        resource: accept only if token > highest seen  ─► 33 < 34: REJECTED
+```
+
 ### Redlock, and the honest debate about it
 
 **Redlock** is an algorithm (by Redis's author) for distributed locking across
@@ -504,6 +515,14 @@ Write down your answer to each question before expanding it — checking without
    expired lock does bounded damage.
 
 </details>
+
+## Further reading & sources
+
+- [Distributed Locks with Redis (Redlock)](https://redis.io/docs/latest/develop/use-cases/patterns/distributed-locks/) - the official single-instance lock and the multi-node Redlock algorithm this module builds and critiques.
+- [How to do distributed locking (Martin Kleppmann)](https://martin.kleppmann.com/2016/02/08/how-to-do-distributed-locking.html) - the classic critique of Redlock and the fencing-token argument at the heart of this module.
+- [Is Redlock safe? (Salvatore Sanfilippo / antirez)](http://antirez.com/news/101) - the Redis author's rebuttal, giving you both sides of the canonical distributed-locking debate.
+- [Redis SET command (NX / EX / PX options)](https://redis.io/docs/latest/commands/set/) - the set-if-absent-with-expiry primitive behind a correct acquire.
+- [PostgreSQL: Advisory Locks](https://www.postgresql.org/docs/current/explicit-locking.html#ADVISORY-LOCKS) - the strongly-consistent, auto-releasing alternative used in the exercises.
 
 ## Next
 

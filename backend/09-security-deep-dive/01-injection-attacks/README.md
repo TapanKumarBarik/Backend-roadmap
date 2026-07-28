@@ -52,6 +52,15 @@ vector** instead of a shell string. For NoSQL it's passing **typed query
 objects** instead of interpolated strings. Same principle every time: **never
 build a command by concatenating untrusted input.**
 
+```
+  Concatenated — ONE channel:              Parameterized — TWO channels:
+  "…name = '" + input + "'"                query:  "…name = ?"   ◄─ code only
+         │                                 value:  input         ◄─ data only
+         ▼                                        │
+  interpreter sees code+data mixed         driver binds value as data; the SQL
+  → "' OR '1'='1" parsed as SQL            parser never re-reads it as structure
+```
+
 ### SQL injection — the canonical case
 
 SQL injection (SQLi) is injection into a SQL query. The classic demonstrations:
@@ -120,6 +129,13 @@ With the list form there is no shell to interpret `;` or `$()` — `host` is
 handed to `ping` as a single opaque argument. (Better still for `ping`-style
 needs: avoid shelling out at all and use a library. And *always* validate that
 `host` looks like a hostname/IP too — defense in depth.)
+
+```
+  shell=True: "ping -c 1 " + host          argv list: ["ping","-c","1", host]
+     host = "8.8.8.8; rm -rf /"               host = "8.8.8.8; rm -rf /"
+     └► shell reads ; | $() as syntax        └► one literal arg handed to ping
+        ping runs, THEN rm runs  → RCE          ping just fails: no such host
+```
 
 ### NoSQL injection — same disease, different query language
 
@@ -445,6 +461,15 @@ Write down your answer to each question before expanding it — checking without
    the actual fix for NoSQL operator smuggling (enforce types/shape).
 
 </details>
+
+## Further reading & sources
+
+- [OWASP SQL Injection Prevention Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/SQL_Injection_Prevention_Cheat_Sheet.html) - the definitive guide to parameterization and identifier allowlisting.
+- [OWASP OS Command Injection Defense Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/OS_Command_Injection_Defense_Cheat_Sheet.html) - why to avoid the shell and pass argv lists.
+- [OWASP Injection Prevention Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Injection_Prevention_Cheat_Sheet.html) - the shared root cause and structural fix across all injection types.
+- [SQLAlchemy - Textual SQL and bound parameters](https://docs.sqlalchemy.org/en/20/core/tutorial.html#using-textual-sql) - how `text()` binds values safely and where raw SQL re-opens the door.
+- [Python `subprocess` - Security Considerations](https://docs.python.org/3/library/subprocess.html#security-considerations) - the official warning on `shell=True` and passing argument sequences.
+- [CWE-89: SQL Injection](https://cwe.mitre.org/data/definitions/89.html) - the formal weakness definition (see also CWE-78 for OS command injection).
 
 ## Next
 

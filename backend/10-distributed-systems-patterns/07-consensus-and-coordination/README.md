@@ -108,6 +108,19 @@ partitioned away comes back, sees a higher term, and steps down — its stale wr
 rejected exactly like a low fencing token). etcd, Consul, and (via Zab, a close
 cousin) ZooKeeper all run algorithms of this shape.
 
+```
+  5-node cluster — election for term T:
+     candidate n1 ── RequestVote ──►  n2  n3  n4  n5
+                        votes: n1(self) + n2 + n3 = 3  (majority of 5)
+                                        │
+                                        ▼
+                               n1 becomes LEADER (term T)
+     a log entry is COMMITTED only after a majority persist it.
+
+  Partition 3 | 2 :  majority side (3) elects/keeps a leader, makes progress
+                     minority side (2) has NO quorum ──► cannot lead, STOPS
+```
+
 ### Leader election as the everyday face of consensus
 
 Most of the time you don't need "agree on an arbitrary value" — you need the special
@@ -605,6 +618,15 @@ exposed.*
    immediately.
 
 </details>
+
+## Further reading & sources
+
+- [In Search of an Understandable Consensus Algorithm (Raft paper, Ongaro & Ousterhout)](https://raft.github.io/raft.pdf) - the Raft paper this module summarizes: terms, leader election, and log replication.
+- [The Raft Consensus Algorithm](https://raft.github.io/) - the interactive visualization and explainer that makes the leader-election/quorum mechanics concrete.
+- [Impossibility of Distributed Consensus with One Faulty Process (FLP, 1985)](https://groups.csail.mit.edu/tds/papers/Lynch/jacm85.pdf) - the FLP result behind "correct consensus chooses to pause rather than decide wrong."
+- [etcd Documentation](https://etcd.io/docs/) - the Raft-backed coordinator used in the exercises for leader election and fenced locks (and what Kubernetes runs on).
+- [Apache ZooKeeper: Overview](https://zookeeper.apache.org/doc/current/zookeeperOver.html) - the veteran Zab-based coordination service with ephemeral znodes and watches.
+- [PostgreSQL: Advisory Locks](https://www.postgresql.org/docs/current/explicit-locking.html#ADVISORY-LOCKS) - the smallest correct leader-election tool this module recommends reaching for first.
 
 ## Next
 

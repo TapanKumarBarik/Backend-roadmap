@@ -132,6 +132,12 @@ stole it. Two triggers: **scheduled** (routine hygiene) and **reactive**
 (immediately, on any suspected compromise — the emergency you must be *able* to
 do fast).
 
+```
+  created ─► stored (vault, encrypted) ─► injected at runtime (env / IAM role) ─► used
+                                                                                   │
+                              old version retired ◄── rotate (new version) ◄───────┘
+```
+
 The design problem rotation forces you to solve is **doing it with zero
 downtime**, and the standard technique is **overlapping validity / dual
 secrets**: support *two* valid secrets at once during a transition.
@@ -141,6 +147,13 @@ secrets**: support *two* valid secrets at once during a transition.
   selects which), then retire the old key once all tokens signed with it have
   expired. Verifiers must support multiple keys; this is why track 03 stressed
   key IDs.
+
+```
+  time ────────────────────────────────────────────────►
+  old key: ═══════ valid ═══════╡ retired once its tokens expire
+  new key:           ╞═══════ valid ══════════════════════
+                     └ overlap: BOTH accepted (kid selects) ─► no live token invalidated
+```
 - For a **database/API credential**: create the new credential, deploy the app to
   use it, confirm, then revoke the old one — never revoke-then-deploy (that's an
   outage).
@@ -535,6 +548,15 @@ Closed-book. Don't reopen modules 00-05 while attempting these.
    in place; the design flaws require adding a control that was never there.
 
 </details>
+
+## Further reading & sources
+
+- [OWASP Secrets Management Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Secrets_Management_Cheat_Sheet.html) - storage, rotation, and injection practices this module is built on.
+- [The Twelve-Factor App - Config](https://12factor.net/config) - the "store config (including secrets) in the environment" principle.
+- [pydantic-settings documentation](https://docs.pydantic.dev/latest/concepts/pydantic_settings/) - typed, fail-fast config from environment variables.
+- [Pydantic `SecretStr`](https://docs.pydantic.dev/latest/api/types/#pydantic.types.SecretStr) - the type that masks secret values in reprs and logs.
+- [HashiCorp Vault documentation](https://developer.hashicorp.com/vault/docs) - centralized secret storage, dynamic secrets, and rotation.
+- [gitleaks](https://github.com/gitleaks/gitleaks) - the pre-commit secret scanner that blocks secrets before they enter git history.
 
 ## Next
 

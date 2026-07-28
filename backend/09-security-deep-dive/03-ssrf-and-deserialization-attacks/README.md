@@ -60,6 +60,13 @@ attacker's own machine cannot:
 - **Other schemes/targets.** `file:///etc/passwd`, `gopher://` (used to forge
   arbitrary TCP payloads to internal services), `http://[::1]`, DNS rebinding.
 
+```
+  attacker ─"url=http://169.254.169.254/…"─► YOUR SERVER ─fetch─► ┌ cloud metadata (IAM creds)
+   (outside; no route to internals)          (inside the network) ├ 10.0.0.5:6379  (Redis, no auth)
+                                                                   └ internal-admin  (no auth)
+   the attacker borrows your server's position to reach what they can't reach directly
+```
+
 The reason SSRF is hard to fix is that the naive defenses are all bypassable.
 
 ### Why blocklists don't fix SSRF (and what does)
@@ -158,6 +165,12 @@ ML model files (`torch.load`, `joblib`) which pickle under the hood, and
 crossed a trust boundary.** Pickle is fine for data that never leaves your
 trust zone (your own process's temp files); it is *never* fine for anything a
 user, a network peer, or a shared datastore could influence.
+
+```
+  pickle.loads(untrusted): bytes ─► __reduce__ opcodes CALL things ─► os.system(...) → RCE
+  json.loads(untrusted):   bytes ─► only str / num / list / dict produced ─► worst case:
+                                    a wrong-shaped dict you then validate (never code)
+```
 
 ### Safe alternatives and the general fix
 
@@ -451,6 +464,15 @@ Write down your answer to each question before expanding it — checking without
    input.
 
 </details>
+
+## Further reading & sources
+
+- [OWASP Server-Side Request Forgery Prevention Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Server_Side_Request_Forgery_Prevention_Cheat_Sheet.html) - allowlisting, resolve-then-validate, and why blocklists fail.
+- [OWASP Deserialization Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Deserialization_Cheat_Sheet.html) - safe formats and integrity checks for serialized data across languages.
+- [Python `pickle` docs - security warning](https://docs.python.org/3/library/pickle.html#module-pickle) - the official "never unpickle untrusted data" warning and why.
+- [Python `ipaddress` module](https://docs.python.org/3/library/ipaddress.html) - the `is_private`/`is_loopback`/`is_link_local`/`is_reserved` checks used to validate resolved IPs.
+- [AWS - Use IMDSv2](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/configuring-instance-metadata-service.html) - the token-required metadata service that blocks the simplest SSRF-to-credentials path.
+- [CWE-918: Server-Side Request Forgery](https://cwe.mitre.org/data/definitions/918.html) - the formal weakness definition (see CWE-502 for deserialization).
 
 ## Next
 

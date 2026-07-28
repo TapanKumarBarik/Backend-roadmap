@@ -53,6 +53,19 @@ does not promise the intermediate states never happened; it promises the system
 *converges to a consistent end state*, forward (all steps done) or backward (all
 done steps compensated).
 
+```
+  Forward:   T1 charge ──► T2 reserve ──► T3 confirm ──► CONFIRMED
+             card         inventory      order          (all committed)
+                              │
+                              │ T3 fails (or T2 fails, etc.)
+                              ▼
+  Backward:  C1 refund ◄── C2 release ◄──┘   compensations run in REVERSE,
+             card         inventory          only for steps that completed
+                 │
+                 ▼
+             CANCELLED  (consistent end state — no lost money, no dangling hold)
+```
+
 ### The window of inconsistency, and why it's usually fine
 
 A saga is, by construction, **not atomic**. Between T₁ committing and Tₙ committing
@@ -642,6 +655,14 @@ failure the previous one exposed.
    explicit, self-correcting window, exactly the module-00 trade applied on purpose.
 
 </details>
+
+## Further reading & sources
+
+- [Saga pattern (microservices.io)](https://microservices.io/patterns/data/saga.html) - the reference definition of choreography vs orchestration sagas and compensating transactions.
+- [Sagas (Garcia-Molina & Salem, 1987)](https://www.cs.princeton.edu/courses/archive/fall17/cos518/papers/sagas.pdf) - the original paper that introduced sagas and semantic compensation.
+- [Saga distributed transactions pattern (Microsoft Azure)](https://learn.microsoft.com/en-us/azure/architecture/reference-architectures/saga/saga) - a practical guide to orchestrated sagas, state, and compensation ordering.
+- [Compensating Transaction pattern (Microsoft Azure)](https://learn.microsoft.com/en-us/azure/architecture/patterns/compensating-transaction) - focused guidance on the "compensations are new business actions, and can fail too" discipline stressed here.
+- [Implementing the saga pattern with AWS Step Functions](https://docs.aws.amazon.com/step-functions/latest/dg/sample-saga-transaction.html) - a worked orchestrated saga on a durable workflow engine, the direction this module recommends past trivial size.
 
 ## Next
 

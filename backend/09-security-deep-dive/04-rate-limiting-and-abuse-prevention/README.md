@@ -74,6 +74,13 @@ two seconds — because the window reset in between. For a login limiter that
 "burst" is exactly what you're trying to stop. Fine for coarse throttling,
 insufficient for tight abuse limits.
 
+```
+  Fixed window (limit 5/min):  |11:00 ....#####|11:01 #####....|
+                                       └at :59──┘└─at :00┘
+                               ► 10 requests in ~2s straddling the reset boundary
+  Sliding window: counts any rolling 60s span ─► the 2nd burst is correctly rejected
+```
+
 ### Sliding window — smoothing the boundary
 
 Sliding-window algorithms fix the burst by considering a *rolling* window rather
@@ -112,6 +119,15 @@ rejected (or waits). Two parameters give you independent control of **burst**
 page that fires 10 API calls on load) while still capping the sustained rate,
 where a naive per-second limit would reject the burst.
 
+```
+  refill: +1 token/sec ─┐        capacity = 10, refill = 1/sec
+                        ▼
+              [ ########## ]  ◄─ burst of 10 requests drains it to [ ] (all pass)
+                        │         then it refills ~1/sec ─► ~1 req/sec sustained
+                        ▼
+              drain: 1 token per request; bucket empty ⇒ reject (429)
+```
+
 ```python
 # Token bucket, conceptually (production: do this atomically in a Redis Lua script
 # so the read-compute-write can't race between concurrent requests).
@@ -138,6 +154,13 @@ three FastAPI workers and keep the counter in each process's memory, an attacker
 gets `3 × limit` (one bucket per worker), and the count resets on every deploy.
 A shared store (Redis) is the standard answer — the same role it played as
 broker/cache in track 06.
+
+```
+  Per-process (broken):  worker1[ctr] worker2[ctr] worker3[ctr] ─► attacker gets 3× limit
+  Shared Redis (correct):  worker1 ┐
+                           worker2 ┼─► [ Redis: atomic INCR / Lua EVAL ] ─► one global
+                           worker3 ┘                                        limit, no race
+```
 
 The trap is **atomicity**. A rate-limit check is read-modify-write (read the
 count/tokens, decide, write back). Under concurrency, two requests can both read
@@ -433,6 +456,15 @@ Write down your answer to each question before expanding it — checking without
    flood incident means you shipped the hole knowingly.
 
 </details>
+
+## Further reading & sources
+
+- [OWASP Denial of Service Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Denial_of_Service_Cheat_Sheet.html) - rate limiting and resource-exhaustion defenses.
+- [OWASP Authentication Cheat Sheet - rate limiting & lockout](https://cheatsheetseries.owasp.org/cheatsheets/Authentication_Cheat_Sheet.html) - protecting login against brute force and credential stuffing.
+- [Redis - INCR and rate limiting patterns](https://redis.io/docs/latest/commands/incr/) - the atomic counter pattern (with the fixed-window example) straight from the Redis docs.
+- [Redis - EVAL / Lua scripting](https://redis.io/docs/latest/develop/interact/programmability/eval-intro/) - running read-compute-write atomically for a correct token bucket.
+- [SlowApi documentation](https://slowapi.readthedocs.io/) - the FastAPI/Starlette rate limiter used in this module.
+- [CWE-307: Improper Restriction of Excessive Authentication Attempts](https://cwe.mitre.org/data/definitions/307.html) - the formal weakness this module defends against.
 
 ## Next
 
