@@ -130,6 +130,8 @@ function setStatus(path, status) {
 let statusMap = {};
 let currentFilter = 'all';
 let currentFile = null;
+const fileRows = {};   // file path -> row element
+const dirIndex = {};   // directory path -> its README file path (or null)
 
 async function main() {
   db = await openDb();
@@ -138,6 +140,56 @@ async function main() {
   const data = await res.json();
   renderTree(data.tree);
   updateSummary();
+}
+
+function resolvePath(baseDir, rel) {
+  const stack = baseDir ? baseDir.split('/') : [];
+  rel.split('/').forEach(part => {
+    if (part === '' || part === '.') return;
+    if (part === '..') stack.pop();
+    else stack.push(part);
+  });
+  return stack.join('/');
+}
+
+function expandAncestors(row) {
+  let ul = row.closest('ul.tree');
+  while (ul && !ul.classList.contains('root')) {
+    ul.style.display = 'block';
+    const li = ul.parentElement;
+    if (!li) break;
+    const parentRow = li.querySelector(':scope > .row');
+    const caret = parentRow && parentRow.querySelector('.caret');
+    if (caret) caret.textContent = '▾';
+    ul = li.parentElement;
+  }
+}
+
+function rewriteLinks(filePath) {
+  const baseDir = filePath.includes('/') ? filePath.slice(0, filePath.lastIndexOf('/')) : '';
+  document.querySelectorAll('#content a[href]').forEach(a => {
+    const href = a.getAttribute('href');
+    if (!href || /^([a-z][a-z0-9+.-]*:)?\/\//i.test(href) || href.startsWith('mailto:') || href.startsWith('#')) return;
+    const [rawPath, hash] = href.split('#');
+    let resolved = resolvePath(baseDir, rawPath);
+    let target = null;
+    if (resolved.toLowerCase().endsWith('.md') && fileRows[resolved] !== undefined) {
+      target = resolved;
+    } else if (dirIndex[resolved.replace(/\/$/, '')]) {
+      target = dirIndex[resolved.replace(/\/$/, '')];
+    }
+    if (target) {
+      a.setAttribute('href', target + (hash ? '#' + hash : ''));
+      a.addEventListener('click', (e) => {
+        e.preventDefault();
+        const row = fileRows[target];
+        if (row) { expandAncestors(row); row.scrollIntoView({ block: 'center' }); }
+        openFile(target, row || null);
+      });
+    } else {
+      a.setAttribute('href', resolved + (hash ? '#' + hash : ''));
+    }
+  });
 }
 
 function countAll(node, out) {
@@ -183,6 +235,8 @@ function renderTree(nodes, parentUl) {
     if (node.file) {
       row.dataset.file = node.file;
       row.title = node.file;
+      fileRows[node.file] = row;
+      if (!node.name.endsWith('.md')) dirIndex[node.path] = node.file;
     }
 
     let childUl;
@@ -214,7 +268,7 @@ function renderTree(nodes, parentUl) {
 async function openFile(path, row) {
   currentFile = path;
   document.querySelectorAll('.row.selected').forEach(r => r.classList.remove('selected'));
-  row.classList.add('selected');
+  if (row) row.classList.add('selected');
   document.getElementById('empty').style.display = 'none';
   document.getElementById('crumb').textContent = path;
   document.getElementById('statusBtns').style.display = 'flex';
@@ -225,6 +279,7 @@ async function openFile(path, row) {
     const res = await fetch(path);
     const text = await res.text();
     content.innerHTML = marked.parse(text);
+    rewriteLinks(path);
   } catch (e) {
     content.textContent = 'Could not load file: ' + e;
   }
