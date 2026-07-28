@@ -72,6 +72,15 @@ The write path is an **asynchronous processing pipeline**, and the read path is
   480p when the network degrades, climbing back to 1080p when it recovers — so
   playback continues without buffering. This is why video is chunked and
   multi-rendition: ABR needs interchangeable per-segment choices.
+
+```
+  rendition    seg1  seg2  seg3  seg4  seg5   (each ~2-10s, interchangeable)
+   1080p (5M)  [==]              [==]  [==]
+    720p (3M)        [==]
+    480p (1M)              [==]                ◄─ network dips → drop rendition
+              ─────────────────────────────►
+   client picks the highest rendition its measured bandwidth can sustain per seg
+```
 - **CDN delivery.** Chunks are served from **CDN edge nodes** close to the viewer
   (recall CDNs/edge caching from **05-caching-and-performance**). Popular content
   is cached at the edge; the origin object store is hit only on a cache miss. The
@@ -393,6 +402,15 @@ Write down your answer to each question before expanding it — checking without
    couples to or blocks the read/query path.
 
 </details>
+
+## Further reading & sources
+
+- [Netflix — Open Connect (the Netflix CDN)](https://openconnect.netflix.com/en/) - how Netflix serves petabits of video by placing caching appliances deep inside ISP networks, the edge-delivery model at the core of this module.
+- [HTTP Live Streaming (HLS) — Apple developer docs](https://developer.apple.com/documentation/http-live-streaming) - the manifest-and-segment format behind adaptive bitrate streaming.
+- [MPEG-DASH (Dynamic Adaptive Streaming over HTTP)](https://en.wikipedia.org/wiki/Dynamic_Adaptive_Streaming_over_HTTP) - the open ABR standard and how per-segment rendition switching works.
+- [Apache Lucene — the inverted index and scoring](https://lucene.apache.org/core/) - the library underneath Elasticsearch (tying back to track 07-search-with-elasticsearch), implementing postings lists and BM25.
+- [Elasticsearch — distributed search and scatter-gather](https://www.elastic.co/guide/en/elasticsearch/reference/current/scalability.html) - how a query is broadcast to shards, ranked locally, and merged, exactly the flow in this module.
+- [Okapi BM25 ranking function](https://en.wikipedia.org/wiki/Okapi_BM25) - the modern TF-IDF-derived relevance scoring formula that orders search candidates.
 
 ## Next
 

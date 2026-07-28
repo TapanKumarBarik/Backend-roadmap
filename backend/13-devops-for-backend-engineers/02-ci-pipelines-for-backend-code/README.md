@@ -55,6 +55,15 @@ main/nightly, non-gating, exactly as track 12 module 07 argued. The through-line
 **each stage is cheaper feedback than the one after it, so put it earlier.** A
 lint error should fail in seconds, not after a ten-minute integration run.
 
+```
+ every PR ─ gating lane ─────────────────────────►│ merge to main ─ image lane ──►
+ ┌──────┬──────┬──────┬──────────┬──────────────┐  │  ┌───────┬───────┬──────────┐
+ │ lint │ mypy │ unit │ integr.  │ secret scan  │  │  │ build │ scan  │ push     │
+ │(secs)│      │tests │(postgres │ (gitleaks)   │──┼─►│ image │(trivy)│ myapp:   │
+ └──────┴──────┴──────┴─service─)┴──────────────┘  │  └───────┴───────┴─git-<sha>┘
+    cheap ───────────────────────► expensive       │   only on main, only if green
+```
+
 ### Integration tests need real backing services: service containers
 
 Unit tests mock their dependencies, so they run anywhere. Integration tests
@@ -400,6 +409,15 @@ Write down your answer to each question before expanding it — checking without
    main and are deployment candidates, so those steps run on main only.
 
 </details>
+
+## Further reading & sources
+
+- [GitHub Actions documentation](https://docs.github.com/en/actions) - The workflow, job, and step model used for the two-lane pipeline in this module.
+- [GitHub Actions: About service containers](https://docs.github.com/en/actions/using-containerized-services/about-service-containers) - How to run a real Postgres/Redis sidecar for integration tests, the mechanism behind the `services:` block here.
+- [Trivy: container image and dependency scanner](https://trivy.dev/latest/docs/) - The vulnerability scanner used to gate on CRITICAL CVEs in the built image.
+- [Gitleaks: detect secrets in git repos](https://github.com/gitleaks/gitleaks) - The secret scanner that implements the automated "could you open-source this now?" gate.
+- [Docker docs: docker build](https://docs.docker.com/reference/cli/docker/buildx/build/) - Building the deployable artifact in CI from module 00's Dockerfile.
+- [The Twelve-Factor App: Build, release, run](https://12factor.net/build-release-run) - Why CI's job ends at producing an immutable, SHA-tagged build artifact and CD takes over from there.
 
 ## Next
 

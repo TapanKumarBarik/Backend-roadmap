@@ -39,6 +39,22 @@ resource limits, feature toggles, external API endpoints. Code — including bus
 logic, validation rules, and the set of features that *exist* — is the same
 everywhere.
 
+```
+                 ┌──────────────────────────┐
+                 │  ONE image :git-<sha>     │  (no config, no secrets baked in)
+                 └────────────┬─────────────┘
+        ┌─────────────────────┼─────────────────────┐
+        ▼                     ▼                     ▼
+  ┌───────────┐         ┌───────────┐         ┌───────────┐
+  │   DEV     │         │  STAGING  │         │   PROD    │   ← differ ONLY by
+  ├───────────┤         ├───────────┤         ├───────────┤     injected config
+  │ APP_ENV   │         │ APP_ENV   │         │ APP_ENV   │
+  │ DB_URL    │         │ DB_URL    │         │ DB_URL    │
+  │ secrets ◄─┼─store   │ secrets ◄─┼─store   │ secrets ◄─┼─store  (separate scopes)
+  │ flags     │         │ flags     │         │ flags     │
+  └───────────┘         └───────────┘         └───────────┘
+```
+
 Two properties this buys you, both from track 08's config track:
 
 - **Dev/prod parity (factor X):** the environments should be as *similar* as
@@ -434,6 +450,15 @@ Write down your answer to each question before expanding it — checking without
    to it at all. Enforcement by absence beats enforcement by convention.
 
 </details>
+
+## Further reading & sources
+
+- [The Twelve-Factor App: Config (factor III)](https://12factor.net/config) - Why config lives in the environment and the same build runs unchanged across dev/staging/prod.
+- [The Twelve-Factor App: Dev/prod parity (factor X)](https://12factor.net/dev-prod-parity) - Keeping environments as similar as possible, the principle behind avoiding `if env` branches.
+- [Kubernetes: Secrets](https://kubernetes.io/docs/concepts/configuration/secret/) - How a platform injects secrets into a container at deploy time without baking them into the image.
+- [Kubernetes: ConfigMaps](https://kubernetes.io/docs/concepts/configuration/configmap/) - Injecting non-secret per-environment config, the ConfigMap side of the config spectrum.
+- [Martin Fowler: Feature Toggles (aka Feature Flags)](https://martinfowler.com/articles/feature-toggles.html) - The definitive taxonomy of flags and the discipline of removing them, decoupling deploy from release.
+- [LaunchDarkly: What are feature flags?](https://launchdarkly.com/blog/what-are-feature-flags/) - A practical overview of flag-driven dark launches, kill switches, and targeted rollouts.
 
 ## Next
 

@@ -54,6 +54,20 @@ least:
   automatically, billing per execution. Minimum burden, maximum constraint — the
   platform dictates the execution model.
 
+```
+  MORE control / MORE burden ◄───────────────────────► MORE managed / LESS burden
+  ┌────────┬────────────────┬─────────────┬───────────────┬──────────────┐
+  │  VM    │ self-managed   │ managed k8s │  PaaS         │  serverless  │
+  │ (IaaS) │  Kubernetes    │  (AKS)      │ (Container    │  functions   │
+  │        │                │             │  Apps)        │              │
+  └────────┴────────────────┴─────────────┴───────────────┴──────────────┘
+   you patch OS,             you run       you hand it     you hand it code;
+   run everything            workloads     a container     it runs per-event
+                                           + config
+      ◄── flexibility, fewer constraints        constraints, near-zero ops ──►
+              default bias: start here ─────────────────────┘ (move left only if forced)
+```
+
 The core judgment: **push as far toward "managed" as your workload's constraints
 allow, because operational burden is a real, ongoing cost that a small team pays in
 attention it could spend on the product.** You move *back* toward control only when
@@ -514,6 +528,14 @@ find out what actually stuck.
    complexity) → `learn/07-aks` (and `learn/03-kubernetes`).
 
 </details>
+
+## Further reading & sources
+
+- [AWS: Types of cloud computing (IaaS / PaaS / serverless)](https://aws.amazon.com/types-of-cloud-computing/) - A vendor-neutral framing of the control-vs-managed spectrum this module organizes targets along.
+- [Azure Container Apps: Overview](https://learn.microsoft.com/en-us/azure/container-apps/overview) - The managed-container PaaS: scale-to-zero, revisions, and built-in traffic splitting without operating a cluster.
+- [Azure Kubernetes Service (AKS) documentation](https://learn.microsoft.com/en-us/azure/aks/) - Managed Kubernetes for when service count and control needs justify the orchestrator's complexity.
+- [Google Cloud: Serverless vs containers](https://cloud.google.com/discover/serverless-vs-containers) - The workload-shape trade-offs (cold starts, execution limits) that decide serverless fit.
+- [AWS Lambda: Cold starts and execution model](https://docs.aws.amazon.com/lambda/latest/dg/lambda-runtime-environment.html) - Why serverless suits bursty/event-driven work and fights steady latency-sensitive services.
 
 ## Next
 

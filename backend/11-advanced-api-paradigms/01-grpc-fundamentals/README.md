@@ -217,6 +217,19 @@ trip: the request message is serialized to Protobuf binary, sent over HTTP/2,
 the server's `GetOrder` runs, and the `Order` response is serialized back. That
 "remote call that looks local" is the entire point of RPC.
 
+```text
+                 orders.proto  (the one contract)
+                 rpc GetOrder(GetOrderRequest) returns (Order)
+                        │ protoc / grpcio-tools
+             ┌──────────┴──────────┐
+             ▼                     ▼
+  CLIENT: OrderServiceStub   SERVER: OrderServiceServicer
+     stub.GetOrder(req) ──── GetOrderRequest {id:1} ────►  GetOrder(request, context)
+                       (Protobuf binary over HTTP/2)
+     Order {id:1,...}  ◄──────── Order response ─────────  return order
+     one request  ────────────►  one response   (UNARY)
+```
+
 ### Status codes and errors: `context.abort`
 
 gRPC has its own set of **status codes** (its analog to HTTP status codes) —
@@ -519,6 +532,15 @@ Write down your answer to each question before expanding it — checking without
    to bugs (like the id-`0` overwrite in the diagnose-and-fix).
 
 </details>
+
+## Further reading & sources
+
+- [gRPC Python — Basics tutorial](https://grpc.io/docs/languages/python/basics/) - the official walkthrough of defining a service, generating stubs, and implementing a server/client, mirroring this module's flow.
+- [gRPC Python — Quick start](https://grpc.io/docs/languages/python/quickstart/) - the fastest path to installing `grpcio`/`grpcio-tools` and running your first RPC.
+- [Protocol Buffers — Proto3 language guide](https://protobuf.dev/programming-guides/proto3/) - the authoritative reference for messages, field numbers, enums, and the wire-format rules behind schema evolution.
+- [gRPC — Core concepts and status codes](https://grpc.io/docs/what-is-grpc/core-concepts/) - explains RPC types and the canonical status-code set behind `context.abort`.
+- [Google API Improvement Proposals (AIP)](https://google.aip.dev/) - the source of the "dedicated request/response message per method" convention and other gRPC API-design hygiene.
+- [grpcurl (GitHub)](https://github.com/fullstorydev/grpcurl) - the `curl`-for-gRPC tool used with server reflection to introspect and call a binary service.
 
 ## Next
 

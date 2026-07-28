@@ -80,7 +80,17 @@ proportionally.
 
 You will rarely finish all seven perfectly, and that's fine — the framework
 ensures that whenever time runs out, you've spent it on the highest-value things
-in the right order.
+in the right order. Laid out against the clock, the ~45-minute budget looks like
+this — breadth first (steps 1–5), then depth (step 6), then wrap-up:
+
+```
+ min: 0    5    10   15   20   25   30   35   40   45
+      ├────┼────┼────┼────┼────┼────┼────┼────┼────┤
+      │ 1  │ 2  │ 3  │ 4  │      5       │    6     │ 7 │
+      │Req │Est │API │Data│  High-level  │Deep-dive │Wrap│
+      └────┴────┴────┴────┴──────────────┴──────────┴────┘
+       └── scope & numbers ──┘└─ diagram ─┘└─ hardest ─┘
+```
 
 ### Functional vs. non-functional requirements
 
@@ -426,6 +436,14 @@ Write down your answer to each question before expanding it — checking without
    celebrities) solution.
 
 </details>
+
+## Further reading & sources
+
+- [System Design Primer — study guide and approach](https://github.com/donnemartin/system-design-primer#study-guide) - the most-starred open-source walkthrough of how to structure a design interview, mirroring this module's seven-step flow.
+- [System Design Interview – An Insider's Guide (Alex Xu) — companion resource](https://bytebytego.com/) - the ByteByteGo material behind the widely-used book that codifies the requirements → estimation → design → deep-dive approach taught here.
+- [Grokking the System Design Interview — the step-by-step method](https://www.educative.io/courses/grokking-the-system-design-interview) - the structured template (clarify, estimate, define API, design, bottlenecks) that this framework follows.
+- [How to succeed in a system design interview (Pramp / Exponent write-ups)](https://www.tryexponent.com/blog/system-design-interview-guide) - practical guidance on driving the conversation, thinking out loud, and reading interviewer steers.
+- [Functional vs. non-functional requirements](https://en.wikipedia.org/wiki/Non-functional_requirement) - reference for the distinction that structures step 1 and quietly drives every later architectural fork.
 
 ## Next
 

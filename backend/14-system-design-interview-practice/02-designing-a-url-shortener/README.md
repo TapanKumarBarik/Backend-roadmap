@@ -109,9 +109,20 @@ three viable strategies, each with a tradeoff:
 
 The **pre-allocated-block counter** approach is usually the strongest default:
 it removes the central bottleneck (each server hands out codes from its local
-block) while guaranteeing uniqueness with no collision checks. This is the same
-"batch to amortize a central coordination cost" idea you'll see again in module
-04's key-value store.
+block) while guaranteeing uniqueness with no collision checks. Each app server
+leases a block once, then converts local integers to codes with no coordination:
+
+```
+  Allocator          App server A            base62 encode
+  (global) ─ lease ─► [1000..1999] ─┐
+     │                              ├─ 1001 ──► divmod by 62 ──► "aB3xK9"
+     └──── lease ────► App server B │           (7 chars)
+                       [2000..2999] ┘
+   one round-trip per 1000 URLs; a crash just skips a block (id space is huge)
+```
+
+This is the same "batch to amortize a central coordination cost" idea you'll see
+again in module 04's key-value store.
 
 ### The read path: cache-aside and redirects
 
@@ -442,6 +453,14 @@ Write down your answer to each question before expanding it — checking without
    Conflict**.
 
 </details>
+
+## Further reading & sources
+
+- [System Design Primer — Designing a URL shortener (Pastebin)](https://github.com/donnemartin/system-design-primer/blob/master/solutions/system_design/pastebin/README.md) - a full worked design of the same warm-up problem, covering id generation, read-heavy caching, and storage estimation.
+- [Base62 / positional numeral encoding](https://en.wikipedia.org/wiki/Base62) - the URL-safe alphabet and encoding math behind mapping an integer counter to a short code.
+- [301 vs 302 redirects (MDN HTTP redirections)](https://developer.mozilla.org/en-US/docs/Web/HTTP/Redirections) - the authoritative reference for permanent vs. temporary redirects and how each interacts with browser caching and click tracking.
+- [Instagram Engineering — Sharding & IDs at Instagram](https://instagram-engineering.com/sharding-ids-at-instagram-1cf5a71e5a5c) - how a real service mints unique, roughly-ordered IDs at scale without a single central counter bottleneck.
+- [How bit.ly serves billions of redirects (High Scalability)](http://highscalability.com/blog/2011/8/8/how-bitly-makes-money-serving-billions-of-links-a-day.html) - a real-world look at the read-heavy, cache-dominated architecture this module models.
 
 ## Next
 

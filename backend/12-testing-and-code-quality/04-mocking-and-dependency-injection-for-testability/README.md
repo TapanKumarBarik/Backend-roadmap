@@ -114,6 +114,20 @@ validation, and serialization (a true integration test of the web layer), while
 the one genuinely-external dependency is faked. Because it's your DI seam, you
 never patch inside Stripe's library — you replace your own provider function.
 
+```
+   route:  checkout(gw = Depends(get_payment_gateway))
+                              |
+         PRODUCTION           |           TEST (override)
+      get_payment_gateway() --+-- app.dependency_overrides[get_payment_gateway]
+              |                          = lambda: FakeGateway(ok=False)
+              v                                     |
+        StripeGateway                               v
+        -> real Stripe API                    FakeGateway
+        (money, slow, flaky)                  in-memory, no network,
+                                              deterministic 402 path
+   ...same real routing/validation/serialization runs either way...
+```
+
 ### Controlling nondeterminism: time, randomness, IDs, network
 
 Back in module 00 you wrote a flaky `greet_by_hour()` that read `datetime.now()`
@@ -450,6 +464,15 @@ Write down your answer to each question before expanding it — checking without
    leak into other tests.
 
 </details>
+
+## Further reading & sources
+
+- [FastAPI — Testing Dependencies with Overrides](https://fastapi.tiangolo.com/advanced/testing-dependencies/) - The official `dependency_overrides` mechanism used to swap real external services for fakes.
+- [Python docs — unittest.mock](https://docs.python.org/3/library/unittest.mock.html) - The standard library reference for `Mock`, `spec`, `autospec`, and `assert_called` interaction checks.
+- [pytest-mock documentation](https://pytest-mock.readthedocs.io/en/latest/) - The `mocker` fixture wrapper this module uses, with auto-undo of patches per test.
+- [Martin Fowler — Mocks Aren't Stubs](https://martinfowler.com/articles/mocksArentStubs.html) - The classic argument for preferring state verification (fakes) over interaction verification (mocks).
+- ["Don't Mock What You Don't Own" — a summary](https://hynek.me/articles/what-to-mock-in-5-mins/) - Hynek Schlawack on mocking at your own boundaries and wrapping third-party libraries.
+- [RESPX documentation](https://lundberg.github.io/respx/) - Mocking outbound httpx calls so you assert on the request instead of patching library internals.
 
 ## Next
 

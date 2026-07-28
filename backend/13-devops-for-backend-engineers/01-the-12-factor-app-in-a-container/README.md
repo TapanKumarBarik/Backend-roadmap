@@ -100,6 +100,16 @@ universal across Docker, Kubernetes, and Container Apps:
 4. If it hasn't exited when the timer expires, the platform sends **SIGKILL** —
    an unstoppable kill that drops whatever was in flight.
 
+```
+ platform         SIGTERM──►│                              │◄──SIGKILL (if not exited)
+ (deploy/scale)   ┌─────────┴──── grace period (~30s) ─────┴─────►
+                  │
+ uvicorn (PID 1)  │ readiness=503   drain in-flight   close pools   exit 0
+                  │   │                 │                 │            │
+ load balancer  ──┘   └► stops new req  └► lets current   └► clean     └► gone
+                          to this pod       requests end     shutdown    cleanly
+```
+
 Your job as the backend engineer is to make step 3 real. In FastAPI that's the
 `lifespan` shutdown handler (track 08 module 09): on shutdown, fail readiness so
 the load balancer stops sending new requests, let in-flight requests complete,
@@ -422,6 +432,14 @@ Write down your answer to each question before expanding it — checking without
    both.
 
 </details>
+
+## Further reading & sources
+
+- [The Twelve-Factor App](https://12factor.net/) - The canonical statement of all twelve factors; this module makes III (config), VI (processes), and IX (disposability) concrete in a container.
+- [12factor.net: Config (factor III)](https://12factor.net/config) - Why environment-specific values live in the environment, not the image — the basis for the config-injection section.
+- [12factor.net: Disposability (factor IX)](https://12factor.net/disposability) - Fast startup and graceful shutdown, the principle behind the SIGTERM drain covered here.
+- [Docker docs: stop containers gracefully (SIGTERM)](https://docs.docker.com/reference/cli/docker/container/stop/) - How `docker stop` sends SIGTERM and waits the grace period before SIGKILL — the termination protocol you rehearse locally.
+- [Kubernetes: Pod termination lifecycle](https://kubernetes.io/docs/concepts/workloads/pods/pod-lifecycle/#pod-termination) - How an orchestrator sequences SIGTERM, `terminationGracePeriodSeconds`, and SIGKILL against your draining app.
 
 ## Next
 

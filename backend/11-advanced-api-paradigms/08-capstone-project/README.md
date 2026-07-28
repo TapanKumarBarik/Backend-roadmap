@@ -38,6 +38,17 @@ The system has two related types so the BFF has something to aggregate and a rea
 N+1 risk to defend against — e.g. **`Product`** and its **`Supplier`** (each
 product has one supplier; a supplier has many products).
 
+```text
+  web client                GraphQL BFF (owns NO data)          internal service
+  ──────────                ──────────────────────────         ─────────────────
+  query {                   product/products resolvers  ── gRPC GetProduct/ListProducts ─►
+    products(first:20){ ──► maps gRPC msgs -> GraphQL types                       catalog-
+      node{ name             per-request DataLoader                               service
+            supplier{name}}} batches supplier ids  ────── gRPC BatchGetSuppliers ─►  (data)
+  }                         (one query, TWO RPCs, no N+1)  ◄──────────────────────
+      GraphQL over HTTP  │  the SEAM: GraphQL outside, gRPC inside  │  Protobuf/HTTP2
+```
+
 Work in this order (it mirrors the track): define the gRPC contract, implement
 the service, then build the GraphQL BFF that calls it, then harden the BFF. Use
 Strawberry + FastAPI for the BFF and `grpcio`/`grpcio-tools` for the service, all
@@ -118,6 +129,15 @@ Your system is done when all of these hold:
   goal, add a `productAdded` subscription (module 04) *and* justify it, or add a
   second gRPC service and aggregate both in the BFF.
 
+## Further reading & sources
+
+- [gRPC Python — Basics tutorial](https://grpc.io/docs/languages/python/basics/) - the end-to-end reference for the `.proto` contract, generated stubs, and service implementation the capstone's internal service is built on.
+- [Strawberry — GraphQL over FastAPI](https://strawberry.rocks/docs/integrations/fastapi) - mounting the GraphQL BFF as a FastAPI route with a per-request context for loaders.
+- [Strawberry — DataLoaders guide](https://strawberry.rocks/docs/guides/dataloaders) - the per-request batching pattern that turns the products-plus-supplier query into two RPCs instead of N+1.
+- [Relay — GraphQL Cursor Connections specification](https://relay.dev/graphql/connections.htm) - the `edges`/`node`/`cursor`/`pageInfo` shape required by the paginated `products` connection.
+- [Sam Newman — Backends For Frontends pattern](https://samnewman.io/patterns/architectural/bff/) - the BFF role the GraphQL layer plays as the translation seam in front of the gRPC service.
+- [Martin Fowler — Ports and Adapters (Hexagonal Architecture)](https://martinfowler.com/bliki/HexagonalArchitecture.html) - the "one domain, many adapters" discipline that keeps business rules in the service, not the BFF.
+
 ## Next
 
 You've reached the end of **track 11 — Advanced API Paradigms**. You can now look
@@ -127,12 +147,15 @@ edge components in front, make them coexist and evolve without breaking, and —
 of this capstone — assemble the canonical internal-gRPC-plus-GraphQL-BFF shape
 end to end.
 
-From here, the natural next step is **track 06 — Background Processing and
-Realtime**, which owns the real-time and event mechanics this track kept
-cross-referencing (webhooks as sender and receiver, WebSockets/SSE, pub/sub, and
-the reliability disciplines behind them). Together, the two tracks give you the
-full picture of how services expose themselves *and* how they talk to each other
-and to users after the response has gone out.
+From here, the natural next step is **track 12 — Testing and Code Quality**, a
+shift from *designing and exposing* APIs to *proving they work*: unit,
+integration, and end-to-end tests with real TDD discipline, CI automation, and
+objective code-quality measurement. The multi-paradigm system you just built — a
+gRPC service behind a GraphQL BFF, with contracts that must evolve without
+breaking — is exactly the kind of surface that testing discipline exists to keep
+honest as it grows.
+
+[12-testing-and-code-quality](../../12-testing-and-code-quality/README.md) — start the next track.
 
 Back to the track index: [../README.md](../README.md) · Master index:
 [../../README.md](../../README.md)

@@ -88,6 +88,21 @@ comes first. The anti-pattern is running everything, always, in one giant
 serial job: PRs take twenty minutes, people batch changes to avoid the wait, and
 the flaky e2e tests block unrelated unit-only fixes.
 
+```
+  push / PR --> FAST GATING LANE  (branch protection: red blocks merge)
+     +------+    +------+    +------+    +-------------+
+     | ruff | -> | mypy | -> | unit | -> | integration |   fail fast: stop on first red
+     +------+    +------+    +------+    +-------------+
+      cheap  ---------------------------------> costlier
+                          |
+                     merge to main
+                          v
+  MAIN / NIGHTLY --> NON-GATING LANE  (informs, never blocks a PR)
+                     +--------------+   +---------------+
+                     | e2e journeys |   | contract fuzz |
+                     +--------------+   +---------------+
+```
+
 ### Flaky tests: triage, don't tolerate
 
 A **flaky test** passes and fails nondeterministically with no code change. Flaky
@@ -516,6 +531,15 @@ find out what actually stuck.
    unmaintainable code before it becomes a monster.
 
 </details>
+
+## Further reading & sources
+
+- [GitHub Actions — Building and testing Python](https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-python) - Official guide to the CI pipeline skeleton this module sketches for a Python test suite.
+- [GitHub Docs — About protected branches](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-protected-branches/about-protected-branches) - Branch protection: the mechanism that makes "red can't merge" actually enforced.
+- [Martin Fowler — Continuous Integration](https://martinfowler.com/articles/continuousIntegration.html) - The foundational essay on what CI is and why every change is verified automatically.
+- [Martin Fowler — Eradicating Non-Determinism in Tests](https://martinfowler.com/articles/nonDeterminism.html) - The systematic approach to triaging flaky tests by root cause used in this module.
+- [Google Testing Blog — Flaky Tests at Google](https://testing.googleblog.com/2016/05/flaky-tests-at-google-and-how-we.html) - How a large org quantifies and quarantines flakes instead of tolerating them.
+- [pytest-xdist documentation](https://pytest-xdist.readthedocs.io/en/stable/) - Running the suite in parallel (`-n auto`) to keep the gating lane fast as it grows.
 
 ## Next
 

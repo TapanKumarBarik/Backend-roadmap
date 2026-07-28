@@ -145,6 +145,22 @@ teaches: **an accurate spec is testable for free** — which is a strong reason 
 keep the OpenAPI document truthful (track 02, module 09), because here it becomes
 an executable oracle.
 
+```
+   OpenAPI spec (/openapi.json)
+        |  schemathesis reads the declared schemas
+        v
+   generate many requests per endpoint
+   (valid / boundary / malformed inputs)
+        |
+        v
+   send to the API ------> response
+        |
+        v
+   validate: status declared? body matches schema? no 500?
+        |
+   PASS = conforms  <---+--->  FAIL = drift / crash surfaced
+```
+
 ### The cost/benefit calculus: when e2e is worth it
 
 Every e2e test is a standing liability (slow, flaky, maintenance) that you pay
@@ -436,6 +452,15 @@ Write down your answer to each question before expanding it — checking without
    you push it down the pyramid instead of adding another slow, flaky e2e test.
 
 </details>
+
+## Further reading & sources
+
+- [Schemathesis documentation](https://schemathesis.readthedocs.io/en/stable/) - Official docs for generating spec-driven, property-based tests against your OpenAPI API.
+- [FastAPI — Testing (TestClient) & OpenAPI](https://fastapi.tiangolo.com/reference/testclient/) - How the app's `/openapi.json` and `TestClient` combine for in-process contract testing.
+- [Martin Fowler — Contract Test](https://martinfowler.com/bliki/ContractTest.html) - What a contract test is and why interface drift needs its own kind of check.
+- [Pact — Contract testing introduction](https://docs.pact.io/) - The consumer-driven contract approach for verifying interfaces across services.
+- [Martin Fowler — Eradicating Non-Determinism in Tests](https://martinfowler.com/articles/nonDeterminism.html) - The definitive guide to fighting the flakiness that plagues the e2e tip.
+- [Hypothesis documentation](https://hypothesis.readthedocs.io/en/latest/) - The property-based testing engine underneath schemathesis, on exploring the input space.
 
 ## Next
 

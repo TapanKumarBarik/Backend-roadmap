@@ -57,6 +57,21 @@ readiness = "can I serve right now (route around me)."** A slow dependency shoul
 fail *readiness*, never liveness. Confusing the two is the classic outage: putting
 a DB check in the liveness probe means a brief DB blip restarts your whole fleet.
 
+```
+                        scheduler polls the pod
+                    ┌───────────────┴───────────────┐
+                    ▼                               ▼
+             GET /livez                       GET /readyz
+          (in-process only)               (shallow dep check)
+             │        │                       │        │
+           200│    503│                     200│    503│
+             ▼        ▼                       ▼        ▼
+          keep    ┌───────┐               add to   remove from
+          running │RESTART│               LB pool   LB pool
+                  │  pod  │              (serve      (route around,
+                  └───────┘               traffic)    NO restart)
+```
+
 ### Startup probes and slow starts
 
 A third probe handles the startup edge case: an app that legitimately takes a while
@@ -433,6 +448,15 @@ Write down your answer to each question before expanding it — checking without
    08 module 10) as **factor VI** — the enabling condition for horizontal scaling.
 
 </details>
+
+## Further reading & sources
+
+- [Kubernetes: Configure Liveness, Readiness and Startup Probes](https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/) - The authoritative guide to the three probe types and the platform action each failure triggers.
+- [Kubernetes: Pod lifecycle — container probes](https://kubernetes.io/docs/concepts/workloads/pods/pod-lifecycle/#container-probes) - Conceptual model of how the kubelet uses probes to decide restart vs traffic routing.
+- [Kubernetes: Horizontal Pod Autoscaler](https://kubernetes.io/docs/tasks/run-application/horizontal-pod-autoscale/) - How an autoscaler consumes CPU and custom metrics to add or remove replicas.
+- [KEDA: Kubernetes Event-Driven Autoscaling](https://keda.sh/docs/latest/concepts/) - Scaling on queue length and other application signals — the right fit for I/O-bound and worker workloads.
+- [Prometheus: metric types](https://prometheus.io/docs/concepts/metric_types/) - The RED-style counters and gauges your `/metrics` endpoint exposes as scaling signals.
+- [Google SRE Book: Monitoring Distributed Systems](https://sre.google/sre-book/monitoring-distributed-systems/) - The rate/errors/latency signals that make a good scale signal for a backend service.
 
 ## Next
 

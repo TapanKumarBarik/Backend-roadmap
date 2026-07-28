@@ -59,6 +59,14 @@ handler, and the GraphQL mutation. The discipline:
 The one-liner: **one domain, many edges.** Mixing paradigms is a feature of a
 mature system; forking your domain behind them is the bug.
 
+```text
+  partners   ──► REST route     ─┐
+  own apps   ──► GraphQL resolver├─►  create_order()      ──► orders_repo
+  internal   ──► gRPC handler   ─┘    ONE domain function      (one DB)
+  outbound   ──► webhook emitter ┘    (qty<=0 rule lives here)
+      each edge only TRANSLATES (parse/shape/status-map); none owns business rules
+```
+
 ### Versioning across paradigms: same goal, three mechanisms
 
 Every contract will change; the skill is changing it **without silently breaking
@@ -569,6 +577,15 @@ update mechanisms, the edge, and putting it all together.
    partner program needs central key/quota management.
 
 </details>
+
+## Further reading & sources
+
+- [Google — API design guide](https://cloud.google.com/apis/design) - a comprehensive reference for designing coherent, evolvable APIs across a system, including versioning and compatibility.
+- [Google AIP-180 — Backwards compatibility](https://google.aip.dev/180) - the concrete rules for what counts as a breaking vs additive change, applicable across paradigms.
+- [Protocol Buffers — Proto3: updating message types](https://protobuf.dev/programming-guides/proto3/#updating) - the authoritative rules on adding, reserving, and never renumbering field tags.
+- [GraphQL — Best practices: versioning & deprecation](https://graphql.org/learn/best-practices/#versioning) - why GraphQL evolves one additive schema with `@deprecated` instead of versioned endpoints.
+- [Apollo — Introduction to Apollo Federation](https://www.apollographql.com/docs/federation/) - the multi-team composition option to reach for only once distinct teams own distinct subgraphs.
+- [Martin Fowler — Ports and Adapters (Hexagonal Architecture)](https://martinfowler.com/bliki/HexagonalArchitecture.html) - the "one domain, many adapters" pattern behind keeping business logic out of each paradigm edge.
 
 ## Next
 

@@ -32,6 +32,19 @@ Run everything locally: Docker for the image and backing services (Postgres,
 Redis), a CI definition you can reason about (and run via `act` or push to a repo
 if you have one), and the runbook as a written document you could actually execute.
 
+The three deliverables chain into one path from code to a running, operable service:
+
+```
+  IMAGE (mod 00-01,05)     CI PIPELINE (mod 02)        DEPLOY + RUNBOOK (mod 03,04,06,07)
+ ┌────────────────────┐   ┌──────────────────────┐   ┌──────────────────────────────────┐
+ │ multi-stage        │   │ gate: lint→mypy→scan │   │ rolling deploy, readiness-gated   │
+ │ non-root, 0.0.0.0  │──►│      →unit→integ.    │──►│ migrate (expand/contract, admin)  │
+ │ config injected    │   │ main: build→scan→    │   │ /livez /readyz drain on SIGTERM   │
+ │ SIGTERM drain      │   │      push :git-<sha> │   │ rollback = redeploy prev <sha>    │
+ └────────────────────┘   └──────────────────────┘   └──────────────────────────────────┘
+    the artifact             produces the artifact         releases it safely + operates it
+```
+
 ### Acceptance checklist
 
 **1. A production-grade container image (module 00)**
@@ -152,6 +165,15 @@ Build inside-out, artifact by artifact, so each rests on the last:
 
 </details>
 
+## Further reading & sources
+
+- [Docker: Multi-stage builds](https://docs.docker.com/build/building/multi-stage/) - The builder/runtime split behind the production-grade image deliverable.
+- [The Twelve-Factor App](https://12factor.net/) - The methodology the whole capstone service must satisfy: config, statelessness, disposability, admin processes.
+- [GitHub Actions documentation](https://docs.github.com/en/actions) - The reference for authoring the two-lane CI pipeline definition.
+- [Martin Fowler: ParallelChange (expand and contract)](https://martinfowler.com/bliki/ParallelChange.html) - The migration pattern the runbook's schema-change section must follow.
+- [Kubernetes: Configure Liveness, Readiness and Startup Probes](https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/) - The probe contract behind the health-check and zero-downtime-deploy requirements.
+- [Google SRE Book: Release Engineering](https://sre.google/sre-book/release-engineering/) - How immutable artifacts, safe rollout, and rollback come together in a production release process — the spirit of the runbook.
+
 ## Next
 
 That's the track. You can now take backend code the whole distance to production:
@@ -171,4 +193,4 @@ the next and final track is
 estimation, the structured whiteboard session, and classic system-design problems
 end to end, drawing on everything from tracks 01-13.
 
-Back to the track index: [../README.md](README.md)
+Back to the track index: [../README.md](../README.md)

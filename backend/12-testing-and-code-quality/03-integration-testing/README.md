@@ -50,6 +50,20 @@ The rule for what belongs here: if the *interaction between real components* is
 the thing that could break, it's an integration test. If it's pure logic, push
 it down to a unit test — don't re-test business rules through the database.
 
+```
+  UNIT (isolated)                 INTEGRATION (real seams)
+  test                            test
+   |                               |
+   v                               v
+  service --> FakeRepo            TestClient --> route --> service --> repo
+              (in-memory)                                              |
+   no SQL, no wiring                                                   v
+   fast, but a fake            +---------------------------------------------+
+   repo can't have a           | real Postgres (testcontainers, disposable)  |
+   SQL/constraint bug          | real SQL, constraints, serialization        |
+                               +---------------------------------------------+
+```
+
 ### Testing a service against a real (test) database
 
 To test data-layer code truthfully you point it at a **real database dedicated
@@ -536,6 +550,15 @@ find out what actually stuck.
    while testing nothing the seam-level tests should own.
 
 </details>
+
+## Further reading & sources
+
+- [FastAPI — Testing](https://fastapi.tiangolo.com/tutorial/testing/) - Official guide to `TestClient` for exercising routes in-process, as in this module.
+- [FastAPI — Testing a Database & dependency overrides](https://fastapi.tiangolo.com/advanced/testing-database/) - How to swap `get_db` with `dependency_overrides` to point routes at a test database.
+- [testcontainers-python documentation](https://testcontainers-python.readthedocs.io/en/latest/) - Docs for spinning up a disposable real Postgres container per test run.
+- [httpx — Async client & ASGI transport](https://www.python-httpx.org/async/) - Reference for the `AsyncClient` + `ASGITransport` path used for async integration tests.
+- [Martin Fowler — IntegrationTest](https://martinfowler.com/bliki/IntegrationTest.html) - On what "integration test" means and the seams it is meant to cover.
+- [SQLAlchemy — Joining a session into an external transaction](https://docs.sqlalchemy.org/en/20/orm/session_transaction.html#joining-a-session-into-an-external-transaction-such-as-for-test-suites) - The canonical transaction-rollback-per-test isolation pattern this module teaches.
 
 ## Next
 

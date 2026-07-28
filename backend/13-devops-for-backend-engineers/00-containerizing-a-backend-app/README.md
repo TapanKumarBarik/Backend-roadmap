@@ -69,6 +69,18 @@ finished artifacts (the installed packages and your code) out of the builder. Th
 build tools stay behind in the discarded builder stage and never reach the final
 image.
 
+```
+   builder stage (discarded)          runtime stage (shipped)
+ ┌───────────────────────────┐      ┌───────────────────────────┐
+ │ python:3.12-slim          │      │ python:3.12-slim          │
+ │  + gcc, build headers     │      │  (no gcc, no build deps)  │
+ │  + pip wheel cache        │      │                           │
+ │  RUN pip install → /venv ─┼──┐   │  COPY --from=builder /venv│
+ │  (compiles psycopg, etc.) │  └──►│  COPY app source          │
+ └───────────────────────────┘      │  USER appuser  ~150 MB    │
+        left behind ✗               └───────────────────────────┘
+```
+
 ```dockerfile
 FROM python:3.12-slim AS builder
 # install compilers, build wheels here...
@@ -414,6 +426,14 @@ Write down your answer to each question before expanding it — checking without
    alpine, when you want to go further on hardening.
 
 </details>
+
+## Further reading & sources
+
+- [Docker: Multi-stage builds](https://docs.docker.com/build/building/multi-stage/) - Docker's official guide to the builder/runtime split that keeps `gcc` and pip caches out of your final FastAPI image.
+- [Dockerfile best practices](https://docs.docker.com/develop/develop-images/dockerfile_best-practices/) - Layer-ordering, cache, and `.dockerignore` guidance underpinning the cache-hit and slim-base rules in this module.
+- [Docker: Dockerfile reference](https://docs.docker.com/reference/dockerfile/) - Authoritative semantics for `FROM`, `COPY --from`, `EXPOSE`, `USER`, and exec-form vs shell-form `CMD`.
+- [The Twelve-Factor App: Build, release, run (factor V)](https://12factor.net/build-release-run) - Why the image is an immutable build artifact injected with config at run time — the principle this module makes concrete.
+- [Python on Docker Hub: official images and tags](https://hub.docker.com/_/python) - The slim/alpine/full tag matrix behind the base-image choice discussion and why to pin rather than use `latest`.
 
 ## Next
 

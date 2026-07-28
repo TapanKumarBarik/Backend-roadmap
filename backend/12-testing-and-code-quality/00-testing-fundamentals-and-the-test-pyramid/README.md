@@ -104,6 +104,22 @@ a call happened). Reach for state verification first; it's less brittle. Use
 interaction verification only when the side effect *is* the thing you're
 testing (an email must be sent) — module 04 goes deep on this.
 
+```
+              test doubles
+                   |
+      +------------+------------+
+      |                         |
+ state verification       interaction verification
+ (assert on result)       (assert a call happened)
+   prefer this first        use only when needed
+      |                         |
+   +--+---+                  +--+---+
+   |      |                  |      |
+ stub    fake              mock    spy
+ canned  working,        pre-set  records
+ answer  in-memory       expects  calls
+```
+
 ### Why isolate at all — the cost of I/O and nondeterminism
 
 Isolation isn't dogma; it buys two concrete things. **Speed**: a unit test that
@@ -431,6 +447,15 @@ Write down your answer to each question before expanding it — checking without
    whole suite.
 
 </details>
+
+## Further reading & sources
+
+- [Martin Fowler — The Practical Test Pyramid](https://martinfowler.com/articles/practical-test-pyramid.html) - Ham Vocke's canonical write-up of the unit/integration/e2e shape this module is built around.
+- [Martin Fowler — TestPyramid](https://martinfowler.com/bliki/TestPyramid.html) - The short bliki entry that names the pyramid and warns against the inverted "ice-cream cone".
+- [Martin Fowler — Mocks Aren't Stubs](https://martinfowler.com/articles/mocksArentStubs.html) - The reference on the four test doubles and the state-vs-interaction verification split covered here.
+- [pytest — Get Started](https://docs.pytest.org/en/stable/getting-started.html) - Official docs for the runner you install and use for every test in this track.
+- [pytest — How to write and report assertions](https://docs.pytest.org/en/stable/how-to/assert.html) - How pytest's plain-`assert` introspection and `pytest.raises` (used in the exercises) work.
+- [xUnit Patterns — Four-Phase Test](http://xunitpatterns.com/Four%20Phase%20Test.html) - Gerard Meszaros on the Arrange–Act–Assert structure every test in this module follows.
 
 ## Next
 

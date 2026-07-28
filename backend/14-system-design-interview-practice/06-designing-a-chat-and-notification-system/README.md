@@ -119,6 +119,14 @@ needs an explicit guarantee:
   server resumes live delivery. Presence (online/offline) is what tells the system
   which path to take, and it's itself a small, fast, slightly-stale KV lookup.
 
+```
+  B offline ──► msgs seq 41,42,43 persisted to B's inbox (not delivered)
+                     │
+  B reconnects ──► "sync since seq=40" ──► server replays 41,42,43 ──► live again
+                     │                          (catch-up read)
+                     └─ last-seen ack advances to 43; live push resumes
+```
+
 ### The notification system (generalizing delivery)
 
 Notifications are the same "deliver an event to a user" problem, generalized
@@ -508,6 +516,15 @@ find out what actually stuck.
    on demand (feed on next read, chat on reconnect sync).
 
 </details>
+
+## Further reading & sources
+
+- [RFC 6455 — The WebSocket Protocol](https://datatracker.ietf.org/doc/html/rfc6455) - the specification for the persistent, bidirectional connection that powers server-push chat delivery.
+- [How Discord scales to millions of concurrent voice & chat users](https://discord.com/blog/how-discord-handles-two-and-half-million-concurrent-voice-users-using-webrtc) - a real account of holding millions of stateful connections and routing across a fleet.
+- [How Discord stores trillions of messages](https://discord.com/blog/how-discord-stores-trillions-of-messages) - the partitioned, time-ordered message store (Cassandra/ScyllaDB) that mirrors this module's data model.
+- [Scaling to millions of simultaneous connections (WhatsApp / Erlang)](https://www.erlang-solutions.com/blog/20-years-of-open-source-erlang-openerlang-interview-with-anton-lavrik-from-whatsapp/) - background on the connection-count scaling axis behind WhatsApp's real-time delivery.
+- [Apple Push Notification service (APNs) documentation](https://developer.apple.com/documentation/usernotifications/setting_up_a_remote_notification_server) - how mobile push delivery works for the notification fan-out channel.
+- [Firebase Cloud Messaging (FCM) documentation](https://firebase.google.com/docs/cloud-messaging) - the Android/cross-platform push gateway referenced in the multi-channel notification system.
 
 ## Next
 

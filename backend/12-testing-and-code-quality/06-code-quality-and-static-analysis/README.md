@@ -52,6 +52,21 @@ early (as you type) — which is exactly why it belongs in your editor, your
 pre-commit hook, and your CI, catching the cheap-to-fix problems before a human
 or a test ever looks.
 
+```
+                       your code
+                          |
+        +-----------------+------------------+
+        |                                    |
+     TESTS                            STATIC ANALYSIS
+     run the code                     read the code (no run)
+     behavior on chosen inputs        every line, all at once
+        |                                    |
+   "does it do the                   "is it well-formed: typed,
+    right thing?"                     lint-clean, simple, consistent?"
+        |                                    |
+        +----> two nets, different fish <----+
+```
+
 ### Linting with ruff
 
 A **linter** flags code that is syntactically valid but stylistically
@@ -479,6 +494,15 @@ Write down your answer to each question before expanding it — checking without
    that a specific input would trigger.
 
 </details>
+
+## Further reading & sources
+
+- [Ruff documentation](https://docs.astral.sh/ruff/) - Official docs for the fast Python linter and formatter used throughout this module.
+- [mypy documentation](https://mypy.readthedocs.io/en/stable/) - The reference type checker, including gradual typing and `--strict`.
+- [pre-commit.com](https://pre-commit.com/) - The framework for running ruff/mypy automatically at commit time via `.pre-commit-config.yaml`.
+- [PEP 484 — Type Hints](https://peps.python.org/pep-0484/) - The specification that introduced Python's type-hint syntax mypy checks.
+- [Radon documentation](https://radon.readthedocs.io/en/latest/) - Tool for computing cyclomatic and cognitive complexity, the changeability metric discussed here.
+- [Wikipedia — Cyclomatic complexity](https://en.wikipedia.org/wiki/Cyclomatic_complexity) - Background on McCabe's path-counting metric behind ruff's `C901` rule.
 
 ## Next
 

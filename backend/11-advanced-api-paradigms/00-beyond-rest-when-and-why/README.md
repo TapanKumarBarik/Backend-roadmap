@@ -109,6 +109,16 @@ verbs are*:
 A useful one-liner: **REST exposes resources, RPC exposes actions, GraphQL
 exposes a queryable schema, events expose things that happened.**
 
+```text
+  "create an order" across the four paradigms
+  REST    ─► POST /orders            (name a RESOURCE + uniform verb)
+  RPC     ─► CreateOrder(req)->resp  (name a PROCEDURE)
+  GraphQL ─► mutation { createOrder(..) { id total } }
+                                      (send a QUERY: you pick the response shape)
+  Events  ─► order.created {...}      (announce a FACT; subscribers are told)
+             └─ what you NAME differs; that is the whole conceptual story
+```
+
 ### A decision framework
 
 Don't pick by fashion. Walk these questions, roughly in order — the first
@@ -418,6 +428,15 @@ Write down your answer to each question before expanding it — checking without
    strengths fit.
 
 </details>
+
+## Further reading & sources
+
+- [Google Cloud API Design Guide](https://cloud.google.com/apis/design) - Google's resource-oriented design guidance, a good anchor for when REST's nouns-and-verbs model is the right default.
+- [Roy Fielding's REST dissertation (Chapter 5)](https://ics.uci.edu/~fielding/pubs/dissertation/rest_arch_style.htm) - the original definition of REST's architectural constraints, so you understand the strengths this module weighs alternatives against.
+- [gRPC — About / Motivation](https://grpc.io/docs/what-is-grpc/introduction/) - the official case for RPC-style, schema-first service-to-service communication covered in modules 01–02.
+- [GraphQL — Introduction](https://graphql.org/learn/) - the official primer on the client-specifies-the-shape query model covered in modules 03–04.
+- [microservices.io — API Gateway pattern](https://microservices.io/patterns/apigateway.html) - Chris Richardson's overview of the gateway/BFF topology that lets these paradigms coexist at the edge (module 06).
+- [MDN — Choosing between WebSockets, SSE, and polling](https://developer.mozilla.org/en-US/docs/Web/API/Server-sent_events/Using_server-sent_events) - grounds the server-initiated / event-driven branch of the decision framework (module 05, track 06).
 
 ## Next
 

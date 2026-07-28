@@ -96,7 +96,18 @@ behavior, memory, and accuracy of each.
 
 The most-reached-for defaults are **token bucket** (when bursts are acceptable
 and you want a simple average-rate cap) and **sliding window counter** (when you
-want accurate windowed limits with tiny memory).
+want accurate windowed limits with tiny memory). The token bucket's refill-and-
+consume cycle is the one to picture — tokens trickle in at a fixed rate, each
+request drains one, and an empty bucket rejects:
+
+```
+   refill_rate ──► ○ ○ ○ ○ ○      capacity = 5 (max burst)
+   (e.g. 10/sec)   └─ bucket ─┘
+                       │
+        request ──► take 1 token? ──yes──► ALLOW (tokens -= 1)
+                       │
+                       └────────── no (empty) ──► REJECT → 429
+```
 
 ### Distributed state and race conditions
 
@@ -487,6 +498,15 @@ find out what actually stuck.
    it).
 
 </details>
+
+## Further reading & sources
+
+- [Stripe — Scaling your API with rate limiters](https://stripe.com/blog/rate-limiters) - Stripe's production account of token buckets, concurrency limits, and load shedding on a real payments API.
+- [Cloudflare — How we built rate limiting capable of scaling to millions of domains](https://blog.cloudflare.com/counting-things-a-lot-of-different-things/) - the engineering behind sliding-window counting at massive scale, mirroring this module's accuracy-vs-memory tradeoffs.
+- [Token bucket algorithm](https://en.wikipedia.org/wiki/Token_bucket) - the canonical reference for the refill/consume model and how it enforces an average rate while allowing bursts.
+- [Leaky bucket algorithm](https://en.wikipedia.org/wiki/Leaky_bucket) - the companion algorithm that smooths bursty input into a constant output rate.
+- [Redis — INCR and atomic counters](https://redis.io/docs/latest/commands/incr/) - the atomic primitive that eliminates the read-modify-write race central to distributed rate limiting.
+- [Redis — EVAL / Lua scripting](https://redis.io/docs/latest/develop/interact/programmability/eval-intro/) - how to run the compound token-bucket read-modify-write atomically server-side without round-trip races.
 
 ## Next
 

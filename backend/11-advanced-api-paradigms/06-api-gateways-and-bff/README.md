@@ -101,6 +101,16 @@ These get conflated constantly, so pin the distinction:
 | Owned by | Platform/infra team | Often the frontend team |
 | Typical tech | Kong, Envoy, AWS API GW, nginx | FastAPI / GraphQL (Strawberry) |
 
+```text
+   web app ─┐                          ┌─► order-service ─┐
+  mobile app├─►  API GATEWAY  ─► BFF ──┼─► user-service   ├─► data
+   partner ─┘   authN / rate-limit     │   (aggregate +   └─► pricing-service
+                routing / TLS          │    shape per        (gRPC internal)
+                (one, domain-agnostic) │    client screen)
+                                       └─ one BFF per frontend, domain-aware
+    edge policy  ──────────────────►  client shaping  ─────────►  domain logic
+```
+
 They compose rather than compete. A common layered edge: **client → API gateway
 (authN, rate limit, routing) → BFF (aggregate/shape for this client) → services
 (gRPC) → data**. The gateway handles "is this caller allowed and not abusive, and
@@ -446,6 +456,15 @@ Write down your answer to each question before expanding it — checking without
    only one client.)
 
 </details>
+
+## Further reading & sources
+
+- [Sam Newman — Backends For Frontends pattern](https://samnewman.io/patterns/architectural/bff/) - the canonical writeup that named and defined the BFF pattern this module formalizes.
+- [microservices.io — API Gateway pattern](https://microservices.io/patterns/apigateway.html) - Chris Richardson's reference on the gateway's role at the edge and its tradeoffs.
+- [AWS — What is an API Gateway](https://aws.amazon.com/what-is/api-gateway/) - a managed-gateway vendor's overview of auth, throttling, and routing at the edge.
+- [Kong — API gateway concepts](https://docs.konghq.com/gateway/latest/) - documentation for a widely used gateway, grounding the auth/rate-limit/routing concerns in a real product.
+- [Strawberry — GraphQL over FastAPI](https://strawberry.rocks/docs/integrations/fastapi) - mounting a GraphQL BFF as one route, as in the aggregation exercises.
+- [microservices.io — Backends for frontends pattern](https://microservices.io/patterns/apigateway.html#variation-backends-for-frontends) - the BFF as a per-client variation of the gateway, tying both patterns together.
 
 ## Next
 

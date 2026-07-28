@@ -222,6 +222,17 @@ class Book:
         return await author_loader.load(self.author_id)   # batched, not immediate
 ```
 
+```text
+  { books { title author { name } } }  over 100 books
+  WITHOUT DataLoader (N+1)              WITH DataLoader (batched)
+    books ─► 1 query -> 100 books        books ─► 1 query -> 100 books
+    author(b1) ─► SELECT author 1        author(b1) ─► loader.load(1) ┐
+    author(b2) ─► SELECT author 2        author(b2) ─► loader.load(2) ├─ collected
+      ... 100 separate lookups ...         ...       loader.load(k)  ┘  this tick
+    author(b100) ─► SELECT author 100    one batch ─► WHERE id IN (1,2,..) 
+    = 1 + 100 = 101 queries              = 1 + 1 = 2 queries
+```
+
 Now the 100-book query runs **2** queries — one for books, one batched query for
 all their authors — instead of 101. Two rules that matter: the `load_fn` must
 return **exactly one result per input key, in the same order** (or `None`), and
@@ -598,6 +609,15 @@ find out what actually stuck across "when to leave REST," gRPC, and GraphQL.
    fetch.
 
 </details>
+
+## Further reading & sources
+
+- [GraphQL — Learn (official docs)](https://graphql.org/learn/) - the canonical introduction to the schema, type system, queries, and mutations this module builds on.
+- [Strawberry GraphQL — documentation](https://strawberry.rocks/docs) - the reference for the type-hint-based schema, resolvers, and FastAPI integration used in the exercises.
+- [Strawberry — DataLoaders guide](https://strawberry.rocks/docs/guides/dataloaders) - shows the exact per-request DataLoader wiring that defends against N+1.
+- [graphql/dataloader (GitHub)](https://github.com/graphql/dataloader) - the original DataLoader project and README that defines the batch-and-cache pattern and its one-result-per-key invariant.
+- [Apollo — Understanding the N+1 problem](https://www.apollographql.com/docs/technotes/TN0021-graph-fundamentals/) - a clear writeup of why resolver-per-field execution causes N+1 and how batching fixes it.
+- [GraphQL — Best practices: caching](https://graphql.org/learn/caching/) - explains why URL-based HTTP caching stops working and what to do instead, the operational cost this module flags.
 
 ## Next
 

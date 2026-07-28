@@ -36,6 +36,19 @@ to real test-pyramid coverage plus a passing quality gate. Start from the
 existing code; your job is to add tests (and refactor for testability where the
 code fights you), not to rebuild the app. No solution code is given.
 
+```
+   BEFORE                              AFTER (the capstone deliverable)
+   untested main.py                            /\
+   - routes hit the DB inline       ===>      /e2e\    1 journey OR contract test
+   - Stripe called inline                    /------\
+   - no ruff / mypy / CI                     / integ \  real Postgres via TestClient
+                                            /  ration \ + overrides + isolation
+   refactor for testability                /----------\
+   push externals behind interfaces       /   unit     \ fakes, spec'd mocks,
+   + ruff + mypy + pre-commit + CI       /--------------\ parametrized branches
+                                        (fast gating lane | non-gating tip)
+```
+
 Your deliverable must include every layer of the pyramid, real static analysis,
 and CI wiring:
 
@@ -187,6 +200,15 @@ on the fast lane only; let the tip run non-gating so a flaky journey never
 blocks an honest unit-only fix.
 
 </details>
+
+## Further reading & sources
+
+- [pytest documentation](https://docs.pytest.org/en/stable/) - The runner, fixtures, and parametrization underpinning every layer of the capstone suite.
+- [FastAPI — Testing & database dependency overrides](https://fastapi.tiangolo.com/advanced/testing-database/) - Wiring routes to a real test DB via `dependency_overrides`, as the integration layer requires.
+- [testcontainers-python documentation](https://testcontainers-python.readthedocs.io/en/latest/) - Standing up the disposable real Postgres the integration tests must run against.
+- [Schemathesis documentation](https://schemathesis.readthedocs.io/en/stable/) - The contract-test option for the pyramid's tip, verifying the API against its OpenAPI spec.
+- [Ruff](https://docs.astral.sh/ruff/) and [mypy](https://mypy.readthedocs.io/en/stable/) documentation - The lint/format and type-check tools the quality gate must pass clean.
+- [GitHub Actions — Building and testing Python](https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-python) - Wiring the fast-gating and non-gating CI lanes that finish the capstone.
 
 ## Next
 

@@ -101,6 +101,17 @@ server is still producing. Checking liveness (and returning promptly) is how you
 avoid doing work nobody's listening to, the streaming cousin of the WebSocket
 connection-leak discipline in track 06.
 
+```text
+  SERVER STREAMING: one request in, many responses over ONE open call
+  CLIENT                                   SERVER (yield loop)
+    stub.WatchPrice(req="ACME") ─────────►  WatchPrice(request, context)
+                                    ◄──────  yield Price 100.5
+                                    ◄──────  yield Price 101.0   (1/sec, live)
+                                    ◄──────  yield Price 101.5
+                                    ◄────X   stream completes -> client loop ends
+             one HTTP/2 call, connection stays open the whole time
+```
+
 ### Client and bidirectional streaming in Python
 
 For **client streaming**, the server method receives an *iterator of requests*
@@ -488,6 +499,15 @@ Write down your answer to each question before expanding it — checking without
    again (the same discipline as retrying tasks/webhooks in track 06).
 
 </details>
+
+## Further reading & sources
+
+- [gRPC — Core concepts (RPC life cycle)](https://grpc.io/docs/what-is-grpc/core-concepts/) - the official description of unary, server-, client-, and bidirectional streaming and how each stream completes.
+- [gRPC Python — Server reflection & streaming basics](https://grpc.io/docs/languages/python/basics/) - shows the generator-based server handlers and iterator-based client loops used throughout this module.
+- [gRPC — Deadlines / timeouts](https://grpc.io/docs/guides/deadlines/) - explains why every call needs a propagated deadline and how `DEADLINE_EXCEEDED` flows through a call chain.
+- [gRPC — Retry policy & service config](https://grpc.io/docs/guides/retry/) - the declarative `retryPolicy`/`retryableStatusCodes` reference behind the retry exercises.
+- [gRPC — Status codes and their use](https://grpc.io/docs/guides/status-codes/) - the canonical list used to decide which failures are transient (retryable) versus permanent.
+- [gRPC Python — Interceptors (API reference)](https://grpc.github.io/grpc/python/grpc.html#service-side-interceptor) - the `ServerInterceptor` contract used for the auth/logging middleware.
 
 ## Next
 

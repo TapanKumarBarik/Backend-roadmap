@@ -128,6 +128,17 @@ the *interaction* (did `send_email` get called?). The practical lesson is
 the edges, so the hard-to-test part is a thin shell and the interesting logic is
 a pure function you test trivially.
 
+```
+   pure core (easy)              imperative shell (thin)
+  +-------------------+         +----------------------+
+  | penalty_for(acct) |  value  |  caller does the     |
+  | no I/O, no clock  |-------->|  side effect:        |----> emailer.send()
+  | same in->same out |         |  send email / write  |----> repo.save()
+  +-------------------+         +----------------------+
+   test by value                 test by interaction/state
+   (parametrize, no doubles)     (one small double)
+```
+
 ```python
 # HARD to test: decision + side effect tangled
 def charge_if_overdue(account, emailer):
@@ -465,6 +476,15 @@ Write down your answer to each question before expanding it — checking without
    cross-test globals; randomized ordering surfaces the coupling.
 
 </details>
+
+## Further reading & sources
+
+- [pytest — How to use fixtures](https://docs.pytest.org/en/stable/how-to/fixtures.html) - The official guide to fixtures, composition, and `yield`-based teardown used throughout this module.
+- [pytest — Fixture scopes](https://docs.pytest.org/en/stable/how-to/fixtures.html#scope-sharing-fixtures-across-classes-modules-packages-or-session) - Reference for the function/module/session scopes and the speed-vs-isolation tradeoff.
+- [pytest — Parametrizing tests](https://docs.pytest.org/en/stable/how-to/parametrize.html) - Official docs for `@pytest.mark.parametrize`, the core edge-case tool of this module.
+- [pytest-cov documentation](https://pytest-cov.readthedocs.io/en/latest/) - The coverage plugin, including branch coverage and `term-missing`, used to find untested code.
+- [Martin Fowler — TestCoverage](https://martinfowler.com/bliki/TestCoverage.html) - Why coverage is a signal for finding untested code, never a target to maximize.
+- [Gary Bernhardt — Boundaries (functional core, imperative shell)](https://www.destroyallsoftware.com/talks/boundaries) - The talk behind separating a pure decision core from a thin side-effecting shell.
 
 ## Next
 

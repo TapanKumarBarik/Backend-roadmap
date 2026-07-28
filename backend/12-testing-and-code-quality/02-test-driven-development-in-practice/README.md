@@ -48,6 +48,19 @@ TDD is a three-beat cycle you repeat for every small increment of behavior:
 Then loop: pick the next tiny behavior, write the next red test. The discipline
 is doing these one at a time and running the tests at every beat.
 
+```
+        +--------------------------------------+
+        |                                      |
+        v                                      |
+   [ RED ] ------> [ GREEN ] ------> [ REFACTOR ]
+   write one       minimum code      clean code + tests,
+   failing test    to pass it        behavior unchanged,
+   see it fail     (all green)       stay green
+        ^                                      |
+        |          next tiny behavior          |
+        +--------------------------------------+
+```
+
 ### Why write the test first — the design pressure
 
 Writing the test first means you become the *first caller* of code that doesn't
@@ -406,6 +419,15 @@ Write down your answer to each question before expanding it — checking without
    changes (with their own new tests) in separate steps from pure restructuring.
 
 </details>
+
+## Further reading & sources
+
+- [Martin Fowler — Test Driven Development](https://martinfowler.com/bliki/TestDrivenDevelopment.html) - A concise definition of the red-green-refactor loop and what TDD is (and isn't).
+- [Kent Beck — Canon TDD](https://tidyfirst.substack.com/p/canon-tdd) - Kent Beck, TDD's originator, restating the exact discipline this module teaches.
+- [Martin Fowler — RefactoringMalapropism / Refactoring](https://refactoring.com/) - The reference on changing structure without changing behavior — the third TDD beat.
+- ["Is TDD Dead?" — Beck, Fowler, Hansson](https://martinfowler.com/articles/is-tdd-dead/) - The honest debate on where TDD helps and where it hurts, matching this module's tradeoffs section.
+- [Uncle Bob — The Three Rules of TDD](http://butunclebob.com/ArticlesUncleBob.TheThreeRulesOfTdd) - The tight "no production code without a failing test first" formulation.
+- [Kent Beck — Test-Driven Development by Example (book)](https://www.oreilly.com/library/view/test-driven-development/0321146530/) - The foundational book, including the triangulation technique used in this module.
 
 ## Next
 

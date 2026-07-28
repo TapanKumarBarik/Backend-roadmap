@@ -115,7 +115,18 @@ The winning design **combines both, splitting by follower count:**
   (no 50M-write storms) while keeping normal reads fast.
 
 This split *is* the senior-signal answer: "push for the many, pull for the few,
-merge at read." Layered on top:
+merge at read." The two paths meet only at read time:
+
+```
+  Normal author posts ──► async fan-out ──► [follower feed cache]  (push, O(1) read)
+                                                     │
+  Celebrity posts ──► (no fan-out) ──► author's post list         │
+                                            │                     ▼
+  Feed read: pull celebs followed ──────────┴──► merge + rank ──► user's feed
+                                        (few pulls)   (top N)
+```
+
+Layered on top:
 
 - **Ranking.** Real feeds aren't strictly chronological — they rank by predicted
   engagement (a ranking service scores candidate posts). This adds a scoring step
@@ -381,6 +392,14 @@ Write down your answer to each question before expanding it — checking without
    consistency on a timeline.
 
 </details>
+
+## Further reading & sources
+
+- [The Infrastructure Behind Twitter: Scale (Twitter Engineering)](https://blog.x.com/engineering/en_us/topics/infrastructure/2017/the-infrastructure-behind-twitter-scale) - how Twitter's timeline is built with fan-out and caching at scale, the origin of the push/pull hybrid discussed here.
+- [Instagram Engineering — Powered by AI: Instagram's Explore recommender system](https://engineering.fb.com/2023/08/09/ml-applications/scaling-instagram-explore-recommendations-system/) - a real candidate-generation → ranking pipeline that mirrors this module's ranked-feed section.
+- [System Design Primer — Designing a news feed](https://github.com/donnemartin/system-design-primer#design-the-data-structures-for-a-social-network) - a worked social-network/feed design covering fan-out, feed storage, and the celebrity problem.
+- [Facebook TAO: The Distributed Data Store for the Social Graph](https://www.usenix.org/system/files/conference/atc13/atc13-bronson.pdf) - the read-optimized graph store behind Facebook's feed, illustrating the read-heavy, eventually-consistent substrate.
+- [Fan-out on write vs. read (High Scalability — timelines)](http://highscalability.com/blog/2013/7/8/the-architecture-twitter-uses-to-deal-with-150m-active-users.html) - a breakdown of Twitter's timeline architecture and why hybrid fan-out wins.
 
 ## Next
 

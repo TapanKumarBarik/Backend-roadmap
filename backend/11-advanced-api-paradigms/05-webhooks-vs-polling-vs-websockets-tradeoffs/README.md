@@ -58,6 +58,20 @@ server-initiated ones:
   bidirectional; SSE is server→client only and simpler. Track 06 owns the
   connection-lifecycle and broadcast mechanics.
 
+```text
+  POLL       consumer ── GET? ──► server      pull, on a timer (most say "no change")
+             consumer ◄─ 304 ── server
+
+  WEBHOOK    server ── POST event ──► consumer   push, server-to-server
+             (needs consumer to have a public URL)
+
+  SSE / WS   client ── open connection ──► server
+             client ◄══ push ══ server         push, to a browser/app that
+                                               can't be called inbound
+  routing question: CAN THE CONSUMER RECEIVE AN INBOUND CALL?
+     yes (a server w/ URL) -> webhook possible | no (browser/app) -> poll or hold open SSE/WS
+```
+
 The one distinction that organizes all of this: **can the consumer receive an
 inbound connection?** Another server with a public URL can — so a webhook works.
 A browser tab or a mobile app behind NAT cannot — so it must *hold open* a
@@ -436,6 +450,15 @@ Write down your answer to each question before expanding it — checking without
    separate socket protocol and message format (module 04).
 
 </details>
+
+## Further reading & sources
+
+- [MDN — Using server-sent events](https://developer.mozilla.org/en-US/docs/Web/API/Server-sent_events/Using_server-sent_events) - the reference for one-way SSE streaming to a browser, the simpler of the two push channels.
+- [MDN — The WebSocket API](https://developer.mozilla.org/en-US/docs/Web/API/WebSockets_API) - full-duplex client/server messaging for the genuinely bidirectional cases.
+- [Stripe — Webhooks documentation](https://docs.stripe.com/webhooks) - the canonical production webhook design: signing, retries, and at-least-once idempotency.
+- [MDN — HTTP conditional requests (ETag / If-None-Match)](https://developer.mozilla.org/en-US/docs/Web/HTTP/Conditional_requests) - how `304 Not Modified` makes the "nothing changed" poll cheap.
+- [Ably — Long polling vs WebSockets vs SSE](https://ably.com/topic/long-polling-vs-websockets-vs-sse) - a side-by-side comparison of the real-time mechanisms weighed in this module's framework.
+- [RFC 6202 — Known issues with bidirectional HTTP (long polling)](https://datatracker.ietf.org/doc/html/rfc6202) - background on long polling as the historical bridge before WebSockets.
 
 ## Next
 

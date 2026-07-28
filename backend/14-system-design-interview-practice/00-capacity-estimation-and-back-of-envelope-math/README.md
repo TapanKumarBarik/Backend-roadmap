@@ -48,7 +48,22 @@ fixed order keeps you from skipping a step under pressure:
    80/20 rule) to size your cache.
 
 Every one of those steps is a single multiply or divide. The skill is doing them
-in order and not dropping a factor of ten.
+in order and not dropping a factor of ten. Visually, the recipe is a funnel that
+turns one input number (DAU) into every infrastructure sizing you need:
+
+```
+   DAU ──× actions/user──► actions/day
+                               │ ÷ 10^5 (sec/day)
+                               ▼
+                          avg QPS ──× peak factor──► peak QPS
+                               │                        │
+                     × read:write                × payload size
+                               ▼                        ▼
+                          read QPS                  bandwidth
+                               │
+        × item_size × retention × replication ──► storage
+        × 0.2 (hot set) ──────────────────────► cache/memory
+```
 
 ### The numbers worth memorizing
 
@@ -380,6 +395,14 @@ Write down your answer to each question before expanding it — checking without
    Total-per-day divided by seconds under-counts the real concurrent throughput.
 
 </details>
+
+## Further reading & sources
+
+- [Numbers Every Programmer Should Know (Jeff Dean's latency ladder)](https://gist.github.com/jboner/2841832) - the canonical latency numbers (memory vs. SSD vs. disk seek vs. network) that this module's latency ladder is drawn from.
+- [System Design Primer — Back-of-the-envelope calculations](https://github.com/donnemartin/system-design-primer#appendix) - the widely-used open-source cheat sheet of powers of two, per-second conversions, and capacity constants.
+- [Powers of two and data-size units](https://en.wikipedia.org/wiki/Byte#Multiple-byte_units) - reference for KB/MB/GB/TB/PB and the decimal-vs-binary approximation used throughout the estimation recipe.
+- [The Log: What every software engineer should know about real-time data (Jay Kreps)](https://engineering.linkedin.com/distributed-systems/log-what-every-software-engineer-should-know-about-real-time-datas-unifying-abstraction) - background on why streaming/queue paths absorb the concurrent-session write loads this module warns about.
+- [Latency Numbers Every Programmer Should Know — interactive](https://colin-scott.github.io/personal_website/research/interactive_latency.html) - an interactive version of the latency ladder showing how the numbers scale over hardware generations.
 
 ## Next
 

@@ -95,6 +95,19 @@ type Query {
 }
 ```
 
+```text
+  books(first: 2)                 books(first: 2, after: "c2")
+  ┌───────────────────────┐       ┌───────────────────────┐
+  │ edges:                │       │ edges:                │
+  │   node Book A  cursor c1       │   node Book C  cursor c3
+  │   node Book B  cursor c2 ──┐   │   node Book D  cursor c4
+  │ pageInfo:              │   │   │ pageInfo:             │
+  │   hasNextPage: true    │   └──►│   endCursor: "c4" ...  │
+  │   endCursor: "c2" ─────┼───────► feed back as `after`  │
+  └───────────────────────┘       └───────────────────────┘
+   cursor points AFTER an item -> inserts elsewhere don't shift the window
+```
+
 A client fetches `books(first: 20)`, reads `pageInfo.endCursor`, then requests
 `books(first: 20, after: "<endCursor>")` for the next page. This is the same
 **cursor vs. offset** distinction from track 02's CRUD module: a **cursor**
@@ -482,6 +495,15 @@ Write down your answer to each question before expanding it — checking without
    deep dive.
 
 </details>
+
+## Further reading & sources
+
+- [GraphQL — Subscriptions (spec/learn)](https://graphql.org/blog/2016-06-08-subscriptions-in-graphql-and-relay/) - background on GraphQL's server-push model and how subscriptions differ from queries.
+- [Strawberry — Subscriptions guide](https://strawberry.rocks/docs/general/subscriptions) - the async-generator resolver pattern and WebSocket transport used in the exercises.
+- [Relay — GraphQL Cursor Connections specification](https://relay.dev/graphql/connections.htm) - the authoritative `edges`/`node`/`cursor`/`pageInfo` shape behind cursor-based pagination.
+- [Strawberry — Permissions / field authorization](https://strawberry.rocks/docs/guides/permissions) - the `BasePermission`/`permission_classes` mechanism for declarative per-field authz.
+- [Apollo — Introduction to Apollo Federation](https://www.apollographql.com/docs/federation/) - the modern standard for composing team-owned subgraphs into one supergraph.
+- [OWASP — GraphQL Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/GraphQL_Cheat_Sheet.html) - practical guidance on query depth/complexity limits and avoiding data exposure through a GraphQL endpoint.
 
 ## Next
 

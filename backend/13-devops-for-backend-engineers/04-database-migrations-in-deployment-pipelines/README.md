@@ -52,6 +52,18 @@ backfill — which is exactly the price of zero downtime, and it's the same
 expand/contract shape as the backward-compatible API changes in module 03 (they
 share the root cause: two versions coexist).
 
+```
+ phase:   EXPAND ─────► MIGRATE (data + code) ─────────────► CONTRACT
+          add new col   backfill (batched) + dual-write +    drop old col
+          (additive)    shift reads old→new                  (destructive)
+ ──────────────────────────────────────────────────────────────────────►
+ schema:  old + NEW     old + NEW (both valid, both written)  NEW only
+ reads:   old           old ──────────────► new               new
+ writes:  old           old + NEW ─────────────────────────►  new
+          ▲ safe before code        ▲ every step valid for BOTH versions
+                                                    ▲ safe only after old code gone
+```
+
 ### Migration ordering relative to the app rollout
 
 The ordering rule from module 03, stated precisely and justified:
@@ -419,6 +431,15 @@ Write down your answer to each question before expanding it — checking without
    step instead.
 
 </details>
+
+## Further reading & sources
+
+- [Martin Fowler: ParallelChange (expand and contract)](https://martinfowler.com/bliki/ParallelChange.html) - The canonical write-up of the expand/contract pattern that is the spine of this module.
+- [GitLab: Migration style guide](https://docs.gitlab.com/ee/development/migration_style_guide.html) - A battle-tested checklist for online, lock-safe migrations, batched backfills, and reversibility.
+- [PostgreSQL: ALTER TABLE and locking](https://www.postgresql.org/docs/current/sql-altertable.html) - The authoritative reference for which DDL takes which locks — the basis for the "outage in disguise" section.
+- [PostgreSQL: CREATE INDEX CONCURRENTLY](https://www.postgresql.org/docs/current/sql-createindex.html#SQL-CREATEINDEX-CONCURRENTLY) - How to build an index without locking writes, and why it can't run inside a transaction.
+- [The Twelve-Factor App: Admin processes (factor XII)](https://12factor.net/admin-processes) - Why a migration is a one-off admin process on the same image and config as the app, not app-startup code.
+- [Alembic documentation](https://alembic.sqlalchemy.org/en/latest/) - The migration tool used for the upgrade/downgrade sequences shown here.
 
 ## Next
 

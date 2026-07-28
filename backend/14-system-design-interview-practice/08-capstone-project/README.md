@@ -41,6 +41,22 @@ on a problem this track never worked as its own module:
 > money can never be created, lost, or double-counted, even under concurrent
 > requests, retries, and partial failures.
 
+At its core sits a single money movement that must be atomic and idempotent — one
+transaction produces two balanced ledger entries (debit + credit) that sum to
+zero, guarded by an idempotency key so a retry never double-charges:
+
+```
+  submit(txn, idempotency_key)
+        │  seen key before? ──yes──► return original result (no re-execute)
+        ▼ no
+  ┌─────────────── atomic (both or neither) ───────────────┐
+  │  ledger append:  DEBIT  acct A  -$80                    │
+  │                  CREDIT acct B  +$80   (Σ = 0)          │
+  └────────────────────────────────────────────────────────┘
+        │
+        ▼  balance(A) = Σ its ledger entries   (audited by reconciliation)
+```
+
 This problem is chosen deliberately because its dominant requirement is **not**
 raw scale — it's **correctness, consistency, and auditability under concurrency
 and failure**. It forces you to combine capacity estimation, data modeling, a
@@ -220,6 +236,15 @@ recovery tool: because you never mutate history, you can always replay or audit 
 reconstruct the true state.
 
 </details>
+
+## Further reading & sources
+
+- [Square Engineering — Books, an immutable double-entry accounting ledger](https://developer.squareup.com/blog/books-an-immutable-double-entry-accounting-database-service/) - a real-world immutable, double-entry ledger service and the invariants it enforces, mirroring this capstone's core.
+- [Stripe — Designing robust and predictable APIs with idempotency](https://stripe.com/blog/idempotency) - how a real payments API uses idempotency keys so retries never double-charge.
+- [Martin Kleppmann — Designing Data-Intensive Applications (concepts index)](https://dataintensive.net/) - the definitive reference on transactions, consistency, and correctness under concurrency that this problem stresses.
+- [Pattern: Saga (microservices.io)](https://microservices.io/patterns/data/saga.html) - compensating-transaction approach for atomic money movement that spans services or partitions.
+- [TigerBeetle — a database built for financial transactions](https://tigerbeetle.com/) - a purpose-built double-entry accounting database illustrating why ledger correctness and throughput drive specialized design.
+- [Two-phase commit and distributed transactions](https://en.wikipedia.org/wiki/Two-phase_commit_protocol) - the classic protocol for committing a debit and credit atomically across nodes.
 
 ## Next
 

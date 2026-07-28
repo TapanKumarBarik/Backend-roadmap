@@ -63,7 +63,23 @@ this:
   entirely on one neighbor.
 
 Consistent hashing is *the* answer to "how do you shard so scaling is cheap," and
-you should be able to draw the ring and explain the add/remove behavior.
+you should be able to draw the ring and explain the add/remove behavior. On the
+ring, a key walks clockwise to the first node it meets; virtual nodes (A1, A2…)
+interleave each physical node's positions so load spreads evenly:
+
+```
+              0/2^32
+                │
+        C2 ─────┼───── A1
+       /        │        \
+     B1     key●─┘         A2      key ● walks clockwise ──► lands on B1
+      │      (owner: B1)    │
+     A3                     C1
+       \                   /
+        B2 ─────┬───── C3
+                │
+               (ring)      add node D → only the arc before each Dn moves (~1/N)
+```
 
 ### Replication and consistency (the CAP tradeoff)
 
@@ -430,6 +446,15 @@ Write down your answer to each question before expanding it — checking without
    is tolerable for that data.
 
 </details>
+
+## Further reading & sources
+
+- [Dynamo: Amazon's Highly Available Key-value Store (paper)](https://www.allthingsdistributed.com/files/amazon-dynamo-sosp2007.pdf) - the foundational paper introducing consistent hashing, quorums, and version-vector conflict resolution that this module is built on.
+- [Consistent Hashing and Random Trees (Karger et al., original paper)](https://www.akamai.com/site/en/documents/research-paper/consistent-hashing-and-random-trees-distributed-caching-protocols-for-relieving-hot-spots-on-the-world-wide-web-technical-publication.pdf) - the 1997 paper that introduced consistent hashing for distributed caching.
+- [Redis Cluster specification](https://redis.io/docs/latest/operate/oss_and_stack/reference/cluster-spec/) - how a production in-memory store partitions keys across nodes and handles resharding and failover.
+- [Memcached — how it works](https://github.com/memcached/memcached/wiki/Overview) - the classic distributed cache, its client-side hashing model, and LRU eviction.
+- [CAP theorem (and the "PACELC" refinement)](https://en.wikipedia.org/wiki/CAP_theorem) - reference for the consistency-vs-availability fork you must state explicitly for any replicated store.
+- [Amazon builds DynamoDB on these ideas (DynamoDB paper, ATC 2022)](https://www.usenix.org/system/files/atc22-elhemali.pdf) - how the Dynamo concepts evolved into a managed, production key-value service at scale.
 
 ## Next
 

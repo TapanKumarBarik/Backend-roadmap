@@ -56,6 +56,23 @@ blue/green makes it a short window — but none of them can atomically swap ever
 replica *and* the database in one instant. Everything else in this module follows
 from accepting that two versions coexist.
 
+```
+ mid-rollout (rolling / canary): old and new serve real traffic at once
+                         ┌──────────────┐
+        clients ───────►│ load balancer│
+                         └──────┬───────┘
+              ┌────────────┬────┴───┬────────────┐
+              ▼            ▼        ▼            ▼
+          ┌───────┐   ┌───────┐ ┌───────┐   ┌───────┐
+          │ v1 old│   │ v1 old│ │ v2 NEW│   │ v2 NEW│   (readiness-gated)
+          └───┬───┘   └───┬───┘ └───┬───┘   └───┬───┘
+              └───────────┴────┬────┴───────────┘
+                               ▼
+                     ┌───────────────────┐
+                     │ ONE shared database│  ← schema must fit v1 AND v2
+                     └───────────────────┘
+```
+
 ### Surviving the rollout: in-flight requests and graceful shutdown
 
 When a rolling deploy (or any strategy) retires an old replica, that replica may
@@ -506,6 +523,14 @@ find out what actually stuck.
    `learn/11-security-deep-dive` (and `learn/18-supply-chain-security`).
 
 </details>
+
+## Further reading & sources
+
+- [Martin Fowler: BlueGreenDeployment](https://martinfowler.com/bliki/BlueGreenDeployment.html) - The canonical description of standing up a parallel environment and flipping traffic atomically, with instant rollback.
+- [Martin Fowler: CanaryRelease](https://martinfowler.com/bliki/CanaryRelease.html) - Releasing to a small slice of traffic and ramping — the bounded-blast-radius strategy for risky changes.
+- [Kubernetes: Performing a rolling update](https://kubernetes.io/docs/tutorials/kubernetes-basics/update/update-intro/) - How an orchestrator swaps replicas incrementally, the default strategy discussed here.
+- [Kubernetes: Deployment strategy (maxSurge / maxUnavailable)](https://kubernetes.io/docs/concepts/workloads/controllers/deployment/#strategy) - The surge/unavailability knobs that make a rolling update truly zero-downtime.
+- [Google SRE Book: Release Engineering](https://sre.google/sre-book/release-engineering/) - Why immutable, addressable artifacts and safe rollback make frequent deploys reliable rather than reckless.
 
 ## Next
 
