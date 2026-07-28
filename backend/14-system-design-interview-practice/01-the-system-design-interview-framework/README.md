@@ -163,6 +163,69 @@ Every strong answer is a chain of these. When you catch yourself asserting a
 technology with no tradeoff attached ("we'll use Kafka"), stop and add the
 *why*: what does it buy, what does it cost, which requirement justifies it.
 
+### Reference architecture
+
+Almost every system you'll be asked to design is a subset of one recurring
+skeleton. Learning it once means step 5 (high-level design) is never a blank
+whiteboard — you start from this and delete what the problem doesn't need. Each
+tier is labelled with the framework step where it typically first appears:
+
+```
+              ┌───────────────────────┐
+   Client ───►│  CDN / Load Balancer  │   (step 5: entry point; static+media at edge)
+              └───────────┬───────────┘
+                          ▼
+              ┌───────────────────────┐
+              │     API Gateway        │  (step 3: auth, rate limiting, routing)
+              └───────────┬───────────┘
+                          ▼
+              ┌───────────────────────┐        ┌─────────────────┐
+              │  App / Service layer   │ ─────► │   Cache (Redis) │  (step 5, deep-
+              │     (stateless)        │ ◄───── │   hot read set  │   dived in step 6)
+              └───┬───────────────┬───┘        └─────────────────┘
+         (sync)   │               │  (async)
+                  ▼               ▼
+        ┌───────────────────┐   ┌──────────────────┐
+        │  Primary Database │   │  Message Queue    │  (step 6: decouple slow work)
+        │  + read replicas  │   └────────┬─────────┘
+        │ (step 4: schema,  │            ▼
+        │  shard key)       │   ┌──────────────────┐   ┌──────────────────────┐
+        └─────────┬─────────┘   │ Background Workers│──►│ Object storage / CDN │
+                  │             │ (fan-out, email,  │   │ (blobs, media, static)│
+                  └────────────►│  indexing, ML)    │   └──────────────────────┘
+                                └──────────────────┘
+```
+
+**Component walkthrough:**
+
+- **CDN / Load Balancer** — the front door. The load balancer spreads traffic
+  across the stateless app fleet; the CDN serves static assets and media from
+  edge locations. It shows up in the **high-level design (step 5)** and its
+  capacity is justified by the bandwidth/QPS numbers from **step 2**.
+- **API Gateway** — the single ingress that handles cross-cutting concerns: auth,
+  rate limiting, request routing, TLS termination. It's where the **API contract
+  (step 3)** is enforced; naming it signals you know these concerns don't belong
+  scattered in each service.
+- **App / Service layer** — stateless business logic. Stateless is the key
+  property: it lets the load balancer treat any instance as interchangeable and
+  lets you scale horizontally by adding boxes (the **step 7** scaling answer).
+- **Cache (Redis)** — holds the hot read set so the database isn't hit on every
+  request. It first appears in the **high-level design (step 5)** because the
+  read:write ratio demands it, and it's a favourite target for the **deep-dive
+  (step 6)**: eviction policy, cache-aside vs. write-through, hot-key handling.
+- **Primary Database + read replicas** — the durable source of truth. Its schema,
+  SQL-vs-NoSQL choice, and **shard key are the whole of step 4**; read replicas
+  exist because the read:write ratio (step 2) overwhelms a single primary.
+- **Message Queue** — decouples fast request handling from slow work. It's a
+  classic **deep-dive (step 6)** component: it buys async processing and load
+  smoothing at the cost of eventual consistency and delivery-semantics complexity.
+- **Background Workers** — consume the queue to do fan-out, send email/push,
+  build search indexes, or run ML scoring off the critical path. They're the
+  concrete answer to "how does the slow work not block the user's request."
+- **Object storage / CDN** — durable blob store for media and large static files,
+  fronted by the CDN for delivery. Sized from the storage/bandwidth math of
+  **step 2**, and the reason a design for photos or video always sprouts this tier.
+
 ## Command reference
 
 The framework as a whiteboard checklist. Memorize this; it's the spine of every

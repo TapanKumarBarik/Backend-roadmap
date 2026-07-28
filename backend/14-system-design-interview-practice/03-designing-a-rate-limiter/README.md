@@ -148,6 +148,69 @@ the common default (a rate limiter shouldn't take the whole site down); for
 protecting something expensive or dangerous (a payment endpoint, a costly
 downstream), **fail-closed** may be right. State the choice and its justification.
 
+### Reference architecture
+
+The full enforcement path: every request enters through the edge, is checked by
+limiter middleware against shared atomic counters, and either passes to the
+backend or is rejected with a 429. A config service feeds per-client limits, and
+a fail-open/closed branch handles the counter store being unreachable:
+
+```
+                                      ┌──────────────────────┐
+                                      │   Config service     │
+                                      │ per-client/per-route │
+                                      │ limits (tiers)       │
+                                      └───────────┬──────────┘
+                                        push limits│
+                                                   ▼
+  ┌────────┐        ┌───────────────────────────────────────────┐
+  │ Client │ ─────► │        API Gateway / Edge                  │
+  └────────┘        │  ┌─────────────────────────────────────┐  │
+                    │  │   Rate-limiter middleware           │  │
+                    │  │   key = user/API-key/IP + route     │  │
+                    │  └──────────────┬──────────────────────┘  │
+                    └────────────────┬┴─────────────────────────┘
+                                     │  atomic check-and-update
+                                     ▼
+                          ┌────────────────────────┐
+                          │  Redis / Redis Cluster │
+                          │  token-bucket / sliding│
+                          │  window counters;      │
+                          │  INCR+EXPIRE or Lua    │
+                          └───────┬────────┬───────┘
+                    reachable     │        │   UNREACHABLE
+                 allowed / 429    │        │        │
+                                  ▼        │        ▼
+                    ┌──────────────────┐   │   ┌──────────────────────┐
+                    │  Backend App     │   │   │ fail-open  → allow    │
+                    │  servers         │◄──┘   │ fail-closed→ reject   │
+                    └──────────────────┘       └──────────────────────┘
+                    (rejected requests → 429 Too Many Requests + Retry-After)
+```
+
+**Component walkthrough:**
+
+- **Client** — the caller identified by user id, API key, or IP; that identity
+  becomes the counter key that scopes the limit.
+- **API Gateway / Edge with rate-limiter middleware** — the enforcement point,
+  sitting in front of *every* request (the "where the limiter lives" choice). The
+  middleware builds a per-caller-per-route key and consults shared state before
+  the request ever reaches an app server, so its own overhead must be sub-ms.
+- **Redis / Redis Cluster (atomic counter store)** — the shared global state every
+  edge node updates. It holds token-bucket tokens+timestamps or sliding-window
+  counters, mutated **atomically** via `INCR`+`EXPIRE` or a Lua script so
+  concurrent nodes can't race (read-modify-write correctness). Clustering shards
+  the millions of per-caller counters when they outgrow one node.
+- **Config service** — pushes per-client and per-route limits (free/pro/enterprise
+  tiers, per-endpoint caps) into the middleware, so one code path serves all
+  tiers by looking up the caller's parameters rather than hard-coding limits.
+- **Backend App servers** — the protected resource. Allowed traffic passes
+  through; this is what the limiter shields from abuse and thundering herds.
+- **Fail-open / fail-closed branch** — the decision path when Redis is
+  unreachable. Fail-open lets traffic through (favors availability, default for
+  public endpoints); fail-closed rejects it (favors protection, right for payment
+  or expensive-downstream routes). Rejections return **429 + Retry-After**.
+
 ## Command reference
 
 Algorithm comparison — memorize this table; it's the crux of the interview.

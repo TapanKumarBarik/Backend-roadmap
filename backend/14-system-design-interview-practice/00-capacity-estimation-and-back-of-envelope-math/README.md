@@ -161,6 +161,67 @@ estimate, sanity-check it:
   explicit and your arithmetic is consistent than whether DAU is really 180M or
   220M. Wrong-but-stated beats right-but-hidden.
 
+### Reference architecture
+
+The whole point of the math is that each number *sizes a box*. Here is a generic
+web-service architecture with every tier annotated by the estimate that
+determines how big it is — read it as "estimate on the left decides the box on
+the right":
+
+```
+                        peak_qps = avg_qps × peak_factor
+                                   │
+  ┌────────┐    ┌──────────────────▼─────┐    ┌───────────────────────────┐
+  │ Client │───►│      Load Balancer      │───►│   App server fleet         │
+  │ (many) │    │  (spreads peak QPS      │    │  N ≈ peak_qps /            │
+  └────────┘    │   across the fleet)     │    │      per_server_capacity   │
+                └─────────────────────────┘    │  (+ N+2 redundancy)        │
+                                               └──────┬──────────┬──────────┘
+                                        cache lookup  │          │ cache miss
+                                                      ▼          ▼
+                                          ┌───────────────┐  ┌───────────────────┐
+                                          │  Cache layer  │  │    Database        │
+                                          │  (Redis)      │  │  (primary +        │
+                                          │  size ≈ 0.2 × │  │   read replicas)   │
+                                          │  daily data   │  │  disk ≈ item_size  │
+                                          │  = hot set    │  │  × rate × retention│
+                                          └───────────────┘  │  × replication     │
+                                                             └─────────┬──────────┘
+                                                    large blobs         │
+                                                    (photos/video)      ▼
+                                          ┌──────────────────────────────────────┐
+                                          │   Object storage  ──►  CDN edge       │
+                                          │   sized by total blob bytes;          │
+                                          │   egress ≈ qps × avg_payload_size     │
+                                          └──────────────────────────────────────┘
+```
+
+**Component walkthrough:**
+
+- **Client fleet** — the source of the workload. Its size (DAU × actions/user) is
+  the single input number that the whole *estimation recipe* funnels: DAU →
+  actions/day → QPS.
+- **Load Balancer** — spreads incoming requests across app servers. It has to
+  absorb **peak QPS** (`avg_qps × peak_factor`, default 3×), which is why the
+  *peak factor* step of the recipe matters: you size for the burst, not the
+  average.
+- **App server fleet** — stateless compute. The number of machines comes straight
+  from the **server-count formula**: `peak_qps / per_server_capacity`, rounded up,
+  plus N+2 redundancy and growth headroom. This is where "one commodity server
+  handles ~10⁴–10⁵ req/sec" turns a QPS number into a machine count.
+- **Cache layer (Redis)** — holds the hot set so most reads never touch the DB.
+  Sized by the **memory / 80-20 math**: `cache_size ≈ 0.2 × daily_distinct_data`.
+  If that number fits one node's RAM you're done; if not, it forces a distributed
+  cache (module 04).
+- **Database (primary + read replicas)** — the durable store. Its disk footprint
+  is the **storage formula**: `item_size × item_rate × retention × replication`.
+  That number decides single-node vs. sharded, and the read replicas exist
+  because the read:write ratio pushes far more reads than one primary can serve.
+- **Object storage + CDN** — for large blobs (photos, video) and static egress.
+  Sized two ways: total capacity from summed blob bytes, and the **bandwidth
+  formula** `qps × avg_payload_size`, whose result (e.g. 1.6 Gbps of egress) is
+  what tells you a single NIC can't cope and a CDN is mandatory.
+
 ## Command reference
 
 Numbers and formulas to memorize. This is your whiteboard cheat sheet.

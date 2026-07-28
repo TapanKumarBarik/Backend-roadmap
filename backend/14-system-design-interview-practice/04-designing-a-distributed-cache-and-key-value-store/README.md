@@ -160,6 +160,54 @@ Each is a latency-vs-durability-vs-freshness tradeoff; name the one you pick and
 why. These are the same policies you met in **05-caching-and-performance**, now in
 a distributed setting where replication and partition interact with them.
 
+### Reference architecture
+
+The whole store is a client (or coordinator) that hashes a key onto a ring of
+nodes, then talks to that node and its replicas under a quorum, while the nodes
+gossip membership among themselves:
+
+```
+   ┌──────────┐   node_for(key) via
+   │  Client  │   consistent-hash ring          ┌──────── gossip / membership ────────┐
+   └────┬─────┘                                  │  (nodes exchange up/down + ring map) │
+        │                                        ▼                                      ▼
+        ▼                            ┌──────────────────┐                    ┌──────────────────┐
+  ┌───────────────────────┐         │   Node B (owner) │  replicate to      │   Node C         │
+  │  Coordinator /         │────────►│  vnodes: B1 B2 B3│───N-1 successors──►│  vnodes: C1 C2 C3│
+  │  client-side hash ring │  put/   │  key range arc   │◄──── gossip ──────►│  (replica of B)  │
+  │  ● key walks clockwise │  get    └────────┬─────────┘                    └────────┬─────────┘
+  │    → first node = B    │                  │ replicate                             │
+  └───────────────────────┘                   ▼                                       ▼
+        │  W + R > N                  ┌──────────────────┐                    ┌──────────────────┐
+        │  (quorum read/write)        │   Node D         │◄──── gossip ──────►│   Node A         │
+        └────────────────────────────►│  (replica of B)  │                    │  vnodes: A1 A2 A3│
+                                       └──────────────────┘                    └──────────────────┘
+   Write: send to N replicas, wait for W acks.  Read: query R replicas, take newest.  W+R>N ⇒ strong.
+```
+
+**Component walkthrough:**
+
+- **Client / Coordinator with the hash ring** — computes `node_for(key)` by
+  hashing the key onto the ring and walking clockwise to the first node. This is
+  **consistent hashing**: adding or removing a node only moves ~1/N of keys
+  instead of reshuffling everything. It can live in a smart client or a
+  coordinator tier.
+- **Cache/KV nodes with virtual nodes** — each physical node claims many ring
+  positions (B1, B2, B3…). **Virtual nodes** even out key distribution and, when a
+  node dies, spread its load across many successors instead of dumping it on one
+  neighbor. Each node owns the key arc that lands on its vnodes.
+- **Replication to N−1 successors** — the owning node copies each key to the next
+  N−1 nodes clockwise, giving a **replication factor** of N so a node failure
+  neither loses data nor blocks its keys (C and D here hold replicas of B).
+- **Gossip / membership protocol** — nodes periodically exchange which peers are
+  up/down and the current ring map, so the cluster reaches agreement on membership
+  and reroutes around failures without a central coordinator.
+- **Quorum read/write path** — a write waits for **W** replica acks and a read
+  queries **R** replicas; when **W + R > N** the read set overlaps the write set
+  on an up-to-date replica, giving **strong consistency** (N=3, W=2, R=2 is the
+  balanced default). Lowering W/R trades consistency for latency/availability —
+  the CAP fork made concrete.
+
 ## Command reference
 
 The concept cheat sheet for this module.

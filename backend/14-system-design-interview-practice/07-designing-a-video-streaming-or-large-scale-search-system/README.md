@@ -140,6 +140,94 @@ and doing it across a huge corpus requires **partitioning the index**:
   cache** (cache-aside on the query string, module 04/05) serves them from memory,
   and the 80/20 rule means a small cache captures a large share of traffic.
 
+### Reference architecture
+
+Because this module covers two systems, here are two whole-system views — one per
+design.
+
+**(a) Video streaming** — an async ingest/transcode pipeline feeding a
+read-optimized edge-delivery path:
+
+```
+   ┌──────────┐  chunked/resumable    ┌──────────────────┐   enqueue   ┌──────────────────┐
+   │ Uploader │══════════════════════►│  Object store    │────────────►│ Transcode queue  │
+   └──────────┘                       │  (raw upload)    │             └────────┬─────────┘
+                                      └──────────────────┘                      ▼
+                                                                      ┌──────────────────────┐
+   ┌──────────┐                                                       │  Transcode workers   │
+   │ Metadata │◄─── status, renditions ───────────────────────────────┤  (240p…4K renditions,│
+   │   DB     │                                                        │  segment into chunks)│
+   └──────────┘                                                        └──────────┬───────────┘
+                                                                          push renditions
+                                       ┌──────────────────┐                       ▼
+   ┌──────────┐  manifest + chunks     │   CDN edge caches │◄───── origin pull ───┴──────────┐
+   │  Player  │◄══════════════════════►│  (near viewer)    │                    ┌────────────┐│
+   │ (ABR:    │   fetch nearest edge   └──────────────────┘                    │ Object store││
+   │  per-seg │                          edge miss → origin                    │ (renditions)││
+   │  switch) │                                                                └────────────┘│
+   └──────────┘                                                                               ┘
+```
+
+**(b) Full-text search** — an async indexing pipeline feeding a scatter-gather
+query path:
+
+```
+   ┌──────────────┐   changes   ┌──────────────┐   ┌──────────────┐
+   │ Source docs  │────────────►│ Ingest queue │──►│  Indexers    │  build/update
+   │ (crawler /   │             └──────────────┘   │  (analyzer:  │  inverted index
+   │  writes)     │                                │  tokenize,   │
+   └──────────────┘                                │  stem)       │
+                                                   └──────┬───────┘
+                                            ┌─────────────┼─────────────┐  (NRT updates)
+                                            ▼             ▼             ▼
+                                     ┌──────────┐  ┌──────────┐  ┌──────────┐
+                                     │ Shard 1  │  │ Shard 2  │  │ Shard 3  │  (+replicas)
+                                     │ inv. idx │  │ inv. idx │  │ inv. idx │
+                                     └────▲─────┘  └────▲─────┘  └────▲─────┘
+                        scatter          │             │             │   each: local top-K
+   ┌──────────┐   query  ┌───────────────┴─────────────┴─────────────┴──┐
+   │  Client  │─────────►│  Query coordinator  (analyze → scatter →       │
+   │          │◄─────────│  gather → merge global top-K → paginate)       │
+   └──────────┘  top-K   └───────────────┬────────────────────────────────┘
+                                         ▼
+                                  ┌──────────────┐
+                                  │ Query cache  │  (hot queries, cache-aside)
+                                  └──────────────┘
+```
+
+**Component walkthrough:**
+
+Video pipeline:
+- **Uploader → Object store (raw)** — the write entry point; large video blobs go
+  to object storage via **chunked/resumable** upload so a dropped connection
+  doesn't restart a multi-GB transfer.
+- **Transcode queue + workers** — the **async** heavy-lifting fleet that transcodes
+  the raw video into multiple renditions (240p…4K) and **segments** each into small
+  chunks. Off the upload request so uploads return immediately.
+- **Object store (renditions) + Metadata DB** — renditions live as blobs in object
+  storage; small queryable **metadata** (title, status, rendition list, view
+  counts) lives in a database — the blob/metadata split.
+- **CDN edge caches** — serve chunks from edges near the viewer; the **origin
+  object store is hit only on an edge miss**. This is what makes Tbps-scale global,
+  low-latency delivery possible — the dominant constraint is bandwidth, not QPS.
+- **Player (ABR)** — fetches the **manifest** (HLS/DASH), measures its bandwidth,
+  and **switches rendition per chunk** so playback stays smooth as the network
+  fluctuates.
+
+Search pipeline:
+- **Source docs → Ingest queue → Indexers** — the **async indexing path**: document
+  changes flow through a queue to indexers that run the **analyzer** (tokenize,
+  lowercase, stem, drop stopwords) and update the inverted index near-real-time, so
+  the index is *eventually* consistent with the source.
+- **Index shards (+ replicas)** — the corpus is split into **shards** (each an
+  inverted index over a subset of docs) and **replicated** for availability and
+  read throughput — billions of docs don't fit or compute on one node.
+- **Query coordinator** — runs the **scatter-gather**: analyzes the query,
+  broadcasts to all shards, gathers each shard's local top-K (ranked by BM25 + doc
+  signals), and **merges** them into the global top-K, then paginates.
+- **Query cache** — a cache-aside layer on the query string; popular queries repeat
+  (80/20), so a small cache serves a large share of traffic from memory.
+
 ## Command reference
 
 Two designs, side by side — the concept map for each.

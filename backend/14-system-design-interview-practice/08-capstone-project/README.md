@@ -95,6 +95,76 @@ in order, out loud, producing an artifact for each step:
    throughput, how you'd scale it *without* sacrificing correctness, and the
    tradeoffs you consciously made.
 
+### Reference architecture
+
+A target architecture for the money path — correctness-first, with the strongly-
+consistent ledger DB as the source of truth and an outbox feeding async
+downstream consumers that never sit on the critical path:
+
+```
+   ┌──────────┐  submit(txn,           ┌─────────────────────────────────────┐
+   │  Client  │  idempotency_key)      │   API layer                          │
+   │(merchant)│───────────────────────►│  ┌───────────────────────────────┐  │
+   └──────────┘                        │  │ Idempotency check at the door │  │
+        ▲                              │  │ seen key? → return stored resp│  │
+        │ original result on retry     │  └──────────────┬────────────────┘  │
+        └──────────────────────────────┤                 │ new key           │
+                                        └────────────────┼───────────────────┘
+                                                          ▼
+                                         ┌─────────────────────────────────┐
+                                         │  Ledger service                  │
+                                         │  double-entry: DEBIT A + CREDIT B│
+                                         │  (Σ = 0), per-account concurrency│
+                                         │  control (lock / serialize)      │
+                                         └───────────────┬─────────────────┘
+                       atomic commit (ledger rows + outbox row, one txn)    │
+                                                          ▼
+                                         ┌─────────────────────────────────┐
+                                         │  Primary Database (source of     │
+                                         │  truth, strongly consistent):    │
+                                         │  immutable ledger + Outbox table │
+                                         └───────────────┬─────────────────┘
+                                                          ▼  poll/CDC
+                                         ┌─────────────────────────────────┐
+                                         │  Event publisher (reads outbox) │
+                                         └───────┬──────────┬──────────┬────┘
+                                                 ▼          ▼          ▼
+                                     ┌──────────────┐ ┌──────────┐ ┌──────────────┐
+                                     │ Notification │ │Reconcile │ │ Observability│
+                                     │  service     │ │ / audit  │ │ / metrics    │
+                                     └──────────────┘ └──────────┘ └──────────────┘
+```
+
+**Component walkthrough:**
+
+- **Client (merchant)** — submits a transaction with an **idempotency key** and,
+  on a network timeout, *retries the same key*. It must receive the original result
+  on a retry, never a second charge.
+- **API layer with idempotency check at the door** — the first correctness gate.
+  It looks the idempotency key up before any money moves; a **seen key returns the
+  stored response without re-executing**, so retries can't double-charge (the
+  idempotency-key pattern). Only a new key proceeds.
+- **Ledger service (double-entry)** — enforces the accounting invariant: one
+  transaction produces a balanced **DEBIT + CREDIT** that sum to zero. It applies
+  **per-account concurrency control** (pessimistic lock, optimistic version, or
+  serialized per-account processing) so two concurrent transfers can't overdraw an
+  account via a lost update.
+- **Primary Database (source of truth)** — a **strongly consistent** store holding
+  the **immutable, append-only ledger** and the **outbox table**. The ledger rows
+  and the outbox row are written in **one atomic transaction**, so an event is
+  emitted if and only if the money movement committed — no partial state.
+- **Transactional Outbox + Event publisher** — the outbox row is picked up
+  asynchronously (poll or change-data-capture) and published downstream. This keeps
+  slow downstream work *off* the critical money path while guaranteeing exactly the
+  events that correspond to committed transactions.
+- **Downstream consumers** — **Notification service** (receipts/alerts),
+  **Reconciliation / audit service** (continuously recomputes balances from the
+  ledger and alerts if a derived balance ever diverges — the invariant check), and
+  **Observability / metrics pipeline** (traces keyed by idempotency + transaction
+  id, alerts on retry storms, stuck in-flight transactions, or invariant
+  violations). All run async so a silently-wrong ledger is caught fast without
+  slowing commits.
+
 ### Acceptance checklist
 
 Tick every box. If you can't, you've found a module (in this track or an earlier

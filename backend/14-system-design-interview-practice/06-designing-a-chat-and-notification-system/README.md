@@ -147,6 +147,72 @@ across channels and made asynchronous:
   spam. Delivery is best-effort per channel with retries, and idempotency keys
   prevent double-sends on retry.
 
+### Reference architecture
+
+The full system is a persistent-connection fabric fronted by presence routing,
+backed by a persist-first message store, with a queue-driven notification fan-out
+for offline/multi-channel delivery. Sender A on the left, recipient B (and offline
+users) on the right:
+
+```
+  ┌──────────┐  ws                 ┌───────────────────────────┐
+  │ Client A │═════════════════════│  Connection Gateway / LB  │  (sticky routing;
+  └──────────┘                     │  holds live sockets        │   scaled by conn count)
+                                    └───────┬───────────┬───────┘
+                    register/lookup │       │           │
+                          ┌─────────▼──────┐│           │ persist FIRST
+                          │ Presence svc   ││           ▼
+                          │ user_id →      ││   ┌────────────────────┐
+                          │ conn_server    ││   │  Chat service      │
+                          │ (routing map)  ││   │  (ordering: per-   │
+                          └────────────────┘│   │  conversation seq) │
+                                            │   └─────────┬──────────┘
+        B online: route to B's gateway ◄────┘             ▼
+  ┌──────────┐  ws                 ┌────────────────┐  ┌────────────────────┐
+  │ Client B │═════════════════════│ (its gateway)  │  │  Message store     │
+  └──────────┘                     └────────────────┘  │  (per-conversation,│
+                                                        │  sharded, cold tier)│
+        B offline: store-and-forward inbox ◄────────────┤                     │
+                                                        └─────────┬──────────┘
+                                                                  ▼ emit event
+                       ┌──────────────────┐   ┌──────────────────────────────────┐
+                       │  Message queue   │──►│  Notification service (workers)  │
+                       └──────────────────┘   │  collapse/throttle, per-channel  │
+                                              └──┬──────────┬──────────┬─────────┘
+                                                 ▼          ▼          ▼
+                                             in-app/ws   APNs/FCM   Email/SMS
+                                             (push)      (mobile)   (providers)
+```
+
+**Component walkthrough:**
+
+- **Connection Gateway / Load balancer** — the stateful fleet that holds millions
+  of long-lived **websocket** connections, with **sticky routing** (a connection
+  stays pinned to its gateway). It scales by connection count, not QPS, and owns
+  the live sockets over which messages are pushed.
+- **Presence service** — the fast shared **routing registry** mapping
+  `user_id → connection_server`, updated on every connect/disconnect. It answers
+  "which gateway holds B's socket?" so a message from A can be forwarded to the
+  right gateway, and it also tracks online/offline to choose live-push vs.
+  store-and-forward.
+- **Chat service** — persists each message and assigns a **per-conversation
+  sequence number** for consistent ordering, then routes to the recipient's
+  gateway. Persist-first is what makes delivery survivable and offline catch-up
+  possible.
+- **Message store** — the durable, **per-conversation** record, partitioned by
+  `conversation_id` and time-clustered, sharded across nodes with old messages
+  tiered to cold storage. Backs both live delivery and history reads.
+- **Store-and-forward inbox** — for **offline** recipients, messages are persisted
+  and delivered on reconnect via a **catch-up sync** since the client's last-seen
+  sequence number, rather than being dropped.
+- **Message queue + Notification service** — events (a message to an offline user,
+  a like, a mention) are enqueued and workers fan them out **asynchronously**,
+  applying collapse/throttle and per-user channel preferences.
+- **Multi-channel delivery (in-app / APNs·FCM / Email·SMS)** — the notification
+  service's output legs: in-app via the websocket layer, mobile push via APNs/FCM
+  gateways, and email/SMS via providers — each at-least-once with idempotency keys
+  to avoid double-sends.
+
 ## Command reference
 
 The real-time delivery concept map.

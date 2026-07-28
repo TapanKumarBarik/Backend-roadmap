@@ -175,6 +175,68 @@ short_code (PK)   long_url        created_at   expires_at   owner_id?
   **06-background-processing-and-realtime**) lazily purges expired rows, or you
   check `expires_at` on read and treat expired as `404`.
 
+### Reference architecture
+
+Putting the write path, the read path, and the async analytics pipeline together,
+the whole shortener looks like this — the hot redirect path is the thick spine,
+everything else hangs off it:
+
+```
+                          ┌──────────────────┐
+   Client ──────────────► │  Load Balancer   │
+   (POST create /         └───────┬──────────┘
+    GET redirect)                 ▼
+                          ┌──────────────────┐
+                          │   App servers    │
+                          │   (stateless)    │
+                          └──┬────────┬───┬──┘
+        WRITE path          │        │   │        READ path
+   ┌──────────────────┐     │        │   │   ┌──────────────────┐  hit
+   │ ID-gen /         │◄────┘        │   └──►│   Redis cache    │─────► 302 redirect
+   │ Block allocator  │  lease block │       │  (hot codes,<1ms)│
+   │ (counter→base62) │              │       └────────┬─────────┘
+   └────────┬─────────┘              │        miss    │  populate on miss
+            │ insert                 │               ▼
+            ▼                        │      ┌──────────────────────┐
+   ┌────────────────────────────────▼──┐   │  Partitioned KV store │
+   │     Partitioned KV store          │◄──┤  read replicas        │
+   │  (hash by short_code) + replicas  │   └──────────────────────┘
+   └───────────────────────────────────┘
+            │  redirect handler fires click event (non-blocking)
+            ▼
+   ┌──────────────────┐    ┌──────────────────┐    ┌──────────────────────┐
+   │  Analytics queue │───►│ Analytics workers│───►│ Analytics/time-series │
+   │  (async stream)  │    │ (aggregate)      │    │ store  + dashboard    │
+   └──────────────────┘    └──────────────────┘    └──────────────────────┘
+```
+
+**Component walkthrough:**
+
+- **Load Balancer** — spreads both creates (POST) and redirects (GET) across the
+  stateless app fleet; the read side must absorb the ~300K peak redirects/sec.
+- **App servers** — stateless request handlers. They branch to the write path on
+  create and the read path on redirect; statelessness is what lets you scale them
+  horizontally behind the LB.
+- **ID-gen / Block allocator** — the **short-code-generation** component. Each app
+  server leases a block of ids from the central allocator once per ~1,000 URLs and
+  base62-encodes them locally, giving unique codes with no per-request bottleneck
+  (the pre-allocated-block strategy from the concepts above).
+- **Redis cache** — the heart of the **cache-aside read path**. Hot codes (80/20
+  distribution) serve from memory in <1 ms; on a miss the app reads a replica,
+  populates the cache, then redirects. This is what makes 100:1 read-heavy traffic
+  survivable.
+- **Partitioned KV store + read replicas** — the durable mapping, **hash-
+  partitioned by `short_code`** so each point lookup hits exactly one shard (no
+  scatter-gather) and the ~270 TB spreads evenly. Read replicas scale reads;
+  writes insert via put-if-absent to enforce alias uniqueness.
+- **Analytics queue** — the redirect handler fires a click event onto this async
+  stream *without blocking the 302*, keeping the redirect under 100 ms. This is
+  the fan-out-to-a-queue decoupling that lets analytics lag.
+- **Analytics workers + store** — consume the queue, aggregate click events into a
+  time-series/analytics store, and back the dashboard. The click count is
+  deliberately **eventually consistent** — seconds of lag is acceptable per the
+  NFRs.
+
 ## Command reference
 
 The design at a glance — reference numbers, API, and architecture.

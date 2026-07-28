@@ -138,6 +138,67 @@ Layered on top:
   content from a separate post store/cache at read time so a post edited once
   isn't rewritten into millions of feeds.
 
+### Reference architecture
+
+The whole system is two write paths (normal vs. celebrity) that converge at a
+single read-time merge. Follow a post from creation on the left to a rendered
+feed on the right:
+
+```
+                         ┌──────────────────────────────────────────────┐
+                         │              WRITE side                        │
+   ┌────────┐  post      │  ┌──────────────┐   normal author             │
+   │ Author │──────────► │  │ Post service │──┬──────────────► ┌────────────────────┐
+   └────────┘            │  │ (durable     │  │ enqueue        │  Fan-out queue     │
+                         │  │  post store) │  │ (< threshold)  │  + Fan-out workers │
+                         │  └──────┬───────┘  │                └─────────┬──────────┘
+                         │         │ celebrity│ (no fan-out)             │ prepend id
+                         │         ▼          │                          ▼
+                         │  ┌──────────────┐  │              ┌────────────────────────┐
+                         │  │ Celebrity    │  │              │ Per-user Feed store    │
+                         │  │ post store   │  │              │ (capped list of post   │
+                         │  │ (pulled at   │  │              │  ids, partitioned)     │
+                         │  │  read time)  │  │              └───────────┬────────────┘
+                         │  └──────┬───────┘  │                          │
+                         └─────────┼──────────┴──────────────────────────┼──────────┐
+                                   │  pull celebs followed                │ precomputed│
+                                   ▼                                      ▼          │
+                              ┌───────────────────────────────────────────────┐     │
+                              │   Feed service:  merge(precomputed + pulled)   │◄────┘
+                              │   → Ranking service (score by engagement)      │
+                              └───────────────────────┬───────────────────────┘
+                                                      ▼ hydrate ids → posts
+                                                 ┌──────────┐
+                                                 │  Client  │  (feed, top N)
+                                                 └──────────┘
+```
+
+**Component walkthrough:**
+
+- **Post service** — accepts new posts, writes them durably to the author's post
+  list, and decides the fan-out path by follower count. This is the branch point
+  of the whole hybrid.
+- **Fan-out queue + Fan-out workers** — for **normal accounts** (below the
+  celebrity threshold), the post id is enqueued and workers **asynchronously**
+  prepend it into every follower's feed. Async decouples the poster's fast
+  response from the expensive scatter (the background-processing pattern).
+- **Per-user Feed store** — the precomputed, capped list of post ids per user,
+  partitioned by user id (consistent hashing from module 04). This is the cache of
+  results that makes a normal feed read **O(1)**.
+- **Celebrity post store** — for **high-fan-out accounts**, posts are *not* fanned
+  out; they sit in the author's post list and are **pulled at read time**. This
+  caps the 50M-write storm that would kill pure push.
+- **Feed service (merge step)** — on a read, it fetches the user's precomputed
+  pushed feed and **merges** in a live pull of the few celebrities they follow.
+  This convergence point is where "push for the many, pull for the few" is
+  realized.
+- **Ranking service** — scores the merged candidate posts by predicted engagement
+  (candidate-generation → ranking), reordering the feed. It sits *on top of* the
+  fan-out substrate and doesn't change the push/pull decision.
+- **Client** — receives the final top-N feed after post ids are hydrated into full
+  post content from the shared post cache (ids stored in feeds, content fetched
+  once).
+
 ## Command reference
 
 The fan-out decision — the table to have memorized cold.
