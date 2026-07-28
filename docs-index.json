@@ -1,0 +1,2921 @@
+{
+  "tree": [
+    {
+      "name": "backend",
+      "path": "backend",
+      "file": "backend/README.md",
+      "title": "Backend Engineering: Fundamentals → Distributed Systems → System Design",
+      "children": [
+        {
+          "name": "01-request-response-fundamentals",
+          "path": "backend/01-request-response-fundamentals",
+          "file": "backend/01-request-response-fundamentals/README.md",
+          "title": "01 - Request/Response Fundamentals",
+          "children": [
+            {
+              "name": "00-system-overview-and-request-flow",
+              "path": "backend/01-request-response-fundamentals/00-system-overview-and-request-flow",
+              "file": "backend/01-request-response-fundamentals/00-system-overview-and-request-flow/README.md",
+              "title": "Module 00: System Overview and Request Flow",
+              "children": []
+            },
+            {
+              "name": "01-http-protocol-basics",
+              "path": "backend/01-request-response-fundamentals/01-http-protocol-basics",
+              "file": "backend/01-request-response-fundamentals/01-http-protocol-basics/README.md",
+              "title": "Module 01: HTTP Protocol Basics",
+              "children": []
+            },
+            {
+              "name": "02-http-headers-deep-dive",
+              "path": "backend/01-request-response-fundamentals/02-http-headers-deep-dive",
+              "file": "backend/01-request-response-fundamentals/02-http-headers-deep-dive/README.md",
+              "title": "Module 02: HTTP Headers Deep Dive",
+              "children": []
+            },
+            {
+              "name": "03-http-methods-and-semantics",
+              "path": "backend/01-request-response-fundamentals/03-http-methods-and-semantics",
+              "file": "backend/01-request-response-fundamentals/03-http-methods-and-semantics/README.md",
+              "title": "Module 03: HTTP Methods and Semantics",
+              "children": []
+            },
+            {
+              "name": "04-cors-and-preflight-requests",
+              "path": "backend/01-request-response-fundamentals/04-cors-and-preflight-requests",
+              "file": "backend/01-request-response-fundamentals/04-cors-and-preflight-requests/README.md",
+              "title": "Module 04: CORS and Preflight Requests",
+              "children": []
+            },
+            {
+              "name": "05-http-responses-and-status-codes",
+              "path": "backend/01-request-response-fundamentals/05-http-responses-and-status-codes",
+              "file": "backend/01-request-response-fundamentals/05-http-responses-and-status-codes/README.md",
+              "title": "Module 05: HTTP Responses and Status Codes",
+              "children": []
+            },
+            {
+              "name": "06-http-caching",
+              "path": "backend/01-request-response-fundamentals/06-http-caching",
+              "file": "backend/01-request-response-fundamentals/06-http-caching/README.md",
+              "title": "Module 06: HTTP Caching",
+              "children": []
+            },
+            {
+              "name": "07-http-1-1-vs-2-vs-3",
+              "path": "backend/01-request-response-fundamentals/07-http-1-1-vs-2-vs-3",
+              "file": "backend/01-request-response-fundamentals/07-http-1-1-vs-2-vs-3/README.md",
+              "title": "Module 07: HTTP/1.1 vs HTTP/2 vs HTTP/3",
+              "children": []
+            },
+            {
+              "name": "08-content-negotiation-and-compression",
+              "path": "backend/01-request-response-fundamentals/08-content-negotiation-and-compression",
+              "file": "backend/01-request-response-fundamentals/08-content-negotiation-and-compression/README.md",
+              "title": "Module 08: Content Negotiation and Compression",
+              "children": []
+            },
+            {
+              "name": "09-tls-ssl-and-https",
+              "path": "backend/01-request-response-fundamentals/09-tls-ssl-and-https",
+              "file": "backend/01-request-response-fundamentals/09-tls-ssl-and-https/README.md",
+              "title": "Module 09: TLS/SSL and HTTPS",
+              "children": []
+            },
+            {
+              "name": "10-routing-fundamentals",
+              "path": "backend/01-request-response-fundamentals/10-routing-fundamentals",
+              "file": "backend/01-request-response-fundamentals/10-routing-fundamentals/README.md",
+              "title": "Module 10: Routing Fundamentals",
+              "children": []
+            },
+            {
+              "name": "11-api-versioning-and-serialization",
+              "path": "backend/01-request-response-fundamentals/11-api-versioning-and-serialization",
+              "file": "backend/01-request-response-fundamentals/11-api-versioning-and-serialization/README.md",
+              "title": "Module 11: API Versioning and Serialization",
+              "children": []
+            },
+            {
+              "name": "12-capstone-project",
+              "path": "backend/01-request-response-fundamentals/12-capstone-project",
+              "file": "backend/01-request-response-fundamentals/12-capstone-project/README.md",
+              "title": "Module 12: Capstone Project",
+              "children": []
+            }
+          ]
+        },
+        {
+          "name": "02-api-layer-and-request-handling",
+          "path": "backend/02-api-layer-and-request-handling",
+          "file": "backend/02-api-layer-and-request-handling/README.md",
+          "title": "02 - API Layer and Request Handling",
+          "children": [
+            {
+              "name": "00-validation-fundamentals",
+              "path": "backend/02-api-layer-and-request-handling/00-validation-fundamentals",
+              "file": "backend/02-api-layer-and-request-handling/00-validation-fundamentals/README.md",
+              "title": "Module 00: Validation Fundamentals",
+              "children": []
+            },
+            {
+              "name": "01-transformation-and-normalization",
+              "path": "backend/02-api-layer-and-request-handling/01-transformation-and-normalization",
+              "file": "backend/02-api-layer-and-request-handling/01-transformation-and-normalization/README.md",
+              "title": "Module 01: Transformation and Normalization",
+              "children": []
+            },
+            {
+              "name": "02-complex-validation-logic",
+              "path": "backend/02-api-layer-and-request-handling/02-complex-validation-logic",
+              "file": "backend/02-api-layer-and-request-handling/02-complex-validation-logic/README.md",
+              "title": "Module 02: Complex Validation Logic",
+              "children": []
+            },
+            {
+              "name": "03-middleware-fundamentals",
+              "path": "backend/02-api-layer-and-request-handling/03-middleware-fundamentals",
+              "file": "backend/02-api-layer-and-request-handling/03-middleware-fundamentals/README.md",
+              "title": "Module 03: Middleware Fundamentals",
+              "children": []
+            },
+            {
+              "name": "04-common-middleware-patterns",
+              "path": "backend/02-api-layer-and-request-handling/04-common-middleware-patterns",
+              "file": "backend/02-api-layer-and-request-handling/04-common-middleware-patterns/README.md",
+              "title": "Module 04: Common Middleware Patterns",
+              "children": []
+            },
+            {
+              "name": "05-request-context",
+              "path": "backend/02-api-layer-and-request-handling/05-request-context",
+              "file": "backend/02-api-layer-and-request-handling/05-request-context/README.md",
+              "title": "Module 05: Request Context",
+              "children": []
+            },
+            {
+              "name": "06-handlers-controllers-and-services",
+              "path": "backend/02-api-layer-and-request-handling/06-handlers-controllers-and-services",
+              "file": "backend/02-api-layer-and-request-handling/06-handlers-controllers-and-services/README.md",
+              "title": "Module 06: Handlers, Controllers, and Services",
+              "children": []
+            },
+            {
+              "name": "07-crud-deep-dive",
+              "path": "backend/02-api-layer-and-request-handling/07-crud-deep-dive",
+              "file": "backend/02-api-layer-and-request-handling/07-crud-deep-dive/README.md",
+              "title": "Module 07: CRUD Deep Dive",
+              "children": []
+            },
+            {
+              "name": "08-restful-architecture-and-best-practices",
+              "path": "backend/02-api-layer-and-request-handling/08-restful-architecture-and-best-practices",
+              "file": "backend/02-api-layer-and-request-handling/08-restful-architecture-and-best-practices/README.md",
+              "title": "Module 08: RESTful Architecture and Best Practices",
+              "children": []
+            },
+            {
+              "name": "09-openapi-standards",
+              "path": "backend/02-api-layer-and-request-handling/09-openapi-standards",
+              "file": "backend/02-api-layer-and-request-handling/09-openapi-standards/README.md",
+              "title": "Module 09: OpenAPI Standards",
+              "children": []
+            },
+            {
+              "name": "10-capstone-project",
+              "path": "backend/02-api-layer-and-request-handling/10-capstone-project",
+              "file": "backend/02-api-layer-and-request-handling/10-capstone-project/README.md",
+              "title": "Module 10: Capstone Project",
+              "children": []
+            }
+          ]
+        },
+        {
+          "name": "03-authentication-and-authorization",
+          "path": "backend/03-authentication-and-authorization",
+          "file": "backend/03-authentication-and-authorization/README.md",
+          "title": "03 - Authentication and Authorization",
+          "children": [
+            {
+              "name": "00-auth-fundamentals-stateful-vs-stateless",
+              "path": "backend/03-authentication-and-authorization/00-auth-fundamentals-stateful-vs-stateless",
+              "file": "backend/03-authentication-and-authorization/00-auth-fundamentals-stateful-vs-stateless/README.md",
+              "title": "Module 00: Auth Fundamentals — Stateful vs Stateless",
+              "children": []
+            },
+            {
+              "name": "01-sessions-and-cookies",
+              "path": "backend/03-authentication-and-authorization/01-sessions-and-cookies",
+              "file": "backend/03-authentication-and-authorization/01-sessions-and-cookies/README.md",
+              "title": "Module 01: Sessions and Cookies",
+              "children": []
+            },
+            {
+              "name": "02-jwt-deep-dive",
+              "path": "backend/03-authentication-and-authorization/02-jwt-deep-dive",
+              "file": "backend/03-authentication-and-authorization/02-jwt-deep-dive/README.md",
+              "title": "Module 02: JWT Deep Dive",
+              "children": []
+            },
+            {
+              "name": "03-oauth2-and-oidc",
+              "path": "backend/03-authentication-and-authorization/03-oauth2-and-oidc",
+              "file": "backend/03-authentication-and-authorization/03-oauth2-and-oidc/README.md",
+              "title": "Module 03: OAuth2 and OIDC",
+              "children": []
+            },
+            {
+              "name": "04-api-keys-and-service-to-service-auth",
+              "path": "backend/03-authentication-and-authorization/04-api-keys-and-service-to-service-auth",
+              "file": "backend/03-authentication-and-authorization/04-api-keys-and-service-to-service-auth/README.md",
+              "title": "Module 04: API Keys and Service-to-Service Auth",
+              "children": []
+            },
+            {
+              "name": "05-mfa-and-password-security",
+              "path": "backend/03-authentication-and-authorization/05-mfa-and-password-security",
+              "file": "backend/03-authentication-and-authorization/05-mfa-and-password-security/README.md",
+              "title": "Module 05: MFA and Password Security",
+              "children": []
+            },
+            {
+              "name": "06-authorization-models",
+              "path": "backend/03-authentication-and-authorization/06-authorization-models",
+              "file": "backend/03-authentication-and-authorization/06-authorization-models/README.md",
+              "title": "Module 06: Authorization Models",
+              "children": []
+            },
+            {
+              "name": "07-securing-auth-in-practice",
+              "path": "backend/03-authentication-and-authorization/07-securing-auth-in-practice",
+              "file": "backend/03-authentication-and-authorization/07-securing-auth-in-practice/README.md",
+              "title": "Module 07: Securing Auth in Practice",
+              "children": []
+            },
+            {
+              "name": "08-capstone-project",
+              "path": "backend/03-authentication-and-authorization/08-capstone-project",
+              "file": "backend/03-authentication-and-authorization/08-capstone-project/README.md",
+              "title": "Module 08: Capstone Project",
+              "children": []
+            }
+          ]
+        },
+        {
+          "name": "04-databases-and-data-layer",
+          "path": "backend/04-databases-and-data-layer",
+          "file": "backend/04-databases-and-data-layer/README.md",
+          "title": "04 - Databases and the Data Layer",
+          "children": [
+            {
+              "name": "00-relational-vs-non-relational",
+              "path": "backend/04-databases-and-data-layer/00-relational-vs-non-relational",
+              "file": "backend/04-databases-and-data-layer/00-relational-vs-non-relational/README.md",
+              "title": "Module 00: Relational vs Non-Relational Databases",
+              "children": []
+            },
+            {
+              "name": "01-acid-and-cap-theorem",
+              "path": "backend/04-databases-and-data-layer/01-acid-and-cap-theorem",
+              "file": "backend/04-databases-and-data-layer/01-acid-and-cap-theorem/README.md",
+              "title": "Module 01: ACID and the CAP Theorem",
+              "children": []
+            },
+            {
+              "name": "02-querying-and-joins",
+              "path": "backend/04-databases-and-data-layer/02-querying-and-joins",
+              "file": "backend/04-databases-and-data-layer/02-querying-and-joins/README.md",
+              "title": "Module 02: Querying and Joins",
+              "children": []
+            },
+            {
+              "name": "03-schema-design-and-indexing",
+              "path": "backend/04-databases-and-data-layer/03-schema-design-and-indexing",
+              "file": "backend/04-databases-and-data-layer/03-schema-design-and-indexing/README.md",
+              "title": "Module 03: Schema Design and Indexing",
+              "children": []
+            },
+            {
+              "name": "04-transactions-and-concurrency-control",
+              "path": "backend/04-databases-and-data-layer/04-transactions-and-concurrency-control",
+              "file": "backend/04-databases-and-data-layer/04-transactions-and-concurrency-control/README.md",
+              "title": "Module 04: Transactions and Concurrency Control",
+              "children": []
+            },
+            {
+              "name": "05-orms-and-migrations",
+              "path": "backend/04-databases-and-data-layer/05-orms-and-migrations",
+              "file": "backend/04-databases-and-data-layer/05-orms-and-migrations/README.md",
+              "title": "Module 05: ORMs and Migrations",
+              "children": []
+            },
+            {
+              "name": "06-business-logic-layer-and-separation-of-concerns",
+              "path": "backend/04-databases-and-data-layer/06-business-logic-layer-and-separation-of-concerns",
+              "file": "backend/04-databases-and-data-layer/06-business-logic-layer-and-separation-of-concerns/README.md",
+              "title": "Module 06: Business Logic Layer and Separation of Concerns",
+              "children": []
+            },
+            {
+              "name": "07-query-optimization-and-connection-pooling",
+              "path": "backend/04-databases-and-data-layer/07-query-optimization-and-connection-pooling",
+              "file": "backend/04-databases-and-data-layer/07-query-optimization-and-connection-pooling/README.md",
+              "title": "Module 07: Query Optimization and Connection Pooling",
+              "children": []
+            },
+            {
+              "name": "08-replication-and-sharding",
+              "path": "backend/04-databases-and-data-layer/08-replication-and-sharding",
+              "file": "backend/04-databases-and-data-layer/08-replication-and-sharding/README.md",
+              "title": "Module 08: Replication and Sharding",
+              "children": []
+            },
+            {
+              "name": "09-capstone-project",
+              "path": "backend/04-databases-and-data-layer/09-capstone-project",
+              "file": "backend/04-databases-and-data-layer/09-capstone-project/README.md",
+              "title": "Module 09: Capstone Project",
+              "children": []
+            }
+          ]
+        },
+        {
+          "name": "05-caching-and-performance",
+          "path": "backend/05-caching-and-performance",
+          "file": "backend/05-caching-and-performance/README.md",
+          "title": "05 - Caching and Performance",
+          "children": [
+            {
+              "name": "00-caching-fundamentals",
+              "path": "backend/05-caching-and-performance/00-caching-fundamentals",
+              "file": "backend/05-caching-and-performance/00-caching-fundamentals/README.md",
+              "title": "Module 00: Caching Fundamentals",
+              "children": []
+            },
+            {
+              "name": "01-caching-strategies",
+              "path": "backend/05-caching-and-performance/01-caching-strategies",
+              "file": "backend/05-caching-and-performance/01-caching-strategies/README.md",
+              "title": "Module 01: Caching Strategies",
+              "children": []
+            },
+            {
+              "name": "02-cache-eviction-and-invalidation",
+              "path": "backend/05-caching-and-performance/02-cache-eviction-and-invalidation",
+              "file": "backend/05-caching-and-performance/02-cache-eviction-and-invalidation/README.md",
+              "title": "Module 02: Cache Eviction and Invalidation",
+              "children": []
+            },
+            {
+              "name": "03-multi-level-caching",
+              "path": "backend/05-caching-and-performance/03-multi-level-caching",
+              "file": "backend/05-caching-and-performance/03-multi-level-caching/README.md",
+              "title": "Module 03: Multi-Level Caching",
+              "children": []
+            },
+            {
+              "name": "04-caching-for-web-apps-and-databases",
+              "path": "backend/05-caching-and-performance/04-caching-for-web-apps-and-databases",
+              "file": "backend/05-caching-and-performance/04-caching-for-web-apps-and-databases/README.md",
+              "title": "Module 04: Caching for Web Apps and Databases",
+              "children": []
+            },
+            {
+              "name": "05-performance-bottlenecks-and-identifying-them",
+              "path": "backend/05-caching-and-performance/05-performance-bottlenecks-and-identifying-them",
+              "file": "backend/05-caching-and-performance/05-performance-bottlenecks-and-identifying-them/README.md",
+              "title": "Module 05: Performance Bottlenecks and Identifying Them",
+              "children": []
+            },
+            {
+              "name": "06-scaling-strategies-and-batch-processing",
+              "path": "backend/05-caching-and-performance/06-scaling-strategies-and-batch-processing",
+              "file": "backend/05-caching-and-performance/06-scaling-strategies-and-batch-processing/README.md",
+              "title": "Module 06: Scaling Strategies and Batch Processing",
+              "children": []
+            },
+            {
+              "name": "07-concurrency-and-parallelism",
+              "path": "backend/05-caching-and-performance/07-concurrency-and-parallelism",
+              "file": "backend/05-caching-and-performance/07-concurrency-and-parallelism/README.md",
+              "title": "Module 07: Concurrency and Parallelism",
+              "children": []
+            },
+            {
+              "name": "08-profiling-and-performance-testing",
+              "path": "backend/05-caching-and-performance/08-profiling-and-performance-testing",
+              "file": "backend/05-caching-and-performance/08-profiling-and-performance-testing/README.md",
+              "title": "Module 08: Profiling and Performance Testing",
+              "children": []
+            },
+            {
+              "name": "09-capstone-project",
+              "path": "backend/05-caching-and-performance/09-capstone-project",
+              "file": "backend/05-caching-and-performance/09-capstone-project/README.md",
+              "title": "Module 09: Capstone Project",
+              "children": []
+            }
+          ]
+        },
+        {
+          "name": "06-background-processing-and-realtime",
+          "path": "backend/06-background-processing-and-realtime",
+          "file": "backend/06-background-processing-and-realtime/README.md",
+          "title": "06 - Background Processing and Realtime",
+          "children": [
+            {
+              "name": "00-task-queues-fundamentals",
+              "path": "backend/06-background-processing-and-realtime/00-task-queues-fundamentals",
+              "file": "backend/06-background-processing-and-realtime/00-task-queues-fundamentals/README.md",
+              "title": "Module 00: Task Queues Fundamentals",
+              "children": []
+            },
+            {
+              "name": "01-task-dependencies-and-groups",
+              "path": "backend/06-background-processing-and-realtime/01-task-dependencies-and-groups",
+              "file": "backend/06-background-processing-and-realtime/01-task-dependencies-and-groups/README.md",
+              "title": "Module 01: Task Dependencies and Groups",
+              "children": []
+            },
+            {
+              "name": "02-retries-prioritization-and-rate-limiting-in-queues",
+              "path": "backend/06-background-processing-and-realtime/02-retries-prioritization-and-rate-limiting-in-queues",
+              "file": "backend/06-background-processing-and-realtime/02-retries-prioritization-and-rate-limiting-in-queues/README.md",
+              "title": "Module 02: Retries, Prioritization, and Rate Limiting in Queues",
+              "children": []
+            },
+            {
+              "name": "03-scheduling-recurring-jobs",
+              "path": "backend/06-background-processing-and-realtime/03-scheduling-recurring-jobs",
+              "file": "backend/06-background-processing-and-realtime/03-scheduling-recurring-jobs/README.md",
+              "title": "Module 03: Scheduling Recurring Jobs",
+              "children": []
+            },
+            {
+              "name": "04-transactional-emails",
+              "path": "backend/06-background-processing-and-realtime/04-transactional-emails",
+              "file": "backend/06-background-processing-and-realtime/04-transactional-emails/README.md",
+              "title": "Module 04: Transactional Emails",
+              "children": []
+            },
+            {
+              "name": "05-webhooks-fundamentals",
+              "path": "backend/06-background-processing-and-realtime/05-webhooks-fundamentals",
+              "file": "backend/06-background-processing-and-realtime/05-webhooks-fundamentals/README.md",
+              "title": "Module 05: Webhooks Fundamentals",
+              "children": []
+            },
+            {
+              "name": "06-webhooks-security-and-reliability",
+              "path": "backend/06-background-processing-and-realtime/06-webhooks-security-and-reliability",
+              "file": "backend/06-background-processing-and-realtime/06-webhooks-security-and-reliability/README.md",
+              "title": "Module 06: Webhooks Security and Reliability",
+              "children": []
+            },
+            {
+              "name": "07-websockets-and-server-sent-events",
+              "path": "backend/06-background-processing-and-realtime/07-websockets-and-server-sent-events",
+              "file": "backend/06-background-processing-and-realtime/07-websockets-and-server-sent-events/README.md",
+              "title": "Module 07: WebSockets and Server-Sent Events",
+              "children": []
+            },
+            {
+              "name": "08-pub-sub-architecture",
+              "path": "backend/06-background-processing-and-realtime/08-pub-sub-architecture",
+              "file": "backend/06-background-processing-and-realtime/08-pub-sub-architecture/README.md",
+              "title": "Module 08: Pub/Sub Architecture",
+              "children": []
+            },
+            {
+              "name": "09-object-storage-and-large-files",
+              "path": "backend/06-background-processing-and-realtime/09-object-storage-and-large-files",
+              "file": "backend/06-background-processing-and-realtime/09-object-storage-and-large-files/README.md",
+              "title": "Module 09: Object Storage and Large Files",
+              "children": []
+            },
+            {
+              "name": "10-capstone-project",
+              "path": "backend/06-background-processing-and-realtime/10-capstone-project",
+              "file": "backend/06-background-processing-and-realtime/10-capstone-project/README.md",
+              "title": "Module 10: Capstone Project",
+              "children": []
+            }
+          ]
+        },
+        {
+          "name": "07-search-with-elasticsearch",
+          "path": "backend/07-search-with-elasticsearch",
+          "file": "backend/07-search-with-elasticsearch/README.md",
+          "title": "07 - Search with Elasticsearch",
+          "children": [
+            {
+              "name": "00-elasticsearch-fundamentals",
+              "path": "backend/07-search-with-elasticsearch/00-elasticsearch-fundamentals",
+              "file": "backend/07-search-with-elasticsearch/00-elasticsearch-fundamentals/README.md",
+              "title": "Module 00: Elasticsearch Fundamentals",
+              "children": []
+            },
+            {
+              "name": "01-indexes-and-mappings",
+              "path": "backend/07-search-with-elasticsearch/01-indexes-and-mappings",
+              "file": "backend/07-search-with-elasticsearch/01-indexes-and-mappings/README.md",
+              "title": "Module 01: Indexes and Mappings",
+              "children": []
+            },
+            {
+              "name": "02-basic-and-full-text-search",
+              "path": "backend/07-search-with-elasticsearch/02-basic-and-full-text-search",
+              "file": "backend/07-search-with-elasticsearch/02-basic-and-full-text-search/README.md",
+              "title": "Module 02: Basic and Full-Text Search",
+              "children": []
+            },
+            {
+              "name": "03-relevance-scoring-and-boosting",
+              "path": "backend/07-search-with-elasticsearch/03-relevance-scoring-and-boosting",
+              "file": "backend/07-search-with-elasticsearch/03-relevance-scoring-and-boosting/README.md",
+              "title": "Module 03: Relevance Scoring and Boosting",
+              "children": []
+            },
+            {
+              "name": "04-aggregations-and-fuzzy-search",
+              "path": "backend/07-search-with-elasticsearch/04-aggregations-and-fuzzy-search",
+              "file": "backend/07-search-with-elasticsearch/04-aggregations-and-fuzzy-search/README.md",
+              "title": "Module 04: Aggregations and Fuzzy Search",
+              "children": []
+            },
+            {
+              "name": "05-pagination-and-performance-optimization",
+              "path": "backend/07-search-with-elasticsearch/05-pagination-and-performance-optimization",
+              "file": "backend/07-search-with-elasticsearch/05-pagination-and-performance-optimization/README.md",
+              "title": "Module 05: Pagination and Performance Optimization",
+              "children": []
+            },
+            {
+              "name": "06-kibana-and-operations",
+              "path": "backend/07-search-with-elasticsearch/06-kibana-and-operations",
+              "file": "backend/07-search-with-elasticsearch/06-kibana-and-operations/README.md",
+              "title": "Module 06: Kibana and Operations",
+              "children": []
+            },
+            {
+              "name": "07-capstone-project",
+              "path": "backend/07-search-with-elasticsearch/07-capstone-project",
+              "file": "backend/07-search-with-elasticsearch/07-capstone-project/README.md",
+              "title": "Module 07: Capstone Project",
+              "children": []
+            }
+          ]
+        },
+        {
+          "name": "08-observability-and-operational-readiness",
+          "path": "backend/08-observability-and-operational-readiness",
+          "file": "backend/08-observability-and-operational-readiness/README.md",
+          "title": "08 - Observability and Operational Readiness",
+          "children": [
+            {
+              "name": "00-error-handling-strategies",
+              "path": "backend/08-observability-and-operational-readiness/00-error-handling-strategies",
+              "file": "backend/08-observability-and-operational-readiness/00-error-handling-strategies/README.md",
+              "title": "Module 00: Error Handling Strategies",
+              "children": []
+            },
+            {
+              "name": "01-global-error-handlers-and-user-facing-errors",
+              "path": "backend/08-observability-and-operational-readiness/01-global-error-handlers-and-user-facing-errors",
+              "file": "backend/08-observability-and-operational-readiness/01-global-error-handlers-and-user-facing-errors/README.md",
+              "title": "Module 01: Global Error Handlers and User-Facing Errors",
+              "children": []
+            },
+            {
+              "name": "02-config-management-fundamentals",
+              "path": "backend/08-observability-and-operational-readiness/02-config-management-fundamentals",
+              "file": "backend/08-observability-and-operational-readiness/02-config-management-fundamentals/README.md",
+              "title": "Module 02: Config Management Fundamentals",
+              "children": []
+            },
+            {
+              "name": "03-config-sources-and-secrets",
+              "path": "backend/08-observability-and-operational-readiness/03-config-sources-and-secrets",
+              "file": "backend/08-observability-and-operational-readiness/03-config-sources-and-secrets/README.md",
+              "title": "Module 03: Config Sources and Secrets",
+              "children": []
+            },
+            {
+              "name": "04-logging-fundamentals",
+              "path": "backend/08-observability-and-operational-readiness/04-logging-fundamentals",
+              "file": "backend/08-observability-and-operational-readiness/04-logging-fundamentals/README.md",
+              "title": "Module 04: Logging Fundamentals",
+              "children": []
+            },
+            {
+              "name": "05-centralized-logging-and-best-practices",
+              "path": "backend/08-observability-and-operational-readiness/05-centralized-logging-and-best-practices",
+              "file": "backend/08-observability-and-operational-readiness/05-centralized-logging-and-best-practices/README.md",
+              "title": "Module 05: Centralized Logging and Best Practices",
+              "children": []
+            },
+            {
+              "name": "06-monitoring-and-metrics",
+              "path": "backend/08-observability-and-operational-readiness/06-monitoring-and-metrics",
+              "file": "backend/08-observability-and-operational-readiness/06-monitoring-and-metrics/README.md",
+              "title": "Module 06: Monitoring and Metrics",
+              "children": []
+            },
+            {
+              "name": "07-the-three-pillars-of-observability",
+              "path": "backend/08-observability-and-operational-readiness/07-the-three-pillars-of-observability",
+              "file": "backend/08-observability-and-operational-readiness/07-the-three-pillars-of-observability/README.md",
+              "title": "Module 07: The Three Pillars of Observability",
+              "children": []
+            },
+            {
+              "name": "08-alerting-without-fatigue",
+              "path": "backend/08-observability-and-operational-readiness/08-alerting-without-fatigue",
+              "file": "backend/08-observability-and-operational-readiness/08-alerting-without-fatigue/README.md",
+              "title": "Module 08: Alerting Without Fatigue",
+              "children": []
+            },
+            {
+              "name": "09-graceful-shutdown",
+              "path": "backend/08-observability-and-operational-readiness/09-graceful-shutdown",
+              "file": "backend/08-observability-and-operational-readiness/09-graceful-shutdown/README.md",
+              "title": "Module 09: Graceful Shutdown",
+              "children": []
+            },
+            {
+              "name": "10-the-12-factor-app",
+              "path": "backend/08-observability-and-operational-readiness/10-the-12-factor-app",
+              "file": "backend/08-observability-and-operational-readiness/10-the-12-factor-app/README.md",
+              "title": "Module 10: The 12-Factor App",
+              "children": []
+            },
+            {
+              "name": "11-capstone-project",
+              "path": "backend/08-observability-and-operational-readiness/11-capstone-project",
+              "file": "backend/08-observability-and-operational-readiness/11-capstone-project/README.md",
+              "title": "Module 11: Capstone Project",
+              "children": []
+            }
+          ]
+        },
+        {
+          "name": "09-security-deep-dive",
+          "path": "backend/09-security-deep-dive",
+          "file": "backend/09-security-deep-dive/README.md",
+          "title": "09 - Security Deep Dive",
+          "children": [
+            {
+              "name": "00-owasp-top-10-overview",
+              "path": "backend/09-security-deep-dive/00-owasp-top-10-overview",
+              "file": "backend/09-security-deep-dive/00-owasp-top-10-overview/README.md",
+              "title": "Module 00: The OWASP Top 10 as a Way of Thinking",
+              "children": []
+            },
+            {
+              "name": "01-injection-attacks",
+              "path": "backend/09-security-deep-dive/01-injection-attacks",
+              "file": "backend/09-security-deep-dive/01-injection-attacks/README.md",
+              "title": "Module 01: Injection Attacks",
+              "children": []
+            },
+            {
+              "name": "02-xss-and-csrf",
+              "path": "backend/09-security-deep-dive/02-xss-and-csrf",
+              "file": "backend/09-security-deep-dive/02-xss-and-csrf/README.md",
+              "title": "Module 02: XSS and CSRF",
+              "children": []
+            },
+            {
+              "name": "03-ssrf-and-deserialization-attacks",
+              "path": "backend/09-security-deep-dive/03-ssrf-and-deserialization-attacks",
+              "file": "backend/09-security-deep-dive/03-ssrf-and-deserialization-attacks/README.md",
+              "title": "Module 03: SSRF and Deserialization Attacks",
+              "children": []
+            },
+            {
+              "name": "04-rate-limiting-and-abuse-prevention",
+              "path": "backend/09-security-deep-dive/04-rate-limiting-and-abuse-prevention",
+              "file": "backend/09-security-deep-dive/04-rate-limiting-and-abuse-prevention/README.md",
+              "title": "Module 04: Rate Limiting and Abuse Prevention",
+              "children": []
+            },
+            {
+              "name": "05-secrets-management",
+              "path": "backend/09-security-deep-dive/05-secrets-management",
+              "file": "backend/09-security-deep-dive/05-secrets-management/README.md",
+              "title": "Module 05: Secrets Management",
+              "children": []
+            },
+            {
+              "name": "06-security-headers-and-hardening",
+              "path": "backend/09-security-deep-dive/06-security-headers-and-hardening",
+              "file": "backend/09-security-deep-dive/06-security-headers-and-hardening/README.md",
+              "title": "Module 06: Security Headers and Hardening",
+              "children": []
+            },
+            {
+              "name": "07-capstone-project",
+              "path": "backend/09-security-deep-dive/07-capstone-project",
+              "file": "backend/09-security-deep-dive/07-capstone-project/README.md",
+              "title": "Module 07: Capstone Project",
+              "children": []
+            }
+          ]
+        },
+        {
+          "name": "10-distributed-systems-patterns",
+          "path": "backend/10-distributed-systems-patterns",
+          "file": "backend/10-distributed-systems-patterns/README.md",
+          "title": "10 - Distributed Systems Patterns",
+          "children": [
+            {
+              "name": "00-cap-theorem-and-consistency-models",
+              "path": "backend/10-distributed-systems-patterns/00-cap-theorem-and-consistency-models",
+              "file": "backend/10-distributed-systems-patterns/00-cap-theorem-and-consistency-models/README.md",
+              "title": "Module 00: CAP Theorem and Consistency Models",
+              "children": []
+            },
+            {
+              "name": "01-idempotency-in-practice",
+              "path": "backend/10-distributed-systems-patterns/01-idempotency-in-practice",
+              "file": "backend/10-distributed-systems-patterns/01-idempotency-in-practice/README.md",
+              "title": "Module 01: Idempotency in Practice",
+              "children": []
+            },
+            {
+              "name": "02-distributed-locking",
+              "path": "backend/10-distributed-systems-patterns/02-distributed-locking",
+              "file": "backend/10-distributed-systems-patterns/02-distributed-locking/README.md",
+              "title": "Module 02: Distributed Locking",
+              "children": []
+            },
+            {
+              "name": "03-distributed-transactions-and-two-phase-commit",
+              "path": "backend/10-distributed-systems-patterns/03-distributed-transactions-and-two-phase-commit",
+              "file": "backend/10-distributed-systems-patterns/03-distributed-transactions-and-two-phase-commit/README.md",
+              "title": "Module 03: Distributed Transactions and Two-Phase Commit",
+              "children": []
+            },
+            {
+              "name": "04-the-saga-pattern",
+              "path": "backend/10-distributed-systems-patterns/04-the-saga-pattern",
+              "file": "backend/10-distributed-systems-patterns/04-the-saga-pattern/README.md",
+              "title": "Module 04: The Saga Pattern",
+              "children": []
+            },
+            {
+              "name": "05-cqrs",
+              "path": "backend/10-distributed-systems-patterns/05-cqrs",
+              "file": "backend/10-distributed-systems-patterns/05-cqrs/README.md",
+              "title": "Module 05: CQRS",
+              "children": []
+            },
+            {
+              "name": "06-event-sourcing",
+              "path": "backend/10-distributed-systems-patterns/06-event-sourcing",
+              "file": "backend/10-distributed-systems-patterns/06-event-sourcing/README.md",
+              "title": "Module 06: Event Sourcing",
+              "children": []
+            },
+            {
+              "name": "07-consensus-and-coordination",
+              "path": "backend/10-distributed-systems-patterns/07-consensus-and-coordination",
+              "file": "backend/10-distributed-systems-patterns/07-consensus-and-coordination/README.md",
+              "title": "Module 07: Consensus and Coordination",
+              "children": []
+            },
+            {
+              "name": "08-capstone-project",
+              "path": "backend/10-distributed-systems-patterns/08-capstone-project",
+              "file": "backend/10-distributed-systems-patterns/08-capstone-project/README.md",
+              "title": "Module 08: Capstone Project",
+              "children": []
+            }
+          ]
+        },
+        {
+          "name": "11-advanced-api-paradigms",
+          "path": "backend/11-advanced-api-paradigms",
+          "file": "backend/11-advanced-api-paradigms/README.md",
+          "title": "11 - Advanced API Paradigms",
+          "children": [
+            {
+              "name": "00-beyond-rest-when-and-why",
+              "path": "backend/11-advanced-api-paradigms/00-beyond-rest-when-and-why",
+              "file": "backend/11-advanced-api-paradigms/00-beyond-rest-when-and-why/README.md",
+              "title": "Module 00: Beyond REST — When and Why",
+              "children": []
+            },
+            {
+              "name": "01-grpc-fundamentals",
+              "path": "backend/11-advanced-api-paradigms/01-grpc-fundamentals",
+              "file": "backend/11-advanced-api-paradigms/01-grpc-fundamentals/README.md",
+              "title": "Module 01: gRPC Fundamentals",
+              "children": []
+            },
+            {
+              "name": "02-grpc-streaming-and-advanced-patterns",
+              "path": "backend/11-advanced-api-paradigms/02-grpc-streaming-and-advanced-patterns",
+              "file": "backend/11-advanced-api-paradigms/02-grpc-streaming-and-advanced-patterns/README.md",
+              "title": "Module 02: gRPC Streaming and Advanced Patterns",
+              "children": []
+            },
+            {
+              "name": "03-graphql-fundamentals",
+              "path": "backend/11-advanced-api-paradigms/03-graphql-fundamentals",
+              "file": "backend/11-advanced-api-paradigms/03-graphql-fundamentals/README.md",
+              "title": "Module 03: GraphQL Fundamentals",
+              "children": []
+            },
+            {
+              "name": "04-graphql-advanced-patterns",
+              "path": "backend/11-advanced-api-paradigms/04-graphql-advanced-patterns",
+              "file": "backend/11-advanced-api-paradigms/04-graphql-advanced-patterns/README.md",
+              "title": "Module 04: GraphQL Advanced Patterns",
+              "children": []
+            },
+            {
+              "name": "05-webhooks-vs-polling-vs-websockets-tradeoffs",
+              "path": "backend/11-advanced-api-paradigms/05-webhooks-vs-polling-vs-websockets-tradeoffs",
+              "file": "backend/11-advanced-api-paradigms/05-webhooks-vs-polling-vs-websockets-tradeoffs/README.md",
+              "title": "Module 05: Webhooks vs Polling vs WebSockets — Tradeoffs",
+              "children": []
+            },
+            {
+              "name": "06-api-gateways-and-bff",
+              "path": "backend/11-advanced-api-paradigms/06-api-gateways-and-bff",
+              "file": "backend/11-advanced-api-paradigms/06-api-gateways-and-bff/README.md",
+              "title": "Module 06: API Gateways and Backend-for-Frontend",
+              "children": []
+            },
+            {
+              "name": "07-api-design-tradeoffs-in-practice",
+              "path": "backend/11-advanced-api-paradigms/07-api-design-tradeoffs-in-practice",
+              "file": "backend/11-advanced-api-paradigms/07-api-design-tradeoffs-in-practice/README.md",
+              "title": "Module 07: API Design Tradeoffs in Practice",
+              "children": []
+            },
+            {
+              "name": "08-capstone-project",
+              "path": "backend/11-advanced-api-paradigms/08-capstone-project",
+              "file": "backend/11-advanced-api-paradigms/08-capstone-project/README.md",
+              "title": "Module 08: Capstone Project",
+              "children": []
+            }
+          ]
+        },
+        {
+          "name": "12-testing-and-code-quality",
+          "path": "backend/12-testing-and-code-quality",
+          "file": "backend/12-testing-and-code-quality/README.md",
+          "title": "12 - Testing and Code Quality",
+          "children": [
+            {
+              "name": "00-testing-fundamentals-and-the-test-pyramid",
+              "path": "backend/12-testing-and-code-quality/00-testing-fundamentals-and-the-test-pyramid",
+              "file": "backend/12-testing-and-code-quality/00-testing-fundamentals-and-the-test-pyramid/README.md",
+              "title": "Module 00: Testing Fundamentals and the Test Pyramid",
+              "children": []
+            },
+            {
+              "name": "01-unit-testing-in-depth",
+              "path": "backend/12-testing-and-code-quality/01-unit-testing-in-depth",
+              "file": "backend/12-testing-and-code-quality/01-unit-testing-in-depth/README.md",
+              "title": "Module 01: Unit Testing in Depth",
+              "children": []
+            },
+            {
+              "name": "02-test-driven-development-in-practice",
+              "path": "backend/12-testing-and-code-quality/02-test-driven-development-in-practice",
+              "file": "backend/12-testing-and-code-quality/02-test-driven-development-in-practice/README.md",
+              "title": "Module 02: Test-Driven Development in Practice",
+              "children": []
+            },
+            {
+              "name": "03-integration-testing",
+              "path": "backend/12-testing-and-code-quality/03-integration-testing",
+              "file": "backend/12-testing-and-code-quality/03-integration-testing/README.md",
+              "title": "Module 03: Integration Testing",
+              "children": []
+            },
+            {
+              "name": "04-mocking-and-dependency-injection-for-testability",
+              "path": "backend/12-testing-and-code-quality/04-mocking-and-dependency-injection-for-testability",
+              "file": "backend/12-testing-and-code-quality/04-mocking-and-dependency-injection-for-testability/README.md",
+              "title": "Module 04: Mocking and Dependency Injection for Testability",
+              "children": []
+            },
+            {
+              "name": "05-e2e-and-contract-testing",
+              "path": "backend/12-testing-and-code-quality/05-e2e-and-contract-testing",
+              "file": "backend/12-testing-and-code-quality/05-e2e-and-contract-testing/README.md",
+              "title": "Module 05: E2E and Contract Testing",
+              "children": []
+            },
+            {
+              "name": "06-code-quality-and-static-analysis",
+              "path": "backend/12-testing-and-code-quality/06-code-quality-and-static-analysis",
+              "file": "backend/12-testing-and-code-quality/06-code-quality-and-static-analysis/README.md",
+              "title": "Module 06: Code Quality and Static Analysis",
+              "children": []
+            },
+            {
+              "name": "07-testing-in-ci-and-test-strategy",
+              "path": "backend/12-testing-and-code-quality/07-testing-in-ci-and-test-strategy",
+              "file": "backend/12-testing-and-code-quality/07-testing-in-ci-and-test-strategy/README.md",
+              "title": "Module 07: Testing in CI and Test Strategy",
+              "children": []
+            },
+            {
+              "name": "08-capstone-project",
+              "path": "backend/12-testing-and-code-quality/08-capstone-project",
+              "file": "backend/12-testing-and-code-quality/08-capstone-project/README.md",
+              "title": "Module 08: Capstone Project",
+              "children": []
+            }
+          ]
+        },
+        {
+          "name": "13-devops-for-backend-engineers",
+          "path": "backend/13-devops-for-backend-engineers",
+          "file": "backend/13-devops-for-backend-engineers/README.md",
+          "title": "13 - DevOps for Backend Engineers",
+          "children": [
+            {
+              "name": "00-containerizing-a-backend-app",
+              "path": "backend/13-devops-for-backend-engineers/00-containerizing-a-backend-app",
+              "file": "backend/13-devops-for-backend-engineers/00-containerizing-a-backend-app/README.md",
+              "title": "Module 00: Containerizing a Backend App",
+              "children": []
+            },
+            {
+              "name": "01-the-12-factor-app-in-a-container",
+              "path": "backend/13-devops-for-backend-engineers/01-the-12-factor-app-in-a-container",
+              "file": "backend/13-devops-for-backend-engineers/01-the-12-factor-app-in-a-container/README.md",
+              "title": "Module 01: The 12-Factor App in a Container",
+              "children": []
+            },
+            {
+              "name": "02-ci-pipelines-for-backend-code",
+              "path": "backend/13-devops-for-backend-engineers/02-ci-pipelines-for-backend-code",
+              "file": "backend/13-devops-for-backend-engineers/02-ci-pipelines-for-backend-code/README.md",
+              "title": "Module 02: CI Pipelines for Backend Code",
+              "children": []
+            },
+            {
+              "name": "03-deployment-strategies",
+              "path": "backend/13-devops-for-backend-engineers/03-deployment-strategies",
+              "file": "backend/13-devops-for-backend-engineers/03-deployment-strategies/README.md",
+              "title": "Module 03: Deployment Strategies",
+              "children": []
+            },
+            {
+              "name": "04-database-migrations-in-deployment-pipelines",
+              "path": "backend/13-devops-for-backend-engineers/04-database-migrations-in-deployment-pipelines",
+              "file": "backend/13-devops-for-backend-engineers/04-database-migrations-in-deployment-pipelines/README.md",
+              "title": "Module 04: Database Migrations in Deployment Pipelines",
+              "children": []
+            },
+            {
+              "name": "05-service-configuration-and-environments",
+              "path": "backend/13-devops-for-backend-engineers/05-service-configuration-and-environments",
+              "file": "backend/13-devops-for-backend-engineers/05-service-configuration-and-environments/README.md",
+              "title": "Module 05: Service Configuration and Environments",
+              "children": []
+            },
+            {
+              "name": "06-health-checks-readiness-and-scaling-signals",
+              "path": "backend/13-devops-for-backend-engineers/06-health-checks-readiness-and-scaling-signals",
+              "file": "backend/13-devops-for-backend-engineers/06-health-checks-readiness-and-scaling-signals/README.md",
+              "title": "Module 06: Health Checks, Readiness, and Scaling Signals",
+              "children": []
+            },
+            {
+              "name": "07-choosing-your-deployment-target",
+              "path": "backend/13-devops-for-backend-engineers/07-choosing-your-deployment-target",
+              "file": "backend/13-devops-for-backend-engineers/07-choosing-your-deployment-target/README.md",
+              "title": "Module 07: Choosing Your Deployment Target",
+              "children": []
+            },
+            {
+              "name": "08-capstone-project",
+              "path": "backend/13-devops-for-backend-engineers/08-capstone-project",
+              "file": "backend/13-devops-for-backend-engineers/08-capstone-project/README.md",
+              "title": "Module 08: Capstone Project",
+              "children": []
+            }
+          ]
+        },
+        {
+          "name": "14-system-design-interview-practice",
+          "path": "backend/14-system-design-interview-practice",
+          "file": "backend/14-system-design-interview-practice/README.md",
+          "title": "14 - System Design Interview Practice",
+          "children": [
+            {
+              "name": "00-capacity-estimation-and-back-of-envelope-math",
+              "path": "backend/14-system-design-interview-practice/00-capacity-estimation-and-back-of-envelope-math",
+              "file": "backend/14-system-design-interview-practice/00-capacity-estimation-and-back-of-envelope-math/README.md",
+              "title": "Module 00: Capacity Estimation and Back-of-Envelope Math",
+              "children": []
+            },
+            {
+              "name": "01-the-system-design-interview-framework",
+              "path": "backend/14-system-design-interview-practice/01-the-system-design-interview-framework",
+              "file": "backend/14-system-design-interview-practice/01-the-system-design-interview-framework/README.md",
+              "title": "Module 01: The System Design Interview Framework",
+              "children": []
+            },
+            {
+              "name": "02-designing-a-url-shortener",
+              "path": "backend/14-system-design-interview-practice/02-designing-a-url-shortener",
+              "file": "backend/14-system-design-interview-practice/02-designing-a-url-shortener/README.md",
+              "title": "Module 02: Designing a URL Shortener",
+              "children": []
+            },
+            {
+              "name": "03-designing-a-rate-limiter",
+              "path": "backend/14-system-design-interview-practice/03-designing-a-rate-limiter",
+              "file": "backend/14-system-design-interview-practice/03-designing-a-rate-limiter/README.md",
+              "title": "Module 03: Designing a Rate Limiter",
+              "children": []
+            },
+            {
+              "name": "04-designing-a-distributed-cache-and-key-value-store",
+              "path": "backend/14-system-design-interview-practice/04-designing-a-distributed-cache-and-key-value-store",
+              "file": "backend/14-system-design-interview-practice/04-designing-a-distributed-cache-and-key-value-store/README.md",
+              "title": "Module 04: Designing a Distributed Cache and Key-Value Store",
+              "children": []
+            },
+            {
+              "name": "05-designing-a-news-feed-or-social-timeline",
+              "path": "backend/14-system-design-interview-practice/05-designing-a-news-feed-or-social-timeline",
+              "file": "backend/14-system-design-interview-practice/05-designing-a-news-feed-or-social-timeline/README.md",
+              "title": "Module 05: Designing a News Feed or Social Timeline",
+              "children": []
+            },
+            {
+              "name": "06-designing-a-chat-and-notification-system",
+              "path": "backend/14-system-design-interview-practice/06-designing-a-chat-and-notification-system",
+              "file": "backend/14-system-design-interview-practice/06-designing-a-chat-and-notification-system/README.md",
+              "title": "Module 06: Designing a Chat and Notification System",
+              "children": []
+            },
+            {
+              "name": "07-designing-a-video-streaming-or-large-scale-search-system",
+              "path": "backend/14-system-design-interview-practice/07-designing-a-video-streaming-or-large-scale-search-system",
+              "file": "backend/14-system-design-interview-practice/07-designing-a-video-streaming-or-large-scale-search-system/README.md",
+              "title": "Module 07: Designing a Video Streaming or Large-Scale Search System",
+              "children": []
+            },
+            {
+              "name": "08-capstone-project",
+              "path": "backend/14-system-design-interview-practice/08-capstone-project",
+              "file": "backend/14-system-design-interview-practice/08-capstone-project/README.md",
+              "title": "Module 08: Capstone Project",
+              "children": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "learn",
+      "path": "learn",
+      "file": "learn/README.md",
+      "title": "Learn: Linux → Docker → Kubernetes → Networking → Azure → AKS → Platform Engineering",
+      "children": [
+        {
+          "name": "01-linux",
+          "path": "learn/01-linux",
+          "file": "learn/01-linux/README.md",
+          "title": "Linux Track",
+          "children": [
+            {
+              "name": "00-setup-wsl2",
+              "path": "learn/01-linux/00-setup-wsl2",
+              "file": "learn/01-linux/00-setup-wsl2/README.md",
+              "title": "Setting Up WSL2 and Ubuntu",
+              "children": []
+            },
+            {
+              "name": "01-shell-basics-and-philosophy",
+              "path": "learn/01-linux/01-shell-basics-and-philosophy",
+              "file": "learn/01-linux/01-shell-basics-and-philosophy/README.md",
+              "title": "Shell Basics and Unix Philosophy",
+              "children": []
+            },
+            {
+              "name": "02-filesystem-navigation",
+              "path": "learn/01-linux/02-filesystem-navigation",
+              "file": "learn/01-linux/02-filesystem-navigation/README.md",
+              "title": "Filesystem Navigation",
+              "children": []
+            },
+            {
+              "name": "03-file-permissions-ownership",
+              "path": "learn/01-linux/03-file-permissions-ownership",
+              "file": "learn/01-linux/03-file-permissions-ownership/README.md",
+              "title": "File Permissions and Ownership",
+              "children": []
+            },
+            {
+              "name": "04-users-and-groups",
+              "path": "learn/01-linux/04-users-and-groups",
+              "file": "learn/01-linux/04-users-and-groups/README.md",
+              "title": "Users and Groups",
+              "children": []
+            },
+            {
+              "name": "05-package-management-apt",
+              "path": "learn/01-linux/05-package-management-apt",
+              "file": "learn/01-linux/05-package-management-apt/README.md",
+              "title": "Package Management with APT",
+              "children": []
+            },
+            {
+              "name": "06-process-management",
+              "path": "learn/01-linux/06-process-management",
+              "file": "learn/01-linux/06-process-management/README.md",
+              "title": "Process Management",
+              "children": []
+            },
+            {
+              "name": "07-io-redirection-and-pipes",
+              "path": "learn/01-linux/07-io-redirection-and-pipes",
+              "file": "learn/01-linux/07-io-redirection-and-pipes/README.md",
+              "title": "I/O Redirection and Pipes",
+              "children": []
+            },
+            {
+              "name": "08-text-processing-grep-sed-awk",
+              "path": "learn/01-linux/08-text-processing-grep-sed-awk",
+              "file": "learn/01-linux/08-text-processing-grep-sed-awk/README.md",
+              "title": "Text Processing: grep, sed, awk, and Friends",
+              "children": []
+            },
+            {
+              "name": "09-bash-scripting",
+              "path": "learn/01-linux/09-bash-scripting",
+              "file": "learn/01-linux/09-bash-scripting/README.md",
+              "title": "Bash Scripting",
+              "children": []
+            },
+            {
+              "name": "10-networking-basics",
+              "path": "learn/01-linux/10-networking-basics",
+              "file": "learn/01-linux/10-networking-basics/README.md",
+              "title": "Networking Basics",
+              "children": []
+            },
+            {
+              "name": "11-systemd-services",
+              "path": "learn/01-linux/11-systemd-services",
+              "file": "learn/01-linux/11-systemd-services/README.md",
+              "title": "systemd and Services",
+              "children": []
+            },
+            {
+              "name": "12-disk-storage-and-mounts",
+              "path": "learn/01-linux/12-disk-storage-and-mounts",
+              "file": "learn/01-linux/12-disk-storage-and-mounts/README.md",
+              "title": "Disk, Storage, and Mounts",
+              "children": []
+            },
+            {
+              "name": "13-ssh-remote-access",
+              "path": "learn/01-linux/13-ssh-remote-access",
+              "file": "learn/01-linux/13-ssh-remote-access/README.md",
+              "title": "SSH and Remote Access",
+              "children": []
+            },
+            {
+              "name": "14-logging-and-journald",
+              "path": "learn/01-linux/14-logging-and-journald",
+              "file": "learn/01-linux/14-logging-and-journald/README.md",
+              "title": "Logging and journald",
+              "children": []
+            },
+            {
+              "name": "15-security-basics-sudo-firewall",
+              "path": "learn/01-linux/15-security-basics-sudo-firewall",
+              "file": "learn/01-linux/15-security-basics-sudo-firewall/README.md",
+              "title": "Security Basics: sudo, Firewall, and Hardening",
+              "children": []
+            },
+            {
+              "name": "16-capstone-project",
+              "path": "learn/01-linux/16-capstone-project",
+              "file": "learn/01-linux/16-capstone-project/README.md",
+              "title": "Capstone Project: Log Watchdog",
+              "children": []
+            }
+          ]
+        },
+        {
+          "name": "02-docker",
+          "path": "learn/02-docker",
+          "file": "learn/02-docker/README.md",
+          "title": "Track 2: Docker",
+          "children": [
+            {
+              "name": "00-setup-docker-desktop-wsl2",
+              "path": "learn/02-docker/00-setup-docker-desktop-wsl2",
+              "file": "learn/02-docker/00-setup-docker-desktop-wsl2/README.md",
+              "title": "Setup: Docker Desktop on Windows 11 with WSL2",
+              "children": []
+            },
+            {
+              "name": "01-containers-vs-vms-concepts",
+              "path": "learn/02-docker/01-containers-vs-vms-concepts",
+              "file": "learn/02-docker/01-containers-vs-vms-concepts/README.md",
+              "title": "Containers vs VMs: Concepts",
+              "children": []
+            },
+            {
+              "name": "02-images-and-containers",
+              "path": "learn/02-docker/02-images-and-containers",
+              "file": "learn/02-docker/02-images-and-containers/README.md",
+              "title": "Images and Containers",
+              "children": []
+            },
+            {
+              "name": "03-dockerfile-deep-dive",
+              "path": "learn/02-docker/03-dockerfile-deep-dive",
+              "file": "learn/02-docker/03-dockerfile-deep-dive/README.md",
+              "title": "Dockerfile Deep Dive",
+              "children": []
+            },
+            {
+              "name": "04-volumes-and-bind-mounts",
+              "path": "learn/02-docker/04-volumes-and-bind-mounts",
+              "file": "learn/02-docker/04-volumes-and-bind-mounts/README.md",
+              "title": "Volumes and Bind Mounts",
+              "children": []
+            },
+            {
+              "name": "05-docker-networking",
+              "path": "learn/02-docker/05-docker-networking",
+              "file": "learn/02-docker/05-docker-networking/README.md",
+              "title": "Docker Networking",
+              "children": []
+            },
+            {
+              "name": "06-docker-compose",
+              "path": "learn/02-docker/06-docker-compose",
+              "file": "learn/02-docker/06-docker-compose/README.md",
+              "title": "Docker Compose",
+              "children": []
+            },
+            {
+              "name": "07-multi-stage-builds-and-optimization",
+              "path": "learn/02-docker/07-multi-stage-builds-and-optimization",
+              "file": "learn/02-docker/07-multi-stage-builds-and-optimization/README.md",
+              "title": "Multi-Stage Builds and Optimization",
+              "children": []
+            },
+            {
+              "name": "08-container-registries-dockerhub-and-acr",
+              "path": "learn/02-docker/08-container-registries-dockerhub-and-acr",
+              "file": "learn/02-docker/08-container-registries-dockerhub-and-acr/README.md",
+              "title": "Container Registries: Docker Hub and ACR",
+              "children": []
+            },
+            {
+              "name": "09-security-best-practices",
+              "path": "learn/02-docker/09-security-best-practices",
+              "file": "learn/02-docker/09-security-best-practices/README.md",
+              "title": "Security Best Practices",
+              "children": []
+            },
+            {
+              "name": "10-deploy-to-azure-container-instances",
+              "path": "learn/02-docker/10-deploy-to-azure-container-instances",
+              "file": "learn/02-docker/10-deploy-to-azure-container-instances/README.md",
+              "title": "Deploy to Azure Container Instances",
+              "children": []
+            },
+            {
+              "name": "11-deploy-to-azure-app-service",
+              "path": "learn/02-docker/11-deploy-to-azure-app-service",
+              "file": "learn/02-docker/11-deploy-to-azure-app-service/README.md",
+              "title": "Deploy to Azure App Service",
+              "children": []
+            },
+            {
+              "name": "12-capstone-project",
+              "path": "learn/02-docker/12-capstone-project",
+              "file": "learn/02-docker/12-capstone-project/README.md",
+              "title": "Capstone Project",
+              "children": []
+            }
+          ]
+        },
+        {
+          "name": "03-kubernetes",
+          "path": "learn/03-kubernetes",
+          "file": "learn/03-kubernetes/README.md",
+          "title": "03 - Kubernetes",
+          "children": [
+            {
+              "name": "00-setup-local-cluster-kind-minikube",
+              "path": "learn/03-kubernetes/00-setup-local-cluster-kind-minikube",
+              "file": "learn/03-kubernetes/00-setup-local-cluster-kind-minikube/README.md",
+              "title": "00 - Setup: Local Cluster (kind/minikube)",
+              "children": []
+            },
+            {
+              "name": "01-kubernetes-architecture-and-concepts",
+              "path": "learn/03-kubernetes/01-kubernetes-architecture-and-concepts",
+              "file": "learn/03-kubernetes/01-kubernetes-architecture-and-concepts/README.md",
+              "title": "01 - Kubernetes Architecture and Concepts",
+              "children": []
+            },
+            {
+              "name": "02-pods-and-workloads",
+              "path": "learn/03-kubernetes/02-pods-and-workloads",
+              "file": "learn/03-kubernetes/02-pods-and-workloads/README.md",
+              "title": "02 - Pods and Workloads",
+              "children": []
+            },
+            {
+              "name": "03-deployments-and-replicasets",
+              "path": "learn/03-kubernetes/03-deployments-and-replicasets",
+              "file": "learn/03-kubernetes/03-deployments-and-replicasets/README.md",
+              "title": "03 - Deployments and ReplicaSets",
+              "children": []
+            },
+            {
+              "name": "04-services-and-networking",
+              "path": "learn/03-kubernetes/04-services-and-networking",
+              "file": "learn/03-kubernetes/04-services-and-networking/README.md",
+              "title": "04 - Services and Networking",
+              "children": []
+            },
+            {
+              "name": "05-configmaps-and-secrets",
+              "path": "learn/03-kubernetes/05-configmaps-and-secrets",
+              "file": "learn/03-kubernetes/05-configmaps-and-secrets/README.md",
+              "title": "05 - ConfigMaps and Secrets",
+              "children": []
+            },
+            {
+              "name": "06-storage-pv-and-pvc",
+              "path": "learn/03-kubernetes/06-storage-pv-and-pvc",
+              "file": "learn/03-kubernetes/06-storage-pv-and-pvc/README.md",
+              "title": "06 - Storage: PersistentVolumes and PersistentVolumeClaims",
+              "children": []
+            },
+            {
+              "name": "07-helm-package-manager",
+              "path": "learn/03-kubernetes/07-helm-package-manager",
+              "file": "learn/03-kubernetes/07-helm-package-manager/README.md",
+              "title": "07 - Helm Package Manager",
+              "children": []
+            },
+            {
+              "name": "08-ingress-controllers",
+              "path": "learn/03-kubernetes/08-ingress-controllers",
+              "file": "learn/03-kubernetes/08-ingress-controllers/README.md",
+              "title": "08 - Ingress Controllers",
+              "children": []
+            },
+            {
+              "name": "09-scaling-hpa-and-vpa",
+              "path": "learn/03-kubernetes/09-scaling-hpa-and-vpa",
+              "file": "learn/03-kubernetes/09-scaling-hpa-and-vpa/README.md",
+              "title": "09 - Scaling: HPA and VPA",
+              "children": []
+            },
+            {
+              "name": "10-observability-logging-and-metrics",
+              "path": "learn/03-kubernetes/10-observability-logging-and-metrics",
+              "file": "learn/03-kubernetes/10-observability-logging-and-metrics/README.md",
+              "title": "10 - Observability: Logging and Metrics",
+              "children": []
+            },
+            {
+              "name": "11-security-rbac-and-network-policies",
+              "path": "learn/03-kubernetes/11-security-rbac-and-network-policies",
+              "file": "learn/03-kubernetes/11-security-rbac-and-network-policies/README.md",
+              "title": "11 - Security: RBAC and Network Policies",
+              "children": []
+            },
+            {
+              "name": "12-capstone-project",
+              "path": "learn/03-kubernetes/12-capstone-project",
+              "file": "learn/03-kubernetes/12-capstone-project/README.md",
+              "title": "12 - Capstone Project",
+              "children": []
+            }
+          ]
+        },
+        {
+          "name": "04-networking-fundamentals",
+          "path": "learn/04-networking-fundamentals",
+          "file": "learn/04-networking-fundamentals/README.md",
+          "title": "Track 4: Networking Fundamentals",
+          "children": [
+            {
+              "name": "00-networking-mental-model-and-osi-tcpip",
+              "path": "learn/04-networking-fundamentals/00-networking-mental-model-and-osi-tcpip",
+              "file": "learn/04-networking-fundamentals/00-networking-mental-model-and-osi-tcpip/README.md",
+              "title": "Networking Mental Model & OSI/TCP/IP",
+              "children": []
+            },
+            {
+              "name": "01-ip-addressing-and-subnetting",
+              "path": "learn/04-networking-fundamentals/01-ip-addressing-and-subnetting",
+              "file": "learn/04-networking-fundamentals/01-ip-addressing-and-subnetting/README.md",
+              "title": "IP Addressing & Subnetting",
+              "children": []
+            },
+            {
+              "name": "02-dns-fundamentals",
+              "path": "learn/04-networking-fundamentals/02-dns-fundamentals",
+              "file": "learn/04-networking-fundamentals/02-dns-fundamentals/README.md",
+              "title": "DNS Fundamentals",
+              "children": []
+            },
+            {
+              "name": "03-tcp-udp-ports-and-sockets",
+              "path": "learn/04-networking-fundamentals/03-tcp-udp-ports-and-sockets",
+              "file": "learn/04-networking-fundamentals/03-tcp-udp-ports-and-sockets/README.md",
+              "title": "TCP, UDP, Ports & Sockets",
+              "children": []
+            },
+            {
+              "name": "04-http-https-and-tls-fundamentals",
+              "path": "learn/04-networking-fundamentals/04-http-https-and-tls-fundamentals",
+              "file": "learn/04-networking-fundamentals/04-http-https-and-tls-fundamentals/README.md",
+              "title": "HTTP, HTTPS & TLS Fundamentals",
+              "children": []
+            },
+            {
+              "name": "05-routing-nat-and-firewalls",
+              "path": "learn/04-networking-fundamentals/05-routing-nat-and-firewalls",
+              "file": "learn/04-networking-fundamentals/05-routing-nat-and-firewalls/README.md",
+              "title": "Routing, NAT & Firewalls",
+              "children": []
+            },
+            {
+              "name": "06-load-balancing-concepts",
+              "path": "learn/04-networking-fundamentals/06-load-balancing-concepts",
+              "file": "learn/04-networking-fundamentals/06-load-balancing-concepts/README.md",
+              "title": "Load Balancing Concepts",
+              "children": []
+            },
+            {
+              "name": "07-network-troubleshooting-toolkit",
+              "path": "learn/04-networking-fundamentals/07-network-troubleshooting-toolkit",
+              "file": "learn/04-networking-fundamentals/07-network-troubleshooting-toolkit/README.md",
+              "title": "Network Troubleshooting Toolkit",
+              "children": []
+            },
+            {
+              "name": "08-capstone-project",
+              "path": "learn/04-networking-fundamentals/08-capstone-project",
+              "file": "learn/04-networking-fundamentals/08-capstone-project/README.md",
+              "title": "Capstone Project: Diagnose and Fix a Broken Multi-Host Network",
+              "children": []
+            }
+          ]
+        },
+        {
+          "name": "05-azure-networking",
+          "path": "learn/05-azure-networking",
+          "file": "learn/05-azure-networking/README.md",
+          "title": "Track 5: Azure Networking",
+          "children": [
+            {
+              "name": "00-azure-networking-overview-and-cli-setup",
+              "path": "learn/05-azure-networking/00-azure-networking-overview-and-cli-setup",
+              "file": "learn/05-azure-networking/00-azure-networking-overview-and-cli-setup/README.md",
+              "title": "Azure Networking Overview & CLI Setup",
+              "children": []
+            },
+            {
+              "name": "01-virtual-networks-and-subnets",
+              "path": "learn/05-azure-networking/01-virtual-networks-and-subnets",
+              "file": "learn/05-azure-networking/01-virtual-networks-and-subnets/README.md",
+              "title": "Virtual Networks & Subnets",
+              "children": []
+            },
+            {
+              "name": "02-network-security-groups",
+              "path": "learn/05-azure-networking/02-network-security-groups",
+              "file": "learn/05-azure-networking/02-network-security-groups/README.md",
+              "title": "Network Security Groups",
+              "children": []
+            },
+            {
+              "name": "03-azure-dns-and-private-dns",
+              "path": "learn/05-azure-networking/03-azure-dns-and-private-dns",
+              "file": "learn/05-azure-networking/03-azure-dns-and-private-dns/README.md",
+              "title": "Azure DNS & Private DNS",
+              "children": []
+            },
+            {
+              "name": "04-public-ips-load-balancers-and-nat-gateway",
+              "path": "learn/05-azure-networking/04-public-ips-load-balancers-and-nat-gateway",
+              "file": "learn/05-azure-networking/04-public-ips-load-balancers-and-nat-gateway/README.md",
+              "title": "Public IPs, Load Balancers & NAT Gateway",
+              "children": []
+            },
+            {
+              "name": "05-vnet-peering-and-private-endpoints",
+              "path": "learn/05-azure-networking/05-vnet-peering-and-private-endpoints",
+              "file": "learn/05-azure-networking/05-vnet-peering-and-private-endpoints/README.md",
+              "title": "VNet Peering & Private Endpoints",
+              "children": []
+            },
+            {
+              "name": "06-application-gateway-and-waf",
+              "path": "learn/05-azure-networking/06-application-gateway-and-waf",
+              "file": "learn/05-azure-networking/06-application-gateway-and-waf/README.md",
+              "title": "Application Gateway & WAF",
+              "children": []
+            },
+            {
+              "name": "07-azure-firewall-and-hub-spoke",
+              "path": "learn/05-azure-networking/07-azure-firewall-and-hub-spoke",
+              "file": "learn/05-azure-networking/07-azure-firewall-and-hub-spoke/README.md",
+              "title": "Azure Firewall & Hub-Spoke",
+              "children": []
+            },
+            {
+              "name": "08-capstone-project",
+              "path": "learn/05-azure-networking/08-capstone-project",
+              "file": "learn/05-azure-networking/08-capstone-project/README.md",
+              "title": "Capstone Project",
+              "children": []
+            }
+          ]
+        },
+        {
+          "name": "06-azure-container-apps",
+          "path": "learn/06-azure-container-apps",
+          "file": "learn/06-azure-container-apps/README.md",
+          "title": "Track 6: Azure Container Apps",
+          "children": [
+            {
+              "name": "00-container-apps-concepts-and-prerequisites",
+              "path": "learn/06-azure-container-apps/00-container-apps-concepts-and-prerequisites",
+              "file": "learn/06-azure-container-apps/00-container-apps-concepts-and-prerequisites/README.md",
+              "title": "Container Apps Concepts & Prerequisites",
+              "children": []
+            },
+            {
+              "name": "01-container-apps-environment-deep-dive",
+              "path": "learn/06-azure-container-apps/01-container-apps-environment-deep-dive",
+              "file": "learn/06-azure-container-apps/01-container-apps-environment-deep-dive/README.md",
+              "title": "Container Apps Environment Deep Dive",
+              "children": []
+            },
+            {
+              "name": "02-deploying-your-first-container-app",
+              "path": "learn/06-azure-container-apps/02-deploying-your-first-container-app",
+              "file": "learn/06-azure-container-apps/02-deploying-your-first-container-app/README.md",
+              "title": "Deploying Your First Container App",
+              "children": []
+            },
+            {
+              "name": "03-scaling-with-keda",
+              "path": "learn/06-azure-container-apps/03-scaling-with-keda",
+              "file": "learn/06-azure-container-apps/03-scaling-with-keda/README.md",
+              "title": "Scaling with KEDA",
+              "children": []
+            },
+            {
+              "name": "04-networking-ingress-and-vnet-integration",
+              "path": "learn/06-azure-container-apps/04-networking-ingress-and-vnet-integration",
+              "file": "learn/06-azure-container-apps/04-networking-ingress-and-vnet-integration/README.md",
+              "title": "Networking, Ingress & VNet Integration",
+              "children": []
+            },
+            {
+              "name": "05-revisions-traffic-splitting-and-dapr",
+              "path": "learn/06-azure-container-apps/05-revisions-traffic-splitting-and-dapr",
+              "file": "learn/06-azure-container-apps/05-revisions-traffic-splitting-and-dapr/README.md",
+              "title": "Revisions, Traffic Splitting & Dapr",
+              "children": []
+            },
+            {
+              "name": "06-secrets-managed-identity-and-config",
+              "path": "learn/06-azure-container-apps/06-secrets-managed-identity-and-config",
+              "file": "learn/06-azure-container-apps/06-secrets-managed-identity-and-config/README.md",
+              "title": "Secrets, Managed Identity & Config",
+              "children": []
+            },
+            {
+              "name": "07-monitoring-and-log-analytics",
+              "path": "learn/06-azure-container-apps/07-monitoring-and-log-analytics",
+              "file": "learn/06-azure-container-apps/07-monitoring-and-log-analytics/README.md",
+              "title": "Monitoring & Log Analytics",
+              "children": []
+            },
+            {
+              "name": "08-capstone-project",
+              "path": "learn/06-azure-container-apps/08-capstone-project",
+              "file": "learn/06-azure-container-apps/08-capstone-project/README.md",
+              "title": "Capstone Project",
+              "children": []
+            }
+          ]
+        },
+        {
+          "name": "07-aks",
+          "path": "learn/07-aks",
+          "file": "learn/07-aks/README.md",
+          "title": "Track 7: Azure Kubernetes Service (AKS)",
+          "children": [
+            {
+              "name": "00-azure-cli-and-prerequisites",
+              "path": "learn/07-aks/00-azure-cli-and-prerequisites",
+              "file": "learn/07-aks/00-azure-cli-and-prerequisites/README.md",
+              "title": "Azure CLI and Prerequisites",
+              "children": []
+            },
+            {
+              "name": "01-creating-an-aks-cluster",
+              "path": "learn/07-aks/01-creating-an-aks-cluster",
+              "file": "learn/07-aks/01-creating-an-aks-cluster/README.md",
+              "title": "Creating an AKS Cluster",
+              "children": []
+            },
+            {
+              "name": "02-deploying-workloads-to-aks",
+              "path": "learn/07-aks/02-deploying-workloads-to-aks",
+              "file": "learn/07-aks/02-deploying-workloads-to-aks/README.md",
+              "title": "Deploying Workloads to AKS",
+              "children": []
+            },
+            {
+              "name": "03-acr-integration-with-aks",
+              "path": "learn/07-aks/03-acr-integration-with-aks",
+              "file": "learn/07-aks/03-acr-integration-with-aks/README.md",
+              "title": "ACR Integration with AKS",
+              "children": []
+            },
+            {
+              "name": "04-aks-networking-loadbalancer-and-ingress",
+              "path": "learn/07-aks/04-aks-networking-loadbalancer-and-ingress",
+              "file": "learn/07-aks/04-aks-networking-loadbalancer-and-ingress/README.md",
+              "title": "AKS Networking: LoadBalancer and Ingress",
+              "children": []
+            },
+            {
+              "name": "05-scaling-aks-cluster-autoscaler-and-hpa",
+              "path": "learn/07-aks/05-scaling-aks-cluster-autoscaler-and-hpa",
+              "file": "learn/07-aks/05-scaling-aks-cluster-autoscaler-and-hpa/README.md",
+              "title": "Scaling AKS: Cluster Autoscaler and HPA",
+              "children": []
+            },
+            {
+              "name": "06-monitoring-aks-azure-monitor-container-insights",
+              "path": "learn/07-aks/06-monitoring-aks-azure-monitor-container-insights",
+              "file": "learn/07-aks/06-monitoring-aks-azure-monitor-container-insights/README.md",
+              "title": "Monitoring AKS: Azure Monitor & Container Insights",
+              "children": []
+            },
+            {
+              "name": "07-security-aks-aad-rbac-and-keyvault",
+              "path": "learn/07-aks/07-security-aks-aad-rbac-and-keyvault",
+              "file": "learn/07-aks/07-security-aks-aad-rbac-and-keyvault/README.md",
+              "title": "Security on AKS: Azure AD, RBAC, and Key Vault",
+              "children": []
+            },
+            {
+              "name": "08-cicd-github-actions-to-aks",
+              "path": "learn/07-aks/08-cicd-github-actions-to-aks",
+              "file": "learn/07-aks/08-cicd-github-actions-to-aks/README.md",
+              "title": "CI/CD: GitHub Actions to AKS",
+              "children": []
+            },
+            {
+              "name": "09-capstone-project",
+              "path": "learn/07-aks/09-capstone-project",
+              "file": "learn/07-aks/09-capstone-project/README.md",
+              "title": "Capstone Project",
+              "children": []
+            }
+          ]
+        },
+        {
+          "name": "08-git-and-version-control",
+          "path": "learn/08-git-and-version-control",
+          "file": "learn/08-git-and-version-control/README.md",
+          "title": "Track 8: Git and Version Control",
+          "children": [
+            {
+              "name": "00-git-object-model-and-mental-model",
+              "path": "learn/08-git-and-version-control/00-git-object-model-and-mental-model",
+              "file": "learn/08-git-and-version-control/00-git-object-model-and-mental-model/README.md",
+              "title": "Git's Object Model and Mental Model",
+              "children": []
+            },
+            {
+              "name": "01-basic-local-workflow",
+              "path": "learn/08-git-and-version-control/01-basic-local-workflow",
+              "file": "learn/08-git-and-version-control/01-basic-local-workflow/README.md",
+              "title": "The Basic Local Workflow",
+              "children": []
+            },
+            {
+              "name": "02-branching-and-merging",
+              "path": "learn/08-git-and-version-control/02-branching-and-merging",
+              "file": "learn/08-git-and-version-control/02-branching-and-merging/README.md",
+              "title": "Branching and Merging",
+              "children": []
+            },
+            {
+              "name": "03-rebasing-and-history-rewriting",
+              "path": "learn/08-git-and-version-control/03-rebasing-and-history-rewriting",
+              "file": "learn/08-git-and-version-control/03-rebasing-and-history-rewriting/README.md",
+              "title": "Rebasing and History Rewriting",
+              "children": []
+            },
+            {
+              "name": "04-remotes-and-collaboration",
+              "path": "learn/08-git-and-version-control/04-remotes-and-collaboration",
+              "file": "learn/08-git-and-version-control/04-remotes-and-collaboration/README.md",
+              "title": "Remotes and Collaboration",
+              "children": []
+            },
+            {
+              "name": "05-pull-requests-and-code-review",
+              "path": "learn/08-git-and-version-control/05-pull-requests-and-code-review",
+              "file": "learn/08-git-and-version-control/05-pull-requests-and-code-review/README.md",
+              "title": "Pull Requests and Code Review",
+              "children": []
+            },
+            {
+              "name": "06-git-hooks-and-automation",
+              "path": "learn/08-git-and-version-control/06-git-hooks-and-automation",
+              "file": "learn/08-git-and-version-control/06-git-hooks-and-automation/README.md",
+              "title": "Git Hooks and Automation",
+              "children": []
+            },
+            {
+              "name": "07-troubleshooting-and-recovery",
+              "path": "learn/08-git-and-version-control/07-troubleshooting-and-recovery",
+              "file": "learn/08-git-and-version-control/07-troubleshooting-and-recovery/README.md",
+              "title": "Troubleshooting and Recovery",
+              "children": []
+            },
+            {
+              "name": "08-capstone-project",
+              "path": "learn/08-git-and-version-control/08-capstone-project",
+              "file": "learn/08-git-and-version-control/08-capstone-project/README.md",
+              "title": "Capstone Project: A Realistic Collaboration History",
+              "children": []
+            }
+          ]
+        },
+        {
+          "name": "09-terraform-on-azure",
+          "path": "learn/09-terraform-on-azure",
+          "file": "learn/09-terraform-on-azure/README.md",
+          "title": "Track 9: Terraform on Azure",
+          "children": [
+            {
+              "name": "00-iac-concepts-and-terraform-setup",
+              "path": "learn/09-terraform-on-azure/00-iac-concepts-and-terraform-setup",
+              "file": "learn/09-terraform-on-azure/00-iac-concepts-and-terraform-setup/README.md",
+              "title": "IaC Concepts & Terraform Setup",
+              "children": []
+            },
+            {
+              "name": "01-core-workflow-and-state",
+              "path": "learn/09-terraform-on-azure/01-core-workflow-and-state",
+              "file": "learn/09-terraform-on-azure/01-core-workflow-and-state/README.md",
+              "title": "The Core Workflow & State",
+              "children": []
+            },
+            {
+              "name": "02-providers-resources-and-the-azurerm-provider",
+              "path": "learn/09-terraform-on-azure/02-providers-resources-and-the-azurerm-provider",
+              "file": "learn/09-terraform-on-azure/02-providers-resources-and-the-azurerm-provider/README.md",
+              "title": "Providers, Resources & the azurerm Provider",
+              "children": []
+            },
+            {
+              "name": "03-variables-outputs-and-data-sources",
+              "path": "learn/09-terraform-on-azure/03-variables-outputs-and-data-sources",
+              "file": "learn/09-terraform-on-azure/03-variables-outputs-and-data-sources/README.md",
+              "title": "Variables, Outputs & Data Sources",
+              "children": []
+            },
+            {
+              "name": "04-modules-and-code-organization",
+              "path": "learn/09-terraform-on-azure/04-modules-and-code-organization",
+              "file": "learn/09-terraform-on-azure/04-modules-and-code-organization/README.md",
+              "title": "Modules & Code Organization",
+              "children": []
+            },
+            {
+              "name": "05-remote-state-and-collaboration",
+              "path": "learn/09-terraform-on-azure/05-remote-state-and-collaboration",
+              "file": "learn/09-terraform-on-azure/05-remote-state-and-collaboration/README.md",
+              "title": "Remote State & Collaboration",
+              "children": []
+            },
+            {
+              "name": "06-provisioning-azure-infrastructure",
+              "path": "learn/09-terraform-on-azure/06-provisioning-azure-infrastructure",
+              "file": "learn/09-terraform-on-azure/06-provisioning-azure-infrastructure/README.md",
+              "title": "Provisioning Real Azure Infrastructure",
+              "children": []
+            },
+            {
+              "name": "07-terraform-in-cicd-and-testing",
+              "path": "learn/09-terraform-on-azure/07-terraform-in-cicd-and-testing",
+              "file": "learn/09-terraform-on-azure/07-terraform-in-cicd-and-testing/README.md",
+              "title": "Terraform in CI/CD & Testing",
+              "children": []
+            },
+            {
+              "name": "08-capstone-project",
+              "path": "learn/09-terraform-on-azure/08-capstone-project",
+              "file": "learn/09-terraform-on-azure/08-capstone-project/README.md",
+              "title": "Capstone Project",
+              "children": []
+            }
+          ]
+        },
+        {
+          "name": "10-cicd-and-gitops",
+          "path": "learn/10-cicd-and-gitops",
+          "file": "learn/10-cicd-and-gitops/README.md",
+          "title": "Track 10: CI/CD and GitOps",
+          "children": [
+            {
+              "name": "00-cicd-concepts-and-pipeline-anatomy",
+              "path": "learn/10-cicd-and-gitops/00-cicd-concepts-and-pipeline-anatomy",
+              "file": "learn/10-cicd-and-gitops/00-cicd-concepts-and-pipeline-anatomy/README.md",
+              "title": "CI/CD Concepts and Pipeline Anatomy",
+              "children": []
+            },
+            {
+              "name": "01-github-actions-deep-dive",
+              "path": "learn/10-cicd-and-gitops/01-github-actions-deep-dive",
+              "file": "learn/10-cicd-and-gitops/01-github-actions-deep-dive/README.md",
+              "title": "GitHub Actions Deep Dive",
+              "children": []
+            },
+            {
+              "name": "02-building-and-testing-in-ci",
+              "path": "learn/10-cicd-and-gitops/02-building-and-testing-in-ci",
+              "file": "learn/10-cicd-and-gitops/02-building-and-testing-in-ci/README.md",
+              "title": "Building and Testing in CI",
+              "children": []
+            },
+            {
+              "name": "03-container-image-pipelines",
+              "path": "learn/10-cicd-and-gitops/03-container-image-pipelines",
+              "file": "learn/10-cicd-and-gitops/03-container-image-pipelines/README.md",
+              "title": "Container Image Pipelines",
+              "children": []
+            },
+            {
+              "name": "04-continuous-deployment-strategies",
+              "path": "learn/10-cicd-and-gitops/04-continuous-deployment-strategies",
+              "file": "learn/10-cicd-and-gitops/04-continuous-deployment-strategies/README.md",
+              "title": "Continuous Deployment Strategies",
+              "children": []
+            },
+            {
+              "name": "05-gitops-and-argocd",
+              "path": "learn/10-cicd-and-gitops/05-gitops-and-argocd",
+              "file": "learn/10-cicd-and-gitops/05-gitops-and-argocd/README.md",
+              "title": "GitOps and ArgoCD",
+              "children": []
+            },
+            {
+              "name": "06-progressive-delivery-canary-and-blue-green",
+              "path": "learn/10-cicd-and-gitops/06-progressive-delivery-canary-and-blue-green",
+              "file": "learn/10-cicd-and-gitops/06-progressive-delivery-canary-and-blue-green/README.md",
+              "title": "Progressive Delivery: Canary and Blue/Green in Practice",
+              "children": []
+            },
+            {
+              "name": "07-pipeline-security-and-secrets",
+              "path": "learn/10-cicd-and-gitops/07-pipeline-security-and-secrets",
+              "file": "learn/10-cicd-and-gitops/07-pipeline-security-and-secrets/README.md",
+              "title": "Pipeline Security and Secrets",
+              "children": []
+            },
+            {
+              "name": "08-capstone-project",
+              "path": "learn/10-cicd-and-gitops/08-capstone-project",
+              "file": "learn/10-cicd-and-gitops/08-capstone-project/README.md",
+              "title": "Capstone Project: A Complete GitOps Delivery Pipeline",
+              "children": []
+            }
+          ]
+        },
+        {
+          "name": "11-security-deep-dive",
+          "path": "learn/11-security-deep-dive",
+          "file": "learn/11-security-deep-dive/README.md",
+          "title": "Track 11: Security Deep Dive",
+          "children": [
+            {
+              "name": "00-security-mental-model-and-threat-modeling",
+              "path": "learn/11-security-deep-dive/00-security-mental-model-and-threat-modeling",
+              "file": "learn/11-security-deep-dive/00-security-mental-model-and-threat-modeling/README.md",
+              "title": "Security Mental Model and Threat Modeling",
+              "children": []
+            },
+            {
+              "name": "01-image-scanning-and-supply-chain-basics",
+              "path": "learn/11-security-deep-dive/01-image-scanning-and-supply-chain-basics",
+              "file": "learn/11-security-deep-dive/01-image-scanning-and-supply-chain-basics/README.md",
+              "title": "Image Scanning and Supply-Chain Basics",
+              "children": []
+            },
+            {
+              "name": "02-secrets-management-in-depth",
+              "path": "learn/11-security-deep-dive/02-secrets-management-in-depth",
+              "file": "learn/11-security-deep-dive/02-secrets-management-in-depth/README.md",
+              "title": "Secrets Management in Depth",
+              "children": []
+            },
+            {
+              "name": "03-pod-security-and-admission-control",
+              "path": "learn/11-security-deep-dive/03-pod-security-and-admission-control",
+              "file": "learn/11-security-deep-dive/03-pod-security-and-admission-control/README.md",
+              "title": "Pod Security and Admission Control",
+              "children": []
+            },
+            {
+              "name": "04-policy-as-code-opa-gatekeeper",
+              "path": "learn/11-security-deep-dive/04-policy-as-code-opa-gatekeeper",
+              "file": "learn/11-security-deep-dive/04-policy-as-code-opa-gatekeeper/README.md",
+              "title": "Policy as Code: OPA/Gatekeeper",
+              "children": []
+            },
+            {
+              "name": "05-azure-policy-and-governance-guardrails",
+              "path": "learn/11-security-deep-dive/05-azure-policy-and-governance-guardrails",
+              "file": "learn/11-security-deep-dive/05-azure-policy-and-governance-guardrails/README.md",
+              "title": "Azure Policy and Governance Guardrails",
+              "children": []
+            },
+            {
+              "name": "06-network-security-in-depth",
+              "path": "learn/11-security-deep-dive/06-network-security-in-depth",
+              "file": "learn/11-security-deep-dive/06-network-security-in-depth/README.md",
+              "title": "Network Security in Depth",
+              "children": []
+            },
+            {
+              "name": "07-incident-response-and-security-monitoring",
+              "path": "learn/11-security-deep-dive/07-incident-response-and-security-monitoring",
+              "file": "learn/11-security-deep-dive/07-incident-response-and-security-monitoring/README.md",
+              "title": "Incident Response and Security Monitoring",
+              "children": []
+            },
+            {
+              "name": "08-capstone-project",
+              "path": "learn/11-security-deep-dive/08-capstone-project",
+              "file": "learn/11-security-deep-dive/08-capstone-project/README.md",
+              "title": "Capstone Project: A Defensible Deployment, End to End",
+              "children": []
+            }
+          ]
+        },
+        {
+          "name": "12-observability-deep-dive",
+          "path": "learn/12-observability-deep-dive",
+          "file": "learn/12-observability-deep-dive/README.md",
+          "title": "Track 12: Observability Deep Dive",
+          "children": [
+            {
+              "name": "00-observability-concepts-and-three-pillars",
+              "path": "learn/12-observability-deep-dive/00-observability-concepts-and-three-pillars",
+              "file": "learn/12-observability-deep-dive/00-observability-concepts-and-three-pillars/README.md",
+              "title": "Observability Concepts and the Three Pillars",
+              "children": []
+            },
+            {
+              "name": "01-prometheus-fundamentals",
+              "path": "learn/12-observability-deep-dive/01-prometheus-fundamentals",
+              "file": "learn/12-observability-deep-dive/01-prometheus-fundamentals/README.md",
+              "title": "Prometheus Fundamentals",
+              "children": []
+            },
+            {
+              "name": "02-promql-in-depth",
+              "path": "learn/12-observability-deep-dive/02-promql-in-depth",
+              "file": "learn/12-observability-deep-dive/02-promql-in-depth/README.md",
+              "title": "PromQL in Depth",
+              "children": []
+            },
+            {
+              "name": "03-grafana-dashboards",
+              "path": "learn/12-observability-deep-dive/03-grafana-dashboards",
+              "file": "learn/12-observability-deep-dive/03-grafana-dashboards/README.md",
+              "title": "Grafana: Dashboards and Visualization",
+              "children": []
+            },
+            {
+              "name": "04-logging-and-log-aggregation-loki",
+              "path": "learn/12-observability-deep-dive/04-logging-and-log-aggregation-loki",
+              "file": "learn/12-observability-deep-dive/04-logging-and-log-aggregation-loki/README.md",
+              "title": "Structured Logging and Log Aggregation with Loki",
+              "children": []
+            },
+            {
+              "name": "05-distributed-tracing-and-opentelemetry",
+              "path": "learn/12-observability-deep-dive/05-distributed-tracing-and-opentelemetry",
+              "file": "learn/12-observability-deep-dive/05-distributed-tracing-and-opentelemetry/README.md",
+              "title": "Distributed Tracing and OpenTelemetry",
+              "children": []
+            },
+            {
+              "name": "06-alerting-and-on-call-basics",
+              "path": "learn/12-observability-deep-dive/06-alerting-and-on-call-basics",
+              "file": "learn/12-observability-deep-dive/06-alerting-and-on-call-basics/README.md",
+              "title": "Alerting and On-Call Basics",
+              "children": []
+            },
+            {
+              "name": "07-correlating-the-three-pillars",
+              "path": "learn/12-observability-deep-dive/07-correlating-the-three-pillars",
+              "file": "learn/12-observability-deep-dive/07-correlating-the-three-pillars/README.md",
+              "title": "Correlating the Three Pillars",
+              "children": []
+            },
+            {
+              "name": "08-capstone-project",
+              "path": "learn/12-observability-deep-dive/08-capstone-project",
+              "file": "learn/12-observability-deep-dive/08-capstone-project/README.md",
+              "title": "Capstone Project: A Fully Observable System, End to End",
+              "children": []
+            }
+          ]
+        },
+        {
+          "name": "13-service-mesh",
+          "path": "learn/13-service-mesh",
+          "file": "learn/13-service-mesh/README.md",
+          "title": "Track 13: Service Mesh",
+          "children": [
+            {
+              "name": "00-service-mesh-concepts",
+              "path": "learn/13-service-mesh/00-service-mesh-concepts",
+              "file": "learn/13-service-mesh/00-service-mesh-concepts/README.md",
+              "title": "00 - Service Mesh Concepts",
+              "children": []
+            },
+            {
+              "name": "01-installing-istio-and-sidecar-injection",
+              "path": "learn/13-service-mesh/01-installing-istio-and-sidecar-injection",
+              "file": "learn/13-service-mesh/01-installing-istio-and-sidecar-injection/README.md",
+              "title": "01 - Installing Istio and Sidecar Injection",
+              "children": []
+            },
+            {
+              "name": "02-traffic-management-basics",
+              "path": "learn/13-service-mesh/02-traffic-management-basics",
+              "file": "learn/13-service-mesh/02-traffic-management-basics/README.md",
+              "title": "02 - Traffic Management Basics",
+              "children": []
+            },
+            {
+              "name": "03-canary-and-blue-green-traffic-splitting",
+              "path": "learn/13-service-mesh/03-canary-and-blue-green-traffic-splitting",
+              "file": "learn/13-service-mesh/03-canary-and-blue-green-traffic-splitting/README.md",
+              "title": "03 - Canary and Blue/Green Traffic Splitting",
+              "children": []
+            },
+            {
+              "name": "04-mtls-and-zero-trust",
+              "path": "learn/13-service-mesh/04-mtls-and-zero-trust",
+              "file": "learn/13-service-mesh/04-mtls-and-zero-trust/README.md",
+              "title": "04 - mTLS and Zero-Trust Networking",
+              "children": []
+            },
+            {
+              "name": "05-authorization-policies",
+              "path": "learn/13-service-mesh/05-authorization-policies",
+              "file": "learn/13-service-mesh/05-authorization-policies/README.md",
+              "title": "05 - Authorization Policies",
+              "children": []
+            },
+            {
+              "name": "06-mesh-observability",
+              "path": "learn/13-service-mesh/06-mesh-observability",
+              "file": "learn/13-service-mesh/06-mesh-observability/README.md",
+              "title": "06 - Mesh Observability",
+              "children": []
+            },
+            {
+              "name": "07-resilience-patterns",
+              "path": "learn/13-service-mesh/07-resilience-patterns",
+              "file": "learn/13-service-mesh/07-resilience-patterns/README.md",
+              "title": "07 - Resilience Patterns via the Mesh",
+              "children": []
+            },
+            {
+              "name": "08-capstone-project",
+              "path": "learn/13-service-mesh/08-capstone-project",
+              "file": "learn/13-service-mesh/08-capstone-project/README.md",
+              "title": "08 - Capstone Project",
+              "children": []
+            }
+          ]
+        },
+        {
+          "name": "14-databases-and-stateful-workloads",
+          "path": "learn/14-databases-and-stateful-workloads",
+          "file": "learn/14-databases-and-stateful-workloads/README.md",
+          "title": "Track 14: Databases and Stateful Workloads",
+          "children": [
+            {
+              "name": "00-why-stateful-is-hard",
+              "path": "learn/14-databases-and-stateful-workloads/00-why-stateful-is-hard",
+              "file": "learn/14-databases-and-stateful-workloads/00-why-stateful-is-hard/README.md",
+              "title": "00 - Why Stateful Workloads Are Hard on Kubernetes",
+              "children": []
+            },
+            {
+              "name": "01-statefulsets-in-depth",
+              "path": "learn/14-databases-and-stateful-workloads/01-statefulsets-in-depth",
+              "file": "learn/14-databases-and-stateful-workloads/01-statefulsets-in-depth/README.md",
+              "title": "01 - StatefulSets in Depth",
+              "children": []
+            },
+            {
+              "name": "02-storageclasses-and-dynamic-provisioning-on-azure",
+              "path": "learn/14-databases-and-stateful-workloads/02-storageclasses-and-dynamic-provisioning-on-azure",
+              "file": "learn/14-databases-and-stateful-workloads/02-storageclasses-and-dynamic-provisioning-on-azure/README.md",
+              "title": "02 - StorageClasses and Dynamic Provisioning on Azure",
+              "children": []
+            },
+            {
+              "name": "03-running-a-database-with-an-operator",
+              "path": "learn/14-databases-and-stateful-workloads/03-running-a-database-with-an-operator",
+              "file": "learn/14-databases-and-stateful-workloads/03-running-a-database-with-an-operator/README.md",
+              "title": "03 - Running a Real Database with an Operator",
+              "children": []
+            },
+            {
+              "name": "04-backup-and-restore-strategies",
+              "path": "learn/14-databases-and-stateful-workloads/04-backup-and-restore-strategies",
+              "file": "learn/14-databases-and-stateful-workloads/04-backup-and-restore-strategies/README.md",
+              "title": "04 - Backup and Restore Strategies for Stateful Workloads",
+              "children": []
+            },
+            {
+              "name": "05-azure-managed-database-services",
+              "path": "learn/14-databases-and-stateful-workloads/05-azure-managed-database-services",
+              "file": "learn/14-databases-and-stateful-workloads/05-azure-managed-database-services/README.md",
+              "title": "05 - Azure Managed Database Services: The Alternative",
+              "children": []
+            },
+            {
+              "name": "06-the-decision-framework",
+              "path": "learn/14-databases-and-stateful-workloads/06-the-decision-framework",
+              "file": "learn/14-databases-and-stateful-workloads/06-the-decision-framework/README.md",
+              "title": "06 - The Decision Framework: Self-Hosted vs. Managed",
+              "children": []
+            },
+            {
+              "name": "07-data-migration-and-connection-resilience",
+              "path": "learn/14-databases-and-stateful-workloads/07-data-migration-and-connection-resilience",
+              "file": "learn/14-databases-and-stateful-workloads/07-data-migration-and-connection-resilience/README.md",
+              "title": "07 - Data Migration and Connection Resilience",
+              "children": []
+            },
+            {
+              "name": "08-capstone-project",
+              "path": "learn/14-databases-and-stateful-workloads/08-capstone-project",
+              "file": "learn/14-databases-and-stateful-workloads/08-capstone-project/README.md",
+              "title": "Capstone Project",
+              "children": []
+            }
+          ]
+        },
+        {
+          "name": "15-messaging-and-event-driven-architecture",
+          "path": "learn/15-messaging-and-event-driven-architecture",
+          "file": "learn/15-messaging-and-event-driven-architecture/README.md",
+          "title": "Track 15: Messaging and Event-Driven Architecture",
+          "children": [
+            {
+              "name": "00-event-driven-architecture-concepts",
+              "path": "learn/15-messaging-and-event-driven-architecture/00-event-driven-architecture-concepts",
+              "file": "learn/15-messaging-and-event-driven-architecture/00-event-driven-architecture-concepts/README.md",
+              "title": "Event-Driven Architecture Concepts",
+              "children": []
+            },
+            {
+              "name": "01-queues-vs-topics-vs-streams",
+              "path": "learn/15-messaging-and-event-driven-architecture/01-queues-vs-topics-vs-streams",
+              "file": "learn/15-messaging-and-event-driven-architecture/01-queues-vs-topics-vs-streams/README.md",
+              "title": "Queues vs. Topics vs. Streams",
+              "children": []
+            },
+            {
+              "name": "02-azure-service-bus-in-depth",
+              "path": "learn/15-messaging-and-event-driven-architecture/02-azure-service-bus-in-depth",
+              "file": "learn/15-messaging-and-event-driven-architecture/02-azure-service-bus-in-depth/README.md",
+              "title": "Azure Service Bus in Depth",
+              "children": []
+            },
+            {
+              "name": "03-azure-event-grid",
+              "path": "learn/15-messaging-and-event-driven-architecture/03-azure-event-grid",
+              "file": "learn/15-messaging-and-event-driven-architecture/03-azure-event-grid/README.md",
+              "title": "Azure Event Grid",
+              "children": []
+            },
+            {
+              "name": "04-dapr-pubsub-in-depth",
+              "path": "learn/15-messaging-and-event-driven-architecture/04-dapr-pubsub-in-depth",
+              "file": "learn/15-messaging-and-event-driven-architecture/04-dapr-pubsub-in-depth/README.md",
+              "title": "Dapr Pub/Sub in Depth",
+              "children": []
+            },
+            {
+              "name": "05-reliability-patterns",
+              "path": "learn/15-messaging-and-event-driven-architecture/05-reliability-patterns",
+              "file": "learn/15-messaging-and-event-driven-architecture/05-reliability-patterns/README.md",
+              "title": "Reliability Patterns",
+              "children": []
+            },
+            {
+              "name": "06-event-schemas-and-versioning",
+              "path": "learn/15-messaging-and-event-driven-architecture/06-event-schemas-and-versioning",
+              "file": "learn/15-messaging-and-event-driven-architecture/06-event-schemas-and-versioning/README.md",
+              "title": "Event Schemas and Versioning",
+              "children": []
+            },
+            {
+              "name": "07-observability-for-event-driven-systems",
+              "path": "learn/15-messaging-and-event-driven-architecture/07-observability-for-event-driven-systems",
+              "file": "learn/15-messaging-and-event-driven-architecture/07-observability-for-event-driven-systems/README.md",
+              "title": "Observability for Event-Driven Systems",
+              "children": []
+            },
+            {
+              "name": "08-capstone-project",
+              "path": "learn/15-messaging-and-event-driven-architecture/08-capstone-project",
+              "file": "learn/15-messaging-and-event-driven-architecture/08-capstone-project/README.md",
+              "title": "Capstone Project",
+              "children": []
+            }
+          ]
+        },
+        {
+          "name": "16-identity-deep-dive",
+          "path": "learn/16-identity-deep-dive",
+          "file": "learn/16-identity-deep-dive/README.md",
+          "title": "Track 16: Identity Deep Dive",
+          "children": [
+            {
+              "name": "00-entra-id-and-identity-fundamentals",
+              "path": "learn/16-identity-deep-dive/00-entra-id-and-identity-fundamentals",
+              "file": "learn/16-identity-deep-dive/00-entra-id-and-identity-fundamentals/README.md",
+              "title": "Entra ID and Identity Fundamentals",
+              "children": []
+            },
+            {
+              "name": "01-service-principals-in-depth",
+              "path": "learn/16-identity-deep-dive/01-service-principals-in-depth",
+              "file": "learn/16-identity-deep-dive/01-service-principals-in-depth/README.md",
+              "title": "Service Principals in Depth",
+              "children": []
+            },
+            {
+              "name": "02-managed-identity-in-depth",
+              "path": "learn/16-identity-deep-dive/02-managed-identity-in-depth",
+              "file": "learn/16-identity-deep-dive/02-managed-identity-in-depth/README.md",
+              "title": "Managed Identity in Depth",
+              "children": []
+            },
+            {
+              "name": "03-workload-identity-federation",
+              "path": "learn/16-identity-deep-dive/03-workload-identity-federation",
+              "file": "learn/16-identity-deep-dive/03-workload-identity-federation/README.md",
+              "title": "Workload Identity Federation",
+              "children": []
+            },
+            {
+              "name": "04-rbac-and-role-assignments",
+              "path": "learn/16-identity-deep-dive/04-rbac-and-role-assignments",
+              "file": "learn/16-identity-deep-dive/04-rbac-and-role-assignments/README.md",
+              "title": "RBAC and Role Assignments Across Azure",
+              "children": []
+            },
+            {
+              "name": "05-conditional-access-and-identity-protection",
+              "path": "learn/16-identity-deep-dive/05-conditional-access-and-identity-protection",
+              "file": "learn/16-identity-deep-dive/05-conditional-access-and-identity-protection/README.md",
+              "title": "Conditional Access and Identity Protection",
+              "children": []
+            },
+            {
+              "name": "06-cross-resource-identity-patterns",
+              "path": "learn/16-identity-deep-dive/06-cross-resource-identity-patterns",
+              "file": "learn/16-identity-deep-dive/06-cross-resource-identity-patterns/README.md",
+              "title": "Cross-Resource Identity Patterns",
+              "children": []
+            },
+            {
+              "name": "07-auditing-and-troubleshooting-identity",
+              "path": "learn/16-identity-deep-dive/07-auditing-and-troubleshooting-identity",
+              "file": "learn/16-identity-deep-dive/07-auditing-and-troubleshooting-identity/README.md",
+              "title": "Auditing and Troubleshooting Identity",
+              "children": []
+            },
+            {
+              "name": "08-capstone-project",
+              "path": "learn/16-identity-deep-dive/08-capstone-project",
+              "file": "learn/16-identity-deep-dive/08-capstone-project/README.md",
+              "title": "Capstone Project",
+              "children": []
+            }
+          ]
+        },
+        {
+          "name": "17-governance-at-scale",
+          "path": "learn/17-governance-at-scale",
+          "file": "learn/17-governance-at-scale/README.md",
+          "title": "Track 17: Governance at Scale",
+          "children": [
+            {
+              "name": "00-governance-and-why-single-subscription-breaks-down",
+              "path": "learn/17-governance-at-scale/00-governance-and-why-single-subscription-breaks-down",
+              "file": "learn/17-governance-at-scale/00-governance-and-why-single-subscription-breaks-down/README.md",
+              "title": "Governance, and Why Single-Subscription Thinking Breaks Down",
+              "children": []
+            },
+            {
+              "name": "01-management-groups-and-subscription-hierarchy",
+              "path": "learn/17-governance-at-scale/01-management-groups-and-subscription-hierarchy",
+              "file": "learn/17-governance-at-scale/01-management-groups-and-subscription-hierarchy/README.md",
+              "title": "Management Groups and Subscription Hierarchy",
+              "children": []
+            },
+            {
+              "name": "02-cloud-adoption-framework-and-landing-zones",
+              "path": "learn/17-governance-at-scale/02-cloud-adoption-framework-and-landing-zones",
+              "file": "learn/17-governance-at-scale/02-cloud-adoption-framework-and-landing-zones/README.md",
+              "title": "The Cloud Adoption Framework and Landing Zones",
+              "children": []
+            },
+            {
+              "name": "03-azure-policy-at-scale-initiatives-and-exemptions",
+              "path": "learn/17-governance-at-scale/03-azure-policy-at-scale-initiatives-and-exemptions",
+              "file": "learn/17-governance-at-scale/03-azure-policy-at-scale-initiatives-and-exemptions/README.md",
+              "title": "Azure Policy at Scale: Initiatives and Exemptions",
+              "children": []
+            },
+            {
+              "name": "04-repeatable-environments-deployment-stacks-and-template-specs",
+              "path": "learn/17-governance-at-scale/04-repeatable-environments-deployment-stacks-and-template-specs",
+              "file": "learn/17-governance-at-scale/04-repeatable-environments-deployment-stacks-and-template-specs/README.md",
+              "title": "Repeatable Environments: Deployment Stacks and Template Specs",
+              "children": []
+            },
+            {
+              "name": "05-multi-subscription-terraform-patterns",
+              "path": "learn/17-governance-at-scale/05-multi-subscription-terraform-patterns",
+              "file": "learn/17-governance-at-scale/05-multi-subscription-terraform-patterns/README.md",
+              "title": "Multi-Subscription Terraform Patterns",
+              "children": []
+            },
+            {
+              "name": "06-tagging-strategy-and-resource-organization",
+              "path": "learn/17-governance-at-scale/06-tagging-strategy-and-resource-organization",
+              "file": "learn/17-governance-at-scale/06-tagging-strategy-and-resource-organization/README.md",
+              "title": "Tagging Strategy and Resource Organization",
+              "children": []
+            },
+            {
+              "name": "07-compliance-and-regulatory-as-code",
+              "path": "learn/17-governance-at-scale/07-compliance-and-regulatory-as-code",
+              "file": "learn/17-governance-at-scale/07-compliance-and-regulatory-as-code/README.md",
+              "title": "Compliance and Regulatory as Code",
+              "children": []
+            },
+            {
+              "name": "08-capstone-project",
+              "path": "learn/17-governance-at-scale/08-capstone-project",
+              "file": "learn/17-governance-at-scale/08-capstone-project/README.md",
+              "title": "Capstone Project",
+              "children": []
+            }
+          ]
+        },
+        {
+          "name": "18-supply-chain-security",
+          "path": "learn/18-supply-chain-security",
+          "file": "learn/18-supply-chain-security/README.md",
+          "title": "Track 18: Supply Chain Security",
+          "children": [
+            {
+              "name": "00-supply-chain-attacks-and-the-slsa-framework",
+              "path": "learn/18-supply-chain-security/00-supply-chain-attacks-and-the-slsa-framework",
+              "file": "learn/18-supply-chain-security/00-supply-chain-attacks-and-the-slsa-framework/README.md",
+              "title": "Supply Chain Attacks and the SLSA Framework",
+              "children": []
+            },
+            {
+              "name": "01-software-bills-of-materials-sboms",
+              "path": "learn/18-supply-chain-security/01-software-bills-of-materials-sboms",
+              "file": "learn/18-supply-chain-security/01-software-bills-of-materials-sboms/README.md",
+              "title": "Software Bills of Materials (SBOMs)",
+              "children": []
+            },
+            {
+              "name": "02-image-signing-with-cosign-and-sigstore",
+              "path": "learn/18-supply-chain-security/02-image-signing-with-cosign-and-sigstore",
+              "file": "learn/18-supply-chain-security/02-image-signing-with-cosign-and-sigstore/README.md",
+              "title": "Image Signing with cosign and Sigstore",
+              "children": []
+            },
+            {
+              "name": "03-provenance-and-build-attestations",
+              "path": "learn/18-supply-chain-security/03-provenance-and-build-attestations",
+              "file": "learn/18-supply-chain-security/03-provenance-and-build-attestations/README.md",
+              "title": "Provenance and Build Attestations",
+              "children": []
+            },
+            {
+              "name": "04-vulnerability-management-as-an-ongoing-practice",
+              "path": "learn/18-supply-chain-security/04-vulnerability-management-as-an-ongoing-practice",
+              "file": "learn/18-supply-chain-security/04-vulnerability-management-as-an-ongoing-practice/README.md",
+              "title": "Vulnerability Management as an Ongoing Practice",
+              "children": []
+            },
+            {
+              "name": "05-admission-control-enforcement-of-supply-chain-policy",
+              "path": "learn/18-supply-chain-security/05-admission-control-enforcement-of-supply-chain-policy",
+              "file": "learn/18-supply-chain-security/05-admission-control-enforcement-of-supply-chain-policy/README.md",
+              "title": "Admission Control Enforcement of Supply-Chain Policy",
+              "children": []
+            },
+            {
+              "name": "06-dependency-and-base-image-hygiene-at-scale",
+              "path": "learn/18-supply-chain-security/06-dependency-and-base-image-hygiene-at-scale",
+              "file": "learn/18-supply-chain-security/06-dependency-and-base-image-hygiene-at-scale/README.md",
+              "title": "Dependency and Base Image Hygiene at Scale",
+              "children": []
+            },
+            {
+              "name": "07-incident-response-for-supply-chain-compromise",
+              "path": "learn/18-supply-chain-security/07-incident-response-for-supply-chain-compromise",
+              "file": "learn/18-supply-chain-security/07-incident-response-for-supply-chain-compromise/README.md",
+              "title": "Incident Response for a Supply-Chain Compromise",
+              "children": []
+            },
+            {
+              "name": "08-capstone-project",
+              "path": "learn/18-supply-chain-security/08-capstone-project",
+              "file": "learn/18-supply-chain-security/08-capstone-project/README.md",
+              "title": "Capstone Project: A Signed, Attested, Enforced Supply Chain",
+              "children": []
+            }
+          ]
+        },
+        {
+          "name": "19-api-management",
+          "path": "learn/19-api-management",
+          "file": "learn/19-api-management/README.md",
+          "title": "Track 19: Azure API Management (APIM)",
+          "children": [
+            {
+              "name": "00-api-gateway-concepts-and-where-apim-fits",
+              "path": "learn/19-api-management/00-api-gateway-concepts-and-where-apim-fits",
+              "file": "learn/19-api-management/00-api-gateway-concepts-and-where-apim-fits/README.md",
+              "title": "API Gateway Concepts & Where APIM Fits",
+              "children": []
+            },
+            {
+              "name": "01-provisioning-apim-and-importing-a-first-api",
+              "path": "learn/19-api-management/01-provisioning-apim-and-importing-a-first-api",
+              "file": "learn/19-api-management/01-provisioning-apim-and-importing-a-first-api/README.md",
+              "title": "Provisioning APIM & Importing a First API",
+              "children": []
+            },
+            {
+              "name": "02-api-versioning-and-revisions",
+              "path": "learn/19-api-management/02-api-versioning-and-revisions",
+              "file": "learn/19-api-management/02-api-versioning-and-revisions/README.md",
+              "title": "API Versioning & Revisions",
+              "children": []
+            },
+            {
+              "name": "03-policies-in-depth",
+              "path": "learn/19-api-management/03-policies-in-depth",
+              "file": "learn/19-api-management/03-policies-in-depth/README.md",
+              "title": "Policies in Depth",
+              "children": []
+            },
+            {
+              "name": "04-authentication-and-authorization-at-the-gateway",
+              "path": "learn/19-api-management/04-authentication-and-authorization-at-the-gateway",
+              "file": "learn/19-api-management/04-authentication-and-authorization-at-the-gateway/README.md",
+              "title": "Authentication & Authorization at the Gateway",
+              "children": []
+            },
+            {
+              "name": "05-backend-integration-patterns",
+              "path": "learn/19-api-management/05-backend-integration-patterns",
+              "file": "learn/19-api-management/05-backend-integration-patterns/README.md",
+              "title": "Backend Integration Patterns",
+              "children": []
+            },
+            {
+              "name": "06-developer-portal-and-api-products",
+              "path": "learn/19-api-management/06-developer-portal-and-api-products",
+              "file": "learn/19-api-management/06-developer-portal-and-api-products/README.md",
+              "title": "Developer Portal & API Products",
+              "children": []
+            },
+            {
+              "name": "07-observability-for-apis",
+              "path": "learn/19-api-management/07-observability-for-apis",
+              "file": "learn/19-api-management/07-observability-for-apis/README.md",
+              "title": "Observability for APIs",
+              "children": []
+            },
+            {
+              "name": "08-capstone-project",
+              "path": "learn/19-api-management/08-capstone-project",
+              "file": "learn/19-api-management/08-capstone-project/README.md",
+              "title": "Capstone Project",
+              "children": []
+            }
+          ]
+        },
+        {
+          "name": "20-sre-practices",
+          "path": "learn/20-sre-practices",
+          "file": "learn/20-sre-practices/README.md",
+          "title": "Track 20: SRE Practices",
+          "children": [
+            {
+              "name": "00-sre-concepts-and-the-reliability-mindset",
+              "path": "learn/20-sre-practices/00-sre-concepts-and-the-reliability-mindset",
+              "file": "learn/20-sre-practices/00-sre-concepts-and-the-reliability-mindset/README.md",
+              "title": "SRE Concepts and the Reliability Mindset",
+              "children": []
+            },
+            {
+              "name": "01-slis-and-slos",
+              "path": "learn/20-sre-practices/01-slis-and-slos",
+              "file": "learn/20-sre-practices/01-slis-and-slos/README.md",
+              "title": "SLIs and SLOs",
+              "children": []
+            },
+            {
+              "name": "02-error-budgets",
+              "path": "learn/20-sre-practices/02-error-budgets",
+              "file": "learn/20-sre-practices/02-error-budgets/README.md",
+              "title": "Error Budgets",
+              "children": []
+            },
+            {
+              "name": "03-slo-dashboards-and-burn-rate-alerts",
+              "path": "learn/20-sre-practices/03-slo-dashboards-and-burn-rate-alerts",
+              "file": "learn/20-sre-practices/03-slo-dashboards-and-burn-rate-alerts/README.md",
+              "title": "Building SLO Dashboards and Burn-Rate Alerts",
+              "children": []
+            },
+            {
+              "name": "04-on-call-in-depth",
+              "path": "learn/20-sre-practices/04-on-call-in-depth",
+              "file": "learn/20-sre-practices/04-on-call-in-depth/README.md",
+              "title": "On-Call in Depth",
+              "children": []
+            },
+            {
+              "name": "05-incident-response-process",
+              "path": "learn/20-sre-practices/05-incident-response-process",
+              "file": "learn/20-sre-practices/05-incident-response-process/README.md",
+              "title": "Incident Response Process",
+              "children": []
+            },
+            {
+              "name": "06-blameless-postmortems",
+              "path": "learn/20-sre-practices/06-blameless-postmortems",
+              "file": "learn/20-sre-practices/06-blameless-postmortems/README.md",
+              "title": "Blameless Postmortems",
+              "children": []
+            },
+            {
+              "name": "07-capacity-planning-and-toil-reduction",
+              "path": "learn/20-sre-practices/07-capacity-planning-and-toil-reduction",
+              "file": "learn/20-sre-practices/07-capacity-planning-and-toil-reduction/README.md",
+              "title": "Capacity Planning and Toil Reduction",
+              "children": []
+            },
+            {
+              "name": "08-capstone-project",
+              "path": "learn/20-sre-practices/08-capstone-project",
+              "file": "learn/20-sre-practices/08-capstone-project/README.md",
+              "title": "Capstone Project: Run the Full SRE Loop End to End",
+              "children": []
+            }
+          ]
+        },
+        {
+          "name": "21-cost-management-and-finops",
+          "path": "learn/21-cost-management-and-finops",
+          "file": "learn/21-cost-management-and-finops/README.md",
+          "title": "Track 21: Cost Management and FinOps",
+          "children": [
+            {
+              "name": "00-finops-concepts-and-the-cost-culture-shift",
+              "path": "learn/21-cost-management-and-finops/00-finops-concepts-and-the-cost-culture-shift",
+              "file": "learn/21-cost-management-and-finops/00-finops-concepts-and-the-cost-culture-shift/README.md",
+              "title": "FinOps Concepts and the Cost Culture Shift",
+              "children": []
+            },
+            {
+              "name": "01-azure-cost-management-fundamentals",
+              "path": "learn/21-cost-management-and-finops/01-azure-cost-management-fundamentals",
+              "file": "learn/21-cost-management-and-finops/01-azure-cost-management-fundamentals/README.md",
+              "title": "Azure Cost Management Fundamentals",
+              "children": []
+            },
+            {
+              "name": "02-budgets-and-alerts",
+              "path": "learn/21-cost-management-and-finops/02-budgets-and-alerts",
+              "file": "learn/21-cost-management-and-finops/02-budgets-and-alerts/README.md",
+              "title": "Budgets and Alerts",
+              "children": []
+            },
+            {
+              "name": "03-rightsizing-compute",
+              "path": "learn/21-cost-management-and-finops/03-rightsizing-compute",
+              "file": "learn/21-cost-management-and-finops/03-rightsizing-compute/README.md",
+              "title": "Rightsizing Compute",
+              "children": []
+            },
+            {
+              "name": "04-storage-and-data-cost-optimization",
+              "path": "learn/21-cost-management-and-finops/04-storage-and-data-cost-optimization",
+              "file": "learn/21-cost-management-and-finops/04-storage-and-data-cost-optimization/README.md",
+              "title": "Storage and Data Cost Optimization",
+              "children": []
+            },
+            {
+              "name": "05-reservations-savings-plans-and-spot",
+              "path": "learn/21-cost-management-and-finops/05-reservations-savings-plans-and-spot",
+              "file": "learn/21-cost-management-and-finops/05-reservations-savings-plans-and-spot/README.md",
+              "title": "Reservations, Savings Plans, and Spot",
+              "children": []
+            },
+            {
+              "name": "06-showback-and-chargeback",
+              "path": "learn/21-cost-management-and-finops/06-showback-and-chargeback",
+              "file": "learn/21-cost-management-and-finops/06-showback-and-chargeback/README.md",
+              "title": "Showback and Chargeback",
+              "children": []
+            },
+            {
+              "name": "07-cost-as-a-cicd-gate",
+              "path": "learn/21-cost-management-and-finops/07-cost-as-a-cicd-gate",
+              "file": "learn/21-cost-management-and-finops/07-cost-as-a-cicd-gate/README.md",
+              "title": "Cost as a CI/CD Gate",
+              "children": []
+            },
+            {
+              "name": "08-capstone-project",
+              "path": "learn/21-cost-management-and-finops/08-capstone-project",
+              "file": "learn/21-cost-management-and-finops/08-capstone-project/README.md",
+              "title": "Capstone Project",
+              "children": []
+            }
+          ]
+        },
+        {
+          "name": "22-disaster-recovery-and-chaos-engineering",
+          "path": "learn/22-disaster-recovery-and-chaos-engineering",
+          "file": "learn/22-disaster-recovery-and-chaos-engineering/README.md",
+          "title": "Track 22: Disaster Recovery and Chaos Engineering",
+          "children": [
+            {
+              "name": "00-dr-concepts-rto-rpo-and-strategy-spectrum",
+              "path": "learn/22-disaster-recovery-and-chaos-engineering/00-dr-concepts-rto-rpo-and-strategy-spectrum",
+              "file": "learn/22-disaster-recovery-and-chaos-engineering/00-dr-concepts-rto-rpo-and-strategy-spectrum/README.md",
+              "title": "00 - DR Concepts: RTO, RPO, and the Strategy Spectrum",
+              "children": []
+            },
+            {
+              "name": "01-multi-region-architecture-on-azure",
+              "path": "learn/22-disaster-recovery-and-chaos-engineering/01-multi-region-architecture-on-azure",
+              "file": "learn/22-disaster-recovery-and-chaos-engineering/01-multi-region-architecture-on-azure/README.md",
+              "title": "01 - Multi-Region Architecture on Azure",
+              "children": []
+            },
+            {
+              "name": "02-designing-and-testing-a-dr-plan",
+              "path": "learn/22-disaster-recovery-and-chaos-engineering/02-designing-and-testing-a-dr-plan",
+              "file": "learn/22-disaster-recovery-and-chaos-engineering/02-designing-and-testing-a-dr-plan/README.md",
+              "title": "02 - Designing and Testing a DR Plan",
+              "children": []
+            },
+            {
+              "name": "03-platform-level-backup-strategy",
+              "path": "learn/22-disaster-recovery-and-chaos-engineering/03-platform-level-backup-strategy",
+              "file": "learn/22-disaster-recovery-and-chaos-engineering/03-platform-level-backup-strategy/README.md",
+              "title": "03 - Platform-Level Backup Strategy",
+              "children": []
+            },
+            {
+              "name": "04-chaos-engineering-concepts",
+              "path": "learn/22-disaster-recovery-and-chaos-engineering/04-chaos-engineering-concepts",
+              "file": "learn/22-disaster-recovery-and-chaos-engineering/04-chaos-engineering-concepts/README.md",
+              "title": "04 - Chaos Engineering Concepts",
+              "children": []
+            },
+            {
+              "name": "05-chaos-engineering-with-azure-chaos-studio",
+              "path": "learn/22-disaster-recovery-and-chaos-engineering/05-chaos-engineering-with-azure-chaos-studio",
+              "file": "learn/22-disaster-recovery-and-chaos-engineering/05-chaos-engineering-with-azure-chaos-studio/README.md",
+              "title": "05 - Chaos Engineering with Azure Chaos Studio",
+              "children": []
+            },
+            {
+              "name": "06-game-days-and-dr-drills",
+              "path": "learn/22-disaster-recovery-and-chaos-engineering/06-game-days-and-dr-drills",
+              "file": "learn/22-disaster-recovery-and-chaos-engineering/06-game-days-and-dr-drills/README.md",
+              "title": "06 - Game Days and DR Drills",
+              "children": []
+            },
+            {
+              "name": "07-resilience-patterns-review-and-gap-analysis",
+              "path": "learn/22-disaster-recovery-and-chaos-engineering/07-resilience-patterns-review-and-gap-analysis",
+              "file": "learn/22-disaster-recovery-and-chaos-engineering/07-resilience-patterns-review-and-gap-analysis/README.md",
+              "title": "07 - Resilience Patterns Review and Gap Analysis",
+              "children": []
+            },
+            {
+              "name": "08-capstone-project",
+              "path": "learn/22-disaster-recovery-and-chaos-engineering/08-capstone-project",
+              "file": "learn/22-disaster-recovery-and-chaos-engineering/08-capstone-project/README.md",
+              "title": "Capstone Project",
+              "children": []
+            }
+          ]
+        },
+        {
+          "name": "23-performance-and-load-testing",
+          "path": "learn/23-performance-and-load-testing",
+          "file": "learn/23-performance-and-load-testing/README.md",
+          "title": "Track 23: Performance and Load Testing",
+          "children": [
+            {
+              "name": "00-performance-testing-concepts",
+              "path": "learn/23-performance-and-load-testing/00-performance-testing-concepts",
+              "file": "learn/23-performance-and-load-testing/00-performance-testing-concepts/README.md",
+              "title": "00 - Performance Testing Concepts",
+              "children": []
+            },
+            {
+              "name": "01-k6-fundamentals",
+              "path": "learn/23-performance-and-load-testing/01-k6-fundamentals",
+              "file": "learn/23-performance-and-load-testing/01-k6-fundamentals/README.md",
+              "title": "01 - k6 Fundamentals",
+              "children": []
+            },
+            {
+              "name": "02-azure-load-testing",
+              "path": "learn/23-performance-and-load-testing/02-azure-load-testing",
+              "file": "learn/23-performance-and-load-testing/02-azure-load-testing/README.md",
+              "title": "02 - Azure Load Testing",
+              "children": []
+            },
+            {
+              "name": "03-designing-a-realistic-load-test",
+              "path": "learn/23-performance-and-load-testing/03-designing-a-realistic-load-test",
+              "file": "learn/23-performance-and-load-testing/03-designing-a-realistic-load-test/README.md",
+              "title": "03 - Designing a Realistic Load Test",
+              "children": []
+            },
+            {
+              "name": "04-proving-autoscaling-works",
+              "path": "learn/23-performance-and-load-testing/04-proving-autoscaling-works",
+              "file": "learn/23-performance-and-load-testing/04-proving-autoscaling-works/README.md",
+              "title": "04 - Proving Autoscaling Actually Works",
+              "children": []
+            },
+            {
+              "name": "05-identifying-bottlenecks",
+              "path": "learn/23-performance-and-load-testing/05-identifying-bottlenecks",
+              "file": "learn/23-performance-and-load-testing/05-identifying-bottlenecks/README.md",
+              "title": "05 - Identifying Bottlenecks",
+              "children": []
+            },
+            {
+              "name": "06-profiling-and-application-performance",
+              "path": "learn/23-performance-and-load-testing/06-profiling-and-application-performance",
+              "file": "learn/23-performance-and-load-testing/06-profiling-and-application-performance/README.md",
+              "title": "06 - Profiling and Application-Level Performance",
+              "children": []
+            },
+            {
+              "name": "07-performance-testing-in-cicd",
+              "path": "learn/23-performance-and-load-testing/07-performance-testing-in-cicd",
+              "file": "learn/23-performance-and-load-testing/07-performance-testing-in-cicd/README.md",
+              "title": "07 - Performance Testing in CI/CD",
+              "children": []
+            },
+            {
+              "name": "08-capstone-project",
+              "path": "learn/23-performance-and-load-testing/08-capstone-project",
+              "file": "learn/23-performance-and-load-testing/08-capstone-project/README.md",
+              "title": "08 - Capstone Project",
+              "children": []
+            }
+          ]
+        },
+        {
+          "name": "24-platform-engineering",
+          "path": "learn/24-platform-engineering",
+          "file": "learn/24-platform-engineering/README.md",
+          "title": "Track 24: Platform Engineering",
+          "children": [
+            {
+              "name": "00-platform-engineering-concepts",
+              "path": "learn/24-platform-engineering/00-platform-engineering-concepts",
+              "file": "learn/24-platform-engineering/00-platform-engineering-concepts/README.md",
+              "title": "Platform Engineering Concepts and the Paved Road",
+              "children": []
+            },
+            {
+              "name": "01-designing-a-golden-path",
+              "path": "learn/24-platform-engineering/01-designing-a-golden-path",
+              "file": "learn/24-platform-engineering/01-designing-a-golden-path/README.md",
+              "title": "Designing a Golden Path",
+              "children": []
+            },
+            {
+              "name": "02-internal-developer-portals",
+              "path": "learn/24-platform-engineering/02-internal-developer-portals",
+              "file": "learn/24-platform-engineering/02-internal-developer-portals/README.md",
+              "title": "Internal Developer Portals",
+              "children": []
+            },
+            {
+              "name": "03-self-service-infrastructure-provisioning",
+              "path": "learn/24-platform-engineering/03-self-service-infrastructure-provisioning",
+              "file": "learn/24-platform-engineering/03-self-service-infrastructure-provisioning/README.md",
+              "title": "Self-Service Infrastructure Provisioning",
+              "children": []
+            },
+            {
+              "name": "04-platform-apis-and-abstractions",
+              "path": "learn/24-platform-engineering/04-platform-apis-and-abstractions",
+              "file": "learn/24-platform-engineering/04-platform-apis-and-abstractions/README.md",
+              "title": "Platform APIs and Abstractions",
+              "children": []
+            },
+            {
+              "name": "05-platform-observability-and-slos",
+              "path": "learn/24-platform-engineering/05-platform-observability-and-slos",
+              "file": "learn/24-platform-engineering/05-platform-observability-and-slos/README.md",
+              "title": "Platform Observability and SLOs",
+              "children": []
+            },
+            {
+              "name": "06-multi-tenancy-and-platform-security",
+              "path": "learn/24-platform-engineering/06-multi-tenancy-and-platform-security",
+              "file": "learn/24-platform-engineering/06-multi-tenancy-and-platform-security/README.md",
+              "title": "Multi-Tenancy and Platform Security",
+              "children": []
+            },
+            {
+              "name": "07-platform-adoption-and-measuring-success",
+              "path": "learn/24-platform-engineering/07-platform-adoption-and-measuring-success",
+              "file": "learn/24-platform-engineering/07-platform-adoption-and-measuring-success/README.md",
+              "title": "Platform Adoption and Measuring Success",
+              "children": []
+            },
+            {
+              "name": "08-capstone-project",
+              "path": "learn/24-platform-engineering/08-capstone-project",
+              "file": "learn/24-platform-engineering/08-capstone-project/README.md",
+              "title": "Capstone Project: Build a Golden-Path Internal Developer Platform",
+              "children": []
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "genai",
+      "path": "genai",
+      "file": "genai/README.md",
+      "title": "Genai",
+      "children": []
+    }
+  ]
+}

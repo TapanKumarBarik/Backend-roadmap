@@ -1,0 +1,290 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Docs Browser</title>
+<script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<style>
+  :root {
+    --bg: #ffffff; --fg: #1f2328; --muted: #656d76; --border: #d1d9e0;
+    --hover: #f6f8fa; --accent: #0969da; --done: #1a7f37; --wip: #9a6700;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#0d1117; --fg:#e6edf3; --muted:#8b949e; --border:#30363d; --hover:#161b22; --accent:#4493f8; --done:#3fb950; --wip:#d29922; }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; font-family: -apple-system, Segoe UI, Helvetica, Arial, sans-serif;
+    background: var(--bg); color: var(--fg); display: flex; height: 100vh; overflow: hidden;
+  }
+  #sidebar {
+    width: 380px; min-width: 260px; max-width: 60vw; border-right: 1px solid var(--border);
+    overflow-y: auto; padding: 12px; flex-shrink: 0;
+  }
+  #resizer { width: 5px; cursor: col-resize; background: transparent; flex-shrink: 0; }
+  #resizer:hover { background: var(--accent); }
+  #main { flex: 1; overflow-y: auto; padding: 24px 40px; }
+  h1 { font-size: 15px; margin: 0 0 4px; }
+  #summary { font-size: 12px; color: var(--muted); margin-bottom: 10px; }
+  .filters { display: flex; gap: 6px; margin-bottom: 10px; flex-wrap: wrap; }
+  .filters button {
+    font-size: 11px; padding: 3px 8px; border-radius: 12px; border: 1px solid var(--border);
+    background: var(--bg); color: var(--fg); cursor: pointer;
+  }
+  .filters button.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+  ul.tree { list-style: none; margin: 0; padding-left: 14px; }
+  ul.tree.root { padding-left: 0; }
+  li { margin: 1px 0; }
+  .row {
+    display: flex; align-items: center; gap: 6px; padding: 3px 4px; border-radius: 6px;
+    cursor: pointer; font-size: 13px; white-space: nowrap;
+  }
+  .row:hover { background: var(--hover); }
+  .row.selected { background: var(--hover); font-weight: 600; }
+  .caret { width: 12px; display: inline-block; color: var(--muted); font-size: 10px; flex-shrink: 0; }
+  .caret.leaf { visibility: hidden; }
+  .name { overflow: hidden; text-overflow: ellipsis; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; background: var(--border); }
+  .dot.wip { background: var(--wip); }
+  .dot.done { background: var(--done); }
+  .status-btns { display: flex; gap: 4px; margin: 16px 0 24px; }
+  .status-btns button {
+    font-size: 12px; padding: 5px 12px; border-radius: 6px; border: 1px solid var(--border);
+    background: var(--bg); color: var(--fg); cursor: pointer;
+  }
+  .status-btns button.active[data-s="wip"] { background: var(--wip); color: #fff; border-color: var(--wip); }
+  .status-btns button.active[data-s="done"] { background: var(--done); color: #fff; border-color: var(--done); }
+  .status-btns button.active[data-s="todo"] { background: var(--muted); color: #fff; border-color: var(--muted); }
+  #crumb { font-size: 12px; color: var(--muted); margin-bottom: 6px; }
+  #content { max-width: 860px; line-height: 1.6; }
+  #content pre { background: var(--hover); padding: 12px; border-radius: 6px; overflow-x: auto; }
+  #content code { background: var(--hover); padding: 1px 5px; border-radius: 4px; font-size: 85%; }
+  #content pre code { background: none; padding: 0; }
+  #content table { border-collapse: collapse; }
+  #content th, #content td { border: 1px solid var(--border); padding: 6px 10px; }
+  #content blockquote { border-left: 3px solid var(--border); margin: 0; padding-left: 12px; color: var(--muted); }
+  #empty { color: var(--muted); font-size: 14px; margin-top: 40px; }
+  a { color: var(--accent); }
+</style>
+</head>
+<body>
+  <div id="sidebar">
+    <h1>Docs</h1>
+    <div id="summary"></div>
+    <div class="filters">
+      <button data-f="all" class="active">All</button>
+      <button data-f="todo">Not started</button>
+      <button data-f="wip">In progress</button>
+      <button data-f="done">Done</button>
+    </div>
+    <ul class="tree root" id="tree"></ul>
+  </div>
+  <div id="resizer"></div>
+  <div id="main">
+    <div id="empty">Pick a file from the left.</div>
+    <div id="crumb"></div>
+    <div class="status-btns" id="statusBtns" style="display:none">
+      <button data-s="todo">Not started</button>
+      <button data-s="wip">In progress</button>
+      <button data-s="done">Done</button>
+    </div>
+    <div id="content"></div>
+  </div>
+
+<script>
+const DB_NAME = 'docs-progress', STORE = 'status';
+let db;
+function openDb() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(DB_NAME, 1);
+    req.onupgradeneeded = () => req.result.createObjectStore(STORE, { keyPath: 'path' });
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+function getStatus(path) {
+  return new Promise((resolve) => {
+    const tx = db.transaction(STORE, 'readonly').objectStore(STORE).get(path);
+    tx.onsuccess = () => resolve(tx.result ? tx.result.status : 'todo');
+    tx.onerror = () => resolve('todo');
+  });
+}
+function getAllStatuses() {
+  return new Promise((resolve) => {
+    const req = db.transaction(STORE, 'readonly').objectStore(STORE).getAll();
+    req.onsuccess = () => {
+      const map = {};
+      req.result.forEach(r => map[r.path] = r.status);
+      resolve(map);
+    };
+  });
+}
+function setStatus(path, status) {
+  return new Promise((resolve) => {
+    const tx = db.transaction(STORE, 'readwrite').objectStore(STORE);
+    if (status === 'todo') tx.delete(path).onsuccess = resolve;
+    else tx.put({ path, status }).onsuccess = resolve;
+  });
+}
+
+let statusMap = {};
+let currentFilter = 'all';
+let currentFile = null;
+
+async function main() {
+  db = await openDb();
+  statusMap = await getAllStatuses();
+  const res = await fetch('docs-index.json');
+  const data = await res.json();
+  renderTree(data.tree);
+  updateSummary();
+}
+
+function countAll(node, out) {
+  if (node.file) out.total++, out.status[node.file] = statusMap[node.file] || 'todo';
+  node.children.forEach(c => countAll(c, out));
+}
+
+function updateSummary() {
+  const el = document.getElementById('summary');
+  const counts = { todo: 0, wip: 0, done: 0, total: 0 };
+  Object.values(statusMap).forEach(s => counts[s] = (counts[s] || 0) + 1);
+  const allFiles = document.querySelectorAll('[data-file]').length;
+  counts.total = allFiles;
+  counts.todo = allFiles - (counts.wip || 0) - (counts.done || 0);
+  el.textContent = `${counts.done || 0} done · ${counts.wip || 0} in progress · ${counts.todo} not started · ${counts.total} total`;
+}
+
+function renderTree(nodes, parentUl) {
+  const ul = parentUl || document.getElementById('tree');
+  nodes.forEach(node => {
+    const li = document.createElement('li');
+    const row = document.createElement('div');
+    row.className = 'row';
+    const hasChildren = node.children && node.children.length > 0;
+    const caret = document.createElement('span');
+    caret.className = 'caret' + (hasChildren ? '' : ' leaf');
+    caret.textContent = hasChildren ? '▸' : '';
+    row.appendChild(caret);
+
+    if (node.file) {
+      const dot = document.createElement('span');
+      const s = statusMap[node.file] || 'todo';
+      dot.className = 'dot' + (s !== 'todo' ? ' ' + s : '');
+      dot.dataset.dotFor = node.file;
+      row.appendChild(dot);
+    }
+
+    const nameSpan = document.createElement('span');
+    nameSpan.className = 'name';
+    nameSpan.textContent = node.title || node.name;
+    row.appendChild(nameSpan);
+
+    if (node.file) {
+      row.dataset.file = node.file;
+      row.title = node.file;
+    }
+
+    let childUl;
+    if (hasChildren) {
+      childUl = document.createElement('ul');
+      childUl.className = 'tree';
+      childUl.style.display = 'none';
+    }
+
+    row.addEventListener('click', (e) => {
+      if (hasChildren && (!node.file || e.target === caret)) {
+        const open = childUl.style.display !== 'none';
+        childUl.style.display = open ? 'none' : 'block';
+        caret.textContent = open ? '▸' : '▾';
+        if (!node.file) return;
+      }
+      if (node.file) openFile(node.file, row);
+    });
+
+    li.appendChild(row);
+    if (childUl) {
+      renderTree(node.children, childUl);
+      li.appendChild(childUl);
+    }
+    ul.appendChild(li);
+  });
+}
+
+async function openFile(path, row) {
+  currentFile = path;
+  document.querySelectorAll('.row.selected').forEach(r => r.classList.remove('selected'));
+  row.classList.add('selected');
+  document.getElementById('empty').style.display = 'none';
+  document.getElementById('crumb').textContent = path;
+  document.getElementById('statusBtns').style.display = 'flex';
+
+  const content = document.getElementById('content');
+  content.innerHTML = 'Loading…';
+  try {
+    const res = await fetch(path);
+    const text = await res.text();
+    content.innerHTML = marked.parse(text);
+  } catch (e) {
+    content.textContent = 'Could not load file: ' + e;
+  }
+
+  const status = await getStatus(path);
+  refreshStatusButtons(status);
+}
+
+function refreshStatusButtons(status) {
+  document.querySelectorAll('#statusBtns button').forEach(b => {
+    b.classList.toggle('active', b.dataset.s === status);
+  });
+}
+
+document.getElementById('statusBtns').addEventListener('click', async (e) => {
+  const btn = e.target.closest('button');
+  if (!btn || !currentFile) return;
+  const current = [...document.querySelectorAll('#statusBtns button')].find(b => b.classList.contains('active'));
+  const newStatus = (current === btn) ? 'todo' : btn.dataset.s;
+  await setStatus(currentFile, newStatus);
+  statusMap[currentFile] = newStatus;
+  refreshStatusButtons(newStatus);
+  const dot = document.querySelector(`[data-dot-for="${CSS.escape(currentFile)}"]`);
+  if (dot) dot.className = 'dot' + (newStatus !== 'todo' ? ' ' + newStatus : '');
+  updateSummary();
+});
+
+document.querySelectorAll('.filters button').forEach(b => {
+  b.addEventListener('click', () => {
+    document.querySelectorAll('.filters button').forEach(x => x.classList.remove('active'));
+    b.classList.add('active');
+    currentFilter = b.dataset.f;
+    applyFilter();
+  });
+});
+
+function applyFilter() {
+  document.querySelectorAll('#tree li').forEach(li => { li.style.display = ''; });
+  if (currentFilter === 'all') return;
+  document.querySelectorAll('[data-file]').forEach(row => {
+    const s = statusMap[row.dataset.file] || 'todo';
+    const li = row.closest('li');
+    const match = s === currentFilter;
+    li.style.display = match ? '' : 'none';
+  });
+}
+
+(function initResizer() {
+  const resizer = document.getElementById('resizer');
+  const sidebar = document.getElementById('sidebar');
+  let dragging = false;
+  resizer.addEventListener('mousedown', () => dragging = true);
+  document.addEventListener('mousemove', (e) => {
+    if (!dragging) return;
+    sidebar.style.width = Math.max(200, e.clientX) + 'px';
+  });
+  document.addEventListener('mouseup', () => dragging = false);
+})();
+
+main();
+</script>
+</body>
+</html>
