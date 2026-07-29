@@ -2994,6 +2994,13 @@
           "children": []
         },
         {
+          "name": "10-concurrency-safe-design",
+          "path": "lld/10-concurrency-safe-design",
+          "file": "lld/10-concurrency-safe-design/README.md",
+          "title": "Module 10: Concurrency-Safe Design",
+          "children": []
+        },
+        {
           "name": "STATUS.md",
           "path": "lld",
           "file": "lld/STATUS.md",
