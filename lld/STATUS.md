@@ -61,7 +61,7 @@ from the user, not a suggestion.
 | 06 | Creational Patterns | ✅ Done |
 | 07 | Structural Patterns | ✅ Done |
 | 08 | Behavioral Patterns I — incl. cumulative review 06-08 | ✅ Done |
-| 09 | Behavioral Patterns II | ⬜ Not started |
+| 09 | Behavioral Patterns II | ✅ Done |
 | 10 | Concurrency-Safe Design | ⬜ Not started |
 | 11 | Requirements to Class Diagrams | ⬜ Not started |
 | 12 | Parking Lot & Elevator (full guided solution) | ⬜ Not started |
@@ -78,10 +78,14 @@ from the user, not a suggestion.
 
 ## Next up
 
-**Module 09: Behavioral Patterns II** — Iterator, Chain of
-Responsibility, Mediator, Memento, and Visitor. This completes the
-pattern catalog (22 of 23 GoF patterns — Interpreter is intentionally
-skipped). Waiting on explicit go-ahead before writing it.
+**Module 10: Concurrency-Safe Design** — a properly thread-safe
+Singleton (revisiting module 06's naive version), producer-consumer
+pipelines, immutability as a concurrency strategy, and where locks
+belong in a design. Waiting on explicit go-ahead before writing it.
+
+Note: the full 22-pattern catalog (creational + structural + behavioral)
+is now done as of module 09. Module 11 should carry the next cumulative
+review, covering modules 09-11.
 
 ## Decisions already made (don't re-litigate these)
 
