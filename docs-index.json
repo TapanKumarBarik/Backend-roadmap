@@ -2916,6 +2916,13 @@
       "file": "genai/README.md",
       "title": "Genai",
       "children": []
+    },
+    {
+      "name": "lld",
+      "path": "lld",
+      "file": "lld/README.md",
+      "title": "Low-Level Design: OOP Foundations → Design Patterns → Classic Interview Problems",
+      "children": []
     }
   ]
 }
