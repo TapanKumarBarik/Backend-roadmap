@@ -3043,6 +3043,13 @@
           "children": []
         },
         {
+          "name": "17-ride-sharing",
+          "path": "lld/17-ride-sharing",
+          "file": "lld/17-ride-sharing/README.md",
+          "title": "Module 17: Ride-Sharing",
+          "children": []
+        },
+        {
           "name": "STATUS.md",
           "path": "lld",
           "file": "lld/STATUS.md",

@@ -69,7 +69,7 @@ from the user, not a suggestion.
 | 14 | Tic-Tac-Toe & Chess (full guided solution) | ✅ Done |
 | 15 | Splitwise Expense Sharing (full guided solution) | ✅ Done |
 | 16 | Movie Ticket Booking (full guided solution) | ✅ Done |
-| 17 | Ride-Sharing (full guided solution) | ⬜ Not started |
+| 17 | Ride-Sharing (full guided solution) | ✅ Done |
 | 18 | LRU/LFU Cache & Rate Limiter (full guided solution) | ⬜ Not started |
 | 19 | API/Library Design & Dependency Injection | ⬜ Not started |
 | 20 | Anti-Patterns & Code Smells | ⬜ Not started |
@@ -78,8 +78,12 @@ from the user, not a suggestion.
 
 ## Next up
 
-**Module 17: Ride-Sharing** — full guided solution.
-Waiting on explicit go-ahead before writing it.
+**Module 18: LRU/LFU Cache & Rate Limiter** — full guided solution
+(three sub-problems, back to the multi-problem format of 12–14).
+User has given blanket go-ahead to proceed through module 23 (see
+below) without stopping for per-module approval — continuing the
+per-module commit/push workflow regardless, since STATUS.md's
+resumability depends on it.
 
 Note for future sessions: module 12's C# code is split as top-level
 statements (Program.cs) + class definitions (a separate file) because
