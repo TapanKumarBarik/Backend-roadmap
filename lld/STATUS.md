@@ -66,7 +66,7 @@ from the user, not a suggestion.
 | 11 | Requirements to Class Diagrams — incl. cumulative review 09-11 | ✅ Done |
 | 12 | Parking Lot & Elevator (full guided solution) | ✅ Done |
 | 13 | Library & Vending Machine (full guided solution) | ✅ Done |
-| 14 | Tic-Tac-Toe & Chess (full guided solution) | ⬜ Not started |
+| 14 | Tic-Tac-Toe & Chess (full guided solution) | ✅ Done |
 | 15 | Splitwise Expense Sharing (full guided solution) | ⬜ Not started |
 | 16 | Movie Ticket Booking (full guided solution) | ⬜ Not started |
 | 17 | Ride-Sharing (full guided solution) | ⬜ Not started |
@@ -78,7 +78,7 @@ from the user, not a suggestion.
 
 ## Next up
 
-**Module 14: Tic-Tac-Toe & Chess** — full guided solutions for both.
+**Module 15: Splitwise Expense Sharing** — full guided solution.
 Waiting on explicit go-ahead before writing it.
 
 Note for future sessions: module 12's C# code is split as top-level
@@ -87,22 +87,33 @@ C# requires top-level statements to precede type declarations in the
 same file — every classic-problem module from here on should follow
 that same real-project layout, and ideally spot-check that runnable
 code snippets actually compile/run. Module 12's Python and C# were both
-verified with a real interpreter/dotnet run. Module 13's Python was
-verified with a real interpreter run (both the Library reservation flow
-and the Vending Machine's full state-transition sequence); no dotnet
-SDK was available in that session's environment, so the C# was
-hand-reviewed for correctness instead of compiled — worth running it
-through `dotnet run` when next on a machine that has the SDK, and
-worth continuing full compile/run verification for correctness-critical
-modules, especially concurrency and algorithm-heavy ones (chess move
-validation in module 14 is a strong candidate).
+verified with a real interpreter/dotnet run. Modules 13 and 14's Python
+were verified with a real interpreter run (module 14: extracted the
+exact code blocks from the finished README with a script and re-ran
+them, rather than trusting an earlier scratch-file version — catches
+transcription drift, worth doing as standard practice going forward).
+No dotnet SDK has been available in this session's environment on any
+of modules 12–14, so C# has been hand-reviewed for correctness instead
+of compiled — worth running it through `dotnet run` when next on a
+machine that has the SDK.
 
-Module 13 note: this module's pedagogical hook was contrasting a plain
-enum-with-guards (Library's `BookStatus`) against a full State-pattern
-implementation (Vending Machine) in the same module, to teach *when*
-State is worth its ceremony — worth keeping an eye out for similar
-"same module, deliberate contrast" opportunities in upcoming modules
-rather than defaulting to the heaviest applicable pattern every time.
+Module 13 note: pedagogical hook was contrasting a plain enum-with-guards
+(Library's `BookStatus`) against a full State-pattern implementation
+(Vending Machine) in the same module, to teach *when* State is worth its
+ceremony.
+
+Module 14 note: class diagrams for both modules 13 and 14 are generated
+with a small Python script (box-drawing + fork/tree layout, computed
+column widths) rather than hand-drawn — a hand-drawn multi-branch tree
+in an early draft of module 13 came out visibly broken (mismatched box
+borders), and the fix was to compute alignment instead of eyeballing it.
+Worth continuing this for any future diagram with more than two boxes
+or a branching hierarchy (module 14's Chess piece hierarchy is 4-plus
+branches deep). The pedagogical hook for module 14: Chess is the one
+module so far where plain polymorphism (module 02), not a named GOF
+pattern, is presented as the correct answer — worth continuing to name
+"no pattern needed here, polymorphism alone is enough" as its own
+lesson in future modules, not just always reaching for a pattern name.
 
 ## Decisions already made (don't re-litigate these)
 

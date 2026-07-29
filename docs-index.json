@@ -3022,6 +3022,13 @@
           "children": []
         },
         {
+          "name": "14-tic-tac-toe-and-chess",
+          "path": "lld/14-tic-tac-toe-and-chess",
+          "file": "lld/14-tic-tac-toe-and-chess/README.md",
+          "title": "Module 14: Tic-Tac-Toe & Chess",
+          "children": []
+        },
+        {
           "name": "STATUS.md",
           "path": "lld",
           "file": "lld/STATUS.md",
