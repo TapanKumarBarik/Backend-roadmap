@@ -57,7 +57,7 @@ from the user, not a suggestion.
 | 02 | OOP Foundations & UML | ✅ Done |
 | 03 | Generics, Exceptions & Value Objects | ✅ Done |
 | 04 | SOLID Principles | ✅ Done |
-| 05 | Core Design Principles (DRY/KISS/YAGNI/Law of Demeter/Composition/Coupling-Cohesion) | ⬜ Not started |
+| 05 | Core Design Principles (DRY/KISS/YAGNI/Law of Demeter/Composition/Coupling-Cohesion) — incl. cumulative review 03-05 | ✅ Done |
 | 06 | Creational Patterns | ⬜ Not started |
 | 07 | Structural Patterns | ⬜ Not started |
 | 08 | Behavioral Patterns I | ⬜ Not started |
@@ -78,11 +78,9 @@ from the user, not a suggestion.
 
 ## Next up
 
-**Module 05: Core Design Principles** — DRY, KISS, YAGNI, the Law of
-Demeter, composition-over-inheritance, and coupling/cohesion. This module
-should also include a **cumulative review covering modules 03–05**
-(the last one was at module 02, covering 00–02 — keep the "every 3-4
-modules" cadence). Waiting on explicit go-ahead before writing it.
+**Module 06: Creational Patterns** — Singleton, Factory Method, Abstract
+Factory, Builder, and Prototype. This is the start of the actual pattern
+catalog (modules 06-09). Waiting on explicit go-ahead before writing it.
 
 ## Decisions already made (don't re-litigate these)
 
