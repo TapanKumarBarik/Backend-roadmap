@@ -62,7 +62,7 @@ from the user, not a suggestion.
 | 07 | Structural Patterns | ✅ Done |
 | 08 | Behavioral Patterns I — incl. cumulative review 06-08 | ✅ Done |
 | 09 | Behavioral Patterns II | ✅ Done |
-| 10 | Concurrency-Safe Design | ⬜ Not started |
+| 10 | Concurrency-Safe Design | ✅ Done |
 | 11 | Requirements to Class Diagrams | ⬜ Not started |
 | 12 | Parking Lot & Elevator (full guided solution) | ⬜ Not started |
 | 13 | Library & Vending Machine (full guided solution) | ⬜ Not started |
@@ -78,14 +78,12 @@ from the user, not a suggestion.
 
 ## Next up
 
-**Module 10: Concurrency-Safe Design** — a properly thread-safe
-Singleton (revisiting module 06's naive version), producer-consumer
-pipelines, immutability as a concurrency strategy, and where locks
-belong in a design. Waiting on explicit go-ahead before writing it.
-
-Note: the full 22-pattern catalog (creational + structural + behavioral)
-is now done as of module 09. Module 11 should carry the next cumulative
-review, covering modules 09-11.
+**Module 11: Requirements to Class Diagrams** — the actual method used
+in an LLD interview: turning a vague prompt into actors, use cases,
+entities, relationships, and a first-draft class + sequence diagram.
+This is the last "foundations" module before the classic problems begin
+at module 12 — should include a **cumulative review covering modules
+09–11**. Waiting on explicit go-ahead before writing it.
 
 ## Decisions already made (don't re-litigate these)
 
