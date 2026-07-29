@@ -63,7 +63,7 @@ from the user, not a suggestion.
 | 08 | Behavioral Patterns I — incl. cumulative review 06-08 | ✅ Done |
 | 09 | Behavioral Patterns II | ✅ Done |
 | 10 | Concurrency-Safe Design | ✅ Done |
-| 11 | Requirements to Class Diagrams | ⬜ Not started |
+| 11 | Requirements to Class Diagrams — incl. cumulative review 09-11 | ✅ Done |
 | 12 | Parking Lot & Elevator (full guided solution) | ⬜ Not started |
 | 13 | Library & Vending Machine (full guided solution) | ⬜ Not started |
 | 14 | Tic-Tac-Toe & Chess (full guided solution) | ⬜ Not started |
@@ -78,12 +78,11 @@ from the user, not a suggestion.
 
 ## Next up
 
-**Module 11: Requirements to Class Diagrams** — the actual method used
-in an LLD interview: turning a vague prompt into actors, use cases,
-entities, relationships, and a first-draft class + sequence diagram.
-This is the last "foundations" module before the classic problems begin
-at module 12 — should include a **cumulative review covering modules
-09–11**. Waiting on explicit go-ahead before writing it.
+**Module 12: Parking Lot & Elevator** — the first classic-problem
+module. Full guided solution for each (requirements -> class diagram ->
+complete Python+C# implementation -> tradeoffs/extensions), applying
+module 11's seven-step method for real. All foundations modules (00-11)
+are now done. Waiting on explicit go-ahead before writing it.
 
 ## Decisions already made (don't re-litigate these)
 
