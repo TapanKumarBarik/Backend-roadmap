@@ -75,18 +75,35 @@ from the user, not a suggestion.
 | 18 | LRU/LFU Cache & Rate Limiter (full guided solution) | ✅ Done |
 | 19 | API/Library Design & Dependency Injection | ✅ Done |
 | 20 | Anti-Patterns & Code Smells | ✅ Done |
-| 21 | LLD Interview Playbook | ⬜ Not started |
+| 21 | LLD Interview Playbook | ✅ Done |
 | 22 | Capstone Project | ⬜ Not started |
 | 23 | Capstone Project 2: Supply Chain Platform (added by user request) | ⬜ Not started |
 
 ## Next up
 
-**Module 21: LLD Interview Playbook** — conceptual/practical format,
-last of the 19–21 conceptual run before the two closing capstones.
-User has given blanket go-ahead to proceed through module 23 without
-stopping for per-module approval — continuing the per-module
-commit/push workflow regardless, since STATUS.md's resumability
-depends on it.
+**Module 22: Capstone Project** — the first of the two closing,
+open-ended, no-solution-given capstones (22 generic, 23 Supply Chain
+Platform). These skip quiz/interview-question/independent-challenge
+scaffolding per lld/README.md's stated convention — see that file
+before writing either. User has given blanket go-ahead through module
+23 without stopping for per-module approval — continuing the
+per-module commit/push workflow regardless, since STATUS.md's
+resumability depends on it.
+
+Module 21 note: mostly process/communication content, not new
+mechanics — packaged module 11's seven-step method into an explicit
+time budget and named the "named simplification" habit (used
+throughout modules 12–20's own Tradeoffs sections) as an explicit
+*interview technique*, not just a documentation convention. Only one
+code-bearing concept (compressed vs. study-detail code), verified both
+fences independently — caught the exact same cross-fence-dependency
+bug class module 19 first found (the "interview-paced" fence used
+`threading.Lock()` without its own `import threading`, since it reads
+naturally right after a fence that already imported it in the same
+tab). Worth treating "does this fence import everything it uses,
+independent of any fence before it" as a standing checklist item for
+every remaining conceptual module, not just something to catch
+ad hoc.
 
 Module 20 note: four VIOLATION/FIXED pairs (God Object, Anemic Domain
 Model, tight coupling / train-wreck chains, Primitive Obsession),

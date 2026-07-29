@@ -3071,6 +3071,13 @@
           "children": []
         },
         {
+          "name": "21-lld-interview-playbook",
+          "path": "lld/21-lld-interview-playbook",
+          "file": "lld/21-lld-interview-playbook/README.md",
+          "title": "Module 21: LLD Interview Playbook",
+          "children": []
+        },
+        {
           "name": "STATUS.md",
           "path": "lld",
           "file": "lld/STATUS.md",
