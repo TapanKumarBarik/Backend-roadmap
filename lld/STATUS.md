@@ -64,7 +64,7 @@ from the user, not a suggestion.
 | 09 | Behavioral Patterns II | ✅ Done |
 | 10 | Concurrency-Safe Design | ✅ Done |
 | 11 | Requirements to Class Diagrams — incl. cumulative review 09-11 | ✅ Done |
-| 12 | Parking Lot & Elevator (full guided solution) | ⬜ Not started |
+| 12 | Parking Lot & Elevator (full guided solution) | ✅ Done |
 | 13 | Library & Vending Machine (full guided solution) | ⬜ Not started |
 | 14 | Tic-Tac-Toe & Chess (full guided solution) | ⬜ Not started |
 | 15 | Splitwise Expense Sharing (full guided solution) | ⬜ Not started |
@@ -78,11 +78,18 @@ from the user, not a suggestion.
 
 ## Next up
 
-**Module 12: Parking Lot & Elevator** — the first classic-problem
-module. Full guided solution for each (requirements -> class diagram ->
-complete Python+C# implementation -> tradeoffs/extensions), applying
-module 11's seven-step method for real. All foundations modules (00-11)
-are now done. Waiting on explicit go-ahead before writing it.
+**Module 13: Library & Vending Machine** — full guided solutions for
+both. Waiting on explicit go-ahead before writing it.
+
+Note for future sessions: module 12's C# code is split as top-level
+statements (Program.cs) + class definitions (a separate file) because
+C# requires top-level statements to precede type declarations in the
+same file — every classic-problem module from here on should follow
+that same real-project layout, and ideally spot-check that runnable
+code snippets actually compile/run (both Python and C# were verified
+with a real interpreter/dotnet run for module 12 - worth continuing
+that verification habit for correctness-critical modules, especially
+concurrency and algorithm-heavy ones).
 
 ## Decisions already made (don't re-litigate these)
 
