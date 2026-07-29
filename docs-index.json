@@ -2922,7 +2922,15 @@
       "path": "lld",
       "file": "lld/README.md",
       "title": "Low-Level Design: OOP Foundations → Design Patterns → Classic Interview Problems",
-      "children": []
+      "children": [
+        {
+          "name": "00-programming-basics-python-and-csharp",
+          "path": "lld/00-programming-basics-python-and-csharp",
+          "file": "lld/00-programming-basics-python-and-csharp/README.md",
+          "title": "Module 00: Programming Basics — Python and C#",
+          "children": []
+        }
+      ]
     }
   ]
 }
