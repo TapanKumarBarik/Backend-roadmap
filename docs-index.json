@@ -3001,6 +3001,13 @@
           "children": []
         },
         {
+          "name": "11-requirements-to-class-diagrams",
+          "path": "lld/11-requirements-to-class-diagrams",
+          "file": "lld/11-requirements-to-class-diagrams/README.md",
+          "title": "Module 11: Requirements to Class Diagrams",
+          "children": []
+        },
+        {
           "name": "STATUS.md",
           "path": "lld",
           "file": "lld/STATUS.md",
