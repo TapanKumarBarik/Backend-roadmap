@@ -10,7 +10,7 @@ import re
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-TRACK_DIRS = ["backend", "learn", "genai"]
+TRACK_DIRS = ["backend", "learn", "genai", "lld"]
 SKIP_DIRS = {".git", "node_modules", "__pycache__"}
 
 TITLE_RE = re.compile(r"^#\s+(.+?)\s*$")

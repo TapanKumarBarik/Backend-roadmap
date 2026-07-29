@@ -78,6 +78,16 @@
   #content blockquote { border-left: 3px solid var(--border); margin: 0; padding-left: 16px; color: var(--muted); }
   #empty { color: var(--muted); font-size: 16px; margin-top: 40px; }
   a { color: var(--accent); }
+  .tabs { border: 1px solid var(--border); border-radius: 8px; margin: 20px 0; overflow: hidden; }
+  .tab-buttons { display: flex; gap: 2px; background: var(--hover); border-bottom: 1px solid var(--border); padding: 0 4px; }
+  .tab-btn {
+    font: inherit; font-size: 14px; font-weight: 600; padding: 10px 18px; border: none;
+    background: transparent; color: var(--muted); cursor: pointer; border-bottom: 2px solid transparent;
+  }
+  .tab-btn:hover { color: var(--fg); }
+  .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
+  .tab-panes { padding: 4px 18px 14px; }
+  .tab-pane > *:first-child { margin-top: 14px; }
 
   @media (max-width: 760px) {
     body { flex-direction: column; height: auto; min-height: 100vh; overflow: visible; }
@@ -303,6 +313,51 @@ function renderTree(nodes, parentUl) {
   });
 }
 
+function escapeHtml(s) {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+// {{tabs}} {{tab Label}} ...markdown... {{tab Label2}} ...markdown... {{/tabs}}
+// -> a raw <div class="tabs"> block (buttons + pre-rendered panes) that marked.js
+// passes through untouched as a standard HTML block.
+function renderTabs(md) {
+  let n = 0;
+  return md.replace(/\{\{tabs\}\}([\s\S]*?)\{\{\/tabs\}\}/g, (match, body) => {
+    const groupId = 'tabgroup-' + (n++);
+    const parts = body.split(/\{\{tab\s+([^}]+)\}\}/);
+    let buttons = '', panes = '';
+    for (let i = 1; i < parts.length; i += 2) {
+      const label = parts[i].trim();
+      const html = marked.parse((parts[i + 1] || '').trim());
+      const isFirst = i === 1;
+      buttons += `<button class="tab-btn${isFirst ? ' active' : ''}" data-lang="${escapeHtml(label)}">${escapeHtml(label)}</button>`;
+      panes += `<div class="tab-pane" data-lang="${escapeHtml(label)}" style="display:${isFirst ? 'block' : 'none'}">${html}</div>`;
+    }
+    return `<div class="tabs" data-group="${groupId}"><div class="tab-buttons">${buttons}</div><div class="tab-panes">${panes}</div></div>`;
+  });
+}
+
+function activateTab(group, lang) {
+  group.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.lang === lang));
+  group.querySelectorAll('.tab-pane').forEach(p => p.style.display = (p.dataset.lang === lang) ? 'block' : 'none');
+}
+
+function applyTabPreference(container) {
+  const pref = localStorage.getItem('docLangPref');
+  if (!pref) return;
+  container.querySelectorAll('.tabs').forEach(group => {
+    if (group.querySelector(`.tab-btn[data-lang="${CSS.escape(pref)}"]`)) activateTab(group, pref);
+  });
+}
+
+document.getElementById('content').addEventListener('click', (e) => {
+  const btn = e.target.closest('.tab-btn');
+  if (!btn) return;
+  const group = btn.closest('.tabs');
+  activateTab(group, btn.dataset.lang);
+  localStorage.setItem('docLangPref', btn.dataset.lang);
+});
+
 async function openFile(path, row) {
   currentFile = path;
   document.querySelectorAll('.row.selected').forEach(r => r.classList.remove('selected'));
@@ -316,8 +371,9 @@ async function openFile(path, row) {
   try {
     const res = await fetch(path);
     const text = await res.text();
-    content.innerHTML = marked.parse(text);
+    content.innerHTML = marked.parse(renderTabs(text));
     rewriteLinks(path);
+    applyTabPreference(content);
   } catch (e) {
     content.textContent = 'Could not load file: ' + e;
   }
