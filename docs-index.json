@@ -2980,6 +2980,13 @@
           "children": []
         },
         {
+          "name": "08-behavioral-patterns-i",
+          "path": "lld/08-behavioral-patterns-i",
+          "file": "lld/08-behavioral-patterns-i/README.md",
+          "title": "Module 08: Behavioral Patterns I",
+          "children": []
+        },
+        {
           "name": "STATUS.md",
           "path": "lld",
           "file": "lld/STATUS.md",
