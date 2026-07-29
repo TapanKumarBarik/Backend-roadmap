@@ -2929,6 +2929,13 @@
           "file": "lld/00-programming-basics-python-and-csharp/README.md",
           "title": "Module 00: Programming Basics — Python and C#",
           "children": []
+        },
+        {
+          "name": "STATUS.md",
+          "path": "lld",
+          "file": "lld/STATUS.md",
+          "title": "LLD Track — Build Status",
+          "children": []
         }
       ]
     }
