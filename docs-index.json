@@ -3008,6 +3008,13 @@
           "children": []
         },
         {
+          "name": "12-parking-lot-and-elevator",
+          "path": "lld/12-parking-lot-and-elevator",
+          "file": "lld/12-parking-lot-and-elevator/README.md",
+          "title": "Module 12: Parking Lot & Elevator",
+          "children": []
+        },
+        {
           "name": "STATUS.md",
           "path": "lld",
           "file": "lld/STATUS.md",
