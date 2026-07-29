@@ -2987,6 +2987,13 @@
           "children": []
         },
         {
+          "name": "09-behavioral-patterns-ii",
+          "path": "lld/09-behavioral-patterns-ii",
+          "file": "lld/09-behavioral-patterns-ii/README.md",
+          "title": "Module 09: Behavioral Patterns II",
+          "children": []
+        },
+        {
           "name": "STATUS.md",
           "path": "lld",
           "file": "lld/STATUS.md",
