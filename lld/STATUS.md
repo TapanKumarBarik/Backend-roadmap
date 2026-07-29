@@ -76,19 +76,32 @@ from the user, not a suggestion.
 | 19 | API/Library Design & Dependency Injection | ✅ Done |
 | 20 | Anti-Patterns & Code Smells | ✅ Done |
 | 21 | LLD Interview Playbook | ✅ Done |
-| 22 | Capstone Project | ⬜ Not started |
-| 23 | Capstone Project 2: Supply Chain Platform (added by user request) | ⬜ Not started |
+| 22 | Capstone Project | ✅ Done |
+| 23 | Capstone Project 2: Supply Chain Platform (added by user request) | ✅ Done |
 
 ## Next up
 
-**Module 22: Capstone Project** — the first of the two closing,
-open-ended, no-solution-given capstones (22 generic, 23 Supply Chain
-Platform). These skip quiz/interview-question/independent-challenge
-scaffolding per lld/README.md's stated convention — see that file
-before writing either. User has given blanket go-ahead through module
-23 without stopping for per-module approval — continuing the
-per-module commit/push workflow regardless, since STATUS.md's
-resumability depends on it.
+**The LLD track (modules 00–23) is complete.** There is no next module.
+If picking this up cold and everything above shows Done: there is
+nothing left to build for this track. Possible future work, if a user
+asks: revisit the C# verification gap (see the note below — no dotnet
+SDK was available in any session that built this track, so all C# was
+hand-reviewed, never compiled), or add further modules only if a user
+explicitly requests them the way module 23 was added.
+
+Modules 22 and 23 are intentionally much shorter than every other
+module — no code given, no quiz/interview-questions/independent-
+challenge sections, per lld/README.md's stated convention for the two
+closing capstones ("they *are* the open-ended integration test").
+Module 22 offers a menu of domains and a requirements checklist tying
+back to specific earlier modules (three-plus patterns from 06–09,
+concurrency from 12/16/17, DI from 04/19, anti-pattern avoidance from
+20). Module 23 does the same but scoped to one specific domain
+(inventory/warehouses/suppliers/orders/shipments) per explicit user
+request, framed as the first time the track asks for *multiple*
+interacting subsystems rather than one class diagram — and closes with
+an explicit "this is the last module" statement instead of a "Next"
+link, since it's genuinely the end of the track.
 
 Module 21 note: mostly process/communication content, not new
 mechanics — packaged module 11's seven-step method into an explicit

@@ -3078,6 +3078,20 @@
           "children": []
         },
         {
+          "name": "22-capstone-project",
+          "path": "lld/22-capstone-project",
+          "file": "lld/22-capstone-project/README.md",
+          "title": "Module 22: Capstone Project",
+          "children": []
+        },
+        {
+          "name": "23-supply-chain-platform",
+          "path": "lld/23-supply-chain-platform",
+          "file": "lld/23-supply-chain-platform/README.md",
+          "title": "Module 23: Capstone Project 2 — Supply Chain Platform",
+          "children": []
+        },
+        {
           "name": "STATUS.md",
           "path": "lld",
           "file": "lld/STATUS.md",
