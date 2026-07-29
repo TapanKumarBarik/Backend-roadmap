@@ -3057,6 +3057,13 @@
           "children": []
         },
         {
+          "name": "19-api-library-design-and-di",
+          "path": "lld/19-api-library-design-and-di",
+          "file": "lld/19-api-library-design-and-di/README.md",
+          "title": "Module 19: API/Library Design & Dependency Injection",
+          "children": []
+        },
+        {
           "name": "STATUS.md",
           "path": "lld",
           "file": "lld/STATUS.md",

@@ -73,7 +73,7 @@ from the user, not a suggestion.
 | 16 | Movie Ticket Booking (full guided solution) | ✅ Done |
 | 17 | Ride-Sharing (full guided solution) | ✅ Done |
 | 18 | LRU/LFU Cache & Rate Limiter (full guided solution) | ✅ Done |
-| 19 | API/Library Design & Dependency Injection | ⬜ Not started |
+| 19 | API/Library Design & Dependency Injection | ✅ Done |
 | 20 | Anti-Patterns & Code Smells | ⬜ Not started |
 | 21 | LLD Interview Playbook | ⬜ Not started |
 | 22 | Capstone Project | ⬜ Not started |
@@ -81,11 +81,9 @@ from the user, not a suggestion.
 
 ## Next up
 
-**Module 19: API/Library Design & Dependency Injection** — this is the
-first of modules 19–21, which are **conceptual-format**, not
-full-worked-solution format — see the note below on that structural
-switch. User has given blanket go-ahead to proceed through module 23
-(see the bottom of this file for what that now includes) without
+**Module 20: Anti-Patterns & Code Smells** — conceptual format, same
+template as module 19 (which is now done — see its note below).
+User has given blanket go-ahead to proceed through module 23 without
 stopping for per-module approval — continuing the per-module
 commit/push workflow regardless, since STATUS.md's resumability
 depends on it.
@@ -99,6 +97,27 @@ these, re-read an early module (e.g. module 04 or 05) as the template
 reference, not module 12–18 — the structure genuinely differs (no
 "Problem 1/2" wrapper, no full class-diagram-driven implementation
 section in the same way).
+
+Module 19 note: confirmed module 04's exact VIOLATION/FIXED-pair-within-
+one-{{tabs}}-block convention, and — important gotcha caught by
+verification — **each fence must be fully self-contained**, including
+its own imports, even if that means repeating an `import` that also
+appears in the paired VIOLATION fence above it. First draft shared one
+`from abc import ABC, abstractmethod` across both fences in the DI
+section and the FIXED fence failed with `NameError` when extracted and
+run alone — module 04's actual convention (checked directly) is that
+VIOLATION and FIXED never share state or imports, since a reader
+copies one fence at a time, not the whole tab as one script. Also
+caught: a first draft had the FIXED fluent-builder's `build()` return
+the VIOLATION section's `HttpRequestBad` class — fixed by giving FIXED
+its own independent `HttpRequest` class, matching module 04's pattern
+where FIXED never reuses a class defined in VIOLATION. Verification
+method for conceptual modules going forward: extract and run **each
+individual fence separately** (not concatenated per-tab-section) —
+VIOLATION fences are allowed/expected to demonstrate their failure
+(e.g., raising the exact exception named in a comment), FIXED fences
+should run clean and their claimed output should be asserted, not just
+"didn't crash."
 
 Note for future sessions: module 12's C# code is split as top-level
 statements (Program.cs) + class definitions (a separate file) because
