@@ -3015,6 +3015,13 @@
           "children": []
         },
         {
+          "name": "13-library-and-vending-machine",
+          "path": "lld/13-library-and-vending-machine",
+          "file": "lld/13-library-and-vending-machine/README.md",
+          "title": "Module 13: Library & Vending Machine",
+          "children": []
+        },
+        {
           "name": "STATUS.md",
           "path": "lld",
           "file": "lld/STATUS.md",

@@ -65,7 +65,7 @@ from the user, not a suggestion.
 | 10 | Concurrency-Safe Design | ✅ Done |
 | 11 | Requirements to Class Diagrams — incl. cumulative review 09-11 | ✅ Done |
 | 12 | Parking Lot & Elevator (full guided solution) | ✅ Done |
-| 13 | Library & Vending Machine (full guided solution) | ⬜ Not started |
+| 13 | Library & Vending Machine (full guided solution) | ✅ Done |
 | 14 | Tic-Tac-Toe & Chess (full guided solution) | ⬜ Not started |
 | 15 | Splitwise Expense Sharing (full guided solution) | ⬜ Not started |
 | 16 | Movie Ticket Booking (full guided solution) | ⬜ Not started |
@@ -78,18 +78,31 @@ from the user, not a suggestion.
 
 ## Next up
 
-**Module 13: Library & Vending Machine** — full guided solutions for
-both. Waiting on explicit go-ahead before writing it.
+**Module 14: Tic-Tac-Toe & Chess** — full guided solutions for both.
+Waiting on explicit go-ahead before writing it.
 
 Note for future sessions: module 12's C# code is split as top-level
 statements (Program.cs) + class definitions (a separate file) because
 C# requires top-level statements to precede type declarations in the
 same file — every classic-problem module from here on should follow
 that same real-project layout, and ideally spot-check that runnable
-code snippets actually compile/run (both Python and C# were verified
-with a real interpreter/dotnet run for module 12 - worth continuing
-that verification habit for correctness-critical modules, especially
-concurrency and algorithm-heavy ones).
+code snippets actually compile/run. Module 12's Python and C# were both
+verified with a real interpreter/dotnet run. Module 13's Python was
+verified with a real interpreter run (both the Library reservation flow
+and the Vending Machine's full state-transition sequence); no dotnet
+SDK was available in that session's environment, so the C# was
+hand-reviewed for correctness instead of compiled — worth running it
+through `dotnet run` when next on a machine that has the SDK, and
+worth continuing full compile/run verification for correctness-critical
+modules, especially concurrency and algorithm-heavy ones (chess move
+validation in module 14 is a strong candidate).
+
+Module 13 note: this module's pedagogical hook was contrasting a plain
+enum-with-guards (Library's `BookStatus`) against a full State-pattern
+implementation (Vending Machine) in the same module, to teach *when*
+State is worth its ceremony — worth keeping an eye out for similar
+"same module, deliberate contrast" opportunities in upcoming modules
+rather than defaulting to the heaviest applicable pattern every time.
 
 ## Decisions already made (don't re-litigate these)
 
