@@ -2959,6 +2959,13 @@
           "children": []
         },
         {
+          "name": "05-core-design-principles",
+          "path": "lld/05-core-design-principles",
+          "file": "lld/05-core-design-principles/README.md",
+          "title": "Module 05: Core Design Principles",
+          "children": []
+        },
+        {
           "name": "STATUS.md",
           "path": "lld",
           "file": "lld/STATUS.md",
