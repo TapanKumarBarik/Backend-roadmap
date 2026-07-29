@@ -74,19 +74,33 @@ from the user, not a suggestion.
 | 17 | Ride-Sharing (full guided solution) | ✅ Done |
 | 18 | LRU/LFU Cache & Rate Limiter (full guided solution) | ✅ Done |
 | 19 | API/Library Design & Dependency Injection | ✅ Done |
-| 20 | Anti-Patterns & Code Smells | ⬜ Not started |
+| 20 | Anti-Patterns & Code Smells | ✅ Done |
 | 21 | LLD Interview Playbook | ⬜ Not started |
 | 22 | Capstone Project | ⬜ Not started |
 | 23 | Capstone Project 2: Supply Chain Platform (added by user request) | ⬜ Not started |
 
 ## Next up
 
-**Module 20: Anti-Patterns & Code Smells** — conceptual format, same
-template as module 19 (which is now done — see its note below).
+**Module 21: LLD Interview Playbook** — conceptual/practical format,
+last of the 19–21 conceptual run before the two closing capstones.
 User has given blanket go-ahead to proceed through module 23 without
 stopping for per-module approval — continuing the per-module
 commit/push workflow regardless, since STATUS.md's resumability
 depends on it.
+
+Module 20 note: four VIOLATION/FIXED pairs (God Object, Anemic Domain
+Model, tight coupling / train-wreck chains, Primitive Obsession),
+deliberately framed as "the vocabulary this track already built,
+applied backward" — every smell maps to an earlier module (SRP/04,
+encapsulation/02, Law of Demeter/05, value objects/03) rather than
+introducing new mechanics. Verification: every fence run individually
+(per module 19's corrected method) *and* re-executed a second time with
+explicit value assertions against the FIXED classes (not just "did it
+run without error") — e.g. actually constructing `UserManager` and
+calling `register()`, not just confirming the class definitions
+parsed. Worth continuing this two-pass check (fence runs clean, then a
+follow-up script asserts real values) for any future conceptual module
+whose fences don't already contain their own asserts/prints.
 
 Modules 12–18 are the classic-problem, full-worked-solution modules.
 **19, 20, and 21 go back to the conceptual format used in modules

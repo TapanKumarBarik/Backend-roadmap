@@ -3064,6 +3064,13 @@
           "children": []
         },
         {
+          "name": "20-anti-patterns-and-code-smells",
+          "path": "lld/20-anti-patterns-and-code-smells",
+          "file": "lld/20-anti-patterns-and-code-smells/README.md",
+          "title": "Module 20: Anti-Patterns & Code Smells",
+          "children": []
+        },
+        {
           "name": "STATUS.md",
           "path": "lld",
           "file": "lld/STATUS.md",
