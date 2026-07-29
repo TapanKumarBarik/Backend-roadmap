@@ -2931,6 +2931,13 @@
           "children": []
         },
         {
+          "name": "01-classes-objects-and-oop-building-blocks",
+          "path": "lld/01-classes-objects-and-oop-building-blocks",
+          "file": "lld/01-classes-objects-and-oop-building-blocks/README.md",
+          "title": "Module 01: Classes, Objects & OOP Building Blocks",
+          "children": []
+        },
+        {
           "name": "STATUS.md",
           "path": "lld",
           "file": "lld/STATUS.md",
