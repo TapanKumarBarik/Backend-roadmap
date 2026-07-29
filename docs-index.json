@@ -2966,6 +2966,13 @@
           "children": []
         },
         {
+          "name": "06-creational-patterns",
+          "path": "lld/06-creational-patterns",
+          "file": "lld/06-creational-patterns/README.md",
+          "title": "Module 06: Creational Patterns",
+          "children": []
+        },
+        {
           "name": "STATUS.md",
           "path": "lld",
           "file": "lld/STATUS.md",
