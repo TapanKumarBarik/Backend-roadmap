@@ -55,7 +55,7 @@ from the user, not a suggestion.
 | 00 | Programming Basics (Python & C#, zero prior coding assumed) | ✅ Done |
 | 01 | Classes, Objects & OOP Building Blocks | ✅ Done |
 | 02 | OOP Foundations & UML | ✅ Done |
-| 03 | Generics, Exceptions & Value Objects | ⬜ Not started |
+| 03 | Generics, Exceptions & Value Objects | ✅ Done |
 | 04 | SOLID Principles | ⬜ Not started |
 | 05 | Core Design Principles (DRY/KISS/YAGNI/Law of Demeter/Composition/Coupling-Cohesion) | ⬜ Not started |
 | 06 | Creational Patterns | ⬜ Not started |
@@ -78,10 +78,10 @@ from the user, not a suggestion.
 
 ## Next up
 
-**Module 03: Generics, Exceptions & Value Objects** — generic/type-safe
-classes and methods, designing an exception hierarchy, and modeling
-immutable value objects (enums, records/dataclasses). Waiting on explicit
-go-ahead before writing it (per the one-module-at-a-time workflow above).
+**Module 04: SOLID Principles** — all five principles (SRP, OCP, LSP,
+ISP, DIP), applied to code in both languages, with realistic violation
+examples. Waiting on explicit go-ahead before writing it (per the
+one-module-at-a-time workflow above).
 
 ## Decisions already made (don't re-litigate these)
 
