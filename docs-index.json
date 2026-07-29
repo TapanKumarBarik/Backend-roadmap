@@ -3036,6 +3036,13 @@
           "children": []
         },
         {
+          "name": "16-movie-ticket-booking",
+          "path": "lld/16-movie-ticket-booking",
+          "file": "lld/16-movie-ticket-booking/README.md",
+          "title": "Module 16: Movie Ticket Booking",
+          "children": []
+        },
+        {
           "name": "STATUS.md",
           "path": "lld",
           "file": "lld/STATUS.md",

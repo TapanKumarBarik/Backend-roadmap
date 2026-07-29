@@ -68,7 +68,7 @@ from the user, not a suggestion.
 | 13 | Library & Vending Machine (full guided solution) | ✅ Done |
 | 14 | Tic-Tac-Toe & Chess (full guided solution) | ✅ Done |
 | 15 | Splitwise Expense Sharing (full guided solution) | ✅ Done |
-| 16 | Movie Ticket Booking (full guided solution) | ⬜ Not started |
+| 16 | Movie Ticket Booking (full guided solution) | ✅ Done |
 | 17 | Ride-Sharing (full guided solution) | ⬜ Not started |
 | 18 | LRU/LFU Cache & Rate Limiter (full guided solution) | ⬜ Not started |
 | 19 | API/Library Design & Dependency Injection | ⬜ Not started |
@@ -78,7 +78,7 @@ from the user, not a suggestion.
 
 ## Next up
 
-**Module 16: Movie Ticket Booking** — full guided solution.
+**Module 17: Ride-Sharing** — full guided solution.
 Waiting on explicit go-ahead before writing it.
 
 Note for future sessions: module 12's C# code is split as top-level
@@ -93,11 +93,21 @@ exact code blocks from the finished README with a script and re-ran
 them, rather than trusting an earlier scratch-file version — catches
 transcription drift, worth doing as standard practice going forward).
 No dotnet SDK has been available in this session's environment on any
-of modules 12–15, so C# has been hand-reviewed for correctness instead
+of modules 12–16, so C# has been hand-reviewed for correctness instead
 of compiled — worth running it through `dotnet run` when next on a
-machine that has the SDK. Module 15's Python was also verified by
-extracting the exact code block from the finished file and re-running
-it (same transcription-drift check as module 14).
+machine that has the SDK. Modules 15 and 16's Python were also verified
+by extracting the exact code block from the finished file and
+re-running it (same transcription-drift check as module 14).
+
+Module 16 note: this is the first module where the concurrency-safe
+lock-per-owning-class pattern (module 10) is the *core* mechanism
+instead of an independent-challenge extension (contrast with modules 12
+and 13, where it was optional). Verified with an actual multi-threaded
+stress test (20 threads racing for the same 2 seats on one `Show`), run
+3 times, asserting exactly 1 success each time — not just a
+single-threaded functional check like earlier modules. Worth repeating
+this stress-test-not-just-functional-test habit for any future module
+where concurrency is load-bearing rather than an add-on.
 
 Module 15 note: this is the first **single-problem** classic module
 (15–17 are each one problem, not two like 12–14; 18 goes back to
@@ -108,8 +118,8 @@ extensions all sit directly under the module as `##` headings instead
 of nested `###` under a `## Problem N` header. Caught and fixed a
 heading-level slip in this module's first draft (Tradeoffs was left at
 `###` from copy-pasting the two-problem pattern) — worth double-checking
-heading levels specifically on every single-problem module (16, 17)
-before considering them done.
+heading levels specifically on every single-problem module (17) before
+considering it done. (Module 16 checked clean on this.)
 
 Module 13 note: pedagogical hook was contrasting a plain enum-with-guards
 (Library's `BookStatus`) against a full State-pattern implementation
