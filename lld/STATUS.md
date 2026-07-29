@@ -58,7 +58,7 @@ from the user, not a suggestion.
 | 03 | Generics, Exceptions & Value Objects | ✅ Done |
 | 04 | SOLID Principles | ✅ Done |
 | 05 | Core Design Principles (DRY/KISS/YAGNI/Law of Demeter/Composition/Coupling-Cohesion) — incl. cumulative review 03-05 | ✅ Done |
-| 06 | Creational Patterns | ⬜ Not started |
+| 06 | Creational Patterns | ✅ Done |
 | 07 | Structural Patterns | ⬜ Not started |
 | 08 | Behavioral Patterns I | ⬜ Not started |
 | 09 | Behavioral Patterns II | ⬜ Not started |
@@ -78,9 +78,9 @@ from the user, not a suggestion.
 
 ## Next up
 
-**Module 06: Creational Patterns** — Singleton, Factory Method, Abstract
-Factory, Builder, and Prototype. This is the start of the actual pattern
-catalog (modules 06-09). Waiting on explicit go-ahead before writing it.
+**Module 07: Structural Patterns** — Adapter, Decorator, Facade,
+Composite, Proxy, Bridge, and Flyweight. Waiting on explicit go-ahead
+before writing it.
 
 ## Decisions already made (don't re-litigate these)
 
