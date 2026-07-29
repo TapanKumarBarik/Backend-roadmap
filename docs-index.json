@@ -3050,6 +3050,13 @@
           "children": []
         },
         {
+          "name": "18-lru-lfu-cache-and-rate-limiter",
+          "path": "lld/18-lru-lfu-cache-and-rate-limiter",
+          "file": "lld/18-lru-lfu-cache-and-rate-limiter/README.md",
+          "title": "Module 18: LRU/LFU Cache & Rate Limiter",
+          "children": []
+        },
+        {
           "name": "STATUS.md",
           "path": "lld",
           "file": "lld/STATUS.md",

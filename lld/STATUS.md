@@ -7,8 +7,10 @@ continue from "Next up" below.
 
 ## What this track is
 
-A 23-module (00–22) Low-Level Design curriculum — OOP, SOLID, design
-patterns, classic LLD interview problems — with **every code sample shown
+A 24-module (00–23) Low-Level Design curriculum — OOP, SOLID, design
+patterns, classic LLD interview problems, and a closing pair of
+open-ended capstones (22: generic, 23: a themed Supply Chain Platform
+project, added by explicit user request) — with **every code sample shown
 in both Python and C#** as clickable tabs (nobody assumed to know either
 language beforehand). Sibling to `backend/` and `learn/`, same
 one-`README.md`-per-module convention. Full module list and dependency
@@ -70,20 +72,33 @@ from the user, not a suggestion.
 | 15 | Splitwise Expense Sharing (full guided solution) | ✅ Done |
 | 16 | Movie Ticket Booking (full guided solution) | ✅ Done |
 | 17 | Ride-Sharing (full guided solution) | ✅ Done |
-| 18 | LRU/LFU Cache & Rate Limiter (full guided solution) | ⬜ Not started |
+| 18 | LRU/LFU Cache & Rate Limiter (full guided solution) | ✅ Done |
 | 19 | API/Library Design & Dependency Injection | ⬜ Not started |
 | 20 | Anti-Patterns & Code Smells | ⬜ Not started |
 | 21 | LLD Interview Playbook | ⬜ Not started |
 | 22 | Capstone Project | ⬜ Not started |
+| 23 | Capstone Project 2: Supply Chain Platform (added by user request) | ⬜ Not started |
 
 ## Next up
 
-**Module 18: LRU/LFU Cache & Rate Limiter** — full guided solution
-(three sub-problems, back to the multi-problem format of 12–14).
-User has given blanket go-ahead to proceed through module 23 (see
-below) without stopping for per-module approval — continuing the
-per-module commit/push workflow regardless, since STATUS.md's
-resumability depends on it.
+**Module 19: API/Library Design & Dependency Injection** — this is the
+first of modules 19–21, which are **conceptual-format**, not
+full-worked-solution format — see the note below on that structural
+switch. User has given blanket go-ahead to proceed through module 23
+(see the bottom of this file for what that now includes) without
+stopping for per-module approval — continuing the per-module
+commit/push workflow regardless, since STATUS.md's resumability
+depends on it.
+
+Modules 12–18 are the classic-problem, full-worked-solution modules.
+**19, 20, and 21 go back to the conceptual format used in modules
+00–11**: concepts explained with reference/example code (not two full
+worked problems), hands-on exercises, independent challenge, common
+mistakes, checkpoint quiz, interview questions. Before writing each of
+these, re-read an early module (e.g. module 04 or 05) as the template
+reference, not module 12–18 — the structure genuinely differs (no
+"Problem 1/2" wrapper, no full class-diagram-driven implementation
+section in the same way).
 
 Note for future sessions: module 12's C# code is split as top-level
 statements (Program.cs) + class definitions (a separate file) because
@@ -99,9 +114,26 @@ transcription drift, worth doing as standard practice going forward).
 No dotnet SDK has been available in this session's environment on any
 of modules 12–16, so C# has been hand-reviewed for correctness instead
 of compiled — worth running it through `dotnet run` when next on a
-machine that has the SDK. Modules 15 and 16's Python were also verified
-by extracting the exact code block from the finished file and
-re-running it (same transcription-drift check as module 14).
+machine that has the SDK. Modules 15–18's Python were also verified by
+extracting the exact code block(s) from the finished file and
+re-running them (same transcription-drift check as module 14).
+
+Module 18 note: three sub-problems (LRU cache, LFU cache, rate
+limiter), back to the 12–14-style multi-problem format after 15–17's
+single-problem stretch. Pedagogical hook: for LRU/LFU, the driving
+requirement is an O(1) complexity bound, not a behavior — worth
+continuing to name "what data structures combined give the required
+complexity" as its own kind of design question, distinct from "which
+GOF pattern applies," when a future module is genuinely
+complexity-driven rather than behavior-driven. The rate limiter's
+injected clock (for deterministic fake-clock testing, no real `sleep`)
+is an intentional preview of module 19's DI theme — worth continuing to
+plant small previews like this rather than treating each module as
+fully isolated. All three sub-problems verified: LRU and LFU against
+their classic LeetCode test sequences (146 and 460) including LFU's
+zero-capacity edge case and frequency-tie-break case; rate limiter with
+both a deterministic fake-clock test and a 100-thread concurrency
+stress test (capacity 10, no refill, exactly 10 allowed).
 
 Module 16 note: this is the first module where the concurrency-safe
 lock-per-owning-class pattern (module 10) is the *core* mechanism
