@@ -59,7 +59,7 @@ from the user, not a suggestion.
 | 04 | SOLID Principles | ✅ Done |
 | 05 | Core Design Principles (DRY/KISS/YAGNI/Law of Demeter/Composition/Coupling-Cohesion) — incl. cumulative review 03-05 | ✅ Done |
 | 06 | Creational Patterns | ✅ Done |
-| 07 | Structural Patterns | ⬜ Not started |
+| 07 | Structural Patterns | ✅ Done |
 | 08 | Behavioral Patterns I | ⬜ Not started |
 | 09 | Behavioral Patterns II | ⬜ Not started |
 | 10 | Concurrency-Safe Design | ⬜ Not started |
@@ -78,9 +78,10 @@ from the user, not a suggestion.
 
 ## Next up
 
-**Module 07: Structural Patterns** — Adapter, Decorator, Facade,
-Composite, Proxy, Bridge, and Flyweight. Waiting on explicit go-ahead
-before writing it.
+**Module 08: Behavioral Patterns I** — Strategy, Observer, Command,
+State, and Template Method. Should also include a **cumulative review
+covering modules 06–08** (last one was at module 05, covering 03–05).
+Waiting on explicit go-ahead before writing it.
 
 ## Decisions already made (don't re-litigate these)
 
