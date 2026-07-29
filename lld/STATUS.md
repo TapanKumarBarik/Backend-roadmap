@@ -67,7 +67,7 @@ from the user, not a suggestion.
 | 12 | Parking Lot & Elevator (full guided solution) | ✅ Done |
 | 13 | Library & Vending Machine (full guided solution) | ✅ Done |
 | 14 | Tic-Tac-Toe & Chess (full guided solution) | ✅ Done |
-| 15 | Splitwise Expense Sharing (full guided solution) | ⬜ Not started |
+| 15 | Splitwise Expense Sharing (full guided solution) | ✅ Done |
 | 16 | Movie Ticket Booking (full guided solution) | ⬜ Not started |
 | 17 | Ride-Sharing (full guided solution) | ⬜ Not started |
 | 18 | LRU/LFU Cache & Rate Limiter (full guided solution) | ⬜ Not started |
@@ -78,7 +78,7 @@ from the user, not a suggestion.
 
 ## Next up
 
-**Module 15: Splitwise Expense Sharing** — full guided solution.
+**Module 16: Movie Ticket Booking** — full guided solution.
 Waiting on explicit go-ahead before writing it.
 
 Note for future sessions: module 12's C# code is split as top-level
@@ -93,16 +93,30 @@ exact code blocks from the finished README with a script and re-ran
 them, rather than trusting an earlier scratch-file version — catches
 transcription drift, worth doing as standard practice going forward).
 No dotnet SDK has been available in this session's environment on any
-of modules 12–14, so C# has been hand-reviewed for correctness instead
+of modules 12–15, so C# has been hand-reviewed for correctness instead
 of compiled — worth running it through `dotnet run` when next on a
-machine that has the SDK.
+machine that has the SDK. Module 15's Python was also verified by
+extracting the exact code block from the finished file and re-running
+it (same transcription-drift check as module 14).
+
+Module 15 note: this is the first **single-problem** classic module
+(15–17 are each one problem, not two like 12–14; 18 goes back to
+multiple — LRU cache, LFU cache, rate limiter). Structural difference
+to preserve: no "Problem 1/2" wrapper heading — Requirements, Entities
+and relationships, Class diagram, Implementation, and Tradeoffs and
+extensions all sit directly under the module as `##` headings instead
+of nested `###` under a `## Problem N` header. Caught and fixed a
+heading-level slip in this module's first draft (Tradeoffs was left at
+`###` from copy-pasting the two-problem pattern) — worth double-checking
+heading levels specifically on every single-problem module (16, 17)
+before considering them done.
 
 Module 13 note: pedagogical hook was contrasting a plain enum-with-guards
 (Library's `BookStatus`) against a full State-pattern implementation
 (Vending Machine) in the same module, to teach *when* State is worth its
 ceremony.
 
-Module 14 note: class diagrams for both modules 13 and 14 are generated
+Module 14 note (kept for reference): class diagrams for both modules 13 and 14 are generated
 with a small Python script (box-drawing + fork/tree layout, computed
 column widths) rather than hand-drawn — a hand-drawn multi-branch tree
 in an early draft of module 13 came out visibly broken (mismatched box

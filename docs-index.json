@@ -3029,6 +3029,13 @@
           "children": []
         },
         {
+          "name": "15-splitwise-expense-sharing",
+          "path": "lld/15-splitwise-expense-sharing",
+          "file": "lld/15-splitwise-expense-sharing/README.md",
+          "title": "Module 15: Splitwise Expense Sharing",
+          "children": []
+        },
+        {
           "name": "STATUS.md",
           "path": "lld",
           "file": "lld/STATUS.md",
