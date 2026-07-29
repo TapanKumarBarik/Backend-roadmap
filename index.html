@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Docs Browser</title>
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 <style>
@@ -77,6 +78,18 @@
   #content blockquote { border-left: 3px solid var(--border); margin: 0; padding-left: 16px; color: var(--muted); }
   #empty { color: var(--muted); font-size: 16px; margin-top: 40px; }
   a { color: var(--accent); }
+
+  @media (max-width: 760px) {
+    body { flex-direction: column; height: auto; min-height: 100vh; overflow: visible; }
+    #sidebar {
+      width: 100% !important; max-width: 100%; min-width: 0;
+      max-height: 45vh; border-right: none; border-bottom: 1px solid var(--border);
+    }
+    #resizer { display: none; }
+    #main { padding: 20px; }
+    ul.tree { padding-left: 14px; }
+    .row { font-size: 14px; gap: 6px; }
+  }
 </style>
 </head>
 <body>
