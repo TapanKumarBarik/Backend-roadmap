@@ -54,7 +54,7 @@ from the user, not a suggestion.
 | — | Tab-rendering feature + generator update (`index.html`, `scripts/gen-docs-index.py`) | ✅ Done |
 | 00 | Programming Basics (Python & C#, zero prior coding assumed) | ✅ Done |
 | 01 | Classes, Objects & OOP Building Blocks | ✅ Done |
-| 02 | OOP Foundations & UML | ⬜ Not started |
+| 02 | OOP Foundations & UML | ✅ Done |
 | 03 | Generics, Exceptions & Value Objects | ⬜ Not started |
 | 04 | SOLID Principles | ⬜ Not started |
 | 05 | Core Design Principles (DRY/KISS/YAGNI/Law of Demeter/Composition/Coupling-Cohesion) | ⬜ Not started |
@@ -78,10 +78,10 @@ from the user, not a suggestion.
 
 ## Next up
 
-**Module 02: OOP Foundations & UML** — the four pillars (encapsulation,
-abstraction, inheritance, polymorphism) and reading/drawing a UML class +
-sequence diagram. Waiting on explicit go-ahead before writing it (per the
-one-module-at-a-time workflow above).
+**Module 03: Generics, Exceptions & Value Objects** — generic/type-safe
+classes and methods, designing an exception hierarchy, and modeling
+immutable value objects (enums, records/dataclasses). Waiting on explicit
+go-ahead before writing it (per the one-module-at-a-time workflow above).
 
 ## Decisions already made (don't re-litigate these)
 
