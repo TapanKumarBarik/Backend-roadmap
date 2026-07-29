@@ -56,7 +56,7 @@ from the user, not a suggestion.
 | 01 | Classes, Objects & OOP Building Blocks | ✅ Done |
 | 02 | OOP Foundations & UML | ✅ Done |
 | 03 | Generics, Exceptions & Value Objects | ✅ Done |
-| 04 | SOLID Principles | ⬜ Not started |
+| 04 | SOLID Principles | ✅ Done |
 | 05 | Core Design Principles (DRY/KISS/YAGNI/Law of Demeter/Composition/Coupling-Cohesion) | ⬜ Not started |
 | 06 | Creational Patterns | ⬜ Not started |
 | 07 | Structural Patterns | ⬜ Not started |
@@ -78,10 +78,11 @@ from the user, not a suggestion.
 
 ## Next up
 
-**Module 04: SOLID Principles** — all five principles (SRP, OCP, LSP,
-ISP, DIP), applied to code in both languages, with realistic violation
-examples. Waiting on explicit go-ahead before writing it (per the
-one-module-at-a-time workflow above).
+**Module 05: Core Design Principles** — DRY, KISS, YAGNI, the Law of
+Demeter, composition-over-inheritance, and coupling/cohesion. This module
+should also include a **cumulative review covering modules 03–05**
+(the last one was at module 02, covering 00–02 — keep the "every 3-4
+modules" cadence). Waiting on explicit go-ahead before writing it.
 
 ## Decisions already made (don't re-litigate these)
 
