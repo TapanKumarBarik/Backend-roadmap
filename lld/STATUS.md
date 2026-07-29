@@ -53,7 +53,7 @@ from the user, not a suggestion.
 | — | Track index (`lld/README.md`) | ✅ Done |
 | — | Tab-rendering feature + generator update (`index.html`, `scripts/gen-docs-index.py`) | ✅ Done |
 | 00 | Programming Basics (Python & C#, zero prior coding assumed) | ✅ Done |
-| 01 | Classes, Objects & OOP Building Blocks | ⬜ Not started |
+| 01 | Classes, Objects & OOP Building Blocks | ✅ Done |
 | 02 | OOP Foundations & UML | ⬜ Not started |
 | 03 | Generics, Exceptions & Value Objects | ⬜ Not started |
 | 04 | SOLID Principles | ⬜ Not started |
@@ -78,10 +78,10 @@ from the user, not a suggestion.
 
 ## Next up
 
-**Module 01: Classes, Objects & OOP Building Blocks** — classes,
-constructors, access modifiers, properties, static members, and each
-language's basic collections. Waiting on explicit go-ahead before writing
-it (per the one-module-at-a-time workflow above).
+**Module 02: OOP Foundations & UML** — the four pillars (encapsulation,
+abstraction, inheritance, polymorphism) and reading/drawing a UML class +
+sequence diagram. Waiting on explicit go-ahead before writing it (per the
+one-module-at-a-time workflow above).
 
 ## Decisions already made (don't re-litigate these)
 
