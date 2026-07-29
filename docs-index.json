@@ -2945,6 +2945,13 @@
           "children": []
         },
         {
+          "name": "03-generics-exceptions-and-value-objects",
+          "path": "lld/03-generics-exceptions-and-value-objects",
+          "file": "lld/03-generics-exceptions-and-value-objects/README.md",
+          "title": "Module 03: Generics, Exceptions & Value Objects",
+          "children": []
+        },
+        {
           "name": "STATUS.md",
           "path": "lld",
           "file": "lld/STATUS.md",
