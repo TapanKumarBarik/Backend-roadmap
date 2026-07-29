@@ -2938,6 +2938,13 @@
           "children": []
         },
         {
+          "name": "02-oop-foundations-and-uml",
+          "path": "lld/02-oop-foundations-and-uml",
+          "file": "lld/02-oop-foundations-and-uml/README.md",
+          "title": "Module 02: OOP Foundations & UML",
+          "children": []
+        },
+        {
           "name": "STATUS.md",
           "path": "lld",
           "file": "lld/STATUS.md",
