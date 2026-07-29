@@ -60,7 +60,7 @@ from the user, not a suggestion.
 | 05 | Core Design Principles (DRY/KISS/YAGNI/Law of Demeter/Composition/Coupling-Cohesion) — incl. cumulative review 03-05 | ✅ Done |
 | 06 | Creational Patterns | ✅ Done |
 | 07 | Structural Patterns | ✅ Done |
-| 08 | Behavioral Patterns I | ⬜ Not started |
+| 08 | Behavioral Patterns I — incl. cumulative review 06-08 | ✅ Done |
 | 09 | Behavioral Patterns II | ⬜ Not started |
 | 10 | Concurrency-Safe Design | ⬜ Not started |
 | 11 | Requirements to Class Diagrams | ⬜ Not started |
@@ -78,10 +78,10 @@ from the user, not a suggestion.
 
 ## Next up
 
-**Module 08: Behavioral Patterns I** — Strategy, Observer, Command,
-State, and Template Method. Should also include a **cumulative review
-covering modules 06–08** (last one was at module 05, covering 03–05).
-Waiting on explicit go-ahead before writing it.
+**Module 09: Behavioral Patterns II** — Iterator, Chain of
+Responsibility, Mediator, Memento, and Visitor. This completes the
+pattern catalog (22 of 23 GoF patterns — Interpreter is intentionally
+skipped). Waiting on explicit go-ahead before writing it.
 
 ## Decisions already made (don't re-litigate these)
 
