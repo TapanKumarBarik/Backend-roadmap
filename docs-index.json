@@ -2952,6 +2952,13 @@
           "children": []
         },
         {
+          "name": "04-solid-principles",
+          "path": "lld/04-solid-principles",
+          "file": "lld/04-solid-principles/README.md",
+          "title": "Module 04: SOLID Principles",
+          "children": []
+        },
+        {
           "name": "STATUS.md",
           "path": "lld",
           "file": "lld/STATUS.md",
