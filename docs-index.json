@@ -2973,6 +2973,13 @@
           "children": []
         },
         {
+          "name": "07-structural-patterns",
+          "path": "lld/07-structural-patterns",
+          "file": "lld/07-structural-patterns/README.md",
+          "title": "Module 07: Structural Patterns",
+          "children": []
+        },
+        {
           "name": "STATUS.md",
           "path": "lld",
           "file": "lld/STATUS.md",
