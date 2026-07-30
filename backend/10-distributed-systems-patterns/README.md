@@ -26,13 +26,14 @@ the *judgment* about when each pattern earns its complexity and when it's overki
   reliability disciplines established early — per-operation consistency, idempotent
   operations, fencing tokens — recur throughout and converge in the capstone. Go in
   order.
-- Each standard module (00–07) has the same shape: why it matters, concepts, a
+- Each standard module (00–08) has the same shape: why it matters, concepts, a
   command reference with real Python/FastAPI code, progressive hands-on exercises
   (including a "diagnose and fix" scenario each), an independent challenge with no
   code, common mistakes, and a checkpoint quiz. Modules 04 and 07 also carry a
   closed-book **cumulative review** that stitches the preceding modules together.
 - All exercises run locally against Postgres, Redis, and (for the coordination
-  module) etcd in Docker — no cloud account required.
+  module) etcd in Docker, plus (for the workflow-orchestration module) a
+  local Temporal dev server — no cloud account required.
 
 ## Modules
 
@@ -46,7 +47,8 @@ the *judgment* about when each pattern earns its complexity and when it's overki
 | 05 | [CQRS](05-cqrs/README.md) | Separate read and write models, judge when the split earns its complexity, and handle the eventual consistency it introduces | 75-100 min |
 | 06 | [Event sourcing](06-event-sourcing/README.md) | Store state as an immutable event log, rebuild state by replaying, use snapshots, and pair event sourcing with CQRS | 90-120 min |
 | 07 | [Consensus and coordination](07-consensus-and-coordination/README.md) | Reason about consensus (Raft), quorums, and leader election, and use etcd/ZooKeeper/Postgres instead of building your own | 90-120 min |
-| 08 | [Capstone project](08-capstone-project/README.md) | Design and partially build a distributed order-processing system integrating idempotency, a saga, and event sourcing | 4-6 hrs |
+| 08 | [Durable workflow orchestration](08-durable-workflow-orchestration/README.md) | Use a durable execution engine (Temporal) for crash-proof workflows, automatic retries, and long-lived signal-driven steps | 90-120 min |
+| 09 | [Capstone project](09-capstone-project/README.md) | Design and partially build a distributed order-processing system integrating idempotency, a saga, and event sourcing | 4-6 hrs |
 
 Start here → [00-cap-theorem-and-consistency-models/README.md](00-cap-theorem-and-consistency-models/README.md)
 

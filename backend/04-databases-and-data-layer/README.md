@@ -46,7 +46,9 @@ scales — all against a real PostgreSQL instance you run yourself in Docker.
 | 06 | [Business logic layer and separation of concerns](06-business-logic-layer-and-separation-of-concerns/README.md) | Structure a clean three-layer architecture with the repository pattern, separate domain from database models, and propagate errors correctly | 75-100 min |
 | 07 | [Query optimization and connection pooling](07-query-optimization-and-connection-pooling/README.md) | Read `EXPLAIN ANALYZE` plans, kill the N+1 problem, size a connection pool, and cache query results at the data layer | 90-120 min |
 | 08 | [Replication and sharding](08-replication-and-sharding/README.md) | Use read replicas and reason about replication lag, choose sharding strategies, and know when you actually need either | 75-100 min |
-| 09 | [Capstone project](09-capstone-project/README.md) | Design and build a normalized, indexed, transactionally-correct order/inventory data layer with a real scaling plan | 4-6 hrs |
+| 09 | [OLAP and data warehousing](09-olap-and-data-warehousing/README.md) | Explain row vs. column storage, design a star schema, and know why analytics queries don't belong on your OLTP primary | 75-100 min |
+| 10 | [Multi-tenancy patterns](10-multi-tenancy-patterns/README.md) | Choose between shared-schema, schema-per-tenant, and database-per-tenant, and enforce isolation with row-level security | 75-100 min |
+| 11 | [Capstone project](11-capstone-project/README.md) | Design and build a normalized, indexed, transactionally-correct order/inventory data layer with a real scaling plan | 4-6 hrs |
 
 Start here → [00-relational-vs-non-relational/README.md](00-relational-vs-non-relational/README.md)
 

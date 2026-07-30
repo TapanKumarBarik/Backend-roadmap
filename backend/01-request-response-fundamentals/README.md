@@ -50,7 +50,8 @@ instead of hand-waving.
 | 09 | [TLS/SSL and HTTPS](09-tls-ssl-and-https/README.md) | Explain HTTPS = HTTP over TLS, inspect certificates, and debug TLS errors | 60-90 min |
 | 10 | [Routing fundamentals](10-routing-fundamentals/README.md) | Map URLs+methods to handlers across every route shape, with correct matching order | 60-90 min |
 | 11 | [API versioning and serialization](11-api-versioning-and-serialization/README.md) | Evolve an API safely with versions/deprecation, and serialize JSON vs. binary correctly and securely | 90-120 min |
-| 12 | [Capstone project](12-capstone-project/README.md) | Build a raw-HTTP service demonstrating status codes, caching, negotiation, and versioned JSON + protobuf | 3-5 hrs |
+| 12 | [CDN and edge caching](12-cdn-and-edge-caching/README.md) | Scale HTTP caching across a distributed CDN: cache keys, purge, origin shielding, and stale-while-revalidate | 60-90 min |
+| 13 | [Capstone project](13-capstone-project/README.md) | Build a raw-HTTP service demonstrating status codes, caching, negotiation, and versioned JSON + protobuf | 3-5 hrs |
 
 Start here → [00-system-overview-and-request-flow/README.md](00-system-overview-and-request-flow/README.md)
 

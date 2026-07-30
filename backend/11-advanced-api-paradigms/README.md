@@ -46,7 +46,8 @@ REST must earn its complexity against a concrete pain.
 | 05 | [Webhooks vs polling vs websockets tradeoffs](05-webhooks-vs-polling-vs-websockets-tradeoffs/README.md) | Choose the right update mechanism for a given consumer — poll, webhook, SSE, or WebSocket — and know its cost | 45-60 min |
 | 06 | [API gateways and BFF](06-api-gateways-and-bff/README.md) | Place an API gateway (auth, rate limit, routing) and a Backend-for-Frontend layer at the edge — and know when each is premature | 75-100 min |
 | 07 | [API design tradeoffs in practice](07-api-design-tradeoffs-in-practice/README.md) | Mix REST + gRPC + a GraphQL BFF in one system, version across paradigms, and document a multi-paradigm surface | 75-100 min |
-| 08 | [Capstone project](08-capstone-project/README.md) | Build one small service exposed via an internal gRPC API and a GraphQL BFF in front of it for a web client | 3-5 hrs |
+| 08 | [Edge computing and WebAssembly](08-edge-computing-and-webassembly/README.md) | Run request-shaping logic at the edge in a Wasm sandbox, and know what belongs there vs. at origin | 60-90 min |
+| 09 | [Capstone project](09-capstone-project/README.md) | Build one small service exposed via an internal gRPC API and a GraphQL BFF in front of it for a web client | 3-5 hrs |
 
 Start here → [00-beyond-rest-when-and-why/README.md](00-beyond-rest-when-and-why/README.md)
 

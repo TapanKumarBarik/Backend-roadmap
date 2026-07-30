@@ -1,5 +1,9 @@
 # Capstone Project
 
+*(This module remains focused on Azure APIM specifically — the previous
+module's Kong/Traefik content is a deliberate contrast, not a
+prerequisite for this capstone.)*
+
 ## Why this matters
 
 This is the last module of the API Management track. There's no new concept

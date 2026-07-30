@@ -630,11 +630,10 @@ exposed.*
 
 ## Next
 
-[08-capstone-project](../08-capstone-project/README.md) — you now hold the whole
-toolkit: per-operation consistency (00), idempotency (01), locking and fencing (02),
-the 2PC trade-off (03), sagas (04), CQRS (05), event sourcing (06), and consensus/
-coordination (07). The capstone stops teaching new patterns and asks you to *combine*
-them: design and partially build a distributed order-processing system that uses
-idempotency keys to make requests safe, a saga to coordinate the multi-step
-transaction across services, and event sourcing to record the order's state history —
+[08-durable-workflow-orchestration](../08-durable-workflow-orchestration/README.md) —
+module 04 closed with a nod to "production systems increasingly use a workflow
+engine (Temporal, AWS Step Functions, Camunda) that *is* an orchestrator with
+durable state built in." This module opens that up: what a durable-execution
+engine actually gives you over the hand-rolled `saga_state` table you built
+yourself, and when that trade is worth it.
 integrating the reliability disciplines of the entire track into one system.

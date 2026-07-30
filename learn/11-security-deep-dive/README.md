@@ -72,7 +72,8 @@ response and where the signals live).
 | 05 | [azure-policy-and-governance-guardrails](05-azure-policy-and-governance-guardrails/README.md) | Built-in definitions, assignments, Deny/Audit/DeployIfNotExists effects, initiatives, a governance-at-scale preview | 75-90 min |
 | 06 | [network-security-in-depth](06-network-security-in-depth/README.md) | Defense in depth across NSGs, Azure Firewall, NetworkPolicy egress, and a service-mesh mTLS preview | 75-90 min |
 | 07 | [incident-response-and-security-monitoring](07-incident-response-and-security-monitoring/README.md) | Isolate/snapshot/rotate/root-cause, Defender for Cloud, Azure Monitor alerts, audit logs | 75-90 min |
-| 08 | [capstone-project](08-capstone-project/README.md) | End-to-end: hardened image, Gatekeeper policy, restricted PSA, Azure Policy guardrail, incident-response runbook | 3-5 hours |
+| 08 | [hashicorp-vault-in-depth](08-hashicorp-vault-in-depth/README.md) | Run Vault for real: KV versioning, the database secrets engine, dynamic credentials, and lease revocation | 75-90 min |
+| 09 | [capstone-project](09-capstone-project/README.md) | End-to-end: hardened image, Gatekeeper policy, restricted PSA, Azure Policy guardrail, incident-response runbook | 3-5 hours |
 
 ## Prerequisites
 

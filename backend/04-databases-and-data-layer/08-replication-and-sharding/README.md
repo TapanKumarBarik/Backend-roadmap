@@ -558,8 +558,7 @@ Write down your answer to each question before expanding it — checking without
 
 ## Next
 
-[09-capstone-project](../09-capstone-project/README.md) — the concepts are
-complete. The capstone puts them together: design and build a properly
-normalized, indexed, transactionally-correct data layer for a real domain with
-SQLAlchemy and Alembic, and write the scaling design note that decides where
-replicas and shards would go if it had to grow 100×.
+[09-olap-and-data-warehousing](../09-olap-and-data-warehousing/README.md) —
+everything so far assumed one workload: transactional (OLTP). Now the other
+half: why analytics/reporting queries don't belong on the same database, and
+how a columnar warehouse answers them differently.

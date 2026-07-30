@@ -294,7 +294,7 @@ you've learned this.
 
 ## Next
 
-[08-capstone-project](../08-capstone-project/README.md)
-— put it all together: APIM over VNet to a private Container App, a versioned API,
-rate limiting, Entra ID JWT validation, a product with a subscription key, and
-live analytics proving real traffic.
+[08-kong-and-traefik-oss-gateways](../08-kong-and-traefik-oss-gateways/README.md)
+— everything so far has been Azure APIM specifically. This module runs the
+same API-gateway concepts (auth, rate limiting) on an open-source gateway
+you operate yourself, so you can tell the concept from the vendor.

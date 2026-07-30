@@ -646,7 +646,7 @@ Write down your answer to each question before expanding it — checking without
 
 ## Next
 
-[12-capstone-project](../12-capstone-project/README.md) — time to put the
-entire track together: build a raw-HTTP-aware Python service that
-demonstrates correct status codes, headers, caching, content negotiation,
-and versioned JSON + protobuf responses.
+[12-cdn-and-edge-caching](../12-cdn-and-edge-caching/README.md) — module
+06 covered caching between your app and one reverse proxy; now scale that
+same idea out to a globally distributed network of edge caches sitting
+in front of your whole origin.

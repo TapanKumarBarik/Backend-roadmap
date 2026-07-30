@@ -495,10 +495,8 @@ thinking you've learned this.
 
 ## Next
 
-[11-object-storage-and-large-files](../11-object-storage-and-large-files/README.md)
-— the last building block before the capstone. You'll handle large files
-the right way: why they don't belong in your database, object storage
-(S3-style) concepts, multipart uploads in FastAPI, chunked/streamed
-downloads, and presigned URLs that let clients upload and download
-directly to storage without proxying gigabytes through your API.
+[11-mobile-push-notifications](../11-mobile-push-notifications/README.md) —
+one more outbound channel this track hasn't covered yet: reaching a user's
+phone even when your app isn't open, via a push provider (APNs/FCM)
+instead of a broker you run yourself.
 </content>

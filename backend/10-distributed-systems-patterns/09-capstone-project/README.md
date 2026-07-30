@@ -1,4 +1,4 @@
-# Module 08: Capstone Project
+# Module 09: Capstone Project
 
 ## Why this matters
 

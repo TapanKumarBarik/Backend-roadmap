@@ -97,10 +97,17 @@
               "children": []
             },
             {
-              "name": "12-capstone-project",
-              "path": "backend/01-request-response-fundamentals/12-capstone-project",
-              "file": "backend/01-request-response-fundamentals/12-capstone-project/README.md",
-              "title": "Module 12: Capstone Project",
+              "name": "12-cdn-and-edge-caching",
+              "path": "backend/01-request-response-fundamentals/12-cdn-and-edge-caching",
+              "file": "backend/01-request-response-fundamentals/12-cdn-and-edge-caching/README.md",
+              "title": "Module 12: CDN and Edge Caching",
+              "children": []
+            },
+            {
+              "name": "13-capstone-project",
+              "path": "backend/01-request-response-fundamentals/13-capstone-project",
+              "file": "backend/01-request-response-fundamentals/13-capstone-project/README.md",
+              "title": "Module 13: Capstone Project",
               "children": []
             }
           ]
@@ -331,10 +338,24 @@
               "children": []
             },
             {
-              "name": "09-capstone-project",
-              "path": "backend/04-databases-and-data-layer/09-capstone-project",
-              "file": "backend/04-databases-and-data-layer/09-capstone-project/README.md",
-              "title": "Module 09: Capstone Project",
+              "name": "09-olap-and-data-warehousing",
+              "path": "backend/04-databases-and-data-layer/09-olap-and-data-warehousing",
+              "file": "backend/04-databases-and-data-layer/09-olap-and-data-warehousing/README.md",
+              "title": "Module 09: OLAP and Data Warehousing",
+              "children": []
+            },
+            {
+              "name": "10-multi-tenancy-patterns",
+              "path": "backend/04-databases-and-data-layer/10-multi-tenancy-patterns",
+              "file": "backend/04-databases-and-data-layer/10-multi-tenancy-patterns/README.md",
+              "title": "Module 10: Multi-Tenancy Patterns",
+              "children": []
+            },
+            {
+              "name": "11-capstone-project",
+              "path": "backend/04-databases-and-data-layer/11-capstone-project",
+              "file": "backend/04-databases-and-data-layer/11-capstone-project/README.md",
+              "title": "Module 11: Capstone Project",
               "children": []
             }
           ]
@@ -501,17 +522,38 @@
               "children": []
             },
             {
-              "name": "11-object-storage-and-large-files",
-              "path": "backend/06-background-processing-and-realtime/11-object-storage-and-large-files",
-              "file": "backend/06-background-processing-and-realtime/11-object-storage-and-large-files/README.md",
-              "title": "Module 11: Object Storage and Large Files",
+              "name": "11-mobile-push-notifications",
+              "path": "backend/06-background-processing-and-realtime/11-mobile-push-notifications",
+              "file": "backend/06-background-processing-and-realtime/11-mobile-push-notifications/README.md",
+              "title": "Module 11: Mobile Push Notifications",
               "children": []
             },
             {
-              "name": "12-capstone-project",
-              "path": "backend/06-background-processing-and-realtime/12-capstone-project",
-              "file": "backend/06-background-processing-and-realtime/12-capstone-project/README.md",
-              "title": "Module 12: Capstone Project",
+              "name": "12-payment-processing-in-practice",
+              "path": "backend/06-background-processing-and-realtime/12-payment-processing-in-practice",
+              "file": "backend/06-background-processing-and-realtime/12-payment-processing-in-practice/README.md",
+              "title": "Module 12: Payment Processing in Practice",
+              "children": []
+            },
+            {
+              "name": "13-batch-etl-pipeline-orchestration",
+              "path": "backend/06-background-processing-and-realtime/13-batch-etl-pipeline-orchestration",
+              "file": "backend/06-background-processing-and-realtime/13-batch-etl-pipeline-orchestration/README.md",
+              "title": "Module 13: Batch ETL Pipeline Orchestration",
+              "children": []
+            },
+            {
+              "name": "14-object-storage-and-large-files",
+              "path": "backend/06-background-processing-and-realtime/14-object-storage-and-large-files",
+              "file": "backend/06-background-processing-and-realtime/14-object-storage-and-large-files/README.md",
+              "title": "Module 14: Object Storage and Large Files",
+              "children": []
+            },
+            {
+              "name": "15-capstone-project",
+              "path": "backend/06-background-processing-and-realtime/15-capstone-project",
+              "file": "backend/06-background-processing-and-realtime/15-capstone-project/README.md",
+              "title": "Module 15: Capstone Project",
               "children": []
             }
           ]
@@ -799,10 +841,17 @@
               "children": []
             },
             {
-              "name": "08-capstone-project",
-              "path": "backend/10-distributed-systems-patterns/08-capstone-project",
-              "file": "backend/10-distributed-systems-patterns/08-capstone-project/README.md",
-              "title": "Module 08: Capstone Project",
+              "name": "08-durable-workflow-orchestration",
+              "path": "backend/10-distributed-systems-patterns/08-durable-workflow-orchestration",
+              "file": "backend/10-distributed-systems-patterns/08-durable-workflow-orchestration/README.md",
+              "title": "Module 08: Durable Workflow Orchestration",
+              "children": []
+            },
+            {
+              "name": "09-capstone-project",
+              "path": "backend/10-distributed-systems-patterns/09-capstone-project",
+              "file": "backend/10-distributed-systems-patterns/09-capstone-project/README.md",
+              "title": "Module 09: Capstone Project",
               "children": []
             }
           ]
@@ -870,10 +919,17 @@
               "children": []
             },
             {
-              "name": "08-capstone-project",
-              "path": "backend/11-advanced-api-paradigms/08-capstone-project",
-              "file": "backend/11-advanced-api-paradigms/08-capstone-project/README.md",
-              "title": "Module 08: Capstone Project",
+              "name": "08-edge-computing-and-webassembly",
+              "path": "backend/11-advanced-api-paradigms/08-edge-computing-and-webassembly",
+              "file": "backend/11-advanced-api-paradigms/08-edge-computing-and-webassembly/README.md",
+              "title": "Module 08: Edge Computing and WebAssembly",
+              "children": []
+            },
+            {
+              "name": "09-capstone-project",
+              "path": "backend/11-advanced-api-paradigms/09-capstone-project",
+              "file": "backend/11-advanced-api-paradigms/09-capstone-project/README.md",
+              "title": "Module 09: Capstone Project",
               "children": []
             }
           ]
@@ -1998,9 +2054,16 @@
               "children": []
             },
             {
-              "name": "08-capstone-project",
-              "path": "learn/11-security-deep-dive/08-capstone-project",
-              "file": "learn/11-security-deep-dive/08-capstone-project/README.md",
+              "name": "08-hashicorp-vault-in-depth",
+              "path": "learn/11-security-deep-dive/08-hashicorp-vault-in-depth",
+              "file": "learn/11-security-deep-dive/08-hashicorp-vault-in-depth/README.md",
+              "title": "HashiCorp Vault in Depth",
+              "children": []
+            },
+            {
+              "name": "09-capstone-project",
+              "path": "learn/11-security-deep-dive/09-capstone-project",
+              "file": "learn/11-security-deep-dive/09-capstone-project/README.md",
               "title": "Capstone Project: A Defensible Deployment, End to End",
               "children": []
             }
@@ -2140,10 +2203,17 @@
               "children": []
             },
             {
-              "name": "08-capstone-project",
-              "path": "learn/13-service-mesh/08-capstone-project",
-              "file": "learn/13-service-mesh/08-capstone-project/README.md",
-              "title": "08 - Capstone Project",
+              "name": "08-multi-cluster-mesh-federation",
+              "path": "learn/13-service-mesh/08-multi-cluster-mesh-federation",
+              "file": "learn/13-service-mesh/08-multi-cluster-mesh-federation/README.md",
+              "title": "08 - Multi-Cluster Mesh Federation",
+              "children": []
+            },
+            {
+              "name": "09-capstone-project",
+              "path": "learn/13-service-mesh/09-capstone-project",
+              "file": "learn/13-service-mesh/09-capstone-project/README.md",
+              "title": "09 - Capstone Project",
               "children": []
             }
           ]
@@ -2566,9 +2636,16 @@
               "children": []
             },
             {
-              "name": "08-capstone-project",
-              "path": "learn/19-api-management/08-capstone-project",
-              "file": "learn/19-api-management/08-capstone-project/README.md",
+              "name": "08-kong-and-traefik-oss-gateways",
+              "path": "learn/19-api-management/08-kong-and-traefik-oss-gateways",
+              "file": "learn/19-api-management/08-kong-and-traefik-oss-gateways/README.md",
+              "title": "Kong and Traefik: Open-Source API Gateways",
+              "children": []
+            },
+            {
+              "name": "09-capstone-project",
+              "path": "learn/19-api-management/09-capstone-project",
+              "file": "learn/19-api-management/09-capstone-project/README.md",
               "title": "Capstone Project",
               "children": []
             }

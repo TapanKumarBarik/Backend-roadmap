@@ -489,7 +489,7 @@ Write down your answer to each question before expanding it — checking without
 
 ## Next
 
-[08-capstone-project](../08-capstone-project/README.md) — put it all together:
-a meshed multi-service app with STRICT mTLS, a weighted canary, an
-`AuthorizationPolicy`, and a fault-injection test that proves your
-retry/timeout policy actually works.
+[08-multi-cluster-mesh-federation](../08-multi-cluster-mesh-federation/README.md)
+— every module so far ran one mesh on one cluster. This module extends the
+same mesh across two, so services in different clusters can call each other
+through the mesh as if they were local.

@@ -1,4 +1,4 @@
-# Module 11: Object Storage and Large Files
+# Module 14: Object Storage and Large Files
 
 ## Why this matters
 
@@ -504,7 +504,7 @@ Write down your answer to each question before expanding it — checking without
 
 ## Next
 
-[12-capstone-project](../12-capstone-project/README.md) — everything converges.
+[15-capstone-project](../15-capstone-project/README.md) — everything converges.
 You'll build a service where uploading a file (this module) triggers background
 processing (modules 00-02) that fires a webhook (modules 05-06), pushes live
 progress to the uploader over a real-time connection (module 07), and sends a

@@ -1,8 +1,8 @@
-# 08 - Capstone Project
+# 09 - Capstone Project
 
 ## Why this matters
 
-The previous eight modules each drilled one mesh capability in isolation. Real
+The previous nine modules each drilled one mesh capability in isolation. Real
 mesh work is making them hold *together*: a namespace where injection is on,
 every service is meshed under STRICT mTLS, one service is mid-canary between
 two versions, an `AuthorizationPolicy` enforces who may call whom, and a

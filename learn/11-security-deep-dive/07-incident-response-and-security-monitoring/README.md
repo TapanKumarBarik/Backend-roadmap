@@ -386,6 +386,7 @@ Write down your answer to each question before expanding it — checking without
 ## Next
 
 Continue to
-[08-capstone-project](../08-capstone-project/README.md) — bring every layer of
-this track together into one defensible deployment, complete with the
-incident-response runbook you just practiced.
+[08-hashicorp-vault-in-depth](../08-hashicorp-vault-in-depth/README.md) —
+module 02 named HashiCorp Vault as the cloud-agnostic alternative to Key
+Vault and stopped there. This module runs it for real: dynamic,
+short-lived database credentials that revoke themselves automatically.

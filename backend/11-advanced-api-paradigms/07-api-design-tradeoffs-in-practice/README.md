@@ -589,8 +589,7 @@ update mechanisms, the edge, and putting it all together.
 
 ## Next
 
-[08-capstone-project](../08-capstone-project/README.md) — you've built the whole
-map and learned to live in a multi-paradigm system. The capstone makes it real in
-miniature: one small service exposed via an internal **gRPC** API *and* fronted by
-a **GraphQL BFF** for a web client — the exact shape module 00 promised and every
-module since has been building toward.
+[08-edge-computing-and-webassembly](../08-edge-computing-and-webassembly/README.md)
+— one more edge to add to module 00's map: logic that runs neither in your
+origin server nor in the browser, but on infrastructure physically close to
+the request, in a WebAssembly sandbox instead of a traditional server process.

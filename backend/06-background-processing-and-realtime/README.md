@@ -46,8 +46,11 @@ reliably, and reports back.
 | 08 | [Pub/Sub architecture](08-pub-sub-architecture/README.md) | Decouple with Redis Pub/Sub, scale WebSockets across processes, and know pub/sub vs. a durable queue | 60-90 min |
 | 09 | [Message brokers: RabbitMQ](09-message-brokers-rabbitmq/README.md) | Route messages with exchanges (direct/topic/fanout), durable acknowledgment, and dead-letter queues | 75-100 min |
 | 10 | [Message brokers: Kafka](10-message-brokers-kafka/README.md) | Model events as a durable, replayable log: topics, partitions, offsets, and consumer groups | 75-100 min |
-| 11 | [Object storage and large files](11-object-storage-and-large-files/README.md) | Handle large uploads/downloads with streaming, object storage, and presigned URLs | 60-90 min |
-| 12 | [Capstone project](12-capstone-project/README.md) | Build an async file-processing service tying together queues, webhooks, real-time, and email | 4-6 hrs |
+| 11 | [Mobile push notifications](11-mobile-push-notifications/README.md) | Send push notifications via APNs/FCM, handle dead-token cleanup, and retry transient failures correctly | 60-90 min |
+| 12 | [Payment processing in practice](12-payment-processing-in-practice/README.md) | Prevent double charges with outbound idempotency keys, and verify a real payment provider's webhook signature scheme | 75-100 min |
+| 13 | [Batch ETL pipeline orchestration](13-batch-etl-pipeline-orchestration/README.md) | Build dependency-aware data pipelines with a real orchestrator: fan-out/fan-in, per-task retries, and safe backfills | 75-100 min |
+| 14 | [Object storage and large files](14-object-storage-and-large-files/README.md) | Handle large uploads/downloads with streaming, object storage, and presigned URLs | 60-90 min |
+| 15 | [Capstone project](15-capstone-project/README.md) | Build an async file-processing service tying together queues, webhooks, real-time, and email | 4-6 hrs |
 
 Start here → [00-task-queues-fundamentals/README.md](00-task-queues-fundamentals/README.md)
 

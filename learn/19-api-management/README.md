@@ -60,7 +60,8 @@ the observability stack from track 12.
 | 05 | [backend-integration-patterns](05-backend-integration-patterns/README.md) | Named backends, VNet integration to a private Container App, load balancing across backends, backend pools & circuit breaker (cousin of track 13 mesh resilience) | 75-90 min |
 | 06 | [developer-portal-and-api-products](06-developer-portal-and-api-products/README.md) | Products, grouping APIs, self-service subscriptions, terms of use, publishing the developer portal (survey level) | 45-60 min |
 | 07 | [observability-for-apis](07-observability-for-apis/README.md) | Built-in analytics, Azure Monitor metrics/diagnostic logs, Application Insights integration, correlating APIM with backend traces (track 12) | 60 min |
-| 08 | [capstone-project](08-capstone-project/README.md) | End-to-end: APIM over VNet to a Container App, versioned API, rate limiting, Entra ID JWT validation, a product with a subscription key, live analytics | 3-5 hours |
+| 08 | [kong-and-traefik-oss-gateways](08-kong-and-traefik-oss-gateways/README.md) | The same gateway pattern on a self-hosted, open-source gateway: Kong services/routes/plugins, key-auth, rate limiting, DB-less config | 60-90 min |
+| 09 | [capstone-project](09-capstone-project/README.md) | End-to-end: APIM over VNet to a Container App, versioned API, rate limiting, Entra ID JWT validation, a product with a subscription key, live analytics | 3-5 hours |
 
 ## Prerequisites
 

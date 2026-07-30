@@ -45,7 +45,8 @@ is worth it is as important as knowing the YAML.
 | 05 | [authorization-policies](05-authorization-policies/README.md) | `AuthorizationPolicy` allow/deny rules, identity-based access, compared to Kubernetes RBAC | 60-75 min |
 | 06 | [mesh-observability](06-mesh-observability/README.md) | Istio's built-in metrics, the Kiali dashboard, and wiring distributed tracing into track 12's OpenTelemetry/Grafana | 60-90 min |
 | 07 | [resilience-patterns](07-resilience-patterns/README.md) | Retries, timeouts, circuit breaking/outlier detection, and fault injection for testing | 60-90 min |
-| 08 | [capstone-project](08-capstone-project/README.md) | End-to-end: meshed multi-service app, STRICT mTLS, weighted canary, `AuthorizationPolicy`, and a proven retry/timeout under fault injection | 3-5 hours |
+| 08 | [multi-cluster-mesh-federation](08-multi-cluster-mesh-federation/README.md) | Extend one mesh across two clusters: shared root CA, east-west gateway, remote secrets, and the real default (no) locality preference | 3-4 hours |
+| 09 | [capstone-project](09-capstone-project/README.md) | End-to-end: meshed multi-service app, STRICT mTLS, weighted canary, `AuthorizationPolicy`, and a proven retry/timeout under fault injection | 3-5 hours |
 
 ## Prerequisites
 
