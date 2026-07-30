@@ -69,7 +69,7 @@ whichever you're actively practicing.
   questions** — real/likely questions asked on this exact topic, each with
   a model answer. Every 3–4 modules there's also a **cumulative review**
   mixing questions from everything so far.
-- Modules 11–17 (the classic problems: parking lot, elevator, library,
+- Modules 12–18 (the classic problems: parking lot, elevator, library,
   vending machine, tic-tac-toe, chess, Splitwise, ticket booking,
   ride-sharing, LRU/LFU cache, rate limiter) get a **full worked solution**
   — requirements → class diagram → complete Python and C# implementation →

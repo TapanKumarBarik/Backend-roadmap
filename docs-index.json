@@ -487,17 +487,31 @@
               "children": []
             },
             {
-              "name": "09-object-storage-and-large-files",
-              "path": "backend/06-background-processing-and-realtime/09-object-storage-and-large-files",
-              "file": "backend/06-background-processing-and-realtime/09-object-storage-and-large-files/README.md",
-              "title": "Module 09: Object Storage and Large Files",
+              "name": "09-message-brokers-rabbitmq",
+              "path": "backend/06-background-processing-and-realtime/09-message-brokers-rabbitmq",
+              "file": "backend/06-background-processing-and-realtime/09-message-brokers-rabbitmq/README.md",
+              "title": "Module 09: Message Brokers — RabbitMQ",
               "children": []
             },
             {
-              "name": "10-capstone-project",
-              "path": "backend/06-background-processing-and-realtime/10-capstone-project",
-              "file": "backend/06-background-processing-and-realtime/10-capstone-project/README.md",
-              "title": "Module 10: Capstone Project",
+              "name": "10-message-brokers-kafka",
+              "path": "backend/06-background-processing-and-realtime/10-message-brokers-kafka",
+              "file": "backend/06-background-processing-and-realtime/10-message-brokers-kafka/README.md",
+              "title": "Module 10: Message Brokers — Kafka",
+              "children": []
+            },
+            {
+              "name": "11-object-storage-and-large-files",
+              "path": "backend/06-background-processing-and-realtime/11-object-storage-and-large-files",
+              "file": "backend/06-background-processing-and-realtime/11-object-storage-and-large-files/README.md",
+              "title": "Module 11: Object Storage and Large Files",
+              "children": []
+            },
+            {
+              "name": "12-capstone-project",
+              "path": "backend/06-background-processing-and-realtime/12-capstone-project",
+              "file": "backend/06-background-processing-and-realtime/12-capstone-project/README.md",
+              "title": "Module 12: Capstone Project",
               "children": []
             }
           ]
@@ -1303,9 +1317,16 @@
               "children": []
             },
             {
-              "name": "12-capstone-project",
-              "path": "learn/02-docker/12-capstone-project",
-              "file": "learn/02-docker/12-capstone-project/README.md",
+              "name": "12-nginx-reverse-proxy-and-load-balancing",
+              "path": "learn/02-docker/12-nginx-reverse-proxy-and-load-balancing",
+              "file": "learn/02-docker/12-nginx-reverse-proxy-and-load-balancing/README.md",
+              "title": "Nginx: Reverse Proxy and Load Balancing",
+              "children": []
+            },
+            {
+              "name": "13-capstone-project",
+              "path": "learn/02-docker/13-capstone-project",
+              "file": "learn/02-docker/13-capstone-project/README.md",
               "title": "Capstone Project",
               "children": []
             }

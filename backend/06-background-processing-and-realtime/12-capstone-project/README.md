@@ -1,4 +1,4 @@
-# Module 10: Capstone Project
+# Module 12: Capstone Project
 
 ## Why this matters
 
@@ -30,7 +30,7 @@ completion through three independent channels.
 
 ### Core flow
 
-1. **Upload (module 09).** A user uploads a file. Do this the scalable way:
+1. **Upload (module 11).** A user uploads a file. Do this the scalable way:
    issue a **presigned URL** so the client uploads directly to object storage,
    and expose a completion callback the client hits when the direct upload
    finishes. On completion, record only a *pointer* (bucket + key + metadata +

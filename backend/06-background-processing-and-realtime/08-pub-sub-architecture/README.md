@@ -469,9 +469,7 @@ Write down your answer to each question before expanding it — checking without
 
 ## Next
 
-[09-object-storage-and-large-files](../09-object-storage-and-large-files/README.md)
-— the last building block before the capstone. You'll handle large files the
-right way: why they don't belong in your database, object storage (S3-style)
-concepts, multipart uploads in FastAPI, chunked/streamed downloads, and
-presigned URLs that let clients upload and download directly to storage
-without proxying gigabytes through your API.
+[09-message-brokers-rabbitmq](../09-message-brokers-rabbitmq/README.md) —
+you've been using Redis as a broker/pub-sub bus all along; now open up what a
+dedicated message broker actually gives you (exchanges, routing, durable
+acknowledgment, dead-lettering) that Redis's simpler primitives don't.

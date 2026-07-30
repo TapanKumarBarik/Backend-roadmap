@@ -70,9 +70,10 @@ Instances and Azure App Service).
 | 09 | [Security best practices](09-security-best-practices/README.md) | Non-root users, minimal images, secrets, scanning | 45-60 min |
 | 10 | [Deploy to Azure Container Instances](10-deploy-to-azure-container-instances/README.md) | Real deployment: ACR + ACI, logs, cleanup | 60-90 min |
 | 11 | [Deploy to Azure App Service](11-deploy-to-azure-app-service/README.md) | Real deployment: containerized App Service, config, logs, cleanup | 60-90 min |
-| 12 | [Capstone project](12-capstone-project/README.md) | Build, compose, push, and deploy a multi-service app end to end | 2-4 hrs |
+| 12 | [Nginx: reverse proxy and load balancing](12-nginx-reverse-proxy-and-load-balancing/README.md) | TLS termination, load balancing, static-file offloading in front of a containerized app | 60-90 min |
+| 13 | [Capstone project](13-capstone-project/README.md) | Build, compose, push, and deploy a multi-service app end to end | 2-4 hrs |
 
-Total: roughly 12-18 hours of focused work, depending on how much you
+Total: roughly 13-20 hours of focused work, depending on how much you
 repeat exercises (you should repeat them).
 
 Start here → [00-setup-docker-desktop-wsl2/README.md](00-setup-docker-desktop-wsl2/README.md)

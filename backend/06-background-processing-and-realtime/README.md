@@ -27,9 +27,9 @@ reliably, and reports back.
   exercises (do them — including a "diagnose and fix" scenario each), an
   independent challenge with no code, common mistakes, and a checkpoint quiz.
   Every third or fourth module also carries a closed-book cumulative review.
-- All exercises run locally against Redis, RabbitMQ, MinIO, and MailHog in
-  Docker, plus a tunnel (ngrok/cloudflared) for the webhook module — no cloud
-  account required.
+- All exercises run locally against Redis, RabbitMQ, Kafka, MinIO, and
+  MailHog in Docker, plus a tunnel (ngrok/cloudflared) for the webhook
+  module — no cloud account required.
 
 ## Modules
 
@@ -44,8 +44,10 @@ reliably, and reports back.
 | 06 | [Webhooks security and reliability](06-webhooks-security-and-reliability/README.md) | Receive webhooks securely: HMAC verification, replay defense, ack-fast, and idempotent receivers | 75-100 min |
 | 07 | [WebSockets and Server-Sent Events](07-websockets-and-server-sent-events/README.md) | Push to the browser in real time, broadcast to many clients, and avoid the connection leak | 75-100 min |
 | 08 | [Pub/Sub architecture](08-pub-sub-architecture/README.md) | Decouple with Redis Pub/Sub, scale WebSockets across processes, and know pub/sub vs. a durable queue | 60-90 min |
-| 09 | [Object storage and large files](09-object-storage-and-large-files/README.md) | Handle large uploads/downloads with streaming, object storage, and presigned URLs | 60-90 min |
-| 10 | [Capstone project](10-capstone-project/README.md) | Build an async file-processing service tying together queues, webhooks, real-time, and email | 4-6 hrs |
+| 09 | [Message brokers: RabbitMQ](09-message-brokers-rabbitmq/README.md) | Route messages with exchanges (direct/topic/fanout), durable acknowledgment, and dead-letter queues | 75-100 min |
+| 10 | [Message brokers: Kafka](10-message-brokers-kafka/README.md) | Model events as a durable, replayable log: topics, partitions, offsets, and consumer groups | 75-100 min |
+| 11 | [Object storage and large files](11-object-storage-and-large-files/README.md) | Handle large uploads/downloads with streaming, object storage, and presigned URLs | 60-90 min |
+| 12 | [Capstone project](12-capstone-project/README.md) | Build an async file-processing service tying together queues, webhooks, real-time, and email | 4-6 hrs |
 
 Start here → [00-task-queues-fundamentals/README.md](00-task-queues-fundamentals/README.md)
 

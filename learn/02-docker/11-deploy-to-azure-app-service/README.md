@@ -509,6 +509,8 @@ point is to find out what actually stuck.
 
 ## Next
 
-Continue to [12-capstone-project](../12-capstone-project/README.md) to
-combine everything from this track — a multi-stage build, Compose, ACR,
-and a real Azure deployment — into one project you design yourself.
+Continue to
+[12-nginx-reverse-proxy-and-load-balancing](../12-nginx-reverse-proxy-and-load-balancing/README.md)
+to put nginx in front of a containerized app for TLS termination, load
+balancing, and static-file serving — the last new piece before the
+capstone.

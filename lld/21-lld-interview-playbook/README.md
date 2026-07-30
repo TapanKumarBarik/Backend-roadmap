@@ -107,6 +107,12 @@ class Level:
 ```
 {{tab C#}}
 ```csharp
+// Spot: the minimal shape Level needs — see module 12 for the real ParkingSpot.
+public interface Spot {
+    bool Fits(object vehicle);
+    void Assign(object vehicle);
+}
+
 // STUDY VERSION — the level of detail this track's own modules use, appropriate for a README you read later
 public class LevelStudy {
     public List<Spot> Spots;
@@ -131,6 +137,12 @@ public class LevelStudy {
 ```
 
 ```csharp
+// Spot: the minimal shape Level needs — see module 12 for the real ParkingSpot.
+public interface Spot {
+    bool Fits(object vehicle);
+    void Assign(object vehicle);
+}
+
 // INTERVIEW-PACED VERSION — same logic, same correctness, no XML-doc ceremony.
 // Say out loud instead: "the lock's mine, so two threads can't grab the same spot."
 public class Level {
