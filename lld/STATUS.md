@@ -7,8 +7,10 @@ continue from "Next up" below.
 
 ## What this track is
 
-A 23-module (00–22) Low-Level Design curriculum — OOP, SOLID, design
-patterns, classic LLD interview problems — with **every code sample shown
+A 24-module (00–23) Low-Level Design curriculum — OOP, SOLID, design
+patterns, classic LLD interview problems, and a closing pair of
+open-ended capstones (22: generic, 23: a themed Supply Chain Platform
+project, added by explicit user request) — with **every code sample shown
 in both Python and C#** as clickable tabs (nobody assumed to know either
 language beforehand). Sibling to `backend/` and `learn/`, same
 one-`README.md`-per-module convention. Full module list and dependency
@@ -65,31 +67,176 @@ from the user, not a suggestion.
 | 10 | Concurrency-Safe Design | ✅ Done |
 | 11 | Requirements to Class Diagrams — incl. cumulative review 09-11 | ✅ Done |
 | 12 | Parking Lot & Elevator (full guided solution) | ✅ Done |
-| 13 | Library & Vending Machine (full guided solution) | ⬜ Not started |
-| 14 | Tic-Tac-Toe & Chess (full guided solution) | ⬜ Not started |
-| 15 | Splitwise Expense Sharing (full guided solution) | ⬜ Not started |
-| 16 | Movie Ticket Booking (full guided solution) | ⬜ Not started |
-| 17 | Ride-Sharing (full guided solution) | ⬜ Not started |
-| 18 | LRU/LFU Cache & Rate Limiter (full guided solution) | ⬜ Not started |
-| 19 | API/Library Design & Dependency Injection | ⬜ Not started |
-| 20 | Anti-Patterns & Code Smells | ⬜ Not started |
-| 21 | LLD Interview Playbook | ⬜ Not started |
-| 22 | Capstone Project | ⬜ Not started |
+| 13 | Library & Vending Machine (full guided solution) | ✅ Done |
+| 14 | Tic-Tac-Toe & Chess (full guided solution) | ✅ Done |
+| 15 | Splitwise Expense Sharing (full guided solution) | ✅ Done |
+| 16 | Movie Ticket Booking (full guided solution) | ✅ Done |
+| 17 | Ride-Sharing (full guided solution) | ✅ Done |
+| 18 | LRU/LFU Cache & Rate Limiter (full guided solution) | ✅ Done |
+| 19 | API/Library Design & Dependency Injection | ✅ Done |
+| 20 | Anti-Patterns & Code Smells | ✅ Done |
+| 21 | LLD Interview Playbook | ✅ Done |
+| 22 | Capstone Project | ✅ Done |
+| 23 | Capstone Project 2: Supply Chain Platform (added by user request) | ✅ Done |
 
 ## Next up
 
-**Module 13: Library & Vending Machine** — full guided solutions for
-both. Waiting on explicit go-ahead before writing it.
+**The LLD track (modules 00–23) is complete.** There is no next module.
+If picking this up cold and everything above shows Done: there is
+nothing left to build for this track. Possible future work, if a user
+asks: revisit the C# verification gap (see the note below — no dotnet
+SDK was available in any session that built this track, so all C# was
+hand-reviewed, never compiled), or add further modules only if a user
+explicitly requests them the way module 23 was added.
+
+Modules 22 and 23 are intentionally much shorter than every other
+module — no code given, no quiz/interview-questions/independent-
+challenge sections, per lld/README.md's stated convention for the two
+closing capstones ("they *are* the open-ended integration test").
+Module 22 offers a menu of domains and a requirements checklist tying
+back to specific earlier modules (three-plus patterns from 06–09,
+concurrency from 12/16/17, DI from 04/19, anti-pattern avoidance from
+20). Module 23 does the same but scoped to one specific domain
+(inventory/warehouses/suppliers/orders/shipments) per explicit user
+request, framed as the first time the track asks for *multiple*
+interacting subsystems rather than one class diagram — and closes with
+an explicit "this is the last module" statement instead of a "Next"
+link, since it's genuinely the end of the track.
+
+Module 21 note: mostly process/communication content, not new
+mechanics — packaged module 11's seven-step method into an explicit
+time budget and named the "named simplification" habit (used
+throughout modules 12–20's own Tradeoffs sections) as an explicit
+*interview technique*, not just a documentation convention. Only one
+code-bearing concept (compressed vs. study-detail code), verified both
+fences independently — caught the exact same cross-fence-dependency
+bug class module 19 first found (the "interview-paced" fence used
+`threading.Lock()` without its own `import threading`, since it reads
+naturally right after a fence that already imported it in the same
+tab). Worth treating "does this fence import everything it uses,
+independent of any fence before it" as a standing checklist item for
+every remaining conceptual module, not just something to catch
+ad hoc.
+
+Module 20 note: four VIOLATION/FIXED pairs (God Object, Anemic Domain
+Model, tight coupling / train-wreck chains, Primitive Obsession),
+deliberately framed as "the vocabulary this track already built,
+applied backward" — every smell maps to an earlier module (SRP/04,
+encapsulation/02, Law of Demeter/05, value objects/03) rather than
+introducing new mechanics. Verification: every fence run individually
+(per module 19's corrected method) *and* re-executed a second time with
+explicit value assertions against the FIXED classes (not just "did it
+run without error") — e.g. actually constructing `UserManager` and
+calling `register()`, not just confirming the class definitions
+parsed. Worth continuing this two-pass check (fence runs clean, then a
+follow-up script asserts real values) for any future conceptual module
+whose fences don't already contain their own asserts/prints.
+
+Modules 12–18 are the classic-problem, full-worked-solution modules.
+**19, 20, and 21 go back to the conceptual format used in modules
+00–11**: concepts explained with reference/example code (not two full
+worked problems), hands-on exercises, independent challenge, common
+mistakes, checkpoint quiz, interview questions. Before writing each of
+these, re-read an early module (e.g. module 04 or 05) as the template
+reference, not module 12–18 — the structure genuinely differs (no
+"Problem 1/2" wrapper, no full class-diagram-driven implementation
+section in the same way).
+
+Module 19 note: confirmed module 04's exact VIOLATION/FIXED-pair-within-
+one-{{tabs}}-block convention, and — important gotcha caught by
+verification — **each fence must be fully self-contained**, including
+its own imports, even if that means repeating an `import` that also
+appears in the paired VIOLATION fence above it. First draft shared one
+`from abc import ABC, abstractmethod` across both fences in the DI
+section and the FIXED fence failed with `NameError` when extracted and
+run alone — module 04's actual convention (checked directly) is that
+VIOLATION and FIXED never share state or imports, since a reader
+copies one fence at a time, not the whole tab as one script. Also
+caught: a first draft had the FIXED fluent-builder's `build()` return
+the VIOLATION section's `HttpRequestBad` class — fixed by giving FIXED
+its own independent `HttpRequest` class, matching module 04's pattern
+where FIXED never reuses a class defined in VIOLATION. Verification
+method for conceptual modules going forward: extract and run **each
+individual fence separately** (not concatenated per-tab-section) —
+VIOLATION fences are allowed/expected to demonstrate their failure
+(e.g., raising the exact exception named in a comment), FIXED fences
+should run clean and their claimed output should be asserted, not just
+"didn't crash."
 
 Note for future sessions: module 12's C# code is split as top-level
 statements (Program.cs) + class definitions (a separate file) because
 C# requires top-level statements to precede type declarations in the
 same file — every classic-problem module from here on should follow
 that same real-project layout, and ideally spot-check that runnable
-code snippets actually compile/run (both Python and C# were verified
-with a real interpreter/dotnet run for module 12 - worth continuing
-that verification habit for correctness-critical modules, especially
-concurrency and algorithm-heavy ones).
+code snippets actually compile/run. Module 12's Python and C# were both
+verified with a real interpreter/dotnet run. Modules 13 and 14's Python
+were verified with a real interpreter run (module 14: extracted the
+exact code blocks from the finished README with a script and re-ran
+them, rather than trusting an earlier scratch-file version — catches
+transcription drift, worth doing as standard practice going forward).
+No dotnet SDK has been available in this session's environment on any
+of modules 12–16, so C# has been hand-reviewed for correctness instead
+of compiled — worth running it through `dotnet run` when next on a
+machine that has the SDK. Modules 15–18's Python were also verified by
+extracting the exact code block(s) from the finished file and
+re-running them (same transcription-drift check as module 14).
+
+Module 18 note: three sub-problems (LRU cache, LFU cache, rate
+limiter), back to the 12–14-style multi-problem format after 15–17's
+single-problem stretch. Pedagogical hook: for LRU/LFU, the driving
+requirement is an O(1) complexity bound, not a behavior — worth
+continuing to name "what data structures combined give the required
+complexity" as its own kind of design question, distinct from "which
+GOF pattern applies," when a future module is genuinely
+complexity-driven rather than behavior-driven. The rate limiter's
+injected clock (for deterministic fake-clock testing, no real `sleep`)
+is an intentional preview of module 19's DI theme — worth continuing to
+plant small previews like this rather than treating each module as
+fully isolated. All three sub-problems verified: LRU and LFU against
+their classic LeetCode test sequences (146 and 460) including LFU's
+zero-capacity edge case and frequency-tie-break case; rate limiter with
+both a deterministic fake-clock test and a 100-thread concurrency
+stress test (capacity 10, no refill, exactly 10 allowed).
+
+Module 16 note: this is the first module where the concurrency-safe
+lock-per-owning-class pattern (module 10) is the *core* mechanism
+instead of an independent-challenge extension (contrast with modules 12
+and 13, where it was optional). Verified with an actual multi-threaded
+stress test (20 threads racing for the same 2 seats on one `Show`), run
+3 times, asserting exactly 1 success each time — not just a
+single-threaded functional check like earlier modules. Worth repeating
+this stress-test-not-just-functional-test habit for any future module
+where concurrency is load-bearing rather than an add-on.
+
+Module 15 note: this is the first **single-problem** classic module
+(15–17 are each one problem, not two like 12–14; 18 goes back to
+multiple — LRU cache, LFU cache, rate limiter). Structural difference
+to preserve: no "Problem 1/2" wrapper heading — Requirements, Entities
+and relationships, Class diagram, Implementation, and Tradeoffs and
+extensions all sit directly under the module as `##` headings instead
+of nested `###` under a `## Problem N` header. Caught and fixed a
+heading-level slip in this module's first draft (Tradeoffs was left at
+`###` from copy-pasting the two-problem pattern) — worth double-checking
+heading levels specifically on every single-problem module (17) before
+considering it done. (Module 16 checked clean on this.)
+
+Module 13 note: pedagogical hook was contrasting a plain enum-with-guards
+(Library's `BookStatus`) against a full State-pattern implementation
+(Vending Machine) in the same module, to teach *when* State is worth its
+ceremony.
+
+Module 14 note (kept for reference): class diagrams for both modules 13 and 14 are generated
+with a small Python script (box-drawing + fork/tree layout, computed
+column widths) rather than hand-drawn — a hand-drawn multi-branch tree
+in an early draft of module 13 came out visibly broken (mismatched box
+borders), and the fix was to compute alignment instead of eyeballing it.
+Worth continuing this for any future diagram with more than two boxes
+or a branching hierarchy (module 14's Chess piece hierarchy is 4-plus
+branches deep). The pedagogical hook for module 14: Chess is the one
+module so far where plain polymorphism (module 02), not a named GOF
+pattern, is presented as the correct answer — worth continuing to name
+"no pattern needed here, polymorphism alone is enough" as its own
+lesson in future modules, not just always reaching for a pattern name.
 
 ## Decisions already made (don't re-litigate these)
 

@@ -3015,6 +3015,83 @@
           "children": []
         },
         {
+          "name": "13-library-and-vending-machine",
+          "path": "lld/13-library-and-vending-machine",
+          "file": "lld/13-library-and-vending-machine/README.md",
+          "title": "Module 13: Library & Vending Machine",
+          "children": []
+        },
+        {
+          "name": "14-tic-tac-toe-and-chess",
+          "path": "lld/14-tic-tac-toe-and-chess",
+          "file": "lld/14-tic-tac-toe-and-chess/README.md",
+          "title": "Module 14: Tic-Tac-Toe & Chess",
+          "children": []
+        },
+        {
+          "name": "15-splitwise-expense-sharing",
+          "path": "lld/15-splitwise-expense-sharing",
+          "file": "lld/15-splitwise-expense-sharing/README.md",
+          "title": "Module 15: Splitwise Expense Sharing",
+          "children": []
+        },
+        {
+          "name": "16-movie-ticket-booking",
+          "path": "lld/16-movie-ticket-booking",
+          "file": "lld/16-movie-ticket-booking/README.md",
+          "title": "Module 16: Movie Ticket Booking",
+          "children": []
+        },
+        {
+          "name": "17-ride-sharing",
+          "path": "lld/17-ride-sharing",
+          "file": "lld/17-ride-sharing/README.md",
+          "title": "Module 17: Ride-Sharing",
+          "children": []
+        },
+        {
+          "name": "18-lru-lfu-cache-and-rate-limiter",
+          "path": "lld/18-lru-lfu-cache-and-rate-limiter",
+          "file": "lld/18-lru-lfu-cache-and-rate-limiter/README.md",
+          "title": "Module 18: LRU/LFU Cache & Rate Limiter",
+          "children": []
+        },
+        {
+          "name": "19-api-library-design-and-di",
+          "path": "lld/19-api-library-design-and-di",
+          "file": "lld/19-api-library-design-and-di/README.md",
+          "title": "Module 19: API/Library Design & Dependency Injection",
+          "children": []
+        },
+        {
+          "name": "20-anti-patterns-and-code-smells",
+          "path": "lld/20-anti-patterns-and-code-smells",
+          "file": "lld/20-anti-patterns-and-code-smells/README.md",
+          "title": "Module 20: Anti-Patterns & Code Smells",
+          "children": []
+        },
+        {
+          "name": "21-lld-interview-playbook",
+          "path": "lld/21-lld-interview-playbook",
+          "file": "lld/21-lld-interview-playbook/README.md",
+          "title": "Module 21: LLD Interview Playbook",
+          "children": []
+        },
+        {
+          "name": "22-capstone-project",
+          "path": "lld/22-capstone-project",
+          "file": "lld/22-capstone-project/README.md",
+          "title": "Module 22: Capstone Project",
+          "children": []
+        },
+        {
+          "name": "23-supply-chain-platform",
+          "path": "lld/23-supply-chain-platform",
+          "file": "lld/23-supply-chain-platform/README.md",
+          "title": "Module 23: Capstone Project 2 — Supply Chain Platform",
+          "children": []
+        },
+        {
           "name": "STATUS.md",
           "path": "lld",
           "file": "lld/STATUS.md",

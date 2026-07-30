@@ -31,10 +31,12 @@ Same convention as `backend/` and `learn/`:
   do them in) plus a lowercase kebab-case slug.
 - Every module folder contains exactly one `README.md`. No separate
   exercise files or scripts — everything a module needs is written inline.
-- The **last module is always `22-capstone-project`** — an open-ended,
-  no-solution-given project. It skips the quiz, interview-question, and
-  independent-challenge scaffolding — it *is* the open-ended integration
-  test.
+- The track closes with **two open-ended, no-solution-given capstones**:
+  `22-capstone-project` (generic — you choose the domain) and
+  `23-supply-chain-platform` (a themed second capstone applying
+  everything to one specific, meaty domain end to end). Both skip the
+  quiz, interview-question, and independent-challenge scaffolding —
+  they *are* the open-ended integration test.
 - This file (`lld/README.md`) is the single index for the whole track.
 
 ## How code samples work: tabs, not two separate walls of code
@@ -114,6 +116,7 @@ whichever you're actively practicing.
 | 20 | [20-anti-patterns-and-code-smells](20-anti-patterns-and-code-smells/README.md) | Recognize and fix God Objects, anemic domain models, spaghetti coupling, and other common LLD code smells | api-library-design-and-di |
 | 21 | [21-lld-interview-playbook](21-lld-interview-playbook/README.md) | Run a structured 45-minute LLD interview: clarify requirements, whiteboard a design, communicate tradeoffs under time pressure | everything above |
 | 22 | [22-capstone-project](22-capstone-project/README.md) | Design and build a larger combined system end to end with no guidance given | everything above |
+| 23 | [23-supply-chain-platform](23-supply-chain-platform/README.md) | Design and build a supply-chain platform (inventory, warehouses, orders, shipments, suppliers) end to end with no guidance given — a second, differently-themed capstone | capstone-project |
 
 ## Prerequisites already confirmed
 
