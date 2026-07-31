@@ -231,6 +231,29 @@
   .meta-pill { font-size: 12.5px; color: var(--fg-subtle); display: inline-flex; align-items: center; gap: 5px; }
   .meta-pill svg { width: 13px; height: 13px; }
 
+  /* tags */
+  #tagRow { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 12px; }
+  .tag {
+    font-size: 11.5px; font-family: var(--mono); line-height: 1;
+    padding: 4px 8px; border: 1px solid var(--border); border-radius: var(--r-sm);
+    background: var(--bg); color: var(--fg-muted); white-space: nowrap;
+  }
+  .tag:hover { border-color: var(--fg); color: var(--fg); background: var(--hover); }
+  .tag .hash { color: var(--fg-subtle); }
+  .pal-tags { display: flex; gap: 4px; flex-shrink: 0; max-width: 42%; overflow: hidden; }
+  .pal-tags .tag { font-size: 10.5px; padding: 2px 6px; pointer-events: none; }
+  #tagCloud { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+  #tagCloud .tag { font-size: 12px; padding: 5px 10px; }
+  #tagCloud .tag b { color: var(--fg-subtle); font-weight: 500; margin-left: 4px; }
+  .home-h {
+    font-size: 11px; text-transform: uppercase; letter-spacing: .07em; color: var(--fg-subtle);
+    font-weight: 700; margin: 30px 0 11px;
+  }
+  .pal-sect {
+    font-size: 10.5px; text-transform: uppercase; letter-spacing: .06em; color: var(--fg-subtle);
+    font-weight: 700; padding: 8px 11px 4px;
+  }
+
   /* ---------- markdown content ---------- */
   #content { line-height: 1.72; font-size: 15.5px; }
   #content > *:first-child { margin-top: 0; }
@@ -519,7 +542,7 @@
   <div class="brand"><span class="mark">C</span><span>Curriculum</span></div>
   <button id="searchTrigger">
     <svg viewBox="0 0 16 16" fill="currentColor" style="width:14px;height:14px;flex-shrink:0"><path d="M10.68 11.74a6 6 0 0 1-7.922-8.982 6 6 0 0 1 8.982 7.922l3.04 3.04a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215ZM11.5 7a4.5 4.5 0 1 0-9 0 4.5 4.5 0 0 0 9 0Z"/></svg>
-    <span>Search modules…</span>
+    <span>Search modules &amp; tags…</span>
     <kbd>Ctrl K</kbd>
   </button>
   <div class="spacer"></div>
@@ -572,6 +595,7 @@
             </div>
             <span class="meta-pill" id="readTime"></span>
           </div>
+          <div id="tagRow"></div>
         </div>
         <div id="content"></div>
         <nav id="pager"></nav>
@@ -584,7 +608,7 @@
 
 <div id="paletteBg">
   <div id="palette">
-    <input id="palInput" placeholder="Search modules by name or path…" autocomplete="off" spellcheck="false">
+    <input id="palInput" placeholder="Search modules, or type # to browse tags…" autocomplete="off" spellcheck="false">
     <div id="palList" class="scroll"></div>
     <div id="palFoot">
       <span><kbd>↑</kbd><kbd>↓</kbd> navigate</span>
@@ -649,7 +673,8 @@ const dirIndex = {};    // dir path  -> its README file path
 const nodeByFile = {};  // file path -> node
 const flatFiles = [];   // ordered file paths (prev/next)
 const dirNodes = [];    // {node, li, progEl}
-const searchItems = []; // {file, title, path, hay}
+const searchItems = []; // {file, title, path, tags, hay, tagStr}
+let ALL_TAGS = {};      // tag -> file count (from docs-index.json)
 
 const LS = {
   last: 'docs.lastFile',
@@ -708,6 +733,7 @@ async function main() {
   const res = await fetch('docs-index.json');
   const data = await res.json();
   treeData = data.tree;
+  ALL_TAGS = data.tags || {};
 
   indexNodes(treeData);
   renderTree(treeData, document.getElementById('tree'), 0);
@@ -725,11 +751,16 @@ function indexNodes(nodes) {
       nodeByFile[n.file] = n;
       flatFiles.push(n.file);
       if (!n.name.endsWith('.md')) dirIndex[n.path] = n.file;
+      const tags = n.tags || [];
       searchItems.push({
         file: n.file,
         title: n.title || n.name,
         path: n.path,
-        hay: ((n.title || n.name) + ' ' + n.path).toLowerCase()
+        tags,
+        // fuzzy matches run against title+path only, so tag text can't inflate
+        // the length penalty; tags are scored separately as exact hits.
+        hay: ((n.title || n.name) + ' ' + n.path).toLowerCase(),
+        tagStr: tags.join(' ').toLowerCase()
       });
     }
     if (n.children && n.children.length) indexNodes(n.children);
@@ -1151,6 +1182,7 @@ async function openFile(path, opts = {}) {
     rewriteLinks(path);
     applyTabPreference(content);
     setReadTime(text);
+    renderTags(path);
     buildToc();
     buildPager(path);
     if (hash) {
@@ -1192,6 +1224,18 @@ function setReadTime(md) {
   const words = md.replace(/```[\s\S]*?```/g, ' ').split(/\s+/).filter(Boolean).length;
   const mins = Math.max(1, Math.round(words / 210));
   document.getElementById('readTime').innerHTML = `${ICO.clock}<span>${mins} min read · ${words.toLocaleString()} words</span>`;
+}
+
+function renderTags(path) {
+  const row = document.getElementById('tagRow');
+  const tags = (nodeByFile[path] && nodeByFile[path].tags) || [];
+  if (!tags.length) { row.innerHTML = ''; return; }
+  row.innerHTML = tags.map(t =>
+    `<button class="tag" data-tag="${escapeHtml(t)}" title="${ALL_TAGS[t] || 0} modules tagged ${escapeHtml(t)}"><span class="hash">#</span>${escapeHtml(t)}</button>`
+  ).join('');
+  row.querySelectorAll('[data-tag]').forEach(b =>
+    b.addEventListener('click', () => openPalette('#' + b.dataset.tag))
+  );
 }
 
 function paintStatusButtons(status) {
@@ -1283,7 +1327,16 @@ function renderEmptyState() {
     </a>`;
   }
 
-  html += '<div class="track-grid">';
+  const topTags = Object.entries(ALL_TAGS)
+    .filter(([t]) => !['quiz', 'exercises', 'challenge', 'review', 'index'].includes(t))
+    .slice(0, 26);
+  if (topTags.length) {
+    html += '<div class="home-h">Browse by tag</div><div id="tagCloud">' +
+      topTags.map(([t, n]) => `<button class="tag" data-tag="${escapeHtml(t)}"><span class="hash">#</span>${escapeHtml(t)}<b>${n}</b></button>`).join('') +
+      '</div>';
+  }
+
+  html += '<div class="home-h">Tracks</div><div class="track-grid">';
   treeData.forEach(root => {
     (root.children && root.children.length ? root.children : [root]).forEach(t => {
       const s = subtreeStats(t);
@@ -1301,6 +1354,9 @@ function renderEmptyState() {
 
   const rc = document.getElementById('resumeCard');
   if (rc) rc.addEventListener('click', e => { e.preventDefault(); openFile(last); });
+  el.querySelectorAll('[data-tag]').forEach(b =>
+    b.addEventListener('click', () => openPalette('#' + b.dataset.tag))
+  );
   el.querySelectorAll('[data-go]').forEach(a => {
     a.addEventListener('click', e => {
       e.preventDefault();
@@ -1351,20 +1407,50 @@ function fuzzy(needle, item) {
   return { score, hit: hits };
 }
 
+let palTagSuggest = [];
+
 function runSearch(q) {
-  const needle = q.trim().toLowerCase();
-  if (!needle) {
-    palResults = searchItems.slice(0, 40);
-    palResults.forEach(r => r._hit = []);
-  } else {
-    const out = [];
-    searchItems.forEach(it => {
-      const m = fuzzy(needle, it);
-      if (m) out.push(Object.assign({}, it, { _score: m.score, _hit: m.hit }));
-    });
-    out.sort((a, b) => b._score - a._score);
-    palResults = out.slice(0, 40);
+  const raw = q.trim().toLowerCase();
+  palTagSuggest = [];
+
+  if (!raw) {
+    palResults = searchItems.slice(0, 40).map(r => Object.assign({}, r, { _hit: [] }));
+    palCursor = 0; paintPalette(); return;
   }
+
+  // "#tag" — filter strictly by tag
+  if (raw.startsWith('#')) {
+    const frag = raw.slice(1);
+    palTagSuggest = Object.keys(ALL_TAGS).filter(t => t.includes(frag)).slice(0, 14);
+    const exact = ALL_TAGS[frag] ? frag : null;
+    const out = searchItems.filter(it =>
+      exact ? it.tags.includes(exact) : it.tags.some(t => t.includes(frag))
+    ).map(it => Object.assign({}, it, { _hit: [] }));
+    palResults = out.slice(0, 60);
+    palCursor = 0; paintPalette(); return;
+  }
+
+  const out = [];
+  searchItems.forEach(it => {
+    const m = fuzzy(raw, it);
+    let score = m ? m.score : null;
+    // a tag hit is a strong, deliberate signal — it can surface a file whose
+    // title/path never mentions the term at all
+    let tagBonus = 0;
+    if (it.tags.includes(raw)) tagBonus = 900;
+    else if (it.tagStr.includes(raw)) tagBonus = 380;
+    if (score === null && !tagBonus) return;
+    out.push(Object.assign({}, it, {
+      _score: (score || 0) + tagBonus,
+      _hit: m ? m.hit : []
+    }));
+  });
+  out.sort((a, b) => b._score - a._score);
+  palResults = out.slice(0, 40);
+
+  // offer tags whose name matches what's being typed
+  palTagSuggest = Object.keys(ALL_TAGS).filter(t => t.includes(raw)).slice(0, 10);
+
   palCursor = 0;
   paintPalette();
 }
@@ -1384,15 +1470,31 @@ function markHits(item) {
 }
 
 function paintPalette() {
+  let html = '';
+
+  if (palTagSuggest.length) {
+    html += '<div class="pal-sect">Tags</div><div style="padding:2px 8px 8px;display:flex;flex-wrap:wrap;gap:5px">' +
+      palTagSuggest.map(t =>
+        `<button class="tag" data-tag="${escapeHtml(t)}"><span class="hash">#</span>${escapeHtml(t)} <b style="color:var(--fg-subtle);font-weight:500">${ALL_TAGS[t]}</b></button>`
+      ).join('') + '</div>';
+  }
+
   if (!palResults.length) {
-    palList.innerHTML = '<div class="pal-empty">No modules match that.</div>';
+    palList.innerHTML = html + '<div class="pal-empty">No modules match that.</div>';
+    bindPaletteTags();
     return;
   }
-  palList.innerHTML = palResults.map((r, i) => `
+
+  html += palTagSuggest.length ? `<div class="pal-sect">Modules · ${palResults.length}</div>` : '';
+  html += palResults.map((r, i) => `
     <div class="pal-item${i === palCursor ? ' cur' : ''}" data-i="${i}">
       <span class="dot" data-s="${statusMap[r.file] || 'todo'}"></span>
       <span class="txt"><span class="t">${markHits(r)}</span><span class="p">${escapeHtml(r.path)}</span></span>
+      <span class="pal-tags">${(r.tags || []).slice(0, 3).map(t => `<span class="tag">${escapeHtml(t)}</span>`).join('')}</span>
     </div>`).join('');
+
+  palList.innerHTML = html;
+  bindPaletteTags();
   palList.querySelectorAll('.pal-item').forEach(el => {
     el.addEventListener('click', () => { openFile(palResults[+el.dataset.i].file); closePalette(); });
     el.addEventListener('mousemove', () => {
@@ -1403,11 +1505,22 @@ function paintPalette() {
   });
 }
 
-function openPalette() {
+function bindPaletteTags() {
+  palList.querySelectorAll('[data-tag]').forEach(b => {
+    b.addEventListener('click', () => {
+      palInput.value = '#' + b.dataset.tag;
+      runSearch(palInput.value);
+      palInput.focus();
+    });
+  });
+}
+
+function openPalette(prefill) {
   palBg.classList.add('show');
-  palInput.value = '';
-  runSearch('');
+  palInput.value = prefill || '';
+  runSearch(palInput.value);
   palInput.focus();
+  palInput.select();
 }
 function closePalette() { palBg.classList.remove('show'); }
 

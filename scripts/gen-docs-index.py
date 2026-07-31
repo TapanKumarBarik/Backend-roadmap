@@ -9,6 +9,9 @@ import os
 import re
 import sys
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from tags import tags_for  # noqa: E402
+
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TRACK_DIRS = ["backend", "learn", "genai", "lld"]
 SKIP_DIRS = {".git", "node_modules", "__pycache__"}
@@ -39,9 +42,11 @@ def build_node(dir_path):
     own_readme = os.path.join(dir_path, "README.md")
     file_rel = None
     title = humanize(name)
+    own_tags = []
     if os.path.isfile(own_readme):
         file_rel = os.path.relpath(own_readme, ROOT).replace(os.sep, "/")
         title = extract_title(own_readme, humanize(name))
+        own_tags = tags_for(own_readme, file_rel)
 
     children = []
     entries = sorted(os.listdir(dir_path))
@@ -58,6 +63,7 @@ def build_node(dir_path):
                 "path": rel_dir,
                 "file": rel,
                 "title": extract_title(full, entry),
+                "tags": tags_for(full, rel),
                 "children": [],
             })
 
@@ -69,6 +75,7 @@ def build_node(dir_path):
         "path": rel_dir,
         "file": file_rel,
         "title": title,
+        "tags": own_tags,
         "children": children,
     }
 
@@ -82,20 +89,37 @@ def main():
             if node is not None:
                 tree.append(node)
 
-    out = {"tree": tree}
-    out_path = os.path.join(ROOT, "docs-index.json")
-    with open(out_path, "w", encoding="utf-8") as f:
-        json.dump(out, f, indent=2, ensure_ascii=False)
+    # global tag catalogue, so the viewer can offer them without re-walking the tree
+    catalogue = {}
+    untagged = []
 
-    def count(nodes):
+    def collect(nodes):
         total = 0
         for n in nodes:
             if n["file"]:
                 total += 1
-            total += count(n["children"])
+                if not n.get("tags"):
+                    untagged.append(n["file"])
+                for t in n.get("tags", []):
+                    catalogue[t] = catalogue.get(t, 0) + 1
+            total += collect(n["children"])
         return total
 
-    print(f"Wrote {out_path} ({count(tree)} files indexed)")
+    n_files = collect(tree)
+
+    out = {
+        "tree": tree,
+        "tags": dict(sorted(catalogue.items(), key=lambda kv: (-kv[1], kv[0]))),
+    }
+    out_path = os.path.join(ROOT, "docs-index.json")
+    with open(out_path, "w", encoding="utf-8") as f:
+        json.dump(out, f, indent=2, ensure_ascii=False)
+
+    print(f"Wrote {out_path} ({n_files} files indexed, {len(catalogue)} distinct tags)")
+    if untagged:
+        print(f"  WARNING: {len(untagged)} file(s) received no tags:")
+        for u in untagged[:10]:
+            print(f"    {u}")
 
 
 if __name__ == "__main__":
