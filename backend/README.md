@@ -84,6 +84,7 @@ it's structured to fight that:
 | 12 | [12-testing-and-code-quality](12-testing-and-code-quality/README.md) | Write unit/integration/e2e tests with real TDD discipline, automate them in CI, and measure code quality objectively | api-layer-and-request-handling |
 | 13 | [13-devops-for-backend-engineers](13-devops-for-backend-engineers/README.md) | Connect backend code to CI/CD, containers, and deployment strategies — and know exactly which `learn/` track to go deep in for each | testing-and-code-quality, observability-and-operational-readiness |
 | 14 | [14-system-design-interview-practice](14-system-design-interview-practice/README.md) | Estimate capacity, run a structured system-design whiteboard session, and solve classic system design problems end to end | everything above |
+| 15 | [15-multi-tenancy-and-saas-architecture](15-multi-tenancy-and-saas-architecture/README.md) | Design and build a real multi-tenant SaaS: tenant routing, tenant-scoped auth, provisioning automation, billing/metering, and app-layer noisy-neighbor mitigation, ending in a guided small-SaaS build | databases-and-data-layer, authentication-and-authorization, background-processing-and-realtime |
 
 ## Prerequisites already confirmed
 
