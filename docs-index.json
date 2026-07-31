@@ -1146,6 +1146,63 @@
               "children": []
             }
           ]
+        },
+        {
+          "name": "15-multi-tenancy-and-saas-architecture",
+          "path": "backend/15-multi-tenancy-and-saas-architecture",
+          "file": "backend/15-multi-tenancy-and-saas-architecture/README.md",
+          "title": "15 - Multi-Tenancy & SaaS Architecture",
+          "children": [
+            {
+              "name": "00-tenancy-models-and-decision-framework",
+              "path": "backend/15-multi-tenancy-and-saas-architecture/00-tenancy-models-and-decision-framework",
+              "file": "backend/15-multi-tenancy-and-saas-architecture/00-tenancy-models-and-decision-framework/README.md",
+              "title": "Module 00: Tenancy Models and the Decision Framework",
+              "children": []
+            },
+            {
+              "name": "01-tenant-identification-and-request-routing",
+              "path": "backend/15-multi-tenancy-and-saas-architecture/01-tenant-identification-and-request-routing",
+              "file": "backend/15-multi-tenancy-and-saas-architecture/01-tenant-identification-and-request-routing/README.md",
+              "title": "Module 01: Tenant Identification and Request Routing",
+              "children": []
+            },
+            {
+              "name": "02-auth-and-authorization-across-tenants",
+              "path": "backend/15-multi-tenancy-and-saas-architecture/02-auth-and-authorization-across-tenants",
+              "file": "backend/15-multi-tenancy-and-saas-architecture/02-auth-and-authorization-across-tenants/README.md",
+              "title": "Module 02: Auth and Authorization Across Tenants",
+              "children": []
+            },
+            {
+              "name": "03-provisioning-and-onboarding-automation",
+              "path": "backend/15-multi-tenancy-and-saas-architecture/03-provisioning-and-onboarding-automation",
+              "file": "backend/15-multi-tenancy-and-saas-architecture/03-provisioning-and-onboarding-automation/README.md",
+              "title": "Module 03: Provisioning and Onboarding Automation",
+              "children": []
+            },
+            {
+              "name": "04-billing-plans-and-usage-metering",
+              "path": "backend/15-multi-tenancy-and-saas-architecture/04-billing-plans-and-usage-metering",
+              "file": "backend/15-multi-tenancy-and-saas-architecture/04-billing-plans-and-usage-metering/README.md",
+              "title": "Module 04: Billing, Plans, and Usage Metering",
+              "children": []
+            },
+            {
+              "name": "05-scaling-and-noisy-neighbor-at-the-app-layer",
+              "path": "backend/15-multi-tenancy-and-saas-architecture/05-scaling-and-noisy-neighbor-at-the-app-layer",
+              "file": "backend/15-multi-tenancy-and-saas-architecture/05-scaling-and-noisy-neighbor-at-the-app-layer/README.md",
+              "title": "Module 05: Scaling and the Noisy-Neighbor Problem at the App Layer",
+              "children": []
+            },
+            {
+              "name": "06-capstone-build-a-small-saas",
+              "path": "backend/15-multi-tenancy-and-saas-architecture/06-capstone-build-a-small-saas",
+              "file": "backend/15-multi-tenancy-and-saas-architecture/06-capstone-build-a-small-saas/README.md",
+              "title": "Module 06: Capstone — Build a Small SaaS",
+              "children": []
+            }
+          ]
         }
       ]
     },
@@ -1550,9 +1607,37 @@
               "children": []
             },
             {
-              "name": "08-capstone-project",
-              "path": "learn/04-networking-fundamentals/08-capstone-project",
-              "file": "learn/04-networking-fundamentals/08-capstone-project/README.md",
+              "name": "08-routing-protocols",
+              "path": "learn/04-networking-fundamentals/08-routing-protocols",
+              "file": "learn/04-networking-fundamentals/08-routing-protocols/README.md",
+              "title": "Routing Protocols",
+              "children": []
+            },
+            {
+              "name": "09-vpn-and-ipsec",
+              "path": "learn/04-networking-fundamentals/09-vpn-and-ipsec",
+              "file": "learn/04-networking-fundamentals/09-vpn-and-ipsec/README.md",
+              "title": "VPN & IPSec",
+              "children": []
+            },
+            {
+              "name": "10-cdn-and-reverse-proxy",
+              "path": "learn/04-networking-fundamentals/10-cdn-and-reverse-proxy",
+              "file": "learn/04-networking-fundamentals/10-cdn-and-reverse-proxy/README.md",
+              "title": "CDN & Reverse Proxy",
+              "children": []
+            },
+            {
+              "name": "11-websocket-and-grpc",
+              "path": "learn/04-networking-fundamentals/11-websocket-and-grpc",
+              "file": "learn/04-networking-fundamentals/11-websocket-and-grpc/README.md",
+              "title": "WebSocket & gRPC",
+              "children": []
+            },
+            {
+              "name": "12-capstone-project",
+              "path": "learn/04-networking-fundamentals/12-capstone-project",
+              "file": "learn/04-networking-fundamentals/12-capstone-project/README.md",
               "title": "Capstone Project: Diagnose and Fix a Broken Multi-Host Network",
               "children": []
             }
