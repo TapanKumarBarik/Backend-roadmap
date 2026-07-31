@@ -1,147 +1,615 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="auto">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Docs Browser</title>
+<title>Curriculum</title>
 <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@highlightjs/cdn-assets@11/highlight.min.js"></script>
 <style>
+  /* ---------- design tokens ---------- */
+  /* Monochrome by design: hierarchy comes from weight, size, and value —
+     never hue. Progress states read as a light→dark ramp (todo/doing/done). */
   :root {
-    --bg: #ffffff; --fg: #1f2328; --muted: #656d76; --border: #d1d9e0;
-    --hover: #f6f8fa; --accent: #0969da; --done: #1a7f37; --wip: #9a6700;
+    --bg: #ffffff;
+    --bg-sunken: #f7f7f7;
+    --bg-raised: #ffffff;
+    --fg: #111111;
+    --fg-muted: #565656;
+    --fg-subtle: #8a8a8a;
+    --border: #d0d0d0;
+    --border-subtle: #e6e6e6;
+    --hover: #f2f2f2;
+    --active: #e6e6e6;
+    --accent: #111111;
+    --accent-fg: #ffffff;
+    --accent-subtle: #ededed;
+    --done: #111111;
+    --wip: #9a9a9a;
+    --danger: #111111;
+    /* The one deliberate exception to the monochrome palette: hyperlinks.
+       Blue + underline is the universal affordance — the UI chrome stays B&W. */
+    --link: #0b57d0;
+    --link-visited: #6b3fa0;
+    --shadow-sm: 0 1px 2px rgba(0,0,0,.07);
+    --shadow-md: 0 4px 12px rgba(0,0,0,.09);
+    --shadow-lg: 0 16px 40px rgba(0,0,0,.16);
+    --r-sm: 2px; --r-md: 3px; --r-lg: 3px;
+    --sidebar-w: 340px;
+    --toc-w: 232px;
+    --topbar-h: 52px;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif;
   }
+  html[data-theme="auto"] { color-scheme: light; }
   @media (prefers-color-scheme: dark) {
-    :root { --bg:#0d1117; --fg:#e6edf3; --muted:#8b949e; --border:#30363d; --hover:#161b22; --accent:#4493f8; --done:#3fb950; --wip:#d29922; }
+    html[data-theme="auto"] {
+      color-scheme: dark;
+      --bg: #0a0a0a; --bg-sunken: #000000; --bg-raised: #141414;
+      --fg: #ededed; --fg-muted: #a3a3a3; --fg-subtle: #737373;
+      --border: #303030; --border-subtle: #1f1f1f;
+      --hover: #1a1a1a; --active: #262626;
+      --accent: #ededed; --accent-fg: #0a0a0a; --accent-subtle: #222222;
+      --done: #ededed; --wip: #6e6e6e; --danger: #ededed;
+      --link: #7cb0ff; --link-visited: #c9a3f5;
+      --shadow-sm: 0 1px 2px rgba(0,0,0,.6);
+      --shadow-md: 0 4px 12px rgba(0,0,0,.7);
+      --shadow-lg: 0 16px 40px rgba(0,0,0,.8);
+    }
   }
+  html[data-theme="dark"] {
+    color-scheme: dark;
+    --bg: #0a0a0a; --bg-sunken: #000000; --bg-raised: #141414;
+    --fg: #ededed; --fg-muted: #a3a3a3; --fg-subtle: #737373;
+    --border: #303030; --border-subtle: #1f1f1f;
+    --hover: #1a1a1a; --active: #262626;
+    --accent: #ededed; --accent-fg: #0a0a0a; --accent-subtle: #222222;
+    --done: #ededed; --wip: #6e6e6e; --danger: #ededed;
+      --link: #7cb0ff; --link-visited: #c9a3f5;
+    --shadow-sm: 0 1px 2px rgba(0,0,0,.6);
+    --shadow-md: 0 4px 12px rgba(0,0,0,.7);
+    --shadow-lg: 0 16px 40px rgba(0,0,0,.8);
+  }
+
   * { box-sizing: border-box; }
+  html, body { height: 100%; }
   body {
-    margin: 0; font-family: -apple-system, Segoe UI, Helvetica, Arial, sans-serif;
-    background: var(--bg); color: var(--fg); display: flex; height: 100vh; overflow: hidden;
-    font-size: 16px;
+    margin: 0; font-family: var(--sans); font-size: 15px;
+    background: var(--bg); color: var(--fg);
+    -webkit-font-smoothing: antialiased;
+    display: flex; flex-direction: column; overflow: hidden;
   }
+  button { font: inherit; cursor: pointer; }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  ::selection { background: var(--accent); color: var(--accent-fg); }
+
+  /* scrollbars */
+  .scroll { scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
+  .scroll::-webkit-scrollbar { width: 10px; height: 10px; }
+  .scroll::-webkit-scrollbar-track { background: transparent; }
+  .scroll::-webkit-scrollbar-thumb { background: var(--border); border-radius: 6px; border: 3px solid var(--bg); }
+  .scroll::-webkit-scrollbar-thumb:hover { background: var(--fg-subtle); }
+
+  /* ---------- topbar ---------- */
+  #topbar {
+    height: var(--topbar-h); flex-shrink: 0; display: flex; align-items: center;
+    gap: 12px; padding: 0 14px; border-bottom: 1px solid var(--border-subtle);
+    background: var(--bg); position: relative; z-index: 30;
+  }
+  .brand { display: flex; align-items: center; gap: 9px; font-weight: 650; font-size: 14.5px; letter-spacing: -.01em; }
+  .brand .mark {
+    width: 24px; height: 24px; border-radius: var(--r-sm); flex-shrink: 0;
+    background: var(--fg); color: var(--bg);
+    display: grid; place-items: center; font-size: 13px; font-weight: 800;
+  }
+  #searchTrigger {
+    flex: 1; max-width: 440px; height: 32px; display: flex; align-items: center; gap: 8px;
+    padding: 0 10px; border: 1px solid var(--border); border-radius: var(--r-md);
+    background: var(--bg-sunken); color: var(--fg-subtle); font-size: 13.5px; text-align: left;
+  }
+  #searchTrigger:hover { border-color: var(--fg-subtle); }
+  #searchTrigger kbd { margin-left: auto; }
+  kbd {
+    font-family: var(--sans); font-size: 11px; padding: 2px 5px; border-radius: 5px;
+    border: 1px solid var(--border); background: var(--bg); color: var(--fg-muted); line-height: 1.4;
+  }
+  .spacer { flex: 1; }
+  .icon-btn {
+    width: 32px; height: 32px; display: grid; place-items: center; border-radius: var(--r-sm);
+    border: 1px solid transparent; background: transparent; color: var(--fg-muted);
+  }
+  .icon-btn:hover { background: var(--hover); color: var(--fg); }
+  .icon-btn svg { width: 17px; height: 17px; }
+  #globalStat {
+    font-size: 12.5px; color: var(--fg-muted); display: flex; align-items: center; gap: 8px;
+    padding-right: 4px; white-space: nowrap;
+  }
+  #globalStat .bar { width: 70px; }
+
+  /* progress bar primitive */
+  .bar { height: 5px; border-radius: 99px; background: var(--border-subtle); overflow: hidden; display: flex; }
+  .bar i { display: block; height: 100%; transition: width .35s cubic-bezier(.4,0,.2,1); }
+  .bar i.d { background: var(--done); }
+  .bar i.w { background: var(--wip); }
+
+  /* ---------- layout ---------- */
+  #shell { flex: 1; display: flex; min-height: 0; position: relative; }
+
   #sidebar {
-    width: 460px; min-width: 300px; max-width: 70vw; border-right: 1px solid var(--border);
-    overflow-y: auto; padding: 20px; flex-shrink: 0;
+    width: var(--sidebar-w); flex-shrink: 0; border-right: 1px solid var(--border-subtle);
+    display: flex; flex-direction: column; background: var(--bg); min-width: 0;
   }
-  #resizer { width: 6px; cursor: col-resize; background: transparent; flex-shrink: 0; }
-  #resizer:hover { background: var(--accent); }
-  #main { flex: 1; overflow-y: auto; padding: 36px 56px; }
-  h1 { font-size: 22px; margin: 0 0 8px; }
-  #summary { font-size: 14px; color: var(--muted); margin-bottom: 16px; }
-  .filters { display: flex; gap: 8px; margin-bottom: 16px; flex-wrap: wrap; }
-  .filters button {
-    font-size: 13px; padding: 6px 14px; border-radius: 14px; border: 1px solid var(--border);
-    background: var(--bg); color: var(--fg); cursor: pointer;
+  #sidebarHead { padding: 12px 12px 10px; border-bottom: 1px solid var(--border-subtle); }
+  #filterRow { display: flex; gap: 4px; }
+  .chip {
+    flex: 1; font-size: 12px; padding: 5px 4px; border-radius: var(--r-sm);
+    border: 1px solid var(--border); background: var(--bg); color: var(--fg-muted);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: .12s;
   }
-  .filters button.active { background: var(--accent); color: #fff; border-color: var(--accent); }
-  ul.tree { list-style: none; margin: 0; padding-left: 22px; }
-  ul.tree.root { padding-left: 0; }
-  li { margin: 2px 0; }
+  .chip:hover { background: var(--hover); color: var(--fg); }
+  .chip.on { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); font-weight: 600; }
+  .chip .n { opacity: .65; font-variant-numeric: tabular-nums; }
+
+  #treeWrap { flex: 1; overflow-y: auto; padding: 8px 8px 40px; }
+  ul.tree { list-style: none; margin: 0; padding: 0; }
+  ul.tree ul.tree { padding-left: 13px; margin-left: 8px; border-left: 1px solid var(--border-subtle); }
+  li.node { margin: 1px 0; }
+
   .row {
-    display: flex; align-items: center; gap: 10px; padding: 7px 6px; border-radius: 8px;
-    cursor: pointer; font-size: 15px; min-height: 34px;
+    display: flex; align-items: center; gap: 7px; padding: 5px 7px; border-radius: var(--r-sm);
+    cursor: pointer; min-height: 30px; position: relative; user-select: none;
   }
-  .row .name { white-space: normal; overflow-wrap: anywhere; }
   .row:hover { background: var(--hover); }
-  .row.selected { background: var(--hover); font-weight: 600; }
-  .caret { width: 16px; display: inline-block; color: var(--muted); font-size: 12px; flex-shrink: 0; text-align: center; }
+  .row.sel { background: var(--accent-subtle); }
+  .row.sel .name { color: var(--accent); font-weight: 640; }
+  html[data-theme="dark"] .row.sel, html[data-theme="auto"] .row.sel { background: var(--active); }
+  .row.dir > .name { font-weight: 560; }
+
+  .caret {
+    width: 15px; height: 15px; flex-shrink: 0; display: grid; place-items: center;
+    color: var(--fg-subtle); transition: transform .15s;
+  }
+  .caret svg { width: 11px; height: 11px; }
   .caret.leaf { visibility: hidden; }
-  .name { overflow: hidden; text-overflow: ellipsis; }
+  li.open > .row > .caret { transform: rotate(90deg); }
+
   .check {
-    width: 20px; height: 20px; border-radius: 5px; border: 2px solid var(--border);
-    flex-shrink: 0; cursor: pointer; display: flex; align-items: center; justify-content: center;
-    font-size: 13px; font-weight: 700; color: #fff; line-height: 1;
+    width: 16px; height: 16px; border-radius: var(--r-sm); border: 1.5px solid var(--border);
+    flex-shrink: 0; display: grid; place-items: center; background: var(--bg);
+    color: var(--bg); transition: .12s;
   }
-  .check:hover { border-color: var(--accent); }
-  .check[data-state="wip"] { background: var(--wip); border-color: var(--wip); }
-  .check[data-state="wip"]::after { content: "–"; }
-  .check[data-state="done"] { background: var(--done); border-color: var(--done); }
-  .check[data-state="done"]::after { content: "✓"; }
-  .status-btns { display: flex; gap: 8px; margin: 20px 0 28px; }
-  .status-btns button {
-    font-size: 14px; padding: 8px 18px; border-radius: 8px; border: 1px solid var(--border);
-    background: var(--bg); color: var(--fg); cursor: pointer;
+  .check svg { width: 10px; height: 10px; opacity: 0; }
+  .check:hover { border-color: var(--accent); transform: scale(1.12); }
+  .check[data-s="wip"] { background: var(--wip); border-color: var(--wip); }
+  .check[data-s="wip"]::after { content:""; width: 7px; height: 1.8px; background: var(--bg); }
+  .check[data-s="done"] { background: var(--done); border-color: var(--done); }
+  .check[data-s="done"] svg { opacity: 1; }
+
+  .row .name {
+    flex: 1; min-width: 0; font-size: 13.5px; line-height: 1.35;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
-  .status-btns button.active[data-s="wip"] { background: var(--wip); color: #fff; border-color: var(--wip); }
-  .status-btns button.active[data-s="done"] { background: var(--done); color: #fff; border-color: var(--done); }
-  .status-btns button.active[data-s="todo"] { background: var(--muted); color: #fff; border-color: var(--muted); }
-  #crumb { font-size: 13px; color: var(--muted); margin-bottom: 8px; }
-  #content { max-width: 980px; line-height: 1.7; font-size: 16px; }
-  #content h1 { font-size: 30px; }
-  #content h2 { font-size: 24px; margin-top: 36px; }
-  #content h3 { font-size: 19px; margin-top: 28px; }
-  #content pre { background: var(--hover); padding: 16px; border-radius: 8px; overflow-x: auto; font-size: 14px; }
-  #content code { background: var(--hover); padding: 2px 6px; border-radius: 4px; font-size: 88%; }
-  #content pre code { background: none; padding: 0; }
-  #content table { border-collapse: collapse; }
-  #content th, #content td { border: 1px solid var(--border); padding: 8px 14px; }
-  #content blockquote { border-left: 3px solid var(--border); margin: 0; padding-left: 16px; color: var(--muted); }
-  #empty { color: var(--muted); font-size: 16px; margin-top: 40px; }
-  a { color: var(--accent); }
-  .tabs { border: 1px solid var(--border); border-radius: 8px; margin: 20px 0; overflow: hidden; }
-  .tab-buttons { display: flex; gap: 2px; background: var(--hover); border-bottom: 1px solid var(--border); padding: 0 4px; }
+  .row.dir .name { white-space: normal; }
+
+  .nprog { display: flex; align-items: center; gap: 5px; flex-shrink: 0; }
+  .nprog .bar { width: 26px; height: 4px; }
+  .nprog .cnt {
+    font-size: 10.5px; color: var(--fg-subtle); font-variant-numeric: tabular-nums;
+    min-width: 30px; text-align: right;
+  }
+  .nprog.full .cnt { color: var(--done); font-weight: 650; }
+
+  #resizer { width: 5px; cursor: col-resize; flex-shrink: 0; background: transparent; margin-left: -3px; z-index: 5; }
+  #resizer:hover, #resizer.drag { background: var(--accent); }
+
+  /* ---------- main ---------- */
+  #mainCol { flex: 1; min-width: 0; display: flex; flex-direction: column; position: relative; }
+  #readProg { position: absolute; top: 0; left: 0; height: 2px; background: var(--accent); width: 0; z-index: 20; transition: width .1s linear; }
+  #main { flex: 1; overflow-y: auto; scroll-behavior: smooth; }
+  #article { max-width: 860px; margin: 0 auto; padding: 40px 44px 120px; }
+
+  #docHead { margin-bottom: 28px; }
+  #crumb {
+    font-size: 12.5px; color: var(--fg-subtle); margin-bottom: 14px;
+    display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  }
+  #crumb .sep { opacity: .5; }
+  #crumb .cur { color: var(--fg-muted); }
+  #metaRow { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .seg { display: inline-flex; border: 1px solid var(--border); border-radius: var(--r-md); overflow: hidden; }
+  .seg button {
+    font-size: 12.5px; padding: 5px 13px; border: 0; background: var(--bg); color: var(--fg-muted);
+    border-right: 1px solid var(--border); transition: .12s;
+  }
+  .seg button:last-child { border-right: 0; }
+  .seg button:hover { background: var(--hover); color: var(--fg); }
+  /* light → dark ramp reads as progression without using hue */
+  .seg button.on[data-s="todo"] { background: var(--fg-subtle); color: var(--bg); font-weight: 600; }
+  .seg button.on[data-s="wip"]  { background: var(--fg-muted);  color: var(--bg); font-weight: 600; }
+  .seg button.on[data-s="done"] { background: var(--fg);        color: var(--bg); font-weight: 600; }
+  .meta-pill { font-size: 12.5px; color: var(--fg-subtle); display: inline-flex; align-items: center; gap: 5px; }
+  .meta-pill svg { width: 13px; height: 13px; }
+
+  /* ---------- markdown content ---------- */
+  #content { line-height: 1.72; font-size: 15.5px; }
+  #content > *:first-child { margin-top: 0; }
+  #content h1, #content h2, #content h3, #content h4 {
+    line-height: 1.3; letter-spacing: -.015em; scroll-margin-top: 24px; position: relative;
+  }
+  #content h1 { font-size: 30px; margin: 0 0 18px; font-weight: 720; }
+  #content h2 {
+    font-size: 21px; margin: 44px 0 14px; font-weight: 680;
+    padding-bottom: 7px; border-bottom: 1px solid var(--border-subtle);
+  }
+  #content h3 { font-size: 17px; margin: 32px 0 10px; font-weight: 660; }
+  #content h4 { font-size: 15px; margin: 24px 0 8px; font-weight: 660; color: var(--fg-muted); }
+  #content p { margin: 0 0 16px; }
+  #content ul, #content ol { margin: 0 0 16px; padding-left: 26px; }
+  #content li { margin: 5px 0; }
+  #content li > ul, #content li > ol { margin: 5px 0; }
+  #content hr { border: 0; border-top: 1px solid var(--border-subtle); margin: 36px 0; }
+  #content strong { font-weight: 660; }
+
+  /* Images: no frame, no rounding — just the image, scaled to fit. */
+  #content img { max-width: 100%; height: auto; display: block; margin: 20px 0; }
+  #content p > img:only-child { margin: 20px auto; }
+  #content img[src$=".svg"] { width: 100%; }
+  #content figure { margin: 20px 0; }
+  #content figcaption { font-size: 13px; color: var(--fg-subtle); margin-top: 7px; }
+  #content img.broken { display: none; }
+  .img-missing {
+    font-family: var(--mono); font-size: 12.5px; color: var(--fg-subtle);
+    border: 1px dashed var(--border); padding: 10px 12px; margin: 20px 0;
+  }
+
+  /* Links read as links: blue + underline. */
+  #content a, #crumb a {
+    color: var(--link);
+    text-decoration: underline; text-underline-offset: 2px; text-decoration-thickness: 1px;
+  }
+  #content a:visited { color: var(--link-visited); }
+  #content a:hover, #crumb a:hover { text-decoration-thickness: 2px; }
+  #content a.anchor, #content a.anchor:visited {
+    color: var(--fg-subtle); text-decoration: none;
+  }
+
+  .anchor {
+    position: absolute; left: -22px; top: 50%; transform: translateY(-50%);
+    opacity: 0; color: var(--fg-subtle); font-weight: 400; padding: 0 4px; text-decoration: none;
+  }
+  h1:hover .anchor, h2:hover .anchor, h3:hover .anchor, h4:hover .anchor { opacity: 1; }
+
+  /* code */
+  #content code {
+    font-family: var(--mono); font-size: 85%; background: var(--bg-sunken);
+    padding: .18em .4em; border-radius: var(--r-sm); border: 1px solid var(--border-subtle);
+  }
+  .codeblock { position: relative; margin: 0 0 18px; }
+  .codeblock pre {
+    margin: 0; background: var(--bg-sunken); border: 1px solid var(--border-subtle);
+    border-radius: var(--r-md); padding: 14px 16px; overflow-x: auto;
+    font-size: 13.2px; line-height: 1.62;
+  }
+  .codeblock pre code { background: none; border: 0; padding: 0; font-size: inherit; }
+  .cb-bar {
+    position: absolute; top: 7px; right: 8px; display: flex; gap: 5px; align-items: center;
+    opacity: 0; transition: opacity .15s;
+  }
+  .codeblock:hover .cb-bar { opacity: 1; }
+  .cb-lang { font-size: 10.5px; color: var(--fg-subtle); font-family: var(--mono); text-transform: uppercase; letter-spacing: .04em; }
+  .cb-copy {
+    font-size: 11.5px; padding: 3px 9px; border-radius: var(--r-sm); border: 1px solid var(--border);
+    background: var(--bg); color: var(--fg-muted);
+  }
+  .cb-copy:hover { background: var(--hover); color: var(--fg); }
+  .cb-copy.ok { color: var(--done); border-color: var(--done); }
+
+  /* Grayscale syntax highlighting: tokens separate by weight, value and style
+     rather than hue, so code stays legible without introducing colour. */
+  .hljs-keyword, .hljs-selector-tag, .hljs-literal, .hljs-section,
+  .hljs-doctag, .hljs-name, .hljs-strong { color: var(--fg); font-weight: 700; }
+  .hljs-title, .hljs-title.function_, .hljs-function .hljs-title,
+  .hljs-type, .hljs-class .hljs-title, .hljs-title.class_,
+  .hljs-built_in, .hljs-builtin-name { color: var(--fg); font-weight: 600; }
+  .hljs-string, .hljs-regexp, .hljs-addition, .hljs-meta-string,
+  .hljs-attr, .hljs-attribute, .hljs-property { color: var(--fg-muted); }
+  .hljs-number, .hljs-symbol, .hljs-bullet, .hljs-link,
+  .hljs-variable, .hljs-template-variable, .hljs-params,
+  .hljs-selector-id, .hljs-selector-class, .hljs-selector-attr,
+  .hljs-selector-pseudo, .hljs-meta { color: var(--fg-muted); font-weight: 600; }
+  .hljs-comment, .hljs-quote, .hljs-deletion { color: var(--fg-subtle); font-style: italic; }
+  .hljs-emphasis { font-style: italic; }
+
+  /* tables */
+  #content table {
+    border-collapse: collapse; width: 100%; margin: 0 0 18px; font-size: 14px; display: block; overflow-x: auto;
+  }
+  #content thead { background: var(--bg-sunken); }
+  #content th, #content td { border: 1px solid var(--border-subtle); padding: 8px 12px; text-align: left; vertical-align: top; }
+  #content th { font-weight: 640; white-space: nowrap; }
+  #content tbody tr:hover { background: var(--hover); }
+
+  #content blockquote {
+    border-left: 3px solid var(--accent); margin: 0 0 18px; padding: 2px 0 2px 16px; color: var(--fg-muted);
+  }
+
+  /* details / quizzes */
+  #content details {
+    border: 1px solid var(--border-subtle); border-radius: var(--r-md); padding: 0;
+    margin: 0 0 14px; background: var(--bg-raised); overflow: hidden;
+  }
+  #content details[open] { box-shadow: var(--shadow-sm); }
+  #content summary {
+    cursor: pointer; padding: 11px 15px; font-weight: 600; font-size: 14.5px;
+    list-style: none; display: flex; align-items: center; gap: 9px; user-select: none;
+  }
+  #content summary::-webkit-details-marker { display: none; }
+  #content summary::before {
+    content: "▸"; color: var(--accent); font-size: 11px; transition: transform .15s; display: inline-block;
+  }
+  #content details[open] > summary::before { transform: rotate(90deg); }
+  #content summary:hover { background: var(--hover); }
+  #content details > *:not(summary) { padding: 0 15px; }
+  #content details > *:not(summary):first-of-type { padding-top: 4px; }
+  #content details > *:last-child { padding-bottom: 12px; margin-bottom: 0; }
+  #content details .codeblock { margin-left: 15px; margin-right: 15px; padding: 0; }
+
+  /* task list checkboxes in md */
+  #content input[type=checkbox] { margin-right: 7px; accent-color: var(--accent); }
+
+  /* language tabs ({{tabs}}) */
+  .tabs { border: 1px solid var(--border); border-radius: var(--r-md); margin: 0 0 18px; overflow: hidden; }
+  .tab-buttons { display: flex; gap: 0; background: var(--bg-sunken); border-bottom: 1px solid var(--border); padding: 0 6px; }
   .tab-btn {
-    font: inherit; font-size: 14px; font-weight: 600; padding: 10px 18px; border: none;
-    background: transparent; color: var(--muted); cursor: pointer; border-bottom: 2px solid transparent;
+    font-size: 13px; font-weight: 600; padding: 9px 15px; border: none;
+    background: transparent; color: var(--fg-muted); border-bottom: 2px solid transparent; margin-bottom: -1px;
   }
   .tab-btn:hover { color: var(--fg); }
   .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
-  .tab-panes { padding: 4px 18px 14px; }
-  .tab-pane > *:first-child { margin-top: 14px; }
+  .tab-panes { padding: 14px 16px 2px; }
+  .tab-pane > *:first-child { margin-top: 0; }
 
-  @media (max-width: 760px) {
-    body { flex-direction: column; height: auto; min-height: 100vh; overflow: visible; }
+  /* prev / next */
+  #pager { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 56px; }
+  .pg {
+    border: 1px solid var(--border); border-radius: var(--r-lg); padding: 13px 16px;
+    display: flex; flex-direction: column; gap: 3px; background: var(--bg); transition: .15s; min-width: 0;
+  }
+  .pg:hover { border-color: var(--accent); background: var(--hover); text-decoration: none; }
+  .pg .lbl { font-size: 11.5px; color: var(--fg-subtle); text-transform: uppercase; letter-spacing: .05em; font-weight: 640; }
+  .pg .ttl { font-size: 14px; color: var(--fg); font-weight: 580; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pg.next { text-align: right; }
+  .pg.ghost { visibility: hidden; }
+
+  /* ---------- TOC ---------- */
+  #toc {
+    width: var(--toc-w); flex-shrink: 0; border-left: 1px solid var(--border-subtle);
+    overflow-y: auto; padding: 40px 16px 60px; font-size: 12.8px;
+  }
+  #toc .toc-h {
+    font-size: 11px; text-transform: uppercase; letter-spacing: .07em; color: var(--fg-subtle);
+    font-weight: 700; margin-bottom: 10px;
+  }
+  #toc a {
+    display: block; padding: 4px 10px; color: var(--fg-muted); border-left: 2px solid var(--border-subtle);
+    line-height: 1.45; margin-left: 0;
+  }
+  #toc a:hover { color: var(--fg); border-left-color: var(--fg-subtle); text-decoration: none; }
+  #toc a.on { color: var(--accent); border-left-color: var(--accent); font-weight: 600; background: var(--accent-subtle); border-radius: 0 var(--r-sm) var(--r-sm) 0; }
+  #toc a.lv3 { padding-left: 22px; font-size: 12.2px; }
+
+  /* ---------- empty state ---------- */
+  #empty { max-width: 640px; margin: 0 auto; padding: 72px 44px; }
+  #empty h2 { font-size: 24px; margin: 0 0 8px; letter-spacing: -.02em; }
+  #empty p { color: var(--fg-muted); margin: 0 0 26px; line-height: 1.65; }
+  .resume-card {
+    display: flex; align-items: center; gap: 13px; border: 1px solid var(--border); border-radius: var(--r-lg);
+    padding: 15px 17px; margin-bottom: 26px; background: var(--bg-raised); box-shadow: var(--shadow-sm);
+  }
+  .resume-card:hover { border-color: var(--accent); text-decoration: none; }
+  .resume-card .ic { width: 34px; height: 34px; border-radius: var(--r-md); background: var(--accent-subtle); color: var(--accent); display: grid; place-items: center; flex-shrink: 0; }
+  .resume-card .ic svg { width: 17px; height: 17px; }
+  .resume-card .t1 { font-size: 11.5px; color: var(--fg-subtle); text-transform: uppercase; letter-spacing: .05em; font-weight: 640; }
+  .resume-card .t2 { font-size: 14.5px; color: var(--fg); font-weight: 600; }
+  .track-grid { display: grid; gap: 9px; }
+  .track-card {
+    display: flex; align-items: center; gap: 12px; padding: 11px 14px; border: 1px solid var(--border-subtle);
+    border-radius: var(--r-md); background: var(--bg);
+  }
+  .track-card:hover { border-color: var(--accent); background: var(--hover); text-decoration: none; }
+  .track-card .nm { flex: 1; font-size: 14px; color: var(--fg); font-weight: 560; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .track-card .bar { width: 90px; flex-shrink: 0; }
+  .track-card .pc { font-size: 12px; color: var(--fg-subtle); font-variant-numeric: tabular-nums; min-width: 34px; text-align: right; }
+
+  /* ---------- command palette ---------- */
+  #paletteBg {
+    position: fixed; inset: 0; background: rgba(31,35,40,.42); backdrop-filter: blur(3px);
+    z-index: 100; display: none; align-items: flex-start; justify-content: center; padding-top: 12vh;
+  }
+  #paletteBg.show { display: flex; }
+  #palette {
+    width: min(620px, 92vw); background: var(--bg-raised); border: 1px solid var(--border);
+    border-radius: var(--r-lg); box-shadow: var(--shadow-lg); overflow: hidden; display: flex; flex-direction: column;
+    max-height: 66vh;
+  }
+  #palInput {
+    border: 0; border-bottom: 1px solid var(--border-subtle); padding: 15px 18px; font-size: 15.5px;
+    background: transparent; color: var(--fg); outline: none; font-family: inherit;
+  }
+  #palInput::placeholder { color: var(--fg-subtle); }
+  #palList { overflow-y: auto; padding: 6px; }
+  .pal-item {
+    display: flex; align-items: center; gap: 10px; padding: 8px 11px; border-radius: var(--r-sm);
+    cursor: pointer; min-width: 0;
+  }
+  .pal-item.cur { background: var(--accent-subtle); }
+  html[data-theme="dark"] .pal-item.cur, html[data-theme="auto"] .pal-item.cur { background: var(--active); }
+  .pal-item .dot { width: 7px; height: 7px; border-radius: 99px; flex-shrink: 0; background: var(--border); }
+  .pal-item .dot[data-s="wip"] { background: var(--wip); }
+  .pal-item .dot[data-s="done"] { background: var(--done); }
+  .pal-item .txt { min-width: 0; flex: 1; }
+  .pal-item .t { font-size: 14px; color: var(--fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pal-item .p { font-size: 11.5px; color: var(--fg-subtle); font-family: var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pal-item mark { background: transparent; color: var(--accent); font-weight: 700; }
+  #palFoot {
+    border-top: 1px solid var(--border-subtle); padding: 8px 14px; font-size: 11.5px; color: var(--fg-subtle);
+    display: flex; gap: 14px; align-items: center;
+  }
+  .pal-empty { padding: 26px; text-align: center; color: var(--fg-subtle); font-size: 14px; }
+
+  /* ---------- menu ---------- */
+  #menu {
+    position: absolute; top: calc(var(--topbar-h) - 6px); right: 12px; z-index: 40;
+    background: var(--bg-raised); border: 1px solid var(--border); border-radius: var(--r-md);
+    box-shadow: var(--shadow-lg); padding: 5px; min-width: 210px; display: none;
+  }
+  #menu.show { display: block; }
+  #menu button {
+    display: flex; align-items: center; gap: 9px; width: 100%; text-align: left;
+    padding: 7px 10px; border: 0; background: transparent; color: var(--fg); border-radius: var(--r-sm); font-size: 13.5px;
+  }
+  #menu button:hover { background: var(--hover); }
+  #menu button svg { width: 14px; height: 14px; color: var(--fg-muted); flex-shrink: 0; }
+  #menu .div { height: 1px; background: var(--border-subtle); margin: 5px 0; }
+  #menu .grp { font-size: 10.5px; text-transform: uppercase; letter-spacing: .06em; color: var(--fg-subtle); padding: 6px 10px 3px; font-weight: 700; }
+
+  #toast {
+    position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%) translateY(20px);
+    background: var(--fg); color: var(--bg); padding: 9px 17px; border-radius: 99px; font-size: 13.5px;
+    box-shadow: var(--shadow-lg); opacity: 0; pointer-events: none; transition: .22s; z-index: 200; font-weight: 550;
+  }
+  #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+  #mobileToggle { display: none; }
+  #scrim { display: none; }
+
+  /* ---------- responsive ---------- */
+  @media (max-width: 1180px) { #toc { display: none; } }
+  @media (max-width: 860px) {
+    #article { padding: 26px 20px 90px; }
+    #mobileToggle { display: grid; }
+    #globalStat .bar { display: none; }
     #sidebar {
-      width: 100% !important; max-width: 100%; min-width: 0;
-      max-height: 45vh; border-right: none; border-bottom: 1px solid var(--border);
+      position: fixed; top: var(--topbar-h); bottom: 0; left: 0; z-index: 50;
+      width: min(330px, 84vw) !important; box-shadow: var(--shadow-lg);
+      transform: translateX(-102%); transition: transform .22s cubic-bezier(.4,0,.2,1);
     }
+    body.nav-open #sidebar { transform: none; }
+    body.nav-open #scrim { display: block; position: fixed; inset: var(--topbar-h) 0 0 0; background: rgba(31,35,40,.4); z-index: 45; }
     #resizer { display: none; }
-    #main { padding: 20px; }
-    ul.tree { padding-left: 14px; }
-    .row { font-size: 14px; gap: 6px; }
+    #content h1 { font-size: 25px; }
+    #content h2 { font-size: 19px; }
+    #pager { grid-template-columns: 1fr; }
+    .brand span { display: none; }
+  }
+  @media print {
+    #topbar, #sidebar, #toc, #pager, #resizer, #readProg { display: none !important; }
+    #article { max-width: none; padding: 0; }
+    body { overflow: visible; height: auto; }
   }
 </style>
 </head>
 <body>
-  <div id="sidebar">
-    <h1>Docs</h1>
-    <div id="summary"></div>
-    <div class="filters">
-      <button data-f="all" class="active">All</button>
-      <button data-f="todo">Not started</button>
-      <button data-f="wip">In progress</button>
-      <button data-f="done">Done</button>
-    </div>
-    <ul class="tree root" id="tree"></ul>
+
+<header id="topbar">
+  <button class="icon-btn" id="mobileToggle" title="Menu" aria-label="Toggle navigation">
+    <svg viewBox="0 0 16 16" fill="currentColor"><path d="M1 3h14v1.5H1zM1 7.25h14v1.5H1zM1 11.5h14V13H1z"/></svg>
+  </button>
+  <div class="brand"><span class="mark">C</span><span>Curriculum</span></div>
+  <button id="searchTrigger">
+    <svg viewBox="0 0 16 16" fill="currentColor" style="width:14px;height:14px;flex-shrink:0"><path d="M10.68 11.74a6 6 0 0 1-7.922-8.982 6 6 0 0 1 8.982 7.922l3.04 3.04a.749.749 0 0 1-.326 1.275.749.749 0 0 1-.734-.215ZM11.5 7a4.5 4.5 0 1 0-9 0 4.5 4.5 0 0 0 9 0Z"/></svg>
+    <span>Search modules…</span>
+    <kbd>Ctrl K</kbd>
+  </button>
+  <div class="spacer"></div>
+  <div id="globalStat"></div>
+  <button class="icon-btn" id="themeBtn" title="Toggle theme (T)"></button>
+  <button class="icon-btn" id="menuBtn" title="More">
+    <svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 9a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3ZM1.5 9a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3Zm13 0a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3Z"/></svg>
+  </button>
+  <div id="menu">
+    <div class="grp">Progress</div>
+    <button data-act="export"><svg viewBox="0 0 16 16" fill="currentColor"><path d="M8.75 1v8.44l2.72-2.72a.75.75 0 1 1 1.06 1.06l-4 4a.75.75 0 0 1-1.06 0l-4-4a.75.75 0 0 1 1.06-1.06l2.72 2.72V1a.75.75 0 0 1 1.5 0ZM2 13.25a.75.75 0 0 1 .75-.75h10.5a.75.75 0 0 1 0 1.5H2.75a.75.75 0 0 1-.75-.75Z"/></svg>Export progress (.json)</button>
+    <button data-act="import"><svg viewBox="0 0 16 16" fill="currentColor"><path d="M7.25 14V5.56l-2.72 2.72a.75.75 0 0 1-1.06-1.06l4-4a.75.75 0 0 1 1.06 0l4 4a.75.75 0 1 1-1.06 1.06L8.75 5.56V14a.75.75 0 0 1-1.5 0ZM2 2.75a.75.75 0 0 1 .75-.75h10.5a.75.75 0 0 1 0 1.5H2.75A.75.75 0 0 1 2 2.75Z"/></svg>Import progress…</button>
+    <button data-act="reset"><svg viewBox="0 0 16 16" fill="currentColor"><path d="M11 1.75V3h2.25a.75.75 0 0 1 0 1.5H2.75a.75.75 0 0 1 0-1.5H5V1.75C5 .784 5.784 0 6.75 0h2.5C10.216 0 11 .784 11 1.75ZM4.496 6.675l.66 6.6a.25.25 0 0 0 .249.225h5.19a.25.25 0 0 0 .249-.225l.66-6.6a.75.75 0 0 1 1.492.149l-.66 6.6A1.748 1.748 0 0 1 10.595 15h-5.19a1.75 1.75 0 0 1-1.741-1.575l-.66-6.6a.75.75 0 1 1 1.492-.15Z"/></svg>Reset all progress</button>
+    <div class="div"></div>
+    <div class="grp">View</div>
+    <button data-act="expand"><svg viewBox="0 0 16 16" fill="currentColor"><path d="M1.5 2.75a.75.75 0 0 1 .75-.75h11.5a.75.75 0 0 1 0 1.5H2.25a.75.75 0 0 1-.75-.75Zm0 5a.75.75 0 0 1 .75-.75h11.5a.75.75 0 0 1 0 1.5H2.25a.75.75 0 0 1-.75-.75Zm0 5a.75.75 0 0 1 .75-.75h11.5a.75.75 0 0 1 0 1.5H2.25a.75.75 0 0 1-.75-.75Z"/></svg>Expand all</button>
+    <button data-act="collapse"><svg viewBox="0 0 16 16" fill="currentColor"><path d="M1.5 4.75a.75.75 0 0 1 .75-.75h11.5a.75.75 0 0 1 0 1.5H2.25a.75.75 0 0 1-.75-.75Zm0 6.5a.75.75 0 0 1 .75-.75h11.5a.75.75 0 0 1 0 1.5H2.25a.75.75 0 0 1-.75-.75Z"/></svg>Collapse all</button>
+    <div class="div"></div>
+    <button data-act="keys"><svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 0a8 8 0 1 1 0 16A8 8 0 0 1 8 0ZM6.92 6.085c.081-.16.19-.299.34-.398.145-.097.371-.187.74-.187.28 0 .553.087.738.225A.613.613 0 0 1 9 6.25c0 .177-.04.264-.077.318a.956.956 0 0 1-.277.245c-.076.051-.158.1-.258.161l-.007.004a7.728 7.728 0 0 0-.313.195 2.416 2.416 0 0 0-.692.661.75.75 0 0 0 1.248.832.956.956 0 0 1 .276-.245 6.3 6.3 0 0 1 .26-.16l.006-.004c.093-.057.204-.123.313-.195.222-.149.487-.355.692-.662.214-.32.329-.702.329-1.15 0-.76-.36-1.348-.863-1.725A2.76 2.76 0 0 0 8 3c-.631 0-1.155.16-1.572.438-.413.276-.68.638-.849.977a.75.75 0 1 0 1.342.67ZM9 11a1 1 0 1 1-2 0 1 1 0 0 1 2 0Z"/></svg>Keyboard shortcuts</button>
   </div>
-  <div id="resizer"></div>
-  <div id="main">
-    <div id="empty">Pick a file from the left.</div>
-    <div id="crumb"></div>
-    <div class="status-btns" id="statusBtns" style="display:none">
-      <button data-s="todo">Not started</button>
-      <button data-s="wip">In progress</button>
-      <button data-s="done">Done</button>
+</header>
+
+<div id="shell">
+  <aside id="sidebar" class="scroll">
+    <div id="sidebarHead">
+      <div id="filterRow">
+        <button class="chip on" data-f="all">All <span class="n"></span></button>
+        <button class="chip" data-f="todo">To do <span class="n"></span></button>
+        <button class="chip" data-f="wip">Doing <span class="n"></span></button>
+        <button class="chip" data-f="done">Done <span class="n"></span></button>
+      </div>
     </div>
-    <div id="content"></div>
+    <div id="treeWrap" class="scroll"><ul class="tree" id="tree"></ul></div>
+  </aside>
+  <div id="resizer"></div>
+  <div id="scrim"></div>
+
+  <div id="mainCol">
+    <div id="readProg"></div>
+    <div id="main" class="scroll">
+      <div id="empty"></div>
+      <article id="article" style="display:none">
+        <div id="docHead">
+          <div id="crumb"></div>
+          <div id="metaRow">
+            <div class="seg" id="statusBtns">
+              <button data-s="todo">Not started</button>
+              <button data-s="wip">In progress</button>
+              <button data-s="done">Done</button>
+            </div>
+            <span class="meta-pill" id="readTime"></span>
+          </div>
+        </div>
+        <div id="content"></div>
+        <nav id="pager"></nav>
+      </article>
+    </div>
   </div>
 
+  <nav id="toc" class="scroll"></nav>
+</div>
+
+<div id="paletteBg">
+  <div id="palette">
+    <input id="palInput" placeholder="Search modules by name or path…" autocomplete="off" spellcheck="false">
+    <div id="palList" class="scroll"></div>
+    <div id="palFoot">
+      <span><kbd>↑</kbd><kbd>↓</kbd> navigate</span>
+      <span><kbd>↵</kbd> open</span>
+      <span><kbd>esc</kbd> close</span>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+<input type="file" id="importFile" accept="application/json" style="display:none">
+
 <script>
+/* ============================================================
+   storage — IndexedDB (schema unchanged: {path, status})
+   ============================================================ */
 const DB_NAME = 'docs-progress', STORE = 'status';
 let db;
+
 function openDb() {
   return new Promise((resolve, reject) => {
     const req = indexedDB.open(DB_NAME, 1);
     req.onupgradeneeded = () => req.result.createObjectStore(STORE, { keyPath: 'path' });
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
-  });
-}
-function getStatus(path) {
-  return new Promise((resolve) => {
-    const tx = db.transaction(STORE, 'readonly').objectStore(STORE).get(path);
-    tx.onsuccess = () => resolve(tx.result ? tx.result.status : 'todo');
-    tx.onerror = () => resolve('todo');
   });
 }
 function getAllStatuses() {
@@ -152,188 +620,360 @@ function getAllStatuses() {
       req.result.forEach(r => map[r.path] = r.status);
       resolve(map);
     };
+    req.onerror = () => resolve({});
   });
 }
 function setStatus(path, status) {
   return new Promise((resolve) => {
-    const tx = db.transaction(STORE, 'readwrite').objectStore(STORE);
-    if (status === 'todo') tx.delete(path).onsuccess = resolve;
-    else tx.put({ path, status }).onsuccess = resolve;
+    const st = db.transaction(STORE, 'readwrite').objectStore(STORE);
+    const req = (status === 'todo') ? st.delete(path) : st.put({ path, status });
+    req.onsuccess = resolve; req.onerror = resolve;
+  });
+}
+function clearAll() {
+  return new Promise((resolve) => {
+    const req = db.transaction(STORE, 'readwrite').objectStore(STORE).clear();
+    req.onsuccess = resolve; req.onerror = resolve;
   });
 }
 
+/* ============================================================
+   state
+   ============================================================ */
 let statusMap = {};
 let currentFilter = 'all';
 let currentFile = null;
-const fileRows = {};   // file path -> row element
-const dirIndex = {};   // directory path -> its README file path (or null)
+let treeData = [];
+const fileRows = {};    // file path -> row el
+const dirIndex = {};    // dir path  -> its README file path
+const nodeByFile = {};  // file path -> node
+const flatFiles = [];   // ordered file paths (prev/next)
+const dirNodes = [];    // {node, li, progEl}
+const searchItems = []; // {file, title, path, hay}
 
+const LS = {
+  last: 'docs.lastFile',
+  open: 'docs.openDirs',
+  theme: 'docs.theme',
+  side: 'docs.sidebarW',
+  lang: 'docLangPref'   // kept: same key as before
+};
+
+/* ============================================================
+   icons
+   ============================================================ */
+const ICO = {
+  caret: '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M6.22 3.22a.75.75 0 0 1 1.06 0l4.25 4.25a.75.75 0 0 1 0 1.06l-4.25 4.25a.75.75 0 0 1-1.06-1.06L9.94 8 6.22 4.28a.75.75 0 0 1 0-1.06Z"/></svg>',
+  tick: '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M13.78 4.22a.75.75 0 0 1 0 1.06l-7.25 7.25a.75.75 0 0 1-1.06 0L2.22 9.28a.75.75 0 0 1 1.06-1.06L6 10.94l6.72-6.72a.75.75 0 0 1 1.06 0Z"/></svg>',
+  sun: '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 12a4 4 0 1 1 0-8 4 4 0 0 1 0 8Zm0-1.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5Zm5.657-8.157a.75.75 0 0 1 0 1.061l-1.061 1.06a.749.749 0 0 1-1.275-.326.749.749 0 0 1 .215-.734l1.06-1.06a.75.75 0 0 1 1.06 0Zm-9.193 9.193a.75.75 0 0 1 0 1.06l-1.06 1.061a.75.75 0 1 1-1.061-1.06l1.06-1.061a.75.75 0 0 1 1.061 0ZM8 0a.75.75 0 0 1 .75.75v1.5a.75.75 0 0 1-1.5 0V.75A.75.75 0 0 1 8 0ZM3 8a.75.75 0 0 1-.75.75H.75a.75.75 0 0 1 0-1.5h1.5A.75.75 0 0 1 3 8Zm13 0a.75.75 0 0 1-.75.75h-1.5a.75.75 0 0 1 0-1.5h1.5A.75.75 0 0 1 16 8ZM8 13a.75.75 0 0 1 .75.75v1.5a.75.75 0 0 1-1.5 0v-1.5A.75.75 0 0 1 8 13ZM2.343 2.343a.75.75 0 0 1 1.061 0l1.06 1.061a.751.751 0 0 1-.018 1.042.751.751 0 0 1-1.042.018l-1.06-1.06a.75.75 0 0 1 0-1.06Zm9.193 9.193a.75.75 0 0 1 1.06 0l1.061 1.06a.75.75 0 0 1-1.06 1.061l-1.061-1.06a.75.75 0 0 1 0-1.061Z"/></svg>',
+  moon: '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M9.598 1.591a.749.749 0 0 1 .785-.175 7.001 7.001 0 1 1-8.967 8.967.75.75 0 0 1 .961-.96 5.5 5.5 0 0 0 7.046-7.046.75.75 0 0 1 .175-.786Zm1.616 1.945a7 7 0 0 1-7.678 7.678 5.499 5.499 0 1 0 7.678-7.678Z"/></svg>',
+  auto: '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 0a8 8 0 1 1 0 16A8 8 0 0 1 8 0ZM1.5 8a6.5 6.5 0 1 0 13 0 6.5 6.5 0 0 0-13 0Zm6.5 5V3a5 5 0 0 1 0 10Z"/></svg>',
+  book: '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M0 1.75A.75.75 0 0 1 .75 1h4.253c1.227 0 2.317.59 3 1.501A3.743 3.743 0 0 1 11.006 1h4.245a.75.75 0 0 1 .75.75v10.5a.75.75 0 0 1-.75.75h-4.507a2.25 2.25 0 0 0-1.591.659l-.622.621a.75.75 0 0 1-1.06 0l-.622-.621A2.25 2.25 0 0 0 5.258 13H.75a.75.75 0 0 1-.75-.75Zm7.251 10.324.004-5.073-.002-2.253A2.25 2.25 0 0 0 5.003 2.5H1.5v9h3.757a3.75 3.75 0 0 1 1.994.574ZM8.755 4.75l-.004 7.322a3.752 3.752 0 0 1 1.992-.572H14.5v-9h-3.495a2.25 2.25 0 0 0-2.25 2.25Z"/></svg>',
+  clock: '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 0a8 8 0 1 1 0 16A8 8 0 0 1 8 0ZM1.5 8a6.5 6.5 0 1 0 13 0 6.5 6.5 0 0 0-13 0Zm7-3.25v2.992l2.028.812a.75.75 0 0 1-.557 1.392l-2.5-1A.751.751 0 0 1 7 8.25v-3.5a.75.75 0 0 1 1.5 0Z"/></svg>'
+};
+
+/* ============================================================
+   theme
+   ============================================================ */
+function applyTheme(t) {
+  document.documentElement.dataset.theme = t;
+  localStorage.setItem(LS.theme, t);
+  const btn = document.getElementById('themeBtn');
+  btn.innerHTML = t === 'light' ? ICO.sun : t === 'dark' ? ICO.moon : ICO.auto;
+  btn.title = `Theme: ${t} (press T)`;
+}
+function cycleTheme() {
+  const order = ['auto', 'light', 'dark'];
+  const cur = localStorage.getItem(LS.theme) || 'auto';
+  applyTheme(order[(order.indexOf(cur) + 1) % order.length]);
+}
+applyTheme(localStorage.getItem(LS.theme) || 'auto');
+
+/* ============================================================
+   toast
+   ============================================================ */
+let toastT;
+function toast(msg) {
+  const el = document.getElementById('toast');
+  el.textContent = msg; el.classList.add('show');
+  clearTimeout(toastT); toastT = setTimeout(() => el.classList.remove('show'), 2100);
+}
+
+/* ============================================================
+   boot
+   ============================================================ */
 async function main() {
   db = await openDb();
   statusMap = await getAllStatuses();
   const res = await fetch('docs-index.json');
   const data = await res.json();
-  renderTree(data.tree);
-  updateSummary();
+  treeData = data.tree;
+
+  indexNodes(treeData);
+  renderTree(treeData, document.getElementById('tree'), 0);
+  restoreOpenDirs();
+  recomputeAllProgress();
+  renderEmptyState();
+
+  const fromHash = decodeURIComponent(location.hash.replace(/^#/, ''));
+  if (fromHash && fileRows[fromHash]) openFile(fromHash, { push: false });
 }
 
-function resolvePath(baseDir, rel) {
-  const stack = baseDir ? baseDir.split('/') : [];
-  rel.split('/').forEach(part => {
-    if (part === '' || part === '.') return;
-    if (part === '..') stack.pop();
-    else stack.push(part);
-  });
-  return stack.join('/');
-}
-
-function expandAncestors(row) {
-  let ul = row.closest('ul.tree');
-  while (ul && !ul.classList.contains('root')) {
-    ul.style.display = 'block';
-    const li = ul.parentElement;
-    if (!li) break;
-    const parentRow = li.querySelector(':scope > .row');
-    const caret = parentRow && parentRow.querySelector('.caret');
-    if (caret) caret.textContent = '▾';
-    ul = li.parentElement;
-  }
-}
-
-function rewriteLinks(filePath) {
-  const baseDir = filePath.includes('/') ? filePath.slice(0, filePath.lastIndexOf('/')) : '';
-  document.querySelectorAll('#content a[href]').forEach(a => {
-    const href = a.getAttribute('href');
-    if (!href || /^([a-z][a-z0-9+.-]*:)?\/\//i.test(href) || href.startsWith('mailto:') || href.startsWith('#')) return;
-    const [rawPath, hash] = href.split('#');
-    let resolved = resolvePath(baseDir, rawPath);
-    let target = null;
-    if (resolved.toLowerCase().endsWith('.md') && fileRows[resolved] !== undefined) {
-      target = resolved;
-    } else if (dirIndex[resolved.replace(/\/$/, '')]) {
-      target = dirIndex[resolved.replace(/\/$/, '')];
-    }
-    if (target) {
-      a.setAttribute('href', target + (hash ? '#' + hash : ''));
-      a.addEventListener('click', (e) => {
-        e.preventDefault();
-        const row = fileRows[target];
-        if (row) { expandAncestors(row); row.scrollIntoView({ block: 'center' }); }
-        openFile(target, row || null);
+function indexNodes(nodes) {
+  nodes.forEach(n => {
+    if (n.file) {
+      nodeByFile[n.file] = n;
+      flatFiles.push(n.file);
+      if (!n.name.endsWith('.md')) dirIndex[n.path] = n.file;
+      searchItems.push({
+        file: n.file,
+        title: n.title || n.name,
+        path: n.path,
+        hay: ((n.title || n.name) + ' ' + n.path).toLowerCase()
       });
-    } else {
-      a.setAttribute('href', resolved + (hash ? '#' + hash : ''));
     }
+    if (n.children && n.children.length) indexNodes(n.children);
   });
 }
 
-function countAll(node, out) {
-  if (node.file) out.total++, out.status[node.file] = statusMap[node.file] || 'todo';
-  node.children.forEach(c => countAll(c, out));
-}
-
-function updateSummary() {
-  const el = document.getElementById('summary');
-  const counts = { todo: 0, wip: 0, done: 0, total: 0 };
-  Object.values(statusMap).forEach(s => counts[s] = (counts[s] || 0) + 1);
-  const allFiles = document.querySelectorAll('[data-file]').length;
-  counts.total = allFiles;
-  counts.todo = allFiles - (counts.wip || 0) - (counts.done || 0);
-  el.textContent = `${counts.done || 0} done · ${counts.wip || 0} in progress · ${counts.todo} not started · ${counts.total} total`;
-}
-
-function renderTree(nodes, parentUl) {
-  const ul = parentUl || document.getElementById('tree');
+/* ============================================================
+   tree
+   ============================================================ */
+function renderTree(nodes, ul, depth) {
   nodes.forEach(node => {
     const li = document.createElement('li');
+    li.className = 'node';
+    const hasKids = node.children && node.children.length > 0;
+
     const row = document.createElement('div');
-    row.className = 'row';
-    const hasChildren = node.children && node.children.length > 0;
+    row.className = 'row' + (hasKids ? ' dir' : '');
+
     const caret = document.createElement('span');
-    caret.className = 'caret' + (hasChildren ? '' : ' leaf');
-    caret.textContent = hasChildren ? '▸' : '';
+    caret.className = 'caret' + (hasKids ? '' : ' leaf');
+    caret.innerHTML = hasKids ? ICO.caret : '';
     row.appendChild(caret);
 
     if (node.file) {
       const check = document.createElement('span');
-      const s = statusMap[node.file] || 'todo';
       check.className = 'check';
-      check.dataset.state = s;
+      check.dataset.s = statusMap[node.file] || 'todo';
       check.dataset.checkFor = node.file;
-      check.title = 'Click to change progress';
+      check.innerHTML = ICO.tick;
+      check.title = 'Cycle progress: not started → in progress → done';
       check.addEventListener('click', async (e) => {
         e.stopPropagation();
         const order = ['todo', 'wip', 'done'];
         const cur = statusMap[node.file] || 'todo';
-        const next = order[(order.indexOf(cur) + 1) % order.length];
-        await setStatus(node.file, next);
-        statusMap[node.file] = next;
-        check.dataset.state = next;
-        if (currentFile === node.file) refreshStatusButtons(next);
-        updateSummary();
+        await commitStatus(node.file, order[(order.indexOf(cur) + 1) % order.length]);
       });
       row.appendChild(check);
     }
 
-    const nameSpan = document.createElement('span');
-    nameSpan.className = 'name';
-    nameSpan.textContent = node.title || node.name;
-    row.appendChild(nameSpan);
+    const name = document.createElement('span');
+    name.className = 'name';
+    name.textContent = node.title || node.name;
+    row.appendChild(name);
+
+    if (hasKids) {
+      const prog = document.createElement('span');
+      prog.className = 'nprog';
+      prog.innerHTML = '<span class="bar"><i class="d"></i><i class="w"></i></span><span class="cnt"></span>';
+      row.appendChild(prog);
+      li.dataset.dir = node.path;
+      dirNodes.push({ node, li, prog });
+    }
 
     if (node.file) {
       row.dataset.file = node.file;
       row.title = node.file;
       fileRows[node.file] = row;
-      if (!node.name.endsWith('.md')) dirIndex[node.path] = node.file;
     }
 
-    let childUl;
-    if (hasChildren) {
-      childUl = document.createElement('ul');
-      childUl.className = 'tree';
-      childUl.style.display = 'none';
+    let kidUl = null;
+    if (hasKids) {
+      kidUl = document.createElement('ul');
+      kidUl.className = 'tree';
+      renderTree(node.children, kidUl, depth + 1);
     }
 
     row.addEventListener('click', (e) => {
-      if (hasChildren && (!node.file || e.target === caret)) {
-        const open = childUl.style.display !== 'none';
-        childUl.style.display = open ? 'none' : 'block';
-        caret.textContent = open ? '▸' : '▾';
-        if (!node.file) return;
-      }
-      if (node.file) openFile(node.file, row);
+      // caret = expand/collapse only, never also opens the doc
+      if (hasKids && e.target.closest('.caret')) { toggleDir(li); return; }
+      if (node.file) { openFile(node.file); closeNavOnMobile(); return; }
+      if (hasKids) toggleDir(li);
     });
 
     li.appendChild(row);
-    if (childUl) {
-      renderTree(node.children, childUl);
-      li.appendChild(childUl);
-    }
+    if (kidUl) li.appendChild(kidUl);
     ul.appendChild(li);
   });
 }
 
+function toggleDir(li, force) {
+  const open = force !== undefined ? force : !li.classList.contains('open');
+  li.classList.toggle('open', open);
+  const kid = li.querySelector(':scope > ul.tree');
+  if (kid) kid.style.display = open ? '' : 'none';
+  saveOpenDirs();
+}
+let saveT;
+function saveOpenDirs() {
+  // debounced: bulk operations (filtering, expand-all) toggle many nodes at once
+  clearTimeout(saveT);
+  saveT = setTimeout(() => {
+    const open = [...document.querySelectorAll('li.node.open')].map(li => li.dataset.dir).filter(Boolean);
+    try { localStorage.setItem(LS.open, JSON.stringify(open)); } catch (e) {}
+  }, 150);
+}
+function restoreOpenDirs() {
+  let open = [];
+  try { open = JSON.parse(localStorage.getItem(LS.open) || '[]'); } catch (e) {}
+  document.querySelectorAll('li.node > ul.tree').forEach(u => u.style.display = 'none');
+  if (!open.length) {
+    // first visit: open top-level tracks only
+    document.querySelectorAll('#tree > li.node').forEach(li => toggleDir(li, true));
+    return;
+  }
+  open.forEach(d => {
+    const li = document.querySelector(`li.node[data-dir="${CSS.escape(d)}"]`);
+    if (li) toggleDir(li, true);
+  });
+}
+function expandAncestors(el) {
+  // Start at the PARENT — expanding the node's own <li> would immediately undo a
+  // collapse the user just performed on a folder that also has its own README.
+  let li = el.closest('li.node');
+  li = li && li.parentElement ? li.parentElement.closest('li.node') : null;
+  while (li) {
+    if (li.querySelector(':scope > ul.tree')) toggleDir(li, true);
+    li = li.parentElement ? li.parentElement.closest('li.node') : null;
+  }
+}
+
+/* ============================================================
+   progress rollups
+   ============================================================ */
+function subtreeStats(node) {
+  let done = 0, wip = 0, total = 0;
+  (function walk(n) {
+    if (n.file) {
+      total++;
+      const s = statusMap[n.file] || 'todo';
+      if (s === 'done') done++; else if (s === 'wip') wip++;
+    }
+    (n.children || []).forEach(walk);
+  })(node);
+  return { done, wip, total };
+}
+
+function recomputeAllProgress() {
+  dirNodes.forEach(({ node, prog }) => {
+    const { done, wip, total } = subtreeStats(node);
+    const bar = prog.querySelector('.bar');
+    bar.querySelector('.d').style.width = total ? (done / total * 100) + '%' : '0%';
+    bar.querySelector('.w').style.width = total ? (wip / total * 100) + '%' : '0%';
+    prog.querySelector('.cnt').textContent = `${done}/${total}`;
+    prog.classList.toggle('full', total > 0 && done === total);
+  });
+  updateGlobalStat();
+  updateFilterCounts();
+}
+
+function globalCounts() {
+  let done = 0, wip = 0;
+  const total = flatFiles.length;
+  flatFiles.forEach(f => {
+    const s = statusMap[f] || 'todo';
+    if (s === 'done') done++; else if (s === 'wip') wip++;
+  });
+  return { done, wip, todo: total - done - wip, total };
+}
+
+function updateGlobalStat() {
+  const c = globalCounts();
+  const pct = c.total ? Math.round(c.done / c.total * 100) : 0;
+  document.getElementById('globalStat').innerHTML =
+    `<span class="bar" title="${c.done} of ${c.total} complete">
+       <i class="d" style="width:${c.total ? c.done / c.total * 100 : 0}%"></i>
+       <i class="w" style="width:${c.total ? c.wip / c.total * 100 : 0}%"></i>
+     </span><strong>${pct}%</strong>`;
+}
+
+function updateFilterCounts() {
+  const c = globalCounts();
+  const m = { all: c.total, todo: c.todo, wip: c.wip, done: c.done };
+  document.querySelectorAll('#filterRow .chip').forEach(b => {
+    b.querySelector('.n').textContent = m[b.dataset.f];
+  });
+}
+
+async function commitStatus(file, status) {
+  await setStatus(file, status);
+  statusMap[file] = status;
+  const chk = document.querySelector(`[data-check-for="${CSS.escape(file)}"]`);
+  if (chk) chk.dataset.s = status;
+  if (currentFile === file) paintStatusButtons(status);
+  recomputeAllProgress();
+  if (currentFilter !== 'all') applyFilter();
+}
+
+/* ============================================================
+   filter
+   ============================================================ */
+document.querySelectorAll('#filterRow .chip').forEach(b => {
+  b.addEventListener('click', () => {
+    document.querySelectorAll('#filterRow .chip').forEach(x => x.classList.remove('on'));
+    b.classList.add('on');
+    currentFilter = b.dataset.f;
+    applyFilter();
+  });
+});
+
+function applyFilter() {
+  const all = currentFilter === 'all';
+  // 1. show/hide leaf files
+  document.querySelectorAll('#tree li.node').forEach(li => {
+    const row = li.querySelector(':scope > .row');
+    const f = row && row.dataset.file;
+    const isDir = !!li.querySelector(':scope > ul.tree');
+    if (isDir) return;
+    li.style.display = (all || (statusMap[f] || 'todo') === currentFilter) ? '' : 'none';
+  });
+  // 2. hide dirs with no visible descendants
+  [...document.querySelectorAll('#tree li.node')].reverse().forEach(li => {
+    if (!li.querySelector(':scope > ul.tree')) return;
+    if (all) { li.style.display = ''; return; }
+    const anyVisible = [...li.querySelectorAll('li.node')].some(x => x.style.display !== 'none');
+    const ownRow = li.querySelector(':scope > .row');
+    const ownFile = ownRow && ownRow.dataset.file;
+    const ownMatch = ownFile && (statusMap[ownFile] || 'todo') === currentFilter;
+    li.style.display = (anyVisible || ownMatch) ? '' : 'none';
+    if (anyVisible) toggleDir(li, true);
+  });
+}
+
+/* ============================================================
+   markdown rendering
+   ============================================================ */
 function escapeHtml(s) {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
-// {{tabs}} {{tab Label}} ...markdown... {{tab Label2}} ...markdown... {{/tabs}}
-// -> a raw <div class="tabs"> block (buttons + pre-rendered panes) that marked.js
-// passes through untouched as a standard HTML block.
+// {{tabs}} {{tab Label}} …md… {{/tabs}}  ->  raw HTML block (unchanged feature)
 function renderTabs(md) {
   let n = 0;
-  return md.replace(/\{\{tabs\}\}([\s\S]*?)\{\{\/tabs\}\}/g, (match, body) => {
-    const groupId = 'tabgroup-' + (n++);
+  return md.replace(/\{\{tabs\}\}([\s\S]*?)\{\{\/tabs\}\}/g, (m, body) => {
+    const gid = 'tabgroup-' + (n++);
     const parts = body.split(/\{\{tab\s+([^}]+)\}\}/);
     let buttons = '', panes = '';
     for (let i = 1; i < parts.length; i += 2) {
       const label = parts[i].trim();
       const html = marked.parse((parts[i + 1] || '').trim());
-      const isFirst = i === 1;
-      buttons += `<button class="tab-btn${isFirst ? ' active' : ''}" data-lang="${escapeHtml(label)}">${escapeHtml(label)}</button>`;
-      panes += `<div class="tab-pane" data-lang="${escapeHtml(label)}" style="display:${isFirst ? 'block' : 'none'}">${html}</div>`;
+      const first = i === 1;
+      buttons += `<button class="tab-btn${first ? ' active' : ''}" data-lang="${escapeHtml(label)}">${escapeHtml(label)}</button>`;
+      panes += `<div class="tab-pane" data-lang="${escapeHtml(label)}" style="display:${first ? 'block' : 'none'}">${html}</div>`;
     }
-    return `<div class="tabs" data-group="${groupId}"><div class="tab-buttons">${buttons}</div><div class="tab-panes">${panes}</div></div>`;
+    return `<div class="tabs" data-group="${gid}"><div class="tab-buttons">${buttons}</div><div class="tab-panes">${panes}</div></div>`;
   });
 }
 
@@ -341,97 +981,574 @@ function activateTab(group, lang) {
   group.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.lang === lang));
   group.querySelectorAll('.tab-pane').forEach(p => p.style.display = (p.dataset.lang === lang) ? 'block' : 'none');
 }
-
-function applyTabPreference(container) {
-  const pref = localStorage.getItem('docLangPref');
+function applyTabPreference(root) {
+  const pref = localStorage.getItem(LS.lang);
   if (!pref) return;
-  container.querySelectorAll('.tabs').forEach(group => {
-    if (group.querySelector(`.tab-btn[data-lang="${CSS.escape(pref)}"]`)) activateTab(group, pref);
+  root.querySelectorAll('.tabs').forEach(g => {
+    if (g.querySelector(`.tab-btn[data-lang="${CSS.escape(pref)}"]`)) activateTab(g, pref);
   });
 }
-
 document.getElementById('content').addEventListener('click', (e) => {
   const btn = e.target.closest('.tab-btn');
   if (!btn) return;
   const group = btn.closest('.tabs');
   activateTab(group, btn.dataset.lang);
-  localStorage.setItem('docLangPref', btn.dataset.lang);
+  localStorage.setItem(LS.lang, btn.dataset.lang);
+  // keep every other group on the page in sync too
+  document.querySelectorAll('#content .tabs').forEach(g => {
+    if (g !== group && g.querySelector(`.tab-btn[data-lang="${CSS.escape(btn.dataset.lang)}"]`)) {
+      activateTab(g, btn.dataset.lang);
+    }
+  });
 });
 
-async function openFile(path, row) {
-  currentFile = path;
-  document.querySelectorAll('.row.selected').forEach(r => r.classList.remove('selected'));
-  if (row) row.classList.add('selected');
-  document.getElementById('empty').style.display = 'none';
-  document.getElementById('crumb').textContent = path;
-  document.getElementById('statusBtns').style.display = 'flex';
+function slugify(s) {
+  return s.toLowerCase().trim().replace(/[^\w\s-]/g, '').replace(/\s+/g, '-').slice(0, 60);
+}
 
-  const content = document.getElementById('content');
-  content.innerHTML = 'Loading…';
-  try {
-    const res = await fetch(path);
-    const text = await res.text();
-    content.innerHTML = marked.parse(renderTabs(text));
-    rewriteLinks(path);
-    applyTabPreference(content);
-  } catch (e) {
-    content.textContent = 'Could not load file: ' + e;
+function enhanceContent(root) {
+  // headings: ids + anchors
+  const used = {};
+  root.querySelectorAll('h1, h2, h3, h4').forEach(h => {
+    let id = slugify(h.textContent);
+    if (!id) id = 'section';
+    if (used[id] !== undefined) { used[id]++; id = id + '-' + used[id]; } else used[id] = 0;
+    h.id = id;
+    const a = document.createElement('a');
+    a.className = 'anchor'; a.href = '#' + id; a.textContent = '#';
+    a.addEventListener('click', (e) => {
+      e.preventDefault();
+      h.scrollIntoView({ block: 'start' });
+      history.replaceState(null, '', '#' + encodeURIComponent(currentFile) + '@' + id);
+    });
+    h.prepend(a);
+  });
+
+  // code blocks: wrap, highlight, copy button
+  root.querySelectorAll('pre > code').forEach(code => {
+    const pre = code.parentElement;
+    if (pre.parentElement.classList.contains('codeblock')) return;
+    const wrap = document.createElement('div');
+    wrap.className = 'codeblock';
+    pre.replaceWith(wrap);
+    wrap.appendChild(pre);
+
+    const cls = [...code.classList].find(c => c.startsWith('language-'));
+    const lang = cls ? cls.replace('language-', '') : '';
+
+    // Only highlight when an explicit, known language is declared. Bare fences in this
+    // curriculum are usually ASCII diagrams/tables — auto-detection mangles those.
+    if (window.hljs && lang && hljs.getLanguage(lang)) {
+      try { hljs.highlightElement(code); } catch (e) { /* highlighting is optional */ }
+    }
+
+    const bar = document.createElement('div');
+    bar.className = 'cb-bar';
+    bar.innerHTML = `<span class="cb-lang">${escapeHtml(lang)}</span><button class="cb-copy">Copy</button>`;
+    bar.querySelector('.cb-copy').addEventListener('click', async (e) => {
+      const b = e.currentTarget;
+      try {
+        await navigator.clipboard.writeText(code.textContent);
+        b.textContent = 'Copied'; b.classList.add('ok');
+        setTimeout(() => { b.textContent = 'Copy'; b.classList.remove('ok'); }, 1400);
+      } catch (err) { toast('Copy failed — select manually'); }
+    });
+    wrap.appendChild(bar);
+  });
+}
+
+function resolvePath(baseDir, rel) {
+  const stack = baseDir ? baseDir.split('/') : [];
+  rel.split('/').forEach(p => {
+    if (p === '' || p === '.') return;
+    if (p === '..') stack.pop(); else stack.push(p);
+  });
+  return stack.join('/');
+}
+
+function rewriteLinks(filePath) {
+  const baseDir = filePath.includes('/') ? filePath.slice(0, filePath.lastIndexOf('/')) : '';
+
+  // Images are written relative to the .md file, but the page lives at the repo
+  // root — without this they'd 404. Rewrite src against the document's folder.
+  document.querySelectorAll('#content img[src]').forEach(img => {
+    const src = img.getAttribute('src');
+    if (!src) return;
+    if (!/^([a-z][a-z0-9+.-]*:)?\/\//i.test(src) && !src.startsWith('data:') && !src.startsWith('/')) {
+      img.setAttribute('src', resolvePath(baseDir, src));
+    }
+    img.loading = 'lazy';
+    img.addEventListener('error', () => {
+      if (img.classList.contains('broken')) return;
+      img.classList.add('broken');
+      const note = document.createElement('div');
+      note.className = 'img-missing';
+      note.textContent = 'Image not found: ' + img.getAttribute('src');
+      img.after(note);
+    }, { once: true });
+  });
+
+  document.querySelectorAll('#content a[href]').forEach(a => {
+    const href = a.getAttribute('href');
+    if (!href || a.classList.contains('anchor')) return;
+    if (/^([a-z][a-z0-9+.-]*:)?\/\//i.test(href) || href.startsWith('mailto:')) {
+      a.target = '_blank'; a.rel = 'noopener'; return;
+    }
+    if (href.startsWith('#')) return;
+    const [raw, hash] = href.split('#');
+    const resolved = resolvePath(baseDir, raw);
+    const clean = resolved.replace(/\/$/, '');
+    let target = null;
+    if (resolved.toLowerCase().endsWith('.md') && fileRows[resolved] !== undefined) target = resolved;
+    else if (dirIndex[clean]) target = dirIndex[clean];
+
+    if (target) {
+      a.setAttribute('href', '#' + encodeURIComponent(target));
+      a.addEventListener('click', (e) => { e.preventDefault(); openFile(target, { hash }); });
+    } else {
+      a.setAttribute('href', resolved + (hash ? '#' + hash : ''));
+    }
+  });
+}
+
+/* ============================================================
+   open a file
+   ============================================================ */
+async function openFile(path, opts = {}) {
+  const { hash = null, push = true } = opts;
+  currentFile = path;
+
+  document.querySelectorAll('.row.sel').forEach(r => r.classList.remove('sel'));
+  const row = fileRows[path];
+  if (row) {
+    row.classList.add('sel');
+    expandAncestors(row);
+    const rect = row.getBoundingClientRect();
+    const wrap = document.getElementById('treeWrap').getBoundingClientRect();
+    if (rect.top < wrap.top + 8 || rect.bottom > wrap.bottom - 8) {
+      row.scrollIntoView({ block: 'center' });
+    }
   }
 
-  const status = await getStatus(path);
-  refreshStatusButtons(status);
+  document.getElementById('empty').style.display = 'none';
+  document.getElementById('article').style.display = '';
+  renderCrumb(path);
+  paintStatusButtons(statusMap[path] || 'todo');
+
+  try { localStorage.setItem(LS.last, path); } catch (e) {}
+  if (push) history.replaceState(null, '', '#' + encodeURIComponent(path));
+
+  const content = document.getElementById('content');
+  content.innerHTML = '<p style="color:var(--fg-subtle)">Loading…</p>';
+  document.getElementById('main').scrollTop = 0;
+
+  try {
+    const res = await fetch(path);
+    if (!res.ok) throw new Error(res.status + ' ' + res.statusText);
+    const text = await res.text();
+    content.innerHTML = marked.parse(renderTabs(text));
+    enhanceContent(content);
+    rewriteLinks(path);
+    applyTabPreference(content);
+    setReadTime(text);
+    buildToc();
+    buildPager(path);
+    if (hash) {
+      const el = document.getElementById(hash) || document.getElementById(slugify(hash));
+      if (el) setTimeout(() => el.scrollIntoView({ block: 'start' }), 30);
+    }
+  } catch (e) {
+    content.innerHTML = `<h2>Couldn't load this file</h2><p style="color:var(--fg-muted)">${escapeHtml(path)}</p><p style="color:var(--danger)">${escapeHtml(String(e))}</p>`;
+    document.getElementById('toc').innerHTML = '';
+    document.getElementById('pager').innerHTML = '';
+  }
 }
 
-function refreshStatusButtons(status) {
-  document.querySelectorAll('#statusBtns button').forEach(b => {
-    b.classList.toggle('active', b.dataset.s === status);
+function renderCrumb(path) {
+  const parts = path.split('/');
+  const el = document.getElementById('crumb');
+  el.innerHTML = '';
+  parts.forEach((p, i) => {
+    const last = i === parts.length - 1;
+    const dirPath = parts.slice(0, i + 1).join('/');
+    const targetFile = dirIndex[dirPath];
+    if (i) { const s = document.createElement('span'); s.className = 'sep'; s.textContent = '/'; el.appendChild(s); }
+    if (!last && targetFile) {
+      const a = document.createElement('a');
+      a.href = '#' + encodeURIComponent(targetFile);
+      a.textContent = p;
+      a.addEventListener('click', e => { e.preventDefault(); openFile(targetFile); });
+      el.appendChild(a);
+    } else {
+      const s = document.createElement('span');
+      s.className = last ? 'cur' : '';
+      s.textContent = p;
+      el.appendChild(s);
+    }
   });
 }
 
-document.getElementById('statusBtns').addEventListener('click', async (e) => {
+function setReadTime(md) {
+  const words = md.replace(/```[\s\S]*?```/g, ' ').split(/\s+/).filter(Boolean).length;
+  const mins = Math.max(1, Math.round(words / 210));
+  document.getElementById('readTime').innerHTML = `${ICO.clock}<span>${mins} min read · ${words.toLocaleString()} words</span>`;
+}
+
+function paintStatusButtons(status) {
+  document.querySelectorAll('#statusBtns button').forEach(b => b.classList.toggle('on', b.dataset.s === status));
+}
+document.getElementById('statusBtns').addEventListener('click', (e) => {
   const btn = e.target.closest('button');
   if (!btn || !currentFile) return;
-  const current = [...document.querySelectorAll('#statusBtns button')].find(b => b.classList.contains('active'));
-  const newStatus = (current === btn) ? 'todo' : btn.dataset.s;
-  await setStatus(currentFile, newStatus);
-  statusMap[currentFile] = newStatus;
-  refreshStatusButtons(newStatus);
-  const check = document.querySelector(`[data-check-for="${CSS.escape(currentFile)}"]`);
-  if (check) check.dataset.state = newStatus;
-  updateSummary();
+  const cur = statusMap[currentFile] || 'todo';
+  commitStatus(currentFile, cur === btn.dataset.s ? 'todo' : btn.dataset.s);
 });
 
-document.querySelectorAll('.filters button').forEach(b => {
-  b.addEventListener('click', () => {
-    document.querySelectorAll('.filters button').forEach(x => x.classList.remove('active'));
-    b.classList.add('active');
-    currentFilter = b.dataset.f;
-    applyFilter();
+/* ============================================================
+   TOC + scrollspy + reading progress
+   ============================================================ */
+let spyObserver = null;
+function buildToc() {
+  const toc = document.getElementById('toc');
+  const heads = [...document.querySelectorAll('#content h2, #content h3')];
+  if (heads.length < 2) { toc.innerHTML = ''; return; }
+  toc.innerHTML = '<div class="toc-h">On this page</div>' + heads.map(h =>
+    `<a href="#${h.id}" data-t="${h.id}" class="${h.tagName === 'H3' ? 'lv3' : ''}">${escapeHtml(h.textContent.replace(/^#/, '').trim())}</a>`
+  ).join('');
+
+  toc.querySelectorAll('a').forEach(a => {
+    a.addEventListener('click', e => {
+      e.preventDefault();
+      document.getElementById(a.dataset.t)?.scrollIntoView({ block: 'start' });
+    });
   });
+
+  if (spyObserver) spyObserver.disconnect();
+  spyObserver = new IntersectionObserver(entries => {
+    entries.forEach(en => {
+      if (!en.isIntersecting) return;
+      toc.querySelectorAll('a').forEach(a => a.classList.toggle('on', a.dataset.t === en.target.id));
+    });
+  }, { root: document.getElementById('main'), rootMargin: '0px 0px -72% 0px', threshold: 0 });
+  heads.forEach(h => spyObserver.observe(h));
+}
+
+document.getElementById('main').addEventListener('scroll', (e) => {
+  const el = e.target;
+  const max = el.scrollHeight - el.clientHeight;
+  document.getElementById('readProg').style.width = max > 0 ? (el.scrollTop / max * 100) + '%' : '0%';
 });
 
-function applyFilter() {
-  document.querySelectorAll('#tree li').forEach(li => { li.style.display = ''; });
-  if (currentFilter === 'all') return;
-  document.querySelectorAll('[data-file]').forEach(row => {
-    const s = statusMap[row.dataset.file] || 'todo';
-    const li = row.closest('li');
-    const match = s === currentFilter;
-    li.style.display = match ? '' : 'none';
+/* ============================================================
+   prev / next
+   ============================================================ */
+function buildPager(path) {
+  const i = flatFiles.indexOf(path);
+  const pager = document.getElementById('pager');
+  pager.innerHTML = '';
+  const mk = (target, dir) => {
+    if (!target) {
+      const g = document.createElement('span'); g.className = 'pg ghost'; return g;
+    }
+    const a = document.createElement('a');
+    a.className = 'pg ' + dir;
+    a.href = '#' + encodeURIComponent(target);
+    const node = nodeByFile[target];
+    a.innerHTML = `<span class="lbl">${dir === 'prev' ? '← Previous' : 'Next →'}</span><span class="ttl">${escapeHtml(node.title || node.name)}</span>`;
+    a.addEventListener('click', e => { e.preventDefault(); openFile(target); });
+    return a;
+  };
+  pager.appendChild(mk(i > 0 ? flatFiles[i - 1] : null, 'prev'));
+  pager.appendChild(mk(i >= 0 && i < flatFiles.length - 1 ? flatFiles[i + 1] : null, 'next'));
+}
+
+/* ============================================================
+   empty / home state
+   ============================================================ */
+function renderEmptyState() {
+  const el = document.getElementById('empty');
+  const c = globalCounts();
+  const last = localStorage.getItem(LS.last);
+  const lastNode = last && nodeByFile[last];
+
+  let html = `<h2>Your curriculum</h2>
+    <p>${c.total} modules across ${treeData.length} curricula — <strong>${c.done}</strong> done,
+    <strong>${c.wip}</strong> in progress, <strong>${c.todo}</strong> to go.
+    Press <kbd>Ctrl K</kbd> to jump to any module.</p>`;
+
+  if (lastNode) {
+    html += `<a class="resume-card" href="#${encodeURIComponent(last)}" id="resumeCard">
+      <span class="ic">${ICO.book}</span>
+      <span><span class="t1">Continue where you left off</span><br><span class="t2">${escapeHtml(lastNode.title || lastNode.name)}</span></span>
+    </a>`;
+  }
+
+  html += '<div class="track-grid">';
+  treeData.forEach(root => {
+    (root.children && root.children.length ? root.children : [root]).forEach(t => {
+      const s = subtreeStats(t);
+      if (!s.total) return;
+      const pct = Math.round(s.done / s.total * 100);
+      const target = t.file || dirIndex[t.path];
+      html += `<a class="track-card" href="#${encodeURIComponent(target || '')}" data-go="${escapeHtml(target || '')}">
+        <span class="nm">${escapeHtml(t.title || t.name)}</span>
+        <span class="bar"><i class="d" style="width:${s.done / s.total * 100}%"></i><i class="w" style="width:${s.wip / s.total * 100}%"></i></span>
+        <span class="pc">${pct}%</span></a>`;
+    });
+  });
+  html += '</div>';
+  el.innerHTML = html;
+
+  const rc = document.getElementById('resumeCard');
+  if (rc) rc.addEventListener('click', e => { e.preventDefault(); openFile(last); });
+  el.querySelectorAll('[data-go]').forEach(a => {
+    a.addEventListener('click', e => {
+      e.preventDefault();
+      const t = a.dataset.go;
+      if (t && fileRows[t]) openFile(t);
+    });
   });
 }
 
+function goHome() {
+  currentFile = null;
+  document.querySelectorAll('.row.sel').forEach(r => r.classList.remove('sel'));
+  document.getElementById('article').style.display = 'none';
+  document.getElementById('toc').innerHTML = '';
+  renderEmptyState();
+  document.getElementById('empty').style.display = '';
+  history.replaceState(null, '', location.pathname + location.search);
+}
+document.querySelector('.brand').addEventListener('click', goHome);
+document.querySelector('.brand').style.cursor = 'pointer';
+
+/* ============================================================
+   command palette
+   ============================================================ */
+const palBg = document.getElementById('paletteBg');
+const palInput = document.getElementById('palInput');
+const palList = document.getElementById('palList');
+let palResults = [], palCursor = 0;
+
+function fuzzy(needle, item) {
+  const hay = item.hay;
+  if (!needle) return { score: 0, hit: [] };
+  let score = 0, ni = 0, hi = 0, run = 0;
+  const hits = [];
+  const exact = hay.indexOf(needle);
+  if (exact >= 0) { score += 1000 - exact; for (let k = 0; k < needle.length; k++) hits.push(exact + k); }
+  while (ni < needle.length && hi < hay.length) {
+    if (needle[ni] === hay[hi]) {
+      score += 10 + run * 5;
+      if (hi === 0 || /[\s\/\-_.]/.test(hay[hi - 1])) score += 15;
+      if (exact < 0) hits.push(hi);
+      run++; ni++;
+    } else run = 0;
+    hi++;
+  }
+  if (ni < needle.length) return null;
+  score -= hay.length * 0.05;
+  return { score, hit: hits };
+}
+
+function runSearch(q) {
+  const needle = q.trim().toLowerCase();
+  if (!needle) {
+    palResults = searchItems.slice(0, 40);
+    palResults.forEach(r => r._hit = []);
+  } else {
+    const out = [];
+    searchItems.forEach(it => {
+      const m = fuzzy(needle, it);
+      if (m) out.push(Object.assign({}, it, { _score: m.score, _hit: m.hit }));
+    });
+    out.sort((a, b) => b._score - a._score);
+    palResults = out.slice(0, 40);
+  }
+  palCursor = 0;
+  paintPalette();
+}
+
+function markHits(item) {
+  const label = item.title + ' ' + item.path;
+  const hit = new Set(item._hit || []);
+  let out = '', open = false;
+  for (let i = 0; i < item.title.length; i++) {
+    const on = hit.has(i);
+    if (on && !open) { out += '<mark>'; open = true; }
+    if (!on && open) { out += '</mark>'; open = false; }
+    out += escapeHtml(item.title[i]);
+  }
+  if (open) out += '</mark>';
+  return out;
+}
+
+function paintPalette() {
+  if (!palResults.length) {
+    palList.innerHTML = '<div class="pal-empty">No modules match that.</div>';
+    return;
+  }
+  palList.innerHTML = palResults.map((r, i) => `
+    <div class="pal-item${i === palCursor ? ' cur' : ''}" data-i="${i}">
+      <span class="dot" data-s="${statusMap[r.file] || 'todo'}"></span>
+      <span class="txt"><span class="t">${markHits(r)}</span><span class="p">${escapeHtml(r.path)}</span></span>
+    </div>`).join('');
+  palList.querySelectorAll('.pal-item').forEach(el => {
+    el.addEventListener('click', () => { openFile(palResults[+el.dataset.i].file); closePalette(); });
+    el.addEventListener('mousemove', () => {
+      if (palCursor === +el.dataset.i) return;
+      palCursor = +el.dataset.i;
+      palList.querySelectorAll('.pal-item').forEach(x => x.classList.toggle('cur', x === el));
+    });
+  });
+}
+
+function openPalette() {
+  palBg.classList.add('show');
+  palInput.value = '';
+  runSearch('');
+  palInput.focus();
+}
+function closePalette() { palBg.classList.remove('show'); }
+
+palInput.addEventListener('input', () => runSearch(palInput.value));
+palInput.addEventListener('keydown', (e) => {
+  if (e.key === 'ArrowDown') { e.preventDefault(); palCursor = Math.min(palCursor + 1, palResults.length - 1); paintPalette(); scrollPalCursor(); }
+  else if (e.key === 'ArrowUp') { e.preventDefault(); palCursor = Math.max(palCursor - 1, 0); paintPalette(); scrollPalCursor(); }
+  else if (e.key === 'Enter') { e.preventDefault(); const r = palResults[palCursor]; if (r) { openFile(r.file); closePalette(); } }
+  else if (e.key === 'Escape') closePalette();
+});
+function scrollPalCursor() {
+  const el = palList.querySelector('.pal-item.cur');
+  if (el) el.scrollIntoView({ block: 'nearest' });
+}
+palBg.addEventListener('click', e => { if (e.target === palBg) closePalette(); });
+document.getElementById('searchTrigger').addEventListener('click', openPalette);
+
+/* ============================================================
+   menu actions
+   ============================================================ */
+const menu = document.getElementById('menu');
+document.getElementById('menuBtn').addEventListener('click', e => { e.stopPropagation(); menu.classList.toggle('show'); });
+document.addEventListener('click', () => menu.classList.remove('show'));
+menu.addEventListener('click', e => e.stopPropagation());
+
+menu.addEventListener('click', async (e) => {
+  const btn = e.target.closest('button');
+  if (!btn) return;
+  menu.classList.remove('show');
+  const act = btn.dataset.act;
+
+  if (act === 'export') {
+    const blob = new Blob([JSON.stringify({ exported: new Date().toISOString(), status: statusMap }, null, 2)], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'curriculum-progress.json';
+    a.click(); URL.revokeObjectURL(a.href);
+    toast('Progress exported');
+  }
+  if (act === 'import') document.getElementById('importFile').click();
+  if (act === 'reset') {
+    if (!confirm('Reset progress on all ' + flatFiles.length + ' modules? This cannot be undone.')) return;
+    await clearAll();
+    statusMap = {};
+    document.querySelectorAll('[data-check-for]').forEach(c => c.dataset.s = 'todo');
+    if (currentFile) paintStatusButtons('todo');
+    recomputeAllProgress(); applyFilter();
+    toast('All progress reset');
+  }
+  if (act === 'expand') document.querySelectorAll('#tree li.node').forEach(li => { if (li.querySelector(':scope > ul.tree')) toggleDir(li, true); });
+  if (act === 'collapse') document.querySelectorAll('#tree li.node').forEach(li => { if (li.querySelector(':scope > ul.tree')) toggleDir(li, false); });
+  if (act === 'keys') alert(
+    'Keyboard shortcuts\n\n' +
+    'Ctrl/⌘ K   Search modules\n' +
+    '/          Search modules\n' +
+    'J / K      Next / previous module\n' +
+    'D          Mark current module done\n' +
+    'W          Mark current module in progress\n' +
+    'T          Cycle theme (auto / light / dark)\n' +
+    'B          Toggle sidebar\n' +
+    'Esc        Close search\n'
+  );
+});
+
+document.getElementById('importFile').addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  try {
+    const data = JSON.parse(await file.text());
+    const incoming = data.status || data;
+    let n = 0;
+    for (const [path, s] of Object.entries(incoming)) {
+      if (!['wip', 'done'].includes(s)) continue;
+      await setStatus(path, s); statusMap[path] = s; n++;
+    }
+    document.querySelectorAll('[data-check-for]').forEach(c => c.dataset.s = statusMap[c.dataset.checkFor] || 'todo');
+    if (currentFile) paintStatusButtons(statusMap[currentFile] || 'todo');
+    recomputeAllProgress(); applyFilter();
+    toast(`Imported progress for ${n} modules`);
+  } catch (err) { toast('Import failed — not a valid progress file'); }
+  e.target.value = '';
+});
+
+/* ============================================================
+   keyboard
+   ============================================================ */
+document.addEventListener('keydown', (e) => {
+  const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName) || e.target.isContentEditable;
+
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); openPalette(); return; }
+  if (e.key === 'Escape') { closePalette(); menu.classList.remove('show'); document.body.classList.remove('nav-open'); return; }
+  if (typing) return;
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
+
+  const k = e.key.toLowerCase();
+  if (k === '/') { e.preventDefault(); openPalette(); }
+  else if (k === 't') cycleTheme();
+  else if (k === 'b') document.body.classList.toggle('nav-open');
+  else if (k === 'j' || k === 'k') {
+    if (!currentFile) return;
+    const i = flatFiles.indexOf(currentFile);
+    const next = k === 'j' ? i + 1 : i - 1;
+    if (next >= 0 && next < flatFiles.length) { e.preventDefault(); openFile(flatFiles[next]); }
+  }
+  else if (k === 'd' && currentFile) commitStatus(currentFile, (statusMap[currentFile] === 'done') ? 'todo' : 'done');
+  else if (k === 'w' && currentFile) commitStatus(currentFile, (statusMap[currentFile] === 'wip') ? 'todo' : 'wip');
+});
+
+document.getElementById('themeBtn').addEventListener('click', cycleTheme);
+document.getElementById('mobileToggle').addEventListener('click', () => document.body.classList.toggle('nav-open'));
+document.getElementById('scrim').addEventListener('click', () => document.body.classList.remove('nav-open'));
+function closeNavOnMobile() { if (window.innerWidth <= 860) document.body.classList.remove('nav-open'); }
+
+/* ============================================================
+   sidebar resize
+   ============================================================ */
 (function initResizer() {
   const resizer = document.getElementById('resizer');
-  const sidebar = document.getElementById('sidebar');
+  const saved = localStorage.getItem(LS.side);
+  if (saved) document.documentElement.style.setProperty('--sidebar-w', saved + 'px');
   let dragging = false;
-  resizer.addEventListener('mousedown', () => dragging = true);
+  resizer.addEventListener('mousedown', (e) => { dragging = true; resizer.classList.add('drag'); e.preventDefault(); document.body.style.userSelect = 'none'; });
   document.addEventListener('mousemove', (e) => {
     if (!dragging) return;
-    sidebar.style.width = Math.max(200, e.clientX) + 'px';
+    const w = Math.min(Math.max(230, e.clientX), Math.min(640, window.innerWidth - 400));
+    document.documentElement.style.setProperty('--sidebar-w', w + 'px');
   });
-  document.addEventListener('mouseup', () => dragging = false);
+  document.addEventListener('mouseup', () => {
+    if (!dragging) return;
+    dragging = false; resizer.classList.remove('drag'); document.body.style.userSelect = '';
+    const w = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--sidebar-w'));
+    if (w) localStorage.setItem(LS.side, w);
+  });
 })();
+
+window.addEventListener('hashchange', () => {
+  const raw = decodeURIComponent(location.hash.replace(/^#/, ''));
+  if (!raw) return;
+  const [f, h] = raw.split('@');
+  if (f && f !== currentFile && fileRows[f]) openFile(f, { hash: h, push: false });
+});
 
 main();
 </script>
