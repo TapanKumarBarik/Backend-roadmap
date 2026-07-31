@@ -38,6 +38,50 @@ Your home router, WSL2, and Docker all hand out private addresses. Because priva
 
 Here is why the mask matters operationally. When a host wants to send a packet, it applies its own mask to both its address and the destination address. If the network parts match, the destination is **on the same local network** and the host delivers directly over the link layer (resolving the destination's MAC via ARP). If they differ, the destination is **remote**, and the host sends the packet to its **default gateway** instead. This single comparison, made for every packet, is the whole reason a wrong subnet mask breaks connectivity: get the mask wrong and the host either tries to deliver locally something that's remote, or ships to the gateway something that was a neighbor all along.
 
+### VLSM: subnets don't have to be equal size
+
+Everything so far assumed carving a block into **equal**-size pieces. Real
+networks rarely need that — a point-to-point link between two routers
+needs 2 addresses, an office LAN needs 100. **VLSM (Variable Length
+Subnet Masking)** is simply the practice of giving each subnet exactly the
+prefix length its own host count needs, instead of forcing every subnet
+in a network to share one mask. Given `10.0.0.0/24` and three needs (100
+hosts, 50 hosts, 2 hosts), you'd carve a `/25` (126 usable, covers the
+100-host need) for the first, a `/26` (62 usable) for the second carved
+out of what's left, and a `/30` (2 usable) for the point-to-point link out
+of what's left after that — each boundary computed with the same
+block-size trick from above, just applied repeatedly with a shrinking
+mask instead of once with a fixed one. The only rule: once a block is
+handed out, the next one starts immediately after it ends, and it can't
+overlap. VLSM is *why* real address plans look like an irregular patchwork
+of different prefix lengths rather than one uniform size everywhere.
+
+### Supernetting: the reverse operation
+
+**Supernetting** goes the other direction: combining several
+**contiguous, equal-size** smaller blocks into one larger block described
+by a shorter (less specific) prefix, so a router can advertise or match
+them with a single route instead of several. Four adjacent /24s —
+`192.168.0.0/24` through `192.168.3.0/24` — combine into one `192.168.0.0/22`
+*only if* the first address is itself a valid /22 boundary (a multiple of
+the /22 block size, 4, in the second-to-last-varying octet here) and all
+four blocks are present with no gaps. This is also called **CIDR route
+aggregation** or **route summarization**: an ISP holding
+`203.0.113.0/24` through `203.0.116.0/24`-ish ranges advertises one
+summarized prefix upstream instead of dozens of individual /24 routes,
+keeping the internet's global routing table from growing without bound —
+the same "one route instead of many, if the blocks line up" idea reused
+at internet scale (module 08 picks this back up as **route
+aggregation/CIDR** in the context of routing protocols).
+
+The check for "can these combine?" is the same longest-prefix-match
+arithmetic in reverse: take the proposed shorter prefix, compute *its*
+network address and block size, and confirm every one of the smaller
+blocks falls inside it contiguously, starting exactly at that boundary.
+If the smaller blocks don't start at a valid boundary for the wider mask,
+or there's a gap, they cannot be summarized into one clean prefix — you'd
+need two summary routes instead of one, or to leave them unaggregated.
+
 ### IPv6 in one breath
 
 IPv4's 32 bits (~4 billion addresses) ran out, so IPv6 uses **128 bits**, written as eight groups of four hex digits: `2001:0db8:0000:0000:0000:ff00:0042:8329`. Long runs of zeros compress: leading zeros in a group drop, and one run of all-zero groups becomes `::`, giving `2001:db8::ff00:42:8329`. The concepts transfer directly — there's still a prefix length (`/64` is the standard subnet size), still network and host portions, still public and special ranges (`fe80::/10` is link-local, `::1` is loopback). You will meet IPv6 more in the Azure track; for now, know it exists, know `::1` is "localhost," and know the CIDR idea is identical.
@@ -78,6 +122,10 @@ Flag breakdowns:
 
 8. **Diagnose and fix: wrong subnet mask.** Set up the failure: `sudo ip addr add 10.50.0.10/28 dev eth0`. Now `ip route get 10.50.0.200` — with a /28, `10.50.0.200` is *outside* your `10.50.0.0/28` block (which ends at `.15`), so the kernel routes it via the gateway even though you intended them to be neighbors on a /24. The symptom "host on the same LAN is unreachable" is classically a mask that's too narrow. **Fix:** remove and re-add with the correct mask — `sudo ip addr del 10.50.0.10/28 dev eth0` then `sudo ip addr add 10.50.0.10/24 dev eth0` — and re-run `ip route get 10.50.0.200` to confirm it's now treated as local (direct `dev`, no `via`). Clean up with `ip addr del` afterward.
 
+8. **VLSM by hand.** Given `192.168.20.0/24`, carve out a subnet for 100 hosts, then a subnet for 50 hosts from what's left, then a subnet for 2 hosts (a point-to-point link) from what's left after that. Work out each prefix length and boundary before checking: /25 (`192.168.20.0/25`, 126 usable) for the first; /26 (`192.168.20.128/26`, 62 usable) for the second; /30 (`192.168.20.192/30`, 2 usable) for the third. Confirm each with `ipcalc`.
+
+9. **Supernet four /24s and check the boundary rule.** Given `10.4.0.0/24`, `10.4.1.0/24`, `10.4.2.0/24`, `10.4.3.0/24`, verify by hand that these summarize cleanly into `10.4.0.0/22` (compute the /22's block size in the third octet — 4 — and confirm `10.4.0.0` is a multiple of it and all four /24s are contiguous with no gap). Then try summarizing `10.4.1.0/24` through `10.4.4.0/24` instead — explain why this set does *not* summarize into one clean CIDR block.
+
 ## Independent challenge
 
 You are handed the block `172.16.0.0/22` for a small lab and told to carve it into four equal subnets, one per team, each needing at least 100 usable hosts. Determine the correct prefix length for the four subnets, list the network address, usable range, and broadcast for each, and state which subnet the address `172.16.2.150` lands in. This builds directly on the "local or gateway?" and block-size ideas here; it also leans on the layering model from **module 00** — specifically why a host on team 2's subnet reaching a host on team 3's subnet must go through a gateway rather than delivering directly.
@@ -95,6 +143,7 @@ Four equal subnets means borrowing 2 host bits from the /22 (because `2^2 = 4`),
 - **Forgetting the two reserved addresses.** The network and broadcast addresses are not assignable to hosts. A /30 (common for point-to-point links) has 4 addresses but only 2 usable.
 - **Confusing prefix length with host count directly.** `/24` is not "24 hosts." It's 24 network bits, leaving 8 host bits = 254 usable. Always convert to host bits first.
 - **A `169.254.x.x` address means something failed.** If a host self-assigned a link-local address, it means it never got a real one (DHCP failure). Don't try to route through it — fix the address assignment.
+- **Trying to supernet blocks that don't start on a valid boundary, or that have a gap.** `10.4.1.0/24` through `10.4.4.0/24` looks like four contiguous /24s but does *not* summarize into one clean CIDR block, because `10.4.1.0` is not a multiple of the /22 block size (4) in the third octet — the valid /22 boundaries are `10.4.0.0`, `10.4.4.0`, `10.4.8.0`... A summary route must start exactly on its own boundary, not wherever your blocks happen to begin.
 - **Changing your primary address over SSH/WSL.** Deleting the address you're connected through will drop your session. Practice `ip addr add/del` on a spare address, not your lifeline.
 
 ## Checkpoint quiz
@@ -108,6 +157,8 @@ Write down your answer to each question before expanding it — checking without
 5. Why does a host need the subnet mask, not just its own address, to send a packet?
 6. What does a `169.254.x.x` address usually indicate?
 7. How many usable hosts in a `/30`, and what is it commonly used for?
+8. What is VLSM, and why do real address plans end up with subnets of different prefix lengths instead of one uniform size?
+9. What two conditions must hold for a set of contiguous /24 blocks to be summarized into a single, shorter-prefix supernet route?
 
 <details><summary>Show answers</summary>
 
@@ -118,6 +169,8 @@ Write down your answer to each question before expanding it — checking without
 5. The mask tells the host which bits are network vs host, which is how it decides whether a destination is local (deliver directly) or remote (send to the gateway). Without it, that decision is impossible.
 6. Link-local self-assignment — the host failed to obtain an address (e.g., DHCP didn't answer).
 7. `2^2 - 2 = 2` usable hosts. Commonly used for point-to-point links between two routers, where exactly two addresses are needed.
+8. VLSM means giving each subnet the prefix length its own host count actually needs (a /25 for 100 hosts, a /30 for a 2-host link), instead of forcing every subnet in a network to share one uniform mask — the result is an irregular patchwork of different-length blocks carved sequentially out of the original allocation.
+9. Supernetting (route aggregation/summarization) combines several contiguous, equal-size blocks into one wider, less-specific prefix, but only if the first block starts exactly on a valid boundary for the wider mask and there's no gap between the blocks — otherwise they can't be expressed as one clean CIDR route and must stay separate (or be summarized as more than one route).
 
 </details>
 

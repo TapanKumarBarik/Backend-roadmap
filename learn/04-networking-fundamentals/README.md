@@ -20,9 +20,13 @@ All hands-on work runs in your **WSL2 Ubuntu terminal** using standard tools: `i
 | 05 | [Routing, NAT & firewalls](05-routing-nat-and-firewalls/README.md) | How packets choose a path, address translation, packet filtering | 2.5–3 h |
 | 06 | [Load balancing concepts](06-load-balancing-concepts/README.md) | L4 vs L7, algorithms, health checks, session persistence | 2–2.5 h |
 | 07 | [Network troubleshooting toolkit](07-network-troubleshooting-toolkit/README.md) | A repeatable diagnostic method and the tools that support it | 2.5–3 h |
-| 08 | [Capstone project](08-capstone-project/README.md) | Diagnose and fix a chain of connectivity failures in a multi-host lab | 3–4 h |
+| 08 | [Routing protocols](08-routing-protocols/README.md) | Static vs dynamic routing, IGP vs EGP, distance-vector vs link-state, RIP, OSPF, BGP, administrative distance | 2.5–3 h |
+| 09 | [VPN & IPSec](09-vpn-and-ipsec/README.md) | Tunneling, site-to-site vs remote-access VPNs, AH vs ESP, transport vs tunnel mode, IKE, SSL VPNs | 2.5–3 h |
+| 10 | [CDN & reverse proxy](10-cdn-and-reverse-proxy/README.md) | Forward vs reverse proxy, CDN edge caching, cache hit/miss, cache invalidation, reading failures through the stack | 2–2.5 h |
+| 11 | [WebSocket & gRPC](11-websocket-and-grpc/README.md) | Beyond request/response: persistent two-way connections, HTTP/2-based RPC, streaming, and how load balancing/proxies/timeouts change | 2.5–3 h |
+| 12 | [Capstone project](12-capstone-project/README.md) | Diagnose and fix a chain of connectivity failures in a multi-host lab | 3–4 h |
 
-Total: roughly 20–26 hours of focused work.
+Total: roughly 30–38 hours of focused work.
 
 ## How to use this track
 

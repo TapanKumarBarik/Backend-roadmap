@@ -163,4 +163,4 @@ Closed-book. Don't reopen earlier modules while attempting these. These delibera
 
 ## Next
 
-[08 — Capstone project](../08-capstone-project/README.md): put the whole toolkit to work — diagnose and fix a chain of deliberately-broken connectivity problems across a small multi-host lab, using only this method.
+[08 — Routing protocols](../08-routing-protocols/README.md): module 05 covered forwarding and static routes; now see how routers learn routes from *each other* automatically — RIP, OSPF, and BGP — and add that to your diagnostic toolkit.

@@ -2,7 +2,7 @@
 
 ## Why this matters
 
-Reading about troubleshooting and doing it are different skills. This capstone forces you to combine everything — the layer model, addressing and subnets, DNS, TCP/ports, TLS, routing/NAT/firewalls, load balancing, and the diagnostic method — against a scenario that is *deliberately broken in several independent ways at once*, the way real outages actually arrive. No solution is provided, only the broken scenario and a precise definition of "fixed." If you can work this end to end from memory, you are ready for the Azure networking track, where the exact same failure modes reappear wearing service names.
+Reading about troubleshooting and doing it are different skills. This capstone forces you to combine everything — the layer model, addressing and subnets, DNS, TCP/ports, TLS, routing/NAT/firewalls, routing protocols, VPNs, load balancing, CDN/reverse proxy, WebSocket/gRPC, and the diagnostic method — against a scenario that is *deliberately broken in several independent ways at once*, the way real outages actually arrive. No solution is provided, only the broken scenario and a precise definition of "fixed." If you can work this end to end from memory, you are ready for the Azure networking track, where the exact same failure modes reappear wearing service names.
 
 ## The project
 

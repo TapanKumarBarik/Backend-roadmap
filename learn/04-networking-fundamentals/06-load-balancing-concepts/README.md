@@ -40,6 +40,49 @@ This is why health-check design matters: a TCP-only check will happily keep send
 
 HTTP is stateless (module 04), but some applications keep per-user state in memory on one backend (a session, an upload in progress). If the balancer sends that user's next request to a *different* backend, the state isn't there and things break. **Session persistence / sticky sessions** ties a client to the same backend for the duration of a session — via a cookie the L7 balancer sets, or a source-IP hash at L4. It solves the stateful-app problem but has a cost: it unbalances load (a few heavy clients pin to a few backends) and complicates failover (if that backend dies, the session is lost anyway). The cleaner long-term answer is **stateless backends** that store session state in a shared store (a database or cache), so any backend can serve any request and stickiness becomes unnecessary. Recognizing "works sometimes, fails sometimes after login" as a stickiness/state problem is a valuable instinct.
 
+### High availability: redundancy above and below the balancer
+
+A load balancer removing a dead *backend* from rotation is only half of
+"highly available" — the balancer itself, and everything each backend
+depends on, is also a single point of failure unless deliberately made
+redundant. Two patterns cover most of it:
+
+- **Active-active** — two or more identical instances of a component
+  (load balancers, or backends themselves) all handle traffic
+  simultaneously, and the total capacity is shared work, not spare
+  capacity sitting idle. If one instance dies, the others absorb its
+  share (with reduced headroom until it's replaced) and nothing needs to
+  "take over" — there's no failover event to wait on.
+- **Active-standby (active-passive)** — one instance handles all traffic;
+  a second, identical instance sits idle, continuously replicating state,
+  ready to take over if the active one fails. Simpler to reason about
+  (no concurrent-write concerns between the two), but the standby's
+  capacity is otherwise wasted, and there's a real (if brief) failover
+  gap while the standby detects the failure and takes over.
+
+**The balancer itself needs this too.** A single load balancer instance
+is a single point of failure sitting in front of your redundant
+backends — production setups run **two or more load balancer instances**
+(often themselves behind a floating/virtual IP that moves to whichever
+instance is currently healthy, or behind DNS with health-checked
+failover) so that *neither* the backend tier *nor* the balancer tier has
+one machine that, if it dies, takes the whole service down. Layer this
+on top of the database tier too (a primary with a replica, using the same
+active-standby idea) and you get the shape every cloud "highly available"
+reference architecture draws: redundant load balancers → redundant
+backends → a primary/replica data tier, no single instance anywhere on
+the critical path.
+
+**Redundancy without health checks is theater.** Two backends (or two
+balancers) only provide real availability if something is actually
+detecting failure and rerouting around it — which is exactly this
+module's health-check mechanism, applied recursively at every tier: the
+balancer health-checks backends, something (a floating IP mechanism, a
+cloud control plane, DNS health checks) has to health-check the balancer
+tier itself, and a database replica setup needs its own failure detection
+before promotion. "We have two of everything" is not the same claim as
+"we have two of everything *and a working way to notice when one dies*."
+
 ### Reading failures through the balancer
 
 Because a balancer sits between client and backend, it reshapes how failures appear. A client-visible `502 Bad Gateway` or `504 Gateway Timeout` (module 04) usually means the *balancer* reached the client fine but couldn't get a good/timely response from a backend — so you debug the balancer-to-backend hop, not the client-to-balancer hop. "One in five requests fails" strongly suggests one unhealthy backend still (wrongly) in rotation, often because the health check is too shallow to notice. And a request that works when you hit a backend directly but fails through the VIP isolates the problem to the balancer or its health/routing config. This layered view — client → VIP → backend — is the load-balancing counterpart of tracing a packet through routing and firewalls in module 05.
@@ -83,6 +126,8 @@ These use Docker (from your earlier track) to build a tiny load-balanced setup. 
 
 8. **Diagnose and fix: one unhealthy backend still in rotation.** Simulate it: keep b1 healthy but make b2 return errors (stop its app but leave a listener, or serve a page that 500s). Run the round-robin loop from exercise 2 with `-w '%{http_code}\n'`. You see an alternating pattern like `200, 500, 200, 500` — exactly the "fails every other request" symptom. Diagnose: hit each backend directly (`curl localhost:8081` vs `localhost:8082`) to identify *which* backend is bad — b2 returns 500 while b1 returns 200. The root cause is that the "balancer" is still sending traffic to an unhealthy backend because nothing removed it. **Fix (conceptual):** the health check must be deep enough (L7 `/healthz`, not just L4 port-open) to detect b2's failure and pull it from rotation; operationally, remove/repair b2. Re-run the loop after "removing" b2 (only curl b1) to confirm a clean `200, 200, 200`. The lesson: intermittent, patterned failures = one bad backend + an inadequate health check.
 
+9. **Active-active vs active-standby, by scenario.** For each, decide which pattern fits better and why: (a) two backends serving stateless API requests where you want to use all available capacity all the time; (b) a primary/replica database where concurrent writes to both sides would cause conflicts; (c) two load balancer instances in front of your backend pool. Expected: (a) active-active — no reason to waste idle capacity when requests are stateless and either instance can serve any request; (b) active-standby — a single writable primary avoids write conflicts, the replica takes over only on failure; (c) either works in practice, but many real setups use active-standby with a floating IP for simplicity, or active-active behind DNS/anycast for larger scale — the key requirement either way is that *something* health-checks the balancer tier itself, not which pattern you pick.
+
 ## Independent challenge
 
 Users of a web app report that they get logged out at random and occasionally see a `502`, but only "sometimes." You have a load balancer in front of four backends. Design an investigation that determines (a) whether the intermittent logouts are a session-persistence/state problem and (b) whether the `502`s trace to one specific unhealthy backend that the health check isn't catching. You must combine this module with **module 04 (HTTP/TLS)**: use HTTP status semantics and direct-to-backend requests to distinguish a client-side 4xx from a backend 5xx, and to tell "the LB can't reach the backend" from "the backend itself errors."
@@ -100,6 +145,8 @@ Attack the two symptoms separately. For the logouts: the "random" nature across 
 - **Reaching for stickiness instead of statelessness.** Sticky sessions paper over in-memory state but unbalance load and lose sessions on failover. Prefer stateless backends with a shared session store.
 - **Testing only through the VIP.** When something fails "sometimes," you can't tell which backend is bad from the VIP alone. Use `curl --resolve` to hit each backend directly and isolate the offender.
 - **Assuming round robin means perfectly even load.** Round robin distributes *requests*, not *work*. If some requests are far heavier, least-connections or weighting fits better.
+- **Treating the load balancer itself as immune to failure.** A single balancer instance is a single point of failure in front of your redundant backends — run redundant balancer instances too (active-active or active-standby), or the backend redundancy you built doesn't actually give you high availability.
+- **Calling two instances "redundant" with no failure detection wired up.** Redundancy only pays off if something actually notices a failed instance and reroutes around it — the same health-check mechanism this module already covers, applied at every tier (balancer, backend, database), not just once at the backend layer.
 - **Forgetting the balancer terminates TLS (L7).** If the L7 balancer terminates TLS, the backend often speaks plain HTTP behind it — cert problems and encryption expectations differ on each hop. Don't debug the backend as if it must present the public cert.
 
 ## Checkpoint quiz
@@ -114,6 +161,7 @@ Write down your answer to each question before expanding it — checking without
 6. How does `curl --resolve` help you decide whether a problem is the load balancer or one backend?
 7. What is a VIP, and what two benefits does putting one in front of a pool provide?
 8. You need to balance a raw non-HTTP TCP service and also route HTTP by URL path. Which layer of balancing does each require?
+9. What's the difference between active-active and active-standby redundancy, and why is "we have two of everything" not sufficient on its own to claim high availability?
 
 <details><summary>Show answers</summary>
 
@@ -125,6 +173,7 @@ Write down your answer to each question before expanding it — checking without
 6. It forces a hostname to resolve to one specific backend IP while keeping correct SNI/Host, letting you test each backend directly and compare with the VIP — isolating whether the fault is the balancer/config or a particular backend.
 7. A virtual IP is the single stable address clients hit, fronting many backends. Benefits: load distribution across backends and high availability (a failed backend is removed from rotation without downtime).
 8. The raw TCP service needs L4 (it's not HTTP, so there's no content to route on); URL-path routing needs L7 (it must read the HTTP request path).
+9. Active-active runs multiple instances handling traffic simultaneously (shared work, no failover event, some idle headroom lost when one dies); active-standby keeps one idle replica ready to take over on failure (simpler, but wastes standby capacity and has a real failover gap). "Two of everything" isn't sufficient because redundancy only provides real availability if something actually detects a failed instance and reroutes around it — the same health-check idea this module teaches for backends has to exist at every redundant tier, not just be assumed.
 
 </details>
 
