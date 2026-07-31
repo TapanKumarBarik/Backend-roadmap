@@ -72,6 +72,7 @@ TRACK_TAGS = {
     "devops-for-backend": ["devops", "ci-cd"],
     "system-design-interview": ["system-design", "interview"],
     "multi-tenancy-and-saas": ["multi-tenancy", "saas"],
+    "grpc-deep-dive": ["grpc", "protobuf", "api"],
     # lld/
     "programming-basics": ["fundamentals", "python", "csharp"],
     "classes-objects": ["oop"],
@@ -114,7 +115,9 @@ VOCAB = {
     "reverse-proxy":   r"\b(reverse proxy|forward proxy|proxy_pass|upstream)\b",
     "load-balancing":  r"\b(load balanc(er|ing)|round robin|least connections|health check|vip\b|sticky session)\b",
     "websocket":       r"\b(websocket|101 switching protocols|long polling)\b",
-    "grpc":            r"\b(grpc|protobuf|protocol buffers|unary|bidirectional streaming)\b",
+    "grpc":            r"\b(grpc|unary rpc|bidirectional streaming|grpcurl|\.proto\b)\b",
+    "protobuf":        r"\b(protobuf|protocol buffers|\.proto\b|field number|wire type|protoc\b|reserved field)\b",
+    "schema-evolution": r"\b(backward compat|forward compat|breaking change|schema evolution|wire.compatib)\b",
     "high-availability": r"\b(high availability|active.active|active.standby|active.passive|failover|redundan(cy|t))\b",
     # deliberately tool/symptom-specific: "diagnose" appears in every module's
     # standard exercise wording and would tag the entire corpus
