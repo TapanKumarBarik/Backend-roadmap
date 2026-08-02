@@ -589,7 +589,7 @@ update mechanisms, the edge, and putting it all together.
 
 ## Next
 
-[08-edge-computing-and-webassembly](../08-edge-computing-and-webassembly/README.md)
+[11-edge-computing-and-webassembly](../11-edge-computing-and-webassembly/README.md)
 — one more edge to add to module 00's map: logic that runs neither in your
 origin server nor in the browser, but on infrastructure physically close to
 the request, in a WebAssembly sandbox instead of a traditional server process.

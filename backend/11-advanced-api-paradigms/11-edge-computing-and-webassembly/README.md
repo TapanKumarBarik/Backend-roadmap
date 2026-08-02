@@ -477,7 +477,7 @@ Write down your answer to each question before expanding it — checking without
 
 ## Next
 
-[09-capstone-project](../09-capstone-project/README.md) — you've built
+[12-capstone-project](../12-capstone-project/README.md) — you've built
 the whole map: REST, gRPC, GraphQL, event-driven communication, and now
 edge computing as a fifth place logic can run. The capstone makes the
 core of it real in miniature: one small service exposed via an internal

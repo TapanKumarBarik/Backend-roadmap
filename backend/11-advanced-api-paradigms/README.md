@@ -43,11 +43,14 @@ REST must earn its complexity against a concrete pain.
 | 02 | [gRPC streaming and advanced patterns](02-grpc-streaming-and-advanced-patterns/README.md) | Use server/client/bidi streaming, status codes, deadlines, and interceptors — and avoid the leaked stream | 75-100 min |
 | 03 | [GraphQL fundamentals](03-graphql-fundamentals/README.md) | Build a schema/resolver GraphQL API on Strawberry, and kill the N+1 problem with DataLoaders | 90-120 min |
 | 04 | [GraphQL advanced patterns](04-graphql-advanced-patterns/README.md) | Add subscriptions, cursor-based pagination, per-field authorization, query-cost limits, and know federation | 90-120 min |
-| 05 | [Webhooks vs polling vs websockets tradeoffs](05-webhooks-vs-polling-vs-websockets-tradeoffs/README.md) | Choose the right update mechanism for a given consumer — poll, webhook, SSE, or WebSocket — and know its cost | 45-60 min |
-| 06 | [API gateways and BFF](06-api-gateways-and-bff/README.md) | Place an API gateway (auth, rate limit, routing) and a Backend-for-Frontend layer at the edge — and know when each is premature | 75-100 min |
-| 07 | [API design tradeoffs in practice](07-api-design-tradeoffs-in-practice/README.md) | Mix REST + gRPC + a GraphQL BFF in one system, version across paradigms, and document a multi-paradigm surface | 75-100 min |
-| 08 | [Edge computing and WebAssembly](08-edge-computing-and-webassembly/README.md) | Run request-shaping logic at the edge in a Wasm sandbox, and know what belongs there vs. at origin | 60-90 min |
-| 09 | [Capstone project](09-capstone-project/README.md) | Build one small service exposed via an internal gRPC API and a GraphQL BFF in front of it for a web client | 3-5 hrs |
+| 05 | [GraphQL schema evolution and deprecation](05-graphql-schema-evolution-and-deprecation/README.md) | Evolve a schema with no version numbers: `@deprecated`, additive-only change rules, field lifecycle, and schema checks in CI | 75-100 min |
+| 06 | [GraphQL errors, nullability and partial results](06-graphql-errors-nullability-and-partial-results/README.md) | Use the `errors[]` array and null-propagation deliberately, and model expected failures as schema types rather than exceptions | 75-100 min |
+| 07 | [GraphQL security, caching and observability](07-graphql-security-caching-and-observability/README.md) | Defend against alias and batching attacks that complexity limits miss, cache a POST-based API with APQ and cache hints, and trace per-resolver | 90-120 min |
+| 08 | [Webhooks vs polling vs websockets tradeoffs](08-webhooks-vs-polling-vs-websockets-tradeoffs/README.md) | Choose the right update mechanism for a given consumer — poll, webhook, SSE, or WebSocket — and know its cost | 45-60 min |
+| 09 | [API gateways and BFF](09-api-gateways-and-bff/README.md) | Place an API gateway (auth, rate limit, routing) and a Backend-for-Frontend layer at the edge — and know when each is premature | 75-100 min |
+| 10 | [API design tradeoffs in practice](10-api-design-tradeoffs-in-practice/README.md) | Mix REST + gRPC + a GraphQL BFF in one system, version across paradigms, and document a multi-paradigm surface | 75-100 min |
+| 11 | [Edge computing and WebAssembly](11-edge-computing-and-webassembly/README.md) | Run request-shaping logic at the edge in a Wasm sandbox, and know what belongs there vs. at origin | 60-90 min |
+| 12 | [Capstone project](12-capstone-project/README.md) | Build one small service exposed via an internal gRPC API and a GraphQL BFF in front of it for a web client | 3-5 hrs |
 
 Start here → [00-beyond-rest-when-and-why/README.md](00-beyond-rest-when-and-why/README.md)
 

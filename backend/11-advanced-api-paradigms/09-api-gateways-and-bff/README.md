@@ -468,7 +468,7 @@ Write down your answer to each question before expanding it — checking without
 
 ## Next
 
-[07-api-design-tradeoffs-in-practice](../07-api-design-tradeoffs-in-practice/README.md)
+[10-api-design-tradeoffs-in-practice](../10-api-design-tradeoffs-in-practice/README.md)
 — you now have every piece: the paradigms, the update mechanisms, and the edge
 components. Next you'll put them together into a coherent whole-system strategy —
 mixing REST, gRPC, and a GraphQL BFF in one product, versioning across paradigms,

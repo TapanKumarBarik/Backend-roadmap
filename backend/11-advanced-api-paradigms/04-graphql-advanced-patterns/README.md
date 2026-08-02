@@ -507,7 +507,7 @@ Write down your answer to each question before expanding it — checking without
 
 ## Next
 
-[05-webhooks-vs-polling-vs-websockets-tradeoffs](../05-webhooks-vs-polling-vs-websockets-tradeoffs/README.md)
+[05-graphql-schema-evolution-and-deprecation](../05-graphql-schema-evolution-and-deprecation/README.md)
 — you now know gRPC and GraphQL in depth. The next module is deliberately short:
 a decision framework for choosing between gRPC, GraphQL, REST, and the
 event/real-time options (webhooks, WebSockets, polling) for a given consumer —

@@ -462,7 +462,7 @@ Write down your answer to each question before expanding it — checking without
 
 ## Next
 
-[06-api-gateways-and-bff](../06-api-gateways-and-bff/README.md) — you can now
+[09-api-gateways-and-bff](../09-api-gateways-and-bff/README.md) — you can now
 route any consumer to the right paradigm *and* the right update mechanism. Next
 you'll learn the edge components that sit in front of all of this: the **API
 gateway** (rate limiting, auth termination, routing at the edge) and the
