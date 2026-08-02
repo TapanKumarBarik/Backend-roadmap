@@ -86,6 +86,7 @@ it's structured to fight that:
 | 14 | [14-system-design-interview-practice](14-system-design-interview-practice/README.md) | Estimate capacity, run a structured system-design whiteboard session, and solve classic system design problems end to end | everything above |
 | 15 | [15-multi-tenancy-and-saas-architecture](15-multi-tenancy-and-saas-architecture/README.md) | Design and build a real multi-tenant SaaS: tenant routing, tenant-scoped auth, provisioning automation, billing/metering, and app-layer noisy-neighbor mitigation, ending in a guided small-SaaS build | databases-and-data-layer, authentication-and-authorization, background-processing-and-realtime |
 | 16 | [16-grpc-deep-dive](16-grpc-deep-dive/README.md) | Take gRPC to production: protobuf schema evolution, mTLS, health/load-balancing/keepalive, observability and testing, gRPC-Web and gateways, honest benchmarking — ending in a guided three-service gRPC system build | advanced-api-paradigms (01, 02), authentication-and-authorization, observability-and-operational-readiness |
+| 17 | [17-kafka-and-streaming](17-kafka-and-streaming/README.md) | Run Kafka in production: producer durability and idempotence, rebalancing, exactly-once transactions, schema evolution, compaction and topics-as-state, windowed stream processing, and lag/reliability operations — ending in a guided event-driven system build | background-processing-and-realtime (module 10), distributed-systems-patterns |
 
 ## Prerequisites already confirmed
 

@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//c/tmp/**)",
+      "Bash(python rebal_test.py cooperative-sticky)"
+    ]
+  }
+}

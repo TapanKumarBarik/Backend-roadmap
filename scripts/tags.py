@@ -73,6 +73,7 @@ TRACK_TAGS = {
     "system-design-interview": ["system-design", "interview"],
     "multi-tenancy-and-saas": ["multi-tenancy", "saas"],
     "grpc-deep-dive": ["grpc", "protobuf", "api"],
+    "kafka-and-streaming": ["kafka", "streaming", "event-driven"],
     # lld/
     "programming-basics": ["fundamentals", "python", "csharp"],
     "classes-objects": ["oop"],
@@ -157,7 +158,9 @@ VOCAB = {
     "api-gateway":     r"\b(api gateway|bff\b|backend for frontend|rate limit)\b",
     "auth":            r"\b(authenticat|authoriz|jwt|oauth2?|oidc|session|rbac|password hash)\b",
     "multi-tenancy":   r"\b(multi.tenan|tenant|row.level security|schema.per.tenant|saas)\b",
-    "queues":          r"\b(message queue|task queue|celery|rabbitmq|service bus|kafka|pub/?sub|broker)\b",
+    "queues":          r"\b(message queue|task queue|celery|rabbitmq|service bus|pub/?sub|broker)\b",
+    "kafka":           r"\b(kafka|partition key|consumer group|log compaction|offset commit|broker|topic partition)\b",
+    "streaming":       r"\b(stream processing|windowing|tumbling window|session window|watermark|event time|stream.table)\b",
     "event-driven":    r"\b(event.driven|event grid|event sourcing|cqrs|saga|choreograph)\b",
     "realtime":        r"\b(real.?time|server.sent event|sse\b|push notification|live update)\b",
     "idempotency":     r"\b(idempoten|exactly.once|at.least.once|deduplicat|retry)\b",
