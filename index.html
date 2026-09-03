@@ -121,6 +121,10 @@
   }
   .icon-btn:hover { background: var(--hover); color: var(--fg); }
   .icon-btn svg { width: 17px; height: 17px; }
+  #authBtn .avatar {
+    width: 20px; height: 20px; border-radius: 50%; background: var(--fg); color: var(--bg);
+    display: grid; place-items: center; font-size: 11px; font-weight: 700;
+  }
   #globalStat {
     font-size: 12.5px; color: var(--fg-muted); display: flex; align-items: center; gap: 8px;
     padding-right: 4px; white-space: nowrap;
@@ -495,6 +499,7 @@
   #menu button:hover { background: var(--hover); }
   #menu button svg { width: 14px; height: 14px; color: var(--fg-muted); flex-shrink: 0; }
   #menu .div { height: 1px; background: var(--border-subtle); margin: 5px 0; }
+  #menu button.hidden { display: none; }
   #menu .grp { font-size: 10.5px; text-transform: uppercase; letter-spacing: .06em; color: var(--fg-subtle); padding: 6px 10px 3px; font-weight: 700; }
 
   #toast {
@@ -547,11 +552,16 @@
   </button>
   <div class="spacer"></div>
   <div id="globalStat"></div>
+  <button class="icon-btn" id="authBtn" title="Sign in with Google to sync progress"></button>
   <button class="icon-btn" id="themeBtn" title="Toggle theme (T)"></button>
   <button class="icon-btn" id="menuBtn" title="More">
     <svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 9a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3ZM1.5 9a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3Zm13 0a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3Z"/></svg>
   </button>
   <div id="menu">
+    <div class="grp" id="acctLabel">Account</div>
+    <button data-act="signin-google"><svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 8a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Zm0 1.5c-3.15 0-6 1.63-6 4.15 0 .19.15.35.34.35h11.32c.19 0 .34-.16.34-.35 0-2.52-2.85-4.15-6-4.15Z"/></svg>Sign in with Google</button>
+    <button data-act="signout" class="hidden"><svg viewBox="0 0 16 16" fill="currentColor"><path d="M2 2.75C2 1.784 2.784 1 3.75 1h2.5a.75.75 0 0 1 0 1.5h-2.5a.25.25 0 0 0-.25.25v10.5c0 .138.112.25.25.25h2.5a.75.75 0 0 1 0 1.5h-2.5A1.75 1.75 0 0 1 2 13.25Zm10.44 4.5-1.97-1.97a.75.75 0 0 1 1.06-1.06l3.25 3.25a.75.75 0 0 1 0 1.06l-3.25 3.25a.75.75 0 1 1-1.06-1.06l1.97-1.97H6.75a.75.75 0 0 1 0-1.5Z"/></svg>Sign out</button>
+    <div class="div"></div>
     <div class="grp">Progress</div>
     <button data-act="export"><svg viewBox="0 0 16 16" fill="currentColor"><path d="M8.75 1v8.44l2.72-2.72a.75.75 0 1 1 1.06 1.06l-4 4a.75.75 0 0 1-1.06 0l-4-4a.75.75 0 0 1 1.06-1.06l2.72 2.72V1a.75.75 0 0 1 1.5 0ZM2 13.25a.75.75 0 0 1 .75-.75h10.5a.75.75 0 0 1 0 1.5H2.75a.75.75 0 0 1-.75-.75Z"/></svg>Export progress (.json)</button>
     <button data-act="import"><svg viewBox="0 0 16 16" fill="currentColor"><path d="M7.25 14V5.56l-2.72 2.72a.75.75 0 0 1-1.06-1.06l4-4a.75.75 0 0 1 1.06 0l4 4a.75.75 0 1 1-1.06 1.06L8.75 5.56V14a.75.75 0 0 1-1.5 0ZM2 2.75a.75.75 0 0 1 .75-.75h10.5a.75.75 0 0 1 0 1.5H2.75A.75.75 0 0 1 2 2.75Z"/></svg>Import progress…</button>
@@ -647,18 +657,90 @@ function getAllStatuses() {
     req.onerror = () => resolve({});
   });
 }
-function setStatus(path, status) {
+function setLocalStatus(path, status) {
   return new Promise((resolve) => {
     const st = db.transaction(STORE, 'readwrite').objectStore(STORE);
     const req = (status === 'todo') ? st.delete(path) : st.put({ path, status });
     req.onsuccess = resolve; req.onerror = resolve;
   });
 }
+function setStatus(path, status) {
+  return setLocalStatus(path, status).then(() => syncStatusToServer(path, status));
+}
 function clearAll() {
   return new Promise((resolve) => {
     const req = db.transaction(STORE, 'readwrite').objectStore(STORE).clear();
     req.onsuccess = resolve; req.onerror = resolve;
-  });
+  }).then(() => { if (authUser) fetch('/api/progress/reset', { method: 'POST' }).catch(() => {}); });
+}
+
+/* ============================================================
+   auth + server sync (Azure Static Web Apps built-in Google auth)
+   Local IndexedDB stays the offline cache and works signed-out;
+   once signed in, /api/progress becomes the cross-device source
+   of truth and every local write is mirrored to it in the background.
+   ============================================================ */
+let authUser = null; // { userId, userDetails, identityProvider } | null
+
+function syncStatusToServer(path, status) {
+  if (!authUser) return;
+  const url = '/api/progress/' + path.split('/').map(encodeURIComponent).join('/');
+  fetch(url, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ status })
+  }).catch(() => {});
+}
+
+async function checkAuth() {
+  try {
+    const res = await fetch('/.auth/me');
+    const data = await res.json();
+    authUser = (data && data.clientPrincipal) || null;
+  } catch (e) {
+    authUser = null;
+  }
+  paintAuthButton();
+}
+
+async function pullStatusFromServer() {
+  if (!authUser) return;
+  try {
+    const res = await fetch('/api/progress');
+    if (!res.ok) return;
+    const serverMap = await res.json();
+    statusMap = serverMap;
+    for (const path in serverMap) await setLocalStatus(path, serverMap[path]);
+  } catch (e) {}
+}
+
+function paintAuthButton() {
+  const btn = document.getElementById('authBtn');
+  if (!btn) return;
+  const label = document.getElementById('acctLabel');
+  const gBtn = document.querySelector('[data-act="signin-google"]');
+  const oBtn = document.querySelector('[data-act="signout"]');
+  if (authUser) {
+    const initial = (authUser.userDetails || '?').trim()[0].toUpperCase();
+    btn.innerHTML = `<span class="avatar">${initial}</span>`;
+    btn.title = `Signed in as ${authUser.userDetails}`;
+    label.textContent = authUser.userDetails;
+    gBtn.classList.add('hidden'); oBtn.classList.remove('hidden');
+  } else {
+    btn.innerHTML = ICO.user;
+    btn.title = 'Sign in with Google to sync progress across devices';
+    label.textContent = 'Account';
+    gBtn.classList.remove('hidden'); oBtn.classList.add('hidden');
+  }
+}
+
+function goToLogin(provider) {
+  const uri = encodeURIComponent(location.pathname + location.search);
+  location.href = `/.auth/login/${provider}?post_login_redirect_uri=${uri}`;
+}
+function goToLogout() {
+  const uri = encodeURIComponent(location.pathname + location.search);
+  location.href = `/.auth/logout?post_logout_redirect_uri=${uri}`;
 }
 
 /* ============================================================
@@ -694,7 +776,8 @@ const ICO = {
   moon: '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M9.598 1.591a.749.749 0 0 1 .785-.175 7.001 7.001 0 1 1-8.967 8.967.75.75 0 0 1 .961-.96 5.5 5.5 0 0 0 7.046-7.046.75.75 0 0 1 .175-.786Zm1.616 1.945a7 7 0 0 1-7.678 7.678 5.499 5.499 0 1 0 7.678-7.678Z"/></svg>',
   auto: '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 0a8 8 0 1 1 0 16A8 8 0 0 1 8 0ZM1.5 8a6.5 6.5 0 1 0 13 0 6.5 6.5 0 0 0-13 0Zm6.5 5V3a5 5 0 0 1 0 10Z"/></svg>',
   book: '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M0 1.75A.75.75 0 0 1 .75 1h4.253c1.227 0 2.317.59 3 1.501A3.743 3.743 0 0 1 11.006 1h4.245a.75.75 0 0 1 .75.75v10.5a.75.75 0 0 1-.75.75h-4.507a2.25 2.25 0 0 0-1.591.659l-.622.621a.75.75 0 0 1-1.06 0l-.622-.621A2.25 2.25 0 0 0 5.258 13H.75a.75.75 0 0 1-.75-.75Zm7.251 10.324.004-5.073-.002-2.253A2.25 2.25 0 0 0 5.003 2.5H1.5v9h3.757a3.75 3.75 0 0 1 1.994.574ZM8.755 4.75l-.004 7.322a3.752 3.752 0 0 1 1.992-.572H14.5v-9h-3.495a2.25 2.25 0 0 0-2.25 2.25Z"/></svg>',
-  clock: '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 0a8 8 0 1 1 0 16A8 8 0 0 1 8 0ZM1.5 8a6.5 6.5 0 1 0 13 0 6.5 6.5 0 0 0-13 0Zm7-3.25v2.992l2.028.812a.75.75 0 0 1-.557 1.392l-2.5-1A.751.751 0 0 1 7 8.25v-3.5a.75.75 0 0 1 1.5 0Z"/></svg>'
+  clock: '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 0a8 8 0 1 1 0 16A8 8 0 0 1 8 0ZM1.5 8a6.5 6.5 0 1 0 13 0 6.5 6.5 0 0 0-13 0Zm7-3.25v2.992l2.028.812a.75.75 0 0 1-.557 1.392l-2.5-1A.751.751 0 0 1 7 8.25v-3.5a.75.75 0 0 1 1.5 0Z"/></svg>',
+  user: '<svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 8a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Zm0 1.5c-3.15 0-6 1.63-6 4.15 0 .19.15.35.34.35h11.32c.19 0 .34-.16.34-.35 0-2.52-2.85-4.15-6-4.15Z"/></svg>'
 };
 
 /* ============================================================
@@ -730,6 +813,8 @@ function toast(msg) {
 async function main() {
   db = await openDb();
   statusMap = await getAllStatuses();
+  await checkAuth();
+  await pullStatusFromServer();
   const res = await fetch('docs-index.json');
   const data = await res.json();
   treeData = data.tree;
@@ -1543,6 +1628,7 @@ document.getElementById('searchTrigger').addEventListener('click', openPalette);
    ============================================================ */
 const menu = document.getElementById('menu');
 document.getElementById('menuBtn').addEventListener('click', e => { e.stopPropagation(); menu.classList.toggle('show'); });
+document.getElementById('authBtn').addEventListener('click', e => { e.stopPropagation(); menu.classList.toggle('show'); });
 document.addEventListener('click', () => menu.classList.remove('show'));
 menu.addEventListener('click', e => e.stopPropagation());
 
@@ -1551,6 +1637,9 @@ menu.addEventListener('click', async (e) => {
   if (!btn) return;
   menu.classList.remove('show');
   const act = btn.dataset.act;
+
+  if (act === 'signin-google') return goToLogin('google');
+  if (act === 'signout') return goToLogout();
 
   if (act === 'export') {
     const blob = new Blob([JSON.stringify({ exported: new Date().toISOString(), status: statusMap }, null, 2)], { type: 'application/json' });
