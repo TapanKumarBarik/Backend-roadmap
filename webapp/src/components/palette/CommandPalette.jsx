@@ -1,15 +1,44 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { runSearch, markRuns } from '../../lib/fuzzyScore.js';
+import { searchContent } from '../../lib/contentSearch.js';
 
 export default function CommandPalette({ open, query, onQueryChange, onClose, searchItems, allTags, statusMap, onOpenFile }) {
   const inputRef = useRef(null);
   const listRef = useRef(null);
   const [cursor, setCursor] = useState(0);
+  const [contentMatches, setContentMatches] = useState([]);
 
   const { results, tagSuggestions } = useMemo(
     () => runSearch(query, searchItems, allTags),
     [query, searchItems, allTags]
   );
+
+  const itemByFile = useMemo(() => {
+    const map = new Map();
+    searchItems.forEach((it) => map.set(it.file, it));
+    return map;
+  }, [searchItems]);
+
+  // Content-body search is lazy (fetches search-index.json on first use) and
+  // debounced separately from the instant title/path/tag search above.
+  useEffect(() => {
+    const q = query.trim();
+    if (!q || q.startsWith('#') || q.length < 3) { setContentMatches([]); return; }
+    let cancelled = false;
+    const t = setTimeout(() => {
+      searchContent(q).then((res) => { if (!cancelled) setContentMatches(res); }).catch(() => {});
+    }, 250);
+    return () => { cancelled = true; clearTimeout(t); };
+  }, [query]);
+
+  const contentOnly = useMemo(() => {
+    const shown = new Set(results.map((r) => r.file));
+    return contentMatches
+      .filter((m) => !shown.has(m.file) && itemByFile.has(m.file))
+      .map((m) => ({ ...itemByFile.get(m.file), _hit: [] }));
+  }, [contentMatches, results, itemByFile]);
+
+  const combined = useMemo(() => [...results, ...contentOnly], [results, contentOnly]);
 
   useEffect(() => { setCursor(0); }, [query]);
 
@@ -28,15 +57,35 @@ export default function CommandPalette({ open, query, onQueryChange, onClose, se
   if (!open) return null;
 
   function handleKeyDown(e) {
-    if (e.key === 'ArrowDown') { e.preventDefault(); setCursor((c) => Math.min(c + 1, results.length - 1)); }
+    if (e.key === 'ArrowDown') { e.preventDefault(); setCursor((c) => Math.min(c + 1, combined.length - 1)); }
     else if (e.key === 'ArrowUp') { e.preventDefault(); setCursor((c) => Math.max(c - 1, 0)); }
     else if (e.key === 'Enter') {
       e.preventDefault();
-      const r = results[cursor];
+      const r = combined[cursor];
       if (r) { onOpenFile(r.file); onClose(); }
     } else if (e.key === 'Escape') {
       onClose();
     }
+  }
+
+  function renderRow(r, i) {
+    return (
+      <div
+        key={r.file}
+        className={'pal-item' + (i === cursor ? ' cur' : '')}
+        onClick={() => { onOpenFile(r.file); onClose(); }}
+        onMouseMove={() => { if (cursor !== i) setCursor(i); }}
+      >
+        <span className="dot" data-s={statusMap[r.file] || 'todo'} />
+        <span className="txt">
+          <span className="t">{markRuns(r).map(([text, hit], k) => (hit ? <mark key={k}>{text}</mark> : <span key={k}>{text}</span>))}</span>
+          <span className="p">{r.path}</span>
+        </span>
+        <span className="pal-tags">
+          {(r.tags || []).slice(0, 3).map((t) => <span key={t} className="tag">{t}</span>)}
+        </span>
+      </div>
+    );
   }
 
   return (
@@ -44,7 +93,7 @@ export default function CommandPalette({ open, query, onQueryChange, onClose, se
       <div id="palette">
         <input
           id="palInput" ref={inputRef} autoComplete="off" spellCheck="false"
-          placeholder="Search modules, or type # to browse tags…"
+          placeholder="Search modules, tags, or type # to browse tags…"
           value={query}
           onChange={(e) => onQueryChange(e.target.value)}
           onKeyDown={handleKeyDown}
@@ -63,28 +112,19 @@ export default function CommandPalette({ open, query, onQueryChange, onClose, se
             </>
           )}
 
-          {results.length === 0 && <div className="pal-empty">No modules match that.</div>}
+          {combined.length === 0 && <div className="pal-empty">No modules match that.</div>}
 
           {results.length > 0 && (
             <>
               {tagSuggestions.length > 0 && <div className="pal-sect">Modules · {results.length}</div>}
-              {results.map((r, i) => (
-                <div
-                  key={r.file}
-                  className={'pal-item' + (i === cursor ? ' cur' : '')}
-                  onClick={() => { onOpenFile(r.file); onClose(); }}
-                  onMouseMove={() => { if (cursor !== i) setCursor(i); }}
-                >
-                  <span className="dot" data-s={statusMap[r.file] || 'todo'} />
-                  <span className="txt">
-                    <span className="t">{markRuns(r).map(([text, hit], k) => (hit ? <mark key={k}>{text}</mark> : <span key={k}>{text}</span>))}</span>
-                    <span className="p">{r.path}</span>
-                  </span>
-                  <span className="pal-tags">
-                    {(r.tags || []).slice(0, 3).map((t) => <span key={t} className="tag">{t}</span>)}
-                  </span>
-                </div>
-              ))}
+              {results.map((r, i) => renderRow(r, i))}
+            </>
+          )}
+
+          {contentOnly.length > 0 && (
+            <>
+              <div className="pal-sect">Found in page content · {contentOnly.length}</div>
+              {contentOnly.map((r, i) => renderRow(r, results.length + i))}
             </>
           )}
         </div>

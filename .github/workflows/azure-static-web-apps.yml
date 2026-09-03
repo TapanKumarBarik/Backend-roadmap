@@ -24,6 +24,8 @@ jobs:
           cache-dependency-path: webapp/package-lock.json
       - name: Regenerate docs-index.json
         run: python3 scripts/gen-docs-index.py
+      - name: Regenerate search-index.json
+        run: python3 scripts/gen-search-index.py
       - name: Build webapp
         working-directory: webapp
         run: |

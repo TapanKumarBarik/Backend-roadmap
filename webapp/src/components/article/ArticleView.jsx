@@ -3,8 +3,10 @@ import { useMarkdownDoc } from '../../hooks/useMarkdownDoc.js';
 import { enhanceContent } from '../../lib/enhanceContent.js';
 import { rewriteLinks } from '../../lib/rewriteLinks.js';
 import { readTimeStats, slugify } from '../../lib/markdown.js';
-import { ClockIcon } from '../icons.jsx';
+import { ClockIcon, StarIcon } from '../icons.jsx';
 import CommentsSection from './CommentsSection.jsx';
+import NotesPanel from './NotesPanel.jsx';
+import ReactionsBar from './ReactionsBar.jsx';
 
 const LANG_PREF_KEY = 'docLangPref';
 
@@ -25,7 +27,8 @@ function applyTabPreference(root) {
 export default function ArticleView({
   path, node, statusMap, flatFiles, nodeByFile, dirIndex, fileSet, allTags,
   onOpenFile, onSetStatus, onOpenPalette, headingTarget, onToast,
-  onTocChange, onActiveHeadingChange, mainRef, user, onLogin
+  onTocChange, onActiveHeadingChange, mainRef, user, onLogin,
+  isBookmarked, onToggleBookmark
 }) {
   const { html, rawText, loading, error } = useMarkdownDoc(path);
   const contentRef = useRef(null);
@@ -150,6 +153,15 @@ export default function ArticleView({
               <ClockIcon /><span>{readTime.minutes} min read · {readTime.words.toLocaleString()} words</span>
             </span>
           )}
+          {user && (
+            <button
+              className={'icon-btn bookmark-btn' + (isBookmarked ? ' on' : '')}
+              title={isBookmarked ? 'Remove bookmark' : 'Bookmark this module'}
+              onClick={() => onToggleBookmark(path)}
+            >
+              <StarIcon />
+            </button>
+          )}
         </div>
         {nodeTags.length > 0 && (
           <div id="tagRow">
@@ -196,6 +208,8 @@ export default function ArticleView({
           : <span className="pg ghost" />}
       </nav>
 
+      <ReactionsBar path={path} user={user} onLogin={onLogin} />
+      <NotesPanel path={path} user={user} />
       <CommentsSection path={path} user={user} onLogin={onLogin} />
     </article>
   );

@@ -8,6 +8,8 @@ import { useOpenDirs } from './hooks/useOpenDirs.js';
 import { useSidebarResize } from './hooks/useSidebarResize.js';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts.js';
 import { useToast } from './hooks/useToast.js';
+import { useBookmarks } from './hooks/useBookmarks.js';
+import { useStreak } from './hooks/useStreak.js';
 import { computeTreeVisibility } from './lib/treeFilter.js';
 import { globalCounts } from './lib/progressStats.js';
 import { ancestorDirPaths } from './lib/treeAncestors.js';
@@ -20,8 +22,10 @@ import Toc from './components/layout/Toc.jsx';
 import CommandPalette from './components/palette/CommandPalette.jsx';
 import Toast from './components/Toast.jsx';
 import AdminDashboard from './components/admin/AdminDashboard.jsx';
+import BookmarksView from './components/home/BookmarksView.jsx';
 
 const ADMIN_ROUTE = '__admin';
+const BOOKMARKS_ROUTE = '__bookmarks';
 
 function collectDirPaths(nodes) {
   const paths = [];
@@ -40,6 +44,8 @@ export default function App() {
   const { user, login, logout } = useAuth();
   const { statusMap, setStatus, reset, importStatuses } = useProgressStore(user);
   const { openDirs, toggleDir, openMany, expandAll, collapseAll } = useOpenDirs(treeData);
+  const { bookmarks, toggle: toggleBookmark } = useBookmarks(user);
+  const streak = useStreak(user);
   const toast = useToast();
   const resizerRef = useRef(null);
   useSidebarResize(resizerRef);
@@ -53,7 +59,9 @@ export default function App() {
   const [activeHeadingId, setActiveHeadingId] = useState(null);
 
   const isAdminRoute = path === ADMIN_ROUTE;
-  const currentFile = !isAdminRoute && path && fileSet.has(path) ? path : null;
+  const isBookmarksRoute = path === BOOKMARKS_ROUTE;
+  const isSpecialRoute = isAdminRoute || isBookmarksRoute;
+  const currentFile = !isSpecialRoute && path && fileSet.has(path) ? path : null;
 
   useEffect(() => {
     document.body.classList.toggle('nav-open', navOpen);
@@ -166,6 +174,7 @@ export default function App() {
   }, [goHome]);
 
   const openAdmin = useCallback(() => navigate(ADMIN_ROUTE), [navigate]);
+  const openBookmarks = useCallback(() => navigate(BOOKMARKS_ROUTE), [navigate]);
 
   const lastViewedFile = (() => {
     try { return localStorage.getItem('docs.lastFile') || ''; } catch { return ''; }
@@ -192,13 +201,20 @@ export default function App() {
         onCollapseAll={collapseAll}
         onMobileToggle={() => setNavOpen((v) => !v)}
         onOpenAdmin={user?.isAdmin ? openAdmin : null}
+        onOpenBookmarks={user ? openBookmarks : null}
+        streak={streak}
       />
-      {isAdminRoute
+      {isSpecialRoute
         ? (
           <div id="shell">
             <div id="mainCol">
               <div id="main" className="scroll">
-                <AdminDashboard isAdmin={!!user?.isAdmin} lastViewedFile={lastViewedFile} onOpenFile={openFile} />
+                {isAdminRoute && (
+                  <AdminDashboard isAdmin={!!user?.isAdmin} lastViewedFile={lastViewedFile} onOpenFile={openFile} />
+                )}
+                {isBookmarksRoute && (
+                  <BookmarksView bookmarks={bookmarks} nodeByFile={nodeByFile} onOpenFile={openFile} onToggleBookmark={toggleBookmark} />
+                )}
               </div>
             </div>
           </div>
@@ -241,6 +257,8 @@ export default function App() {
               treeData={treeData}
               user={user}
               onLogin={login}
+              isBookmarked={currentFile ? bookmarks.has(currentFile) : false}
+              onToggleBookmark={toggleBookmark}
             />
             <Toc headings={currentFile ? tocHeadings : []} activeId={activeHeadingId} />
           </div>

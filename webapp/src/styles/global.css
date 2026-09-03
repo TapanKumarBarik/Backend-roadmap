@@ -550,7 +550,7 @@ html[data-theme="dark"] .pal-item.cur, html[data-theme="auto"] .pal-item.cur { b
 .comment-reply-btn:hover { color: var(--fg); text-decoration: underline; }
 .comment-form { margin-top: 16px; }
 .comment-form.reply { margin-top: 10px; margin-left: 28px; }
-.comment-form textarea {
+.comment-form textarea, .comment > textarea {
   width: 100%; min-height: 76px; font: inherit; font-size: 14px; padding: 10px 12px;
   border: 1px solid var(--border); border-radius: var(--r-md); background: var(--bg);
   color: var(--fg); resize: vertical;
@@ -609,3 +609,34 @@ html[data-theme="dark"] .pal-item.cur, html[data-theme="auto"] .pal-item.cur { b
   min-height: 460px; padding: 14px 16px; border: 1px solid var(--border); border-radius: var(--r-md);
   background: var(--bg);
 }
+
+/* ---------- comment actions / answers ---------- */
+.comment-actions { display: flex; gap: 12px; margin-top: 4px; }
+.comment.is-answer { border-left: 3px solid var(--accent); padding-left: 13px; background: var(--accent-subtle); border-radius: var(--r-sm); }
+.answer-badge {
+  display: inline-block; font-size: 11px; font-weight: 700; color: var(--accent);
+  text-transform: uppercase; letter-spacing: .04em; margin-bottom: 4px;
+}
+
+/* ---------- bookmark star ---------- */
+.bookmark-btn.on { color: var(--fg); }
+.bookmark-btn.on svg { fill: var(--fg); }
+
+/* ---------- notes ---------- */
+.notes-panel { margin-top: 40px; }
+.notes-hint { font-weight: 400; text-transform: none; letter-spacing: 0; color: var(--fg-subtle); }
+.notes-textarea {
+  width: 100%; min-height: 90px; font: inherit; font-size: 14px; padding: 10px 12px;
+  border: 1px solid var(--border); border-radius: var(--r-md); background: var(--bg-sunken);
+  color: var(--fg); resize: vertical;
+}
+
+/* ---------- reactions ---------- */
+.reactions-bar { display: flex; gap: 8px; margin-top: 40px; }
+.reaction-btn {
+  display: flex; align-items: center; gap: 6px; padding: 6px 12px; border: 1px solid var(--border);
+  border-radius: 99px; background: var(--bg); font-size: 14px;
+}
+.reaction-btn:hover { background: var(--hover); }
+.reaction-btn.on { background: var(--accent-subtle); border-color: var(--accent); }
+.reaction-count { font-size: 12px; color: var(--fg-muted); font-variant-numeric: tabular-nums; }
