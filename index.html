@@ -694,9 +694,11 @@ function syncStatusToServer(path, status) {
 
 async function checkAuth() {
   try {
-    const res = await fetch('/.auth/me');
+    const res = await fetch('/api/auth/me');
     const data = await res.json();
-    authUser = (data && data.clientPrincipal) || null;
+    authUser = (data && data.user)
+      ? { userId: data.user.userId, userDetails: data.user.email }
+      : null;
   } catch (e) {
     authUser = null;
   }
@@ -734,13 +736,13 @@ function paintAuthButton() {
   }
 }
 
-function goToLogin(provider) {
+function goToLogin() {
   const uri = encodeURIComponent(location.pathname + location.search);
-  location.href = `/.auth/login/${provider}?post_login_redirect_uri=${uri}`;
+  location.href = `/api/auth/login?redirect=${uri}`;
 }
 function goToLogout() {
   const uri = encodeURIComponent(location.pathname + location.search);
-  location.href = `/.auth/logout?post_logout_redirect_uri=${uri}`;
+  location.href = `/api/auth/logout?redirect=${uri}`;
 }
 
 /* ============================================================
@@ -1638,7 +1640,7 @@ menu.addEventListener('click', async (e) => {
   menu.classList.remove('show');
   const act = btn.dataset.act;
 
-  if (act === 'signin-google') return goToLogin('google');
+  if (act === 'signin-google') return goToLogin();
   if (act === 'signout') return goToLogout();
 
   if (act === 'export') {

@@ -1,5 +1,6 @@
 const { app } = require('@azure/functions');
 const { TableClient } = require('@azure/data-tables');
+const { SESSION_COOKIE, parseCookies, verify } = require('../lib/session');
 
 const TABLE_NAME = 'ModuleProgress';
 const VALID_STATUSES = ['todo', 'wip', 'done'];
@@ -14,17 +15,12 @@ function getTableClient() {
   return tableClient;
 }
 
-// SWA injects this header (and strips any client-supplied copy) only for
-// requests it has authenticated itself, so it cannot be spoofed by a caller.
+// Our own signed session cookie (see auth.js) — HMAC-verified, so it can't
+// be forged without SESSION_SECRET, which only the Function app holds.
 function getUserId(request) {
-  const header = request.headers.get('x-ms-client-principal');
-  if (!header) return null;
-  try {
-    const principal = JSON.parse(Buffer.from(header, 'base64').toString('utf-8'));
-    return principal && principal.userId ? principal.userId : null;
-  } catch {
-    return null;
-  }
+  const cookies = parseCookies(request.headers.get('cookie'));
+  const session = verify(cookies[SESSION_COOKIE]);
+  return session ? session.sub : null;
 }
 
 app.http('getProgress', {

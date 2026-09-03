@@ -1,19 +1,9 @@
 {
   "routes": [
-    { "route": "/api/*", "allowedRoles": ["authenticated"] },
-    { "route": "/.auth/login/twitter", "statusCode": 404 },
-    { "route": "/.auth/login/github", "statusCode": 404 }
+    { "route": "/.auth/login/aad", "statusCode": 404 },
+    { "route": "/.auth/login/github", "statusCode": 404 },
+    { "route": "/.auth/login/twitter", "statusCode": 404 }
   ],
-  "auth": {
-    "identityProviders": {
-      "google": {
-        "registration": {
-          "clientIdSettingName": "GOOGLE_CLIENT_ID",
-          "clientSecretSettingName": "GOOGLE_CLIENT_SECRET"
-        }
-      }
-    }
-  },
   "navigationFallback": {
     "rewrite": "/index.html",
     "exclude": ["/api/*", "/*.{json,js,css,png,jpg,jpeg,svg,ico,md,txt}"]
