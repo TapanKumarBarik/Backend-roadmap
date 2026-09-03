@@ -1,18 +1,8 @@
 const { app } = require('@azure/functions');
-const { BlobServiceClient } = require('@azure/storage-blob');
 const { getSession, isAdmin } = require('../lib/adminAuth');
 
 const GITHUB_REPO = 'TapanKumarBarik/Backend-roadmap';
 const GITHUB_API = 'https://api.github.com';
-const IMAGE_CONTAINER = 'images';
-const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
-const ALLOWED_IMAGE_TYPES = {
-  'image/png': 'png',
-  'image/jpeg': 'jpg',
-  'image/webp': 'webp',
-  'image/gif': 'gif',
-  'image/svg+xml': 'svg'
-};
 
 function githubHeaders() {
   return {
@@ -85,38 +75,5 @@ app.http('putContent', {
   }
 });
 
-app.http('uploadImage', {
-  methods: ['POST'],
-  authLevel: 'anonymous',
-  route: 'admin/image',
-  handler: async (request) => {
-    const auth = requireAdmin(request);
-    if (auth.error) return auth.error;
-
-    let body;
-    try { body = await request.json(); } catch { return { status: 400, jsonBody: { error: 'invalid body' } }; }
-    const { filename, contentType, dataBase64 } = body;
-    const ext = ALLOWED_IMAGE_TYPES[contentType];
-    if (!ext) return { status: 400, jsonBody: { error: 'unsupported content type' } };
-    if (!dataBase64) return { status: 400, jsonBody: { error: 'dataBase64 is required' } };
-
-    const buffer = Buffer.from(dataBase64, 'base64');
-    if (buffer.length > MAX_IMAGE_BYTES) {
-      return { status: 400, jsonBody: { error: 'image exceeds 5MB limit' } };
-    }
-
-    const safeName = (filename || 'image')
-      .toLowerCase()
-      .replace(/[^a-z0-9._-]/g, '-')
-      .replace(/\.[a-z0-9]+$/, '');
-    const blobName = `${Date.now()}-${safeName}.${ext}`;
-
-    const conn = process.env.TABLE_STORAGE_CONNECTION_STRING;
-    const blobService = BlobServiceClient.fromConnectionString(conn);
-    const container = blobService.getContainerClient(IMAGE_CONTAINER);
-    const blockBlob = container.getBlockBlobClient(blobName);
-    await blockBlob.uploadData(buffer, { blobHTTPHeaders: { blobContentType: contentType } });
-
-    return { jsonBody: { url: blockBlob.url } };
-  }
-});
+// uploadImage temporarily removed — see the commit message on this change
+// for why (bisecting an Azure "content distribution" deploy failure).
