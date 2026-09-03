@@ -1630,7 +1630,10 @@ document.getElementById('searchTrigger').addEventListener('click', openPalette);
    ============================================================ */
 const menu = document.getElementById('menu');
 document.getElementById('menuBtn').addEventListener('click', e => { e.stopPropagation(); menu.classList.toggle('show'); });
-document.getElementById('authBtn').addEventListener('click', e => { e.stopPropagation(); menu.classList.toggle('show'); });
+document.getElementById('authBtn').addEventListener('click', e => {
+  e.stopPropagation();
+  authUser ? goToLogout() : goToLogin();
+});
 document.addEventListener('click', () => menu.classList.remove('show'));
 menu.addEventListener('click', e => e.stopPropagation());
 

@@ -86,10 +86,13 @@ app.http('authCallback', {
       exp: Date.now() + SESSION_MAX_AGE * 1000
     });
 
+    // A single Set-Cookie here, deliberately: the SWA managed-Functions proxy
+    // has been unreliable forwarding multiple Set-Cookie headers on one
+    // response. The state cookie is short-lived (Max-Age=600) and doesn't
+    // need explicit clearing.
     const headers = new Headers();
     headers.set('Location', stateData.redirect || '/');
-    headers.append('Set-Cookie', cookieAttrs(SESSION_COOKIE, session, SESSION_MAX_AGE));
-    headers.append('Set-Cookie', cookieAttrs(STATE_COOKIE, '', 0));
+    headers.set('Set-Cookie', cookieAttrs(SESSION_COOKIE, session, SESSION_MAX_AGE));
     return { status: 302, headers };
   }
 });
