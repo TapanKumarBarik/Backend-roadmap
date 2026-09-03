@@ -3,6 +3,16 @@ const { getSession, isAdmin } = require('../lib/adminAuth');
 
 const GITHUB_REPO = 'TapanKumarBarik/Backend-roadmap';
 const GITHUB_API = 'https://api.github.com';
+const STORAGE_ACCOUNT = 'stroadmapprogress';
+const IMAGE_CONTAINER = 'images';
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+const ALLOWED_IMAGE_TYPES = {
+  'image/png': 'png',
+  'image/jpeg': 'jpg',
+  'image/webp': 'webp',
+  'image/gif': 'gif',
+  'image/svg+xml': 'svg'
+};
 
 function githubHeaders() {
   return {
@@ -75,5 +85,57 @@ app.http('putContent', {
   }
 });
 
-// uploadImage temporarily removed — see the commit message on this change
-// for why (bisecting an Azure "content distribution" deploy failure).
+// Uploads via a plain PUT against a pre-signed, write-only, container-scoped
+// SAS URL — not the @azure/storage-blob SDK, which is what broke Azure's
+// own "content distribution" deploy step (bisected and confirmed; see the
+// git history around this file). No signing code needed here: the SAS
+// token in IMAGES_CONTAINER_SAS already grants exactly add/create/write on
+// this one container, nothing else, and expires in 5 years.
+app.http('uploadImage', {
+  methods: ['POST'],
+  authLevel: 'anonymous',
+  route: 'admin/image',
+  handler: async (request) => {
+    const auth = requireAdmin(request);
+    if (auth.error) return auth.error;
+
+    let body;
+    try { body = await request.json(); } catch { return { status: 400, jsonBody: { error: 'invalid body' } }; }
+    const { filename, contentType, dataBase64 } = body;
+    const ext = ALLOWED_IMAGE_TYPES[contentType];
+    if (!ext) return { status: 400, jsonBody: { error: 'unsupported content type' } };
+    if (!dataBase64) return { status: 400, jsonBody: { error: 'dataBase64 is required' } };
+
+    const buffer = Buffer.from(dataBase64, 'base64');
+    if (buffer.length > MAX_IMAGE_BYTES) {
+      return { status: 400, jsonBody: { error: 'image exceeds 5MB limit' } };
+    }
+
+    const sas = process.env.IMAGES_CONTAINER_SAS;
+    if (!sas) return { status: 500, jsonBody: { error: 'image storage is not configured' } };
+
+    const safeName = (filename || 'image')
+      .toLowerCase()
+      .replace(/[^a-z0-9._-]/g, '-')
+      .replace(/\.[a-z0-9]+$/, '');
+    const blobName = `${Date.now()}-${safeName}.${ext}`;
+    const blobUrl = `https://${STORAGE_ACCOUNT}.blob.core.windows.net/${IMAGE_CONTAINER}/${blobName}`;
+
+    const res = await fetch(`${blobUrl}?${sas}`, {
+      method: 'PUT',
+      headers: {
+        'x-ms-blob-type': 'BlockBlob',
+        'x-ms-version': '2021-08-06',
+        'Content-Type': contentType,
+        'Content-Length': String(buffer.length)
+      },
+      body: buffer
+    });
+    if (!res.ok) {
+      const detail = await res.text();
+      return { status: 502, jsonBody: { error: 'blob upload failed', detail } };
+    }
+
+    return { jsonBody: { url: blobUrl } };
+  }
+});
