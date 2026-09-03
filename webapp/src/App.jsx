@@ -11,6 +11,7 @@ import { useToast } from './hooks/useToast.js';
 import { computeTreeVisibility } from './lib/treeFilter.js';
 import { globalCounts } from './lib/progressStats.js';
 import { ancestorDirPaths } from './lib/treeAncestors.js';
+import { trackPageView } from './lib/api.js';
 
 import TopBar from './components/layout/TopBar.jsx';
 import Sidebar from './components/layout/Sidebar.jsx';
@@ -18,6 +19,9 @@ import MainColumn from './components/layout/MainColumn.jsx';
 import Toc from './components/layout/Toc.jsx';
 import CommandPalette from './components/palette/CommandPalette.jsx';
 import Toast from './components/Toast.jsx';
+import AdminDashboard from './components/admin/AdminDashboard.jsx';
+
+const ADMIN_ROUTE = '__admin';
 
 function collectDirPaths(nodes) {
   const paths = [];
@@ -48,7 +52,8 @@ export default function App() {
   const [tocHeadings, setTocHeadings] = useState([]);
   const [activeHeadingId, setActiveHeadingId] = useState(null);
 
-  const currentFile = path && fileSet.has(path) ? path : null;
+  const isAdminRoute = path === ADMIN_ROUTE;
+  const currentFile = !isAdminRoute && path && fileSet.has(path) ? path : null;
 
   useEffect(() => {
     document.body.classList.toggle('nav-open', navOpen);
@@ -65,6 +70,7 @@ export default function App() {
     try { localStorage.setItem('docs.lastFile', currentFile); } catch { /* ignore */ }
     const node = nodeByFile[currentFile];
     if (node) openMany(ancestorDirPaths(node));
+    trackPageView(currentFile);
   }, [currentFile, nodeByFile, openMany]);
 
   const openFile = useCallback((filePath, headingId) => {
@@ -159,6 +165,12 @@ export default function App() {
     setNavOpen(false);
   }, [goHome]);
 
+  const openAdmin = useCallback(() => navigate(ADMIN_ROUTE), [navigate]);
+
+  const lastViewedFile = (() => {
+    try { return localStorage.getItem('docs.lastFile') || ''; } catch { return ''; }
+  })();
+
   return (
     <>
       <TopBar
@@ -179,45 +191,60 @@ export default function App() {
         onExpandAll={() => expandAll(allDirPaths)}
         onCollapseAll={collapseAll}
         onMobileToggle={() => setNavOpen((v) => !v)}
+        onOpenAdmin={user?.isAdmin ? openAdmin : null}
       />
-      <div id="shell">
-        <Sidebar
-          treeData={treeData}
-          statusMap={statusMap}
-          openDirs={openDirs}
-          onToggleDir={toggleDir}
-          filter={filter}
-          onSetFilter={setFilter}
-          counts={counts}
-          visibleFiles={visibility.visibleFiles}
-          currentFile={currentFile}
-          onOpenFile={openFile}
-          onToggleStatus={toggleStatus}
-        />
-        <div id="resizer" ref={resizerRef} />
-        <div id="scrim" style={navOpen ? { display: 'block' } : undefined} onClick={() => setNavOpen(false)} />
-        <MainColumn
-          currentFile={currentFile}
-          node={currentFile ? nodeByFile[currentFile] : null}
-          statusMap={statusMap}
-          flatFiles={flatFiles}
-          nodeByFile={nodeByFile}
-          dirIndex={dirIndex}
-          fileSet={fileSet}
-          allTags={tags}
-          onOpenFile={openFile}
-          onSetStatus={setStatus}
-          onOpenPalette={openPalette}
-          headingTarget={heading}
-          onToast={toast.show}
-          onTocChange={setTocHeadings}
-          onActiveHeadingChange={setActiveHeadingId}
-          counts={counts}
-          treeCount={treeData.length}
-          treeData={treeData}
-        />
-        <Toc headings={currentFile ? tocHeadings : []} activeId={activeHeadingId} />
-      </div>
+      {isAdminRoute
+        ? (
+          <div id="shell">
+            <div id="mainCol">
+              <div id="main" className="scroll">
+                <AdminDashboard isAdmin={!!user?.isAdmin} lastViewedFile={lastViewedFile} onOpenFile={openFile} />
+              </div>
+            </div>
+          </div>
+        )
+        : (
+          <div id="shell">
+            <Sidebar
+              treeData={treeData}
+              statusMap={statusMap}
+              openDirs={openDirs}
+              onToggleDir={toggleDir}
+              filter={filter}
+              onSetFilter={setFilter}
+              counts={counts}
+              visibleFiles={visibility.visibleFiles}
+              currentFile={currentFile}
+              onOpenFile={openFile}
+              onToggleStatus={toggleStatus}
+            />
+            <div id="resizer" ref={resizerRef} />
+            <div id="scrim" style={navOpen ? { display: 'block' } : undefined} onClick={() => setNavOpen(false)} />
+            <MainColumn
+              currentFile={currentFile}
+              node={currentFile ? nodeByFile[currentFile] : null}
+              statusMap={statusMap}
+              flatFiles={flatFiles}
+              nodeByFile={nodeByFile}
+              dirIndex={dirIndex}
+              fileSet={fileSet}
+              allTags={tags}
+              onOpenFile={openFile}
+              onSetStatus={setStatus}
+              onOpenPalette={openPalette}
+              headingTarget={heading}
+              onToast={toast.show}
+              onTocChange={setTocHeadings}
+              onActiveHeadingChange={setActiveHeadingId}
+              counts={counts}
+              treeCount={treeData.length}
+              treeData={treeData}
+              user={user}
+              onLogin={login}
+            />
+            <Toc headings={currentFile ? tocHeadings : []} activeId={activeHeadingId} />
+          </div>
+        )}
 
       <CommandPalette
         open={paletteOpen}

@@ -1,6 +1,7 @@
 const { app } = require('@azure/functions');
 const crypto = require('crypto');
 const { SESSION_COOKIE, parseCookies, sign, verify } = require('../lib/session');
+const { isAdmin } = require('../lib/adminAuth');
 
 const GOOGLE_AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth';
 const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
@@ -106,7 +107,7 @@ app.http('authMe', {
     const cookies = parseCookies(request.headers.get('cookie'));
     const session = verify(cookies[SESSION_COOKIE]);
     if (!session) return { jsonBody: { user: null } };
-    return { jsonBody: { user: { userId: session.sub, email: session.email, name: session.name, picture: session.picture || null } } };
+    return { jsonBody: { user: { userId: session.sub, email: session.email, name: session.name, picture: session.picture || null, isAdmin: isAdmin(session) } } };
   }
 });
 

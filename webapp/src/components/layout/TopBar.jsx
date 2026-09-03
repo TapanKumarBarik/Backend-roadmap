@@ -1,7 +1,7 @@
 import { useRef } from 'react';
 import {
   HamburgerIcon, SearchIcon, SunIcon, MoonIcon, AutoIcon, MenuDotsIcon,
-  ExportIcon, ImportIcon, ResetIcon, ExpandIcon, CollapseIcon, KeysIcon, SignOutIcon
+  ExportIcon, ImportIcon, ResetIcon, ExpandIcon, CollapseIcon, KeysIcon, SignOutIcon, GearIcon
 } from '../icons.jsx';
 import SignInButton from '../account/SignInButton.jsx';
 import UserAvatar from '../account/UserAvatar.jsx';
@@ -11,7 +11,8 @@ const THEME_ICON = { auto: AutoIcon, light: SunIcon, dark: MoonIcon };
 export default function TopBar({
   counts, theme, onCycleTheme, user, onLogin, onLogout,
   menuOpen, onToggleMenu, onCloseMenu, onOpenPalette, onGoHome,
-  onExport, onImportFile, onReset, onExpandAll, onCollapseAll, onMobileToggle
+  onExport, onImportFile, onReset, onExpandAll, onCollapseAll, onMobileToggle,
+  onOpenAdmin
 }) {
   const importInputRef = useRef(null);
   const ThemeIcon = THEME_ICON[theme] || AutoIcon;
@@ -78,6 +79,7 @@ export default function TopBar({
         {user && (
           <>
             <div className="grp">{user.email}</div>
+            {onOpenAdmin && <button onClick={() => { onCloseMenu(); onOpenAdmin(); }}><GearIcon />Admin dashboard</button>}
             <button onClick={() => { onCloseMenu(); onLogout(); }}><SignOutIcon />Sign out</button>
             <div className="div" />
           </>

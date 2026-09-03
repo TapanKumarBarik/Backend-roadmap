@@ -6,7 +6,7 @@ export default function MainColumn({
   currentFile, node, statusMap, flatFiles, nodeByFile, dirIndex, fileSet, allTags,
   onOpenFile, onSetStatus, onOpenPalette, headingTarget, onToast,
   onTocChange, onActiveHeadingChange,
-  counts, treeCount, treeData
+  counts, treeCount, treeData, user, onLogin
 }) {
   const mainRef = useRef(null);
   const [readProgress, setReadProgress] = useState(0);
@@ -40,6 +40,8 @@ export default function MainColumn({
               onTocChange={onTocChange}
               onActiveHeadingChange={onActiveHeadingChange}
               mainRef={mainRef}
+              user={user}
+              onLogin={onLogin}
             />
           )
           : (

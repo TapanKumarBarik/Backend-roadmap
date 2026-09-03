@@ -27,3 +27,80 @@ export async function fetchAuthUser() {
   const data = await res.json();
   return data && data.user ? data.user : null;
 }
+
+function encodedPath(path) {
+  return path.split('/').map(encodeURIComponent).join('/');
+}
+
+export async function fetchComments(path) {
+  const res = await fetch('/api/comments/' + encodedPath(path));
+  if (!res.ok) throw new Error('failed to load comments');
+  return res.json();
+}
+
+export async function postComment(path, text, parentId) {
+  const res = await fetch('/api/comments/' + encodedPath(path), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text, parentId: parentId || '' })
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || 'failed to post comment');
+  }
+  return res.json();
+}
+
+export function trackPageView(path) {
+  return fetch('/api/track', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path })
+  }).catch(() => {});
+}
+
+export async function fetchAllComments() {
+  const res = await fetch('/api/admin/comments');
+  if (!res.ok) throw new Error('failed to load comments');
+  return res.json();
+}
+
+export async function deleteComment(path, id) {
+  const res = await fetch(`/api/admin/comments?path=${encodeURIComponent(path)}&id=${encodeURIComponent(id)}`, { method: 'DELETE' });
+  if (!res.ok) throw new Error('failed to delete comment');
+}
+
+export async function fetchPageViews() {
+  const res = await fetch('/api/admin/pageviews');
+  if (!res.ok) throw new Error('failed to load visitor stats');
+  return res.json();
+}
+
+export async function fetchAdminContent(path) {
+  const res = await fetch('/api/admin/content?path=' + encodeURIComponent(path));
+  if (!res.ok) throw new Error('failed to load file (check the path)');
+  return res.json();
+}
+
+export async function saveAdminContent(path, content, sha, message) {
+  const res = await fetch('/api/admin/content', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path, content, sha, message })
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || 'failed to save');
+  }
+  return res.json();
+}
+
+export async function uploadAdminImage(filename, contentType, dataBase64) {
+  const res = await fetch('/api/admin/image', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ filename, contentType, dataBase64 })
+  });
+  if (!res.ok) throw new Error('image upload failed');
+  return res.json();
+}

@@ -4,6 +4,7 @@ import { enhanceContent } from '../../lib/enhanceContent.js';
 import { rewriteLinks } from '../../lib/rewriteLinks.js';
 import { readTimeStats, slugify } from '../../lib/markdown.js';
 import { ClockIcon } from '../icons.jsx';
+import CommentsSection from './CommentsSection.jsx';
 
 const LANG_PREF_KEY = 'docLangPref';
 
@@ -24,7 +25,7 @@ function applyTabPreference(root) {
 export default function ArticleView({
   path, node, statusMap, flatFiles, nodeByFile, dirIndex, fileSet, allTags,
   onOpenFile, onSetStatus, onOpenPalette, headingTarget, onToast,
-  onTocChange, onActiveHeadingChange, mainRef
+  onTocChange, onActiveHeadingChange, mainRef, user, onLogin
 }) {
   const { html, rawText, loading, error } = useMarkdownDoc(path);
   const contentRef = useRef(null);
@@ -194,6 +195,8 @@ export default function ArticleView({
           )
           : <span className="pg ghost" />}
       </nav>
+
+      <CommentsSection path={path} user={user} onLogin={onLogin} />
     </article>
   );
 }

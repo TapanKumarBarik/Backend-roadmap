@@ -22,6 +22,8 @@ jobs:
           node-version: 20
           cache: npm
           cache-dependency-path: webapp/package-lock.json
+      - name: Regenerate docs-index.json
+        run: python3 scripts/gen-docs-index.py
       - name: Build webapp
         working-directory: webapp
         run: |
