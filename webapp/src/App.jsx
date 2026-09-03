@@ -1,0 +1,235 @@
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useDocsIndex } from './hooks/useDocsIndex.js';
+import { useHashRoute } from './hooks/useHashRoute.js';
+import { useTheme } from './hooks/useTheme.js';
+import { useAuth } from './hooks/useAuth.js';
+import { useProgressStore } from './hooks/useProgressStore.js';
+import { useOpenDirs } from './hooks/useOpenDirs.js';
+import { useSidebarResize } from './hooks/useSidebarResize.js';
+import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts.js';
+import { useToast } from './hooks/useToast.js';
+import { computeTreeVisibility } from './lib/treeFilter.js';
+import { globalCounts } from './lib/progressStats.js';
+import { ancestorDirPaths } from './lib/treeAncestors.js';
+
+import TopBar from './components/layout/TopBar.jsx';
+import Sidebar from './components/layout/Sidebar.jsx';
+import MainColumn from './components/layout/MainColumn.jsx';
+import Toc from './components/layout/Toc.jsx';
+import CommandPalette from './components/palette/CommandPalette.jsx';
+import Toast from './components/Toast.jsx';
+
+function collectDirPaths(nodes) {
+  const paths = [];
+  (function walk(list) {
+    list.forEach((n) => {
+      if (n.children && n.children.length) { paths.push(n.path); walk(n.children); }
+    });
+  })(nodes);
+  return paths;
+}
+
+export default function App() {
+  const { treeData, tags, nodeByFile, flatFiles, fileSet, dirIndex, searchItems } = useDocsIndex();
+  const { path, heading, navigate, goHome } = useHashRoute();
+  const { theme, cycleTheme } = useTheme();
+  const { user, login, logout } = useAuth();
+  const { statusMap, setStatus, reset, importStatuses } = useProgressStore(user);
+  const { openDirs, toggleDir, openMany, expandAll, collapseAll } = useOpenDirs(treeData);
+  const toast = useToast();
+  const resizerRef = useRef(null);
+  useSidebarResize(resizerRef);
+
+  const [filter, setFilter] = useState('all');
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const [paletteQuery, setPaletteQuery] = useState('');
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [navOpen, setNavOpen] = useState(false);
+  const [tocHeadings, setTocHeadings] = useState([]);
+  const [activeHeadingId, setActiveHeadingId] = useState(null);
+
+  const currentFile = path && fileSet.has(path) ? path : null;
+
+  useEffect(() => {
+    document.body.classList.toggle('nav-open', navOpen);
+  }, [navOpen]);
+
+  useEffect(() => {
+    function onDocClick() { setMenuOpen(false); }
+    document.addEventListener('click', onDocClick);
+    return () => document.removeEventListener('click', onDocClick);
+  }, []);
+
+  useEffect(() => {
+    if (!currentFile) return;
+    try { localStorage.setItem('docs.lastFile', currentFile); } catch { /* ignore */ }
+    const node = nodeByFile[currentFile];
+    if (node) openMany(ancestorDirPaths(node));
+  }, [currentFile, nodeByFile, openMany]);
+
+  const openFile = useCallback((filePath, headingId) => {
+    navigate(filePath, headingId || null);
+    if (window.innerWidth <= 860) setNavOpen(false);
+  }, [navigate]);
+
+  const openPalette = useCallback((prefill = '') => {
+    setPaletteQuery(prefill);
+    setPaletteOpen(true);
+  }, []);
+  const closePalette = useCallback(() => setPaletteOpen(false), []);
+
+  const visibility = useMemo(
+    () => computeTreeVisibility(treeData, statusMap, filter),
+    [treeData, statusMap, filter]
+  );
+  useEffect(() => {
+    if (filter !== 'all' && visibility.autoOpenDirs.size) openMany([...visibility.autoOpenDirs]);
+  }, [filter, visibility, openMany]);
+
+  const counts = useMemo(() => globalCounts(flatFiles, statusMap), [flatFiles, statusMap]);
+
+  const toggleStatus = useCallback((file, forceStatus) => {
+    if (forceStatus) { setStatus(file, forceStatus); return; }
+    const order = ['todo', 'wip', 'done'];
+    const cur = statusMap[file] || 'todo';
+    setStatus(file, order[(order.indexOf(cur) + 1) % order.length]);
+  }, [statusMap, setStatus]);
+
+  const navigateRelative = useCallback((dir) => {
+    if (!currentFile) return;
+    const i = flatFiles.indexOf(currentFile);
+    const next = i + dir;
+    if (next >= 0 && next < flatFiles.length) openFile(flatFiles[next]);
+  }, [currentFile, flatFiles, openFile]);
+
+  const toggleDone = useCallback(() => {
+    if (!currentFile) return;
+    setStatus(currentFile, statusMap[currentFile] === 'done' ? 'todo' : 'done');
+  }, [currentFile, statusMap, setStatus]);
+  const toggleWip = useCallback(() => {
+    if (!currentFile) return;
+    setStatus(currentFile, statusMap[currentFile] === 'wip' ? 'todo' : 'wip');
+  }, [currentFile, statusMap, setStatus]);
+
+  useKeyboardShortcuts({
+    onOpenPalette: () => openPalette(),
+    onClosePalette: closePalette,
+    onCloseMenu: () => setMenuOpen(false),
+    onCycleTheme: cycleTheme,
+    onToggleNav: (force) => setNavOpen((v) => (force === undefined ? !v : force)),
+    onNavigateRelative: navigateRelative,
+    onToggleDone: toggleDone,
+    onToggleWip: toggleWip
+  });
+
+  const handleExport = useCallback(() => {
+    const blob = new Blob(
+      [JSON.stringify({ exported: new Date().toISOString(), status: statusMap }, null, 2)],
+      { type: 'application/json' }
+    );
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'curriculum-progress.json';
+    a.click();
+    URL.revokeObjectURL(a.href);
+    toast.show('Progress exported');
+  }, [statusMap, toast]);
+
+  const handleImportFile = useCallback(async (file) => {
+    try {
+      const data = JSON.parse(await file.text());
+      const incoming = data.status || data;
+      const n = importStatuses(incoming);
+      toast.show(`Imported progress for ${n} modules`);
+    } catch {
+      toast.show('Import failed — not a valid progress file');
+    }
+  }, [importStatuses, toast]);
+
+  const handleReset = useCallback(async () => {
+    if (!window.confirm(`Reset progress on all ${flatFiles.length} modules? This cannot be undone.`)) return;
+    await reset();
+    toast.show('All progress reset');
+  }, [reset, flatFiles.length, toast]);
+
+  const allDirPaths = useMemo(() => collectDirPaths(treeData), [treeData]);
+
+  const handleGoHome = useCallback(() => {
+    goHome();
+    setNavOpen(false);
+  }, [goHome]);
+
+  return (
+    <>
+      <TopBar
+        counts={counts}
+        theme={theme}
+        onCycleTheme={cycleTheme}
+        user={user}
+        onLogin={login}
+        onLogout={logout}
+        menuOpen={menuOpen}
+        onToggleMenu={() => setMenuOpen((v) => !v)}
+        onCloseMenu={() => setMenuOpen(false)}
+        onOpenPalette={() => openPalette()}
+        onGoHome={handleGoHome}
+        onExport={handleExport}
+        onImportFile={handleImportFile}
+        onReset={handleReset}
+        onExpandAll={() => expandAll(allDirPaths)}
+        onCollapseAll={collapseAll}
+        onMobileToggle={() => setNavOpen((v) => !v)}
+      />
+      <div id="shell">
+        <Sidebar
+          treeData={treeData}
+          statusMap={statusMap}
+          openDirs={openDirs}
+          onToggleDir={toggleDir}
+          filter={filter}
+          onSetFilter={setFilter}
+          counts={counts}
+          visibleFiles={visibility.visibleFiles}
+          currentFile={currentFile}
+          onOpenFile={openFile}
+          onToggleStatus={toggleStatus}
+        />
+        <div id="resizer" ref={resizerRef} />
+        <div id="scrim" style={navOpen ? { display: 'block' } : undefined} onClick={() => setNavOpen(false)} />
+        <MainColumn
+          currentFile={currentFile}
+          node={currentFile ? nodeByFile[currentFile] : null}
+          statusMap={statusMap}
+          flatFiles={flatFiles}
+          nodeByFile={nodeByFile}
+          dirIndex={dirIndex}
+          fileSet={fileSet}
+          allTags={tags}
+          onOpenFile={openFile}
+          onSetStatus={setStatus}
+          onOpenPalette={openPalette}
+          headingTarget={heading}
+          onToast={toast.show}
+          onTocChange={setTocHeadings}
+          onActiveHeadingChange={setActiveHeadingId}
+          counts={counts}
+          treeCount={treeData.length}
+          treeData={treeData}
+        />
+        <Toc headings={currentFile ? tocHeadings : []} activeId={activeHeadingId} />
+      </div>
+
+      <CommandPalette
+        open={paletteOpen}
+        query={paletteQuery}
+        onQueryChange={setPaletteQuery}
+        onClose={closePalette}
+        searchItems={searchItems}
+        allTags={tags}
+        statusMap={statusMap}
+        onOpenFile={openFile}
+      />
+      <Toast message={toast.message} />
+    </>
+  );
+}

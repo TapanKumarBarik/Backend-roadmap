@@ -83,6 +83,7 @@ app.http('authCallback', {
       sub: claims.sub,
       email: claims.email,
       name: claims.name || claims.email,
+      picture: claims.picture || null,
       exp: Date.now() + SESSION_MAX_AGE * 1000
     });
 
@@ -105,7 +106,7 @@ app.http('authMe', {
     const cookies = parseCookies(request.headers.get('cookie'));
     const session = verify(cookies[SESSION_COOKIE]);
     if (!session) return { jsonBody: { user: null } };
-    return { jsonBody: { user: { userId: session.sub, email: session.email, name: session.name } } };
+    return { jsonBody: { user: { userId: session.sub, email: session.email, name: session.name, picture: session.picture || null } } };
   }
 });
 

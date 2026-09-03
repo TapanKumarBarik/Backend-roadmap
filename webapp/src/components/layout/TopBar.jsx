@@ -1,0 +1,108 @@
+import { useRef } from 'react';
+import {
+  HamburgerIcon, SearchIcon, SunIcon, MoonIcon, AutoIcon, MenuDotsIcon,
+  ExportIcon, ImportIcon, ResetIcon, ExpandIcon, CollapseIcon, KeysIcon, SignOutIcon
+} from '../icons.jsx';
+import SignInButton from '../account/SignInButton.jsx';
+import UserAvatar from '../account/UserAvatar.jsx';
+
+const THEME_ICON = { auto: AutoIcon, light: SunIcon, dark: MoonIcon };
+
+export default function TopBar({
+  counts, theme, onCycleTheme, user, onLogin, onLogout,
+  menuOpen, onToggleMenu, onCloseMenu, onOpenPalette, onGoHome,
+  onExport, onImportFile, onReset, onExpandAll, onCollapseAll, onMobileToggle
+}) {
+  const importInputRef = useRef(null);
+  const ThemeIcon = THEME_ICON[theme] || AutoIcon;
+  const pct = counts.total ? Math.round((counts.done / counts.total) * 100) : 0;
+
+  function handleMenuAction(act) {
+    onCloseMenu();
+    if (act === 'export') onExport();
+    else if (act === 'import') importInputRef.current?.click();
+    else if (act === 'reset') onReset();
+    else if (act === 'expand') onExpandAll();
+    else if (act === 'collapse') onCollapseAll();
+    else if (act === 'keys') {
+      alert(
+        'Keyboard shortcuts\n\n' +
+        'Ctrl/⌘ K   Search modules\n' +
+        '/          Search modules\n' +
+        'J / K      Next / previous module\n' +
+        'D          Mark current module done\n' +
+        'W          Mark current module in progress\n' +
+        'T          Cycle theme (auto / light / dark)\n' +
+        'B          Toggle sidebar\n' +
+        'Esc        Close search\n'
+      );
+    }
+  }
+
+  return (
+    <header id="topbar">
+      <button className="icon-btn" id="mobileToggle" title="Menu" aria-label="Toggle navigation" onClick={onMobileToggle}>
+        <HamburgerIcon />
+      </button>
+      <button className="brand" onClick={onGoHome} type="button">
+        <span className="mark">C</span><span>Curriculum</span>
+      </button>
+      <button id="searchTrigger" onClick={() => onOpenPalette()}>
+        <SearchIcon style={{ width: 14, height: 14, flexShrink: 0 }} />
+        <span>Search modules &amp; tags…</span>
+        <kbd>Ctrl K</kbd>
+      </button>
+      <div className="spacer" />
+      <div id="globalStat">
+        <span className="bar" title={`${counts.done} of ${counts.total} complete`}>
+          <i className="d" style={{ width: counts.total ? (counts.done / counts.total) * 100 + '%' : '0%' }} />
+          <i className="w" style={{ width: counts.total ? (counts.wip / counts.total) * 100 + '%' : '0%' }} />
+        </span>
+        <strong>{pct}%</strong>
+      </div>
+      {user
+        ? (
+          <button className="icon-btn" id="authBtn" onClick={(e) => { e.stopPropagation(); onToggleMenu(); }} title={`Signed in as ${user.email}`}>
+            <UserAvatar user={user} />
+          </button>
+        )
+        : <SignInButton onClick={onLogin} />}
+      <button className="icon-btn" id="themeBtn" title={`Theme: ${theme} (press T)`} onClick={onCycleTheme}>
+        <ThemeIcon />
+      </button>
+      <button className="icon-btn" id="menuBtn" title="More" onClick={(e) => { e.stopPropagation(); onToggleMenu(); }}>
+        <MenuDotsIcon />
+      </button>
+
+      <div id="menu" className={menuOpen ? 'show' : ''} onClick={(e) => e.stopPropagation()}>
+        {user && (
+          <>
+            <div className="grp">{user.email}</div>
+            <button onClick={() => { onCloseMenu(); onLogout(); }}><SignOutIcon />Sign out</button>
+            <div className="div" />
+          </>
+        )}
+        <div className="grp">Progress</div>
+        <button onClick={() => handleMenuAction('export')}><ExportIcon />Export progress (.json)</button>
+        <button onClick={() => handleMenuAction('import')}><ImportIcon />Import progress…</button>
+        <button onClick={() => handleMenuAction('reset')}><ResetIcon />Reset all progress</button>
+        <div className="div" />
+        <div className="grp">View</div>
+        <button onClick={() => handleMenuAction('expand')}><ExpandIcon />Expand all</button>
+        <button onClick={() => handleMenuAction('collapse')}><CollapseIcon />Collapse all</button>
+        <div className="div" />
+        <button onClick={() => handleMenuAction('keys')}><KeysIcon />Keyboard shortcuts</button>
+      </div>
+
+      <input
+        type="file" id="importFile" accept="application/json" style={{ display: 'none' }}
+        ref={importInputRef}
+        onChange={async (e) => {
+          const file = e.target.files[0];
+          if (file) await onImportFile(file);
+          e.target.value = '';
+        }}
+      />
+    </header>
+  );
+}

@@ -17,6 +17,17 @@ jobs:
         with:
           submodules: false
           lfs: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: webapp/package-lock.json
+      - name: Build webapp
+        working-directory: webapp
+        run: |
+          rm -rf ../assets
+          npm ci
+          npm run build
       - name: Build and Deploy
         id: builddeploy
         uses: Azure/static-web-apps-deploy@v1
@@ -27,6 +38,7 @@ jobs:
           app_location: "/"
           api_location: "api"
           output_location: ""
+          skip_app_build: true
 
   close_pull_request_job:
     if: github.event_name == 'pull_request' && github.event.action == 'closed'

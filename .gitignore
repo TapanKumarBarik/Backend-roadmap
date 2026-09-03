@@ -3,3 +3,9 @@ NEW-TOPICS-STATUS.md
 
 __pycache__/
 api/node_modules/
+webapp/node_modules/
+
+# index.html and assets/ at the repo root are now Vite build output (built
+# from webapp/src), regenerated fresh by CI on every deploy — not source.
+/index.html
+/assets/
