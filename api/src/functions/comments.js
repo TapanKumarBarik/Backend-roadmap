@@ -82,7 +82,7 @@ app.http('postComment', {
 app.http('deleteComment', {
   methods: ['DELETE'],
   authLevel: 'anonymous',
-  route: 'admin/comments',
+  route: 'manage/comments',
   handler: async (request) => {
     const session = getSession(request);
     if (!session) return { status: 401, jsonBody: { error: 'unauthenticated' } };
@@ -105,7 +105,7 @@ app.http('deleteComment', {
 app.http('listAllComments', {
   methods: ['GET'],
   authLevel: 'anonymous',
-  route: 'admin/comments',
+  route: 'manage/comments',
   handler: async (request) => {
     const session = getSession(request);
     if (!session) return { status: 401, jsonBody: { error: 'unauthenticated' } };

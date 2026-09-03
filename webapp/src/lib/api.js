@@ -60,30 +60,30 @@ export function trackPageView(path) {
 }
 
 export async function fetchAllComments() {
-  const res = await fetch('/api/admin/comments');
+  const res = await fetch('/api/manage/comments');
   if (!res.ok) throw new Error('failed to load comments');
   return res.json();
 }
 
 export async function deleteComment(path, id) {
-  const res = await fetch(`/api/admin/comments?path=${encodeURIComponent(path)}&id=${encodeURIComponent(id)}`, { method: 'DELETE' });
+  const res = await fetch(`/api/manage/comments?path=${encodeURIComponent(path)}&id=${encodeURIComponent(id)}`, { method: 'DELETE' });
   if (!res.ok) throw new Error('failed to delete comment');
 }
 
 export async function fetchPageViews() {
-  const res = await fetch('/api/admin/pageviews');
+  const res = await fetch('/api/manage/pageviews');
   if (!res.ok) throw new Error('failed to load visitor stats');
   return res.json();
 }
 
 export async function fetchAdminContent(path) {
-  const res = await fetch('/api/admin/content?path=' + encodeURIComponent(path));
+  const res = await fetch('/api/manage/content?path=' + encodeURIComponent(path));
   if (!res.ok) throw new Error('failed to load file (check the path)');
   return res.json();
 }
 
 export async function saveAdminContent(path, content, sha, message) {
-  const res = await fetch('/api/admin/content', {
+  const res = await fetch('/api/manage/content', {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ path, content, sha, message })
@@ -96,7 +96,7 @@ export async function saveAdminContent(path, content, sha, message) {
 }
 
 export async function uploadAdminImage(filename, contentType, dataBase64) {
-  const res = await fetch('/api/admin/image', {
+  const res = await fetch('/api/manage/image', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ filename, contentType, dataBase64 })

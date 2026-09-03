@@ -35,7 +35,7 @@ function requireAdmin(request) {
 app.http('getContent', {
   methods: ['GET'],
   authLevel: 'anonymous',
-  route: 'admin/content',
+  route: 'manage/content',
   handler: async (request) => {
     const auth = requireAdmin(request);
     if (auth.error) return auth.error;
@@ -54,7 +54,7 @@ app.http('getContent', {
 app.http('putContent', {
   methods: ['PUT'],
   authLevel: 'anonymous',
-  route: 'admin/content',
+  route: 'manage/content',
   handler: async (request) => {
     const auth = requireAdmin(request);
     if (auth.error) return auth.error;
@@ -94,7 +94,7 @@ app.http('putContent', {
 app.http('uploadImage', {
   methods: ['POST'],
   authLevel: 'anonymous',
-  route: 'admin/image',
+  route: 'manage/image',
   handler: async (request) => {
     const auth = requireAdmin(request);
     if (auth.error) return auth.error;

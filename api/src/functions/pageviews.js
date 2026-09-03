@@ -36,7 +36,7 @@ app.http('trackPageView', {
 app.http('listPageViews', {
   methods: ['GET'],
   authLevel: 'anonymous',
-  route: 'admin/pageviews',
+  route: 'manage/pageviews',
   handler: async (request) => {
     const session = getSession(request);
     if (!session) return { status: 401, jsonBody: { error: 'unauthenticated' } };
