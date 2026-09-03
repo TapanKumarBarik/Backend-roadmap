@@ -7,8 +7,11 @@ const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
 const STATE_COOKIE = 'oauth_state';
 const SESSION_MAX_AGE = 60 * 60 * 24 * 30; // 30 days
 
-function siteOrigin(request) {
-  return `https://${request.headers.get('x-forwarded-host') || request.headers.get('host')}`;
+// Headers seen through the SWA managed-Functions proxy point at the Function
+// App's internal *.azurewebsites.net host, not the public site, so the
+// redirect_uri Google sees must come from an explicit setting instead.
+function siteOrigin() {
+  return process.env.SITE_ORIGIN;
 }
 
 function cookieAttrs(name, value, maxAgeSeconds) {
@@ -20,7 +23,7 @@ app.http('authLogin', {
   authLevel: 'anonymous',
   route: 'auth/login',
   handler: async (request) => {
-    const origin = siteOrigin(request);
+    const origin = siteOrigin();
     const state = crypto.randomBytes(16).toString('hex');
     const redirect = request.query.get('redirect') || '/';
     const params = new URLSearchParams({
@@ -43,7 +46,7 @@ app.http('authCallback', {
   authLevel: 'anonymous',
   route: 'auth/callback',
   handler: async (request) => {
-    const origin = siteOrigin(request);
+    const origin = siteOrigin();
     const cookies = parseCookies(request.headers.get('cookie'));
     let stateData = {};
     try { stateData = JSON.parse(cookies[STATE_COOKIE] || '{}'); } catch { /* ignore */ }
