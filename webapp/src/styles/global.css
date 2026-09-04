@@ -470,7 +470,8 @@ h1:hover .anchor, h2:hover .anchor, h3:hover .anchor, h4:hover .anchor { opacity
 
 /* ---------- command palette ---------- */
 #paletteBg {
-  position: fixed; inset: 0; background: rgba(31,35,40,.42); backdrop-filter: blur(3px);
+  position: fixed; inset: 0; background: rgba(31,35,40,.42);
+  -webkit-backdrop-filter: blur(3px); backdrop-filter: blur(3px);
   z-index: 100; display: none; align-items: flex-start; justify-content: center; padding-top: 12vh;
 }
 #paletteBg.show { display: flex; }
@@ -532,6 +533,12 @@ html[data-theme="dark"] .pal-item.cur, html[data-theme="auto"] .pal-item.cur { b
 #mobileToggle { display: none; }
 #scrim { display: none; }
 
+/* Desktop sidebar collapse — the mobile drawer (#mobileToggle/.nav-open,
+   scoped inside the breakpoint below) is a separate concern and untouched
+   by this. */
+body.sidebar-collapsed #sidebar,
+body.sidebar-collapsed #resizer { display: none; }
+
 /* ---------- responsive ---------- */
 @media (max-width: 1180px) { #toc { display: none; } }
 @media (max-width: 860px) {
@@ -550,6 +557,9 @@ html[data-theme="dark"] .pal-item.cur, html[data-theme="auto"] .pal-item.cur { b
   #content h2 { font-size: 19px; }
   #pager { grid-template-columns: 1fr; }
   .brand span { display: none; }
+  /* The mobile drawer (hamburger + slide-in #sidebar) already covers
+     "show/hide the sidebar" below this breakpoint. */
+  #sidebarToggle { display: none; }
   /* The topbar's fixed-width chrome (icon buttons, "0%", the streak chip)
      plus a full "Sign in with Google" label and the search box together
      don't fit a phone-width viewport — collapse the same things .brand
@@ -665,6 +675,17 @@ html[data-theme="dark"] .pal-item.cur, html[data-theme="auto"] .pal-item.cur { b
   font-size: 13.5px; text-decoration: underline; text-underline-offset: 2px; cursor: pointer;
 }
 .signin-link:hover { opacity: .8; }
+
+/* ---------- message-the-owner modal ---------- */
+#msgModalBg {
+  position: fixed; inset: 0; background: rgba(31,35,40,.42);
+  -webkit-backdrop-filter: blur(3px); backdrop-filter: blur(3px);
+  display: flex; align-items: center; justify-content: center; z-index: 90; padding: 16px;
+}
+#msgModal {
+  width: min(480px, 92vw); background: var(--bg-raised); border: 1px solid var(--border);
+  border-radius: var(--r-lg); box-shadow: var(--shadow-lg); padding: 20px;
+}
 
 /* ---------- reactions ---------- */
 .reactions-section { margin-top: 40px; }

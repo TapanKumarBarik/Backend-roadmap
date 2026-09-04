@@ -2,10 +2,12 @@ import { useState } from 'react';
 import CommentsModeration from './CommentsModeration.jsx';
 import VisitorStats from './VisitorStats.jsx';
 import ContentEditor from './ContentEditor.jsx';
+import MessagesInbox from './MessagesInbox.jsx';
 
 const TABS = [
   { key: 'comments', label: 'Comments' },
   { key: 'visitors', label: 'Visitors' },
+  { key: 'messages', label: 'Messages' },
   { key: 'editor', label: 'Editor' }
 ];
 
@@ -33,6 +35,7 @@ export default function AdminDashboard({ isAdmin, lastViewedFile, onOpenFile }) 
       </div>
       {tab === 'comments' && <CommentsModeration onOpenFile={onOpenFile} />}
       {tab === 'visitors' && <VisitorStats onOpenFile={onOpenFile} />}
+      {tab === 'messages' && <MessagesInbox />}
       {tab === 'editor' && <ContentEditor initialPath={lastViewedFile} />}
     </div>
   );

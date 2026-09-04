@@ -59,6 +59,17 @@ app.http('deleteAccount', {
         .catch((err) => { if (err.statusCode !== 404) throw err; });
     }
 
+    // Messages sent to the admin: same anonymize-identity-keep-text
+    // treatment as comments — the admin may still need the message's
+    // content, just not who it's tied to any more.
+    const messages = getTable('Messages');
+    for await (const e of messages.listEntities({ queryOptions: { filter: `userId eq '${userId}'` } })) {
+      await messages.updateEntity(
+        { partitionKey: e.partitionKey, rowKey: e.rowKey, displayName: '[deleted user]', email: 'deleted', userId: 'deleted' },
+        'Merge'
+      ).catch((err) => { if (err.statusCode !== 404) throw err; });
+    }
+
     const headers = new Headers();
     headers.set('Set-Cookie', cookieAttrs(SESSION_COOKIE, '', 0));
     return { status: 204, headers };

@@ -1,7 +1,8 @@
 import { useRef } from 'react';
 import {
   HamburgerIcon, SearchIcon, SunIcon, MoonIcon, AutoIcon, MenuDotsIcon,
-  ExportIcon, ImportIcon, ResetIcon, ExpandIcon, CollapseIcon, KeysIcon, SignOutIcon, GearIcon, StarIcon, TrashIcon
+  ExportIcon, ImportIcon, ResetIcon, ExpandIcon, CollapseIcon, KeysIcon, SignOutIcon, GearIcon, StarIcon, TrashIcon,
+  SidebarIcon, MailIcon
 } from '../icons.jsx';
 import SignInButton from '../account/SignInButton.jsx';
 import UserAvatar from '../account/UserAvatar.jsx';
@@ -12,7 +13,8 @@ export default function TopBar({
   counts, theme, onCycleTheme, user, onLogin, onLogout,
   menuOpen, onToggleMenu, onCloseMenu, onOpenPalette, onGoHome,
   onExport, onImportFile, onReset, onExpandAll, onCollapseAll, onMobileToggle,
-  onOpenAdmin, onOpenBookmarks, onDeleteAccount, streak
+  onOpenAdmin, onOpenBookmarks, onDeleteAccount, onOpenMessage, streak,
+  sidebarCollapsed, onToggleSidebarCollapsed
 }) {
   const importInputRef = useRef(null);
   const ThemeIcon = THEME_ICON[theme] || AutoIcon;
@@ -44,6 +46,15 @@ export default function TopBar({
     <header id="topbar">
       <button className="icon-btn" id="mobileToggle" title="Menu" aria-label="Toggle navigation" onClick={onMobileToggle}>
         <HamburgerIcon />
+      </button>
+      <button
+        className="icon-btn" id="sidebarToggle"
+        title={`${sidebarCollapsed ? 'Show' : 'Hide'} sidebar (press B)`}
+        aria-label={`${sidebarCollapsed ? 'Show' : 'Hide'} sidebar`}
+        aria-pressed={sidebarCollapsed}
+        onClick={onToggleSidebarCollapsed}
+      >
+        <SidebarIcon />
       </button>
       <button className="brand" onClick={onGoHome} type="button">
         <span className="mark">C</span><span>Curriculum</span>
@@ -90,6 +101,7 @@ export default function TopBar({
               {streak && streak.currentStreak > 1 && ` · 🔥 ${streak.currentStreak}-day streak`}
             </div>
             {onOpenBookmarks && <button onClick={() => { onCloseMenu(); onOpenBookmarks(); }}><StarIcon />Bookmarks</button>}
+            {onOpenMessage && <button onClick={() => { onCloseMenu(); onOpenMessage(); }}><MailIcon />Message Tapan</button>}
             {onOpenAdmin && <button onClick={() => { onCloseMenu(); onOpenAdmin(); }}><GearIcon />Admin dashboard</button>}
             <button onClick={() => { onCloseMenu(); onLogout(); }}><SignOutIcon />Sign out</button>
             {onDeleteAccount && (

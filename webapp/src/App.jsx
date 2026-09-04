@@ -6,6 +6,7 @@ import { useAuth } from './hooks/useAuth.js';
 import { useProgressStore } from './hooks/useProgressStore.js';
 import { useOpenDirs } from './hooks/useOpenDirs.js';
 import { useSidebarResize } from './hooks/useSidebarResize.js';
+import { useSidebarCollapse } from './hooks/useSidebarCollapse.js';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts.js';
 import { useToast } from './hooks/useToast.js';
 import { useBookmarks } from './hooks/useBookmarks.js';
@@ -22,6 +23,7 @@ import Toc from './components/layout/Toc.jsx';
 import CommandPalette from './components/palette/CommandPalette.jsx';
 import Toast from './components/Toast.jsx';
 import BookmarksView from './components/home/BookmarksView.jsx';
+import MessageOwnerModal from './components/account/MessageOwnerModal.jsx';
 
 // Lazy: the GitHub-commit content editor and its admin-only siblings are
 // dead weight for the ~all visitors who aren't the site admin — split them
@@ -53,6 +55,7 @@ export default function App() {
   const toast = useToast();
   const resizerRef = useRef(null);
   useSidebarResize(resizerRef);
+  const { collapsed: sidebarCollapsed, toggle: toggleSidebarCollapsed } = useSidebarCollapse();
 
   const [filter, setFilter] = useState('all');
   const [paletteOpen, setPaletteOpen] = useState(false);
@@ -61,6 +64,7 @@ export default function App() {
   const [navOpen, setNavOpen] = useState(false);
   const [tocHeadings, setTocHeadings] = useState([]);
   const [activeHeadingId, setActiveHeadingId] = useState(null);
+  const [messageOpen, setMessageOpen] = useState(false);
 
   const isAdminRoute = path === ADMIN_ROUTE;
   const isBookmarksRoute = path === BOOKMARKS_ROUTE;
@@ -135,6 +139,7 @@ export default function App() {
     onCloseMenu: () => setMenuOpen(false),
     onCycleTheme: cycleTheme,
     onToggleNav: (force) => setNavOpen((v) => (force === undefined ? !v : force)),
+    onToggleSidebarCollapse: toggleSidebarCollapsed,
     onNavigateRelative: navigateRelative,
     onToggleDone: toggleDone,
     onToggleWip: toggleWip
@@ -221,9 +226,12 @@ export default function App() {
         onExpandAll={() => expandAll(allDirPaths)}
         onCollapseAll={collapseAll}
         onMobileToggle={() => setNavOpen((v) => !v)}
+        sidebarCollapsed={sidebarCollapsed}
+        onToggleSidebarCollapsed={toggleSidebarCollapsed}
         onOpenAdmin={user?.isAdmin ? openAdmin : null}
         onOpenBookmarks={user ? openBookmarks : null}
         onDeleteAccount={handleDeleteAccount}
+        onOpenMessage={user ? () => setMessageOpen(true) : null}
         streak={streak}
       />
       {isSpecialRoute
@@ -298,6 +306,7 @@ export default function App() {
         statusMap={statusMap}
         onOpenFile={openFile}
       />
+      {messageOpen && <MessageOwnerModal onClose={() => setMessageOpen(false)} onToast={toast.show} />}
       <Toast message={toast.message} />
     </>
   );

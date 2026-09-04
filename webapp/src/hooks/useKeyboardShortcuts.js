@@ -1,15 +1,18 @@
 import { useEffect } from 'react';
 
 // Ctrl/K=palette, Escape=close overlays, /=palette (not while typing),
-// T=theme cycle, B=toggle sidebar, J/K=next/prev module, D/W=toggle
-// done/wip — all suppressed while typing or with a modifier key held,
-// ported verbatim from the vanilla keydown listener.
+// T=theme cycle, B=toggle sidebar (mobile drawer + desktop collapse — both
+// fire together; each only has a visual effect within its own breakpoint's
+// CSS, so this doesn't need to branch on viewport width), J/K=next/prev
+// module, D/W=toggle done/wip — all suppressed while typing or with a
+// modifier key held, ported verbatim from the vanilla keydown listener.
 export function useKeyboardShortcuts({
   onOpenPalette,
   onClosePalette,
   onCloseMenu,
   onCycleTheme,
   onToggleNav,
+  onToggleSidebarCollapse,
   onNavigateRelative,
   onToggleDone,
   onToggleWip
@@ -35,7 +38,7 @@ export function useKeyboardShortcuts({
       const k = e.key.toLowerCase();
       if (k === '/') { e.preventDefault(); onOpenPalette(); }
       else if (k === 't') onCycleTheme();
-      else if (k === 'b') onToggleNav();
+      else if (k === 'b') { onToggleNav(); onToggleSidebarCollapse(); }
       else if (k === 'j') { e.preventDefault(); onNavigateRelative(1); }
       else if (k === 'k') { e.preventDefault(); onNavigateRelative(-1); }
       else if (k === 'd') onToggleDone();
@@ -43,5 +46,5 @@ export function useKeyboardShortcuts({
     }
     document.addEventListener('keydown', onKeyDown);
     return () => document.removeEventListener('keydown', onKeyDown);
-  }, [onOpenPalette, onClosePalette, onCloseMenu, onCycleTheme, onToggleNav, onNavigateRelative, onToggleDone, onToggleWip]);
+  }, [onOpenPalette, onClosePalette, onCloseMenu, onCycleTheme, onToggleNav, onToggleSidebarCollapse, onNavigateRelative, onToggleDone, onToggleWip]);
 }

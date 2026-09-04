@@ -193,3 +193,21 @@ export async function deleteAccount() {
   const res = await fetch('/api/account', { method: 'DELETE' });
   if (!res.ok) throw new Error('failed to delete account');
 }
+
+export async function sendMessage(text) {
+  const res = await fetch('/api/messages', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text })
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || 'failed to send message');
+  }
+}
+
+export async function fetchMessages() {
+  const res = await fetch('/api/manage/messages');
+  if (!res.ok) throw new Error('failed to load messages');
+  return res.json();
+}
