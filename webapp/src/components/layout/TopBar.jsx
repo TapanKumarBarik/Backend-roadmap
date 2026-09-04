@@ -2,10 +2,11 @@ import { useRef } from 'react';
 import {
   HamburgerIcon, SearchIcon, SunIcon, MoonIcon, AutoIcon, MenuDotsIcon,
   ExportIcon, ImportIcon, ResetIcon, ExpandIcon, CollapseIcon, KeysIcon, SignOutIcon, GearIcon, StarIcon, TrashIcon,
-  SidebarIcon, MailIcon
+  SidebarIcon, MailIcon, ClockIcon
 } from '../icons.jsx';
 import SignInButton from '../account/SignInButton.jsx';
 import UserAvatar from '../account/UserAvatar.jsx';
+import { BUILD_TIME } from '../../lib/buildInfo.js';
 
 const THEME_ICON = { auto: AutoIcon, light: SunIcon, dark: MoonIcon };
 
@@ -13,7 +14,7 @@ export default function TopBar({
   counts, theme, onCycleTheme, user, onLogin, onLogout,
   menuOpen, onToggleMenu, onCloseMenu, onOpenPalette, onGoHome,
   onExport, onImportFile, onReset, onExpandAll, onCollapseAll, onMobileToggle,
-  onOpenAdmin, onOpenBookmarks, onDeleteAccount, onOpenMessage, streak,
+  onOpenAdmin, onOpenBookmarks, onDeleteAccount, onOpenMessage, onToast, streak,
   sidebarCollapsed, onToggleSidebarCollapsed
 }) {
   const importInputRef = useRef(null);
@@ -39,6 +40,10 @@ export default function TopBar({
         'B          Toggle sidebar\n' +
         'Esc        Close search\n'
       );
+    } else if (act === 'deployed') {
+      onToast(BUILD_TIME
+        ? `Last deployed ${new Date(BUILD_TIME).toLocaleString()}`
+        : "Last deployed: unknown (dev build)");
     }
   }
 
@@ -122,6 +127,7 @@ export default function TopBar({
         <button onClick={() => handleMenuAction('collapse')}><CollapseIcon />Collapse all</button>
         <div className="div" />
         <button onClick={() => handleMenuAction('keys')}><KeysIcon />Keyboard shortcuts</button>
+        <button onClick={() => handleMenuAction('deployed')}><ClockIcon />Last deployed</button>
       </div>
 
       <input

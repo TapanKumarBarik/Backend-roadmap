@@ -232,6 +232,7 @@ export default function App() {
         onOpenBookmarks={user ? openBookmarks : null}
         onDeleteAccount={handleDeleteAccount}
         onOpenMessage={user ? () => setMessageOpen(true) : null}
+        onToast={toast.show}
         streak={streak}
       />
       {isSpecialRoute
