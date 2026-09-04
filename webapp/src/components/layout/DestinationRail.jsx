@@ -6,13 +6,13 @@ import { TreeIcon, StarIcon, CompassIcon, FeedIcon, GearIcon } from '../icons.js
 // no business sitting beside the community feed or the admin dashboard.
 export default function DestinationRail({
   activeDest, user, isAdmin,
-  onOpenCurriculum, onOpenExplore, onOpenSaved, onOpenFeed, onOpenAdmin
+  onOpenCurriculum, onOpenExplore, onOpenSaved, onOpenCommunity, onOpenAdmin
 }) {
   const items = [
     { key: null, label: 'Curriculum', Icon: TreeIcon, onClick: onOpenCurriculum, show: true },
     { key: '__explore', label: 'Explore', Icon: CompassIcon, onClick: onOpenExplore, show: true },
     { key: '__saved', label: 'Saved', Icon: StarIcon, onClick: onOpenSaved, show: !!user },
-    { key: '__feed', label: 'Community', Icon: FeedIcon, onClick: onOpenFeed, show: true },
+    { key: '__community', label: 'Community', Icon: FeedIcon, onClick: onOpenCommunity, show: true },
     { key: '__admin', label: 'Admin', Icon: GearIcon, onClick: onOpenAdmin, show: isAdmin }
   ].filter((i) => i.show);
 

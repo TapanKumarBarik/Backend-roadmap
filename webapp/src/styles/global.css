@@ -771,6 +771,38 @@ h1:hover .anchor, h2:hover .anchor, h3:hover .anchor, h4:hover .anchor { opacity
 }
 .page-tabs button:hover { color: var(--fg-muted); }
 .page-tabs button.on { color: var(--signal); border-bottom-color: var(--signal); }
+.tab-badge {
+  display: inline-block; margin-left: 6px; padding: 1px 6px; border-radius: 99px;
+  background: var(--signal); color: #fff; font-size: 10.5px; font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- community questions ---------- */
+.question-row { display: block; }
+.q-module {
+  background: none; border: 0; padding: 0; font-family: var(--mono); font-size: 11.5px;
+  color: var(--signal); font-weight: 500; text-align: left; max-width: 100%;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block;
+}
+.q-module:hover { text-decoration: underline; text-underline-offset: 2px; }
+.q-text {
+  font-size: 14.5px; line-height: 1.55; color: var(--fg); margin: 5px 0 7px;
+  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
+}
+.q-meta { display: flex; align-items: center; gap: 9px; font-size: 11.5px; color: var(--fg-subtle); flex-wrap: wrap; }
+.q-meta strong { color: var(--fg-muted); font-weight: 600; }
+.q-badge {
+  padding: 2px 8px; border-radius: 99px; border: 1px solid var(--border-subtle);
+  font-size: 10.5px; letter-spacing: .03em;
+}
+.q-badge.answered { border-color: var(--accent); background: var(--accent); color: var(--accent-fg); font-weight: 600; }
+.q-badge.open { border-color: var(--signal-line); background: var(--signal-bg); color: var(--signal); font-weight: 600; }
+
+/* stat tiles that are also navigation */
+.admin-stat.as-btn { text-align: left; cursor: pointer; }
+.admin-stat.as-btn:hover { border-color: var(--border); background: var(--hover); }
+.admin-stat.as-btn.urgent { border-color: var(--signal-line); background: var(--signal-bg); }
+.admin-stat.as-btn.urgent .admin-stat-n { color: var(--signal); }
 
 /* ---------- command palette ---------- */
 #paletteBg {
@@ -974,7 +1006,14 @@ body.sidebar-collapsed #resizer { display: none; }
 }
 .admin-stat-n { font-size: 26px; font-weight: 700; }
 .admin-stat-l { font-size: 12px; color: var(--fg-subtle); margin-top: 2px; }
-.admin-editor-toolbar { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
+/* Sticky: the textarea below is 460px tall, so Save, the Edit/Preview/Diff
+   toggle and the dirty-state indicator all scrolled out of reach exactly
+   when you were deep enough in a document to want them. */
+.admin-editor-toolbar {
+  display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap;
+  position: sticky; top: 0; z-index: 10;
+  background: var(--bg); padding: 10px 0; border-bottom: 1px solid var(--border-subtle);
+}
 .admin-editor-toolbar button {
   font-size: 13px; padding: 6px 14px; border: 1px solid var(--border); border-radius: var(--r-md);
   background: var(--bg); color: var(--fg);

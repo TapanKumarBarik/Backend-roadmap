@@ -59,6 +59,14 @@ export function trackPageView(path) {
   }).catch(() => {});
 }
 
+// Public: every question across the curriculum, with reply counts and
+// whether it's been answered. Backs the Community screen's tabs.
+export async function fetchQuestions() {
+  const res = await fetch('/api/comments/questions');
+  if (!res.ok) throw new Error('failed to load questions');
+  return res.json();
+}
+
 export async function fetchAllComments() {
   const res = await fetch('/api/manage/comments');
   if (!res.ok) throw new Error('failed to load comments');

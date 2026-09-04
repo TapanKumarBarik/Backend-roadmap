@@ -11,7 +11,9 @@ function fileToBase64(file) {
   });
 }
 
-export default function FeedView({ user, onLogin, onToast }) {
+// `embedded` renders just the composer and the posts, without the page
+// heading — it's a tab inside Community now rather than its own screen.
+export default function FeedView({ user, onLogin, onToast, embedded }) {
   const [posts, setPosts] = useState(null);
   const [error, setError] = useState(null);
   const [text, setText] = useState('');
@@ -71,11 +73,15 @@ export default function FeedView({ user, onLogin, onToast }) {
   }
 
   return (
-    <div id="empty">
-      <h2>Community feed</h2>
-      <p style={{ color: 'var(--fg-subtle)', fontSize: 13.5 }}>
-        Public — anyone can read this. Sign in with Google to post text, an image, or a PDF.
-      </p>
+    <div id={embedded ? undefined : 'empty'}>
+      {!embedded && (
+        <>
+          <h2>Community feed</h2>
+          <p style={{ color: 'var(--fg-subtle)', fontSize: 13.5 }}>
+            Public — anyone can read this. Sign in with Google to post text, an image, or a PDF.
+          </p>
+        </>
+      )}
 
       {user
         ? (

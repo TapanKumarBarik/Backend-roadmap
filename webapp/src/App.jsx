@@ -28,7 +28,7 @@ import CommandPalette from './components/palette/CommandPalette.jsx';
 import Toast from './components/Toast.jsx';
 import SavedView from './components/home/SavedView.jsx';
 import ExploreView from './components/home/ExploreView.jsx';
-import FeedView from './components/home/FeedView.jsx';
+import CommunityView from './components/home/CommunityView.jsx';
 import MessageOwnerModal from './components/account/MessageOwnerModal.jsx';
 
 // Lazy: the GitHub-commit content editor and its admin-only siblings are
@@ -44,7 +44,9 @@ const BOOKMARKS_ROUTE = '__bookmarks';
 const NOTES_ROUTE = '__notes';
 const SAVED_ROUTE = '__saved';
 const EXPLORE_ROUTE = '__explore';
+// The feed became one tab of Community; its old route still resolves.
 const FEED_ROUTE = '__feed';
+const COMMUNITY_ROUTE = '__community';
 
 function collectDirPaths(nodes) {
   const paths = [];
@@ -88,8 +90,8 @@ export default function App() {
   const isAdminRoute = path === ADMIN_ROUTE;
   const isSavedRoute = path === SAVED_ROUTE || path === BOOKMARKS_ROUTE || path === NOTES_ROUTE;
   const isExploreRoute = path === EXPLORE_ROUTE;
-  const isFeedRoute = path === FEED_ROUTE;
-  const isSpecialRoute = isAdminRoute || isSavedRoute || isExploreRoute || isFeedRoute;
+  const isCommunityRoute = path === COMMUNITY_ROUTE || path === FEED_ROUTE;
+  const isSpecialRoute = isAdminRoute || isSavedRoute || isExploreRoute || isCommunityRoute;
   const currentFile = !isSpecialRoute && path && fileSet.has(path) ? path : null;
 
   useEffect(() => {
@@ -223,7 +225,7 @@ export default function App() {
   const openSaved = useCallback(() => navigate(SAVED_ROUTE), [navigate]);
   const openNotes = useCallback(() => navigate(NOTES_ROUTE), [navigate]);
   const openExplore = useCallback(() => navigate(EXPLORE_ROUTE), [navigate]);
-  const openFeed = useCallback(() => navigate(FEED_ROUTE), [navigate]);
+  const openCommunity = useCallback(() => navigate(COMMUNITY_ROUTE), [navigate]);
 
   // Two of the three theme states render identically on any given OS, so a
   // press can legitimately change nothing on screen — say which mode it
@@ -248,7 +250,7 @@ export default function App() {
     const list = [
       { label: 'Continue learning', keywords: 'resume next module', hint: 'where you left off', run: () => (continueFile ? openFile(continueFile) : goHome()) },
       { label: 'Explore by tag', keywords: 'tags browse subject', run: () => navigate(EXPLORE_ROUTE) },
-      { label: 'Community', keywords: 'feed discussion posts', run: () => navigate(FEED_ROUTE) },
+      { label: 'Community', keywords: 'feed discussion posts questions', run: () => navigate(COMMUNITY_ROUTE) },
       { label: 'Your curriculum', keywords: 'home progress paths', run: goHome }
     ];
     if (currentFile) {
@@ -313,13 +315,13 @@ export default function App() {
       />
       <div id="shell">
         <DestinationRail
-          activeDest={isSavedRoute ? SAVED_ROUTE : (isSpecialRoute ? path : null)}
+          activeDest={isSavedRoute ? SAVED_ROUTE : isCommunityRoute ? COMMUNITY_ROUTE : (isSpecialRoute ? path : null)}
           user={user}
           isAdmin={!!user?.isAdmin}
           onOpenCurriculum={handleGoHome}
           onOpenExplore={openExplore}
           onOpenSaved={openSaved}
-          onOpenFeed={openFeed}
+          onOpenCommunity={openCommunity}
           onOpenAdmin={openAdmin}
         />
         {/* The tree is context for the curriculum, so it renders only
@@ -366,7 +368,15 @@ export default function App() {
                   />
                 )}
                 {isExploreRoute && <ExploreView allTags={tags} onOpenPalette={openPalette} />}
-                {isFeedRoute && <FeedView user={user} onLogin={login} onToast={toast.show} />}
+                {isCommunityRoute && (
+                  <CommunityView
+                    user={user}
+                    nodeByFile={nodeByFile}
+                    onOpenFile={openFile}
+                    onLogin={login}
+                    onToast={toast.show}
+                  />
+                )}
               </div>
             </div>
           )

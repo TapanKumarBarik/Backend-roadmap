@@ -341,6 +341,61 @@ app.http('commentActivity', {
   }
 });
 
+// Every question asked across the curriculum, newest first — the public
+// half of the Community screen.
+//
+// A question is a top-level comment; "answered" means it has at least one
+// reply or has been marked as the answer. Both are derived here in one
+// pass rather than making the client fetch each thread to find out.
+//
+// This is a full-table scan, bounded the same way commentActivity's is.
+// At personal scale that is cheaper than maintaining a secondary index,
+// and the cap means a runaway table degrades to "older questions are
+// missing" rather than to a slow endpoint.
+// Literal sub-route, not a bare 'comments' — getComments is registered as
+// 'comments/{*path}' and its catch-all also matches the bare path. The
+// siblings above (comments/vote, comments/activity) already rely on
+// literal segments winning over the wildcard.
+app.http('recentQuestions', {
+  methods: ['GET'],
+  authLevel: 'anonymous',
+  route: 'comments/questions',
+  handler: async () => {
+    const table = getTable(TABLE_NAME);
+    const roots = [];
+    const replyCounts = new Map();
+    let scanned = 0;
+
+    for await (const entity of table.listEntities()) {
+      if (++scanned > ACTIVITY_MAX_SCAN) break;
+      if (entity.hidden) continue;
+      const path = decodeURIComponent(entity.partitionKey);
+      if (entity.parentId) {
+        const key = path + ' ' + entity.parentId;
+        replyCounts.set(key, (replyCounts.get(key) || 0) + 1);
+      } else {
+        roots.push({
+          id: entity.rowKey,
+          path,
+          displayName: entity.displayName,
+          text: entity.text,
+          createdAt: entity.createdAt,
+          isAnswer: !!entity.isAnswer
+        });
+      }
+    }
+
+    // A root is "answered" if it carries the answer badge itself or any of
+    // its replies does; replies were counted above regardless of which.
+    const out = roots.map((r) => {
+      const replies = replyCounts.get(r.path + ' ' + r.id) || 0;
+      return { ...r, replies, answered: r.isAnswer || replies > 0 };
+    });
+    out.sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
+    return { jsonBody: out.slice(0, 200) };
+  }
+});
+
 app.http('listAllComments', {
   methods: ['GET'],
   authLevel: 'anonymous',
