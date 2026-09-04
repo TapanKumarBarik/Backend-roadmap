@@ -4,6 +4,13 @@ import { BUILD_TIME } from '../../lib/buildInfo.js';
 
 const EXCLUDED_TAGS = new Set(['quiz', 'exercises', 'challenge', 'review', 'index']);
 
+// The stylesheet already hides the Ctrl-K hint in the search box on narrow
+// screens, but the body copy went on telling phone users to press a key
+// combination they have no keyboard for.
+const hasKeyboard = () => typeof window === 'undefined'
+  || !window.matchMedia
+  || !window.matchMedia('(pointer: coarse)').matches;
+
 export default function EmptyState({
   counts, treeCount, treeData, statusMap, nodeByFile, dirIndex, allTags,
   onOpenFile, onOpenPalette
@@ -47,8 +54,10 @@ export default function EmptyState({
       <h2>Your curriculum</h2>
       <p>
         {counts.total} modules across {treeCount} curricula — <strong>{counts.done}</strong> done,{' '}
-        <strong>{counts.wip}</strong> in progress, <strong>{counts.todo}</strong> to go.
-        Press <kbd>Ctrl K</kbd> to jump to any module.
+        <strong>{counts.wip}</strong> in progress, <strong>{counts.todo}</strong> to go.{' '}
+        {hasKeyboard()
+          ? <>Press <kbd>Ctrl K</kbd> to jump to any module.</>
+          : 'Tap search to jump to any module.'}
       </p>
 
       {lastNode && (

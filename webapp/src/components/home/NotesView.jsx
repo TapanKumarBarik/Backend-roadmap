@@ -39,20 +39,25 @@ export default function NotesView({ nodeByFile, onOpenFile }) {
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search your notes…"
           />
-          <div className="admin-list">
+          {/* Was borrowing the admin dashboard's row styling (mono links,
+              full note text) — these are the learner's own notes, not a
+              moderation table. Same list row as Bookmarks, with a two-line
+              excerpt so a note is recognisable without opening it. */}
+          <div className="list-rows">
             {filtered.map((n) => {
               const node = nodeByFile[n.path];
               return (
-                <div key={n.path} className="admin-row">
-                  <div className="admin-row-main">
-                    <div className="comment-meta">
-                      <button className="admin-link" onClick={() => onOpenFile(n.path)}>
-                        {node ? (node.title || node.name) : n.path}
-                      </button>
-                      {n.updatedAt && <span>{new Date(n.updatedAt).toLocaleDateString()}</span>}
-                    </div>
-                    <div className="comment-text">{n.text}</div>
+                <div key={n.path} className="list-row">
+                  <div className="list-row-main">
+                    <button className="list-row-title" onClick={() => onOpenFile(n.path)}>
+                      {node ? (node.title || node.name) : n.path}
+                    </button>
+                    <div className="list-row-path" title={n.path}>{n.path}</div>
+                    <div className="list-row-excerpt">{n.text}</div>
                   </div>
+                  {n.updatedAt && (
+                    <span className="list-row-meta">{new Date(n.updatedAt).toLocaleDateString()}</span>
+                  )}
                 </div>
               );
             })}

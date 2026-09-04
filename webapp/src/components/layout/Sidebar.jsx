@@ -16,16 +16,20 @@ const FILTERS = [
 export default function Sidebar({
   treeData, statusMap, openDirs, onToggleDir, filter, onSetFilter, counts,
   visibleFiles, currentFile, onOpenFile, onToggleStatus,
-  user, isAdmin, onOpenBookmarks, onOpenNotes, onOpenFeed, onOpenAdmin
+  user, isAdmin, activeDest, onOpenBookmarks, onOpenNotes, onOpenFeed, onOpenAdmin
 }) {
+  // activeDest is the special-route key ('__feed', '__admin', …) or null
+  // when a module is open — without it these four read as identical grey
+  // icons and nothing on screen said which destination you were looking at.
+  const cls = (dest) => 'icon-btn' + (activeDest === dest ? ' on' : '');
   return (
     <aside id="sidebar" className="scroll">
       <div id="sidebarHead">
         <div id="sidebarNav">
-          {user && <button className="icon-btn" title="Bookmarks" aria-label="Bookmarks" onClick={onOpenBookmarks}><StarIcon /></button>}
-          {user && <button className="icon-btn" title="My notes" aria-label="My notes" onClick={onOpenNotes}><BookIcon /></button>}
-          <button className="icon-btn" title="Community feed" aria-label="Community feed" onClick={onOpenFeed}><FeedIcon /></button>
-          {isAdmin && <button className="icon-btn" title="Admin dashboard" aria-label="Admin dashboard" onClick={onOpenAdmin}><GearIcon /></button>}
+          {user && <button className={cls('__bookmarks')} aria-current={activeDest === '__bookmarks' ? 'page' : undefined} title="Bookmarks" aria-label="Bookmarks" onClick={onOpenBookmarks}><StarIcon /></button>}
+          {user && <button className={cls('__notes')} aria-current={activeDest === '__notes' ? 'page' : undefined} title="My notes" aria-label="My notes" onClick={onOpenNotes}><BookIcon /></button>}
+          <button className={cls('__feed')} aria-current={activeDest === '__feed' ? 'page' : undefined} title="Community feed" aria-label="Community feed" onClick={onOpenFeed}><FeedIcon /></button>
+          {isAdmin && <button className={cls('__admin')} aria-current={activeDest === '__admin' ? 'page' : undefined} title="Admin dashboard" aria-label="Admin dashboard" onClick={onOpenAdmin}><GearIcon /></button>}
         </div>
         <div id="filterRow">
           {FILTERS.map((f) => (

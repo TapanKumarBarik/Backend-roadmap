@@ -1,5 +1,8 @@
 export default function Toc({ headings, activeId }) {
-  if (!headings.length) return <nav id="toc" className="scroll" />;
+  // Rendering an empty <nav> still painted a 232px column and its left
+  // border on every non-article screen (home, feed, bookmarks, notes,
+  // admin) — a dead rail the main column could have used.
+  if (!headings.length) return null;
   return (
     <nav id="toc" className="scroll">
       <div className="toc-h">On this page</div>

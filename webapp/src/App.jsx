@@ -211,6 +211,14 @@ export default function App() {
   const openNotes = useCallback(() => navigate(NOTES_ROUTE), [navigate]);
   const openFeed = useCallback(() => navigate(FEED_ROUTE), [navigate]);
 
+  // Two of the three theme states render identically on any given OS, so a
+  // press can legitimately change nothing on screen — say which mode it
+  // landed on instead of leaving the button looking broken.
+  const handleCycleTheme = useCallback(() => {
+    const next = cycleTheme();
+    toast.show(next === 'auto' ? 'Theme: match system' : `Theme: ${next}`);
+  }, [cycleTheme, toast]);
+
   const lastViewedFile = (() => {
     try { return localStorage.getItem('docs.lastFile') || ''; } catch { return ''; }
   })();
@@ -221,7 +229,7 @@ export default function App() {
       <TopBar
         counts={counts}
         theme={theme}
-        onCycleTheme={cycleTheme}
+        onCycleTheme={handleCycleTheme}
         user={user}
         onLogin={login}
         onLogout={logout}
@@ -264,6 +272,7 @@ export default function App() {
           onToggleStatus={toggleStatus}
           user={user}
           isAdmin={!!user?.isAdmin}
+          activeDest={isSpecialRoute ? path : null}
           onOpenBookmarks={openBookmarks}
           onOpenNotes={openNotes}
           onOpenFeed={openFeed}

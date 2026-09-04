@@ -70,21 +70,30 @@ export default function TopBar({
         <kbd>Ctrl K</kbd>
       </button>
       <div className="spacer" />
-      <div id="globalStat">
-        <span className="bar" title={`${counts.done} of ${counts.total} complete`}>
+      {/* Was a bare bar plus "0%" — no label, no action, no meaning to a
+          first-time visitor. One control now: what it measures, where you
+          are, your streak, and somewhere to go when you click it. */}
+      <button
+        id="globalStat"
+        onClick={onGoHome}
+        title={`${counts.done} of ${counts.total} modules complete — open your curriculum`}
+        aria-label={`Progress: ${pct} percent, ${counts.done} of ${counts.total} modules complete. Open your curriculum.`}
+      >
+        <span className="bar">
           <i className="d" style={{ width: counts.total ? (counts.done / counts.total) * 100 + '%' : '0%' }} />
           <i className="w" style={{ width: counts.total ? (counts.wip / counts.total) * 100 + '%' : '0%' }} />
         </span>
         <strong>{pct}%</strong>
-      </div>
+        <span className="lbl">done</span>
+        {streak && streak.currentStreak > 1 && (
+          <span className="streak" title={`${streak.currentStreak}-day streak · longest ${streak.longestStreak}`}>
+            · 🔥 {streak.currentStreak}
+          </span>
+        )}
+      </button>
       {user
         ? (
           <>
-            {streak && streak.currentStreak > 1 && (
-              <span className="streak-chip" title={`${streak.currentStreak}-day streak · longest ${streak.longestStreak}`}>
-                🔥 {streak.currentStreak}
-              </span>
-            )}
             <button className="icon-btn" id="authBtn" onClick={(e) => { e.stopPropagation(); onToggleMenu(); }} title={`Signed in as ${user.email}`} aria-label={`Account menu — signed in as ${user.email}${activity?.badgeVisible ? `, ${activity.count} new mentions` : ''}`} aria-haspopup="true" aria-expanded={menuOpen}>
               <UserAvatar user={user} />
               {activity?.badgeVisible && <span className="activity-dot">{activity.count > 9 ? '9+' : activity.count}</span>}

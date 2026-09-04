@@ -7,15 +7,11 @@ import { ClockIcon, StarIcon } from '../icons.jsx';
 import CommentsSection from './CommentsSection.jsx';
 import NotesPanel from './NotesPanel.jsx';
 import ReactionsBar from './ReactionsBar.jsx';
-import { BUILD_TIME } from '../../lib/buildInfo.js';
-
-// Per-file last-modified dates aren't tracked yet (would need real git-commit
-// history per path, computed at build time like docs-index.json is) — until
-// that exists, every page shows the site's last deploy date as a stand-in.
-// Not wrong, just not precise: it's a true upper bound on "last touched".
-const PUBLISHED_DATE = BUILD_TIME
-  ? new Date(BUILD_TIME).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
-  : null;
+// A "Published <date>" pill used to render here from the site's build time.
+// It read as a per-page fact and wasn't one — every module claimed the same
+// date, which was really just "when the site last deployed". Removed rather
+// than kept with a disclaimer nobody hovers; a real per-file date needs git
+// history per path, computed at index-build time like docs-index.json.
 
 const LANG_PREF_KEY = 'docLangPref';
 
@@ -138,12 +134,16 @@ export default function ArticleView({
             const last = i === crumbParts.length - 1;
             const dirPath = crumbParts.slice(0, i + 1).join('/');
             const targetFile = dirIndex[dirPath];
+            // The final segment is the file on disk, so the crumb used to
+            // end in "README.md". Show the module's title instead — the
+            // filename is an implementation detail of the content repo.
+            const label = last ? (node?.title || node?.name || p) : p;
             return (
               <Fragment key={i}>
                 {i > 0 && <span className="sep">/</span>}
                 {!last && targetFile
                   ? <a href={'#' + encodeURIComponent(targetFile)} onClick={(e) => { e.preventDefault(); onOpenFile(targetFile); }}>{p}</a>
-                  : <span className={last ? 'cur' : ''}>{p}</span>}
+                  : <span className={last ? 'cur' : ''}>{label}</span>}
               </Fragment>
             );
           })}
@@ -160,11 +160,6 @@ export default function ArticleView({
           {readTime && (
             <span className="meta-pill" id="readTime">
               <ClockIcon /><span>{readTime.minutes} min read · {readTime.words.toLocaleString()} words</span>
-            </span>
-          )}
-          {PUBLISHED_DATE && (
-            <span className="meta-pill" title="Last deploy this site had — not yet tracked per-page">
-              Published {PUBLISHED_DATE}
             </span>
           )}
           <button
@@ -201,25 +196,24 @@ export default function ArticleView({
         <div id="content" ref={contentRef} onClick={handleContentClick} dangerouslySetInnerHTML={{ __html: html }} />
       )}
 
-      <nav id="pager">
-        {prevFile
-          ? (
-            <a className="pg prev" href={'#' + encodeURIComponent(prevFile)}
-              onClick={(e) => { e.preventDefault(); onOpenFile(prevFile); }}>
-              <span className="lbl">← Previous</span>
-              <span className="ttl">{nodeByFile[prevFile]?.title || nodeByFile[prevFile]?.name}</span>
-            </a>
-          )
-          : <span className="pg ghost" />}
-        {nextFile
-          ? (
-            <a className="pg next" href={'#' + encodeURIComponent(nextFile)}
-              onClick={(e) => { e.preventDefault(); onOpenFile(nextFile); }}>
-              <span className="lbl">Next →</span>
-              <span className="ttl">{nodeByFile[nextFile]?.title || nodeByFile[nextFile]?.name}</span>
-            </a>
-          )
-          : <span className="pg ghost" />}
+      {/* Only the very first and very last module of the curriculum have a
+          single neighbour — those used to reserve a hidden half-width cell,
+          leaving one card floating against a gap. */}
+      <nav id="pager" className={prevFile && nextFile ? '' : 'single'}>
+        {prevFile && (
+          <a className="pg prev" href={'#' + encodeURIComponent(prevFile)}
+            onClick={(e) => { e.preventDefault(); onOpenFile(prevFile); }}>
+            <span className="lbl">← Previous</span>
+            <span className="ttl">{nodeByFile[prevFile]?.title || nodeByFile[prevFile]?.name}</span>
+          </a>
+        )}
+        {nextFile && (
+          <a className="pg next" href={'#' + encodeURIComponent(nextFile)}
+            onClick={(e) => { e.preventDefault(); onOpenFile(nextFile); }}>
+            <span className="lbl">Next →</span>
+            <span className="ttl">{nodeByFile[nextFile]?.title || nodeByFile[nextFile]?.name}</span>
+          </a>
+        )}
       </nav>
 
       <ReactionsBar path={path} user={user} onLogin={onLogin} />
