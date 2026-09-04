@@ -23,6 +23,7 @@ import Toc from './components/layout/Toc.jsx';
 import CommandPalette from './components/palette/CommandPalette.jsx';
 import Toast from './components/Toast.jsx';
 import BookmarksView from './components/home/BookmarksView.jsx';
+import NotesView from './components/home/NotesView.jsx';
 import MessageOwnerModal from './components/account/MessageOwnerModal.jsx';
 
 // Lazy: the GitHub-commit content editor and its admin-only siblings are
@@ -32,6 +33,7 @@ const AdminDashboard = lazy(() => import('./components/admin/AdminDashboard.jsx'
 
 const ADMIN_ROUTE = '__admin';
 const BOOKMARKS_ROUTE = '__bookmarks';
+const NOTES_ROUTE = '__notes';
 
 function collectDirPaths(nodes) {
   const paths = [];
@@ -68,7 +70,8 @@ export default function App() {
 
   const isAdminRoute = path === ADMIN_ROUTE;
   const isBookmarksRoute = path === BOOKMARKS_ROUTE;
-  const isSpecialRoute = isAdminRoute || isBookmarksRoute;
+  const isNotesRoute = path === NOTES_ROUTE;
+  const isSpecialRoute = isAdminRoute || isBookmarksRoute || isNotesRoute;
   const currentFile = !isSpecialRoute && path && fileSet.has(path) ? path : null;
 
   useEffect(() => {
@@ -200,6 +203,7 @@ export default function App() {
 
   const openAdmin = useCallback(() => navigate(ADMIN_ROUTE), [navigate]);
   const openBookmarks = useCallback(() => navigate(BOOKMARKS_ROUTE), [navigate]);
+  const openNotes = useCallback(() => navigate(NOTES_ROUTE), [navigate]);
 
   const lastViewedFile = (() => {
     try { return localStorage.getItem('docs.lastFile') || ''; } catch { return ''; }
@@ -230,6 +234,7 @@ export default function App() {
         onToggleSidebarCollapsed={toggleSidebarCollapsed}
         onOpenAdmin={user?.isAdmin ? openAdmin : null}
         onOpenBookmarks={user ? openBookmarks : null}
+        onOpenNotes={user ? openNotes : null}
         onDeleteAccount={handleDeleteAccount}
         onOpenMessage={user ? () => setMessageOpen(true) : null}
         onToast={toast.show}
@@ -248,6 +253,7 @@ export default function App() {
                 {isBookmarksRoute && (
                   <BookmarksView bookmarks={bookmarks} nodeByFile={nodeByFile} onOpenFile={openFile} onToggleBookmark={toggleBookmark} />
                 )}
+                {isNotesRoute && <NotesView nodeByFile={nodeByFile} onOpenFile={openFile} />}
               </div>
             </div>
           </div>

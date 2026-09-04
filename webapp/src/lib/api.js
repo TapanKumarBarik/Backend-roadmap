@@ -132,6 +132,12 @@ export async function setCommentAnswer(path, id, isAnswer) {
   if (!res.ok) throw new Error('failed to update answer state');
 }
 
+export async function fetchAllNotes() {
+  const res = await fetch('/api/notes');
+  if (!res.ok) throw new Error('failed to load notes');
+  return res.json();
+}
+
 export async function fetchNote(path) {
   const res = await fetch('/api/notes/' + encodedPath(path));
   if (!res.ok) throw new Error('failed to load note');

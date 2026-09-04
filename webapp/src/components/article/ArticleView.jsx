@@ -7,6 +7,15 @@ import { ClockIcon, StarIcon } from '../icons.jsx';
 import CommentsSection from './CommentsSection.jsx';
 import NotesPanel from './NotesPanel.jsx';
 import ReactionsBar from './ReactionsBar.jsx';
+import { BUILD_TIME } from '../../lib/buildInfo.js';
+
+// Per-file last-modified dates aren't tracked yet (would need real git-commit
+// history per path, computed at build time like docs-index.json is) — until
+// that exists, every page shows the site's last deploy date as a stand-in.
+// Not wrong, just not precise: it's a true upper bound on "last touched".
+const PUBLISHED_DATE = BUILD_TIME
+  ? new Date(BUILD_TIME).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })
+  : null;
 
 const LANG_PREF_KEY = 'docLangPref';
 
@@ -151,6 +160,11 @@ export default function ArticleView({
           {readTime && (
             <span className="meta-pill" id="readTime">
               <ClockIcon /><span>{readTime.minutes} min read · {readTime.words.toLocaleString()} words</span>
+            </span>
+          )}
+          {PUBLISHED_DATE && (
+            <span className="meta-pill" title="Last deploy this site had — not yet tracked per-page">
+              Published {PUBLISHED_DATE}
             </span>
           )}
           <button

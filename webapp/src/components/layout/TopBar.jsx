@@ -2,7 +2,7 @@ import { useRef } from 'react';
 import {
   HamburgerIcon, SearchIcon, SunIcon, MoonIcon, AutoIcon, MenuDotsIcon,
   ExportIcon, ImportIcon, ResetIcon, ExpandIcon, CollapseIcon, KeysIcon, SignOutIcon, GearIcon, StarIcon, TrashIcon,
-  SidebarIcon, MailIcon, ClockIcon
+  SidebarIcon, MailIcon, ClockIcon, BookIcon
 } from '../icons.jsx';
 import SignInButton from '../account/SignInButton.jsx';
 import UserAvatar from '../account/UserAvatar.jsx';
@@ -14,7 +14,7 @@ export default function TopBar({
   counts, theme, onCycleTheme, user, onLogin, onLogout,
   menuOpen, onToggleMenu, onCloseMenu, onOpenPalette, onGoHome,
   onExport, onImportFile, onReset, onExpandAll, onCollapseAll, onMobileToggle,
-  onOpenAdmin, onOpenBookmarks, onDeleteAccount, onOpenMessage, onToast, streak,
+  onOpenAdmin, onOpenBookmarks, onOpenNotes, onDeleteAccount, onOpenMessage, onToast, streak,
   sidebarCollapsed, onToggleSidebarCollapsed
 }) {
   const importInputRef = useRef(null);
@@ -106,6 +106,7 @@ export default function TopBar({
               {streak && streak.currentStreak > 1 && ` · 🔥 ${streak.currentStreak}-day streak`}
             </div>
             {onOpenBookmarks && <button onClick={() => { onCloseMenu(); onOpenBookmarks(); }}><StarIcon />Bookmarks</button>}
+            {onOpenNotes && <button onClick={() => { onCloseMenu(); onOpenNotes(); }}><BookIcon />My notes</button>}
             {onOpenMessage && <button onClick={() => { onCloseMenu(); onOpenMessage(); }}><MailIcon />Message Tapan</button>}
             {onOpenAdmin && <button onClick={() => { onCloseMenu(); onOpenAdmin(); }}><GearIcon />Admin dashboard</button>}
             <button onClick={() => { onCloseMenu(); onLogout(); }}><SignOutIcon />Sign out</button>

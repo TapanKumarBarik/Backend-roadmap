@@ -1,5 +1,6 @@
 import { BookIcon } from '../icons.jsx';
 import { subtreeStats } from '../../lib/progressStats.js';
+import { BUILD_TIME } from '../../lib/buildInfo.js';
 
 const EXCLUDED_TAGS = new Set(['quiz', 'exercises', 'challenge', 'review', 'index']);
 
@@ -76,6 +77,12 @@ export default function EmptyState({
         <a href="/privacy.html">Privacy</a>
         <span aria-hidden="true">·</span>
         <a href="/terms.html">Terms</a>
+        {BUILD_TIME && (
+          <>
+            <span aria-hidden="true">·</span>
+            <span>Site last published {new Date(BUILD_TIME).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })}</span>
+          </>
+        )}
       </div>
     </div>
   );

@@ -5,6 +5,24 @@ const { getSession } = require('../lib/adminAuth');
 const TABLE_NAME = 'Notes';
 const MAX_LENGTH = 10000;
 
+app.http('listNotes', {
+  methods: ['GET'],
+  authLevel: 'anonymous',
+  route: 'notes',
+  handler: async (request) => {
+    const session = getSession(request);
+    if (!session) return { status: 401, jsonBody: { error: 'unauthenticated' } };
+
+    const table = getTable(TABLE_NAME);
+    const out = [];
+    for await (const entity of table.listEntities({ queryOptions: { filter: `PartitionKey eq '${session.sub}'` } })) {
+      out.push({ path: decodeURIComponent(entity.rowKey), text: entity.text, updatedAt: entity.updatedAt });
+    }
+    out.sort((a, b) => (a.updatedAt < b.updatedAt ? 1 : -1));
+    return { jsonBody: out };
+  }
+});
+
 app.http('getNote', {
   methods: ['GET'],
   authLevel: 'anonymous',
