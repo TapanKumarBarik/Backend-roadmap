@@ -40,7 +40,7 @@ jobs:
           # The Pages artifact is the whole repo root, so build-only
           # dependencies would otherwise ride along into it.
           rm -rf node_modules
-      - uses: actions/configure-pages@v5
+      - uses: actions/configure-pages@v6
       - uses: actions/upload-pages-artifact@v3
         with:
           path: .
