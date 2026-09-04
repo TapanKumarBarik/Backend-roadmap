@@ -123,6 +123,16 @@ export async function deleteOwnComment(path, id) {
   if (!res.ok) throw new Error('failed to delete comment');
 }
 
+export async function voteComment(path, id) {
+  const res = await fetch('/api/comments/vote', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ path, id })
+  });
+  if (!res.ok) throw new Error('failed to vote');
+  return res.json();
+}
+
 export async function setCommentAnswer(path, id, isAnswer) {
   const res = await fetch('/api/manage/comments/answer', {
     method: 'PUT',

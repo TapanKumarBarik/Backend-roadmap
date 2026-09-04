@@ -4,6 +4,7 @@ const { getTable } = require('../lib/tableClient');
 const { getSession, isAdmin } = require('../lib/adminAuth');
 
 const TABLE_NAME = 'Comments';
+const VOTES_TABLE = 'CommentVotes';
 const RATE_LIMIT_TABLE = 'RateLimits';
 const MAX_LENGTH = 2000;
 const RATE_LIMIT_WINDOW_MS = 5 * 60 * 1000; // 5 minutes
@@ -41,7 +42,7 @@ function makeRowKey() {
   return String(Date.now()).padStart(13, '0') + '-' + crypto.randomBytes(4).toString('hex');
 }
 
-function toClientShape(entity) {
+function toClientShape(entity, votes) {
   return {
     id: entity.rowKey,
     userId: entity.userId,
@@ -50,8 +51,28 @@ function toClientShape(entity) {
     parentId: entity.parentId || null,
     createdAt: entity.createdAt,
     editedAt: entity.editedAt || null,
-    isAnswer: !!entity.isAnswer
+    isAnswer: !!entity.isAnswer,
+    upvotes: votes ? (votes.counts[entity.rowKey] || 0) : 0,
+    votedByMe: votes ? votes.mine.has(entity.rowKey) : false
   };
+}
+
+// CommentVotes is partitioned the same way Comments is (by page path), with
+// RowKey `${commentId}_${userId}` — so every vote on every comment on one
+// page is a single table scan, not one query per comment.
+async function loadVotes(path, userId) {
+  const table = getTable(VOTES_TABLE);
+  const partitionKey = encodeURIComponent(path);
+  const counts = {};
+  const mine = new Set();
+  for await (const entity of table.listEntities({ queryOptions: { filter: `PartitionKey eq '${partitionKey}'` } })) {
+    const idx = entity.rowKey.lastIndexOf('_');
+    const commentId = entity.rowKey.slice(0, idx);
+    const voterId = entity.rowKey.slice(idx + 1);
+    counts[commentId] = (counts[commentId] || 0) + 1;
+    if (userId && voterId === userId) mine.add(commentId);
+  }
+  return { counts, mine };
 }
 
 app.http('getComments', {
@@ -62,15 +83,46 @@ app.http('getComments', {
     const path = request.params.path;
     if (!path) return { status: 400, jsonBody: { error: 'missing path' } };
 
+    const session = getSession(request);
     const table = getTable(TABLE_NAME);
     const partitionKey = encodeURIComponent(path);
+    const votes = await loadVotes(path, session && session.sub);
     const out = [];
     const entities = table.listEntities({
       queryOptions: { filter: `PartitionKey eq '${partitionKey}' and hidden eq false` }
     });
-    for await (const entity of entities) out.push(toClientShape(entity));
+    for await (const entity of entities) out.push(toClientShape(entity, votes));
     out.sort((a, b) => (a.id < b.id ? -1 : 1));
     return { jsonBody: out };
+  }
+});
+
+// Upvote-only, toggle on repeat click — same shape as reactions.js.
+app.http('voteComment', {
+  methods: ['POST'],
+  authLevel: 'anonymous',
+  route: 'comments/vote',
+  handler: async (request) => {
+    const session = getSession(request);
+    if (!session) return { status: 401, jsonBody: { error: 'unauthenticated' } };
+
+    let body;
+    try { body = await request.json(); } catch { return { status: 400, jsonBody: { error: 'invalid body' } }; }
+    const { path, id } = body;
+    if (!path || !id) return { status: 400, jsonBody: { error: 'path and id are required' } };
+
+    const table = getTable(VOTES_TABLE);
+    const partitionKey = encodeURIComponent(path);
+    const rowKey = `${id}_${session.sub}`;
+    try {
+      await table.getEntity(partitionKey, rowKey);
+      await table.deleteEntity(partitionKey, rowKey);
+      return { jsonBody: { voted: false } };
+    } catch (err) {
+      if (err.statusCode !== 404) throw err;
+      await table.createEntity({ partitionKey, rowKey, commentId: id, userId: session.sub, createdAt: new Date().toISOString() });
+      return { jsonBody: { voted: true } };
+    }
   }
 });
 

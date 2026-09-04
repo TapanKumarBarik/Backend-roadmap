@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
-import { fetchComments, postComment, editOwnComment, deleteOwnComment, setCommentAnswer } from '../../lib/api.js';
+import { fetchComments, postComment, editOwnComment, deleteOwnComment, setCommentAnswer, voteComment } from '../../lib/api.js';
 
-function CommentRow({ comment, isReply, user, onReply, onEdit, onDelete, onToggleAnswer }) {
+function CommentRow({ comment, isReply, user, onLogin, onReply, onEdit, onDelete, onToggleAnswer, onVote }) {
   const [editing, setEditing] = useState(false);
   const [editText, setEditText] = useState(comment.text);
   const isMine = user && user.userId === comment.userId;
@@ -29,6 +29,14 @@ function CommentRow({ comment, isReply, user, onReply, onEdit, onDelete, onToggl
       </div>
       <div className="comment-text">{comment.text}</div>
       <div className="comment-actions">
+        <button
+          className={'comment-vote-btn' + (comment.votedByMe ? ' on' : '')}
+          onClick={() => (user ? onVote(comment.id) : onLogin())}
+          title={user ? (comment.votedByMe ? 'Remove upvote' : 'Upvote — mark this helpful') : 'Sign in to upvote'}
+          aria-pressed={comment.votedByMe}
+        >
+          <span aria-hidden="true">▲</span> {comment.upvotes || 0}
+        </button>
         {user && onReply && <button className="comment-reply-btn" onClick={onReply}>Reply</button>}
         {isMine && <button className="comment-reply-btn" onClick={() => setEditing(true)}>Edit</button>}
         {canModerate && <button className="comment-reply-btn" onClick={() => onDelete(comment.id)}>Delete</button>}
@@ -79,9 +87,27 @@ export default function CommentsSection({ path, user, onLogin }) {
   async function handleEdit(id, newText) {
     try {
       const updated = await editOwnComment(path, id, newText);
-      setComments((prev) => prev.map((c) => (c.id === id ? updated : c)));
+      // Merge only what actually changed — editOwnComment's response isn't
+      // vote-aware (it doesn't re-scan CommentVotes), so replacing the whole
+      // object would visibly zero out the upvote count on every edit.
+      setComments((prev) => prev.map((c) => (c.id === id ? { ...c, text: updated.text, editedAt: updated.editedAt } : c)));
     } catch (e) {
       setError(e.message);
+    }
+  }
+
+  async function handleVote(id) {
+    const current = comments.find((c) => c.id === id);
+    if (!current) return;
+    const wasVoted = current.votedByMe;
+    setComments((prev) => prev.map((c) => (c.id === id
+      ? { ...c, votedByMe: !wasVoted, upvotes: (c.upvotes || 0) + (wasVoted ? -1 : 1) }
+      : c)));
+    try {
+      await voteComment(path, id);
+    } catch {
+      // revert — best-effort, same as the reactions bar
+      setComments((prev) => prev.map((c) => (c.id === id ? { ...c, votedByMe: wasVoted, upvotes: current.upvotes } : c)));
     }
   }
 
@@ -104,13 +130,29 @@ export default function CommentsSection({ path, user, onLogin }) {
     }
   }
 
-  const sortByAnswerFirst = (a, b) => (b.isAnswer ? 1 : 0) - (a.isAnswer ? 1 : 0);
-  const topLevel = comments.filter((c) => !c.parentId).sort(sortByAnswerFirst);
-  const repliesOf = (id) => comments.filter((c) => c.parentId === id).sort(sortByAnswerFirst);
+  // Answer-first always wins (a moderation signal, not a sort preference);
+  // within that, "top" ranks by upvotes, "discussion" leaves the array's
+  // existing chronological order alone (relies on Array#sort's stability).
+  const [sortMode, setSortMode] = useState('discussion');
+  const sorter = (a, b) => {
+    const answerDiff = (b.isAnswer ? 1 : 0) - (a.isAnswer ? 1 : 0);
+    if (answerDiff !== 0) return answerDiff;
+    return sortMode === 'top' ? (b.upvotes || 0) - (a.upvotes || 0) : 0;
+  };
+  const topLevel = comments.filter((c) => !c.parentId).sort(sorter);
+  const repliesOf = (id) => comments.filter((c) => c.parentId === id).sort(sorter);
 
   return (
     <section className="comments">
-      <div className="home-h">Comments{comments.length ? ` · ${comments.length}` : ''}</div>
+      <div className="comments-head">
+        <div className="home-h" style={{ margin: 0 }}>Comments{comments.length ? ` · ${comments.length}` : ''}</div>
+        {comments.length > 1 && (
+          <div className="seg comments-sort">
+            <button className={sortMode === 'discussion' ? 'on' : ''} onClick={() => setSortMode('discussion')}>Discussion</button>
+            <button className={sortMode === 'top' ? 'on' : ''} onClick={() => setSortMode('top')}>Most helpful</button>
+          </div>
+        )}
+      </div>
 
       {loading && <p style={{ color: 'var(--fg-subtle)' }}>Loading comments…</p>}
       {!loading && topLevel.length === 0 && <p style={{ color: 'var(--fg-subtle)' }}>No comments yet.</p>}
@@ -118,14 +160,14 @@ export default function CommentsSection({ path, user, onLogin }) {
       {topLevel.map((c) => (
         <div key={c.id}>
           <CommentRow
-            comment={c} user={user}
+            comment={c} user={user} onLogin={onLogin}
             onReply={() => { setReplyTo(c.id); setReplyText(''); }}
-            onEdit={handleEdit} onDelete={handleDelete} onToggleAnswer={handleToggleAnswer}
+            onEdit={handleEdit} onDelete={handleDelete} onToggleAnswer={handleToggleAnswer} onVote={handleVote}
           />
           {repliesOf(c.id).map((r) => (
             <CommentRow
-              key={r.id} comment={r} isReply user={user}
-              onEdit={handleEdit} onDelete={handleDelete} onToggleAnswer={handleToggleAnswer}
+              key={r.id} comment={r} isReply user={user} onLogin={onLogin}
+              onEdit={handleEdit} onDelete={handleDelete} onToggleAnswer={handleToggleAnswer} onVote={handleVote}
             />
           ))}
           {replyTo === c.id && (

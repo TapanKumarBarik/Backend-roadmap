@@ -29,12 +29,18 @@ app.http('deleteAccount', {
     }
     await getTable('RateLimits').deleteEntity(userId, 'comments').catch((err) => { if (err.statusCode !== 404) throw err; });
 
-    // Reactions are partitioned by page path, not by user, so a per-user
-    // delete needs a filtered scan on the userId property instead of a
-    // partition lookup.
+    // Reactions and comment votes are both partitioned by page path, not by
+    // user, so a per-user delete needs a filtered scan on the userId
+    // property instead of a partition lookup. Votes are just removed
+    // outright (unlike comments below) — a vote isn't content anyone else's
+    // reply depends on.
     const reactions = getTable('Reactions');
     for await (const e of reactions.listEntities({ queryOptions: { filter: `userId eq '${userId}'` } })) {
       await reactions.deleteEntity(e.partitionKey, e.rowKey).catch((err) => { if (err.statusCode !== 404) throw err; });
+    }
+    const commentVotes = getTable('CommentVotes');
+    for await (const e of commentVotes.listEntities({ queryOptions: { filter: `userId eq '${userId}'` } })) {
+      await commentVotes.deleteEntity(e.partitionKey, e.rowKey).catch((err) => { if (err.statusCode !== 404) throw err; });
     }
 
     // Comments are anonymized rather than hard-deleted: the thread structure
