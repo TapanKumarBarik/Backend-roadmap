@@ -9,6 +9,15 @@ export async function fetchServerStatus() {
   return res.json();
 }
 
+// path -> ISO string of when that mark was last changed. Separate from
+// fetchServerStatus because /api/progress's values are bare status strings
+// that callers compare directly against 'done'; see the endpoint's comment.
+export async function fetchServerTimes() {
+  const res = await fetch('/api/progress/times');
+  if (!res.ok) throw new Error('progress times fetch failed: ' + res.status);
+  return res.json();
+}
+
 export function putServerStatus(path, status) {
   const url = '/api/progress/' + path.split('/').map(encodeURIComponent).join('/');
   return fetch(url, {

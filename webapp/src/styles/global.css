@@ -1223,3 +1223,122 @@ body.sidebar-collapsed #resizer { display: none; }
 
 /* The standalone streak chip moved into #globalStat — one pill carrying
    progress and streak together, rather than two adjacent unlabelled bits. */
+
+/* ---------- self-check: answering a [!check] block ---------- */
+/* The block already had the strongest header on the page (filled ink, because
+   it closes the module). The answer controls stay quiet inside it — hairline
+   outlines that fill in only once chosen, so an unanswered list reads as
+   unanswered at a glance rather than as a wall of buttons. */
+#content .cblock-check .cblock-h {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+}
+#content .sc-tally {
+  font-variant-numeric: tabular-nums; letter-spacing: .04em; opacity: .72;
+}
+#content .sc-tally[data-all="1"] { opacity: 1; }
+#content .cblock-check .cblock-b ul { list-style: none; padding-left: 0; margin: 0; }
+#content .cblock-check .cblock-b li {
+  display: flex; align-items: baseline; gap: 6px 16px;
+  padding: 10px 0; margin: 0;
+  border-bottom: 1px solid var(--border-subtle);
+}
+/* Its own column, so a long question wraps inside itself and every row's
+   buttons stay on the same right-hand edge. */
+#content .cblock-check .cblock-b li .sc-q { flex: 1; min-width: 0; }
+#content .cblock-check .cblock-b li:last-child { border-bottom: 0; }
+/* Answered "yes" recedes; "not yet" is the one you still owe, so it keeps
+   full contrast and picks up the signal colour. */
+#content .cblock-check li[data-ck-state="yes"] { color: var(--fg-subtle); }
+#content .cblock-check li[data-ck-state="not"] { color: var(--fg); }
+#content .sc-acts { display: flex; gap: 6px; margin-left: auto; flex-shrink: 0; }
+#content .sc-btn {
+  font: inherit; font-size: 12px; line-height: 1.2;
+  padding: 5px 10px; white-space: nowrap;
+  color: var(--fg-muted); background: transparent;
+  border: 1px solid var(--border-subtle); border-radius: var(--r-sm);
+  cursor: pointer;
+}
+#content .sc-btn:hover { background: var(--hover); color: var(--fg); }
+#content .sc-btn[data-v="yes"].on {
+  background: var(--accent); color: var(--accent-fg); border-color: var(--accent);
+}
+#content .sc-btn[data-v="not"].on {
+  background: var(--signal-bg); color: var(--signal); border-color: var(--signal-line);
+}
+
+/* ---------- resume: pick up where you left off ---------- */
+/* Offered above the article, never applied automatically — see ArticleView.
+   Sits on the signal colour because it's a one-time prompt, not chrome. */
+.resume {
+  display: flex; align-items: stretch; gap: 0;
+  margin: 0 0 18px;
+  border: 1px solid var(--signal-line); border-radius: var(--r-md);
+  background: var(--signal-bg); overflow: hidden;
+}
+.resume-go {
+  flex: 1; display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
+  font: inherit; font-size: 13px; font-weight: 600; text-align: left;
+  color: var(--signal); background: transparent; border: 0;
+  padding: 10px 14px; cursor: pointer;
+}
+.resume-go:hover { background: rgba(178,90,8,.07); }
+.resume-at { font-weight: 400; font-size: 12px; opacity: .85; font-variant-numeric: tabular-nums; }
+.resume-x {
+  font: inherit; font-size: 18px; line-height: 1;
+  width: 38px; flex-shrink: 0;
+  color: var(--signal); background: transparent; border: 0;
+  border-left: 1px solid var(--signal-line); cursor: pointer;
+}
+.resume-x:hover { background: rgba(178,90,8,.07); }
+
+/* ---------- pace: progress over time ---------- */
+.pace {
+  display: flex; flex-wrap: wrap; gap: 18px 28px; align-items: flex-start;
+  justify-content: space-between;
+  padding: 16px 18px; margin: 0 0 26px;
+  border: 1px solid var(--border-subtle); border-radius: var(--r-md);
+  background: var(--bg-raised);
+}
+.pace-facts { display: flex; gap: 28px; flex-wrap: wrap; }
+.pace-fact { display: flex; align-items: baseline; gap: 9px; }
+.pace-n {
+  font-size: 26px; font-weight: 700; line-height: 1;
+  font-variant-numeric: tabular-nums; color: var(--fg);
+}
+.pace-l {
+  display: flex; flex-direction: column; gap: 2px;
+  font-size: 12.5px; color: var(--fg-muted);
+}
+.pace-d { font-size: 11.5px; font-style: normal; color: var(--fg-subtle); }
+.pace-d.up { color: var(--signal); }
+
+/* 13 columns of 7 days. Fixed cell size rather than fractions so the grid
+   keeps its shape instead of stretching to fill whatever space is left. */
+.pace-grid {
+  display: grid; grid-auto-flow: column;
+  grid-template-rows: repeat(7, 10px); grid-auto-columns: 10px;
+  gap: 3px; flex-shrink: 0;
+}
+.pace-cell {
+  border-radius: 2px; background: var(--bg-sunken);
+  border: 1px solid var(--border-subtle);
+}
+.pace-cell[data-l="0"] { background: var(--bg-sunken); }
+.pace-cell[data-l="1"] { background: var(--signal-line); border-color: var(--signal-line); }
+.pace-cell[data-l="2"] { background: var(--signal); border-color: var(--signal); opacity: .72; }
+.pace-cell[data-l="3"] { background: var(--signal); border-color: var(--signal); }
+.pace-cell[data-l="pad"] { background: transparent; border-color: transparent; }
+
+@media (max-width: 700px) {
+  .pace { gap: 14px; }
+  .pace-facts { gap: 18px; }
+  .pace-n { font-size: 22px; }
+  /* The strip is the first thing to go: the two numbers above it carry the
+     same story in a fraction of the width. */
+  .pace-grid { display: none; }
+  /* Not enough width for a text column and two buttons side by side, so the
+     question takes the full row and the buttons sit under it. */
+  #content .cblock-check .cblock-b li { flex-wrap: wrap; }
+  #content .cblock-check .cblock-b li .sc-q { flex: 1 0 100%; }
+  #content .sc-acts { margin-left: 0; }
+}

@@ -64,7 +64,7 @@ export default function App() {
   const { path, heading, navigate, goHome } = useHashRoute();
   const { theme, cycleTheme } = useTheme();
   const { user, login, logout } = useAuth();
-  const { statusMap, setStatus, reset, importStatuses } = useProgressStore(user);
+  const { statusMap, timeMap, setStatus, reset, importStatuses } = useProgressStore(user);
   const { openDirs, toggleDir, openMany, expandAll, collapseAll } = useOpenDirs(treeData);
   const { bookmarks, toggle: toggleBookmark } = useBookmarks(user);
   const streak = useStreak(user);
@@ -398,6 +398,7 @@ export default function App() {
               currentFile={currentFile}
               node={currentFile ? nodeByFile[currentFile] : null}
               statusMap={statusMap}
+              timeMap={timeMap}
               flatFiles={flatFiles}
               nodeByFile={nodeByFile}
               dirIndex={dirIndex}

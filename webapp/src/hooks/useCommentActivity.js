@@ -22,15 +22,28 @@ function getOrInitBaseline() {
 export function useCommentActivity(user) {
   const [count, setCount] = useState(0);
   const [paths, setPaths] = useState([]);
+  // Split so the menu can say what actually happened. Someone answering your
+  // question and someone name-dropping you are different events, and
+  // "mentions" was the wrong word for both.
+  const [replies, setReplies] = useState(0);
+  const [mentions, setMentions] = useState(0);
   const [seen, setSeen] = useState(false);
 
   useEffect(() => {
-    if (!user) { setCount(0); setPaths([]); return; }
+    if (!user) { setCount(0); setPaths([]); setReplies(0); setMentions(0); return; }
     let cancelled = false;
     setSeen(false);
     const since = getOrInitBaseline();
     fetchCommentActivity(since)
-      .then((d) => { if (!cancelled) { setCount(d.count || 0); setPaths(d.paths || []); } })
+      .then((d) => {
+        if (cancelled) return;
+        setCount(d.count || 0);
+        setPaths(d.paths || []);
+        // An older API returns neither; fall back to counting it all as
+        // mentions, which is what it used to mean.
+        setReplies(d.replies || 0);
+        setMentions(d.mentions != null ? d.mentions : (d.count || 0));
+      })
       .catch(() => {});
     return () => { cancelled = true; };
   }, [user]);
@@ -43,5 +56,12 @@ export function useCommentActivity(user) {
     setSeen(true);
   }, []);
 
-  return { count, paths, badgeVisible: count > 0 && !seen, markSeen };
+  // "2 replies", "1 mention", or "2 replies · 1 mention" — never a bare
+  // number the reader has to guess the meaning of.
+  const label = [
+    replies && `${replies} ${replies === 1 ? 'reply' : 'replies'}`,
+    mentions && `${mentions} ${mentions === 1 ? 'mention' : 'mentions'}`
+  ].filter(Boolean).join(' · ');
+
+  return { count, paths, replies, mentions, label, badgeVisible: count > 0 && !seen, markSeen };
 }

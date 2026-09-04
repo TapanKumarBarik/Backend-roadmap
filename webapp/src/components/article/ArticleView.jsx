@@ -1,9 +1,11 @@
-import { Fragment, useEffect, useMemo, useRef } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { useMarkdownDoc } from '../../hooks/useMarkdownDoc.js';
 import { enhanceContent } from '../../lib/enhanceContent.js';
 import { rewriteLinks } from '../../lib/rewriteLinks.js';
 import { readTimeStats, slugify } from '../../lib/markdown.js';
 import { buildPositions, siblingStats } from '../../lib/curriculumPosition.js';
+import { getPosition, savePosition, clearPosition, describeWhen } from '../../lib/readingPosition.js';
+import { enhanceSelfCheck, handleSelfCheckClick } from '../../lib/selfCheck.js';
 import { ClockIcon, StarIcon, ArrowRightIcon } from '../icons.jsx';
 import CommentsSection from './CommentsSection.jsx';
 import NotesPanel from './NotesPanel.jsx';
@@ -40,6 +42,13 @@ export default function ArticleView({
   const contentRef = useRef(null);
   const observerRef = useRef(null);
 
+  // Where you'd got to last time, offered rather than applied: silently
+  // scrolling someone into the middle of a page they just opened is
+  // disorienting, and wrong whenever they came back deliberately to re-read
+  // from the top.
+  const [resume, setResume] = useState(null);
+  const activeHeadingRef = useRef(null);
+
   // DOM-mutation pass (heading anchors, code blocks, link rewriting, tab
   // preference) + TOC extraction/scrollspy + scroll-to-heading, run once
   // per rendered doc — mirrors the vanilla openFile()'s post-render steps.
@@ -50,6 +59,7 @@ export default function ArticleView({
     enhanceContent(root);
     rewriteLinks(root, path, fileSet, dirIndex);
     applyTabPreference(root);
+    enhanceSelfCheck(root, path);
 
     const heads = [...root.querySelectorAll('h2, h3')];
     const headingList = heads.map((h) => ({ id: h.id, level: h.tagName, text: h.textContent.replace(/^#/, '').trim() }));
@@ -58,7 +68,13 @@ export default function ArticleView({
     if (observerRef.current) observerRef.current.disconnect();
     if (headingList.length >= 2 && mainRef.current) {
       const obs = new IntersectionObserver(
-        (entries) => entries.forEach((en) => { if (en.isIntersecting) onActiveHeadingChange(en.target.id); }),
+        (entries) => entries.forEach((en) => {
+          if (!en.isIntersecting) return;
+          // Doubles as the anchor the resume chip returns to, so it stays in
+          // step with the TOC highlight rather than tracking separately.
+          activeHeadingRef.current = en.target.id;
+          onActiveHeadingChange(en.target.id);
+        }),
         { root: mainRef.current, rootMargin: '0px 0px -72% 0px', threshold: 0 }
       );
       heads.forEach((h) => obs.observe(h));
@@ -78,7 +94,47 @@ export default function ArticleView({
     if (mainRef.current) mainRef.current.scrollTop = 0;
   }, [path, mainRef]);
 
+  // Read the stored position once per module, before any scrolling can
+  // overwrite it. An explicit #path@heading link is a destination the reader
+  // chose, so it wins and no chip is offered.
+  useEffect(() => {
+    activeHeadingRef.current = null;
+    setResume(headingTarget ? null : getPosition(path));
+  }, [path, headingTarget]);
+
+  // Record position while reading. Throttled to at most one write per second:
+  // this fires on every scroll frame otherwise, and localStorage writes are
+  // synchronous.
+  useEffect(() => {
+    const el = mainRef.current;
+    if (!el || html == null) return undefined;
+    let timer = null;
+    const onScroll = () => {
+      if (timer) return;
+      timer = setTimeout(() => {
+        timer = null;
+        const max = el.scrollHeight - el.clientHeight;
+        savePosition(path, activeHeadingRef.current, max > 0 ? el.scrollTop / max : 0);
+      }, 1000);
+    };
+    el.addEventListener('scroll', onScroll, { passive: true });
+    return () => {
+      el.removeEventListener('scroll', onScroll);
+      if (timer) clearTimeout(timer);
+    };
+  }, [path, html, mainRef]);
+
+  function goToResume() {
+    const el = mainRef.current;
+    if (!el || !resume) return;
+    const target = resume.heading && document.getElementById(resume.heading);
+    if (target) target.scrollIntoView({ block: 'start' });
+    else el.scrollTop = resume.ratio * (el.scrollHeight - el.clientHeight);
+    setResume(null);
+  }
+
   function handleContentClick(e) {
+    if (handleSelfCheckClick(e, path)) return;
     const tabBtn = e.target.closest('.tab-btn');
     if (tabBtn) {
       const group = tabBtn.closest('.tabs');
@@ -220,6 +276,26 @@ export default function ArticleView({
           </div>
         )}
       </div>
+
+      {resume && !loading && !error && html != null && (
+        <div className="resume">
+          <button className="resume-go" onClick={goToResume}>
+            Pick up where you left off
+            <span className="resume-at">
+              {Math.round(resume.ratio * 100)}% in
+              {resume.at && ` · ${describeWhen(resume.at)}`}
+            </span>
+          </button>
+          <button
+            className="resume-x"
+            aria-label="Start from the top instead"
+            title="Start from the top instead"
+            onClick={() => { clearPosition(path); setResume(null); }}
+          >
+            ×
+          </button>
+        </div>
+      )}
 
       {loading && <div id="content"><p style={{ color: 'var(--fg-subtle)' }}>Loading…</p></div>}
       {error && (

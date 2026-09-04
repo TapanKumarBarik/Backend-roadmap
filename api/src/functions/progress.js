@@ -41,6 +41,35 @@ app.http('getProgress', {
   }
 });
 
+// putProgress has been stamping updatedAt on every row since it was written,
+// and getProgress above has been dropping it on the floor just as long. This
+// hands it back, as a separate endpoint rather than by enriching /api/progress:
+// that map's values are bare status strings which every caller compares
+// directly against 'done'/'wip', and changing its shape would break any client
+// still running the previous bundle during a deploy.
+//
+// GET-only, so it doesn't collide with putProgress's PUT catch-all below, and
+// a literal segment beats the wildcard regardless (same as progress/reset).
+app.http('getProgressTimes', {
+  methods: ['GET'],
+  authLevel: 'anonymous',
+  route: 'progress/times',
+  handler: async (request) => {
+    const userId = getUserId(request);
+    if (!userId) return { status: 401, jsonBody: { error: 'unauthenticated' } };
+
+    const client = getTableClient();
+    const map = {};
+    const entities = client.listEntities({ queryOptions: { filter: `PartitionKey eq '${userId}'` } });
+    for await (const entity of entities) {
+      // Rows written before updatedAt existed simply have no timestamp; the
+      // client treats a missing entry as "unknown when", not as "never".
+      if (entity.updatedAt) map[decodeURIComponent(entity.rowKey)] = entity.updatedAt;
+    }
+    return { jsonBody: map };
+  }
+});
+
 app.http('putProgress', {
   methods: ['PUT'],
   authLevel: 'anonymous',

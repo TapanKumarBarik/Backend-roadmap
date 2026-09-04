@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { ArrowRightIcon, StarIcon } from '../icons.jsx';
+import ProgressStats from './ProgressStats.jsx';
 import { subtreeStats } from '../../lib/progressStats.js';
 import { buildPositions, shortTitle, pickContinue, nextUp, siblingStats, stripOrdinal, studyableFiles } from '../../lib/curriculumPosition.js';
 import { BUILD_TIME } from '../../lib/buildInfo.js';
@@ -21,7 +22,7 @@ function Bar({ done, wip, total }) {
 }
 
 export default function EmptyState({
-  counts, treeCount, treeData, statusMap, nodeByFile, dirIndex, flatFiles,
+  counts, treeCount, treeData, statusMap, timeMap, nodeByFile, dirIndex, flatFiles,
   bookmarks, onOpenFile
 }) {
   const [openPath, setOpenPath] = useState(null);
@@ -122,6 +123,8 @@ export default function EmptyState({
           </div>
         </>
       )}
+
+      <ProgressStats statusMap={statusMap} timeMap={timeMap || {}} totalModules={counts.total} />
 
       <div className="home-h">Your paths</div>
       <div className="path-list">

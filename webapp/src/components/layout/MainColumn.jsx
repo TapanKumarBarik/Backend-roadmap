@@ -3,7 +3,7 @@ import ArticleView from '../article/ArticleView.jsx';
 import EmptyState from '../home/EmptyState.jsx';
 
 export default function MainColumn({
-  currentFile, node, statusMap, flatFiles, nodeByFile, dirIndex, fileSet, allTags,
+  currentFile, node, statusMap, timeMap, flatFiles, nodeByFile, dirIndex, fileSet, allTags,
   onOpenFile, onSetStatus, onOpenPalette, headingTarget, onToast,
   onTocChange, onActiveHeadingChange,
   counts, treeCount, treeData, user, onLogin, isBookmarked, onToggleBookmark, bookmarks,
@@ -51,6 +51,7 @@ export default function MainColumn({
           )
           : (
             <EmptyState
+              timeMap={timeMap}
               counts={counts}
               treeCount={treeCount}
               treeData={treeData}

@@ -93,7 +93,7 @@ export default function TopBar({
       {user
         ? (
           <>
-            <button className="icon-btn" id="authBtn" onClick={(e) => { e.stopPropagation(); onToggleMenu(); }} title={`Signed in as ${user.email}`} aria-label={`Account menu — signed in as ${user.email}${activity?.badgeVisible ? `, ${activity.count} new mentions` : ''}`} aria-haspopup="true" aria-expanded={menuOpen}>
+            <button className="icon-btn" id="authBtn" onClick={(e) => { e.stopPropagation(); onToggleMenu(); }} title={`Signed in as ${user.email}`} aria-label={`Account menu — signed in as ${user.email}${activity?.badgeVisible ? `, ${activity.label}` : ''}`} aria-haspopup="true" aria-expanded={menuOpen}>
               <UserAvatar user={user} />
               {activity?.badgeVisible && <span className="activity-dot">{activity.count > 9 ? '9+' : activity.count}</span>}
             </button>
@@ -116,7 +116,7 @@ export default function TopBar({
             </div>
             {activity && activity.paths.length > 0 && (
               <>
-                <div className="grp">New mentions</div>
+                <div className="grp">{activity.label || 'New activity'}</div>
                 {activity.paths.map((p) => (
                   <button key={p} onClick={() => { onCloseMenu(); onOpenFile(p); }}>
                     <MailIcon />{(nodeByFile?.[p]?.title || nodeByFile?.[p]?.name || p)}

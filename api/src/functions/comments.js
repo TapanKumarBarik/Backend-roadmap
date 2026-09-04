@@ -305,12 +305,24 @@ app.http('setAnswer', {
   }
 });
 
-// Sharper than "anyone replied on a page you've touched": only counts as
-// activity when someone's comment explicitly @mentions you (see
-// parseMentions above, computed once at post time and stored on the
-// entity — re-deriving it here on every check would mean re-scanning each
-// page's participants per comment). One bounded full-table scan, same
-// reasoning as listAllComments below.
+// Two things count as activity aimed at you:
+//
+//   mentions — someone's comment names you with @DisplayName (see
+//              parseMentions above; computed once at post time and stored on
+//              the entity, because re-deriving it here would mean re-scanning
+//              every page's participants per comment).
+//   replies  — someone answered a comment you wrote. Previously invisible:
+//              ask a question, get an answer, never find out unless the
+//              answerer happened to @mention you. That is the single most
+//              common way a thread here goes unread.
+//
+// Still deliberately narrower than "anyone commented on a page you've
+// touched", which would fire constantly on popular modules and train you to
+// ignore the badge.
+//
+// One bounded full-table scan, same reasoning as listAllComments below. Your
+// own comment ids are collected without a date filter, because a reply today
+// to something you wrote last year is still news to you.
 app.http('commentActivity', {
   methods: ['GET'],
   authLevel: 'anonymous',
@@ -323,21 +335,48 @@ app.http('commentActivity', {
     const since = sinceParam ? new Date(sinceParam).getTime() : 0;
 
     const table = getTable(TABLE_NAME);
-    let count = 0;
-    const paths = new Set();
+    const myCommentIds = new Set();
+    const candidates = [];
     let scanned = 0;
+
     for await (const entity of table.listEntities()) {
       if (++scanned > ACTIVITY_MAX_SCAN) break;
-      if (entity.userId === session.sub) continue;
+
+      if (entity.userId === session.sub) {
+        myCommentIds.add(entity.rowKey);
+        continue;
+      }
       if (new Date(entity.createdAt).getTime() <= since) continue;
+
       let mentions = [];
       try { mentions = JSON.parse(entity.mentions || '[]'); } catch { /* older rows predate this field */ }
-      if (!mentions.includes(session.sub)) continue;
-      count++;
-      paths.add(decodeURIComponent(entity.partitionKey));
+      const mentionsMe = mentions.includes(session.sub);
+      if (!mentionsMe && !entity.parentId) continue;
+
+      candidates.push({
+        parentId: entity.parentId || null,
+        mentionsMe,
+        path: decodeURIComponent(entity.partitionKey)
+      });
     }
 
-    return { jsonBody: { count, paths: [...paths].slice(0, 10) } };
+    // Second pass, because a reply can appear in the scan before the comment
+    // it answers — table order is by partition then row key, not by thread.
+    let replies = 0;
+    let mentions = 0;
+    const paths = new Set();
+    for (const c of candidates) {
+      const isReplyToMe = c.parentId != null && myCommentIds.has(c.parentId);
+      if (!isReplyToMe && !c.mentionsMe) continue;
+      // A reply that also @mentions you is one notification, not two.
+      if (isReplyToMe) replies++;
+      else mentions++;
+      paths.add(c.path);
+    }
+
+    return {
+      jsonBody: { count: replies + mentions, replies, mentions, paths: [...paths].slice(0, 10) }
+    };
   }
 });
 
