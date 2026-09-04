@@ -49,9 +49,13 @@ export default function TopBar({
 
   return (
     <header id="topbar">
-      <button className="icon-btn" id="mobileToggle" title="Menu" aria-label="Toggle navigation" onClick={onMobileToggle}>
-        <HamburgerIcon />
-      </button>
+      {/* Null on destination screens — there's no curriculum tree to open
+          there, so the button would do nothing. */}
+      {onMobileToggle && (
+        <button className="icon-btn" id="mobileToggle" title="Menu" aria-label="Toggle navigation" onClick={onMobileToggle}>
+          <HamburgerIcon />
+        </button>
+      )}
       <button
         className="icon-btn" id="sidebarToggle"
         title={`${sidebarCollapsed ? 'Show' : 'Hide'} sidebar (press B)`}

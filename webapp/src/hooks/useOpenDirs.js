@@ -3,8 +3,13 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 const LS_KEY = 'docs.openDirs';
 
 // Set<dirPath> of expanded directories, debounced (150ms, matching the
-// vanilla saveOpenDirs) to localStorage. First visit (no saved state)
-// defaults to only the top-level tracks open.
+// vanilla saveOpenDirs) to localStorage.
+//
+// First visit starts fully collapsed — four curriculum rows. Opening every
+// root by default put 70 rows on screen before you'd asked for anything,
+// which is what made the tree read as a wall rather than a way in.
+// Navigating to a module still auto-expands its ancestors (see App's
+// openMany(ancestorDirPaths)), so the tree opens around wherever you are.
 export function useOpenDirs(treeData) {
   const [openDirs, setOpenDirs] = useState(() => new Set());
   const initializedRef = useRef(false);
@@ -15,7 +20,7 @@ export function useOpenDirs(treeData) {
     initializedRef.current = true;
     let saved = [];
     try { saved = JSON.parse(localStorage.getItem(LS_KEY) || '[]'); } catch { /* ignore */ }
-    setOpenDirs(saved.length ? new Set(saved) : new Set(treeData.map((n) => n.path)));
+    setOpenDirs(new Set(saved));
   }, [treeData]);
 
   const persist = useCallback((set) => {

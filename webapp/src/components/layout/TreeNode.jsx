@@ -1,9 +1,10 @@
 import { CaretIcon, TickIcon } from '../icons.jsx';
 import { subtreeStats } from '../../lib/progressStats.js';
+import { shortTitle } from '../../lib/curriculumPosition.js';
 
 export default function TreeNode({
   node, statusMap, openDirs, filter, visibleFiles, currentFile,
-  onToggleDir, onOpenFile, onToggleStatus, registerRow, closeNavOnMobile
+  onToggleDir, onOpenFile, onToggleStatus, registerRow, closeNavOnMobile, depth = 0
 }) {
   const hasKids = node.children && node.children.length > 0;
   const isOpen = hasKids && openDirs.has(node.path);
@@ -56,7 +57,14 @@ export default function TreeNode({
             <TickIcon />
           </span>
         )}
-        <span className="name">{node.title || node.name}</span>
+        {/* Curriculum roots carry their full positioning statement as a
+            title ("Learn: Linux → Docker → Kubernetes → Networking → Azure
+            → AKS → Platform Engineering"), which wrapped to three lines in
+            a 340px panel. The part before the colon is the name people
+            actually use; the full text stays as the row's tooltip. */}
+        <span className="name" title={depth === 0 ? (node.title || node.name) : undefined}>
+          {depth === 0 ? shortTitle(node) : (node.title || node.name)}
+        </span>
         {prog}
       </div>
       {hasKids && (
@@ -75,6 +83,7 @@ export default function TreeNode({
               onToggleStatus={onToggleStatus}
               registerRow={registerRow}
               closeNavOnMobile={closeNavOnMobile}
+              depth={depth + 1}
             />
           ))}
         </ul>

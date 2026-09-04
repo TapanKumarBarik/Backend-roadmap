@@ -20,6 +20,7 @@ import { trackPageView, deleteAccount } from './lib/api.js';
 
 import TopBar from './components/layout/TopBar.jsx';
 import Sidebar from './components/layout/Sidebar.jsx';
+import DestinationRail from './components/layout/DestinationRail.jsx';
 import MainColumn from './components/layout/MainColumn.jsx';
 import RightRail from './components/layout/RightRail.jsx';
 import CommandPalette from './components/palette/CommandPalette.jsx';
@@ -252,7 +253,7 @@ export default function App() {
         onReset={handleReset}
         onExpandAll={() => expandAll(allDirPaths)}
         onCollapseAll={collapseAll}
-        onMobileToggle={() => setNavOpen((v) => !v)}
+        onMobileToggle={isSpecialRoute ? null : () => setNavOpen((v) => !v)}
         sidebarCollapsed={sidebarCollapsed}
         onToggleSidebarCollapsed={toggleSidebarCollapsed}
         onDeleteAccount={handleDeleteAccount}
@@ -264,27 +265,37 @@ export default function App() {
         nodeByFile={nodeByFile}
       />
       <div id="shell">
-        <Sidebar
-          treeData={treeData}
-          statusMap={statusMap}
-          openDirs={openDirs}
-          onToggleDir={toggleDir}
-          filter={filter}
-          onSetFilter={setFilter}
-          counts={counts}
-          visibleFiles={visibility.visibleFiles}
-          currentFile={currentFile}
-          onOpenFile={openFile}
-          onToggleStatus={toggleStatus}
+        <DestinationRail
+          activeDest={isSpecialRoute ? path : null}
           user={user}
           isAdmin={!!user?.isAdmin}
-          activeDest={isSpecialRoute ? path : null}
+          onOpenCurriculum={handleGoHome}
           onOpenBookmarks={openBookmarks}
           onOpenNotes={openNotes}
           onOpenFeed={openFeed}
           onOpenAdmin={openAdmin}
         />
-        <div id="resizer" ref={resizerRef} />
+        {/* The tree is context for the curriculum, so it renders only
+            there. On a destination — feed, saved, notes, admin — it was
+            340px of unrelated content permanently occupying the screen. */}
+        {!isSpecialRoute && (
+          <>
+            <Sidebar
+              treeData={treeData}
+              statusMap={statusMap}
+              openDirs={openDirs}
+              onToggleDir={toggleDir}
+              filter={filter}
+              onSetFilter={setFilter}
+              counts={counts}
+              visibleFiles={visibility.visibleFiles}
+              currentFile={currentFile}
+              onOpenFile={openFile}
+              onToggleStatus={toggleStatus}
+            />
+            <div id="resizer" ref={resizerRef} />
+          </>
+        )}
         <div id="scrim" style={navOpen ? { display: 'block' } : undefined} onClick={() => setNavOpen(false)} />
         {isSpecialRoute
           ? (

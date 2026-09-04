@@ -29,6 +29,20 @@ export const GearIcon = svg('M8 0a8.2 8.2 0 0 1 .701.031C9.444.095 9.99.645 10.1
 export const TrashIcon = svg('M11 1.75V3h2.25a.75.75 0 0 1 0 1.5h-.5l-.83 8.401A1.75 1.75 0 0 1 10.178 15H5.822a1.75 1.75 0 0 1-1.744-1.599L3.25 4.5h-.5a.75.75 0 0 1 0-1.5H5V1.75C5 .784 5.784 0 6.75 0h2.5C10.216 0 11 .784 11 1.75ZM4.752 4.5l.826 8.273a.25.25 0 0 0 .25.227h4.344a.25.25 0 0 0 .25-.227L10.248 4.5H4.752ZM6.5 1.75V3h3V1.75a.25.25 0 0 0-.25-.25h-2.5a.25.25 0 0 0-.25.25Z');
 export const ArrowRightIcon = svg('M8.22 2.97a.75.75 0 0 1 1.06 0l4.25 4.25a.75.75 0 0 1 0 1.06l-4.25 4.25a.75.75 0 0 1-1.06-1.06l2.97-2.97H3.75a.75.75 0 0 1 0-1.5h7.44L8.22 4.03a.75.75 0 0 1 0-1.06Z');
 
+// Drawn from primitives rather than the single-path svg() helper — a
+// nested-list glyph is a set of rules and bullets, not one fill path.
+export function TreeIcon(props) {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" {...props}>
+      <line x1="2.5" y1="3.5" x2="13.5" y2="3.5" />
+      <line x1="6" y1="7.5" x2="13.5" y2="7.5" />
+      <line x1="6" y1="11.5" x2="13.5" y2="11.5" />
+      <path d="M3.2 4.6v6.9h2" />
+      <path d="M3.2 7.5h2" />
+    </svg>
+  );
+}
+
 // Hand-drawn from primitives, not the single-path svg() helper above — a
 // "panel with a divider" glyph doesn't reduce cleanly to one fill path, and
 // approximating one from memory risks a subtly-wrong icon.

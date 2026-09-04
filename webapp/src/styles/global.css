@@ -189,6 +189,32 @@ kbd {
 /* ---------- layout ---------- */
 #shell { flex: 1; display: flex; min-height: 0; position: relative; }
 
+/* ---------- destination rail ----------
+   The permanent left edge: where you can go. Narrow and quiet, so that
+   losing the 340px tree on destination screens is a gain rather than a
+   hole. Labels are always rendered for screen readers and revealed on
+   hover/focus for everyone else. */
+#destRail {
+  width: 52px; flex-shrink: 0; display: flex; flex-direction: column; gap: 3px;
+  padding: 8px 0; border-right: 1px solid var(--border-subtle); background: var(--bg-sunken);
+  align-items: center; z-index: 20;
+}
+.dest-btn {
+  position: relative; width: 38px; height: 38px; display: grid; place-items: center;
+  border: 1px solid transparent; border-radius: var(--r-sm);
+  background: transparent; color: var(--fg-subtle);
+}
+.dest-btn svg { width: 17px; height: 17px; }
+.dest-btn:hover { background: var(--hover); color: var(--fg); }
+.dest-btn.on { background: var(--signal-bg); border-color: var(--signal-line); color: var(--signal); }
+.dest-label {
+  position: absolute; left: calc(100% + 8px); top: 50%; transform: translateY(-50%);
+  background: var(--fg); color: var(--bg); font-size: 11.5px; font-weight: 550;
+  padding: 4px 9px; border-radius: var(--r-sm); white-space: nowrap;
+  opacity: 0; pointer-events: none; transition: opacity .12s; z-index: 60;
+}
+.dest-btn:hover .dest-label, .dest-btn:focus-visible .dest-label { opacity: 1; }
+
 #sidebar {
   width: var(--sidebar-w); flex-shrink: 0; border-right: 1px solid var(--border-subtle);
   display: flex; flex-direction: column; background: var(--bg); min-width: 0;
@@ -598,7 +624,7 @@ h1:hover .anchor, h2:hover .anchor, h3:hover .anchor, h4:hover .anchor { opacity
 #toc a.lv3 { padding-left: 22px; font-size: 12.2px; }
 
 /* ---------- home ---------- */
-#empty { max-width: 660px; margin: 0 auto; padding: 60px 44px 96px; }
+#empty { max-width: 720px; margin: 0 auto; padding: 56px 44px 96px; }
 #empty h2 { font-size: 26px; margin: 0 0 8px; letter-spacing: -.022em; }
 #empty p { color: var(--fg-muted); margin: 0 0 26px; line-height: 1.65; }
 .home-sub { font-size: 14.5px; }
