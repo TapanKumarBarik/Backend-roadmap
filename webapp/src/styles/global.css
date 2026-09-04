@@ -748,6 +748,30 @@ h1:hover .anchor, h2:hover .anchor, h3:hover .anchor, h4:hover .anchor { opacity
 .list-row-act.on { color: var(--fg); }
 .list-row-act.on svg { fill: var(--fg); }
 
+/* ---------- explore ---------- */
+.tag-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(158px, 1fr)); gap: 8px; }
+.tag-card {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 3px; min-width: 0;
+  padding: 11px 13px; border: 1px solid var(--border-subtle); border-radius: var(--r-md);
+  background: var(--bg-raised); text-align: left;
+}
+.tag-card:hover { border-color: var(--border); background: var(--hover); }
+.tag-card-n {
+  font-family: var(--mono); font-size: 13px; color: var(--fg); font-weight: 500;
+  max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.tag-card-c { font-size: 11.5px; color: var(--fg-subtle); font-variant-numeric: tabular-nums; }
+
+/* tabs on a destination page (Saved) — same idea as the right rail's */
+.page-tabs { display: flex; gap: 16px; border-bottom: 1px solid var(--border-subtle); margin-bottom: 20px; }
+.page-tabs button {
+  background: none; border: 0; padding: 0 0 9px; margin-bottom: -1px;
+  font-size: 13px; font-weight: 600; color: var(--fg-subtle);
+  border-bottom: 2px solid transparent;
+}
+.page-tabs button:hover { color: var(--fg-muted); }
+.page-tabs button.on { color: var(--signal); border-bottom-color: var(--signal); }
+
 /* ---------- command palette ---------- */
 #paletteBg {
   position: fixed; inset: 0; background: rgba(31,35,40,.42);
@@ -779,6 +803,11 @@ html[data-theme="dark"] .pal-item.cur, html[data-theme="auto"] .pal-item.cur { b
 .pal-item .t { font-size: 14px; color: var(--fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pal-item .p { font-size: 11.5px; color: var(--fg-subtle); font-family: var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pal-item mark { background: transparent; color: var(--accent); font-weight: 700; }
+.pal-act-ic {
+  width: 7px; flex-shrink: 0; color: var(--signal); font-weight: 700;
+  font-family: var(--mono); text-align: center;
+}
+.pal-act-hint { font-size: 11px; color: var(--fg-subtle); flex-shrink: 0; }
 #palFoot {
   border-top: 1px solid var(--border-subtle); padding: 8px 14px; font-size: 11.5px; color: var(--fg-subtle);
   display: flex; gap: 14px; align-items: center;

@@ -4,8 +4,6 @@ import { subtreeStats } from '../../lib/progressStats.js';
 import { buildPositions, shortTitle, pickContinue, nextUp, siblingStats, stripOrdinal, studyableFiles } from '../../lib/curriculumPosition.js';
 import { BUILD_TIME } from '../../lib/buildInfo.js';
 
-const EXCLUDED_TAGS = new Set(['quiz', 'exercises', 'challenge', 'review', 'index']);
-
 // The stylesheet already hides the Ctrl-K hint in the search box on narrow
 // screens, but the body copy went on telling phone users to press a key
 // combination they have no keyboard for.
@@ -23,8 +21,8 @@ function Bar({ done, wip, total }) {
 }
 
 export default function EmptyState({
-  counts, treeCount, treeData, statusMap, nodeByFile, dirIndex, allTags, flatFiles,
-  bookmarks, onOpenFile, onOpenPalette
+  counts, treeCount, treeData, statusMap, nodeByFile, dirIndex, flatFiles,
+  bookmarks, onOpenFile
 }) {
   const [openPath, setOpenPath] = useState(null);
 
@@ -38,7 +36,6 @@ export default function EmptyState({
   const started = counts.done > 0 || counts.wip > 0;
   const trackStats = siblingStats(continuePos?.parentNode, statusMap);
 
-  const topTags = Object.entries(allTags).filter(([t]) => !EXCLUDED_TAGS.has(t)).slice(0, 26);
   const savedPaths = bookmarks ? [...bookmarks].slice(0, 5) : [];
 
   // One row per curriculum, expandable to its tracks — this page used to
@@ -194,21 +191,9 @@ export default function EmptyState({
         </>
       )}
 
-      {topTags.length > 0 && (
-        <>
-          {/* Still here, but no longer the loudest thing above the fold —
-              it belongs in search, which is where it moves once the palette
-              gains tag mode. */}
-          <div className="home-h">Browse by tag</div>
-          <div id="tagCloud">
-            {topTags.map(([t, n]) => (
-              <button key={t} className="tag" onClick={() => onOpenPalette('#' + t)}>
-                <span className="hash">#</span>{t}<b>{n}</b>
-              </button>
-            ))}
-          </div>
-        </>
-      )}
+      {/* The 26-chip tag cloud that used to sit here — above the curriculum
+          itself — now lives on Explore, grouped by subject rather than
+          ordered by raw frequency. */}
 
       <div className="home-footer">
         <a href="/privacy.html">Privacy</a>

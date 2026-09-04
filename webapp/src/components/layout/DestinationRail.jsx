@@ -1,4 +1,4 @@
-import { TreeIcon, StarIcon, BookIcon, FeedIcon, GearIcon } from '../icons.jsx';
+import { TreeIcon, StarIcon, CompassIcon, FeedIcon, GearIcon } from '../icons.jsx';
 
 // The permanent left edge: where you can go, not what's in the thing
 // you're looking at. Splitting this out is what lets the curriculum tree
@@ -6,12 +6,12 @@ import { TreeIcon, StarIcon, BookIcon, FeedIcon, GearIcon } from '../icons.jsx';
 // no business sitting beside the community feed or the admin dashboard.
 export default function DestinationRail({
   activeDest, user, isAdmin,
-  onOpenCurriculum, onOpenBookmarks, onOpenNotes, onOpenFeed, onOpenAdmin
+  onOpenCurriculum, onOpenExplore, onOpenSaved, onOpenFeed, onOpenAdmin
 }) {
   const items = [
     { key: null, label: 'Curriculum', Icon: TreeIcon, onClick: onOpenCurriculum, show: true },
-    { key: '__bookmarks', label: 'Saved', Icon: StarIcon, onClick: onOpenBookmarks, show: !!user },
-    { key: '__notes', label: 'Notes', Icon: BookIcon, onClick: onOpenNotes, show: !!user },
+    { key: '__explore', label: 'Explore', Icon: CompassIcon, onClick: onOpenExplore, show: true },
+    { key: '__saved', label: 'Saved', Icon: StarIcon, onClick: onOpenSaved, show: !!user },
     { key: '__feed', label: 'Community', Icon: FeedIcon, onClick: onOpenFeed, show: true },
     { key: '__admin', label: 'Admin', Icon: GearIcon, onClick: onOpenAdmin, show: isAdmin }
   ].filter((i) => i.show);

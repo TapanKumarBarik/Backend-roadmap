@@ -17,6 +17,7 @@ import { computeTreeVisibility } from './lib/treeFilter.js';
 import { globalCounts } from './lib/progressStats.js';
 import { ancestorDirPaths } from './lib/treeAncestors.js';
 import { trackPageView, deleteAccount } from './lib/api.js';
+import { pickContinue, studyableFiles } from './lib/curriculumPosition.js';
 
 import TopBar from './components/layout/TopBar.jsx';
 import Sidebar from './components/layout/Sidebar.jsx';
@@ -25,8 +26,8 @@ import MainColumn from './components/layout/MainColumn.jsx';
 import RightRail from './components/layout/RightRail.jsx';
 import CommandPalette from './components/palette/CommandPalette.jsx';
 import Toast from './components/Toast.jsx';
-import BookmarksView from './components/home/BookmarksView.jsx';
-import NotesView from './components/home/NotesView.jsx';
+import SavedView from './components/home/SavedView.jsx';
+import ExploreView from './components/home/ExploreView.jsx';
 import FeedView from './components/home/FeedView.jsx';
 import MessageOwnerModal from './components/account/MessageOwnerModal.jsx';
 
@@ -36,8 +37,13 @@ import MessageOwnerModal from './components/account/MessageOwnerModal.jsx';
 const AdminDashboard = lazy(() => import('./components/admin/AdminDashboard.jsx'));
 
 const ADMIN_ROUTE = '__admin';
+// Bookmarks and notes merged into one "Saved" destination with two tabs.
+// The old routes still resolve — they're in people's history and in the
+// links the app itself wrote to localStorage — they just pick a tab.
 const BOOKMARKS_ROUTE = '__bookmarks';
 const NOTES_ROUTE = '__notes';
+const SAVED_ROUTE = '__saved';
+const EXPLORE_ROUTE = '__explore';
 const FEED_ROUTE = '__feed';
 
 function collectDirPaths(nodes) {
@@ -80,10 +86,10 @@ export default function App() {
   const [messageOpen, setMessageOpen] = useState(false);
 
   const isAdminRoute = path === ADMIN_ROUTE;
-  const isBookmarksRoute = path === BOOKMARKS_ROUTE;
-  const isNotesRoute = path === NOTES_ROUTE;
+  const isSavedRoute = path === SAVED_ROUTE || path === BOOKMARKS_ROUTE || path === NOTES_ROUTE;
+  const isExploreRoute = path === EXPLORE_ROUTE;
   const isFeedRoute = path === FEED_ROUTE;
-  const isSpecialRoute = isAdminRoute || isBookmarksRoute || isNotesRoute || isFeedRoute;
+  const isSpecialRoute = isAdminRoute || isSavedRoute || isExploreRoute || isFeedRoute;
   const currentFile = !isSpecialRoute && path && fileSet.has(path) ? path : null;
 
   useEffect(() => {
@@ -214,8 +220,9 @@ export default function App() {
   }, [goHome]);
 
   const openAdmin = useCallback(() => navigate(ADMIN_ROUTE), [navigate]);
-  const openBookmarks = useCallback(() => navigate(BOOKMARKS_ROUTE), [navigate]);
+  const openSaved = useCallback(() => navigate(SAVED_ROUTE), [navigate]);
   const openNotes = useCallback(() => navigate(NOTES_ROUTE), [navigate]);
+  const openExplore = useCallback(() => navigate(EXPLORE_ROUTE), [navigate]);
   const openFeed = useCallback(() => navigate(FEED_ROUTE), [navigate]);
 
   // Two of the three theme states render identically on any given OS, so a
@@ -225,6 +232,46 @@ export default function App() {
     const next = cycleTheme();
     toast.show(next === 'auto' ? 'Theme: match system' : `Theme: ${next}`);
   }, [cycleTheme, toast]);
+
+  // Everything the app can do, searchable. Declared after the callbacks it
+  // references: this useMemo runs during render, so hoisting it above them
+  // left them in the temporal dead zone and blanked the whole app.
+  //
+  // The utility items are also still in the "..." menu — that menu is the
+  // only way to find them without knowing the palette exists, and export and
+  // reset work signed-out, where there is no account menu to move them into.
+  const paletteActions = useMemo(() => {
+    const continueFile = pickContinue(
+      studyableFiles(flatFiles, nodeByFile), statusMap,
+      (() => { try { return localStorage.getItem('docs.lastFile'); } catch { return null; } })()
+    );
+    const list = [
+      { label: 'Continue learning', keywords: 'resume next module', hint: 'where you left off', run: () => (continueFile ? openFile(continueFile) : goHome()) },
+      { label: 'Explore by tag', keywords: 'tags browse subject', run: () => navigate(EXPLORE_ROUTE) },
+      { label: 'Community', keywords: 'feed discussion posts', run: () => navigate(FEED_ROUTE) },
+      { label: 'Your curriculum', keywords: 'home progress paths', run: goHome }
+    ];
+    if (currentFile) {
+      const done = statusMap[currentFile] === 'done';
+      list.splice(1, 0, {
+        label: done ? 'Mark this module not complete' : 'Mark this module complete',
+        keywords: 'done finish complete progress',
+        hint: 'D',
+        run: () => setStatus(currentFile, done ? 'todo' : 'done')
+      });
+    }
+    if (user) list.push({ label: 'Saved — bookmarks and notes', keywords: 'bookmark star note', run: () => navigate(SAVED_ROUTE) });
+    if (user?.isAdmin) list.push({ label: 'Admin dashboard', keywords: 'manage moderate content', run: () => navigate(ADMIN_ROUTE) });
+    list.push(
+      { label: 'Change theme', keywords: 'dark light appearance', hint: 'T', run: handleCycleTheme },
+      { label: 'Expand all in the tree', keywords: 'open sidebar', run: () => expandAll(allDirPaths) },
+      { label: 'Collapse all in the tree', keywords: 'close sidebar', run: collapseAll },
+      { label: 'Export progress (.json)', keywords: 'download backup save', run: handleExport },
+      { label: 'Reset all progress', keywords: 'clear delete wipe', run: handleReset }
+    );
+    return list;
+  }, [flatFiles, nodeByFile, statusMap, currentFile, user, openFile, goHome, navigate,
+    setStatus, handleCycleTheme, expandAll, allDirPaths, collapseAll, handleExport, handleReset]);
 
   const lastViewedFile = (() => {
     try { return localStorage.getItem('docs.lastFile') || ''; } catch { return ''; }
@@ -266,12 +313,12 @@ export default function App() {
       />
       <div id="shell">
         <DestinationRail
-          activeDest={isSpecialRoute ? path : null}
+          activeDest={isSavedRoute ? SAVED_ROUTE : (isSpecialRoute ? path : null)}
           user={user}
           isAdmin={!!user?.isAdmin}
           onOpenCurriculum={handleGoHome}
-          onOpenBookmarks={openBookmarks}
-          onOpenNotes={openNotes}
+          onOpenExplore={openExplore}
+          onOpenSaved={openSaved}
           onOpenFeed={openFeed}
           onOpenAdmin={openAdmin}
         />
@@ -306,10 +353,19 @@ export default function App() {
                     <AdminDashboard isAdmin={!!user?.isAdmin} lastViewedFile={lastViewedFile} onOpenFile={openFile} />
                   </Suspense>
                 )}
-                {isBookmarksRoute && (
-                  <BookmarksView bookmarks={bookmarks} nodeByFile={nodeByFile} onOpenFile={openFile} onToggleBookmark={toggleBookmark} />
+                {isSavedRoute && (
+                  <SavedView
+                    key={path}
+                    bookmarks={bookmarks}
+                    nodeByFile={nodeByFile}
+                    onOpenFile={openFile}
+                    onToggleBookmark={toggleBookmark}
+                    user={user}
+                    onLogin={login}
+                    initialTab={path === NOTES_ROUTE ? 'notes' : 'bookmarks'}
+                  />
                 )}
-                {isNotesRoute && <NotesView nodeByFile={nodeByFile} onOpenFile={openFile} />}
+                {isExploreRoute && <ExploreView allTags={tags} onOpenPalette={openPalette} />}
                 {isFeedRoute && <FeedView user={user} onLogin={login} onToast={toast.show} />}
               </div>
             </div>
@@ -361,6 +417,7 @@ export default function App() {
         allTags={tags}
         statusMap={statusMap}
         onOpenFile={openFile}
+        actions={paletteActions}
       />
       {messageOpen && <MessageOwnerModal onClose={() => setMessageOpen(false)} onToast={toast.show} />}
       <Toast message={toast.message} />

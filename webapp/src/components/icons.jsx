@@ -29,6 +29,15 @@ export const GearIcon = svg('M8 0a8.2 8.2 0 0 1 .701.031C9.444.095 9.99.645 10.1
 export const TrashIcon = svg('M11 1.75V3h2.25a.75.75 0 0 1 0 1.5h-.5l-.83 8.401A1.75 1.75 0 0 1 10.178 15H5.822a1.75 1.75 0 0 1-1.744-1.599L3.25 4.5h-.5a.75.75 0 0 1 0-1.5H5V1.75C5 .784 5.784 0 6.75 0h2.5C10.216 0 11 .784 11 1.75ZM4.752 4.5l.826 8.273a.25.25 0 0 0 .25.227h4.344a.25.25 0 0 0 .25-.227L10.248 4.5H4.752ZM6.5 1.75V3h3V1.75a.25.25 0 0 0-.25-.25h-2.5a.25.25 0 0 0-.25.25Z');
 export const ArrowRightIcon = svg('M8.22 2.97a.75.75 0 0 1 1.06 0l4.25 4.25a.75.75 0 0 1 0 1.06l-4.25 4.25a.75.75 0 0 1-1.06-1.06l2.97-2.97H3.75a.75.75 0 0 1 0-1.5h7.44L8.22 4.03a.75.75 0 0 1 0-1.06Z');
 
+export function CompassIcon(props) {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" {...props}>
+      <circle cx="8" cy="8" r="6.3" />
+      <path d="M10.6 5.4 9.3 9.3 5.4 10.6 6.7 6.7Z" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
 // Drawn from primitives rather than the single-path svg() helper — a
 // nested-list glyph is a set of rules and bullets, not one fill path.
 export function TreeIcon(props) {

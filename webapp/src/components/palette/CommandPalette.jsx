@@ -2,7 +2,30 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { runSearch, markRuns } from '../../lib/fuzzyScore.js';
 import { searchContent } from '../../lib/contentSearch.js';
 
-export default function CommandPalette({ open, query, onQueryChange, onClose, searchItems, allTags, statusMap, onOpenFile }) {
+// Actions make the palette the fast path for everything, not just
+// navigation — and give the utility items a searchable home instead of
+// only living behind a "..." menu in the top bar.
+//
+// Two ways in. Inline, actions appear under the modules, because
+// navigation is what the palette is overwhelmingly for. But the fuzzy
+// scorer matches loosely enough that a word like "theme" pulls in sixty
+// module titles as a subsequence match, burying the action nobody can
+// then reach — so ">" narrows to actions only, the same convention as
+// every editor command palette.
+function matchActions(query, actions) {
+  const raw = query.trim();
+  const cmdMode = raw.startsWith('>');
+  const q = (cmdMode ? raw.slice(1) : raw).trim().toLowerCase();
+  if (cmdMode) {
+    return q ? actions.filter((a) => a.label.toLowerCase().includes(q) || (a.keywords || '').includes(q)) : actions;
+  }
+  if (!q || q.startsWith('#')) return q ? [] : actions.slice(0, 5);
+  return actions.filter((a) => a.label.toLowerCase().includes(q) || (a.keywords || '').includes(q));
+}
+
+export default function CommandPalette({
+  open, query, onQueryChange, onClose, searchItems, allTags, statusMap, onOpenFile, actions = []
+}) {
   const inputRef = useRef(null);
   const listRef = useRef(null);
   const [cursor, setCursor] = useState(0);
@@ -38,7 +61,23 @@ export default function CommandPalette({ open, query, onQueryChange, onClose, se
       .map((m) => ({ ...itemByFile.get(m.file), _hit: [] }));
   }, [contentMatches, results, itemByFile]);
 
-  const combined = useMemo(() => [...results, ...contentOnly], [results, contentOnly]);
+  const cmdMode = query.trim().startsWith('>');
+  const actionHits = useMemo(() => matchActions(query, actions), [query, actions]);
+  // Actions sit at the end of the keyboard order so a bare Enter still
+  // opens the best-matching module, which is what the palette is for
+  // ninety-nine times out of a hundred.
+  const combined = useMemo(
+    () => (cmdMode
+      ? actionHits.map((a) => ({ _action: a }))
+      : [...results, ...contentOnly, ...actionHits.map((a) => ({ _action: a }))]),
+    [cmdMode, results, contentOnly, actionHits]
+  );
+
+  function run(entry) {
+    if (entry._action) entry._action.run();
+    else onOpenFile(entry.file);
+    onClose();
+  }
 
   useEffect(() => { setCursor(0); }, [query]);
 
@@ -62,7 +101,7 @@ export default function CommandPalette({ open, query, onQueryChange, onClose, se
     else if (e.key === 'Enter') {
       e.preventDefault();
       const r = combined[cursor];
-      if (r) { onOpenFile(r.file); onClose(); }
+      if (r) run(r);
     } else if (e.key === 'Escape') {
       onClose();
     }
@@ -73,7 +112,7 @@ export default function CommandPalette({ open, query, onQueryChange, onClose, se
       <div
         key={r.file}
         className={'pal-item' + (i === cursor ? ' cur' : '')}
-        onClick={() => { onOpenFile(r.file); onClose(); }}
+        onClick={() => run(r)}
         onMouseMove={() => { if (cursor !== i) setCursor(i); }}
       >
         <span className="dot" data-s={statusMap[r.file] || 'todo'} />
@@ -93,13 +132,13 @@ export default function CommandPalette({ open, query, onQueryChange, onClose, se
       <div id="palette">
         <input
           id="palInput" ref={inputRef} autoComplete="off" spellCheck="false"
-          placeholder="Search modules, tags, or type # to browse tags…"
+          placeholder="Search modules · # for tags · &gt; for actions"
           value={query}
           onChange={(e) => onQueryChange(e.target.value)}
           onKeyDown={handleKeyDown}
         />
         <div id="palList" className="scroll" ref={listRef}>
-          {tagSuggestions.length > 0 && (
+          {!cmdMode && tagSuggestions.length > 0 && (
             <>
               <div className="pal-sect">Tags</div>
               <div style={{ padding: '2px 8px 8px', display: 'flex', flexWrap: 'wrap', gap: 5 }}>
@@ -112,19 +151,40 @@ export default function CommandPalette({ open, query, onQueryChange, onClose, se
             </>
           )}
 
-          {combined.length === 0 && <div className="pal-empty">No modules match that.</div>}
+          {combined.length === 0 && <div className="pal-empty">Nothing matches that.</div>}
 
-          {results.length > 0 && (
+          {!cmdMode && results.length > 0 && (
             <>
               {tagSuggestions.length > 0 && <div className="pal-sect">Modules · {results.length}</div>}
               {results.map((r, i) => renderRow(r, i))}
             </>
           )}
 
-          {contentOnly.length > 0 && (
+          {!cmdMode && contentOnly.length > 0 && (
             <>
               <div className="pal-sect">Found in page content · {contentOnly.length}</div>
               {contentOnly.map((r, i) => renderRow(r, results.length + i))}
+            </>
+          )}
+
+          {actionHits.length > 0 && (
+            <>
+              <div className="pal-sect">Actions</div>
+              {actionHits.map((a, i) => {
+                const idx = (cmdMode ? 0 : results.length + contentOnly.length) + i;
+                return (
+                  <div
+                    key={a.label}
+                    className={'pal-item' + (idx === cursor ? ' cur' : '')}
+                    onClick={() => run({ _action: a })}
+                    onMouseMove={() => { if (cursor !== idx) setCursor(idx); }}
+                  >
+                    <span className="pal-act-ic" aria-hidden="true">›</span>
+                    <span className="txt"><span className="t">{a.label}</span></span>
+                    {a.hint && <span className="pal-act-hint">{a.hint}</span>}
+                  </div>
+                );
+              })}
             </>
           )}
         </div>
@@ -132,6 +192,7 @@ export default function CommandPalette({ open, query, onQueryChange, onClose, se
           <span><kbd>↑</kbd><kbd>↓</kbd> navigate</span>
           <span><kbd>↵</kbd> open</span>
           <span><kbd>esc</kbd> close</span>
+          <span style={{ marginLeft: 'auto' }}><kbd>&gt;</kbd> actions</span>
         </div>
       </div>
     </div>
