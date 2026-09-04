@@ -883,6 +883,30 @@ body.sidebar-collapsed #resizer { display: none; }
 /* ---------- responsive ---------- */
 @media (max-width: 1180px) { #toc { display: none; } }
 @media (max-width: 860px) {
+  /* The rail becomes a bottom tab bar: 52px of a 390px screen is 13% of
+     the width spent on navigation, and the top-left corner is the least
+     thumb-reachable place on a phone. Fixed, so it leaves the flow and
+     the content gets the full width. */
+  #destRail {
+    position: fixed; left: 0; right: 0; bottom: 0; width: auto; height: 56px;
+    flex-direction: row; justify-content: space-around; align-items: stretch;
+    gap: 0; padding: 0; border-right: 0; border-top: 1px solid var(--border);
+    background: var(--bg); z-index: 60;
+  }
+  .dest-btn { width: auto; flex: 1; height: 100%; flex-direction: column; gap: 3px; border-radius: 0; border: 0; }
+  .dest-btn.on { background: transparent; border: 0; }
+  .dest-btn svg { width: 19px; height: 19px; }
+  /* The hover tooltip becomes a permanent caption — there is no hover on
+     a touch screen, so an icon with no label is an icon with no meaning. */
+  .dest-label {
+    position: static; opacity: 1; transform: none; pointer-events: auto;
+    background: none; color: inherit; font-size: 10px; font-weight: 600;
+    padding: 0; letter-spacing: .01em;
+  }
+  /* Clear the bar so it never covers the end of the content. */
+  #main { padding-bottom: 56px; }
+  body.nav-open #sidebar { bottom: 56px; }
+
   #article { padding: 26px 20px 90px; }
   /* #empty kept 44px side gutters at every width — on a 390px screen that
      is 22% of the viewport spent on margins, and it was the other half of
@@ -919,6 +943,30 @@ body.sidebar-collapsed #resizer { display: none; }
      instead; the accessible name still says what it does. */
   #searchTrigger { flex: 0 0 auto; width: 36px; justify-content: center; padding: 0; }
   #searchTrigger span { display: none; }
+}
+
+/* Narrow rows: the progress apparatus wraps under the title instead of
+   competing with it for the same line. On a 390px screen the bar, the
+   percentage, the count and the expander together left the curriculum
+   name no room at all — it was squeezed to zero width and simply
+   disappeared, the same failure as the track cards had. */
+@media (max-width: 700px) {
+  .path-row { flex-wrap: wrap; row-gap: 9px; }
+  .path-name { flex: 1 0 100%; white-space: normal; }
+  .path-row .bar { flex: 1; width: auto; min-width: 60px; }
+  .path-n, .path-pc { min-width: 0; }
+
+  .continue-card { flex-wrap: wrap; row-gap: 14px; }
+  .continue-go { width: 100%; justify-content: center; }
+  .continue-prog { flex-wrap: wrap; row-gap: 5px; }
+  .continue-prog .bar { width: 100%; }
+
+  .queue-item { flex-wrap: wrap; row-gap: 3px; }
+  .queue-t { flex: 1 0 calc(100% - 18px); white-space: normal; }
+  .queue-p { max-width: 100%; margin-left: 18px; }
+
+  .list-row-meta { align-self: flex-start; }
+  .tag-grid { grid-template-columns: repeat(auto-fill, minmax(132px, 1fr)); }
 }
 
 /* Touch devices: the whole top bar sat at 32px or below, and tags at 24px.
