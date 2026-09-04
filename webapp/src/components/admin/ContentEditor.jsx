@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react';
 import { fetchAdminContent, saveAdminContent, uploadAdminImage } from '../../lib/api.js';
 import { renderMarkdownDoc } from '../../lib/markdown.js';
+import { BLOCK_TYPES } from '../../lib/contentBlocks.js';
 import { lineDiff } from '../../lib/lineDiff.js';
 
 function fileToBase64(file) {
@@ -23,8 +24,29 @@ export default function ContentEditor({ initialPath }) {
   const [mode, setMode] = useState('edit'); // 'edit' | 'preview' | 'diff'
   const [status, setStatus] = useState(null);
   const fileInputRef = useRef(null);
+  const textareaRef = useRef(null);
 
   const dirty = content !== originalContent;
+
+  // Insert a block at the cursor rather than appending to the end — these
+  // belong next to the paragraph they're about.
+  function insertBlock(key, label) {
+    const ta = textareaRef.current;
+    const at = ta ? ta.selectionStart : content.length;
+    const before = content.slice(0, at);
+    const after = content.slice(at);
+    const pad = (s, end) => (s && !s.endsWith(end) ? end : '');
+    const snippet = `> [!${key}] ${label}…\n`;
+    const next = before + pad(before, '\n\n') + snippet + (after.startsWith('\n') ? '' : '\n') + after;
+    setContent(next);
+    setMode('edit');
+    requestAnimationFrame(() => {
+      if (!ta) return;
+      const caret = (before + pad(before, '\n\n')).length + snippet.length - 1;
+      ta.focus();
+      ta.setSelectionRange(caret - label.length - 1, caret);
+    });
+  }
 
   async function handleLoad() {
     if (!path.trim()) return;
@@ -105,6 +127,17 @@ export default function ContentEditor({ initialPath }) {
         <input type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml" ref={fileInputRef} style={{ display: 'none' }} onChange={handleImagePick} />
       </div>
 
+      {/* So structured blocks are the path of least resistance when writing
+          a new module, rather than something you have to remember. */}
+      <div className="block-inserts">
+        <span className="block-inserts-l">Insert block</span>
+        {BLOCK_TYPES.map(({ key, label }) => (
+          <button key={key} onClick={() => insertBlock(key, label)} title={`> [!${key}]`}>
+            {label}
+          </button>
+        ))}
+      </div>
+
       {status && <p style={{ color: status.type === 'error' ? 'var(--danger)' : 'var(--fg-muted)' }}>{status.text}</p>}
 
       {mode === 'preview' && (
@@ -123,6 +156,7 @@ export default function ContentEditor({ initialPath }) {
       {mode === 'edit' && (
         <textarea
           className="admin-textarea"
+          ref={textareaRef}
           value={content}
           onChange={(e) => setContent(e.target.value)}
           placeholder="Load a file to start editing…"

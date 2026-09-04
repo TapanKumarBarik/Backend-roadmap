@@ -467,6 +467,41 @@ h1:hover .anchor, h2:hover .anchor, h3:hover .anchor, h4:hover .anchor { opacity
 #content details > *:last-child { padding-bottom: 12px; margin-bottom: 0; }
 #content details .codeblock { margin-left: 15px; margin-right: 15px; padding: 0; }
 
+/* ---------- content blocks ----------
+   Gives technical prose a rhythm you can navigate by. Weight is spent by
+   role rather than stamped uniformly: the two blocks that carry a claim
+   (key idea, pitfall) get a coloured spine, the reference blocks stay
+   quiet, and "check your understanding" is the only filled header,
+   because it's the one that closes the module. */
+#content .cblock {
+  margin: 0 0 20px; border: 1px solid var(--border-subtle);
+  border-radius: var(--r-md); background: var(--bg-raised); overflow: hidden;
+}
+#content .cblock-h {
+  font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .09em;
+  color: var(--fg-subtle); padding: 9px 16px;
+  border-bottom: 1px solid var(--border-subtle); background: var(--bg-sunken);
+}
+#content .cblock-b { padding: 14px 16px 2px; }
+#content .cblock-b > *:first-child { margin-top: 0; }
+#content .cblock-b > *:last-child { margin-bottom: 12px; }
+/* nested code blocks shouldn't double up on the block's own frame */
+#content .cblock-b .codeblock pre { background: var(--bg-sunken); }
+
+#content .cblock-key { border-left: 3px solid var(--signal); }
+#content .cblock-key .cblock-h { color: var(--signal); background: var(--signal-bg); border-bottom-color: var(--signal-line); }
+#content .cblock-pitfall { border-left: 3px solid var(--danger); }
+#content .cblock-pitfall .cblock-h { color: var(--danger); }
+#content .cblock-model { border-left: 3px solid var(--border); }
+#content .cblock-interview .cblock-h,
+#content .cblock-exercise .cblock-h { color: var(--fg-muted); }
+#content .cblock-check { border: 1px solid var(--border); box-shadow: var(--shadow-sm); }
+#content .cblock-check .cblock-h { background: var(--accent); color: var(--accent-fg); border-bottom-color: var(--accent); }
+
+/* A mental model is usually an ASCII diagram — let it keep its spacing
+   without inheriting the prose line-height. */
+#content .cblock-model .cblock-b pre { line-height: 1.5; }
+
 /* task list checkboxes in md */
 #content input[type=checkbox] { margin-right: 7px; accent-color: var(--accent); }
 
@@ -883,6 +918,16 @@ body.sidebar-collapsed #resizer { display: none; }
   flex: 1; min-width: 220px; font-family: var(--mono); font-size: 13px; padding: 6px 10px;
   border: 1px solid var(--border); border-radius: var(--r-md); background: var(--bg); color: var(--fg);
 }
+.block-inserts { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; margin-bottom: 12px; }
+.block-inserts-l {
+  font-size: 10.5px; text-transform: uppercase; letter-spacing: .07em;
+  color: var(--fg-subtle); font-weight: 700; margin-right: 3px;
+}
+.block-inserts button {
+  font-size: 12px; padding: 4px 10px; border: 1px solid var(--border-subtle);
+  border-radius: 99px; background: var(--bg); color: var(--fg-muted);
+}
+.block-inserts button:hover { background: var(--hover); color: var(--fg); border-color: var(--border); }
 .admin-textarea {
   width: 100%; min-height: 460px; font-family: var(--mono); font-size: 13px; line-height: 1.6;
   padding: 14px 16px; border: 1px solid var(--border); border-radius: var(--r-md);

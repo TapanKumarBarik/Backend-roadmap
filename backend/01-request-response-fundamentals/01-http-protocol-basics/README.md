@@ -11,6 +11,11 @@ type by hand. The web's entire application layer, the thing under every
 API call, every page load, every mobile-app sync, is at bottom a plain,
 line-based text format with a rigidly defined shape.
 
+> [!key] HTTP is a plain, line-based text format with a rigidly defined
+> shape. Learn to read that shape and every later topic — headers,
+> methods, status codes, caching — becomes "which line or header controls
+> this behaviour."
+
 Knowing that shape by heart is the single highest-leverage thing in this
 whole track. When you can look at a raw request/response and immediately
 see "that's the request line, those are headers, that blank line is the
@@ -50,15 +55,18 @@ Two properties define its personality:
   front of ten identical servers (module 00, step 7) and any of them can
   handle any request — none of them needs to "own" your session.
 
-```
-   client                         server (remembers nothing between these)
-     │  ── request 1 ──────────►     │  handled fresh from request 1 alone
-     │  ◄──────────── response 1 ─   │
-     │                               │   ⌛ (server forgets everything)
-     │  ── request 2 ──────────►     │  handled fresh from request 2 alone
-     │  ◄──────────── response 2 ─   │
-   each exchange is independent; continuity (login) = a token re-sent every time
-```
+> [!model] HTTP is stateless: each exchange is independent, and the
+> server keeps nothing between them.
+>
+> ```
+>    client                         server (remembers nothing between these)
+>      │  ── request 1 ──────────►     │  handled fresh from request 1 alone
+>      │  ◄──────────── response 1 ─   │
+>      │                               │   ⌛ (server forgets everything)
+>      │  ── request 2 ──────────►     │  handled fresh from request 2 alone
+>      │  ◄──────────── response 2 ─   │
+>    each exchange is independent; continuity (login) = a token re-sent every time
+> ```
 
 ### The anatomy of an HTTP request
 
@@ -150,6 +158,11 @@ The symmetry is the point: *request = (request line + headers + blank +
 body)*, *response = (status line + headers + blank + body)*. Same skeleton.
 
 ### CRLF: the line ending that actually matters
+
+> [!pitfall] Using `\n` instead of `\r\n`, or forgetting the blank line.
+> HTTP mandates CRLF, and the header section ends with a double
+> `\r\n\r\n`. Omit it and the server waits forever for more headers —
+> the classic "my raw request hangs" bug.
 
 HTTP lines end with **CRLF** — a carriage return followed by a line feed,
 written `\r\n` (two bytes: `0x0D 0x0A`). Not just `\n`. The header section
