@@ -40,6 +40,16 @@ export function SidebarIcon(props) {
   );
 }
 
+export function FeedIcon(props) {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" {...props}>
+      <rect x="1.5" y="2" width="13" height="3.2" rx="1" />
+      <rect x="1.5" y="6.4" width="13" height="3.2" rx="1" />
+      <rect x="1.5" y="10.8" width="8" height="3.2" rx="1" />
+    </svg>
+  );
+}
+
 export function MailIcon(props) {
   return (
     <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" {...props}>

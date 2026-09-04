@@ -1,4 +1,5 @@
 import Tree from './Tree.jsx';
+import { StarIcon, BookIcon, FeedIcon, GearIcon } from '../icons.jsx';
 
 const FILTERS = [
   { key: 'all', label: 'All' },
@@ -7,13 +8,25 @@ const FILTERS = [
   { key: 'done', label: 'Done' }
 ];
 
+// Destinations (pages you navigate to) live here, separate from the account
+// menu's identity/account actions and the "..." menu's utility actions —
+// this earns its own row once there are more than one or two of them, and
+// unlike the account menu (invisible signed-out), Feed needs to stay
+// reachable for every visitor regardless of sign-in state.
 export default function Sidebar({
   treeData, statusMap, openDirs, onToggleDir, filter, onSetFilter, counts,
-  visibleFiles, currentFile, onOpenFile, onToggleStatus
+  visibleFiles, currentFile, onOpenFile, onToggleStatus,
+  user, isAdmin, onOpenBookmarks, onOpenNotes, onOpenFeed, onOpenAdmin
 }) {
   return (
     <aside id="sidebar" className="scroll">
       <div id="sidebarHead">
+        <div id="sidebarNav">
+          {user && <button className="icon-btn" title="Bookmarks" aria-label="Bookmarks" onClick={onOpenBookmarks}><StarIcon /></button>}
+          {user && <button className="icon-btn" title="My notes" aria-label="My notes" onClick={onOpenNotes}><BookIcon /></button>}
+          <button className="icon-btn" title="Community feed" aria-label="Community feed" onClick={onOpenFeed}><FeedIcon /></button>
+          {isAdmin && <button className="icon-btn" title="Admin dashboard" aria-label="Admin dashboard" onClick={onOpenAdmin}><GearIcon /></button>}
+        </div>
         <div id="filterRow">
           {FILTERS.map((f) => (
             <button

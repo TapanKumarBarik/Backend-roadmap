@@ -170,6 +170,7 @@ kbd {
   display: flex; flex-direction: column; background: var(--bg); min-width: 0;
 }
 #sidebarHead { padding: 12px 12px 10px; border-bottom: 1px solid var(--border-subtle); }
+#sidebarNav { display: flex; gap: 2px; margin-bottom: 8px; }
 #filterRow { display: flex; gap: 4px; }
 .chip {
   flex: 1; font-size: 12px; padding: 5px 4px; border-radius: var(--r-sm);
@@ -317,7 +318,7 @@ li.open > .row > .caret { transform: rotate(90deg); }
 }
 
 /* Links read as links: blue + underline. */
-#content a, #crumb a {
+#content a, #crumb a, .feed-post .comment-text a {
   color: var(--link);
   text-decoration: underline; text-underline-offset: 2px; text-decoration-thickness: 1px;
 }
@@ -728,6 +729,18 @@ body.sidebar-collapsed #resizer { display: none; }
   font-size: 13.5px; text-decoration: underline; text-underline-offset: 2px; cursor: pointer;
 }
 .signin-link:hover { opacity: .8; }
+
+/* ---------- community feed ---------- */
+.feed-pending {
+  display: flex; align-items: center; gap: 10px; margin-top: 8px; padding: 8px 10px;
+  border: 1px solid var(--border); border-radius: var(--r-md); background: var(--bg-sunken);
+}
+.feed-pending img { max-width: 80px; max-height: 80px; border-radius: var(--r-sm); object-fit: cover; }
+.feed-pending button { font-size: 12px; color: var(--fg-subtle); background: none; border: 0; margin-left: auto; }
+.feed-pending button:hover { color: var(--fg); text-decoration: underline; }
+.feed-list { display: flex; flex-direction: column; }
+.feed-post { padding: 14px 0; border-bottom: 1px solid var(--border-subtle); }
+.feed-image { display: block; max-width: 100%; max-height: 360px; border-radius: var(--r-md); margin-top: 8px; }
 
 /* ---------- message-the-owner modal ---------- */
 #msgModalBg {

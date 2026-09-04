@@ -28,6 +28,7 @@ app.http('deleteAccount', {
       await deleteUserPartition(tableName, userId);
     }
     await getTable('RateLimits').deleteEntity(userId, 'comments').catch((err) => { if (err.statusCode !== 404) throw err; });
+    await getTable('RateLimits').deleteEntity(userId, 'feed').catch((err) => { if (err.statusCode !== 404) throw err; });
 
     // Reactions and comment votes are both partitioned by page path, not by
     // user, so a per-user delete needs a filtered scan on the userId
@@ -52,6 +53,16 @@ app.http('deleteAccount', {
     for await (const e of comments.listEntities({ queryOptions: { filter: `userId eq '${userId}'` } })) {
       await comments.updateEntity(
         { partitionKey: e.partitionKey, rowKey: e.rowKey, displayName: '[deleted user]', text: '[deleted]', userId: 'deleted' },
+        'Merge'
+      ).catch((err) => { if (err.statusCode !== 404) throw err; });
+    }
+
+    // Feed posts: same anonymize-identity-keep-text treatment as comments —
+    // attachments (if any) stay put too, same reasoning.
+    const feedPosts = getTable('FeedPosts');
+    for await (const e of feedPosts.listEntities({ queryOptions: { filter: `userId eq '${userId}'` } })) {
+      await feedPosts.updateEntity(
+        { partitionKey: e.partitionKey, rowKey: e.rowKey, displayName: '[deleted user]', userId: 'deleted' },
         'Merge'
       ).catch((err) => { if (err.statusCode !== 404) throw err; });
     }

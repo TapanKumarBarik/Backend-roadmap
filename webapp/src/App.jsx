@@ -25,6 +25,7 @@ import CommandPalette from './components/palette/CommandPalette.jsx';
 import Toast from './components/Toast.jsx';
 import BookmarksView from './components/home/BookmarksView.jsx';
 import NotesView from './components/home/NotesView.jsx';
+import FeedView from './components/home/FeedView.jsx';
 import MessageOwnerModal from './components/account/MessageOwnerModal.jsx';
 
 // Lazy: the GitHub-commit content editor and its admin-only siblings are
@@ -35,6 +36,7 @@ const AdminDashboard = lazy(() => import('./components/admin/AdminDashboard.jsx'
 const ADMIN_ROUTE = '__admin';
 const BOOKMARKS_ROUTE = '__bookmarks';
 const NOTES_ROUTE = '__notes';
+const FEED_ROUTE = '__feed';
 
 function collectDirPaths(nodes) {
   const paths = [];
@@ -73,7 +75,8 @@ export default function App() {
   const isAdminRoute = path === ADMIN_ROUTE;
   const isBookmarksRoute = path === BOOKMARKS_ROUTE;
   const isNotesRoute = path === NOTES_ROUTE;
-  const isSpecialRoute = isAdminRoute || isBookmarksRoute || isNotesRoute;
+  const isFeedRoute = path === FEED_ROUTE;
+  const isSpecialRoute = isAdminRoute || isBookmarksRoute || isNotesRoute || isFeedRoute;
   const currentFile = !isSpecialRoute && path && fileSet.has(path) ? path : null;
 
   useEffect(() => {
@@ -206,6 +209,7 @@ export default function App() {
   const openAdmin = useCallback(() => navigate(ADMIN_ROUTE), [navigate]);
   const openBookmarks = useCallback(() => navigate(BOOKMARKS_ROUTE), [navigate]);
   const openNotes = useCallback(() => navigate(NOTES_ROUTE), [navigate]);
+  const openFeed = useCallback(() => navigate(FEED_ROUTE), [navigate]);
 
   const lastViewedFile = (() => {
     try { return localStorage.getItem('docs.lastFile') || ''; } catch { return ''; }
@@ -237,9 +241,6 @@ export default function App() {
         onMobileToggle={() => setNavOpen((v) => !v)}
         sidebarCollapsed={sidebarCollapsed}
         onToggleSidebarCollapsed={toggleSidebarCollapsed}
-        onOpenAdmin={user?.isAdmin ? openAdmin : null}
-        onOpenBookmarks={user ? openBookmarks : null}
-        onOpenNotes={user ? openNotes : null}
         onDeleteAccount={handleDeleteAccount}
         onOpenMessage={user ? () => setMessageOpen(true) : null}
         onToast={toast.show}
@@ -248,9 +249,30 @@ export default function App() {
         onOpenFile={openFile}
         nodeByFile={nodeByFile}
       />
-      {isSpecialRoute
-        ? (
-          <div id="shell">
+      <div id="shell">
+        <Sidebar
+          treeData={treeData}
+          statusMap={statusMap}
+          openDirs={openDirs}
+          onToggleDir={toggleDir}
+          filter={filter}
+          onSetFilter={setFilter}
+          counts={counts}
+          visibleFiles={visibility.visibleFiles}
+          currentFile={currentFile}
+          onOpenFile={openFile}
+          onToggleStatus={toggleStatus}
+          user={user}
+          isAdmin={!!user?.isAdmin}
+          onOpenBookmarks={openBookmarks}
+          onOpenNotes={openNotes}
+          onOpenFeed={openFeed}
+          onOpenAdmin={openAdmin}
+        />
+        <div id="resizer" ref={resizerRef} />
+        <div id="scrim" style={navOpen ? { display: 'block' } : undefined} onClick={() => setNavOpen(false)} />
+        {isSpecialRoute
+          ? (
             <div id="mainCol">
               <div id="main" className="scroll" tabIndex={-1}>
                 {isAdminRoute && (
@@ -262,27 +284,11 @@ export default function App() {
                   <BookmarksView bookmarks={bookmarks} nodeByFile={nodeByFile} onOpenFile={openFile} onToggleBookmark={toggleBookmark} />
                 )}
                 {isNotesRoute && <NotesView nodeByFile={nodeByFile} onOpenFile={openFile} />}
+                {isFeedRoute && <FeedView user={user} onLogin={login} onToast={toast.show} />}
               </div>
             </div>
-          </div>
-        )
-        : (
-          <div id="shell">
-            <Sidebar
-              treeData={treeData}
-              statusMap={statusMap}
-              openDirs={openDirs}
-              onToggleDir={toggleDir}
-              filter={filter}
-              onSetFilter={setFilter}
-              counts={counts}
-              visibleFiles={visibility.visibleFiles}
-              currentFile={currentFile}
-              onOpenFile={openFile}
-              onToggleStatus={toggleStatus}
-            />
-            <div id="resizer" ref={resizerRef} />
-            <div id="scrim" style={navOpen ? { display: 'block' } : undefined} onClick={() => setNavOpen(false)} />
+          )
+          : (
             <MainColumn
               currentFile={currentFile}
               node={currentFile ? nodeByFile[currentFile] : null}
@@ -307,9 +313,9 @@ export default function App() {
               isBookmarked={currentFile ? bookmarks.has(currentFile) : false}
               onToggleBookmark={toggleBookmark}
             />
-            <Toc headings={currentFile ? tocHeadings : []} activeId={activeHeadingId} />
-          </div>
-        )}
+          )}
+        <Toc headings={currentFile ? tocHeadings : []} activeId={activeHeadingId} />
+      </div>
 
       <CommandPalette
         open={paletteOpen}

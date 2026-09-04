@@ -70,6 +70,43 @@ export async function deleteComment(path, id) {
   if (!res.ok) throw new Error('failed to delete comment');
 }
 
+export async function fetchFeed() {
+  const res = await fetch('/api/feed');
+  if (!res.ok) throw new Error('failed to load feed');
+  return res.json();
+}
+
+export async function postFeedItem(text, attachmentUrl, attachmentType) {
+  const res = await fetch('/api/feed', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text, attachmentUrl, attachmentType })
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || 'failed to post');
+  }
+  return res.json();
+}
+
+export async function uploadFeedFile(filename, contentType, dataBase64) {
+  const res = await fetch('/api/feed/upload', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ filename, contentType, dataBase64 })
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || 'upload failed');
+  }
+  return res.json();
+}
+
+export async function deleteFeedPost(id) {
+  const res = await fetch('/api/manage/feed?id=' + encodeURIComponent(id), { method: 'DELETE' });
+  if (!res.ok) throw new Error('failed to delete post');
+}
+
 export async function fetchUsageStats() {
   const res = await fetch('/api/manage/usage');
   if (!res.ok) throw new Error('failed to load usage stats');
