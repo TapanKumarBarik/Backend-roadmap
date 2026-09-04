@@ -92,9 +92,13 @@ app.http('postComment', {
     if (text.length > MAX_LENGTH) return { status: 400, jsonBody: { error: `comment too long (max ${MAX_LENGTH} chars)` } };
     const parentId = typeof body.parentId === 'string' ? body.parentId : '';
 
-    const allowed = await checkRateLimit(session.sub);
-    if (!allowed) {
-      return { status: 429, jsonBody: { error: 'Too many comments — please wait a few minutes before posting again.' } };
+    try {
+      if (!(await checkRateLimit(session.sub))) {
+        return { status: 429, jsonBody: { error: 'Too many comments — please wait a few minutes before posting again.' } };
+      }
+    } catch {
+      // The rate limiter is a best-effort add-on, not core to commenting —
+      // a Table Storage hiccup here shouldn't take down posting entirely.
     }
 
     const table = getTable(TABLE_NAME);
