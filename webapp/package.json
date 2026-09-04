@@ -11,7 +11,7 @@
   "dependencies": {
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "marked": "^13.0.3",
+    "marked": "^18.0.11",
     "highlight.js": "^11.10.0"
   },
   "devDependencies": {
