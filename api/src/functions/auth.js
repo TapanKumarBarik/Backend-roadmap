@@ -51,17 +51,24 @@ function siteOrigin(request) {
   const fallback = allowed[0] || '';
   if (!request) return fallback;
 
-  let host = null;
+  let candidate = null;
+
+  // Prefer the full origin: it carries the scheme and any port, which matters
+  // for local dev on http://localhost.
   const originalUrl = request.headers.get('x-ms-original-url');
   if (originalUrl) {
-    try { host = new URL(originalUrl).host; } catch { /* not a usable URL */ }
+    try { candidate = new URL(originalUrl).origin; } catch { /* not a usable URL */ }
   }
-  if (!host) host = request.headers.get('x-forwarded-host');
-  if (!host) return fallback;
 
-  // x-forwarded-host can accumulate a comma-separated list; the first entry is
-  // the original client-facing host.
-  const candidate = `https://${host.split(',')[0].trim()}`;
+  if (!candidate) {
+    // x-forwarded-host can accumulate a comma-separated list; the first entry
+    // is the original client-facing host. No scheme here, and anything
+    // reaching SWA publicly is https.
+    const fwd = request.headers.get('x-forwarded-host');
+    if (fwd) candidate = `https://${fwd.split(',')[0].trim()}`;
+  }
+
+  if (!candidate) return fallback;
   return allowed.includes(candidate) ? candidate : fallback;
 }
 
