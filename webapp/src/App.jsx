@@ -11,6 +11,7 @@ import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts.js';
 import { useToast } from './hooks/useToast.js';
 import { useBookmarks } from './hooks/useBookmarks.js';
 import { useStreak } from './hooks/useStreak.js';
+import { useCommentActivity } from './hooks/useCommentActivity.js';
 import { computeTreeVisibility } from './lib/treeFilter.js';
 import { globalCounts } from './lib/progressStats.js';
 import { ancestorDirPaths } from './lib/treeAncestors.js';
@@ -54,6 +55,7 @@ export default function App() {
   const { openDirs, toggleDir, openMany, expandAll, collapseAll } = useOpenDirs(treeData);
   const { bookmarks, toggle: toggleBookmark } = useBookmarks(user);
   const streak = useStreak(user);
+  const activity = useCommentActivity(user);
   const toast = useToast();
   const resizerRef = useRef(null);
   useSidebarResize(resizerRef);
@@ -220,7 +222,10 @@ export default function App() {
         onLogin={login}
         onLogout={logout}
         menuOpen={menuOpen}
-        onToggleMenu={() => setMenuOpen((v) => !v)}
+        onToggleMenu={() => setMenuOpen((v) => {
+          if (!v) activity.markSeen();
+          return !v;
+        })}
         onCloseMenu={() => setMenuOpen(false)}
         onOpenPalette={() => openPalette()}
         onGoHome={handleGoHome}
@@ -239,6 +244,9 @@ export default function App() {
         onOpenMessage={user ? () => setMessageOpen(true) : null}
         onToast={toast.show}
         streak={streak}
+        activity={activity}
+        onOpenFile={openFile}
+        nodeByFile={nodeByFile}
       />
       {isSpecialRoute
         ? (

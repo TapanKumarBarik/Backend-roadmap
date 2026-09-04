@@ -123,6 +123,12 @@ export async function deleteOwnComment(path, id) {
   if (!res.ok) throw new Error('failed to delete comment');
 }
 
+export async function fetchCommentActivity(since) {
+  const res = await fetch('/api/comments/activity?since=' + encodeURIComponent(since));
+  if (!res.ok) throw new Error('failed to load activity');
+  return res.json();
+}
+
 export async function voteComment(path, id) {
   const res = await fetch('/api/comments/vote', {
     method: 'POST',

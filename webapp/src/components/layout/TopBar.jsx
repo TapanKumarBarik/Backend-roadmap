@@ -15,7 +15,7 @@ export default function TopBar({
   menuOpen, onToggleMenu, onCloseMenu, onOpenPalette, onGoHome,
   onExport, onImportFile, onReset, onExpandAll, onCollapseAll, onMobileToggle,
   onOpenAdmin, onOpenBookmarks, onOpenNotes, onDeleteAccount, onOpenMessage, onToast, streak,
-  sidebarCollapsed, onToggleSidebarCollapsed
+  sidebarCollapsed, onToggleSidebarCollapsed, activity, onOpenFile, nodeByFile
 }) {
   const importInputRef = useRef(null);
   const ThemeIcon = THEME_ICON[theme] || AutoIcon;
@@ -85,8 +85,9 @@ export default function TopBar({
                 🔥 {streak.currentStreak}
               </span>
             )}
-            <button className="icon-btn" id="authBtn" onClick={(e) => { e.stopPropagation(); onToggleMenu(); }} title={`Signed in as ${user.email}`} aria-label={`Account menu — signed in as ${user.email}`} aria-haspopup="true" aria-expanded={menuOpen}>
+            <button className="icon-btn" id="authBtn" onClick={(e) => { e.stopPropagation(); onToggleMenu(); }} title={`Signed in as ${user.email}`} aria-label={`Account menu — signed in as ${user.email}${activity?.badgeVisible ? `, ${activity.count} new replies` : ''}`} aria-haspopup="true" aria-expanded={menuOpen}>
               <UserAvatar user={user} />
+              {activity?.badgeVisible && <span className="activity-dot">{activity.count > 9 ? '9+' : activity.count}</span>}
             </button>
           </>
         )
@@ -105,6 +106,17 @@ export default function TopBar({
               {user.email}
               {streak && streak.currentStreak > 1 && ` · 🔥 ${streak.currentStreak}-day streak`}
             </div>
+            {activity && activity.paths.length > 0 && (
+              <>
+                <div className="grp">New activity</div>
+                {activity.paths.map((p) => (
+                  <button key={p} onClick={() => { onCloseMenu(); onOpenFile(p); }}>
+                    <MailIcon />{(nodeByFile?.[p]?.title || nodeByFile?.[p]?.name || p)}
+                  </button>
+                ))}
+                <div className="div" />
+              </>
+            )}
             {onOpenBookmarks && <button onClick={() => { onCloseMenu(); onOpenBookmarks(); }}><StarIcon />Bookmarks</button>}
             {onOpenNotes && <button onClick={() => { onCloseMenu(); onOpenNotes(); }}><BookIcon />My notes</button>}
             {onOpenMessage && <button onClick={() => { onCloseMenu(); onOpenMessage(); }}><MailIcon />Message Tapan</button>}

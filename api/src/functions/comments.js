@@ -9,6 +9,7 @@ const RATE_LIMIT_TABLE = 'RateLimits';
 const MAX_LENGTH = 2000;
 const RATE_LIMIT_WINDOW_MS = 5 * 60 * 1000; // 5 minutes
 const RATE_LIMIT_MAX = 5; // comments per window, per user
+const ACTIVITY_MAX_SCAN = 3000; // bounds the full-table scan below, same idea as pageviews.js's MAX_SCAN
 
 // Best-effort throttle (like the reactions optimistic-UI comment above,
 // this doesn't need to be airtight for a personal-scale site) — a fixed
@@ -276,6 +277,47 @@ app.http('setAnswer', {
       'Merge'
     );
     return { status: 204 };
+  }
+});
+
+// "Pages you've touched" = any page where you have at least one comment
+// (root or reply) — new comments from *other* people on those same pages,
+// after a client-supplied watermark, count as unread activity. One full
+// table scan (bounded, same reasoning as listAllComments below) rather than
+// a query per page: personal-site scale makes this the simpler option, and
+// there's no per-user partition on Comments to query more narrowly anyway.
+app.http('commentActivity', {
+  methods: ['GET'],
+  authLevel: 'anonymous',
+  route: 'comments/activity',
+  handler: async (request) => {
+    const session = getSession(request);
+    if (!session) return { status: 401, jsonBody: { error: 'unauthenticated' } };
+
+    const sinceParam = request.query.get('since');
+    const since = sinceParam ? new Date(sinceParam).getTime() : 0;
+
+    const table = getTable(TABLE_NAME);
+    const myPaths = new Set();
+    const all = [];
+    let scanned = 0;
+    for await (const entity of table.listEntities()) {
+      all.push(entity);
+      if (entity.userId === session.sub) myPaths.add(entity.partitionKey);
+      if (++scanned >= ACTIVITY_MAX_SCAN) break;
+    }
+
+    let count = 0;
+    const paths = new Set();
+    for (const c of all) {
+      if (!myPaths.has(c.partitionKey)) continue;
+      if (c.userId === session.sub) continue;
+      if (new Date(c.createdAt).getTime() <= since) continue;
+      count++;
+      paths.add(decodeURIComponent(c.partitionKey));
+    }
+
+    return { jsonBody: { count, paths: [...paths].slice(0, 10) } };
   }
 });
 
