@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useDocsIndex } from './hooks/useDocsIndex.js';
 import { useHashRoute } from './hooks/useHashRoute.js';
 import { useTheme } from './hooks/useTheme.js';
@@ -21,8 +21,12 @@ import MainColumn from './components/layout/MainColumn.jsx';
 import Toc from './components/layout/Toc.jsx';
 import CommandPalette from './components/palette/CommandPalette.jsx';
 import Toast from './components/Toast.jsx';
-import AdminDashboard from './components/admin/AdminDashboard.jsx';
 import BookmarksView from './components/home/BookmarksView.jsx';
+
+// Lazy: the GitHub-commit content editor and its admin-only siblings are
+// dead weight for the ~all visitors who aren't the site admin — split them
+// into their own chunk instead of shipping them in the main bundle.
+const AdminDashboard = lazy(() => import('./components/admin/AdminDashboard.jsx'));
 
 const ADMIN_ROUTE = '__admin';
 const BOOKMARKS_ROUTE = '__bookmarks';
@@ -228,7 +232,9 @@ export default function App() {
             <div id="mainCol">
               <div id="main" className="scroll" tabIndex={-1}>
                 {isAdminRoute && (
-                  <AdminDashboard isAdmin={!!user?.isAdmin} lastViewedFile={lastViewedFile} onOpenFile={openFile} />
+                  <Suspense fallback={<div id="empty"><p style={{ color: 'var(--fg-subtle)' }}>Loading…</p></div>}>
+                    <AdminDashboard isAdmin={!!user?.isAdmin} lastViewedFile={lastViewedFile} onOpenFile={openFile} />
+                  </Suspense>
                 )}
                 {isBookmarksRoute && (
                   <BookmarksView bookmarks={bookmarks} nodeByFile={nodeByFile} onOpenFile={openFile} onToggleBookmark={toggleBookmark} />

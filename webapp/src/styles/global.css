@@ -99,9 +99,14 @@ a:hover { text-decoration: underline; }
   flex: 1; max-width: 440px; height: 32px; display: flex; align-items: center; gap: 8px;
   padding: 0 10px; border: 1px solid var(--border); border-radius: var(--r-md);
   background: var(--bg-sunken); color: var(--fg-subtle); font-size: 13.5px; text-align: left;
+  min-width: 0;
 }
 #searchTrigger:hover { border-color: var(--fg-subtle); }
-#searchTrigger kbd { margin-left: auto; }
+#searchTrigger kbd { margin-left: auto; flex-shrink: 0; }
+/* Without this the label just wraps onto a second line as the box shrinks
+   (flex children don't truncate by default) — on a narrow screen that's
+   what pushed the sign-in button off the edge of the topbar entirely. */
+#searchTrigger span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 kbd {
   font-family: var(--sans); font-size: 11px; padding: 2px 5px; border-radius: 5px;
   border: 1px solid var(--border); background: var(--bg); color: var(--fg-muted); line-height: 1.4;
@@ -545,6 +550,14 @@ html[data-theme="dark"] .pal-item.cur, html[data-theme="auto"] .pal-item.cur { b
   #content h2 { font-size: 19px; }
   #pager { grid-template-columns: 1fr; }
   .brand span { display: none; }
+  /* The topbar's fixed-width chrome (icon buttons, "0%", the streak chip)
+     plus a full "Sign in with Google" label and the search box together
+     don't fit a phone-width viewport — collapse the same things .brand
+     already does above: text labels, keeping just the icons/glyphs. The
+     "Ctrl K" hint is also meaningless with no physical keyboard. */
+  .gsi-btn span { display: none; }
+  .gsi-btn { padding: 0 9px; }
+  #searchTrigger kbd { display: none; }
 }
 @media print {
   #topbar, #sidebar, #toc, #pager, #resizer, #readProg { display: none !important; }
