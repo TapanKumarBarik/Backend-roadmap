@@ -468,6 +468,7 @@ h1:hover .anchor, h2:hover .anchor, h3:hover .anchor, h4:hover .anchor { opacity
 .track-card .nm { flex: 1; font-size: 14px; color: var(--fg); font-weight: 560; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .track-card .bar { width: 90px; flex-shrink: 0; }
 .track-card .pc { font-size: 12px; color: var(--fg-subtle); font-variant-numeric: tabular-nums; min-width: 34px; text-align: right; }
+.track-empty-note { color: var(--fg-subtle); font-size: 13.5px; margin: 0; }
 
 /* ---------- command palette ---------- */
 #paletteBg {
