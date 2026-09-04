@@ -51,7 +51,16 @@ Object.assign(BLOCKS, {
 export const BLOCK_TYPES = AUTHORED.map(([key, label]) => ({ key, label }));
 
 const OPENER = /^>[ \t]*\[!([A-Za-z]+)\][ \t]*(.*)$/;
-const FENCE = /^\s*(```|~~~)/;
+// Deliberately column-zero only, and the closing marker must match the
+// opening one. An earlier version allowed leading whitespace, which
+// counted an indented closing fence whose opener sat inside a list item
+// ("1. ```") — an odd number of matches left every line after it treated
+// as code, silently dropping the blocks further down the file.
+//
+// Column-zero is not a shortcut here, it's the correct scope: OPENER also
+// requires ">" at column zero, so an indented fence can never contain a
+// line this function would transform.
+const FENCE = /^(`{3,}|~{3,})/;
 
 // Runs before marked sees the document (same stage as renderTabs) so it
 // reads clean markdown rather than trying to unpick marked's blockquote
@@ -59,15 +68,20 @@ const FENCE = /^\s*(```|~~~)/;
 export function renderBlocks(md) {
   const lines = md.split('\n');
   const out = [];
-  let inFence = false;
+  let fenceChar = null;
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
 
     // Never transform inside a fenced code block — a module explaining
     // this very syntax would otherwise have its example eaten.
-    if (FENCE.test(line)) inFence = !inFence;
-    if (inFence) { out.push(line); continue; }
+    const fence = line.match(FENCE);
+    if (fence) {
+      const marker = fence[1][0];
+      if (!fenceChar) fenceChar = marker;
+      else if (fenceChar === marker) fenceChar = null;
+    }
+    if (fenceChar) { out.push(line); continue; }
 
     const m = line.match(OPENER);
     const spec = m && BLOCKS[m[1].toLowerCase()];

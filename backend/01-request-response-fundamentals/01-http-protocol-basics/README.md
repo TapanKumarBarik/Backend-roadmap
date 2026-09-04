@@ -515,6 +515,14 @@ Write down your answer to each question before expanding it — checking without
 - [RFC 9110: HTTP Semantics](https://www.rfc-editor.org/rfc/rfc9110) - version-independent meaning of methods, headers, and status; your reference for the rest of the track.
 - [MDN: Connection management in HTTP/1.x](https://developer.mozilla.org/en-US/docs/Web/HTTP/Connection_management_in_HTTP_1.x) - keep-alive and persistent connections previewed at the end of this module.
 
+> [!check]
+> - Point at the request line, the headers, the blank line and the body in
+>   a raw HTTP message, and say what each one is for
+> - Explain why the blank line is mandatory and what happens without it
+> - Say what "stateless" costs you, and what it buys — and how a login
+>   works on top of a protocol that remembers nothing
+> - Hand-type a valid GET request over a socket, CRLFs and all
+
 ## Next
 
 [02-http-headers-deep-dive](../02-http-headers-deep-dive/README.md) — you

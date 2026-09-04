@@ -6,7 +6,8 @@ export default function MainColumn({
   currentFile, node, statusMap, flatFiles, nodeByFile, dirIndex, fileSet, allTags,
   onOpenFile, onSetStatus, onOpenPalette, headingTarget, onToast,
   onTocChange, onActiveHeadingChange,
-  counts, treeCount, treeData, user, onLogin, isBookmarked, onToggleBookmark, bookmarks
+  counts, treeCount, treeData, user, onLogin, isBookmarked, onToggleBookmark, bookmarks,
+  showNotesInArticle
 }) {
   const mainRef = useRef(null);
   const [readProgress, setReadProgress] = useState(0);
@@ -45,6 +46,7 @@ export default function MainColumn({
               onLogin={onLogin}
               isBookmarked={isBookmarked}
               onToggleBookmark={onToggleBookmark}
+              showNotesInArticle={showNotesInArticle}
             />
           )
           : (

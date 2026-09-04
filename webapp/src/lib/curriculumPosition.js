@@ -67,6 +67,16 @@ export function stripOrdinal(title) {
   return (title || '').replace(/^\d+\s*[-–—.)]\s*/, '');
 }
 
+// Only the pages you'd actually sit down and study. Every container node
+// also has a file — a curriculum's or track's own README — and those are
+// tables of contents, not modules. Including them meant "Start here"
+// offered the curriculum index page ("Backend Engineering: Fundamentals →
+// Distributed Systems → System Design") as if it were a lesson, and the
+// next-up queue interleaved signposts with real work.
+export function studyableFiles(flatFiles, nodeByFile) {
+  return flatFiles.filter((f) => !(nodeByFile[f]?.children?.length));
+}
+
 // The single module the learner should open next.
 //   - whatever they were last reading, if they haven't finished it
 //   - otherwise the first thing after it they haven't finished

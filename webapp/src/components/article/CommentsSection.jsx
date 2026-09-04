@@ -154,18 +154,29 @@ export default function CommentsSection({ path, user, onLogin }) {
 
   return (
     <section className="comments">
+      {/* Framed as discussion of this specific module rather than a generic
+          comment box: what people actually leave here is a question about
+          the thing they just read, and naming it that way asks for the
+          contribution that's worth having. */}
       <div className="comments-head">
-        <div className="home-h" style={{ margin: 0 }}>Comments{comments.length ? ` · ${comments.length}` : ''}</div>
+        <div className="home-h" style={{ margin: 0 }}>
+          Discussion{topLevel.length ? ` · ${topLevel.length}` : ''}
+        </div>
         {comments.length > 1 && (
           <div className="seg comments-sort">
-            <button className={sortMode === 'discussion' ? 'on' : ''} onClick={() => setSortMode('discussion')}>Discussion</button>
+            <button className={sortMode === 'discussion' ? 'on' : ''} onClick={() => setSortMode('discussion')}>Newest</button>
             <button className={sortMode === 'top' ? 'on' : ''} onClick={() => setSortMode('top')}>Most helpful</button>
           </div>
         )}
       </div>
 
-      {loading && <p style={{ color: 'var(--fg-subtle)' }}>Loading comments…</p>}
-      {!loading && topLevel.length === 0 && <p style={{ color: 'var(--fg-subtle)' }}>No comments yet.</p>}
+      {loading && <p style={{ color: 'var(--fg-subtle)' }}>Loading discussion…</p>}
+      {!loading && topLevel.length === 0 && (
+        <p className="discussion-empty">
+          No questions on this module yet. If something here didn’t land, ask — it’s the
+          fastest way to find out whether the module or your understanding needs work.
+        </p>
+      )}
 
       {topLevel.map((c) => (
         <div key={c.id}>
@@ -195,13 +206,16 @@ export default function CommentsSection({ path, user, onLogin }) {
       {user
         ? (
           <div className="comment-form">
-            <MentionTextarea value={text} onChange={setText} participants={participants} placeholder="Add a comment…" />
+            <MentionTextarea
+              value={text} onChange={setText} participants={participants}
+              placeholder="Ask a question about this module…"
+            />
             <div className="comment-form-actions">
-              <button onClick={() => submit('', text, setText)} disabled={posting}>Post comment</button>
+              <button onClick={() => submit('', text, setText)} disabled={posting}>Post question</button>
             </div>
           </div>
         )
-        : <button className="signin-link" onClick={onLogin}>Sign in with Google to comment</button>}
+        : <button className="signin-link" onClick={onLogin}>Sign in with Google to ask a question</button>}
 
       {error && <p style={{ color: 'var(--danger)' }}>{error}</p>}
     </section>

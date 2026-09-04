@@ -8,6 +8,7 @@ import { useOpenDirs } from './hooks/useOpenDirs.js';
 import { useSidebarResize } from './hooks/useSidebarResize.js';
 import { useSidebarCollapse } from './hooks/useSidebarCollapse.js';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts.js';
+import { useMediaQuery } from './hooks/useMediaQuery.js';
 import { useToast } from './hooks/useToast.js';
 import { useBookmarks } from './hooks/useBookmarks.js';
 import { useStreak } from './hooks/useStreak.js';
@@ -20,7 +21,7 @@ import { trackPageView, deleteAccount } from './lib/api.js';
 import TopBar from './components/layout/TopBar.jsx';
 import Sidebar from './components/layout/Sidebar.jsx';
 import MainColumn from './components/layout/MainColumn.jsx';
-import Toc from './components/layout/Toc.jsx';
+import RightRail from './components/layout/RightRail.jsx';
 import CommandPalette from './components/palette/CommandPalette.jsx';
 import Toast from './components/Toast.jsx';
 import BookmarksView from './components/home/BookmarksView.jsx';
@@ -61,6 +62,11 @@ export default function App() {
   const toast = useToast();
   const resizerRef = useRef(null);
   useSidebarResize(resizerRef);
+  // The right rail is display:none below 1180px, so notes have to fall back
+  // into the article there. Deciding here — rather than rendering both and
+  // hiding one — keeps it a single panel: two live instances would each
+  // fetch the note and each autosave over the other.
+  const railVisible = useMediaQuery('(min-width: 1181px)');
   const { collapsed: sidebarCollapsed, toggle: toggleSidebarCollapsed } = useSidebarCollapse();
 
   const [filter, setFilter] = useState('all');
@@ -322,9 +328,17 @@ export default function App() {
               isBookmarked={currentFile ? bookmarks.has(currentFile) : false}
               onToggleBookmark={toggleBookmark}
               bookmarks={bookmarks}
+              showNotesInArticle={!railVisible}
             />
           )}
-        <Toc headings={currentFile ? tocHeadings : []} activeId={activeHeadingId} />
+        <RightRail
+          headings={currentFile ? tocHeadings : []}
+          activeId={activeHeadingId}
+          path={currentFile}
+          user={user}
+          onLogin={login}
+          showNotes={railVisible}
+        />
       </div>
 
       <CommandPalette

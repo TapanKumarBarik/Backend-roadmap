@@ -1,7 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { fetchNote, saveNote } from '../../lib/api.js';
 
-export default function NotesPanel({ path, user, onLogin }) {
+// `inRail` is the same panel in the right rail rather than in the article
+// flow: no section heading (the rail's tab already names it) and a taller,
+// full-height writing area.
+export default function NotesPanel({ path, user, onLogin, inRail }) {
   const [text, setText] = useState('');
   const [loaded, setLoaded] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -27,20 +30,26 @@ export default function NotesPanel({ path, user, onLogin }) {
     }, 600);
   }
 
+  const cls = 'notes-panel' + (inRail ? ' in-rail' : '');
+
   if (!user) {
     return (
-      <section className="notes-panel locked">
-        <div className="home-h">My notes <span className="notes-hint">· private, only visible to you</span></div>
+      <section className={cls + ' locked'}>
+        {!inRail && <div className="home-h">My notes <span className="notes-hint">· private, only visible to you</span></div>}
         <button className="signin-link" onClick={onLogin}>Sign in to keep private notes on this module</button>
       </section>
     );
   }
 
   return (
-    <section className="notes-panel">
-      <div className="home-h">
-        My notes <span className="notes-hint">· private, only visible to you{saving ? ' · saving…' : ''}</span>
-      </div>
+    <section className={cls}>
+      {inRail
+        ? <div className="notes-status">Private to you{saving ? ' · saving…' : ''}</div>
+        : (
+          <div className="home-h">
+            My notes <span className="notes-hint">· private, only visible to you{saving ? ' · saving…' : ''}</span>
+          </div>
+        )}
       <textarea
         className="notes-textarea"
         value={text}

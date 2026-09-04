@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { ArrowRightIcon, StarIcon } from '../icons.jsx';
 import { subtreeStats } from '../../lib/progressStats.js';
-import { buildPositions, shortTitle, pickContinue, nextUp, siblingStats, stripOrdinal } from '../../lib/curriculumPosition.js';
+import { buildPositions, shortTitle, pickContinue, nextUp, siblingStats, stripOrdinal, studyableFiles } from '../../lib/curriculumPosition.js';
 import { BUILD_TIME } from '../../lib/buildInfo.js';
 
 const EXCLUDED_TAGS = new Set(['quiz', 'exercises', 'challenge', 'review', 'index']);
@@ -30,10 +30,11 @@ export default function EmptyState({
 
   const lastFile = (() => { try { return localStorage.getItem('docs.lastFile'); } catch { return null; } })();
   const positions = buildPositions(treeData);
-  const continueFile = pickContinue(flatFiles, statusMap, lastFile);
+  const studyable = studyableFiles(flatFiles, nodeByFile);
+  const continueFile = pickContinue(studyable, statusMap, lastFile);
   const continueNode = continueFile && nodeByFile[continueFile];
   const continuePos = continueFile && positions[continueFile];
-  const queue = nextUp(flatFiles, statusMap, continueFile, 3);
+  const queue = nextUp(studyable, statusMap, continueFile, 3);
   const started = counts.done > 0 || counts.wip > 0;
   const trackStats = siblingStats(continuePos?.parentNode, statusMap);
 

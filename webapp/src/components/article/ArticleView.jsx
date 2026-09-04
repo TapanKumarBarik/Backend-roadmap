@@ -34,7 +34,7 @@ export default function ArticleView({
   path, node, statusMap, flatFiles, nodeByFile, dirIndex, fileSet, allTags, treeData,
   onOpenFile, onSetStatus, onOpenPalette, headingTarget, onToast,
   onTocChange, onActiveHeadingChange, mainRef, user, onLogin,
-  isBookmarked, onToggleBookmark
+  isBookmarked, onToggleBookmark, showNotesInArticle
 }) {
   const { html, rawText, loading, error } = useMarkdownDoc(path);
   const contentRef = useRef(null);
@@ -274,6 +274,12 @@ export default function ArticleView({
         </div>
       </div>
 
+      <ReactionsBar path={path} user={user} onLogin={onLogin} />
+      {/* Notes normally live in the right rail; below 1180px that rail is
+          hidden, so they fall back into the article rather than vanishing. */}
+      {showNotesInArticle && <NotesPanel path={path} user={user} onLogin={onLogin} />}
+      <CommentsSection path={path} user={user} onLogin={onLogin} />
+
       {/* Only the very first and very last module of the curriculum have a
           single neighbour — those used to reserve a hidden half-width cell,
           leaving one card floating against a gap. */}
@@ -293,10 +299,6 @@ export default function ArticleView({
           </a>
         )}
       </nav>
-
-      <ReactionsBar path={path} user={user} onLogin={onLogin} />
-      <NotesPanel path={path} user={user} onLogin={onLogin} />
-      <CommentsSection path={path} user={user} onLogin={onLogin} />
     </article>
   );
 }
