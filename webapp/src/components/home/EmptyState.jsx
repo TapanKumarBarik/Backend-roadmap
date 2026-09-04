@@ -71,6 +71,12 @@ export default function EmptyState({
           );
         })}
       </div>
+
+      <div className="home-footer">
+        <a href="/privacy.html">Privacy</a>
+        <span aria-hidden="true">·</span>
+        <a href="/terms.html">Terms</a>
+      </div>
     </div>
   );
 }

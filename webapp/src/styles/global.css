@@ -107,6 +107,18 @@ kbd {
   border: 1px solid var(--border); background: var(--bg); color: var(--fg-muted); line-height: 1.4;
 }
 .spacer { flex: 1; }
+.skip-link {
+  position: absolute; top: -40px; left: 8px; z-index: 100;
+  background: var(--fg); color: var(--bg); padding: 8px 14px; border-radius: var(--r-sm);
+  font-size: 13px; font-weight: 600; text-decoration: none;
+}
+.skip-link:focus { top: 8px; }
+
+.home-footer {
+  display: flex; gap: 8px; align-items: center; margin-top: 48px;
+  font-size: 12px; color: var(--fg-subtle);
+}
+.home-footer a { color: var(--fg-subtle); text-decoration: underline; }
 .icon-btn {
   width: 32px; height: 32px; display: grid; place-items: center; border-radius: var(--r-sm);
   border: 1px solid transparent; background: transparent; color: var(--fg-muted);
@@ -502,6 +514,7 @@ html[data-theme="dark"] .pal-item.cur, html[data-theme="auto"] .pal-item.cur { b
 #menu button svg { width: 14px; height: 14px; color: var(--fg-muted); flex-shrink: 0; }
 #menu .div { height: 1px; background: var(--border-subtle); margin: 5px 0; }
 #menu button.hidden { display: none; }
+#menu button.danger svg { color: var(--danger); }
 #menu .grp { font-size: 10.5px; text-transform: uppercase; letter-spacing: .06em; color: var(--fg-subtle); padding: 6px 10px 3px; font-weight: 700; }
 
 #toast {

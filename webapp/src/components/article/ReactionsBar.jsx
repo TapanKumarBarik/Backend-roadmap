@@ -33,8 +33,11 @@ export default function ReactionsBar({ path, user, onLogin }) {
       <div className="reactions-bar">
         {EMOJI.map((e) => (
           <button key={e} className={'reaction-btn' + (mine.includes(e) ? ' on' : '')}
-            title={user ? undefined : 'Sign in to react'} onClick={() => handleClick(e)}>
-            <span>{e}</span>
+            title={user ? undefined : 'Sign in to react'}
+            aria-label={(user ? `React with ${e}` : `Sign in to react with ${e}`) + (counts[e] ? ` (${counts[e]})` : '')}
+            aria-pressed={mine.includes(e)}
+            onClick={() => handleClick(e)}>
+            <span aria-hidden="true">{e}</span>
             {counts[e] ? <span className="reaction-count">{counts[e]}</span> : null}
           </button>
         ))}

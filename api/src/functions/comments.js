@@ -4,7 +4,34 @@ const { getTable } = require('../lib/tableClient');
 const { getSession, isAdmin } = require('../lib/adminAuth');
 
 const TABLE_NAME = 'Comments';
+const RATE_LIMIT_TABLE = 'RateLimits';
 const MAX_LENGTH = 2000;
+const RATE_LIMIT_WINDOW_MS = 5 * 60 * 1000; // 5 minutes
+const RATE_LIMIT_MAX = 5; // comments per window, per user
+
+// Best-effort throttle (like the reactions optimistic-UI comment above,
+// this doesn't need to be airtight for a personal-scale site) — a fixed
+// window counter in its own table, keyed by user. A concurrent double-post
+// from the same user in the same instant could both slip through, which is
+// an acceptable trade for staying dependency-free.
+async function checkRateLimit(userId) {
+  const table = getTable(RATE_LIMIT_TABLE);
+  const rowKey = 'comments';
+  let entity = null;
+  try {
+    entity = await table.getEntity(userId, rowKey);
+  } catch (err) {
+    if (err.statusCode !== 404) throw err;
+  }
+  const now = Date.now();
+  if (!entity || now - new Date(entity.windowStart).getTime() > RATE_LIMIT_WINDOW_MS) {
+    await table.upsertEntity({ partitionKey: userId, rowKey, windowStart: new Date(now).toISOString(), count: 1 }, 'Replace');
+    return true;
+  }
+  if (entity.count >= RATE_LIMIT_MAX) return false;
+  await table.updateEntity({ partitionKey: userId, rowKey, count: entity.count + 1 }, 'Merge');
+  return true;
+}
 
 // Rendered as plain text on the client, never markdown/HTML — sanitizing
 // arbitrary HTML for XSS is a real footgun for a two-person side project;
@@ -65,12 +92,17 @@ app.http('postComment', {
     if (text.length > MAX_LENGTH) return { status: 400, jsonBody: { error: `comment too long (max ${MAX_LENGTH} chars)` } };
     const parentId = typeof body.parentId === 'string' ? body.parentId : '';
 
+    const allowed = await checkRateLimit(session.sub);
+    if (!allowed) {
+      return { status: 429, jsonBody: { error: 'Too many comments — please wait a few minutes before posting again.' } };
+    }
+
     const table = getTable(TABLE_NAME);
     const entity = {
       partitionKey: encodeURIComponent(path),
       rowKey: makeRowKey(),
       userId: session.sub,
-      displayName: session.email,
+      displayName: session.name,
       text,
       parentId,
       createdAt: new Date().toISOString(),

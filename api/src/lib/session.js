@@ -40,4 +40,8 @@ function verify(token) {
   }
 }
 
-module.exports = { SESSION_COOKIE, parseCookies, sign, verify };
+function cookieAttrs(name, value, maxAgeSeconds) {
+  return `${name}=${value}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=${maxAgeSeconds}`;
+}
+
+module.exports = { SESSION_COOKIE, parseCookies, sign, verify, cookieAttrs };

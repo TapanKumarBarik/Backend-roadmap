@@ -1,6 +1,6 @@
 const { app } = require('@azure/functions');
 const crypto = require('crypto');
-const { SESSION_COOKIE, parseCookies, sign, verify } = require('../lib/session');
+const { SESSION_COOKIE, parseCookies, sign, verify, cookieAttrs } = require('../lib/session');
 const { isAdmin } = require('../lib/adminAuth');
 
 const GOOGLE_AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth';
@@ -13,10 +13,6 @@ const SESSION_MAX_AGE = 60 * 60 * 24 * 30; // 30 days
 // redirect_uri Google sees must come from an explicit setting instead.
 function siteOrigin() {
   return process.env.SITE_ORIGIN;
-}
-
-function cookieAttrs(name, value, maxAgeSeconds) {
-  return `${name}=${value}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=${maxAgeSeconds}`;
 }
 
 app.http('authLogin', {

@@ -184,3 +184,12 @@ export async function fetchStreak() {
   if (!res.ok) throw new Error('failed to load streak');
   return res.json();
 }
+
+// Deletes progress/notes/bookmarks/streaks/reactions outright, anonymizes
+// this user's comments and pageview history in place, and signs them out
+// server-side (clears the session cookie) — see api/src/functions/account.js
+// for exactly what "delete my data" does to each table.
+export async function deleteAccount() {
+  const res = await fetch('/api/account', { method: 'DELETE' });
+  if (!res.ok) throw new Error('failed to delete account');
+}

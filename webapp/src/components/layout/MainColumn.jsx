@@ -20,7 +20,7 @@ export default function MainColumn({
   return (
     <div id="mainCol">
       <div id="readProg" style={{ width: readProgress + '%' }} />
-      <div id="main" className="scroll" ref={mainRef} onScroll={handleScroll}>
+      <div id="main" className="scroll" ref={mainRef} onScroll={handleScroll} tabIndex={-1}>
         {currentFile
           ? (
             <ArticleView

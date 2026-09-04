@@ -156,6 +156,8 @@ export default function ArticleView({
           <button
             className={'icon-btn bookmark-btn' + (isBookmarked ? ' on' : '')}
             title={user ? (isBookmarked ? 'Remove bookmark' : 'Bookmark this module') : 'Sign in to bookmark this module'}
+            aria-label={user ? (isBookmarked ? 'Remove bookmark' : 'Bookmark this module') : 'Sign in to bookmark this module'}
+            aria-pressed={isBookmarked}
             onClick={() => (user ? onToggleBookmark(path) : onLogin())}
           >
             <StarIcon />

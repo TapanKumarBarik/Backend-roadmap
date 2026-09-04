@@ -13,7 +13,7 @@ import { useStreak } from './hooks/useStreak.js';
 import { computeTreeVisibility } from './lib/treeFilter.js';
 import { globalCounts } from './lib/progressStats.js';
 import { ancestorDirPaths } from './lib/treeAncestors.js';
-import { trackPageView } from './lib/api.js';
+import { trackPageView, deleteAccount } from './lib/api.js';
 
 import TopBar from './components/layout/TopBar.jsx';
 import Sidebar from './components/layout/Sidebar.jsx';
@@ -166,6 +166,22 @@ export default function App() {
     toast.show('All progress reset');
   }, [reset, flatFiles.length, toast]);
 
+  const handleDeleteAccount = useCallback(async () => {
+    if (!window.confirm(
+      'Delete your account and all your data?\n\n' +
+      'This permanently removes your progress, notes, bookmarks, streak, and reactions, ' +
+      'and anonymizes any comments you’ve posted. This cannot be undone.'
+    )) return;
+    try {
+      await deleteAccount();
+    } catch {
+      toast.show('Could not delete your account — please try again');
+      return;
+    }
+    await reset(); // clears local IndexedDB progress too
+    logout(); // full-page redirect; also clears the (already-cleared) session cookie
+  }, [reset, logout, toast]);
+
   const allDirPaths = useMemo(() => collectDirPaths(treeData), [treeData]);
 
   const handleGoHome = useCallback(() => {
@@ -182,6 +198,7 @@ export default function App() {
 
   return (
     <>
+      <a href="#main" className="skip-link">Skip to content</a>
       <TopBar
         counts={counts}
         theme={theme}
@@ -202,13 +219,14 @@ export default function App() {
         onMobileToggle={() => setNavOpen((v) => !v)}
         onOpenAdmin={user?.isAdmin ? openAdmin : null}
         onOpenBookmarks={user ? openBookmarks : null}
+        onDeleteAccount={handleDeleteAccount}
         streak={streak}
       />
       {isSpecialRoute
         ? (
           <div id="shell">
             <div id="mainCol">
-              <div id="main" className="scroll">
+              <div id="main" className="scroll" tabIndex={-1}>
                 {isAdminRoute && (
                   <AdminDashboard isAdmin={!!user?.isAdmin} lastViewedFile={lastViewedFile} onOpenFile={openFile} />
                 )}

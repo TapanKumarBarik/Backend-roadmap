@@ -1,7 +1,7 @@
 import { useRef } from 'react';
 import {
   HamburgerIcon, SearchIcon, SunIcon, MoonIcon, AutoIcon, MenuDotsIcon,
-  ExportIcon, ImportIcon, ResetIcon, ExpandIcon, CollapseIcon, KeysIcon, SignOutIcon, GearIcon, StarIcon
+  ExportIcon, ImportIcon, ResetIcon, ExpandIcon, CollapseIcon, KeysIcon, SignOutIcon, GearIcon, StarIcon, TrashIcon
 } from '../icons.jsx';
 import SignInButton from '../account/SignInButton.jsx';
 import UserAvatar from '../account/UserAvatar.jsx';
@@ -12,7 +12,7 @@ export default function TopBar({
   counts, theme, onCycleTheme, user, onLogin, onLogout,
   menuOpen, onToggleMenu, onCloseMenu, onOpenPalette, onGoHome,
   onExport, onImportFile, onReset, onExpandAll, onCollapseAll, onMobileToggle,
-  onOpenAdmin, onOpenBookmarks, streak
+  onOpenAdmin, onOpenBookmarks, onDeleteAccount, streak
 }) {
   const importInputRef = useRef(null);
   const ThemeIcon = THEME_ICON[theme] || AutoIcon;
@@ -69,16 +69,16 @@ export default function TopBar({
                 🔥 {streak.currentStreak}
               </span>
             )}
-            <button className="icon-btn" id="authBtn" onClick={(e) => { e.stopPropagation(); onToggleMenu(); }} title={`Signed in as ${user.email}`}>
+            <button className="icon-btn" id="authBtn" onClick={(e) => { e.stopPropagation(); onToggleMenu(); }} title={`Signed in as ${user.email}`} aria-label={`Account menu — signed in as ${user.email}`} aria-haspopup="true" aria-expanded={menuOpen}>
               <UserAvatar user={user} />
             </button>
           </>
         )
         : <SignInButton onClick={onLogin} />}
-      <button className="icon-btn" id="themeBtn" title={`Theme: ${theme} (press T)`} onClick={onCycleTheme}>
+      <button className="icon-btn" id="themeBtn" title={`Theme: ${theme} (press T)`} aria-label={`Change theme (currently ${theme})`} onClick={onCycleTheme}>
         <ThemeIcon />
       </button>
-      <button className="icon-btn" id="menuBtn" title="More" onClick={(e) => { e.stopPropagation(); onToggleMenu(); }}>
+      <button className="icon-btn" id="menuBtn" title="More" aria-label="More options" aria-haspopup="true" aria-expanded={menuOpen} onClick={(e) => { e.stopPropagation(); onToggleMenu(); }}>
         <MenuDotsIcon />
       </button>
 
@@ -92,6 +92,11 @@ export default function TopBar({
             {onOpenBookmarks && <button onClick={() => { onCloseMenu(); onOpenBookmarks(); }}><StarIcon />Bookmarks</button>}
             {onOpenAdmin && <button onClick={() => { onCloseMenu(); onOpenAdmin(); }}><GearIcon />Admin dashboard</button>}
             <button onClick={() => { onCloseMenu(); onLogout(); }}><SignOutIcon />Sign out</button>
+            {onDeleteAccount && (
+              <button className="danger" onClick={() => { onCloseMenu(); onDeleteAccount(); }}>
+                <TrashIcon />Delete account &amp; data
+              </button>
+            )}
             <div className="div" />
           </>
         )}
