@@ -880,6 +880,25 @@ html[data-theme="dark"] .pal-item.cur, html[data-theme="auto"] .pal-item.cur { b
 body.sidebar-collapsed #sidebar,
 body.sidebar-collapsed #resizer { display: none; }
 
+/* Collapse control, on the panel it collapses. */
+#treeCollapse {
+  width: 26px; height: 26px; flex-shrink: 0; align-self: center;
+  color: var(--fg-subtle); border-radius: var(--r-sm);
+}
+#treeCollapse svg { width: 12px; height: 12px; transform: rotate(180deg); }
+#treeCollapse:hover { background: var(--hover); color: var(--fg); }
+
+/* And the way back. A slim strip where the panel was, so hiding the tree
+   is reversible without knowing the keyboard shortcut. */
+#treePeek {
+  width: 16px; flex-shrink: 0; border: 0; border-right: 1px solid var(--border-subtle);
+  background: var(--bg-sunken); color: var(--fg-subtle);
+  display: grid; place-items: center; padding: 0;
+}
+#treePeek svg { width: 11px; height: 11px; }
+#treePeek:hover { background: var(--hover); color: var(--fg); }
+@media (max-width: 860px) { #treePeek { display: none; } }
+
 /* ---------- responsive ---------- */
 @media (max-width: 1180px) { #toc { display: none; } }
 @media (max-width: 860px) {

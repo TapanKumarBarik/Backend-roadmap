@@ -2,7 +2,7 @@ import { useRef } from 'react';
 import {
   HamburgerIcon, SearchIcon, SunIcon, MoonIcon, AutoIcon, MenuDotsIcon,
   ExportIcon, ImportIcon, ResetIcon, ExpandIcon, CollapseIcon, KeysIcon, SignOutIcon, TrashIcon,
-  SidebarIcon, MailIcon, ClockIcon
+  MailIcon, ClockIcon
 } from '../icons.jsx';
 import SignInButton from '../account/SignInButton.jsx';
 import UserAvatar from '../account/UserAvatar.jsx';
@@ -15,7 +15,7 @@ export default function TopBar({
   menuOpen, onToggleMenu, onCloseMenu, onOpenPalette, onGoHome,
   onExport, onImportFile, onReset, onExpandAll, onCollapseAll, onMobileToggle,
   onDeleteAccount, onOpenMessage, onToast, streak,
-  sidebarCollapsed, onToggleSidebarCollapsed, activity, onOpenFile, nodeByFile
+  activity, onOpenFile, nodeByFile
 }) {
   const importInputRef = useRef(null);
   const ThemeIcon = THEME_ICON[theme] || AutoIcon;
@@ -56,15 +56,10 @@ export default function TopBar({
           <HamburgerIcon />
         </button>
       )}
-      <button
-        className="icon-btn" id="sidebarToggle"
-        title={`${sidebarCollapsed ? 'Show' : 'Hide'} sidebar (press B)`}
-        aria-label={`${sidebarCollapsed ? 'Show' : 'Hide'} sidebar`}
-        aria-pressed={sidebarCollapsed}
-        onClick={onToggleSidebarCollapsed}
-      >
-        <SidebarIcon />
-      </button>
+      {/* The hide-the-tree control used to live here: an unlabelled icon in
+          the far top-left, nowhere near the panel it controlled, and easy
+          to confuse with the destination rail now that one exists. It moved
+          onto the panel itself. */}
       <button className="brand" onClick={onGoHome} type="button">
         <span className="mark">C</span><span>Curriculum</span>
       </button>

@@ -22,6 +22,7 @@ import { pickContinue, studyableFiles } from './lib/curriculumPosition.js';
 import TopBar from './components/layout/TopBar.jsx';
 import Sidebar from './components/layout/Sidebar.jsx';
 import DestinationRail from './components/layout/DestinationRail.jsx';
+import { CaretIcon } from './components/icons.jsx';
 import MainColumn from './components/layout/MainColumn.jsx';
 import RightRail from './components/layout/RightRail.jsx';
 import CommandPalette from './components/palette/CommandPalette.jsx';
@@ -303,8 +304,6 @@ export default function App() {
         onExpandAll={() => expandAll(allDirPaths)}
         onCollapseAll={collapseAll}
         onMobileToggle={isSpecialRoute ? null : () => setNavOpen((v) => !v)}
-        sidebarCollapsed={sidebarCollapsed}
-        onToggleSidebarCollapsed={toggleSidebarCollapsed}
         onDeleteAccount={handleDeleteAccount}
         onOpenMessage={user ? () => setMessageOpen(true) : null}
         onToast={toast.show}
@@ -327,9 +326,23 @@ export default function App() {
         {/* The tree is context for the curriculum, so it renders only
             there. On a destination — feed, saved, notes, admin — it was
             340px of unrelated content permanently occupying the screen. */}
+        {/* Collapsed, the panel is gone entirely — so there has to be a way
+            back that isn't only a keyboard shortcut. A slim strip against
+            the rail, in the place the panel would occupy. */}
+        {!isSpecialRoute && sidebarCollapsed && (
+          <button
+            id="treePeek"
+            title="Show the module tree (press B)"
+            aria-label="Show the module tree"
+            onClick={toggleSidebarCollapsed}
+          >
+            <CaretIcon />
+          </button>
+        )}
         {!isSpecialRoute && (
           <>
             <Sidebar
+              onCollapse={toggleSidebarCollapsed}
               treeData={treeData}
               statusMap={statusMap}
               openDirs={openDirs}

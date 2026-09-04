@@ -52,17 +52,9 @@ export function TreeIcon(props) {
   );
 }
 
-// Hand-drawn from primitives, not the single-path svg() helper above — a
-// "panel with a divider" glyph doesn't reduce cleanly to one fill path, and
-// approximating one from memory risks a subtly-wrong icon.
-export function SidebarIcon(props) {
-  return (
-    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" {...props}>
-      <rect x="1.5" y="2.5" width="13" height="11" rx="1.5" />
-      <line x1="6.2" y1="2.5" x2="6.2" y2="13.5" />
-    </svg>
-  );
-}
+// SidebarIcon lived here for the top bar's hide/show-tree button. That
+// control moved onto the tree panel itself and uses a caret, so nothing
+// referenced this any more.
 
 export function FeedIcon(props) {
   return (

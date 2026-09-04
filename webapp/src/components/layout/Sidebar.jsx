@@ -1,4 +1,5 @@
 import Tree from './Tree.jsx';
+import { CaretIcon } from '../icons.jsx';
 
 const FILTERS = [
   { key: 'all', label: 'All' },
@@ -13,7 +14,7 @@ const FILTERS = [
 // to render on screens that have nothing to do with the tree.
 export default function Sidebar({
   treeData, statusMap, openDirs, onToggleDir, filter, onSetFilter, counts,
-  visibleFiles, currentFile, onOpenFile, onToggleStatus
+  visibleFiles, currentFile, onOpenFile, onToggleStatus, onCollapse
 }) {
   return (
     <aside id="sidebar" className="scroll">
@@ -28,6 +29,17 @@ export default function Sidebar({
               {f.label} <span className="n">{counts[f.key === 'all' ? 'total' : f.key]}</span>
             </button>
           ))}
+          {/* Sits on the panel it hides, rather than as a mystery icon in
+              the top bar. Keyboard: B. */}
+          <button
+            id="treeCollapse"
+            className="icon-btn"
+            title="Hide the module tree (press B)"
+            aria-label="Hide the module tree"
+            onClick={onCollapse}
+          >
+            <CaretIcon />
+          </button>
         </div>
       </div>
       <div id="treeWrap" className="scroll">
