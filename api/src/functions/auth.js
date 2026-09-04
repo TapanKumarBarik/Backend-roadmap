@@ -8,11 +8,61 @@ const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
 const STATE_COOKIE = 'oauth_state';
 const SESSION_MAX_AGE = 60 * 60 * 24 * 30; // 30 days
 
-// Headers seen through the SWA managed-Functions proxy point at the Function
-// App's internal *.azurewebsites.net host, not the public site, so the
-// redirect_uri Google sees must come from an explicit setting instead.
-function siteOrigin() {
-  return process.env.SITE_ORIGIN;
+// Trailing whitespace in these has bitten us before: a value pasted into the
+// portal on Windows can carry a stray \r, which then travels in the OAuth
+// request and, worse, makes the claims.aud equality check below fail.
+function clientId() {
+  return (process.env.GOOGLE_CLIENT_ID || '').trim();
+}
+
+function clientSecret() {
+  return (process.env.GOOGLE_CLIENT_SECRET || '').trim();
+}
+
+// The public origins this app answers on, most-canonical first.
+// SITE_ORIGINS is comma-separated; SITE_ORIGIN is the older single-value
+// name, still honoured so the setting can be migrated without a flag day.
+function allowedOrigins() {
+  const raw = process.env.SITE_ORIGINS || process.env.SITE_ORIGIN || '';
+  return raw
+    .split(',')
+    .map((s) => s.trim().replace(/\/+$/, ''))
+    .filter(Boolean);
+}
+
+// request.headers.get('host') is no use here: through the SWA managed-Functions
+// proxy it names the Function App's internal *.azurewebsites.net host rather
+// than the site the browser actually asked for. SWA does forward the original
+// public URL as x-ms-original-url, which is what lets one deployment serve
+// several domains.
+//
+// This matters beyond cosmetics. The oauth_state cookie is host-only (no
+// Domain attribute, see lib/session.js), so if login starts on domain A and
+// Google is told to call back on domain B, the cookie never reaches the
+// callback and every sign-in dies on the state check. The redirect_uri has to
+// name whichever domain the user is actually on.
+//
+// Derived origins are checked against the allowlist before use: a forged Host
+// header must not be able to aim redirect_uri at someone else's domain. Google
+// rejecting unregistered redirect_uris is a second line of defence, not the
+// only one.
+function siteOrigin(request) {
+  const allowed = allowedOrigins();
+  const fallback = allowed[0] || '';
+  if (!request) return fallback;
+
+  let host = null;
+  const originalUrl = request.headers.get('x-ms-original-url');
+  if (originalUrl) {
+    try { host = new URL(originalUrl).host; } catch { /* not a usable URL */ }
+  }
+  if (!host) host = request.headers.get('x-forwarded-host');
+  if (!host) return fallback;
+
+  // x-forwarded-host can accumulate a comma-separated list; the first entry is
+  // the original client-facing host.
+  const candidate = `https://${host.split(',')[0].trim()}`;
+  return allowed.includes(candidate) ? candidate : fallback;
 }
 
 app.http('authLogin', {
@@ -20,11 +70,11 @@ app.http('authLogin', {
   authLevel: 'anonymous',
   route: 'auth/login',
   handler: async (request) => {
-    const origin = siteOrigin();
+    const origin = siteOrigin(request);
     const state = crypto.randomBytes(16).toString('hex');
     const redirect = request.query.get('redirect') || '/';
     const params = new URLSearchParams({
-      client_id: process.env.GOOGLE_CLIENT_ID,
+      client_id: clientId(),
       redirect_uri: `${origin}/api/auth/callback`,
       response_type: 'code',
       scope: 'openid email profile',
@@ -33,7 +83,10 @@ app.http('authLogin', {
     });
     const headers = new Headers();
     headers.set('Location', `${GOOGLE_AUTH_URL}?${params.toString()}`);
-    headers.set('Set-Cookie', cookieAttrs(STATE_COOKIE, encodeURIComponent(JSON.stringify({ state, redirect })), 600));
+    // The origin rides along in the state cookie so the callback can reuse the
+    // exact redirect_uri that was sent to Google, rather than re-deriving it
+    // and risking a mismatch the token exchange would reject.
+    headers.set('Set-Cookie', cookieAttrs(STATE_COOKIE, encodeURIComponent(JSON.stringify({ state, redirect, origin })), 600));
     return { status: 302, headers };
   }
 });
@@ -43,7 +96,6 @@ app.http('authCallback', {
   authLevel: 'anonymous',
   route: 'auth/callback',
   handler: async (request) => {
-    const origin = siteOrigin();
     const cookies = parseCookies(request.headers.get('cookie'));
     let stateData = {};
     try { stateData = JSON.parse(cookies[STATE_COOKIE] || '{}'); } catch { /* ignore */ }
@@ -54,13 +106,17 @@ app.http('authCallback', {
       return { status: 400, body: 'Sign-in link expired or invalid. Go back and try again.' };
     }
 
+    // Whatever redirect_uri authLogin sent to Google has to be repeated
+    // verbatim in the token exchange, so prefer the one it recorded.
+    const origin = stateData.origin || siteOrigin(request);
+
     const tokenRes = await fetch(GOOGLE_TOKEN_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({
         code,
-        client_id: process.env.GOOGLE_CLIENT_ID,
-        client_secret: process.env.GOOGLE_CLIENT_SECRET,
+        client_id: clientId(),
+        client_secret: clientSecret(),
         redirect_uri: `${origin}/api/auth/callback`,
         grant_type: 'authorization_code'
       })
@@ -72,7 +128,7 @@ app.http('authCallback', {
     if (idParts.length !== 3) return { status: 401, body: 'Google sign-in failed.' };
     const claims = JSON.parse(Buffer.from(idParts[1], 'base64url').toString('utf-8'));
     const validIssuer = claims.iss === 'https://accounts.google.com' || claims.iss === 'accounts.google.com';
-    if (claims.aud !== process.env.GOOGLE_CLIENT_ID || !validIssuer || !claims.email_verified) {
+    if (claims.aud !== clientId() || !validIssuer || !claims.email_verified) {
       return { status: 401, body: 'Token validation failed.' };
     }
 
