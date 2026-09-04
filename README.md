@@ -3,7 +3,7 @@
 A hands-on curriculum for backend engineering, infrastructure, low-level design, and system design —
 plus the progress-tracking app that serves it.
 
-**Live site:** <https://calm-ocean-0635a4a0f.3.azurestaticapps.net/>
+**Live site:** <https://www.backendroadmap.in/>
 
 ## What's in here
 
