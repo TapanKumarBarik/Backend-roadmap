@@ -3,7 +3,7 @@
 A hands-on curriculum for backend engineering, infrastructure, low-level design, and system design —
 plus the progress-tracking app that serves it.
 
-**Live site:** <https://www.backendroadmap.in/>
+**Live site:** <https://backendroadmap.in/>
 
 ## What's in here
 

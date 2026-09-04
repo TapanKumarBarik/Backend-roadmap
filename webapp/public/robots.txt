@@ -1,4 +1,4 @@
 User-agent: *
 Allow: /
 
-Sitemap: https://www.backendroadmap.in/sitemap.xml
+Sitemap: https://backendroadmap.in/sitemap.xml
