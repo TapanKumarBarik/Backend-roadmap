@@ -321,6 +321,7 @@ export default function App() {
               onLogin={login}
               isBookmarked={currentFile ? bookmarks.has(currentFile) : false}
               onToggleBookmark={toggleBookmark}
+              bookmarks={bookmarks}
             />
           )}
         <Toc headings={currentFile ? tocHeadings : []} activeId={activeHeadingId} />

@@ -286,7 +286,24 @@ li.open > .row > .caret { transform: rotate(90deg); }
   color: var(--fg-muted); min-width: 0; max-width: 100%;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
+/* Position in track, above the title — you should always know where you
+   are in a sequence of 17 things. */
+#posRow { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; flex-wrap: wrap; }
+.pos-label { font-size: 12px; color: var(--fg-subtle); letter-spacing: .01em; }
+.pos-label strong { color: var(--fg-muted); font-weight: 640; }
+.pos-prog { display: flex; align-items: center; gap: 7px; }
+.pos-prog .bar { width: 74px; }
+.pos-prog-n { font-size: 11px; color: var(--fg-subtle); font-variant-numeric: tabular-nums; }
+
 #metaRow { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+/* Replaces the three-button segmented control that used to sit here — the
+   header only needs to report state now that setting it lives at the end. */
+.status-pill {
+  font-size: 11.5px; font-weight: 650; padding: 3px 10px; border-radius: 99px;
+  text-transform: uppercase; letter-spacing: .05em;
+}
+.status-pill.done { background: var(--accent); color: var(--accent-fg); }
+.status-pill.wip { background: var(--signal-bg); color: var(--signal); border: 1px solid var(--signal-line); }
 .seg { display: inline-flex; border: 1px solid var(--border); border-radius: var(--r-md); overflow: hidden; }
 .seg button {
   font-size: 12.5px; padding: 5px 13px; border: 0; background: var(--bg); color: var(--fg-muted);
@@ -311,6 +328,7 @@ li.open > .row > .caret { transform: rotate(90deg); }
 }
 .tag:hover { border-color: var(--fg); color: var(--fg); background: var(--hover); }
 .tag .hash { color: var(--fg-subtle); }
+.tag-more { color: var(--fg-subtle); border-style: dashed; }
 .pal-tags { display: flex; gap: 4px; flex-shrink: 0; max-width: 42%; overflow: hidden; }
 .pal-tags .tag { font-size: 10.5px; padding: 2px 6px; pointer-events: none; }
 #tagCloud { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
@@ -464,8 +482,45 @@ h1:hover .anchor, h2:hover .anchor, h3:hover .anchor, h4:hover .anchor { opacity
 .tab-panes { padding: 14px 16px 2px; }
 .tab-pane > *:first-child { margin-top: 0; }
 
+/* ---------- finish bar ----------
+   Closes the loop where the decision actually happens: at the end of the
+   module, not back up at the top of it. */
+.finish {
+  display: flex; align-items: center; gap: 18px; flex-wrap: wrap;
+  margin-top: 56px; padding: 18px 20px;
+  border: 1px solid var(--signal-line); border-radius: var(--r-lg);
+  background: var(--signal-bg);
+}
+.finish.is-done { border-color: var(--border-subtle); background: var(--bg-sunken); }
+.finish-main { flex: 1; min-width: 180px; }
+.finish-h { font-size: 15px; font-weight: 620; color: var(--fg); }
+.finish-sub {
+  font-size: 12.5px; color: var(--fg-muted); margin-top: 3px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.finish-acts { display: flex; align-items: center; gap: 8px; flex-shrink: 0; flex-wrap: wrap; }
+.btn-primary {
+  display: inline-flex; align-items: center; gap: 7px;
+  background: var(--accent); color: var(--accent-fg); border: 1px solid var(--accent);
+  border-radius: var(--r-sm); padding: 9px 16px; font-size: 13.5px; font-weight: 620;
+}
+.btn-primary:hover { opacity: .88; }
+.btn-primary svg { width: 14px; height: 14px; }
+.btn-primary.undo {
+  background: transparent; color: var(--fg-muted); border-color: var(--border); font-weight: 550;
+}
+.btn-primary.undo:hover { background: var(--hover); color: var(--fg); opacity: 1; }
+.btn-ghost {
+  background: var(--bg); color: var(--fg-muted); border: 1px solid var(--border);
+  border-radius: var(--r-sm); padding: 9px 14px; font-size: 13.5px;
+}
+.btn-ghost:hover { background: var(--hover); color: var(--fg); }
+.btn-ghost[aria-pressed="true"] {
+  background: var(--signal); border-color: var(--signal); color: #fff; font-weight: 600;
+}
+
 /* prev / next */
-#pager { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 56px; }
+#pager { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 24px; }
 /* First and last module of the whole curriculum only have one neighbour —
    give that card the full width instead of reserving an empty half. */
 #pager.single { grid-template-columns: 1fr; }
@@ -495,34 +550,94 @@ h1:hover .anchor, h2:hover .anchor, h3:hover .anchor, h4:hover .anchor { opacity
 #toc a.on { color: var(--accent); border-left-color: var(--accent); font-weight: 600; background: var(--accent-subtle); border-radius: 0 var(--r-sm) var(--r-sm) 0; }
 #toc a.lv3 { padding-left: 22px; font-size: 12.2px; }
 
-/* ---------- empty state ---------- */
-#empty { max-width: 640px; margin: 0 auto; padding: 72px 44px; }
-#empty h2 { font-size: 24px; margin: 0 0 8px; letter-spacing: -.02em; }
+/* ---------- home ---------- */
+#empty { max-width: 660px; margin: 0 auto; padding: 60px 44px 96px; }
+#empty h2 { font-size: 26px; margin: 0 0 8px; letter-spacing: -.022em; }
 #empty p { color: var(--fg-muted); margin: 0 0 26px; line-height: 1.65; }
-.resume-card {
-  display: flex; align-items: center; gap: 13px; border: 1px solid var(--border); border-radius: var(--r-lg);
-  padding: 15px 17px; margin-bottom: 26px; background: var(--bg-raised); box-shadow: var(--shadow-sm);
+.home-sub { font-size: 14.5px; }
+
+/* The one action a returning learner almost always wants. It is the only
+   raised, filled thing on the page — everything below is quieter on
+   purpose, because this used to look identical to two dozen track cards. */
+.continue-card {
+  display: flex; align-items: center; gap: 18px;
+  border: 1px solid var(--border); border-radius: var(--r-lg);
+  padding: 18px 20px; background: var(--bg-raised); box-shadow: var(--shadow-md);
+  margin-bottom: 4px;
 }
-.resume-card:hover { border-color: var(--accent); text-decoration: none; }
-.resume-card .ic { width: 34px; height: 34px; border-radius: var(--r-md); background: var(--accent-subtle); color: var(--accent); display: grid; place-items: center; flex-shrink: 0; }
-.resume-card .ic svg { width: 17px; height: 17px; }
-.resume-card .t1 { font-size: 11.5px; color: var(--fg-subtle); text-transform: uppercase; letter-spacing: .05em; font-weight: 640; }
-.resume-card .t2 { font-size: 14.5px; color: var(--fg); font-weight: 600; }
-.track-grid { display: grid; gap: 9px; }
-.track-card {
-  display: flex; align-items: center; gap: 12px; padding: 11px 14px; border: 1px solid var(--border-subtle);
-  border-radius: var(--r-md); background: var(--bg-raised);
-  /* A grid item's automatic minimum size is min-content, not 0 — so without
-     this the card refuses to shrink below the width of its own contents and
-     overflows the grid. On a 390px phone that put the progress bar and the
-     percentage ~118px off-screen, unreachable because body is overflow:hidden. */
-  min-width: 0;
+.continue-card:hover { border-color: var(--fg-subtle); text-decoration: none; }
+.continue-main { flex: 1; min-width: 0; }
+.continue-eyebrow {
+  font-size: 11px; text-transform: uppercase; letter-spacing: .07em;
+  color: var(--signal); font-weight: 700; margin-bottom: 5px;
 }
-.track-card:hover { border-color: var(--accent); background: var(--hover); text-decoration: none; }
-.track-card .nm { flex: 1; font-size: 14px; color: var(--fg); font-weight: 560; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.track-card .bar { width: 90px; flex-shrink: 0; }
-.track-card .pc { font-size: 12px; color: var(--fg-subtle); font-variant-numeric: tabular-nums; min-width: 34px; text-align: right; }
-.track-empty-note { color: var(--fg-subtle); font-size: 13.5px; margin: 0; }
+.continue-title {
+  font-size: 17px; font-weight: 620; color: var(--fg); line-height: 1.32; letter-spacing: -.01em;
+}
+.continue-prog { display: flex; align-items: center; gap: 9px; margin-top: 11px; }
+.continue-prog .bar { width: 118px; flex-shrink: 0; }
+.continue-prog-n { font-size: 11.5px; color: var(--fg-subtle); font-variant-numeric: tabular-nums; }
+.continue-go {
+  flex-shrink: 0; display: inline-flex; align-items: center; gap: 7px;
+  background: var(--accent); color: var(--accent-fg); border-radius: var(--r-sm);
+  padding: 9px 15px; font-size: 13.5px; font-weight: 620;
+}
+.continue-go svg { width: 14px; height: 14px; }
+.continue-card:hover .continue-go { opacity: .88; }
+
+/* Next up / Saved — the queue behind the current module. */
+.queue { display: flex; flex-direction: column; gap: 1px; }
+.queue-item {
+  display: flex; align-items: center; gap: 10px; width: 100%; text-align: left;
+  padding: 9px 12px; border: 1px solid transparent; border-radius: var(--r-sm);
+  background: none; color: var(--fg); font-size: 13.5px; min-width: 0;
+}
+.queue-item:hover { background: var(--hover); border-color: var(--border-subtle); }
+.queue-dot {
+  width: 8px; height: 8px; border-radius: 99px; flex-shrink: 0;
+  border: 1.5px solid var(--border); background: transparent;
+}
+.queue-dot[data-s="wip"] { background: var(--wip); border-color: var(--wip); }
+.queue-dot[data-s="done"] { background: var(--done); border-color: var(--done); }
+.queue-ic { flex-shrink: 0; color: var(--fg-subtle); display: grid; place-items: center; }
+.queue-ic svg { width: 13px; height: 13px; fill: var(--fg-subtle); }
+.queue-t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.queue-p { font-size: 11.5px; color: var(--fg-subtle); flex-shrink: 0; max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* One row per curriculum, expandable to its tracks. */
+.path-list { display: flex; flex-direction: column; gap: 6px; }
+.path { border: 1px solid var(--border-subtle); border-radius: var(--r-md); background: var(--bg-raised); }
+.path-row { display: flex; align-items: center; gap: 11px; padding: 11px 14px; min-width: 0; }
+.path-name {
+  flex: 1; min-width: 0; text-align: left; background: none; border: 0; padding: 0;
+  font-size: 14.5px; font-weight: 580; color: var(--fg);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.path-name:hover:not(:disabled) { text-decoration: underline; text-underline-offset: 2px; }
+.path-name:disabled { color: var(--fg-subtle); cursor: default; }
+.path-row .bar { width: 92px; flex-shrink: 0; }
+.path-pc { font-size: 12px; color: var(--fg); font-weight: 600; font-variant-numeric: tabular-nums; min-width: 32px; text-align: right; }
+.path-n { font-size: 11.5px; color: var(--fg-subtle); font-variant-numeric: tabular-nums; min-width: 46px; text-align: right; }
+.path-empty { font-size: 12px; color: var(--fg-subtle); }
+.path-toggle {
+  flex-shrink: 0; font-size: 11.5px; color: var(--fg-subtle); background: none;
+  border: 1px solid var(--border-subtle); border-radius: 99px; padding: 3px 9px;
+}
+.path-toggle:hover { color: var(--fg); border-color: var(--border); }
+.path-toggle.open { background: var(--accent-subtle); color: var(--fg); border-color: var(--border); }
+.track-list { border-top: 1px solid var(--border-subtle); padding: 5px; display: flex; flex-direction: column; gap: 1px; }
+.track-row {
+  display: flex; align-items: center; gap: 10px; width: 100%; text-align: left;
+  padding: 7px 9px; border: 0; border-radius: var(--r-sm); background: none;
+  color: var(--fg-muted); font-size: 13px; min-width: 0;
+}
+.track-row:hover { background: var(--hover); color: var(--fg); }
+.track-nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.track-row .bar { width: 64px; flex-shrink: 0; }
+.track-n { font-size: 11px; color: var(--fg-subtle); font-variant-numeric: tabular-nums; min-width: 40px; text-align: right; }
+/* .track-grid / .track-card / .track-empty-note lived here. Home now renders
+   one .path row per curriculum (expandable to .track-row), and saved items
+   render as .list-row, so nothing referenced them any more. */
 
 /* ---------- list row ----------
    Saved items (bookmarks, notes) are not progress — they were reusing

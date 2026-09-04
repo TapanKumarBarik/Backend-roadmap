@@ -1,9 +1,10 @@
-import { Fragment, useEffect, useRef } from 'react';
+import { Fragment, useEffect, useMemo, useRef } from 'react';
 import { useMarkdownDoc } from '../../hooks/useMarkdownDoc.js';
 import { enhanceContent } from '../../lib/enhanceContent.js';
 import { rewriteLinks } from '../../lib/rewriteLinks.js';
 import { readTimeStats, slugify } from '../../lib/markdown.js';
-import { ClockIcon, StarIcon } from '../icons.jsx';
+import { buildPositions, siblingStats } from '../../lib/curriculumPosition.js';
+import { ClockIcon, StarIcon, ArrowRightIcon } from '../icons.jsx';
 import CommentsSection from './CommentsSection.jsx';
 import NotesPanel from './NotesPanel.jsx';
 import ReactionsBar from './ReactionsBar.jsx';
@@ -30,7 +31,7 @@ function applyTabPreference(root) {
 }
 
 export default function ArticleView({
-  path, node, statusMap, flatFiles, nodeByFile, dirIndex, fileSet, allTags,
+  path, node, statusMap, flatFiles, nodeByFile, dirIndex, fileSet, allTags, treeData,
   onOpenFile, onSetStatus, onOpenPalette, headingTarget, onToast,
   onTocChange, onActiveHeadingChange, mainRef, user, onLogin,
   isBookmarked, onToggleBookmark
@@ -126,6 +127,12 @@ export default function ArticleView({
   const nodeTags = (node && node.tags) || [];
   const readTime = rawText ? readTimeStats(rawText) : null;
 
+  // Walks the whole tree, so keep it off the per-render path — it only
+  // changes when docs-index.json does.
+  const positions = useMemo(() => buildPositions(treeData || []), [treeData]);
+  const position = positions[path];
+  const trackStats = siblingStats(position?.parentNode, statusMap);
+
   return (
     <article id="article">
       <div id="docHead">
@@ -148,15 +155,32 @@ export default function ArticleView({
             );
           })}
         </div>
-        <div id="metaRow">
-          <div className="seg" id="statusBtns">
-            {['todo', 'wip', 'done'].map((s) => (
-              <button key={s} className={status === s ? 'on' : ''} data-s={s}
-                onClick={() => onSetStatus(path, status === s ? 'todo' : s)}>
-                {s === 'todo' ? 'Not started' : s === 'wip' ? 'In progress' : 'Done'}
-              </button>
-            ))}
+        {/* Where this module sits in its track. The status control used to
+            live here, at the top — but you decide you're finished at the
+            bottom, so it moved to the end of the article. */}
+        {position && (
+          <div id="posRow">
+            <span className="pos-label">
+              {position.curriculumTitle && <strong>{position.curriculumTitle}</strong>}
+              {position.total > 1 && ` · ${position.unit} ${position.index} of ${position.total}`}
+            </span>
+            {trackStats && trackStats.total > 1 && (
+              <span className="pos-prog" title={`${trackStats.done} of ${trackStats.total} done in ${position.parentTitle}`}>
+                <span className="bar">
+                  <i className="d" style={{ width: (trackStats.done / trackStats.total) * 100 + '%' }} />
+                  <i className="w" style={{ width: (trackStats.wip / trackStats.total) * 100 + '%' }} />
+                </span>
+                <span className="pos-prog-n">{trackStats.done}/{trackStats.total}</span>
+              </span>
+            )}
           </div>
+        )}
+        <div id="metaRow">
+          {status !== 'todo' && (
+            <span className={'status-pill ' + status}>
+              {status === 'done' ? 'Completed' : 'In progress'}
+            </span>
+          )}
           {readTime && (
             <span className="meta-pill" id="readTime">
               <ClockIcon /><span>{readTime.minutes} min read · {readTime.words.toLocaleString()} words</span>
@@ -172,14 +196,27 @@ export default function ArticleView({
             <StarIcon />
           </button>
         </div>
+        {/* Some modules carry a dozen tags, which made the header shout
+            louder than the title underneath it. Show a handful; the rest
+            are one click away in search, which is where tag browsing
+            belongs anyway. */}
         {nodeTags.length > 0 && (
           <div id="tagRow">
-            {nodeTags.map((t) => (
+            {nodeTags.slice(0, 6).map((t) => (
               <button key={t} className="tag" title={`${allTags[t] || 0} modules tagged ${t}`}
                 onClick={() => onOpenPalette('#' + t)}>
                 <span className="hash">#</span>{t}
               </button>
             ))}
+            {nodeTags.length > 6 && (
+              <button
+                className="tag tag-more"
+                title={`All tags: ${nodeTags.join(', ')}`}
+                onClick={() => onOpenPalette('#')}
+              >
+                +{nodeTags.length - 6}
+              </button>
+            )}
           </div>
         )}
       </div>
@@ -195,6 +232,47 @@ export default function ArticleView({
       {!loading && !error && html != null && (
         <div id="content" ref={contentRef} onClick={handleContentClick} dangerouslySetInnerHTML={{ __html: html }} />
       )}
+
+      {/* The end of the module is where you decide you're done with it, so
+          that's where recording it belongs — one action that marks this
+          complete and moves you on, instead of scrolling back to the top
+          for a segmented control and then back down for the pager. */}
+      <div className={'finish' + (status === 'done' ? ' is-done' : '')}>
+        <div className="finish-main">
+          <div className="finish-h">
+            {status === 'done' ? 'You’ve completed this module' : 'Reached the end?'}
+          </div>
+          {nextFile && (
+            <div className="finish-sub">
+              Next: {nodeByFile[nextFile]?.title || nodeByFile[nextFile]?.name}
+            </div>
+          )}
+        </div>
+        <div className="finish-acts">
+          {status !== 'done' && (
+            <button
+              className="btn-ghost"
+              onClick={() => onSetStatus(path, status === 'wip' ? 'todo' : 'wip')}
+              aria-pressed={status === 'wip'}
+            >
+              {status === 'wip' ? 'In progress' : 'Still working'}
+            </button>
+          )}
+          <button
+            className={'btn-primary' + (status === 'done' ? ' undo' : '')}
+            onClick={() => {
+              if (status === 'done') { onSetStatus(path, 'todo'); return; }
+              onSetStatus(path, 'done');
+              onToast(nextFile ? 'Marked complete — on to the next' : 'Marked complete');
+              if (nextFile) onOpenFile(nextFile);
+            }}
+          >
+            {status === 'done'
+              ? 'Mark not complete'
+              : <>Mark complete{nextFile && <> &amp; continue</>} <ArrowRightIcon /></>}
+          </button>
+        </div>
+      </div>
 
       {/* Only the very first and very last module of the curriculum have a
           single neighbour — those used to reserve a hidden half-width cell,

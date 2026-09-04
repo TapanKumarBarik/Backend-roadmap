@@ -6,7 +6,7 @@ export default function MainColumn({
   currentFile, node, statusMap, flatFiles, nodeByFile, dirIndex, fileSet, allTags,
   onOpenFile, onSetStatus, onOpenPalette, headingTarget, onToast,
   onTocChange, onActiveHeadingChange,
-  counts, treeCount, treeData, user, onLogin, isBookmarked, onToggleBookmark
+  counts, treeCount, treeData, user, onLogin, isBookmarked, onToggleBookmark, bookmarks
 }) {
   const mainRef = useRef(null);
   const [readProgress, setReadProgress] = useState(0);
@@ -32,6 +32,7 @@ export default function MainColumn({
               dirIndex={dirIndex}
               fileSet={fileSet}
               allTags={allTags}
+              treeData={treeData}
               onOpenFile={onOpenFile}
               onSetStatus={onSetStatus}
               onOpenPalette={onOpenPalette}
@@ -55,6 +56,8 @@ export default function MainColumn({
               nodeByFile={nodeByFile}
               dirIndex={dirIndex}
               allTags={allTags}
+              flatFiles={flatFiles}
+              bookmarks={bookmarks}
               onOpenFile={onOpenFile}
               onOpenPalette={onOpenPalette}
             />
