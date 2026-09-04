@@ -594,11 +594,23 @@ body.sidebar-collapsed #resizer { display: none; }
 .comment-reply-btn:hover { color: var(--fg); text-decoration: underline; }
 .comment-form { margin-top: 16px; }
 .comment-form.reply { margin-top: 10px; margin-left: 28px; }
-.comment-form textarea, .comment > textarea {
+.comment-form textarea, .comment textarea {
   width: 100%; min-height: 76px; font: inherit; font-size: 14px; padding: 10px 12px;
   border: 1px solid var(--border); border-radius: var(--r-md); background: var(--bg);
   color: var(--fg); resize: vertical;
 }
+.mention-wrap { position: relative; }
+.mention-wrap textarea { width: 100%; }
+.mention-suggest {
+  position: absolute; left: 0; right: 0; top: 100%; margin-top: 2px; z-index: 15;
+  background: var(--bg-raised); border: 1px solid var(--border); border-radius: var(--r-md);
+  box-shadow: var(--shadow-sm); overflow: hidden;
+}
+.mention-suggest button {
+  display: block; width: 100%; text-align: left; padding: 7px 12px; border: 0; background: none;
+  color: var(--fg); font-size: 13.5px;
+}
+.mention-suggest button:hover { background: var(--hover); }
 .comment-form-actions { display: flex; gap: 8px; margin-top: 8px; }
 .comment-form-actions button {
   font-size: 13px; padding: 6px 14px; border: 1px solid var(--border); border-radius: var(--r-md);
@@ -649,6 +661,28 @@ body.sidebar-collapsed #resizer { display: none; }
   padding: 14px 16px; border: 1px solid var(--border); border-radius: var(--r-md);
   background: var(--bg-sunken); color: var(--fg); resize: vertical;
 }
+/* .admin-editor-toolbar button below is a broad descendant selector that
+   would otherwise also reshape the segmented Edit/Preview/Diff toggle's
+   buttons (border, radius, padding) — this restores .seg's own look with
+   higher selector specificity so source order doesn't decide the winner. */
+.admin-editor-toolbar .seg { margin: 0; }
+.admin-editor-toolbar .seg button {
+  border: 0; border-right: 1px solid var(--border); border-radius: 0; padding: 5px 13px;
+}
+.admin-editor-toolbar .seg button:last-child { border-right: 0; }
+
+.diff-view {
+  min-height: 460px; padding: 14px 16px; border: 1px solid var(--border); border-radius: var(--r-md);
+  background: var(--bg-sunken); font-family: var(--mono); font-size: 13px; line-height: 1.6;
+  overflow-x: auto; white-space: pre;
+}
+.diff-line { display: flex; gap: 8px; }
+.diff-marker { flex-shrink: 0; width: 14px; text-align: center; color: var(--fg-subtle); -webkit-user-select: none; user-select: none; }
+.diff-added { background: var(--accent-subtle); }
+.diff-added .diff-marker { color: var(--accent); font-weight: 700; }
+.diff-removed { background: var(--hover); text-decoration: line-through; color: var(--fg-subtle); }
+.diff-removed .diff-marker { color: var(--fg-subtle); font-weight: 700; }
+
 .admin-preview {
   min-height: 460px; padding: 14px 16px; border: 1px solid var(--border); border-radius: var(--r-md);
   background: var(--bg);

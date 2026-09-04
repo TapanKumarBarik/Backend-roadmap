@@ -35,6 +35,19 @@ async function checkRateLimit(userId) {
   return true;
 }
 
+// Matches "@DisplayName" (case-insensitive, exact) against everyone else
+// who's already commented on this page — no global user directory to
+// search against, and thread participants is exactly who a mention makes
+// sense against anyway.
+function parseMentions(text, participants) {
+  const lower = text.toLowerCase();
+  const mentioned = new Set();
+  for (const [userId, displayName] of participants) {
+    if (displayName && lower.includes('@' + displayName.toLowerCase())) mentioned.add(userId);
+  }
+  return [...mentioned];
+}
+
 // Rendered as plain text on the client, never markdown/HTML — sanitizing
 // arbitrary HTML for XSS is a real footgun for a two-person side project;
 // plain text (with auto-linked URLs client-side) covers the real use case
@@ -155,15 +168,27 @@ app.http('postComment', {
     }
 
     const table = getTable(TABLE_NAME);
+    const partitionKey = encodeURIComponent(path);
+
+    // Same partition scan getComments already does, just to collect
+    // {userId, displayName} pairs for @mention matching rather than to
+    // return the comments themselves.
+    const participants = [];
+    for await (const e of table.listEntities({ queryOptions: { filter: `PartitionKey eq '${partitionKey}'` } })) {
+      if (e.userId !== session.sub) participants.push([e.userId, e.displayName]);
+    }
+    const mentions = parseMentions(text, participants);
+
     const entity = {
-      partitionKey: encodeURIComponent(path),
+      partitionKey,
       rowKey: makeRowKey(),
       userId: session.sub,
       displayName: session.name,
       text,
       parentId,
       createdAt: new Date().toISOString(),
-      hidden: false
+      hidden: false,
+      mentions: JSON.stringify(mentions)
     };
     await table.createEntity(entity);
     return { status: 201, jsonBody: toClientShape(entity) };
@@ -280,12 +305,12 @@ app.http('setAnswer', {
   }
 });
 
-// "Pages you've touched" = any page where you have at least one comment
-// (root or reply) — new comments from *other* people on those same pages,
-// after a client-supplied watermark, count as unread activity. One full
-// table scan (bounded, same reasoning as listAllComments below) rather than
-// a query per page: personal-site scale makes this the simpler option, and
-// there's no per-user partition on Comments to query more narrowly anyway.
+// Sharper than "anyone replied on a page you've touched": only counts as
+// activity when someone's comment explicitly @mentions you (see
+// parseMentions above, computed once at post time and stored on the
+// entity — re-deriving it here on every check would mean re-scanning each
+// page's participants per comment). One bounded full-table scan, same
+// reasoning as listAllComments below.
 app.http('commentActivity', {
   methods: ['GET'],
   authLevel: 'anonymous',
@@ -298,23 +323,18 @@ app.http('commentActivity', {
     const since = sinceParam ? new Date(sinceParam).getTime() : 0;
 
     const table = getTable(TABLE_NAME);
-    const myPaths = new Set();
-    const all = [];
-    let scanned = 0;
-    for await (const entity of table.listEntities()) {
-      all.push(entity);
-      if (entity.userId === session.sub) myPaths.add(entity.partitionKey);
-      if (++scanned >= ACTIVITY_MAX_SCAN) break;
-    }
-
     let count = 0;
     const paths = new Set();
-    for (const c of all) {
-      if (!myPaths.has(c.partitionKey)) continue;
-      if (c.userId === session.sub) continue;
-      if (new Date(c.createdAt).getTime() <= since) continue;
+    let scanned = 0;
+    for await (const entity of table.listEntities()) {
+      if (++scanned > ACTIVITY_MAX_SCAN) break;
+      if (entity.userId === session.sub) continue;
+      if (new Date(entity.createdAt).getTime() <= since) continue;
+      let mentions = [];
+      try { mentions = JSON.parse(entity.mentions || '[]'); } catch { /* older rows predate this field */ }
+      if (!mentions.includes(session.sub)) continue;
       count++;
-      paths.add(decodeURIComponent(c.partitionKey));
+      paths.add(decodeURIComponent(entity.partitionKey));
     }
 
     return { jsonBody: { count, paths: [...paths].slice(0, 10) } };

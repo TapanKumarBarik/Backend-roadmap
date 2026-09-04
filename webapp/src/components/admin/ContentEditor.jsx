@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react';
 import { fetchAdminContent, saveAdminContent, uploadAdminImage } from '../../lib/api.js';
 import { renderMarkdownDoc } from '../../lib/markdown.js';
+import { lineDiff } from '../../lib/lineDiff.js';
 
 function fileToBase64(file) {
   return new Promise((resolve, reject) => {
@@ -14,13 +15,16 @@ function fileToBase64(file) {
 export default function ContentEditor({ initialPath }) {
   const [path, setPath] = useState(initialPath || '');
   const [content, setContent] = useState('');
+  const [originalContent, setOriginalContent] = useState('');
   const [sha, setSha] = useState(null);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
-  const [preview, setPreview] = useState(false);
+  const [mode, setMode] = useState('edit'); // 'edit' | 'preview' | 'diff'
   const [status, setStatus] = useState(null);
   const fileInputRef = useRef(null);
+
+  const dirty = content !== originalContent;
 
   async function handleLoad() {
     if (!path.trim()) return;
@@ -29,7 +33,9 @@ export default function ContentEditor({ initialPath }) {
     try {
       const data = await fetchAdminContent(path.trim());
       setContent(data.content);
+      setOriginalContent(data.content);
       setSha(data.sha);
+      setMode('edit');
       setStatus({ type: 'ok', text: 'Loaded.' });
     } catch (e) {
       setStatus({ type: 'error', text: e.message });
@@ -46,6 +52,7 @@ export default function ContentEditor({ initialPath }) {
     try {
       const result = await saveAdminContent(path.trim(), content, sha, `Edit ${path} via admin editor`);
       setSha(result.sha);
+      setOriginalContent(content);
       setStatus({ type: 'ok', text: 'Saved — committed to main.' });
     } catch (e) {
       setStatus({ type: 'error', text: e.message });
@@ -82,27 +89,46 @@ export default function ContentEditor({ initialPath }) {
           placeholder="learn/01-linux/README.md"
         />
         <button onClick={handleLoad} disabled={loading}>Load</button>
-        <button onClick={handleSave} disabled={!sha || saving}>Save</button>
+        <button onClick={handleSave} disabled={!sha || saving || !dirty}>
+          {saving ? 'Saving…' : dirty ? 'Save' : 'Saved'}
+        </button>
         <button onClick={() => fileInputRef.current?.click()} disabled={uploading}>
           {uploading ? 'Uploading…' : 'Insert image'}
         </button>
-        <button onClick={() => setPreview((v) => !v)}>{preview ? 'Edit' : 'Preview'}</button>
+        <div className="seg">
+          <button className={mode === 'edit' ? 'on' : ''} onClick={() => setMode('edit')}>Edit</button>
+          <button className={mode === 'preview' ? 'on' : ''} onClick={() => setMode('preview')}>Preview</button>
+          <button className={mode === 'diff' ? 'on' : ''} onClick={() => setMode('diff')} disabled={!dirty}>
+            Diff{dirty ? '' : ' (no changes)'}
+          </button>
+        </div>
         <input type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml" ref={fileInputRef} style={{ display: 'none' }} onChange={handleImagePick} />
       </div>
 
       {status && <p style={{ color: status.type === 'error' ? 'var(--danger)' : 'var(--fg-muted)' }}>{status.text}</p>}
 
-      {preview
-        ? <div className="admin-preview" dangerouslySetInnerHTML={{ __html: renderMarkdownDoc(content) }} />
-        : (
-          <textarea
-            className="admin-textarea"
-            value={content}
-            onChange={(e) => setContent(e.target.value)}
-            placeholder="Load a file to start editing…"
-            spellCheck="false"
-          />
-        )}
+      {mode === 'preview' && (
+        <div className="admin-preview" dangerouslySetInnerHTML={{ __html: renderMarkdownDoc(content) }} />
+      )}
+      {mode === 'diff' && (
+        <div className="diff-view">
+          {lineDiff(originalContent, content).map((line, i) => (
+            <div key={i} className={'diff-line diff-' + line.type}>
+              <span className="diff-marker">{line.type === 'added' ? '+' : line.type === 'removed' ? '−' : ' '}</span>
+              <span className="diff-text">{line.text || ' '}</span>
+            </div>
+          ))}
+        </div>
+      )}
+      {mode === 'edit' && (
+        <textarea
+          className="admin-textarea"
+          value={content}
+          onChange={(e) => setContent(e.target.value)}
+          placeholder="Load a file to start editing…"
+          spellCheck="false"
+        />
+      )}
     </div>
   );
 }

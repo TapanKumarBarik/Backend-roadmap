@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { fetchComments, postComment, editOwnComment, deleteOwnComment, setCommentAnswer, voteComment } from '../../lib/api.js';
+import MentionTextarea from './MentionTextarea.jsx';
 
-function CommentRow({ comment, isReply, user, onLogin, onReply, onEdit, onDelete, onToggleAnswer, onVote }) {
+function CommentRow({ comment, isReply, user, onLogin, onReply, onEdit, onDelete, onToggleAnswer, onVote, participants }) {
   const [editing, setEditing] = useState(false);
   const [editText, setEditText] = useState(comment.text);
   const isMine = user && user.userId === comment.userId;
@@ -10,7 +11,7 @@ function CommentRow({ comment, isReply, user, onLogin, onReply, onEdit, onDelete
   if (editing) {
     return (
       <div className={'comment' + (isReply ? ' reply' : '')}>
-        <textarea value={editText} onChange={(e) => setEditText(e.target.value)} />
+        <MentionTextarea value={editText} onChange={setEditText} participants={participants} autoFocus />
         <div className="comment-form-actions">
           <button onClick={() => { onEdit(comment.id, editText); setEditing(false); }}>Save</button>
           <button onClick={() => { setEditText(comment.text); setEditing(false); }}>Cancel</button>
@@ -142,6 +143,15 @@ export default function CommentsSection({ path, user, onLogin }) {
   const topLevel = comments.filter((c) => !c.parentId).sort(sorter);
   const repliesOf = (id) => comments.filter((c) => c.parentId === id).sort(sorter);
 
+  // Autocomplete/mention-matching only ever offers people who've already
+  // commented on this page — matches parseMentions' server-side logic,
+  // there's no global user directory to search against either.
+  const participants = useMemo(() => {
+    const map = new Map();
+    comments.forEach((c) => { if (c.userId !== user?.userId) map.set(c.userId, c.displayName); });
+    return [...map].map(([userId, displayName]) => ({ userId, displayName }));
+  }, [comments, user]);
+
   return (
     <section className="comments">
       <div className="comments-head">
@@ -160,19 +170,19 @@ export default function CommentsSection({ path, user, onLogin }) {
       {topLevel.map((c) => (
         <div key={c.id}>
           <CommentRow
-            comment={c} user={user} onLogin={onLogin}
+            comment={c} user={user} onLogin={onLogin} participants={participants}
             onReply={() => { setReplyTo(c.id); setReplyText(''); }}
             onEdit={handleEdit} onDelete={handleDelete} onToggleAnswer={handleToggleAnswer} onVote={handleVote}
           />
           {repliesOf(c.id).map((r) => (
             <CommentRow
-              key={r.id} comment={r} isReply user={user} onLogin={onLogin}
+              key={r.id} comment={r} isReply user={user} onLogin={onLogin} participants={participants}
               onEdit={handleEdit} onDelete={handleDelete} onToggleAnswer={handleToggleAnswer} onVote={handleVote}
             />
           ))}
           {replyTo === c.id && (
             <div className="comment-form reply">
-              <textarea value={replyText} onChange={(e) => setReplyText(e.target.value)} placeholder="Write a reply…" />
+              <MentionTextarea value={replyText} onChange={setReplyText} participants={participants} placeholder="Write a reply…" autoFocus />
               <div className="comment-form-actions">
                 <button onClick={() => submit(c.id, replyText, setReplyText)} disabled={posting}>Post reply</button>
                 <button onClick={() => setReplyTo(null)}>Cancel</button>
@@ -185,7 +195,7 @@ export default function CommentsSection({ path, user, onLogin }) {
       {user
         ? (
           <div className="comment-form">
-            <textarea value={text} onChange={(e) => setText(e.target.value)} placeholder="Add a comment…" />
+            <MentionTextarea value={text} onChange={setText} participants={participants} placeholder="Add a comment…" />
             <div className="comment-form-actions">
               <button onClick={() => submit('', text, setText)} disabled={posting}>Post comment</button>
             </div>

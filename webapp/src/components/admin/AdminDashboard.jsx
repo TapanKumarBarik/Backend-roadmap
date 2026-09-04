@@ -3,11 +3,13 @@ import CommentsModeration from './CommentsModeration.jsx';
 import VisitorStats from './VisitorStats.jsx';
 import ContentEditor from './ContentEditor.jsx';
 import MessagesInbox from './MessagesInbox.jsx';
+import UsageStats from './UsageStats.jsx';
 
 const TABS = [
   { key: 'comments', label: 'Comments' },
   { key: 'visitors', label: 'Visitors' },
   { key: 'messages', label: 'Messages' },
+  { key: 'usage', label: 'Usage' },
   { key: 'editor', label: 'Editor' }
 ];
 
@@ -36,6 +38,7 @@ export default function AdminDashboard({ isAdmin, lastViewedFile, onOpenFile }) 
       {tab === 'comments' && <CommentsModeration onOpenFile={onOpenFile} />}
       {tab === 'visitors' && <VisitorStats onOpenFile={onOpenFile} />}
       {tab === 'messages' && <MessagesInbox />}
+      {tab === 'usage' && <UsageStats />}
       {tab === 'editor' && <ContentEditor initialPath={lastViewedFile} />}
     </div>
   );

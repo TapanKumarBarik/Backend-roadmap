@@ -4,9 +4,9 @@ import { fetchCommentActivity } from '../lib/api.js';
 const LS_KEY = 'docs.activityLastSeen';
 
 // First-ever use on a given browser starts "caught up" (baseline = now)
-// rather than surfacing a possibly-huge backlog of every comment ever made
-// on every page this user has touched — same reasoning most read/unread
-// features use (nothing looks more broken than "247 unread" on first load).
+// rather than surfacing every @mention of this user that ever happened —
+// same reasoning most read/unread features use (nothing looks more broken
+// than "247 unread" on first load).
 function getOrInitBaseline() {
   try {
     const existing = localStorage.getItem(LS_KEY);

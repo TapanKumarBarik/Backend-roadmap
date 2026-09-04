@@ -70,6 +70,12 @@ export async function deleteComment(path, id) {
   if (!res.ok) throw new Error('failed to delete comment');
 }
 
+export async function fetchUsageStats() {
+  const res = await fetch('/api/manage/usage');
+  if (!res.ok) throw new Error('failed to load usage stats');
+  return res.json();
+}
+
 export async function fetchPageViews() {
   const res = await fetch('/api/manage/pageviews');
   if (!res.ok) throw new Error('failed to load visitor stats');
