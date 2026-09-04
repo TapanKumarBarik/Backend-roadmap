@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Deliberately just the one URL: this is a client-rendered single-page app
+  where every module lives behind a hash route (#path@heading), not a real
+  server path. Search engines don't treat hash fragments as distinct pages to
+  crawl/index, so listing all ~480 modules here would be a lie the app can't
+  back up — it would need server-rendered per-module routes to make that
+  honest. Revisit if that ever changes.
+-->
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url>
+    <loc>https://calm-ocean-0635a4a0f.3.azurestaticapps.net/</loc>
+    <changefreq>weekly</changefreq>
+    <priority>1.0</priority>
+  </url>
+</urlset>

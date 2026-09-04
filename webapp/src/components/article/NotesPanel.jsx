@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { fetchNote, saveNote } from '../../lib/api.js';
 
-export default function NotesPanel({ path, user }) {
+export default function NotesPanel({ path, user, onLogin }) {
   const [text, setText] = useState('');
   const [loaded, setLoaded] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -27,7 +27,14 @@ export default function NotesPanel({ path, user }) {
     }, 600);
   }
 
-  if (!user) return null;
+  if (!user) {
+    return (
+      <section className="notes-panel locked">
+        <div className="home-h">My notes <span className="notes-hint">· private, only visible to you</span></div>
+        <button className="signin-link" onClick={onLogin}>Sign in to keep private notes on this module</button>
+      </section>
+    );
+  }
 
   return (
     <section className="notes-panel">

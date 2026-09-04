@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
 import { fetchComments, postComment, editOwnComment, deleteOwnComment, setCommentAnswer } from '../../lib/api.js';
-import SignInButton from '../account/SignInButton.jsx';
 
 function CommentRow({ comment, isReply, user, onReply, onEdit, onDelete, onToggleAnswer }) {
   const [editing, setEditing] = useState(false);
@@ -150,7 +149,7 @@ export default function CommentsSection({ path, user, onLogin }) {
             </div>
           </div>
         )
-        : <SignInButton onClick={onLogin} title="Sign in with Google to comment" />}
+        : <button className="signin-link" onClick={onLogin}>Sign in with Google to comment</button>}
 
       {error && <p style={{ color: 'var(--danger)' }}>{error}</p>}
     </section>

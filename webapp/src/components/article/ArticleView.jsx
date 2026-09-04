@@ -153,15 +153,13 @@ export default function ArticleView({
               <ClockIcon /><span>{readTime.minutes} min read · {readTime.words.toLocaleString()} words</span>
             </span>
           )}
-          {user && (
-            <button
-              className={'icon-btn bookmark-btn' + (isBookmarked ? ' on' : '')}
-              title={isBookmarked ? 'Remove bookmark' : 'Bookmark this module'}
-              onClick={() => onToggleBookmark(path)}
-            >
-              <StarIcon />
-            </button>
-          )}
+          <button
+            className={'icon-btn bookmark-btn' + (isBookmarked ? ' on' : '')}
+            title={user ? (isBookmarked ? 'Remove bookmark' : 'Bookmark this module') : 'Sign in to bookmark this module'}
+            onClick={() => (user ? onToggleBookmark(path) : onLogin())}
+          >
+            <StarIcon />
+          </button>
         </div>
         {nodeTags.length > 0 && (
           <div id="tagRow">
@@ -209,7 +207,7 @@ export default function ArticleView({
       </nav>
 
       <ReactionsBar path={path} user={user} onLogin={onLogin} />
-      <NotesPanel path={path} user={user} />
+      <NotesPanel path={path} user={user} onLogin={onLogin} />
       <CommentsSection path={path} user={user} onLogin={onLogin} />
     </article>
   );

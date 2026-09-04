@@ -63,9 +63,16 @@ export default function TopBar({
       </div>
       {user
         ? (
-          <button className="icon-btn" id="authBtn" onClick={(e) => { e.stopPropagation(); onToggleMenu(); }} title={`Signed in as ${user.email}`}>
-            <UserAvatar user={user} />
-          </button>
+          <>
+            {streak && streak.currentStreak > 1 && (
+              <span className="streak-chip" title={`${streak.currentStreak}-day streak · longest ${streak.longestStreak}`}>
+                🔥 {streak.currentStreak}
+              </span>
+            )}
+            <button className="icon-btn" id="authBtn" onClick={(e) => { e.stopPropagation(); onToggleMenu(); }} title={`Signed in as ${user.email}`}>
+              <UserAvatar user={user} />
+            </button>
+          </>
         )
         : <SignInButton onClick={onLogin} />}
       <button className="icon-btn" id="themeBtn" title={`Theme: ${theme} (press T)`} onClick={onCycleTheme}>

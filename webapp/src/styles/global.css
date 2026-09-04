@@ -631,8 +631,19 @@ html[data-theme="dark"] .pal-item.cur, html[data-theme="auto"] .pal-item.cur { b
   color: var(--fg); resize: vertical;
 }
 
+/* a lighter-weight "sign in to unlock this" prompt — used inline within a
+   feature's own section (notes, comments) so it never competes visually
+   with the single branded Google button in the top bar */
+.signin-link {
+  color: var(--accent); background: none; border: none; padding: 0; font: inherit;
+  font-size: 13.5px; text-decoration: underline; text-underline-offset: 2px; cursor: pointer;
+}
+.signin-link:hover { opacity: .8; }
+
 /* ---------- reactions ---------- */
-.reactions-bar { display: flex; gap: 8px; margin-top: 40px; }
+.reactions-section { margin-top: 40px; }
+.reactions-section .home-h { margin: 0 0 11px; }
+.reactions-bar { display: flex; gap: 8px; }
 .reaction-btn {
   display: flex; align-items: center; gap: 6px; padding: 6px 12px; border: 1px solid var(--border);
   border-radius: 99px; background: var(--bg); font-size: 14px;
@@ -640,3 +651,9 @@ html[data-theme="dark"] .pal-item.cur, html[data-theme="auto"] .pal-item.cur { b
 .reaction-btn:hover { background: var(--hover); }
 .reaction-btn.on { background: var(--accent-subtle); border-color: var(--accent); }
 .reaction-count { font-size: 12px; color: var(--fg-muted); font-variant-numeric: tabular-nums; }
+
+/* ---------- streak chip (top bar, glanceable — not buried in the menu) ---------- */
+.streak-chip {
+  display: flex; align-items: center; font-size: 12.5px; font-weight: 600; color: var(--fg-muted);
+  padding: 0 2px;
+}

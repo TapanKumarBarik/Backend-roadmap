@@ -28,13 +28,17 @@ export default function ReactionsBar({ path, user, onLogin }) {
   }
 
   return (
-    <div className="reactions-bar">
-      {EMOJI.map((e) => (
-        <button key={e} className={'reaction-btn' + (mine.includes(e) ? ' on' : '')} onClick={() => handleClick(e)}>
-          <span>{e}</span>
-          {counts[e] ? <span className="reaction-count">{counts[e]}</span> : null}
-        </button>
-      ))}
-    </div>
+    <section className="reactions-section">
+      <div className="home-h">React to this page</div>
+      <div className="reactions-bar">
+        {EMOJI.map((e) => (
+          <button key={e} className={'reaction-btn' + (mine.includes(e) ? ' on' : '')}
+            title={user ? undefined : 'Sign in to react'} onClick={() => handleClick(e)}>
+            <span>{e}</span>
+            {counts[e] ? <span className="reaction-count">{counts[e]}</span> : null}
+          </button>
+        ))}
+      </div>
+    </section>
   );
 }
