@@ -1,14 +1,18 @@
 import { marked } from 'marked';
 import { renderTabs } from './tabs.js';
 import { renderBlocks } from './contentBlocks.js';
+import { createStash, restore } from './htmlStash.js';
 
-// Blocks first, then tabs, then the document. renderBlocks has to see raw
-// markdown (it reads "> [!key]" line prefixes), and running it before
-// renderTabs means a block inside a tab pane is already HTML by the time
-// the pane is parsed — which marked passes straight through, same as it
-// does for the tab markup itself.
+// Blocks first, then tabs, then the document. Both generators produce HTML
+// before marked sees the page, and both put that HTML into a shared stash
+// in place of a one-line placeholder — marked ends an HTML block at the
+// first blank line, so anything multi-line spliced inline gets torn apart
+// and its remainder re-parsed as markdown. The stash is restored after the
+// document is parsed. See htmlStash.js.
 export function renderMarkdownDoc(rawText) {
-  return marked.parse(renderTabs(renderBlocks(rawText)));
+  const store = createStash();
+  const prepared = renderTabs(renderBlocks(rawText, store), store);
+  return restore(marked.parse(prepared), store);
 }
 
 export function stripFencedCode(md) {

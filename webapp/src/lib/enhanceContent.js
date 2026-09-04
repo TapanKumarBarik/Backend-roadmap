@@ -70,6 +70,13 @@ export function enhanceContent(root) {
 
   root.querySelectorAll('pre > code').forEach((code) => {
     const pre = code.parentElement;
+    // querySelectorAll returns a static list, so a node captured here can
+    // already be detached by the time we reach it — the browser's fixup of
+    // malformed markup can nest one <pre> inside another, and wrapping the
+    // outer one takes the inner with it. Reading .parentElement.classList
+    // on a detached node threw, and the error boundary turned one bad code
+    // block into a blank page for the whole module.
+    if (!pre || !pre.parentElement) return;
     if (pre.parentElement.classList.contains('codeblock')) return;
     const wrap = document.createElement('div');
     wrap.className = 'codeblock';

@@ -1,4 +1,5 @@
 import { marked } from 'marked';
+import { stash } from './htmlStash.js';
 
 // Structured content blocks.
 //
@@ -64,8 +65,10 @@ const FENCE = /^(`{3,}|~{3,})/;
 
 // Runs before marked sees the document (same stage as renderTabs) so it
 // reads clean markdown rather than trying to unpick marked's blockquote
-// output. Emits one line of block-level HTML, which marked passes through.
-export function renderBlocks(md) {
+// output. The rendered block is stashed rather than spliced in — a block
+// containing a code sample with a blank line would otherwise be cut in
+// half by marked, exactly as tab panes were. See htmlStash.js.
+export function renderBlocks(md, store) {
   const lines = md.split('\n');
   const out = [];
   let fenceChar = null;
@@ -97,12 +100,13 @@ export function renderBlocks(md) {
     i = j - 1;
 
     const inner = marked.parse(body.join('\n').trim());
-    out.push(
+    out.push(stash(
+      store,
       `<div class="cblock cblock-${spec.cls}">`
       + `<div class="cblock-h">${spec.label}</div>`
       + `<div class="cblock-b">${inner}</div>`
       + '</div>'
-    );
+    ));
   }
 
   return out.join('\n');
