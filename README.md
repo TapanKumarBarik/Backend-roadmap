@@ -49,9 +49,16 @@ retrofitting is optional and incremental. The admin editor has an insert button 
 ## Running it locally
 
 ```bash
-cd webapp && npm install && npm run dev      # frontend, http://localhost:5173
-cd api && npm install && func start          # backend, needs local.settings.json (not committed)
+cd api    && npm install && func start --port 7071        # backend
+cd webapp && npm install && npm run dev -- --port 4173    # frontend
 ```
+
+Then <http://localhost:4173>. Use **port 4173** — it's the one registered with
+Google as an OAuth redirect URI, and sign-in fails on any other.
+
+The backend needs `api/local.settings.json`, which is gitignored and holds real
+credentials. **[LOCAL-SETUP.md](LOCAL-SETUP.md)** covers generating it, the
+Functions Core Tools install, and what to do when sign-in or a port misbehaves.
 
 ## Deployment
 

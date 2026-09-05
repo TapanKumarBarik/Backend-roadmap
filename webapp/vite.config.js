@@ -20,7 +20,16 @@ export default defineConfig({
     emptyOutDir: false,
     assetsDir: 'assets'
   },
+  // `npm run dev` and `npm run preview` both need /api to reach the local
+  // Functions host. Only `server` was configured, so `vite preview` — which
+  // serves the real built output, and is the closer match to production —
+  // answered every /api call itself and failed.
   server: {
+    proxy: {
+      '/api': 'http://localhost:7071'
+    }
+  },
+  preview: {
     proxy: {
       '/api': 'http://localhost:7071'
     }

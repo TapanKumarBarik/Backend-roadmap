@@ -4,6 +4,11 @@ lld/STATUS.md
 
 __pycache__/
 api/node_modules/
+
+# Local Functions settings: the storage connection string, the session secret
+# and the Google OAuth client secret all live here. The README tells you to
+# create it, so it has to be ignored before anyone does.
+api/local.settings.json
 webapp/node_modules/
 
 # index.html, assets/, and the webapp/public/ passthrough files below are
