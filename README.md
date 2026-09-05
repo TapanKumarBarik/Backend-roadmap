@@ -65,6 +65,12 @@ Functions Core Tools install, and what to do when sign-in or a port misbehaves.
 Pushes to `main` trigger two CI/CD workflows: Azure Static Web Apps (the live site, with the API) and
 GitHub Pages (a static mirror with no login/API). See `.github/workflows/`.
 
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) — curriculum corrections and additions are welcome; the app in `webapp/`/`api/` is maintained more tightly since it's live for real accounts.
+
+Found a security issue? See [SECURITY.md](SECURITY.md) rather than opening a public issue.
+
 ## License
 
 MIT — see [LICENSE](LICENSE).

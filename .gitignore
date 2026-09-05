@@ -3,6 +3,11 @@ NEW-TOPICS-STATUS.md
 lld/STATUS.md
 
 __pycache__/
+
+# Claude Code's own local permission/session state -- machine-specific, not
+# project config, and it drifted in here once already (an unrelated project's
+# tool-permission allowlist, added inside an otherwise-unrelated content commit).
+.claude/
 api/node_modules/
 
 # Local Functions settings: the storage connection string, the session secret
