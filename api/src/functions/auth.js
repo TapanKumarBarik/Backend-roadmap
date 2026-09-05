@@ -2,6 +2,7 @@ const { app } = require('@azure/functions');
 const crypto = require('crypto');
 const { SESSION_COOKIE, parseCookies, sign, verify, cookieAttrs } = require('../lib/session');
 const { isAdmin } = require('../lib/adminAuth');
+const { getTable } = require('../lib/tableClient');
 
 const GOOGLE_AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth';
 const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
@@ -72,6 +73,43 @@ function siteOrigin(request) {
   return allowed.includes(candidate) ? candidate : fallback;
 }
 
+const USERS_TABLE = 'Users';
+
+// There was no user directory: progress, notes and bookmarks are keyed by
+// Google's `sub`, while page views record an email, and nothing anywhere held
+// a name or an avatar. The admin screens had no way to show who anyone is.
+//
+// Sign-in is the one moment the app holds all of it at once, so record it
+// here. Best-effort by design — a storage hiccup must never cost someone their
+// sign-in, which is why this is caught and dropped rather than awaited into
+// the response path.
+async function recordUser(claims) {
+  try {
+    const table = getTable(USERS_TABLE);
+    await table.createTable().catch(() => {});
+    const now = new Date().toISOString();
+    const row = {
+      partitionKey: 'user',
+      rowKey: claims.sub,
+      email: String(claims.email || '').toLowerCase(),
+      name: claims.name || claims.email || '',
+      picture: claims.picture || '',
+      lastSeen: now
+    };
+    // firstSeen is set only when the row is new, so it survives every
+    // subsequent sign-in rather than being reset to "now" each time.
+    try {
+      await table.getEntity('user', claims.sub);
+      await table.updateEntity(row, 'Merge');
+    } catch (err) {
+      if (err.statusCode !== 404) throw err;
+      await table.createEntity({ ...row, firstSeen: now });
+    }
+  } catch {
+    // Directory is a nicety; signing in is not.
+  }
+}
+
 app.http('authLogin', {
   methods: ['GET'],
   authLevel: 'anonymous',
@@ -139,6 +177,8 @@ app.http('authCallback', {
       return { status: 401, body: 'Token validation failed.' };
     }
 
+    await recordUser(claims);
+
     const session = sign({
       sub: claims.sub,
       email: claims.email,
@@ -166,7 +206,7 @@ app.http('authMe', {
     const cookies = parseCookies(request.headers.get('cookie'));
     const session = verify(cookies[SESSION_COOKIE]);
     if (!session) return { jsonBody: { user: null } };
-    return { jsonBody: { user: { userId: session.sub, email: session.email, name: session.name, picture: session.picture || null, isAdmin: isAdmin(session) } } };
+    return { jsonBody: { user: { userId: session.sub, email: session.email, name: session.name, picture: session.picture || null, isAdmin: await isAdmin(session) } } };
   }
 });
 

@@ -4,6 +4,7 @@ import VisitorStats from './VisitorStats.jsx';
 import ContentEditor from './ContentEditor.jsx';
 import MessagesInbox from './MessagesInbox.jsx';
 import UsageStats from './UsageStats.jsx';
+import PeoplePanel from './PeoplePanel.jsx';
 import { fetchQuestions } from '../../lib/api.js';
 
 // Five sections instead of five sibling tabs. The old row put moderation,
@@ -14,11 +15,12 @@ const SECTIONS = [
   { key: 'overview', label: 'Overview' },
   { key: 'content', label: 'Content' },
   { key: 'community', label: 'Community' },
+  { key: 'people', label: 'People' },
   { key: 'analytics', label: 'Analytics' },
   { key: 'system', label: 'System' }
 ];
 
-export default function AdminDashboard({ isAdmin, lastViewedFile, onOpenFile }) {
+export default function AdminDashboard({ isAdmin, lastViewedFile, onOpenFile, currentUserEmail }) {
   const [section, setSection] = useState('overview');
   const [questions, setQuestions] = useState(null);
 
@@ -104,6 +106,7 @@ export default function AdminDashboard({ isAdmin, lastViewedFile, onOpenFile }) 
           <MessagesInbox />
         </>
       )}
+      {section === 'people' && <PeoplePanel currentUserEmail={currentUserEmail} />}
       {section === 'analytics' && <VisitorStats onOpenFile={onOpenFile} />}
       {section === 'system' && <UsageStats />}
     </div>

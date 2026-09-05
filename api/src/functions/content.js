@@ -22,10 +22,10 @@ function githubHeaders() {
   };
 }
 
-function requireAdmin(request) {
+async function requireAdmin(request) {
   const session = getSession(request);
   if (!session) return { error: { status: 401, jsonBody: { error: 'unauthenticated' } } };
-  if (!isAdmin(session)) return { error: { status: 403, jsonBody: { error: 'forbidden' } } };
+  if (!await isAdmin(session)) return { error: { status: 403, jsonBody: { error: 'forbidden' } } };
   return { session };
 }
 
@@ -37,7 +37,7 @@ app.http('getContent', {
   authLevel: 'anonymous',
   route: 'manage/content',
   handler: async (request) => {
-    const auth = requireAdmin(request);
+    const auth = await requireAdmin(request);
     if (auth.error) return auth.error;
 
     const path = request.query.get('path');
@@ -56,7 +56,7 @@ app.http('putContent', {
   authLevel: 'anonymous',
   route: 'manage/content',
   handler: async (request) => {
-    const auth = requireAdmin(request);
+    const auth = await requireAdmin(request);
     if (auth.error) return auth.error;
 
     let body;
@@ -96,7 +96,7 @@ app.http('uploadImage', {
   authLevel: 'anonymous',
   route: 'manage/image',
   handler: async (request) => {
-    const auth = requireAdmin(request);
+    const auth = await requireAdmin(request);
     if (auth.error) return auth.error;
 
     let body;

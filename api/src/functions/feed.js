@@ -192,7 +192,7 @@ app.http('deleteFeedPost', {
   handler: async (request) => {
     const session = getSession(request);
     if (!session) return { status: 401, jsonBody: { error: 'unauthenticated' } };
-    if (!isAdmin(session)) return { status: 403, jsonBody: { error: 'forbidden' } };
+    if (!await isAdmin(session)) return { status: 403, jsonBody: { error: 'forbidden' } };
 
     const id = request.query.get('id');
     if (!id) return { status: 400, jsonBody: { error: 'id is required' } };

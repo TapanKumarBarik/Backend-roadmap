@@ -124,6 +124,35 @@ export async function deleteFeedPost(id) {
   if (!res.ok) throw new Error('failed to delete post');
 }
 
+// The user directory, joined with per-person activity counts, plus the
+// current admin list. Admin-only.
+export async function fetchPeople() {
+  const res = await fetch('/api/manage/users');
+  if (!res.ok) throw new Error('failed to load people');
+  return res.json();
+}
+
+export async function grantAdmin(email) {
+  const res = await fetch('/api/manage/admins', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email })
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || 'failed to grant admin access');
+  }
+  return res.json();
+}
+
+export async function revokeAdmin(email) {
+  const res = await fetch('/api/manage/admins?email=' + encodeURIComponent(email), { method: 'DELETE' });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || 'failed to remove admin access');
+  }
+}
+
 export async function fetchUsageStats() {
   const res = await fetch('/api/manage/usage');
   if (!res.ok) throw new Error('failed to load usage stats');

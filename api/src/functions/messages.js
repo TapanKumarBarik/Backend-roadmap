@@ -75,7 +75,7 @@ app.http('listMessages', {
   handler: async (request) => {
     const session = getSession(request);
     if (!session) return { status: 401, jsonBody: { error: 'unauthenticated' } };
-    if (!isAdmin(session)) return { status: 403, jsonBody: { error: 'forbidden' } };
+    if (!await isAdmin(session)) return { status: 403, jsonBody: { error: 'forbidden' } };
 
     const table = getTable(TABLE_NAME);
     const out = [];

@@ -33,6 +33,10 @@ jobs:
           cache-dependency-path: |
             webapp/package-lock.json
             api/package-lock.json
+      # A missing await on isAdmin() silently grants admin to everyone;
+      # see scripts/check-admin-guards.js.
+      - name: Check admin guards
+        run: node scripts/check-admin-guards.js
       - name: Regenerate docs-index.json
         run: python3 scripts/gen-docs-index.py
       - name: Regenerate search-index.json

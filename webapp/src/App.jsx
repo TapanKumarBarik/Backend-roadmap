@@ -365,7 +365,7 @@ export default function App() {
               <div id="main" className="scroll" tabIndex={-1}>
                 {isAdminRoute && (
                   <Suspense fallback={<div id="empty"><p style={{ color: 'var(--fg-subtle)' }}>Loading…</p></div>}>
-                    <AdminDashboard isAdmin={!!user?.isAdmin} lastViewedFile={lastViewedFile} onOpenFile={openFile} />
+                    <AdminDashboard isAdmin={!!user?.isAdmin} lastViewedFile={lastViewedFile} onOpenFile={openFile} currentUserEmail={user?.email} />
                   </Suspense>
                 )}
                 {isSavedRoute && (

@@ -202,7 +202,7 @@ app.http('deleteComment', {
   handler: async (request) => {
     const session = getSession(request);
     if (!session) return { status: 401, jsonBody: { error: 'unauthenticated' } };
-    if (!isAdmin(session)) return { status: 403, jsonBody: { error: 'forbidden' } };
+    if (!await isAdmin(session)) return { status: 403, jsonBody: { error: 'forbidden' } };
 
     const path = request.query.get('path');
     const rowKey = request.query.get('id');
@@ -240,7 +240,7 @@ app.http('deleteOwnComment', {
       if (err.statusCode === 404) return { status: 204 };
       throw err;
     }
-    if (entity.userId !== session.sub && !isAdmin(session)) return { status: 403, jsonBody: { error: 'forbidden' } };
+    if (entity.userId !== session.sub && !await isAdmin(session)) return { status: 403, jsonBody: { error: 'forbidden' } };
 
     await table.deleteEntity(partitionKey, rowKey);
     return { status: 204 };
@@ -273,7 +273,7 @@ app.http('editComment', {
       if (err.statusCode === 404) return { status: 404, jsonBody: { error: 'comment not found' } };
       throw err;
     }
-    if (entity.userId !== session.sub && !isAdmin(session)) return { status: 403, jsonBody: { error: 'forbidden' } };
+    if (entity.userId !== session.sub && !await isAdmin(session)) return { status: 403, jsonBody: { error: 'forbidden' } };
 
     const editedAt = new Date().toISOString();
     await table.updateEntity({ partitionKey, rowKey: id, text, editedAt }, 'Merge');
@@ -289,7 +289,7 @@ app.http('setAnswer', {
   handler: async (request) => {
     const session = getSession(request);
     if (!session) return { status: 401, jsonBody: { error: 'unauthenticated' } };
-    if (!isAdmin(session)) return { status: 403, jsonBody: { error: 'forbidden' } };
+    if (!await isAdmin(session)) return { status: 403, jsonBody: { error: 'forbidden' } };
 
     let body;
     try { body = await request.json(); } catch { return { status: 400, jsonBody: { error: 'invalid body' } }; }
@@ -442,7 +442,7 @@ app.http('listAllComments', {
   handler: async (request) => {
     const session = getSession(request);
     if (!session) return { status: 401, jsonBody: { error: 'unauthenticated' } };
-    if (!isAdmin(session)) return { status: 403, jsonBody: { error: 'forbidden' } };
+    if (!await isAdmin(session)) return { status: 403, jsonBody: { error: 'forbidden' } };
 
     const table = getTable(TABLE_NAME);
     const out = [];
