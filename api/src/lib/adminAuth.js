@@ -1,12 +1,20 @@
 const { getTable } = require('./tableClient');
 const { SESSION_COOKIE, parseCookies, verify } = require('./session');
 
-// The owner. Hardcoded server-side, never read from a header, query or any
-// other client-supplied value — that's what makes it unspoofable regardless
-// of what a caller claims about themselves. It is also deliberately NOT
-// revocable through the admin UI: the whole point of a root account is that
-// no sequence of clicks can lock you out of your own site.
-const ADMIN_EMAIL = 'tapankumarbarik7@gmail.com';
+// The owner. Read from an app setting rather than hardcoded, so changing it
+// doesn't require a code change and a deploy -- but the setting can only be
+// changed in the Azure portal (or via the CLI, by whoever already holds the
+// subscription), never from a header, query, or any other client-supplied
+// value. That's what keeps it unspoofable regardless of what a caller claims
+// about themselves. It is also deliberately NOT revocable through the admin
+// UI: the whole point of a root account is that no sequence of clicks can
+// lock you out of your own site.
+//
+// The literal fallback is this project's actual owner, kept so an
+// environment that hasn't set ADMIN_EMAIL yet (a fresh clone, an existing
+// deploy mid-migration) still has exactly the same owner it had before this
+// became configurable, rather than silently having none.
+const ADMIN_EMAIL = (process.env.ADMIN_EMAIL || 'tapankumarbarik7@gmail.com').trim().toLowerCase();
 
 const TABLE_NAME = 'Admins';
 const PARTITION = 'admin';
