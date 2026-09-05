@@ -31,6 +31,21 @@ cd webapp && npm install
 cd ../api && npm install
 ```
 
+### 2b. Content indexes
+
+`docs-index.json` and `search-index.json` are generated from the curriculum
+markdown, not committed — see the note in `.gitignore` for why. A fresh clone
+has neither, and the app has nothing to render or search without them:
+
+```bash
+python3 scripts/gen-docs-index.py
+python3 scripts/gen-search-index.py
+```
+
+Re-run these after adding or renaming a module. Both CI workflows do this
+before every deploy, so the live site is never affected — this step only
+matters for your own clone.
+
 ### 3. `api/local.settings.json`
 
 `func start` reads its configuration from this file. It is **gitignored** and
