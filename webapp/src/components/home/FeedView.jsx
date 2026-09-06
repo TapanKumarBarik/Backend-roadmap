@@ -1,6 +1,7 @@
 import { useRef, useState, useEffect } from 'react';
 import { fetchFeed, postFeedItem, uploadFeedFile, deleteFeedPost } from '../../lib/api.js';
 import { linkify } from '../../lib/linkify.jsx';
+import FeedAttachment from './FeedAttachment.jsx';
 
 const ACCEPT = [
   'image/png', 'image/jpeg', 'image/webp', 'image/gif',
@@ -14,8 +15,10 @@ const ACCEPT = [
 // One glyph per attachment kind, so a scroll through the feed reads at a
 // glance — a wall of identical "📄 filename.ext" rows was the same problem
 // the app's own docs-index solved for the module tree, just here instead.
+// Only for the composer's own pending-file preview (an icon before upload
+// finishes) — the feed list's rendering, including the full label set, now
+// lives in FeedAttachment.jsx.
 const KIND_ICON = { pdf: '📄', doc: '📝', slide: '📽️', sheet: '📊', text: '🗒️', link: '🔗' };
-const KIND_LABEL = { pdf: 'PDF', doc: 'Word doc', slide: 'Slides', sheet: 'Spreadsheet', text: 'Text file', link: 'Link' };
 
 // Mirrors feed.js's ALLOWED_TYPES kinds, just enough to pick an icon for the
 // file sitting in the composer before it's uploaded and the real server-
@@ -36,17 +39,6 @@ function fileToBase64(file) {
     reader.onerror = reject;
     reader.readAsDataURL(file);
   });
-}
-
-function filenameFromUrl(url) {
-  try {
-    const last = new URL(url).pathname.split('/').pop() || '';
-    // uploadFeedFile names blobs `${Date.now()}-${safeName}.${ext}` — strip
-    // the leading timestamp so the post shows the name someone recognizes.
-    return last.replace(/^\d+-/, '') || 'file';
-  } catch {
-    return 'file';
-  }
 }
 
 // `embedded` renders just the composer and the posts, without the page
@@ -227,38 +219,7 @@ export default function FeedView({ user, onLogin, onToast, embedded }) {
             </div>
             {p.text && <div className="comment-text">{linkify(p.text)}</div>}
 
-            {p.attachmentUrl && p.attachmentType === 'image' && (
-              <a href={p.attachmentUrl} target="_blank" rel="noopener noreferrer">
-                <img className="feed-image" src={p.attachmentUrl} alt="" />
-              </a>
-            )}
-
-            {p.attachmentUrl && p.attachmentType === 'pdf' && (
-              <a className="feed-attachment" href={p.attachmentUrl} target="_blank" rel="noopener noreferrer">
-                <span className="feed-attachment-ic">{KIND_ICON.pdf}</span>
-                <span>View PDF</span>
-              </a>
-            )}
-
-            {p.attachmentUrl && ['doc', 'slide', 'sheet', 'text'].includes(p.attachmentType) && (
-              <a className="feed-attachment" href={p.attachmentUrl} target="_blank" rel="noopener noreferrer">
-                <span className="feed-attachment-ic">{KIND_ICON[p.attachmentType]}</span>
-                <span>
-                  {KIND_LABEL[p.attachmentType]}
-                  <em>{filenameFromUrl(p.attachmentUrl)}</em>
-                </span>
-              </a>
-            )}
-
-            {p.attachmentUrl && p.attachmentType === 'link' && (
-              <a className="feed-attachment feed-link-card" href={p.attachmentUrl} target="_blank" rel="noopener noreferrer">
-                <span className="feed-attachment-ic">{KIND_ICON.link}</span>
-                <span>
-                  {p.linkTitle || 'Link'}
-                  <em>{p.attachmentUrl}</em>
-                </span>
-              </a>
-            )}
+            <FeedAttachment post={p} />
 
             {user?.isAdmin && (
               <div className="comment-actions">

@@ -1230,24 +1230,58 @@ body.sidebar-collapsed #resizer { display: none; }
 }
 .feed-link-form button:hover { background: var(--hover); color: var(--fg); }
 
-/* A downloadable/openable attachment that isn't an inline image or PDF —
-   Word/PowerPoint/Excel, markdown/text, or a link. One row, an icon, a
-   label, and (for files) the original filename in a muted second line. */
+.feed-attachment-wrap { max-width: 460px; }
+
+/* A downloadable/previewable attachment that isn't an inline image — a link
+   card (the whole row is one <a>), or a file card (a div: the row holds a
+   separate Preview toggle and Open link, so it can't itself be one <a>). One
+   icon, a label + filename column, and — for files — an actions column.
+   Both link and file cards share this frame; .feed-attachment-info and
+   .feed-attachment-acts are explicit classes rather than a `span + span`
+   positional selector, because the file card has a third span (actions)
+   that a positional rule would just as happily match. */
 .feed-attachment {
   display: flex; align-items: center; gap: 10px;
-  margin-top: 8px; padding: 9px 12px;
+  padding: 9px 12px;
   border: 1px solid var(--border-subtle); border-radius: var(--r-md);
-  background: var(--bg-raised); text-decoration: none; color: var(--fg);
-  max-width: 420px;
+  background: var(--bg-raised); color: var(--fg);
 }
+a.feed-attachment { text-decoration: none; margin-top: 8px; max-width: 420px; }
 .feed-attachment:hover { border-color: var(--border); background: var(--hover); }
 .feed-attachment-ic { font-size: 18px; flex-shrink: 0; line-height: 1; }
-.feed-attachment span + span { display: flex; flex-direction: column; min-width: 0; font-size: 13px; font-weight: 600; }
+.feed-attachment-info { display: flex; flex-direction: column; min-width: 0; font-size: 13px; font-weight: 600; }
 .feed-attachment em {
   font-style: normal; font-weight: 400; font-size: 11.5px; color: var(--fg-subtle);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
+.feed-attachment-acts { display: flex; align-items: center; gap: 12px; margin-left: auto; flex-shrink: 0; }
+.feed-attachment-acts a, .feed-preview-toggle {
+  font-size: 12.5px; font-weight: 600; color: var(--link); text-decoration: none;
+  background: none; border: 0; padding: 0; cursor: pointer;
+}
+.feed-attachment-acts a:hover, .feed-preview-toggle:hover { text-decoration: underline; }
 .feed-link-card { background: var(--bg-sunken); }
+
+/* pdf: the browser's own viewer, no third party. office: Microsoft's public
+   embed viewer, the only way to render docx/pptx/xlsx without a heavy
+   client-side parser — disclosed right above the frame, and only ever
+   loaded after a click (canPreview / the toggle in FeedAttachment.jsx),
+   never automatically for every visitor who scrolls past the post. */
+.feed-preview-frame-wrap, .feed-preview-text-wrap { margin-top: 8px; }
+.feed-preview-frame {
+  display: block; width: 100%; height: 480px;
+  border: 1px solid var(--border-subtle); border-radius: var(--r-md);
+  background: var(--bg-sunken);
+}
+.feed-preview-disclosure { font-size: 11.5px; color: var(--fg-subtle); margin: 0 0 6px; }
+.feed-preview-text {
+  max-height: 340px; overflow: auto; margin: 0;
+  padding: 12px 14px; font: 12.5px/1.6 var(--mono);
+  white-space: pre-wrap; word-break: break-word; color: var(--fg);
+  background: var(--bg-sunken); border: 1px solid var(--border-subtle); border-radius: var(--r-md);
+}
+.feed-preview-status { font-size: 12px; color: var(--fg-subtle); margin: 6px 0 0; }
+.feed-preview-status.err { color: var(--danger); }
 
 /* ---------- message-the-owner modal ---------- */
 #msgModalBg {
