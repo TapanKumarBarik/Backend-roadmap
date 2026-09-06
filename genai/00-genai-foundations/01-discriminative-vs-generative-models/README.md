@@ -41,6 +41,28 @@ not spam):
   but it can also do something the discriminative model cannot: generate
   new `x`.
 
+```
+DISCRIMINATIVE:  learns the BOUNDARY between classes
+                                          
+   spam  ●  ●                             the model only ever learns
+       ●  ●  ●  ╲                         WHERE THE LINE GOES.
+          ●   ● ╲                         Ask it "what does an email
+                 ╲                        look like?" — it has no idea.
+                  ╲   ○  ○
+                   ╲ ○  ○  ○   not spam
+                    ╲  ○  ○
+
+GENERATIVE:  learns what EACH CLASS LOOKS LIKE
+                                          
+        ╭────╮                            the model learns a
+       ╱ ●  ● ╲       ╭─────╮             distribution per class,
+      │ ● ●  ● │     ╱ ○  ○  ╲            so it can SAMPLE from one
+       ╲ ●  ● ╱     │ ○ ○  ○ │            -- and derive the boundary
+        ╰────╯       ╲ ○  ○ ╱             when it needs to classify.
+        P(x|spam)     ╰─────╯
+                     P(x|not spam)
+```
+
 The classic textbook pairing that makes this concrete is **logistic
 regression (discriminative) vs. naive Bayes (generative)**, both trained
 on the same data, both able to classify — but only one able to
@@ -74,6 +96,20 @@ For a sequence of tokens `t₁ t₂ t₃ ... tₙ`:
 
 ```
 P(t₁, t₂, ..., tₙ) = P(t₁) · P(t₂|t₁) · P(t₃|t₁,t₂) · ... · P(tₙ|t₁...tₙ₋₁)
+```
+
+```
+ P("the cat sat on the mat")
+        =
+ P("the")              ── nothing to condition on
+   × P("cat"  │ "the")                    ┐
+   × P("sat"  │ "the cat")                │  every one of these is
+   × P("on"   │ "the cat sat")            ├─ THE SAME QUESTION,
+   × P("the"  │ "the cat sat on")         │  just a longer prefix
+   × P("mat"  │ "the cat sat on the")     ┘
+        │
+        ▼
+ one network, asked repeatedly ──► a full document
 ```
 
 Every term on the right is the *same kind of question*: "given the tokens
@@ -337,6 +373,15 @@ a real product you can name.
    topic, world facts), whereas a classifier can hit high accuracy via a
    few shortcut features.
 </details>
+
+## Further reading & sources
+
+- [On Discriminative vs. Generative Classifiers (Ng & Jordan, 2001)](https://ai.stanford.edu/~ang/papers/nips01-discriminativegenerative.pdf) - the canonical paper on exactly the logistic-regression-vs-naive-Bayes pairing this module builds; shows generative models often win with little data, discriminative with lots.
+- [scikit-learn: Naive Bayes](https://scikit-learn.org/stable/modules/naive_bayes.html) - the official docs for `MultinomialNB`, including `feature_log_prob_` used for sampling in exercise 2.
+- [scikit-learn: Novelty and Outlier Detection](https://scikit-learn.org/stable/modules/outlier_detection.html) - the purpose-built tools for the out-of-distribution problem in exercise 5.
+- [Speech and Language Processing, Ch. 3: N-gram Language Models (Jurafsky & Martin)](https://web.stanford.edu/~jurafsky/slp3/3.pdf) - free textbook chapter deriving the chain rule and log-probability arithmetic used here; the standard reference for the whole field.
+- [CS229 Lecture Notes: Generative Learning Algorithms (Stanford)](https://cs229.stanford.edu/main_notes.pdf) - the Bayes-rule derivation connecting `P(x|y)P(y)` to a classifier, worked slowly.
+- [Why probabilities are computed in log space](https://en.wikipedia.org/wiki/Log_probability) - short reference on the underflow problem from exercise 4.
 
 ## Next
 

@@ -41,6 +41,25 @@ dog = [0, 1, 0, 0, 0]
 car = [0, 0, 1, 0, 0]
 ```
 
+```
+ONE-HOT (50,000 dims, 99.998% zeros)      EMBEDDING (100 dims, dense)
+
+cat  [0 0 1 0 0 0 0 0 ... 0]              cat  [ 0.21 -0.87  0.44 ... ]
+dog  [0 0 0 1 0 0 0 0 ... 0]              dog  [ 0.19 -0.91  0.38 ... ]  ◄ close
+car  [0 0 0 0 1 0 0 0 ... 0]              car  [-0.66  0.12 -0.301... ]  ◄ far
+
+     every pair is equally                    distance now MEANS
+     distant (cosine = 0)                     something
+
+                     the learned space:
+                                     
+             ╭─ kitten  cat                  
+            │      ●  ●                      ● truck
+            │   ●  puppy                   ●  car
+            │  ● dog                     ● vehicle
+            ╰─ animals cluster            machines cluster
+```
+
 Two fatal properties:
 
 1. **Every pair of words is equally distant.** The dot product of any two
@@ -62,6 +81,43 @@ and drank it while it was still hot."* You now know a great deal about
 industrializes exactly this inference over billions of sentences.
 
 ### Word2Vec: learning vectors by predicting context
+
+```
+CBOW — context predicts the center word
+
+   "the"  ─┐
+   "___"   │      ┌─────────┐
+   "sat"  ─┼─────►│ network │─────►  "cat"
+   "on"   ─┘      └─────────┘
+   context                            missing word
+
+SKIP-GRAM — center word predicts the context
+
+                  ┌─────────┐  ┌──►  "the"
+   "cat"  ───────►│ network │──┼──►  "sat"
+                  └─────────┘  └──►  "on"
+   center                            context
+
+
+ AND HERE IS THE TWIST — the prediction is THROWAWAY:
+
+   ┌──────────────────────────────────────────────┐
+   │  input    ┌────────────────┐   output        │
+   │  word ───►│ hidden layer   │──► context      │
+   │           │  W  (V x 300)  │    prediction   │
+   │           └────────────────┘         │       │
+   │                   │                  ▼       │
+   │                   │            DISCARDED     │
+   │                   ▼            after training│
+   │        ┌──────────────────┐                  │
+   │        │ THIS is what you │                  │
+   │        │ keep: each ROW = │                  │
+   │        │ one word vector  │                  │
+   │        └──────────────────┘                  │
+   └──────────────────────────────────────────────┘
+     train on a fake task, keep the representation
+     = SELF-SUPERVISED LEARNING (how BERT/GPT pretrain too)
+```
 
 Word2Vec turns the hypothesis into a training objective. Two variants:
 
@@ -385,6 +441,17 @@ No starter code. You have everything from exercises 3, 6 and 7.
    same set of words, so their mean vectors are identical (cosine
    similarity exactly 1.0).
 </details>
+
+## Further reading & sources
+
+- [Efficient Estimation of Word Representations in Vector Space (Mikolov et al., 2013)](https://arxiv.org/abs/1301.3781) - the original Word2Vec paper introducing CBOW and skip-gram.
+- [Distributed Representations of Words and Phrases and their Compositionality (Mikolov et al., 2013)](https://arxiv.org/abs/1310.4546) - the follow-up adding negative sampling, and where the `king - man + woman` analogy result is presented.
+- [TensorFlow Embedding Projector](https://projector.tensorflow.org/) - interactive 3D visualization of real embedding spaces; rotate through the neighbourhoods of any word. The fastest way to build intuition for this module.
+- [GloVe: Global Vectors for Word Representation (Pennington et al., 2014)](https://nlp.stanford.edu/projects/glove/) - the Stanford alternative to Word2Vec, and the source of the pretrained vectors used in exercises 3-7.
+- [gensim Word2Vec documentation](https://radimrehurek.com/gensim/models/word2vec.html) - API reference for everything used in the exercises.
+- [Man is to Computer Programmer as Woman is to Homemaker? (Bolukbasi et al., 2016)](https://arxiv.org/abs/1607.06520) - the paper that quantified embedding bias and proposed debiasing; directly extends exercise 5.
+- [The Illustrated Word2vec (Jay Alammar)](https://jalammar.github.io/illustrated-word2vec/) - the best visual walkthrough of the training procedure; read it if the CBOW/skip-gram distinction hasn't clicked.
+- [Sentence-BERT (Reimers & Gurevych, 2019)](https://arxiv.org/abs/1908.10084) - the fix for exercise 7's averaging problem, and what track 08 actually uses in production.
 
 ## Next
 

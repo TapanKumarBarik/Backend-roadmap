@@ -36,10 +36,29 @@ about them.
 
 A tokenizer is built from a fixed **vocabulary** — a lookup table mapping
 text chunks to integer IDs, typically 30,000-100,000+ entries, learned
-once from a training corpus (track 01 module 01 covers exactly how that
-vocabulary gets built). At inference time, tokenizing is just: split the
-input text into the longest sequence of vocabulary-recognized chunks, and
-replace each with its integer ID.
+once from a training corpus (module 03 covers exactly how that vocabulary
+gets built). At inference time, tokenizing is just: split the input text
+into the longest sequence of vocabulary-recognized chunks, and replace
+each with its integer ID.
+
+```
+   "Tokenization is the first step"
+                  │
+                  ▼  split on vocabulary entries
+   ┌────────┬──────────┬─────┬──────┬────────┬───────┐
+   │ Token  │ ization  │ is  │ the  │ first  │ step  │
+   └────────┴──────────┴─────┴──────┴────────┴───────┘
+        │        │        │      │       │        │
+        ▼        ▼        ▼      ▼       ▼        ▼
+   ┌────────┬──────────┬─────┬──────┬────────┬───────┐
+   │ 12904  │  2065    │ 374 │ 279  │ 1176   │ 3094  │
+   └────────┴──────────┴─────┴──────┴────────┴───────┘
+        the model sees ONLY these integers
+
+   NOT one-per-word:  "Tokenization" → 2 tokens
+   NOT one-per-char:  "step"         → 1 token
+   note the leading spaces: " is" is ONE token, not " " + "is"
+```
 
 ```python
 import tiktoken
@@ -310,6 +329,16 @@ likely got a units bug (bytes vs. characters vs. tokens).
    on your own text alone will undercount the real total.
 </details>
 
+## Further reading & sources
+
+- [Tiktokenizer](https://tiktokenizer.vercel.app/) - paste any text and see it split into tokens, per model, colour-coded. Keep this open for the whole track; it makes every concept here immediate.
+- [OpenAI: What are tokens and how to count them](https://help.openai.com/en/articles/4936856-what-are-tokens-and-how-to-count-them) - the official explanation, including the ~4-characters-per-token rule of thumb and its caveats.
+- [tiktoken (GitHub)](https://github.com/openai/tiktoken) - the library used in every exercise here; the README documents which encoding belongs to which model.
+- [How to count tokens with tiktoken (OpenAI Cookbook)](https://cookbook.openai.com/examples/how_to_count_tokens_with_tiktoken) - the authoritative recipe for counting chat-completion tokens *including* the structural tokens a bare `encode()` misses, which is the exact undercounting trap in this module's common mistakes.
+- [Let's build the GPT Tokenizer (Andrej Karpathy, 2hr)](https://www.youtube.com/watch?v=zduSFxRajkE) - builds a tokenizer from scratch and demonstrates every failure mode in this module, including why LLMs can't spell or do arithmetic reliably. The best single resource on tokenization that exists.
+- [Language Model Tokenizers Introduce Unfairness Between Languages (Petrov et al., 2023)](https://arxiv.org/abs/2305.15425) - measures the non-English token-cost penalty from exercise 3 across language families; the disparity is larger than most people expect.
+- [Hugging Face: Summary of the tokenizers](https://huggingface.co/docs/transformers/tokenizer_summary) - compares BPE, WordPiece and SentencePiece; the natural next read before modules 03-06.
+
 ## Next
 
-[Module 01: Tokenization Algorithms — Byte-Pair Encoding](../01-tokenization-algorithms-bpe/README.md)
+[Module 01: Text Encoding — Bytes, Unicode and UTF-8](../01-text-encoding-bytes-unicode-and-utf-8/README.md)

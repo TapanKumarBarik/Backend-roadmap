@@ -81,6 +81,31 @@ current word. Now the probabilities are just counting:
 P(sat | cat) = count("cat sat") / count("cat")
 ```
 
+```
+FULL CONTEXT (what you want, but can't count):
+  the  cat  that  I  adopted  last  spring  ─────►  ???
+  └──────────── all 7 words condition the guess ─────┘
+
+BIGRAM (n=2) — only the last word survives:
+  the  cat  that  I  adopted  last [spring] ─────►  ???
+                                   └─ 1 word ─┘
+                     everything before is DISCARDED
+
+TRIGRAM (n=3):
+  the  cat  that  I  adopted [last  spring] ─────►  ???
+                             └─── 2 words ───┘
+
+     ┌──────────────┬───────────────┬──────────────────┐
+     │      n       │  context used │ possible contexts│
+     ├──────────────┼───────────────┼──────────────────┤
+     │  2 (bigram)  │     1 word    │      50,000      │
+     │  3 (trigram) │    2 words    │     2.5 x 10^9   │
+     │  5           │    4 words    │     6.2 x 10^21  │  ◄── no corpus
+     │ 20           │   19 words    │    ~10^93        │      is this big
+     └──────────────┴───────────────┴──────────────────┘
+              (vocabulary of 50,000 words)
+```
+
 That's the whole model. It's estimable from a corpus, it's fast, and it
 genuinely works well enough that n-gram models powered production speech
 recognition and machine translation for two decades.
@@ -390,6 +415,16 @@ lengths was hopeless.
 7. Roughly the effective number of choices the model is deciding between
    per token — how surprised it is by held-out text. Lower is better.
 </details>
+
+## Further reading & sources
+
+- [ELIZA — A Computer Program For the Study of Natural Language Communication (Weizenbaum, 1966)](https://dl.acm.org/doi/10.1145/365153.365168) - the original paper; Weizenbaum's own alarm at how readily people attributed understanding to it is the ELIZA effect in its first description.
+- [Try ELIZA in your browser](https://web.njit.edu/~ronkowit/eliza.html) - a faithful JavaScript port; spend three minutes with it and the pattern-matching becomes obvious, which is the point.
+- [Speech and Language Processing, Ch. 3: N-gram Language Models (Jurafsky & Martin)](https://web.stanford.edu/~jurafsky/slp3/3.pdf) - the definitive treatment of everything in this module: the Markov assumption, smoothing, perplexity. Free, and worth reading in full.
+- [The Unreasonable Effectiveness of Data (Halevy, Norvig & Pereira, 2009)](https://static.googleusercontent.com/media/research.google.com/en//pubs/archive/35179.pdf) - Google's argument that scale of data beats cleverness of model; the statistical turn's manifesto, and an early hint of the scaling laws in track 04.
+- [Kneser-Ney smoothing explained](https://en.wikipedia.org/wiki/Kneser%E2%80%93Ney_smoothing) - the sophisticated smoothing standard that superseded add-one; useful context for why your Laplace implementation is deliberately the naive version.
+- [MYCIN and the rise and fall of expert systems](https://en.wikipedia.org/wiki/Mycin) - the canonical medical expert system; a concrete case study in the knowledge acquisition bottleneck.
+- [Perplexity of fixed-length models (Hugging Face)](https://huggingface.co/docs/transformers/perplexity) - how the same metric you implemented in exercise 6 is computed for modern transformer LLMs.
 
 ## Next
 
