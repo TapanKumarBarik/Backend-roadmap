@@ -18,9 +18,17 @@
  *   navigations     network-first. Ensures a deploy is picked up as soon as
  *                   you're online, with the last good shell as the offline
  *                   fallback.
- *   *.md, indexes   stale-while-revalidate. Instant from cache, refreshed in
+ *   docs-index      network-first. This is the NAVIGATION TREE, not content:
+ *                   if it is stale, whole tracks are invisible in the sidebar
+ *                   and there is no way for the reader to know they exist.
+ *                   Shipping a new track and having it not appear until a
+ *                   second page load is the wrong failure. 44KB gzipped, once
+ *                   per load, with cache fallback when offline.
+ *   *.md, search    stale-while-revalidate. Instant from cache, refreshed in
  *                   the background — the right trade for content that changes
  *                   occasionally and matters most when the network is gone.
+ *                   A stale module or a missing search hit degrades one
+ *                   result; a stale tree hides the curriculum.
  */
 const VERSION = 'v1';
 const SHELL = `shell-${VERSION}`;
@@ -120,9 +128,14 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  if (url.pathname.endsWith('.md')
-    || url.pathname === '/docs-index.json'
-    || url.pathname === '/search-index.json') {
+  // The tree the sidebar is built from — always try the network so a newly
+  // deployed track shows up on this load rather than the next one.
+  if (url.pathname === '/docs-index.json') {
+    event.respondWith(networkFirst(request, CONTENT));
+    return;
+  }
+
+  if (url.pathname.endsWith('.md') || url.pathname === '/search-index.json') {
     event.respondWith(staleWhileRevalidate(request, CONTENT));
   }
 });
