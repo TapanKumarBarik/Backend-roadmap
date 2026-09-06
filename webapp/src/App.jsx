@@ -13,6 +13,7 @@ import { useToast } from './hooks/useToast.js';
 import { useBookmarks } from './hooks/useBookmarks.js';
 import { useStreak } from './hooks/useStreak.js';
 import { useCommentActivity } from './hooks/useCommentActivity.js';
+import { useCommunityActivity } from './hooks/useCommunityActivity.js';
 import { computeTreeVisibility } from './lib/treeFilter.js';
 import { globalCounts } from './lib/progressStats.js';
 import { ancestorDirPaths } from './lib/treeAncestors.js';
@@ -69,6 +70,7 @@ export default function App() {
   const { bookmarks, toggle: toggleBookmark } = useBookmarks(user);
   const streak = useStreak(user);
   const activity = useCommentActivity(user);
+  const communityActivity = useCommunityActivity();
   const toast = useToast();
   const resizerRef = useRef(null);
   useSidebarResize(resizerRef);
@@ -226,7 +228,10 @@ export default function App() {
   const openSaved = useCallback(() => navigate(SAVED_ROUTE), [navigate]);
   const openNotes = useCallback(() => navigate(NOTES_ROUTE), [navigate]);
   const openExplore = useCallback(() => navigate(EXPLORE_ROUTE), [navigate]);
-  const openCommunity = useCallback(() => navigate(COMMUNITY_ROUTE), [navigate]);
+  const openCommunity = useCallback(() => {
+    communityActivity.markSeen();
+    navigate(COMMUNITY_ROUTE);
+  }, [navigate, communityActivity.markSeen]);
 
   // Two of the three theme states render identically on any given OS, so a
   // press can legitimately change nothing on screen — say which mode it
@@ -322,6 +327,7 @@ export default function App() {
           onOpenSaved={openSaved}
           onOpenCommunity={openCommunity}
           onOpenAdmin={openAdmin}
+          communityBadge={communityActivity.badgeVisible}
         />
         {/* The tree is context for the curriculum, so it renders only
             there. On a destination — feed, saved, notes, admin — it was

@@ -228,6 +228,14 @@ kbd {
   opacity: 0; pointer-events: none; transition: opacity .12s; z-index: 60;
 }
 .dest-btn:hover .dest-label, .dest-btn:focus-visible .dest-label { opacity: 1; }
+/* A plain dot, not the numbered .activity-dot used on the account avatar —
+   "something's new in Community" doesn't need a precise count the way
+   "3 replies to you" does, and a bare number here would invite reading it
+   as more exact than it is (posts + questions combined, since last visit). */
+.dest-btn .activity-dot {
+  position: absolute; top: 4px; right: 4px; width: 8px; height: 8px; min-width: 0;
+  padding: 0; border-radius: 50%; background: var(--signal); border: 1.5px solid var(--bg-sunken);
+}
 
 #sidebar {
   width: var(--sidebar-w); flex-shrink: 0; border-right: 1px solid var(--border-subtle);
