@@ -16,7 +16,7 @@ labels: bug
 2.
 
 **Where**
-- [ ] backendroadmap.in (live)
+- [ ] backendroadmap.com (live)
 - [ ] Local dev
 
 Found a security issue instead? Don't file it here — see [SECURITY.md](../../SECURITY.md).
