@@ -32,6 +32,27 @@ CURRICULUM = {
 #    Keyed by a substring of the track folder name.
 # --------------------------------------------------------------------------
 TRACK_TAGS = {
+    # genai/ -- listed first because the matcher breaks on the first key that
+    # is a substring of the track slug, and several genai slugs would
+    # otherwise be captured by a broader learn/ or backend/ key
+    # ("15-evaluation-observability-and-safety" contains "observability").
+    "genai-foundations": ["genai", "fundamentals"],
+    "tokens-and-language-modeling": ["tokenization", "llm"],
+    "transformer-architecture": ["transformers", "attention", "deep-learning"],
+    "landmark-models-bert-gpt-and-moe": ["transformers", "bert", "gpt", "moe"],
+    "training-fine-tuning-and-alignment": ["fine-tuning", "training", "alignment"],
+    "gpus-and-genai-hardware": ["gpu", "hardware", "performance"],
+    "openai-and-the-model-landscape": ["openai", "llm-apis", "model-landscape"],
+    "prompt-engineering": ["prompt-engineering", "llm"],
+    "embeddings-and-vector-databases": ["embeddings", "vector-db"],
+    "retrieval-augmented-generation": ["rag", "retrieval", "embeddings"],
+    "ai-agents": ["agents", "tool-use"],
+    "langchain-and-langgraph": ["langchain", "langgraph", "agents"],
+    "agent-orchestration-and-multi-agent-systems": ["agents", "multi-agent", "orchestration"],
+    "model-context-protocol-mcp": ["mcp", "tool-use", "agents"],
+    "inference-and-serving-vllm": ["inference", "vllm", "serving"],
+    "evaluation-observability-and-safety": ["llm-evaluation", "observability", "ai-safety"],
+    "speech-and-multimodal-models": ["speech", "multimodal"],
     # learn/
     "linux": ["linux", "shell"],
     "docker": ["docker", "containers"],
@@ -206,6 +227,25 @@ VOCAB = {
     "llm":             r"\b(llm|large language model|prompt engineering|prompt template|embedding|model inference|fine.tun)\b",
     "rag":             r"\b(rag\b|retrieval.augmented|vector (db|database|store)|semantic search)\b",
     "agents":          r"\b(ai agent|tool use|function calling|react loop|agentic)\b",
+    # bare "token" matches JWT/auth tokens across backend/, so anchor these on
+    # tokenizer-specific vocabulary instead
+    "tokenization":    r"\b(tokeni[sz](e|er|ation)|byte.pair encoding|\bbpe\b|wordpiece|sentencepiece|tiktoken|cl100k|vocabulary size|context window)\b",
+    "transformers":    r"\b(transformer (block|architecture|model)|self.attention|multi.head attention|positional (encoding|embedding)|\brope\b|feed.forward network)\b",
+    "attention":       r"\b(attention (mechanism|head|mask|weights)|queries?, keys|key/value|scaled dot.product|causal mask)\b",
+    "embeddings":      r"\b(embedding (model|vector|space)|word2vec|sentence transformer|cosine similarity|bi.encoder|cross.encoder)\b",
+    "vector-db":       r"\b(vector (database|store|index)|pgvector|pinecone|weaviate|qdrant|chroma|\bhnsw\b|approximate nearest neighbor|\bann\b search)\b",
+    "fine-tuning":     r"\b(fine.tun|\blora\b|qlora|peft|instruction tun|supervised fine|\brlhf\b|\bdpo\b|reward model|preference optimi)\b",
+    "quantization":    r"\b(quantiz|int8|int4|\bgguf\b|\bawq\b|\bgptq\b|mixed precision|bfloat16|\bbf16\b|\bfp16\b)\b",
+    "gpu":             r"\b(\bgpu\b|cuda core|tensor core|\bvram\b|memory bandwidth|nvidia|\ba100\b|\bh100\b|flash.?attention)\b",
+    "inference":       r"\b(kv cache|continuous batching|paged.?attention|\bvllm\b|prefill|decode phase|speculative decoding|throughput.*latency|tokens per second)\b",
+    "mcp":             r"\b(model context protocol|\bmcp\b|mcp (server|client|host)|json.rpc|stdio transport)\b",
+    "multi-agent":     r"\b(multi.agent|orchestrator.worker|supervisor (pattern|agent)|agent handoff|crewai|autogen|agent team)\b",
+    "langchain":       r"\b(langchain|langgraph|langsmith|\blcel\b|runnable|state graph)\b",
+    "moe":             r"\b(mixture.of.experts|\bmoe\b|expert routing|sparse activation|mixtral)\b",
+    "llm-evaluation":  r"\b(llm.as.judge|eval (dataset|harness|suite)|hallucination (detection|rate)|ragas|golden (set|dataset)|red.?team)\b",
+    "ai-safety":       r"\b(guardrail|prompt injection|jailbreak|content filter|safety filter|alignment|refusal)\b",
+    "speech":          r"\b(speech (recognition|to.text)|whisper|text.to.speech|\btts\b|\bstt\b|\basr\b|spectrogram|diariz)\b",
+    "multimodal":      r"\b(multimodal|vision (model|encoder)|image input|\bocr\b|video understanding)\b",
 }
 
 VOCAB_RE = {tag: re.compile(pat, re.I) for tag, pat in VOCAB.items()}
