@@ -93,11 +93,13 @@ export async function fetchFeed() {
   return res.json();
 }
 
-export async function postFeedItem(text, attachmentUrl, attachmentType) {
+// linkTitle only means anything when attachmentType is 'link' -- the
+// poster's own label for a plain URL, never fetched/derived from it server-side.
+export async function postFeedItem(text, attachmentUrl, attachmentType, linkTitle) {
   const res = await fetch('/api/feed', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ text, attachmentUrl, attachmentType })
+    body: JSON.stringify({ text, attachmentUrl, attachmentType, linkTitle })
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));

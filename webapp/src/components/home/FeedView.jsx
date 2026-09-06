@@ -1,6 +1,33 @@
-import { useEffect, useRef, useState } from 'react';
+import { useRef, useState, useEffect } from 'react';
 import { fetchFeed, postFeedItem, uploadFeedFile, deleteFeedPost } from '../../lib/api.js';
 import { linkify } from '../../lib/linkify.jsx';
+
+const ACCEPT = [
+  'image/png', 'image/jpeg', 'image/webp', 'image/gif',
+  'application/pdf',
+  'text/markdown', 'text/plain',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+].join(',');
+
+// One glyph per attachment kind, so a scroll through the feed reads at a
+// glance — a wall of identical "📄 filename.ext" rows was the same problem
+// the app's own docs-index solved for the module tree, just here instead.
+const KIND_ICON = { pdf: '📄', doc: '📝', slide: '📽️', sheet: '📊', text: '🗒️', link: '🔗' };
+const KIND_LABEL = { pdf: 'PDF', doc: 'Word doc', slide: 'Slides', sheet: 'Spreadsheet', text: 'Text file', link: 'Link' };
+
+// Mirrors feed.js's ALLOWED_TYPES kinds, just enough to pick an icon for the
+// file sitting in the composer before it's uploaded and the real server-
+// assigned kind comes back.
+const CONTENT_TYPE_KIND = {
+  'application/pdf': 'pdf',
+  'text/markdown': 'text',
+  'text/plain': 'text',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'doc',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation': 'slide',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'sheet'
+};
 
 function fileToBase64(file) {
   return new Promise((resolve, reject) => {
@@ -11,6 +38,17 @@ function fileToBase64(file) {
   });
 }
 
+function filenameFromUrl(url) {
+  try {
+    const last = new URL(url).pathname.split('/').pop() || '';
+    // uploadFeedFile names blobs `${Date.now()}-${safeName}.${ext}` — strip
+    // the leading timestamp so the post shows the name someone recognizes.
+    return last.replace(/^\d+-/, '') || 'file';
+  } catch {
+    return 'file';
+  }
+}
+
 // `embedded` renders just the composer and the posts, without the page
 // heading — it's a tab inside Community now rather than its own screen.
 export default function FeedView({ user, onLogin, onToast, embedded }) {
@@ -18,6 +56,9 @@ export default function FeedView({ user, onLogin, onToast, embedded }) {
   const [error, setError] = useState(null);
   const [text, setText] = useState('');
   const [pendingFile, setPendingFile] = useState(null);
+  const [linkMode, setLinkMode] = useState(false);
+  const [linkUrl, setLinkUrl] = useState('');
+  const [linkTitle, setLinkTitle] = useState('');
   const [posting, setPosting] = useState(false);
   const fileInputRef = useRef(null);
 
@@ -36,24 +77,46 @@ export default function FeedView({ user, onLogin, onToast, embedded }) {
       dataBase64,
       previewUrl: file.type.startsWith('image/') ? URL.createObjectURL(file) : null
     });
+    setLinkMode(false);
+  }
+
+  function openLinkMode() {
+    setPendingFile(null);
+    setLinkMode(true);
+  }
+
+  function cancelLink() {
+    setLinkMode(false);
+    setLinkUrl('');
+    setLinkTitle('');
   }
 
   async function handlePost() {
-    if (!text.trim() && !pendingFile) return;
+    const postingLink = linkMode && linkUrl.trim();
+    if (!text.trim() && !pendingFile && !postingLink) return;
     setPosting(true);
     setError(null);
     try {
       let attachmentUrl = null;
       let attachmentType = null;
+      let title = null;
       if (pendingFile) {
         const up = await uploadFeedFile(pendingFile.name, pendingFile.contentType, pendingFile.dataBase64);
         attachmentUrl = up.url;
         attachmentType = up.type;
+      } else if (postingLink) {
+        // No server-side unfurling (see feed.js) -- the URL is used exactly
+        // as typed, so a stray leading/trailing space doesn't silently
+        // become part of it.
+        attachmentUrl = linkUrl.trim();
+        attachmentType = 'link';
+        title = linkTitle.trim() || null;
       }
-      const created = await postFeedItem(text.trim(), attachmentUrl, attachmentType);
+      const created = await postFeedItem(text.trim(), attachmentUrl, attachmentType, title);
       setPosts((prev) => [created, ...(prev || [])]);
       setText('');
       setPendingFile(null);
+      cancelLink();
     } catch (e) {
       setError(e.message);
     } finally {
@@ -72,13 +135,15 @@ export default function FeedView({ user, onLogin, onToast, embedded }) {
     }
   }
 
+  const canPost = posting || (!text.trim() && !pendingFile && !(linkMode && linkUrl.trim()));
+
   return (
     <div id={embedded ? undefined : 'empty'}>
       {!embedded && (
         <>
           <h2>Community feed</h2>
           <p style={{ color: 'var(--fg-subtle)', fontSize: 13.5 }}>
-            Public — anyone can read this. Sign in with Google to post text, an image, or a PDF.
+            Public — anyone can read this. Sign in with Google to post text, a file, or a link.
           </p>
         </>
       )}
@@ -87,24 +152,62 @@ export default function FeedView({ user, onLogin, onToast, embedded }) {
         ? (
           <div className="comment-form">
             <textarea value={text} onChange={(e) => setText(e.target.value)} placeholder="Share something…" />
+
             {pendingFile && (
               <div className="feed-pending">
                 {pendingFile.previewUrl
                   ? <img src={pendingFile.previewUrl} alt="" />
-                  : <span>📄 {pendingFile.name}</span>}
+                  : (
+                    <span>
+                      {KIND_ICON[CONTENT_TYPE_KIND[pendingFile.contentType]] || '📄'} {pendingFile.name}
+                    </span>
+                  )}
                 <button onClick={() => setPendingFile(null)}>Remove</button>
               </div>
             )}
+
+            {linkMode && (
+              <div className="feed-link-form">
+                <input
+                  type="url"
+                  value={linkUrl}
+                  onChange={(e) => setLinkUrl(e.target.value)}
+                  placeholder="https://…"
+                  autoFocus
+                />
+                <input
+                  type="text"
+                  value={linkTitle}
+                  onChange={(e) => setLinkTitle(e.target.value.slice(0, 200))}
+                  placeholder="Label (optional)"
+                />
+                <button onClick={cancelLink} aria-label="Cancel link">Cancel</button>
+              </div>
+            )}
+
             <div className="comment-form-actions">
-              <button onClick={() => fileInputRef.current?.click()} disabled={!!pendingFile}>Attach image/PDF</button>
-              <button onClick={handlePost} disabled={posting || (!text.trim() && !pendingFile)}>
+              {/* Post first: .comment-form-actions styles :first-child as the
+                  primary/accent button (see CommentsSection.jsx's Save/Post
+                  reply/Post question, all first) -- the previous two-button
+                  layout here had Attach first, so it wore the accent instead
+                  of Post. */}
+              <button onClick={handlePost} disabled={canPost}>
                 {posting ? 'Posting…' : 'Post'}
+              </button>
+              <button onClick={() => fileInputRef.current?.click()} disabled={!!pendingFile || linkMode}>
+                Attach file
+              </button>
+              <button onClick={openLinkMode} disabled={!!pendingFile || linkMode}>
+                Add link
               </button>
             </div>
             <input
-              type="file" accept="image/png,image/jpeg,image/webp,image/gif,application/pdf"
+              type="file" accept={ACCEPT}
               ref={fileInputRef} style={{ display: 'none' }} onChange={handleFilePick}
             />
+            <p className="feed-hint">
+              Images, PDF, Word/PowerPoint/Excel, or markdown/text — up to 15MB.
+            </p>
           </div>
         )
         : <button className="signin-link" onClick={onLogin}>Sign in with Google to post</button>}
@@ -123,14 +226,40 @@ export default function FeedView({ user, onLogin, onToast, embedded }) {
               <span>{new Date(p.createdAt).toLocaleString()}</span>
             </div>
             {p.text && <div className="comment-text">{linkify(p.text)}</div>}
+
             {p.attachmentUrl && p.attachmentType === 'image' && (
               <a href={p.attachmentUrl} target="_blank" rel="noopener noreferrer">
                 <img className="feed-image" src={p.attachmentUrl} alt="" />
               </a>
             )}
+
             {p.attachmentUrl && p.attachmentType === 'pdf' && (
-              <a className="admin-link" href={p.attachmentUrl} target="_blank" rel="noopener noreferrer">📄 View PDF</a>
+              <a className="feed-attachment" href={p.attachmentUrl} target="_blank" rel="noopener noreferrer">
+                <span className="feed-attachment-ic">{KIND_ICON.pdf}</span>
+                <span>View PDF</span>
+              </a>
             )}
+
+            {p.attachmentUrl && ['doc', 'slide', 'sheet', 'text'].includes(p.attachmentType) && (
+              <a className="feed-attachment" href={p.attachmentUrl} target="_blank" rel="noopener noreferrer">
+                <span className="feed-attachment-ic">{KIND_ICON[p.attachmentType]}</span>
+                <span>
+                  {KIND_LABEL[p.attachmentType]}
+                  <em>{filenameFromUrl(p.attachmentUrl)}</em>
+                </span>
+              </a>
+            )}
+
+            {p.attachmentUrl && p.attachmentType === 'link' && (
+              <a className="feed-attachment feed-link-card" href={p.attachmentUrl} target="_blank" rel="noopener noreferrer">
+                <span className="feed-attachment-ic">{KIND_ICON.link}</span>
+                <span>
+                  {p.linkTitle || 'Link'}
+                  <em>{p.attachmentUrl}</em>
+                </span>
+              </a>
+            )}
+
             {user?.isAdmin && (
               <div className="comment-actions">
                 <button className="comment-reply-btn" onClick={() => handleDelete(p.id)}>Delete</button>

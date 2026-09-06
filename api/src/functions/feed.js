@@ -14,13 +14,77 @@ const STORAGE_ACCOUNT = 'stroadmapprogress';
 const FEED_CONTAINER = 'feed-uploads';
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 const MAX_PDF_BYTES = 10 * 1024 * 1024;
+const MAX_OFFICE_BYTES = 15 * 1024 * 1024;
+const MAX_TEXT_BYTES = 1 * 1024 * 1024;
+
+// 'kind' drives both the icon FeedView renders and whether the blob is
+// served inline (image, pdf -- browsers already handle both safely) or
+// forced to download (everything else -- see contentDisposition below).
 const ALLOWED_TYPES = {
-  'image/png': { ext: 'png', kind: 'image' },
-  'image/jpeg': { ext: 'jpg', kind: 'image' },
-  'image/webp': { ext: 'webp', kind: 'image' },
-  'image/gif': { ext: 'gif', kind: 'image' },
-  'application/pdf': { ext: 'pdf', kind: 'pdf' }
+  'image/png': { ext: 'png', kind: 'image', cap: MAX_IMAGE_BYTES },
+  'image/jpeg': { ext: 'jpg', kind: 'image', cap: MAX_IMAGE_BYTES },
+  'image/webp': { ext: 'webp', kind: 'image', cap: MAX_IMAGE_BYTES },
+  'image/gif': { ext: 'gif', kind: 'image', cap: MAX_IMAGE_BYTES },
+  'application/pdf': { ext: 'pdf', kind: 'pdf', cap: MAX_PDF_BYTES },
+  'text/markdown': { ext: 'md', kind: 'text', cap: MAX_TEXT_BYTES },
+  'text/plain': { ext: 'txt', kind: 'text', cap: MAX_TEXT_BYTES },
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document':
+    { ext: 'docx', kind: 'doc', cap: MAX_OFFICE_BYTES },
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation':
+    { ext: 'pptx', kind: 'slide', cap: MAX_OFFICE_BYTES },
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet':
+    { ext: 'xlsx', kind: 'sheet', cap: MAX_OFFICE_BYTES }
 };
+
+// Every attachment kind a post can carry, including 'link' -- which has no
+// upload step and so isn't in ALLOWED_TYPES above.
+const ATTACHMENT_TYPES = new Set([...new Set(Object.values(ALLOWED_TYPES).map((s) => s.kind)), 'link']);
+
+// The upload endpoint trusted the client-supplied contentType completely: it
+// went straight into ALLOWED_TYPES' lookup and then onto the blob's own
+// Content-Type header, with nothing checking it against the bytes actually
+// received. Someone could label an HTML/script payload "image/png" and have
+// it hosted, Content-Type and all, on this app's own storage domain --
+// different origin from the site itself (no cookie theft), but still an
+// attacker using a domain people were told to trust. Now widening the
+// allowlist to five more types, this gets checked first rather than after.
+//
+// docx/pptx/xlsx are all Zip containers, so this only confirms "this is a
+// well-formed Zip", not which Office format it claims to be -- accepted
+// as enough: the goal is rejecting a non-Zip payload wearing an Office
+// extension, not fully parsing OOXML.
+const MAGIC = {
+  'image/png': [[0x89, 0x50, 0x4e, 0x47]],
+  'image/jpeg': [[0xff, 0xd8, 0xff]],
+  'image/gif': [[0x47, 0x49, 0x46, 0x38]],
+  'application/pdf': [[0x25, 0x50, 0x44, 0x46]],
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document': [[0x50, 0x4b, 0x03, 0x04]],
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation': [[0x50, 0x4b, 0x03, 0x04]],
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': [[0x50, 0x4b, 0x03, 0x04]]
+};
+
+function bytesMatch(buffer, sig) {
+  if (buffer.length < sig.length) return false;
+  for (let i = 0; i < sig.length; i++) if (buffer[i] !== sig[i]) return false;
+  return true;
+}
+
+function looksLikeClaimedType(buffer, contentType) {
+  if (contentType === 'image/webp') {
+    // RIFF....WEBP: bytes 0-3 are 'RIFF', bytes 8-11 are 'WEBP'.
+    return bytesMatch(buffer, [0x52, 0x49, 0x46, 0x46])
+      && buffer.slice(8, 12).toString('ascii') === 'WEBP';
+  }
+  const sigs = MAGIC[contentType];
+  if (sigs) return sigs.some((sig) => bytesMatch(buffer, sig));
+  if (contentType === 'text/markdown' || contentType === 'text/plain') {
+    // No magic bytes for arbitrary text. A null byte is the cheap signal
+    // that this is not actually text, without decoding and scanning the
+    // whole buffer as UTF-8 for a file that's capped at 1MB anyway.
+    return !buffer.includes(0);
+  }
+  return false; // an allowlisted type this function doesn't know how to check
+}
 
 // Same fixed-window pattern as comments.js's checkRateLimit — its own
 // RateLimits row (rowKey 'feed'), so a burst on one doesn't affect the
@@ -52,6 +116,9 @@ function toClientShape(entity) {
     text: entity.text,
     attachmentUrl: entity.attachmentUrl || null,
     attachmentType: entity.attachmentType || null,
+    // Only meaningful when attachmentType is 'link' -- the poster's own
+    // label for the URL, never fetched/derived server-side (see postFeed).
+    linkTitle: entity.linkTitle || null,
     createdAt: entity.createdAt
   };
 }
@@ -87,15 +154,31 @@ app.http('postFeed', {
     let body;
     try { body = await request.json(); } catch { return { status: 400, jsonBody: { error: 'invalid body' } }; }
     const text = typeof body.text === 'string' ? body.text.trim() : '';
-    const attachmentUrl = typeof body.attachmentUrl === 'string' ? body.attachmentUrl : null;
-    const attachmentType = attachmentUrl && (body.attachmentType === 'image' || body.attachmentType === 'pdf') ? body.attachmentType : null;
+    const attachmentUrl = typeof body.attachmentUrl === 'string' ? body.attachmentUrl.trim() : null;
+    const attachmentType = attachmentUrl && ATTACHMENT_TYPES.has(body.attachmentType) ? body.attachmentType : null;
+    let linkTitle = null;
     if (!text && !attachmentUrl) return { status: 400, jsonBody: { error: 'a post needs text or an attachment' } };
     if (text.length > MAX_TEXT_LENGTH) return { status: 400, jsonBody: { error: `too long (max ${MAX_TEXT_LENGTH} chars)` } };
-    // an attachment URL not actually pointing at our own feed-uploads
-    // container would mean someone's hotlinking arbitrary URLs as "verified
-    // uploads" — only trust ones this API itself just handed back.
-    if (attachmentUrl && !attachmentUrl.startsWith(`https://${STORAGE_ACCOUNT}.blob.core.windows.net/${FEED_CONTAINER}/`)) {
-      return { status: 400, jsonBody: { error: 'invalid attachment' } };
+
+    if (attachmentType === 'link') {
+      // A link has no upload step, so it's the one attachment kind not
+      // constrained to this app's own storage container -- but it still has
+      // to actually be a link. No server-side fetch to unfurl a preview:
+      // that would let a public, unauthenticated-write-adjacent endpoint
+      // make the server issue a request to any URL a poster supplies,
+      // including internal/metadata addresses (SSRF). The poster's own
+      // title is stored as typed, nothing derived from the URL's content.
+      if (!/^https?:\/\//i.test(attachmentUrl) || attachmentUrl.length > 2000) {
+        return { status: 400, jsonBody: { error: 'not a valid link' } };
+      }
+      linkTitle = typeof body.linkTitle === 'string' ? body.linkTitle.trim().slice(0, 200) : '';
+    } else if (attachmentUrl) {
+      // Every other kind must be a URL this API itself just handed back from
+      // uploadFeedFile -- otherwise a post could hotlink an arbitrary URL and
+      // have it rendered as though it were a verified upload of that kind.
+      if (!attachmentUrl.startsWith(`https://${STORAGE_ACCOUNT}.blob.core.windows.net/${FEED_CONTAINER}/`)) {
+        return { status: 400, jsonBody: { error: 'invalid attachment' } };
+      }
     }
 
     try {
@@ -115,6 +198,7 @@ app.http('postFeed', {
       text,
       attachmentUrl,
       attachmentType,
+      linkTitle,
       createdAt: new Date().toISOString()
     };
     await table.createEntity(entity);
@@ -138,13 +222,20 @@ app.http('uploadFeedFile', {
     try { body = await request.json(); } catch { return { status: 400, jsonBody: { error: 'invalid body' } }; }
     const { filename, contentType, dataBase64 } = body;
     const spec = ALLOWED_TYPES[contentType];
-    if (!spec) return { status: 400, jsonBody: { error: 'unsupported file type (images or PDF only)' } };
+    if (!spec) {
+      return {
+        status: 400,
+        jsonBody: { error: 'unsupported file type (images, PDF, Word/PowerPoint/Excel, or markdown/text)' }
+      };
+    }
     if (!dataBase64) return { status: 400, jsonBody: { error: 'dataBase64 is required' } };
 
     const buffer = Buffer.from(dataBase64, 'base64');
-    const cap = spec.kind === 'pdf' ? MAX_PDF_BYTES : MAX_IMAGE_BYTES;
-    if (buffer.length > cap) {
-      return { status: 400, jsonBody: { error: `file exceeds ${Math.round(cap / (1024 * 1024))}MB limit` } };
+    if (buffer.length > spec.cap) {
+      return { status: 400, jsonBody: { error: `file exceeds ${Math.round(spec.cap / (1024 * 1024))}MB limit` } };
+    }
+    if (!looksLikeClaimedType(buffer, contentType)) {
+      return { status: 400, jsonBody: { error: "file content doesn't match its declared type" } };
     }
 
     try {
@@ -165,14 +256,24 @@ app.http('uploadFeedFile', {
     const blobName = `${Date.now()}-${safeName}.${spec.ext}`;
     const blobUrl = `https://${STORAGE_ACCOUNT}.blob.core.windows.net/${FEED_CONTAINER}/${blobName}`;
 
+    // image and pdf render inline in the feed (a thumbnail, an embedded PDF
+    // viewer via <a target=_blank>) -- every other kind has no safe or useful
+    // in-browser rendering, so it downloads instead of the browser guessing
+    // what to do with a .docx it was served without a disposition.
+    const headers = {
+      'x-ms-blob-type': 'BlockBlob',
+      'x-ms-version': '2021-08-06',
+      'Content-Type': contentType,
+      'Content-Length': String(buffer.length)
+    };
+    if (spec.kind !== 'image' && spec.kind !== 'pdf') {
+      const safeDownloadName = `${safeName}.${spec.ext}`.replace(/"/g, '');
+      headers['x-ms-blob-content-disposition'] = `attachment; filename="${safeDownloadName}"`;
+    }
+
     const res = await fetch(`${blobUrl}?${sas}`, {
       method: 'PUT',
-      headers: {
-        'x-ms-blob-type': 'BlockBlob',
-        'x-ms-version': '2021-08-06',
-        'Content-Type': contentType,
-        'Content-Length': String(buffer.length)
-      },
+      headers,
       body: buffer
     });
     if (!res.ok) {
@@ -180,7 +281,7 @@ app.http('uploadFeedFile', {
       return { status: 502, jsonBody: { error: 'upload failed', detail } };
     }
 
-    return { jsonBody: { url: blobUrl, type: spec.kind } };
+    return { jsonBody: { url: blobUrl, type: spec.kind, filename: `${safeName}.${spec.ext}` } };
   }
 });
 

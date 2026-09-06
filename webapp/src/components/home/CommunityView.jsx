@@ -33,8 +33,8 @@ export default function CommunityView({ user, nodeByFile, onOpenFile, onLogin, o
     <div id="empty">
       <h2>Community</h2>
       <p className="home-sub">
-        Questions asked on the modules themselves, and a place to post anything else.
-        Public — anyone can read it.
+        Questions asked on the modules themselves, and a Feed for anything else —
+        share a note, a doc, or a link. Public — anyone can read it.
       </p>
 
       <div className="wf-tabs page-tabs">
@@ -45,7 +45,7 @@ export default function CommunityView({ user, nodeByFile, onOpenFile, onLogin, o
           Unanswered{questions ? ` ${unanswered.length}` : ''}
         </button>
         <button className={tab === 'posts' ? 'on' : ''} onClick={() => setTab('posts')}>
-          Posts
+          Feed
         </button>
       </div>
 
