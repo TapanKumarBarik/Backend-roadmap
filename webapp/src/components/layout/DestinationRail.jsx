@@ -1,24 +1,30 @@
-import { TreeIcon, StarIcon, CompassIcon, FeedIcon, GearIcon } from '../icons.jsx';
+import { TreeIcon, StarIcon, CompassIcon, FeedIcon, QuestionIcon, GearIcon } from '../icons.jsx';
 
 // The permanent left edge: where you can go, not what's in the thing
 // you're looking at. Splitting this out is what lets the curriculum tree
 // stop being permanent — the tree is context for the curriculum, and has
 // no business sitting beside the community feed or the admin dashboard.
+//
+// Feed and Community used to be one destination (Feed was a tab inside
+// Community) — split into two so the feed reads as its own place, the
+// way it does on a site actually built around a feed, rather than as a
+// third tab behind Questions/Unanswered.
 export default function DestinationRail({
   activeDest, user, isAdmin,
-  onOpenCurriculum, onOpenExplore, onOpenSaved, onOpenCommunity, onOpenAdmin,
-  communityBadge
+  onOpenCurriculum, onOpenExplore, onOpenSaved, onOpenFeed, onOpenCommunity, onOpenAdmin,
+  feedBadge, communityBadge
 }) {
   const items = [
     { key: null, label: 'Curriculum', Icon: TreeIcon, onClick: onOpenCurriculum, show: true },
     { key: '__explore', label: 'Explore', Icon: CompassIcon, onClick: onOpenExplore, show: true },
     { key: '__saved', label: 'Saved', Icon: StarIcon, onClick: onOpenSaved, show: !!user },
-    // The one place in this rail something can actually happen without you —
-    // someone else's post or question — so it's the only item that carries
-    // a "something's new" dot (same pattern as the account menu's reply
-    // badge, see useCommunityActivity). The other destinations are just
-    // views onto your own state; there's nothing there to be notified of.
-    { key: '__community', label: 'Community', Icon: FeedIcon, onClick: onOpenCommunity, show: true, badge: communityBadge },
+    // Both carry the "something's new" dot — someone else's post, and
+    // someone else's question, are each things that happen without you
+    // (same pattern as the account menu's reply badge, see
+    // useCommunityActivity). The other destinations are just views onto
+    // your own state; there's nothing there to be notified of.
+    { key: '__feed', label: 'Feed', Icon: FeedIcon, onClick: onOpenFeed, show: true, badge: feedBadge },
+    { key: '__community', label: 'Community', Icon: QuestionIcon, onClick: onOpenCommunity, show: true, badge: communityBadge },
     { key: '__admin', label: 'Admin', Icon: GearIcon, onClick: onOpenAdmin, show: isAdmin }
   ].filter((i) => i.show);
 

@@ -66,6 +66,22 @@ export function FeedIcon(props) {
   );
 }
 
+// Community moved to just Q&A once Feed got its own destination — a
+// speech-bubble-with-a-question-mark reads as "ask something" more
+// clearly than reusing FeedIcon's stacked-post-list shape ever did.
+export function QuestionIcon(props) {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" {...props}>
+      <path d="M1.5 3.3c0-.72.58-1.3 1.3-1.3h10.4c.72 0 1.3.58 1.3 1.3v6.4c0 .72-.58 1.3-1.3 1.3H6.8l-2.9 2.6v-2.6H2.8c-.72 0-1.3-.58-1.3-1.3Z" />
+      <path
+        d="M6.3 6.05c.06-.42.53-1.2 1.7-1.2.94 0 1.65.55 1.65 1.28 0 .58-.35.9-.78 1.16-.4.24-.72.5-.72.96"
+        fill="none" strokeLinecap="round"
+      />
+      <circle cx="8" cy="10.15" r="0.15" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
 export function MailIcon(props) {
   return (
     <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" {...props}>

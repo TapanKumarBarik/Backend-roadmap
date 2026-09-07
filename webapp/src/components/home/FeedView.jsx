@@ -42,8 +42,11 @@ function fileToBase64(file) {
 }
 
 // `embedded` renders just the composer and the posts, without the page
-// heading — it's a tab inside Community now rather than its own screen.
-export default function FeedView({ user, onLogin, onToast, embedded }) {
+// heading — kept for any future spot that wants the composer inline
+// without the full standalone-page chrome. `onOpenPost` opens a post's
+// own detail page (PostDetailView) with its comment thread, the way
+// clicking a Facebook post opens its own page.
+export default function FeedView({ user, onLogin, onToast, onOpenPost, embedded }) {
   const [posts, setPosts] = useState(null);
   const [error, setError] = useState(null);
   const [text, setText] = useState('');
@@ -133,7 +136,7 @@ export default function FeedView({ user, onLogin, onToast, embedded }) {
     <div id={embedded ? undefined : 'empty'}>
       {!embedded && (
         <>
-          <h2>Community feed</h2>
+          <h2>Feed</h2>
           <p style={{ color: 'var(--fg-subtle)', fontSize: 13.5 }}>
             Public — anyone can read this. Sign in with Google to post text, a file, or a link.
           </p>
@@ -220,6 +223,16 @@ export default function FeedView({ user, onLogin, onToast, embedded }) {
             {p.text && <div className="comment-text">{linkify(p.text)}</div>}
 
             <FeedAttachment post={p} />
+
+            {/* Its own button, not a whole-card click target — the post
+                text and the attachment above both render their own links
+                (linkify, FeedAttachment's "Open"), and a button can't
+                contain another button or a link without breaking both. */}
+            {onOpenPost && (
+              <button className="feed-post-comments" onClick={() => onOpenPost(p.id)}>
+                💬 Comments
+              </button>
+            )}
 
             {user?.isAdmin && (
               <div className="comment-actions">

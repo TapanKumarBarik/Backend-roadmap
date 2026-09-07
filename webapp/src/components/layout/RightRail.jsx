@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react';
 import NotesPanel from '../article/NotesPanel.jsx';
+import { CaretIcon } from '../icons.jsx';
 
 // The right rail carries both ways of working with the page you're on:
 // finding your way around it, and writing down what you took from it.
 // Notes used to sit at the very bottom of the article, which meant
 // travelling past the whole module — and any discussion under it — to
 // record a thought about what you'd just read.
-export default function RightRail({ headings, activeId, path, user, onLogin, showNotes }) {
+export default function RightRail({ headings, activeId, path, user, onLogin, showNotes, onCollapse }) {
   const [tab, setTab] = useState('toc');
 
   // A new module starts on its contents, not on whatever tab the last one
@@ -23,7 +24,18 @@ export default function RightRail({ headings, activeId, path, user, onLogin, sho
     if (!hasToc) return null;
     return (
       <nav id="toc" className="scroll">
-        <div className="toc-h">On this page</div>
+        <div className="toc-h">
+          On this page
+          <button
+            id="railCollapse"
+            className="icon-btn"
+            title="Hide this panel"
+            aria-label="Hide this panel"
+            onClick={onCollapse}
+          >
+            <CaretIcon />
+          </button>
+        </div>
         {headings.map((h) => (
           <a
             key={h.id}
@@ -55,6 +67,15 @@ export default function RightRail({ headings, activeId, path, user, onLogin, sho
           onClick={() => setTab('notes')}
         >
           Notes
+        </button>
+        <button
+          id="railCollapse"
+          className="icon-btn"
+          title="Hide this panel"
+          aria-label="Hide this panel"
+          onClick={onCollapse}
+        >
+          <CaretIcon />
         </button>
       </div>
 

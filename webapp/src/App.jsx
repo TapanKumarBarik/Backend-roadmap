@@ -7,13 +7,14 @@ import { useProgressStore } from './hooks/useProgressStore.js';
 import { useOpenDirs } from './hooks/useOpenDirs.js';
 import { useSidebarResize } from './hooks/useSidebarResize.js';
 import { useSidebarCollapse } from './hooks/useSidebarCollapse.js';
+import { useRightRailCollapse } from './hooks/useRightRailCollapse.js';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts.js';
 import { useMediaQuery } from './hooks/useMediaQuery.js';
 import { useToast } from './hooks/useToast.js';
 import { useBookmarks } from './hooks/useBookmarks.js';
 import { useStreak } from './hooks/useStreak.js';
 import { useCommentActivity } from './hooks/useCommentActivity.js';
-import { useCommunityActivity } from './hooks/useCommunityActivity.js';
+import { useFeedActivity, useQuestionsActivity } from './hooks/useCommunityActivity.js';
 import { computeTreeVisibility } from './lib/treeFilter.js';
 import { globalCounts } from './lib/progressStats.js';
 import { ancestorDirPaths } from './lib/treeAncestors.js';
@@ -31,6 +32,8 @@ import Toast from './components/Toast.jsx';
 import SavedView from './components/home/SavedView.jsx';
 import ExploreView from './components/home/ExploreView.jsx';
 import CommunityView from './components/home/CommunityView.jsx';
+import FeedView from './components/home/FeedView.jsx';
+import PostDetailView from './components/home/PostDetailView.jsx';
 import MessageOwnerModal from './components/account/MessageOwnerModal.jsx';
 
 // Lazy: the GitHub-commit content editor and its admin-only siblings are
@@ -46,7 +49,10 @@ const BOOKMARKS_ROUTE = '__bookmarks';
 const NOTES_ROUTE = '__notes';
 const SAVED_ROUTE = '__saved';
 const EXPLORE_ROUTE = '__explore';
-// The feed became one tab of Community; its old route still resolves.
+// Feed and Community used to be one destination (Feed was a tab inside
+// Community); split so the feed is its own place. FEED_ROUTE doubles the
+// hash's heading slot as a post id — '#__feed' is the list, '#__feed@id'
+// is that post's own detail page with its comment thread.
 const FEED_ROUTE = '__feed';
 const COMMUNITY_ROUTE = '__community';
 
@@ -70,7 +76,8 @@ export default function App() {
   const { bookmarks, toggle: toggleBookmark } = useBookmarks(user);
   const streak = useStreak(user);
   const activity = useCommentActivity(user);
-  const communityActivity = useCommunityActivity();
+  const feedActivity = useFeedActivity();
+  const questionsActivity = useQuestionsActivity();
   const toast = useToast();
   const resizerRef = useRef(null);
   useSidebarResize(resizerRef);
@@ -80,6 +87,7 @@ export default function App() {
   // fetch the note and each autosave over the other.
   const railVisible = useMediaQuery('(min-width: 1181px)');
   const { collapsed: sidebarCollapsed, toggle: toggleSidebarCollapsed } = useSidebarCollapse();
+  const { collapsed: rightRailCollapsed, toggle: toggleRightRailCollapsed } = useRightRailCollapse();
 
   const [filter, setFilter] = useState('all');
   const [paletteOpen, setPaletteOpen] = useState(false);
@@ -93,8 +101,9 @@ export default function App() {
   const isAdminRoute = path === ADMIN_ROUTE;
   const isSavedRoute = path === SAVED_ROUTE || path === BOOKMARKS_ROUTE || path === NOTES_ROUTE;
   const isExploreRoute = path === EXPLORE_ROUTE;
-  const isCommunityRoute = path === COMMUNITY_ROUTE || path === FEED_ROUTE;
-  const isSpecialRoute = isAdminRoute || isSavedRoute || isExploreRoute || isCommunityRoute;
+  const isCommunityRoute = path === COMMUNITY_ROUTE;
+  const isFeedRoute = path === FEED_ROUTE;
+  const isSpecialRoute = isAdminRoute || isSavedRoute || isExploreRoute || isCommunityRoute || isFeedRoute;
   const currentFile = !isSpecialRoute && path && fileSet.has(path) ? path : null;
 
   useEffect(() => {
@@ -229,9 +238,14 @@ export default function App() {
   const openNotes = useCallback(() => navigate(NOTES_ROUTE), [navigate]);
   const openExplore = useCallback(() => navigate(EXPLORE_ROUTE), [navigate]);
   const openCommunity = useCallback(() => {
-    communityActivity.markSeen();
+    questionsActivity.markSeen();
     navigate(COMMUNITY_ROUTE);
-  }, [navigate, communityActivity.markSeen]);
+  }, [navigate, questionsActivity.markSeen]);
+  const openFeed = useCallback(() => {
+    feedActivity.markSeen();
+    navigate(FEED_ROUTE);
+  }, [navigate, feedActivity.markSeen]);
+  const openFeedPost = useCallback((postId) => navigate(FEED_ROUTE, postId), [navigate]);
 
   // Two of the three theme states render identically on any given OS, so a
   // press can legitimately change nothing on screen — say which mode it
@@ -256,7 +270,8 @@ export default function App() {
     const list = [
       { label: 'Continue learning', keywords: 'resume next module', hint: 'where you left off', run: () => (continueFile ? openFile(continueFile) : goHome()) },
       { label: 'Explore by tag', keywords: 'tags browse subject', run: () => navigate(EXPLORE_ROUTE) },
-      { label: 'Community', keywords: 'feed discussion posts questions', run: () => navigate(COMMUNITY_ROUTE) },
+      { label: 'Feed', keywords: 'posts feed share', run: () => navigate(FEED_ROUTE) },
+      { label: 'Community', keywords: 'discussion questions', run: () => navigate(COMMUNITY_ROUTE) },
       { label: 'Your curriculum', keywords: 'home progress paths', run: goHome }
     ];
     if (currentFile) {
@@ -319,15 +334,17 @@ export default function App() {
       />
       <div id="shell">
         <DestinationRail
-          activeDest={isSavedRoute ? SAVED_ROUTE : isCommunityRoute ? COMMUNITY_ROUTE : (isSpecialRoute ? path : null)}
+          activeDest={isSavedRoute ? SAVED_ROUTE : isFeedRoute ? FEED_ROUTE : isCommunityRoute ? COMMUNITY_ROUTE : (isSpecialRoute ? path : null)}
           user={user}
           isAdmin={!!user?.isAdmin}
           onOpenCurriculum={handleGoHome}
           onOpenExplore={openExplore}
           onOpenSaved={openSaved}
+          onOpenFeed={openFeed}
           onOpenCommunity={openCommunity}
           onOpenAdmin={openAdmin}
-          communityBadge={communityActivity.badgeVisible}
+          feedBadge={feedActivity.badgeVisible}
+          communityBadge={questionsActivity.badgeVisible}
         />
         {/* The tree is context for the curriculum, so it renders only
             there. On a destination — feed, saved, notes, admin — it was
@@ -389,12 +406,29 @@ export default function App() {
                 {isExploreRoute && <ExploreView allTags={tags} onOpenPalette={openPalette} />}
                 {isCommunityRoute && (
                   <CommunityView
-                    user={user}
                     nodeByFile={nodeByFile}
                     onOpenFile={openFile}
-                    onLogin={login}
-                    onToast={toast.show}
                   />
+                )}
+                {isFeedRoute && (
+                  heading
+                    ? (
+                      <PostDetailView
+                        postId={heading}
+                        user={user}
+                        onLogin={login}
+                        onBack={openFeed}
+                        onToast={toast.show}
+                      />
+                    )
+                    : (
+                      <FeedView
+                        user={user}
+                        onLogin={login}
+                        onToast={toast.show}
+                        onOpenPost={openFeedPost}
+                      />
+                    )
                 )}
               </div>
             </div>
@@ -428,6 +462,16 @@ export default function App() {
               showNotesInArticle={!railVisible}
             />
           )}
+        {!isSpecialRoute && rightRailCollapsed && railVisible && currentFile && (
+          <button
+            id="tocPeek"
+            title="Show this panel"
+            aria-label="Show this panel"
+            onClick={toggleRightRailCollapsed}
+          >
+            <CaretIcon />
+          </button>
+        )}
         <RightRail
           headings={currentFile ? tocHeadings : []}
           activeId={activeHeadingId}
@@ -435,6 +479,7 @@ export default function App() {
           user={user}
           onLogin={login}
           showNotes={railVisible}
+          onCollapse={toggleRightRailCollapsed}
         />
       </div>
 

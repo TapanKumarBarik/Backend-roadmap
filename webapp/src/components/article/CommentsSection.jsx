@@ -51,7 +51,14 @@ function CommentRow({ comment, isReply, user, onLogin, onReply, onEdit, onDelete
   );
 }
 
-export default function CommentsSection({ path, user, onLogin }) {
+export default function CommentsSection({
+  path, user, onLogin,
+  heading = 'Discussion',
+  emptyText = 'No questions on this module yet. If something here didn’t land, ask — it’s the fastest way to find out whether the module or your understanding needs work.',
+  composerPlaceholder = 'Ask a question about this module…',
+  submitLabel = 'Post question',
+  signInLabel = 'Sign in with Google to ask a question'
+}) {
   const [comments, setComments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [text, setText] = useState('');
@@ -160,7 +167,7 @@ export default function CommentsSection({ path, user, onLogin }) {
           contribution that's worth having. */}
       <div className="comments-head">
         <div className="home-h" style={{ margin: 0 }}>
-          Discussion{topLevel.length ? ` · ${topLevel.length}` : ''}
+          {heading}{topLevel.length ? ` · ${topLevel.length}` : ''}
         </div>
         {comments.length > 1 && (
           <div className="seg comments-sort">
@@ -172,10 +179,7 @@ export default function CommentsSection({ path, user, onLogin }) {
 
       {loading && <p style={{ color: 'var(--fg-subtle)' }}>Loading discussion…</p>}
       {!loading && topLevel.length === 0 && (
-        <p className="discussion-empty">
-          No questions on this module yet. If something here didn’t land, ask — it’s the
-          fastest way to find out whether the module or your understanding needs work.
-        </p>
+        <p className="discussion-empty">{emptyText}</p>
       )}
 
       {topLevel.map((c) => (
@@ -208,14 +212,14 @@ export default function CommentsSection({ path, user, onLogin }) {
           <div className="comment-form">
             <MentionTextarea
               value={text} onChange={setText} participants={participants}
-              placeholder="Ask a question about this module…"
+              placeholder={composerPlaceholder}
             />
             <div className="comment-form-actions">
-              <button onClick={() => submit('', text, setText)} disabled={posting}>Post question</button>
+              <button onClick={() => submit('', text, setText)} disabled={posting}>{submitLabel}</button>
             </div>
           </div>
         )
-        : <button className="signin-link" onClick={onLogin}>Sign in with Google to ask a question</button>}
+        : <button className="signin-link" onClick={onLogin}>{signInLabel}</button>}
 
       {error && <p style={{ color: 'var(--danger)' }}>{error}</p>}
     </section>

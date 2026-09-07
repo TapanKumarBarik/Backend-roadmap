@@ -409,6 +409,12 @@ app.http('recentQuestions', {
       if (++scanned > ACTIVITY_MAX_SCAN) break;
       if (entity.hidden) continue;
       const path = decodeURIComponent(entity.partitionKey);
+      // Feed-post comments share this table (partitionKey `feed:<postId>`,
+      // same generic comments/{*path} routes) so voting, mentions, edit/
+      // delete-own and admin moderation all work on them for free — but
+      // they're replies to a post, not questions asked on a module, so
+      // they don't belong in this scan.
+      if (path.startsWith('feed:')) continue;
       if (entity.parentId) {
         const key = path + ' ' + entity.parentId;
         replyCounts.set(key, (replyCounts.get(key) || 0) + 1);
