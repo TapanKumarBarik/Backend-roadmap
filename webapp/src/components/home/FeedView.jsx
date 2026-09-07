@@ -1,7 +1,12 @@
 import { useRef, useState, useEffect } from 'react';
-import { fetchFeed, postFeedItem, uploadFeedFile, deleteFeedPost } from '../../lib/api.js';
+import { fetchFeed, postFeedItem, uploadFeedFile, deleteFeedPost, voteFeedPost } from '../../lib/api.js';
 import { linkify } from '../../lib/linkify.jsx';
 import FeedAttachment from './FeedAttachment.jsx';
+import { TrashIcon } from '../icons.jsx';
+
+function initialsOf(name) {
+  return (name || '?').trim()[0]?.toUpperCase() || '?';
+}
 
 const ACCEPT = [
   'image/png', 'image/jpeg', 'image/webp', 'image/gif',
@@ -130,6 +135,22 @@ export default function FeedView({ user, onLogin, onToast, onOpenPost, embedded 
     }
   }
 
+  // Optimistic, same pattern as CommentsSection's handleVote — flip the
+  // local count/state immediately, revert only if the request itself fails.
+  async function handleVote(id) {
+    const current = posts?.find((p) => p.id === id);
+    if (!current) return;
+    const wasVoted = current.votedByMe;
+    setPosts((prev) => prev.map((p) => (p.id === id
+      ? { ...p, votedByMe: !wasVoted, upvotes: (p.upvotes || 0) + (wasVoted ? -1 : 1) }
+      : p)));
+    try {
+      await voteFeedPost(id);
+    } catch {
+      setPosts((prev) => prev.map((p) => (p.id === id ? { ...p, votedByMe: wasVoted, upvotes: current.upvotes } : p)));
+    }
+  }
+
   const canPost = posting || (!text.trim() && !pendingFile && !(linkMode && linkUrl.trim()));
 
   return (
@@ -145,100 +166,116 @@ export default function FeedView({ user, onLogin, onToast, onOpenPost, embedded 
 
       {user
         ? (
-          <div className="comment-form">
-            <textarea value={text} onChange={(e) => setText(e.target.value)} placeholder="Share something…" />
+          <div className="feed-composer">
+            <span className="feed-avatar" aria-hidden="true">{initialsOf(user.name || user.email)}</span>
+            <div className="feed-composer-body">
+              <textarea value={text} onChange={(e) => setText(e.target.value)} placeholder="Share something…" />
 
-            {pendingFile && (
-              <div className="feed-pending">
-                {pendingFile.previewUrl
-                  ? <img src={pendingFile.previewUrl} alt="" />
-                  : (
-                    <span>
-                      {KIND_ICON[CONTENT_TYPE_KIND[pendingFile.contentType]] || '📄'} {pendingFile.name}
-                    </span>
-                  )}
-                <button onClick={() => setPendingFile(null)}>Remove</button>
+              {pendingFile && (
+                <div className="feed-pending">
+                  {pendingFile.previewUrl
+                    ? <img src={pendingFile.previewUrl} alt="" />
+                    : (
+                      <span>
+                        {KIND_ICON[CONTENT_TYPE_KIND[pendingFile.contentType]] || '📄'} {pendingFile.name}
+                      </span>
+                    )}
+                  <button onClick={() => setPendingFile(null)}>Remove</button>
+                </div>
+              )}
+
+              {linkMode && (
+                <div className="feed-link-form">
+                  <input
+                    type="url"
+                    value={linkUrl}
+                    onChange={(e) => setLinkUrl(e.target.value)}
+                    placeholder="https://…"
+                    autoFocus
+                  />
+                  <input
+                    type="text"
+                    value={linkTitle}
+                    onChange={(e) => setLinkTitle(e.target.value.slice(0, 200))}
+                    placeholder="Label (optional)"
+                  />
+                  <button onClick={cancelLink} aria-label="Cancel link">Cancel</button>
+                </div>
+              )}
+
+              <div className="feed-composer-actions">
+                <div className="feed-composer-tools">
+                  <button className="feed-tool-btn" onClick={() => fileInputRef.current?.click()} disabled={!!pendingFile || linkMode}>
+                    📎 Attach
+                  </button>
+                  <button className="feed-tool-btn" onClick={openLinkMode} disabled={!!pendingFile || linkMode}>
+                    🔗 Link
+                  </button>
+                </div>
+                <button className="feed-post-btn" onClick={handlePost} disabled={canPost}>
+                  {posting ? 'Posting…' : 'Post'}
+                </button>
               </div>
-            )}
-
-            {linkMode && (
-              <div className="feed-link-form">
-                <input
-                  type="url"
-                  value={linkUrl}
-                  onChange={(e) => setLinkUrl(e.target.value)}
-                  placeholder="https://…"
-                  autoFocus
-                />
-                <input
-                  type="text"
-                  value={linkTitle}
-                  onChange={(e) => setLinkTitle(e.target.value.slice(0, 200))}
-                  placeholder="Label (optional)"
-                />
-                <button onClick={cancelLink} aria-label="Cancel link">Cancel</button>
-              </div>
-            )}
-
-            <div className="comment-form-actions">
-              {/* Post first: .comment-form-actions styles :first-child as the
-                  primary/accent button (see CommentsSection.jsx's Save/Post
-                  reply/Post question, all first) -- the previous two-button
-                  layout here had Attach first, so it wore the accent instead
-                  of Post. */}
-              <button onClick={handlePost} disabled={canPost}>
-                {posting ? 'Posting…' : 'Post'}
-              </button>
-              <button onClick={() => fileInputRef.current?.click()} disabled={!!pendingFile || linkMode}>
-                Attach file
-              </button>
-              <button onClick={openLinkMode} disabled={!!pendingFile || linkMode}>
-                Add link
-              </button>
+              <input
+                type="file" accept={ACCEPT}
+                ref={fileInputRef} style={{ display: 'none' }} onChange={handleFilePick}
+              />
+              <p className="feed-hint">
+                Images, PDF, Word/PowerPoint/Excel, or markdown/text — up to 15MB.
+              </p>
             </div>
-            <input
-              type="file" accept={ACCEPT}
-              ref={fileInputRef} style={{ display: 'none' }} onChange={handleFilePick}
-            />
-            <p className="feed-hint">
-              Images, PDF, Word/PowerPoint/Excel, or markdown/text — up to 15MB.
-            </p>
           </div>
         )
-        : <button className="signin-link" onClick={onLogin}>Sign in with Google to post</button>}
+        : (
+          <div className="feed-composer feed-composer-signedout">
+            <button className="signin-link" onClick={onLogin}>Sign in with Google to post</button>
+          </div>
+        )}
 
       {error && <p style={{ color: 'var(--danger)' }}>{error}</p>}
 
-      <div className="home-h">Recent posts</div>
       {!posts && !error && <p style={{ color: 'var(--fg-subtle)' }}>Loading…</p>}
       {posts && posts.length === 0 && <p style={{ color: 'var(--fg-subtle)' }}>Nothing here yet — be the first to post.</p>}
 
       <div className="feed-list">
         {posts && posts.map((p) => (
-          <div key={p.id} className="feed-post">
-            <div className="comment-meta">
-              <strong>{p.displayName}</strong>
-              <span>{new Date(p.createdAt).toLocaleString()}</span>
+          <div key={p.id} className="feed-card">
+            <div className="feed-card-head">
+              <span className="feed-avatar" aria-hidden="true">{initialsOf(p.displayName)}</span>
+              <div className="feed-card-head-text">
+                <strong>{p.displayName}</strong>
+                <span>{new Date(p.createdAt).toLocaleString()}</span>
+              </div>
+              {user?.isAdmin && (
+                <button className="feed-delete-btn" onClick={() => handleDelete(p.id)} aria-label="Delete post" title="Delete post">
+                  <TrashIcon />
+                </button>
+              )}
             </div>
+
             {p.text && <div className="comment-text">{linkify(p.text)}</div>}
 
             <FeedAttachment post={p} />
 
-            {/* Its own button, not a whole-card click target — the post
-                text and the attachment above both render their own links
-                (linkify, FeedAttachment's "Open"), and a button can't
-                contain another button or a link without breaking both. */}
-            {onOpenPost && (
-              <button className="feed-post-comments" onClick={() => onOpenPost(p.id)}>
-                💬 Comments
+            <div className="feed-card-actions">
+              <button
+                className={'feed-vote-btn' + (p.votedByMe ? ' on' : '')}
+                onClick={() => (user ? handleVote(p.id) : onLogin())}
+                aria-pressed={p.votedByMe}
+                title={user ? (p.votedByMe ? 'Remove upvote' : 'Upvote') : 'Sign in to upvote'}
+              >
+                <span aria-hidden="true">▲</span> {p.upvotes > 0 ? p.upvotes : 'Upvote'}
               </button>
-            )}
-
-            {user?.isAdmin && (
-              <div className="comment-actions">
-                <button className="comment-reply-btn" onClick={() => handleDelete(p.id)}>Delete</button>
-              </div>
-            )}
+              {/* Its own button, not a whole-card click target — the post
+                  text and the attachment above both render their own links
+                  (linkify, FeedAttachment's "Open"), and a button can't
+                  contain another button or a link without breaking both. */}
+              {onOpenPost && (
+                <button className="feed-vote-btn" onClick={() => onOpenPost(p.id)}>
+                  💬 {p.commentCount > 0 ? `${p.commentCount} comment${p.commentCount === 1 ? '' : 's'}` : 'Comment'}
+                </button>
+              )}
+            </div>
           </div>
         ))}
       </div>

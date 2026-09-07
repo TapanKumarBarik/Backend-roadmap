@@ -4,6 +4,8 @@ const { getTable } = require('../lib/tableClient');
 const { getSession, isAdmin } = require('../lib/adminAuth');
 
 const TABLE_NAME = 'FeedPosts';
+const VOTES_TABLE = 'FeedVotes';
+const COMMENTS_TABLE = 'Comments';
 const RATE_LIMIT_TABLE = 'RateLimits';
 const MAX_TEXT_LENGTH = 2000;
 const RATE_LIMIT_WINDOW_MS = 10 * 60 * 1000; // 10 minutes
@@ -108,7 +110,7 @@ async function checkRateLimit(userId) {
   return true;
 }
 
-function toClientShape(entity) {
+function toClientShape(entity, votes, commentCounts) {
   return {
     id: entity.rowKey,
     userId: entity.userId,
@@ -119,8 +121,60 @@ function toClientShape(entity) {
     // Only meaningful when attachmentType is 'link' -- the poster's own
     // label for the URL, never fetched/derived server-side (see postFeed).
     linkTitle: entity.linkTitle || null,
-    createdAt: entity.createdAt
+    createdAt: entity.createdAt,
+    upvotes: votes ? (votes.counts[entity.rowKey] || 0) : 0,
+    votedByMe: votes ? votes.mine.has(entity.rowKey) : false,
+    commentCount: commentCounts ? (commentCounts[entity.rowKey] || 0) : 0
   };
+}
+
+// FeedVotes has a single partition ('feed', same constant every row) —
+// there's only ever one feed, unlike CommentVotes which is partitioned per
+// page path — with RowKey `${postId}_${userId}`, so counting every vote on
+// every post is one scan, not one query per post.
+//
+// Best-effort: FeedVotes is a brand-new table that has to be provisioned in
+// the storage account before its first use (same manual step CommentVotes
+// needed) — until then this throws TableNotFound, and the public feed listing
+// shouldn't 500 just because voting hasn't been set up yet.
+async function loadFeedVotes(userId) {
+  const counts = {};
+  const mine = new Set();
+  try {
+    const table = getTable(VOTES_TABLE);
+    for await (const entity of table.listEntities({ queryOptions: { filter: `PartitionKey eq 'feed'` } })) {
+      const idx = entity.rowKey.lastIndexOf('_');
+      const postId = entity.rowKey.slice(0, idx);
+      const voterId = entity.rowKey.slice(idx + 1);
+      counts[postId] = (counts[postId] || 0) + 1;
+      if (userId && voterId === userId) mine.add(postId);
+    }
+  } catch {
+    // table not provisioned yet, or a transient storage hiccup — feed still
+    // renders, just with every post at zero votes.
+  }
+  return { counts, mine };
+}
+
+// Feed-post comments share the Comments table with module discussions
+// (partitionKey `feed:<postId>`, see comments.js's recentQuestions) — one
+// bounded scan for every post's count, rather than a request per post.
+async function loadCommentCounts() {
+  const counts = {};
+  try {
+    const table = getTable(COMMENTS_TABLE);
+    const prefix = encodeURIComponent('feed:');
+    for await (const entity of table.listEntities({
+      queryOptions: { filter: `startswith(PartitionKey, '${prefix}') and hidden eq false` }
+    })) {
+      const postId = decodeURIComponent(entity.partitionKey).slice('feed:'.length);
+      counts[postId] = (counts[postId] || 0) + 1;
+    }
+  } catch {
+    // best-effort, same reasoning as loadFeedVotes — a count glitch shouldn't
+    // take down the feed listing itself.
+  }
+  return counts;
 }
 
 // Public read, single 'feed' partition (personal-site scale — same "one
@@ -131,15 +185,50 @@ app.http('listFeed', {
   methods: ['GET'],
   authLevel: 'anonymous',
   route: 'feed',
-  handler: async () => {
+  handler: async (request) => {
+    const session = getSession(request);
     const table = getTable(TABLE_NAME);
+    const [votes, commentCounts] = await Promise.all([
+      loadFeedVotes(session && session.sub),
+      loadCommentCounts()
+    ]);
     const out = [];
     for await (const entity of table.listEntities({ queryOptions: { filter: `PartitionKey eq 'feed'` } })) {
-      out.push(toClientShape(entity));
+      out.push(toClientShape(entity, votes, commentCounts));
       if (out.length >= MAX_LIST) break;
     }
     out.sort((a, b) => (a.id < b.id ? 1 : -1));
     return { jsonBody: out };
+  }
+});
+
+// Upvote-only, toggle on repeat click — same shape as comments.js's
+// voteComment, just against FeedVotes' single 'feed' partition instead of
+// one partition per page path.
+app.http('voteFeedPost', {
+  methods: ['POST'],
+  authLevel: 'anonymous',
+  route: 'feed/vote',
+  handler: async (request) => {
+    const session = getSession(request);
+    if (!session) return { status: 401, jsonBody: { error: 'unauthenticated' } };
+
+    let body;
+    try { body = await request.json(); } catch { return { status: 400, jsonBody: { error: 'invalid body' } }; }
+    const id = typeof body.id === 'string' ? body.id : null;
+    if (!id) return { status: 400, jsonBody: { error: 'id is required' } };
+
+    const table = getTable(VOTES_TABLE);
+    const rowKey = `${id}_${session.sub}`;
+    try {
+      await table.getEntity('feed', rowKey);
+      await table.deleteEntity('feed', rowKey);
+      return { jsonBody: { voted: false } };
+    } catch (err) {
+      if (err.statusCode !== 404) throw err;
+      await table.createEntity({ partitionKey: 'feed', rowKey, postId: id, userId: session.sub, createdAt: new Date().toISOString() });
+      return { jsonBody: { voted: true } };
+    }
   }
 });
 

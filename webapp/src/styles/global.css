@@ -424,7 +424,7 @@ li.open > .row > .caret { transform: rotate(90deg); }
 }
 
 /* Links read as links: blue + underline. */
-#content a, #crumb a, .feed-post .comment-text a {
+#content a, #crumb a, .feed-card .comment-text a {
   color: var(--link);
   text-decoration: underline; text-underline-offset: 2px; text-decoration-thickness: 1px;
 }
@@ -1226,7 +1226,47 @@ body.right-rail-collapsed #toc { display: none; }
 }
 .signin-link:hover { opacity: .8; }
 
-/* ---------- community feed ---------- */
+/* ---------- feed ---------- */
+
+/* Round initials badge — the feed's own author avatar. Feed posts only ever
+   carry a displayName (see feed.js's toClientShape, no picture claim stored),
+   so unlike #authBtn .avatar this never tries a photo. */
+.feed-avatar {
+  display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+  width: 36px; height: 36px; border-radius: 50%;
+  background: var(--accent-subtle); color: var(--fg);
+  font-size: 14px; font-weight: 650;
+}
+
+.feed-composer {
+  display: flex; gap: 12px; align-items: flex-start;
+  padding: 14px; margin: 14px 0 18px;
+  border: 1px solid var(--border-subtle); border-radius: var(--r-lg); background: var(--bg-raised);
+}
+.feed-composer-signedout { align-items: center; justify-content: center; padding: 18px 14px; }
+.feed-composer-body { flex: 1; min-width: 0; }
+.feed-composer-body textarea {
+  width: 100%; resize: vertical; min-height: 44px;
+  font: inherit; font-size: 14px; padding: 10px 12px;
+  color: var(--fg); background: var(--bg-sunken);
+  border: 1px solid var(--border); border-radius: var(--r-md);
+}
+.feed-composer-actions { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 8px; }
+.feed-composer-tools { display: flex; gap: 4px; }
+.feed-tool-btn {
+  font-size: 12.5px; font-weight: 600; color: var(--fg-muted);
+  background: none; border: 1px solid transparent; border-radius: var(--r-sm);
+  padding: 6px 10px; cursor: pointer;
+}
+.feed-tool-btn:hover:not(:disabled) { background: var(--hover); color: var(--fg); }
+.feed-tool-btn:disabled { opacity: .5; cursor: default; }
+.feed-post-btn {
+  font-size: 13px; font-weight: 650; color: var(--accent-fg); background: var(--accent);
+  border: 1px solid var(--accent); border-radius: var(--r-sm); padding: 7px 18px; cursor: pointer;
+}
+.feed-post-btn:hover:not(:disabled) { opacity: .85; }
+.feed-post-btn:disabled { opacity: .4; cursor: default; }
+
 .feed-pending {
   display: flex; align-items: center; gap: 10px; margin-top: 8px; padding: 8px 10px;
   border: 1px solid var(--border); border-radius: var(--r-md); background: var(--bg-sunken);
@@ -1234,16 +1274,39 @@ body.right-rail-collapsed #toc { display: none; }
 .feed-pending img { max-width: 80px; max-height: 80px; border-radius: var(--r-sm); object-fit: cover; }
 .feed-pending button { font-size: 12px; color: var(--fg-subtle); background: none; border: 0; margin-left: auto; }
 .feed-pending button:hover { color: var(--fg); text-decoration: underline; }
-.feed-list { display: flex; flex-direction: column; }
-.feed-post { padding: 14px 0; border-bottom: 1px solid var(--border-subtle); }
-.feed-post-detail { border-bottom: 0; padding-bottom: 20px; }
-.feed-image { display: block; max-width: 100%; max-height: 360px; border-radius: var(--r-md); margin-top: 8px; }
 
-.feed-post-comments {
-  display: inline-flex; align-items: center; gap: 5px; margin-top: 8px;
-  font-size: 12.5px; color: var(--fg-subtle); background: none; border: 0; padding: 0; cursor: pointer;
+.feed-list { display: flex; flex-direction: column; gap: 12px; }
+.feed-card {
+  padding: 16px; border: 1px solid var(--border-subtle); border-radius: var(--r-lg);
+  background: var(--bg-raised);
 }
-.feed-post-comments:hover { color: var(--fg); text-decoration: underline; }
+.feed-card-detail { padding: 18px; }
+.feed-card-head { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+.feed-card-head-text { display: flex; flex-direction: column; min-width: 0; }
+.feed-card-head-text strong { font-size: 13.5px; color: var(--fg); }
+.feed-card-head-text span { font-size: 12px; color: var(--fg-subtle); }
+.feed-delete-btn {
+  margin-left: auto; flex-shrink: 0; display: flex; align-items: center; gap: 4px;
+  font-size: 12px; color: var(--fg-subtle); background: none;
+  border: 0; border-radius: var(--r-sm); padding: 6px; cursor: pointer;
+}
+.feed-delete-btn svg { width: 14px; height: 14px; }
+.feed-delete-btn:hover { color: var(--danger); background: var(--hover); }
+
+.feed-card-actions {
+  display: flex; gap: 6px; margin-top: 12px; padding-top: 10px;
+  border-top: 1px solid var(--border-subtle);
+}
+.feed-vote-btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 12.5px; font-weight: 600; color: var(--fg-muted);
+  background: none; border: 1px solid var(--border-subtle); border-radius: 999px;
+  padding: 6px 14px; cursor: pointer;
+}
+.feed-vote-btn:hover { background: var(--hover); color: var(--fg); }
+.feed-vote-btn.on { background: var(--accent-subtle); border-color: var(--accent); color: var(--accent); }
+
+.feed-image { display: block; max-width: 100%; max-height: 360px; border-radius: var(--r-md); margin-top: 8px; }
 
 .back-link {
   display: inline-block; margin-bottom: 14px; font-size: 13px; color: var(--fg-subtle);

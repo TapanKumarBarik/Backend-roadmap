@@ -87,10 +87,41 @@ export async function deleteComment(path, id) {
   if (!res.ok) throw new Error('failed to delete comment');
 }
 
+// A short-lived, shared cache: the feed is fetched from three independent
+// call sites (FeedView, PostDetailView, useFeedActivity's badge check) that
+// often mount within the same page load, and none of them needs data any
+// fresher than a few seconds old. One in-flight request is shared instead of
+// three, and a repeat call inside the TTL window skips the network entirely.
+const FEED_CACHE_MS = 15000;
+let feedCache = null; // { data, ts }
+let feedInflight = null;
+
 export async function fetchFeed() {
-  const res = await fetch('/api/feed');
-  if (!res.ok) throw new Error('failed to load feed');
-  return res.json();
+  const now = Date.now();
+  if (feedCache && now - feedCache.ts < FEED_CACHE_MS) return feedCache.data;
+  if (feedInflight) return feedInflight;
+  feedInflight = fetch('/api/feed')
+    .then((res) => {
+      if (!res.ok) throw new Error('failed to load feed');
+      return res.json();
+    })
+    .then((data) => {
+      feedCache = { data, ts: Date.now() };
+      feedInflight = null;
+      return data;
+    })
+    .catch((err) => {
+      feedInflight = null;
+      throw err;
+    });
+  return feedInflight;
+}
+
+// Called after any write that makes the cached list stale (post, delete,
+// vote) — cheaper than re-fetching immediately, since the caller usually
+// already knows the one row that changed and can patch its own local state.
+export function invalidateFeedCache() {
+  feedCache = null;
 }
 
 // linkTitle only means anything when attachmentType is 'link' -- the
@@ -105,6 +136,7 @@ export async function postFeedItem(text, attachmentUrl, attachmentType, linkTitl
     const body = await res.json().catch(() => ({}));
     throw new Error(body.error || 'failed to post');
   }
+  invalidateFeedCache();
   return res.json();
 }
 
@@ -124,6 +156,18 @@ export async function uploadFeedFile(filename, contentType, dataBase64) {
 export async function deleteFeedPost(id) {
   const res = await fetch('/api/manage/feed?id=' + encodeURIComponent(id), { method: 'DELETE' });
   if (!res.ok) throw new Error('failed to delete post');
+  invalidateFeedCache();
+}
+
+export async function voteFeedPost(id) {
+  const res = await fetch('/api/feed/vote', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id })
+  });
+  if (!res.ok) throw new Error('failed to vote');
+  invalidateFeedCache();
+  return res.json();
 }
 
 // The user directory, joined with per-person activity counts, plus the
