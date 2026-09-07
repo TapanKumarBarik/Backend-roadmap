@@ -1308,6 +1308,52 @@ body.right-rail-collapsed #toc { display: none; }
 
 .feed-image { display: block; max-width: 100%; max-height: 360px; border-radius: var(--r-md); margin-top: 8px; }
 
+/* Feed posts render real (sanitized) markdown — see renderUserMarkdown.js —
+   so unlike plain .comment-text this can contain headings/lists/quotes.
+   Sized for a card's 14.5px body rather than #content's full-article scale. */
+.feed-md :first-child { margin-top: 0; }
+.feed-md :last-child { margin-bottom: 0; }
+.feed-md p { margin: 0 0 10px; }
+.feed-md h1, .feed-md h2, .feed-md h3, .feed-md h4, .feed-md h5, .feed-md h6 {
+  font-weight: 680; line-height: 1.3; margin: 16px 0 8px;
+}
+.feed-md h1 { font-size: 18px; }
+.feed-md h2 { font-size: 16.5px; }
+.feed-md h3, .feed-md h4, .feed-md h5, .feed-md h6 { font-size: 14.5px; }
+.feed-md ul, .feed-md ol { margin: 0 0 10px; padding-left: 22px; }
+.feed-md li { margin: 3px 0; }
+.feed-md blockquote {
+  margin: 0 0 10px; padding: 2px 12px; border-left: 3px solid var(--border);
+  color: var(--fg-muted);
+}
+.feed-md code {
+  font: 12.5px var(--mono); background: var(--bg-sunken);
+  padding: 1px 5px; border-radius: 4px;
+}
+.feed-md pre {
+  margin: 0 0 10px; padding: 10px 12px; overflow-x: auto;
+  background: var(--bg-sunken); border-radius: var(--r-md);
+}
+.feed-md pre code { padding: 0; background: none; }
+.feed-md hr { border: 0; border-top: 1px solid var(--border-subtle); margin: 14px 0; }
+
+/* Facebook-style clamp: a fixed max-height + a fade to the card's own
+   background (rather than measuring real overflow) — simple and correct
+   at this scale since CLAMP_THRESHOLD already only applies it to posts
+   long enough that clipping is a safe bet. */
+.feed-text-clamped {
+  max-height: 220px; overflow: hidden; position: relative;
+}
+.feed-text-clamped::after {
+  content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 56px;
+  background: linear-gradient(to bottom, transparent, var(--bg-raised));
+}
+.feed-see-more {
+  display: block; margin-top: 4px; font-size: 13px; font-weight: 600;
+  color: var(--link); background: none; border: 0; padding: 0; cursor: pointer;
+}
+.feed-see-more:hover { text-decoration: underline; }
+
 .back-link {
   display: inline-block; margin-bottom: 14px; font-size: 13px; color: var(--fg-subtle);
   background: none; border: 0; padding: 0; cursor: pointer;

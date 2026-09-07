@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { fetchFeed, deleteFeedPost, voteFeedPost } from '../../lib/api.js';
-import { linkify } from '../../lib/linkify.jsx';
+import { renderUserMarkdown } from '../../lib/renderUserMarkdown.js';
 import FeedAttachment from './FeedAttachment.jsx';
 import CommentsSection from '../article/CommentsSection.jsx';
 
@@ -81,7 +81,9 @@ export default function PostDetailView({ postId, user, onLogin, onBack, onToast 
               )}
             </div>
 
-            {post.text && <div className="comment-text">{linkify(post.text)}</div>}
+            {post.text && (
+              <div className="comment-text feed-md" dangerouslySetInnerHTML={{ __html: renderUserMarkdown(post.text) }} />
+            )}
 
             <FeedAttachment post={post} />
 

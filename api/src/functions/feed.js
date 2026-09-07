@@ -7,7 +7,11 @@ const TABLE_NAME = 'FeedPosts';
 const VOTES_TABLE = 'FeedVotes';
 const COMMENTS_TABLE = 'Comments';
 const RATE_LIMIT_TABLE = 'RateLimits';
-const MAX_TEXT_LENGTH = 2000;
+// High enough for a real long-form post (an essay, a write-up) rather than
+// just a status update — comments.js keeps its own cap at 2000 deliberately,
+// since a reply/question has no reason to run long; a feed post does. Table
+// Storage's string-property limit is 64KB, so this is nowhere near it.
+const MAX_TEXT_LENGTH = 20000;
 const RATE_LIMIT_WINDOW_MS = 10 * 60 * 1000; // 10 minutes
 const RATE_LIMIT_MAX = 10; // posts per window, per user
 const MAX_LIST = 200;

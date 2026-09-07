@@ -1,12 +1,18 @@
 import { useRef, useState, useEffect } from 'react';
 import { fetchFeed, postFeedItem, uploadFeedFile, deleteFeedPost, voteFeedPost } from '../../lib/api.js';
-import { linkify } from '../../lib/linkify.jsx';
+import { renderUserMarkdown } from '../../lib/renderUserMarkdown.js';
 import FeedAttachment from './FeedAttachment.jsx';
 import { TrashIcon } from '../icons.jsx';
 
 function initialsOf(name) {
   return (name || '?').trim()[0]?.toUpperCase() || '?';
 }
+
+// Past this many characters a post gets visually clamped in the list (a
+// fixed max-height + fade, see .feed-text-clamped) with a "See more" that
+// opens the full post — same shape as Facebook's feed, so a long write-up
+// doesn't push every other post below it off screen.
+const CLAMP_THRESHOLD = 500;
 
 const ACCEPT = [
   'image/png', 'image/jpeg', 'image/webp', 'image/gif',
@@ -221,7 +227,7 @@ export default function FeedView({ user, onLogin, onToast, onOpenPost, embedded 
                 ref={fileInputRef} style={{ display: 'none' }} onChange={handleFilePick}
               />
               <p className="feed-hint">
-                Images, PDF, Word/PowerPoint/Excel, or markdown/text — up to 15MB.
+                Markdown supported. Images, PDF, Word/PowerPoint/Excel, or markdown/text — up to 15MB.
               </p>
             </div>
           </div>
@@ -253,7 +259,15 @@ export default function FeedView({ user, onLogin, onToast, onOpenPost, embedded 
               )}
             </div>
 
-            {p.text && <div className="comment-text">{linkify(p.text)}</div>}
+            {p.text && (
+              <div
+                className={'comment-text feed-md' + (p.text.length > CLAMP_THRESHOLD ? ' feed-text-clamped' : '')}
+                dangerouslySetInnerHTML={{ __html: renderUserMarkdown(p.text) }}
+              />
+            )}
+            {p.text && p.text.length > CLAMP_THRESHOLD && onOpenPost && (
+              <button className="feed-see-more" onClick={() => onOpenPost(p.id)}>See more</button>
+            )}
 
             <FeedAttachment post={p} />
 
