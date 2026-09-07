@@ -353,7 +353,13 @@ app.http('uploadFeedFile', {
       'x-ms-blob-type': 'BlockBlob',
       'x-ms-version': '2021-08-06',
       'Content-Type': contentType,
-      'Content-Length': String(buffer.length)
+      'Content-Length': String(buffer.length),
+      // blobName is Date.now()-prefixed and never overwritten (a re-upload
+      // always gets a new name), so it's safe for browsers/any CDN in front
+      // of this origin to cache the bytes forever without ever revalidating
+      // -- this is the fix that actually matters for repeat views: without
+      // it, every image reload re-downloads the full file from blob storage.
+      'x-ms-blob-cache-control': 'public, max-age=31536000, immutable'
     };
     if (spec.kind !== 'image' && spec.kind !== 'pdf') {
       const safeDownloadName = `${safeName}.${spec.ext}`.replace(/"/g, '');

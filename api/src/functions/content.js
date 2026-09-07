@@ -127,7 +127,11 @@ app.http('uploadImage', {
         'x-ms-blob-type': 'BlockBlob',
         'x-ms-version': '2021-08-06',
         'Content-Type': contentType,
-        'Content-Length': String(buffer.length)
+        'Content-Length': String(buffer.length),
+        // Same reasoning as feed.js's uploadFeedFile: blobName is timestamp-
+        // prefixed and never reused, so caching it forever is safe and is
+        // what actually fixes slow repeat loads of content images.
+        'x-ms-blob-cache-control': 'public, max-age=31536000, immutable'
       },
       body: buffer
     });

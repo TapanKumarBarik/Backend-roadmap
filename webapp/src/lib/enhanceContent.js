@@ -54,6 +54,16 @@ import { escapeHtml } from './escapeHtml.js';
 // across renders on the same container node just like the vanilla app kept
 // one #content element and swapped its innerHTML.
 export function enhanceContent(root) {
+  // marked() emits bare <img> tags with none of this — the browser would
+  // otherwise fetch every image in a module up front, decode each
+  // synchronously on the main thread, and block on whichever's slowest.
+  // `loading="lazy"` only affects images the browser judges to be off-
+  // screen at layout time, so this is free for anything already in view.
+  root.querySelectorAll('img').forEach((img) => {
+    if (!img.hasAttribute('loading')) img.loading = 'lazy';
+    if (!img.hasAttribute('decoding')) img.decoding = 'async';
+  });
+
   const used = {};
   root.querySelectorAll('h1, h2, h3, h4').forEach((h) => {
     let id = slugify(h.textContent);

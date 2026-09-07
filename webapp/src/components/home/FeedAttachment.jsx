@@ -54,7 +54,7 @@ export default function FeedAttachment({ post }) {
   if (kind === 'image') {
     return (
       <a href={url} target="_blank" rel="noopener noreferrer">
-        <img className="feed-image" src={url} alt="" />
+        <img className="feed-image" src={url} alt="" loading="lazy" decoding="async" />
       </a>
     );
   }
