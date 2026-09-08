@@ -12,6 +12,7 @@ import Placeholder from '@tiptap/extension-placeholder';
 import UniqueID from '@tiptap/extension-unique-id';
 import { DragHandle } from '@tiptap/extension-drag-handle-react';
 import { uploadFeedFile } from '../../lib/api.js';
+import { BulletListIcon, OrderedListIcon, TaskListIcon, QuoteIcon, TableIcon, ImageIcon, PlusIcon } from './toolbarIcons.jsx';
 
 const EXTENSIONS = [
   StarterKit.configure({ heading: { levels: [1, 2, 3] } }),
@@ -22,7 +23,7 @@ const EXTENSIONS = [
   TableHeader,
   TableCell,
   Image,
-  Placeholder.configure({ placeholder: "Type something, or use the toolbar to add a to-do, table, or image…" }),
+  Placeholder.configure({ placeholder: 'Write something, or pick a block type above…' }),
   UniqueID.configure({ types: 'all' })
 ];
 
@@ -100,30 +101,60 @@ export default function BlockEditor({ page, onSave, onToast }) {
     }
   }
 
+  // A to-do gets its own accent-colored action, not just another list type
+  // buried among bullet/numbered/quote — this is the one block type the
+  // workspace is built around as much as free text.
+  function addTask() {
+    editor.chain().focus();
+    if (!editor.isActive('taskList')) editor.chain().focus().toggleTaskList().run();
+    else editor.chain().focus().splitListItem('taskItem').run();
+  }
+
   return (
     <div className="ws-editor-wrap">
       <div className="ws-toolbar">
-        <ToolbarButton title="Bold" active={editor.isActive('bold')} onClick={() => editor.chain().focus().toggleBold().run()}><strong>B</strong></ToolbarButton>
-        <ToolbarButton title="Italic" active={editor.isActive('italic')} onClick={() => editor.chain().focus().toggleItalic().run()}><em>I</em></ToolbarButton>
-        <ToolbarButton title="Strikethrough" active={editor.isActive('strike')} onClick={() => editor.chain().focus().toggleStrike().run()}><s>S</s></ToolbarButton>
-        <span className="ws-tb-sep" />
-        <ToolbarButton title="Heading 1" active={editor.isActive('heading', { level: 1 })} onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()}>H1</ToolbarButton>
-        <ToolbarButton title="Heading 2" active={editor.isActive('heading', { level: 2 })} onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()}>H2</ToolbarButton>
-        <ToolbarButton title="Heading 3" active={editor.isActive('heading', { level: 3 })} onClick={() => editor.chain().focus().toggleHeading({ level: 3 }).run()}>H3</ToolbarButton>
-        <span className="ws-tb-sep" />
-        <ToolbarButton title="Bullet list" active={editor.isActive('bulletList')} onClick={() => editor.chain().focus().toggleBulletList().run()}>•—</ToolbarButton>
-        <ToolbarButton title="Numbered list" active={editor.isActive('orderedList')} onClick={() => editor.chain().focus().toggleOrderedList().run()}>1.</ToolbarButton>
-        <ToolbarButton title="To-do checklist" active={editor.isActive('taskList')} onClick={() => editor.chain().focus().toggleTaskList().run()}>☑</ToolbarButton>
-        <ToolbarButton title="Quote" active={editor.isActive('blockquote')} onClick={() => editor.chain().focus().toggleBlockquote().run()}>”</ToolbarButton>
-        <span className="ws-tb-sep" />
-        <ToolbarButton title="Insert table" onClick={() => editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run()}>▦</ToolbarButton>
-        <ToolbarButton title="Insert image" onClick={() => fileInputRef.current?.click()}>🖼️</ToolbarButton>
+        <button type="button" className="ws-add-task" onMouseDown={(e) => e.preventDefault()} onClick={addTask} title="Add a to-do">
+          <PlusIcon /> To-do
+        </button>
+
+        <div className="ws-tb-group">
+          <ToolbarButton title="Bold" active={editor.isActive('bold')} onClick={() => editor.chain().focus().toggleBold().run()}><strong>B</strong></ToolbarButton>
+          <ToolbarButton title="Italic" active={editor.isActive('italic')} onClick={() => editor.chain().focus().toggleItalic().run()}><em>I</em></ToolbarButton>
+          <ToolbarButton title="Strikethrough" active={editor.isActive('strike')} onClick={() => editor.chain().focus().toggleStrike().run()}><s>S</s></ToolbarButton>
+        </div>
+
+        <div className="ws-tb-group">
+          <ToolbarButton title="Heading 1" active={editor.isActive('heading', { level: 1 })} onClick={() => editor.chain().focus().toggleHeading({ level: 1 }).run()}>H1</ToolbarButton>
+          <ToolbarButton title="Heading 2" active={editor.isActive('heading', { level: 2 })} onClick={() => editor.chain().focus().toggleHeading({ level: 2 }).run()}>H2</ToolbarButton>
+          <ToolbarButton title="Heading 3" active={editor.isActive('heading', { level: 3 })} onClick={() => editor.chain().focus().toggleHeading({ level: 3 }).run()}>H3</ToolbarButton>
+        </div>
+
+        <div className="ws-tb-group">
+          <ToolbarButton title="Bullet list" active={editor.isActive('bulletList')} onClick={() => editor.chain().focus().toggleBulletList().run()}><BulletListIcon /></ToolbarButton>
+          <ToolbarButton title="Numbered list" active={editor.isActive('orderedList')} onClick={() => editor.chain().focus().toggleOrderedList().run()}><OrderedListIcon /></ToolbarButton>
+          <ToolbarButton title="To-do checklist" active={editor.isActive('taskList')} onClick={() => editor.chain().focus().toggleTaskList().run()}><TaskListIcon /></ToolbarButton>
+          <ToolbarButton title="Quote" active={editor.isActive('blockquote')} onClick={() => editor.chain().focus().toggleBlockquote().run()}><QuoteIcon /></ToolbarButton>
+        </div>
+
+        <div className="ws-tb-group">
+          <ToolbarButton title="Insert table" onClick={() => editor.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run()}><TableIcon /></ToolbarButton>
+          <ToolbarButton title="Insert image" onClick={() => fileInputRef.current?.click()}><ImageIcon /></ToolbarButton>
+        </div>
         <input type="file" accept="image/png,image/jpeg,image/webp,image/gif" ref={fileInputRef} style={{ display: 'none' }} onChange={handleImagePick} />
-        <span className="ws-save-status">{status === 'saving' ? 'Saving…' : status === 'saved' ? 'Saved' : ''}</span>
+
+        <span className={'ws-save-status' + (status === 'saving' ? ' saving' : '')}>
+          {status === 'saving' ? 'Saving…' : status === 'saved' ? 'Saved' : ''}
+        </span>
       </div>
 
       <DragHandle editor={editor}>
-        <div className="ws-drag-handle" aria-hidden="true">⠿</div>
+        <div className="ws-drag-handle" aria-hidden="true">
+          <svg viewBox="0 0 10 16" width="10" height="16" fill="currentColor">
+            <circle cx="2.5" cy="3" r="1.3" /><circle cx="7.5" cy="3" r="1.3" />
+            <circle cx="2.5" cy="8" r="1.3" /><circle cx="7.5" cy="8" r="1.3" />
+            <circle cx="2.5" cy="13" r="1.3" /><circle cx="7.5" cy="13" r="1.3" />
+          </svg>
+        </div>
       </DragHandle>
 
       <EditorContent editor={editor} className="ws-editor" />

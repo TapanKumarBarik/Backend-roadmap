@@ -1788,121 +1788,186 @@ a.feed-attachment { text-decoration: none; margin-top: 8px; max-width: 420px; }
 
 /* ---------- workspace (personal Notion-style pages) ---------- */
 
-.ws-layout { display: grid; grid-template-columns: 240px 1fr; gap: 18px; align-items: start; }
+.ws-shell { --ws-radius: 14px; }
+.ws-layout { display: grid; grid-template-columns: 260px 1fr; gap: 20px; align-items: start; }
 @media (max-width: 860px) { .ws-layout { grid-template-columns: 1fr; } }
 
 .ws-tree {
-  border: 1px solid var(--border-subtle); border-radius: var(--r-lg);
-  background: var(--bg-raised); padding: 8px; position: sticky; top: 12px;
+  border: 1px solid var(--border-subtle); border-radius: var(--ws-radius);
+  background: var(--bg-raised); padding: 10px; position: sticky; top: 12px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, .03);
 }
 .ws-tree-head {
   display: flex; align-items: center; justify-content: space-between; gap: 8px;
-  padding: 4px 6px 8px; font-size: 12.5px; font-weight: 650; color: var(--fg-subtle);
+  padding: 4px 6px 10px; font-size: 12px; font-weight: 700; letter-spacing: .02em;
+  color: var(--fg-subtle); text-transform: uppercase;
 }
 .ws-tree-head span { display: flex; align-items: center; gap: 6px; }
-.ws-tree-head svg { width: 14px; height: 14px; }
+.ws-tree-head svg { width: 13px; height: 13px; }
 .ws-new-page {
-  font-size: 11.5px; font-weight: 600; color: var(--fg-muted); background: none;
-  border: 1px solid var(--border-subtle); border-radius: var(--r-sm); padding: 3px 8px; cursor: pointer;
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 12px; font-weight: 650; color: var(--accent-fg); background: var(--accent);
+  border: 1px solid var(--accent); border-radius: 999px; padding: 4px 10px 4px 8px; cursor: pointer;
+  text-transform: none; letter-spacing: normal;
 }
-.ws-new-page:hover { background: var(--hover); color: var(--fg); }
-.ws-empty { color: var(--fg-subtle); font-size: 13px; padding: 6px; }
+.ws-new-page svg { width: 11px; height: 11px; }
+.ws-new-page:hover { opacity: .85; }
+.ws-empty { color: var(--fg-subtle); font-size: 13px; padding: 10px 6px; }
 
 .ws-row {
-  display: flex; align-items: center; gap: 2px; border-radius: var(--r-sm);
-  padding: 2px; min-width: 0;
+  display: flex; align-items: center; gap: 4px; border-radius: var(--r-md);
+  padding: 5px 4px; min-width: 0;
 }
 .ws-row:hover { background: var(--hover); }
 .ws-row.on { background: var(--accent-subtle); }
 .ws-expand {
   flex-shrink: 0; width: 18px; height: 22px; display: flex; align-items: center; justify-content: center;
-  background: none; border: 0; color: var(--fg-subtle); cursor: pointer; padding: 0;
+  background: none; border: 0; color: var(--fg-subtle); cursor: pointer; padding: 0; border-radius: var(--r-sm);
 }
-.ws-expand svg { width: 10px; height: 10px; transition: transform .1s; }
+.ws-expand:hover:not(.empty) { background: var(--active); }
+.ws-expand svg { width: 9px; height: 9px; transition: transform .12s ease; }
 .ws-expand.empty { visibility: hidden; }
 .ws-title {
-  flex: 1; min-width: 0; text-align: left; background: none; border: 0; padding: 3px 4px;
-  font-size: 13px; color: var(--fg); cursor: pointer; border-radius: var(--r-sm);
+  flex: 1; min-width: 0; text-align: left; background: none; border: 0; padding: 4px 6px;
+  font-size: 13.5px; color: var(--fg); cursor: pointer; border-radius: var(--r-sm);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
+.ws-row.on .ws-title { font-weight: 650; }
 .ws-rename-input {
-  flex: 1; min-width: 0; font: inherit; font-size: 13px; padding: 3px 4px;
-  color: var(--fg); background: var(--bg-sunken); border: 1px solid var(--border); border-radius: var(--r-sm);
+  flex: 1; min-width: 0; font: inherit; font-size: 13.5px; padding: 4px 6px;
+  color: var(--fg); background: var(--bg-sunken); border: 1px solid var(--accent); border-radius: var(--r-sm);
 }
-.ws-row-acts { display: none; flex-shrink: 0; align-items: center; gap: 1px; }
+.ws-row-acts { display: none; flex-shrink: 0; align-items: center; gap: 2px; }
 .ws-row:hover .ws-row-acts, .ws-row.on .ws-row-acts { display: flex; }
-.ws-row-acts button {
-  width: 20px; height: 20px; display: flex; align-items: center; justify-content: center;
-  background: none; border: 0; color: var(--fg-subtle); font-size: 11px; cursor: pointer; border-radius: var(--r-sm); padding: 0;
+.ws-icon-btn {
+  width: 22px; height: 22px; display: flex; align-items: center; justify-content: center;
+  background: none; border: 0; color: var(--fg-subtle); cursor: pointer; border-radius: var(--r-sm); padding: 0;
 }
-.ws-row-acts button svg { width: 11px; height: 11px; }
-.ws-row-acts button:hover:not(:disabled) { background: var(--active); color: var(--fg); }
-.ws-row-acts button:disabled { opacity: .3; cursor: default; }
-.ws-children { margin-left: 18px; border-left: 1px solid var(--border-subtle); padding-left: 4px; }
+.ws-icon-btn svg { width: 13px; height: 13px; }
+.ws-icon-btn:hover:not(:disabled) { background: var(--active); color: var(--fg); }
+.ws-icon-btn:disabled { opacity: .3; cursor: default; }
+.ws-children { margin-left: 20px; border-left: 1px solid var(--border-subtle); padding-left: 6px; }
+
+/* the row "..." menu */
+.ws-row-menu { position: relative; }
+.ws-row-menu-pop {
+  position: absolute; right: 0; top: calc(100% + 4px); z-index: 10; min-width: 210px;
+  background: var(--bg-raised); border: 1px solid var(--border-subtle); border-radius: var(--r-md);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .12); padding: 4px; display: flex; flex-direction: column;
+}
+.ws-row-menu-pop button {
+  display: flex; align-items: center; gap: 8px; text-align: left;
+  font-size: 13px; color: var(--fg); background: none; border: 0; border-radius: var(--r-sm);
+  padding: 7px 9px; cursor: pointer; width: 100%;
+}
+.ws-row-menu-pop button svg { width: 13px; height: 13px; flex-shrink: 0; }
+.ws-row-menu-pop button:hover:not(:disabled) { background: var(--hover); }
+.ws-row-menu-pop button:disabled { opacity: .35; cursor: default; }
+.ws-row-menu-pop button.danger { color: var(--danger); }
+.ws-row-menu-pop button.danger:hover { background: color-mix(in srgb, var(--danger) 12%, transparent); }
+.ws-row-menu-sep { height: 1px; background: var(--border-subtle); margin: 4px 2px; }
 
 .ws-main {
-  border: 1px solid var(--border-subtle); border-radius: var(--r-lg);
-  background: var(--bg-raised); min-height: 320px; padding: 10px 16px 20px;
+  border: 1px solid var(--border-subtle); border-radius: var(--ws-radius);
+  background: var(--bg-raised); min-height: 420px; padding: 6px 28px 32px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, .03);
 }
 
 .ws-toast {
   position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
-  background: var(--accent); color: var(--accent-fg); font-size: 13px;
-  padding: 8px 16px; border-radius: var(--r-md); z-index: 50;
+  background: var(--accent); color: var(--accent-fg); font-size: 13px; font-weight: 600;
+  padding: 9px 18px; border-radius: 999px; z-index: 50; box-shadow: 0 6px 20px rgba(0, 0, 0, .18);
 }
 
 /* --- toolbar --- */
 .ws-toolbar {
-  display: flex; align-items: center; gap: 2px; flex-wrap: wrap;
-  padding: 6px 0 10px; border-bottom: 1px solid var(--border-subtle); margin-bottom: 12px;
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  padding: 14px 0 12px; border-bottom: 1px solid var(--border-subtle); margin-bottom: 18px;
   position: sticky; top: 0; background: var(--bg-raised); z-index: 2;
 }
-.ws-tb-btn {
-  min-width: 26px; height: 26px; padding: 0 6px; display: flex; align-items: center; justify-content: center;
-  font-size: 12.5px; color: var(--fg-muted); background: none; border: 1px solid transparent; border-radius: var(--r-sm); cursor: pointer;
+.ws-tb-group {
+  display: flex; align-items: center; gap: 1px;
+  background: var(--bg-sunken); border-radius: var(--r-md); padding: 2px;
 }
-.ws-tb-btn:hover { background: var(--hover); color: var(--fg); }
-.ws-tb-btn.on { background: var(--accent-subtle); border-color: var(--accent); color: var(--accent); }
-.ws-tb-sep { width: 1px; height: 18px; background: var(--border-subtle); margin: 0 4px; }
-.ws-save-status { margin-left: auto; font-size: 11.5px; color: var(--fg-subtle); padding: 0 4px; }
+.ws-tb-btn {
+  min-width: 28px; height: 28px; padding: 0 7px; display: flex; align-items: center; justify-content: center;
+  font-size: 12.5px; color: var(--fg-muted); background: none; border: 0; border-radius: var(--r-sm); cursor: pointer;
+}
+.ws-tb-btn svg { width: 15px; height: 15px; }
+.ws-tb-btn:hover { background: var(--bg-raised); color: var(--fg); }
+.ws-tb-btn.on { background: var(--bg-raised); color: var(--accent); box-shadow: 0 1px 2px rgba(0, 0, 0, .06); }
+
+.ws-add-task {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 12.5px; font-weight: 650; color: var(--accent-fg); background: var(--accent);
+  border: 0; border-radius: 999px; padding: 6px 12px 6px 9px; cursor: pointer;
+}
+.ws-add-task svg { width: 12px; height: 12px; }
+.ws-add-task:hover { opacity: .88; }
+
+.ws-save-status {
+  margin-left: auto; font-size: 11px; font-weight: 600; color: var(--fg-subtle);
+  padding: 3px 9px; border-radius: 999px; background: var(--bg-sunken);
+}
+.ws-save-status.saving { color: var(--accent); }
+.ws-save-status:empty { padding: 0; background: none; }
 
 /* --- the ProseMirror document itself --- */
 .ws-editor-wrap { position: relative; }
-.ws-editor .ProseMirror { outline: none; font-size: 14.5px; line-height: 1.65; color: var(--fg); min-height: 200px; }
-.ws-editor .ProseMirror p { margin: 0 0 10px; }
+.ws-editor .ProseMirror { outline: none; font-size: 15px; line-height: 1.7; color: var(--fg); min-height: 280px; }
+.ws-editor .ProseMirror p { margin: 0 0 12px; }
 .ws-editor .ProseMirror p.is-editor-empty:first-child::before {
   content: attr(data-placeholder); float: left; height: 0; color: var(--fg-subtle); pointer-events: none;
 }
 .ws-editor .ProseMirror h1, .ws-editor .ProseMirror h2, .ws-editor .ProseMirror h3 {
-  font-weight: 680; line-height: 1.3; margin: 18px 0 8px;
+  font-weight: 700; line-height: 1.3; margin: 26px 0 10px;
 }
-.ws-editor .ProseMirror h1 { font-size: 22px; }
-.ws-editor .ProseMirror h2 { font-size: 18px; }
-.ws-editor .ProseMirror h3 { font-size: 15.5px; }
-.ws-editor .ProseMirror ul, .ws-editor .ProseMirror ol { margin: 0 0 10px; padding-left: 24px; }
-.ws-editor .ProseMirror li { margin: 3px 0; }
+.ws-editor .ProseMirror h1 { font-size: 24px; }
+.ws-editor .ProseMirror h2 { font-size: 19px; }
+.ws-editor .ProseMirror h3 { font-size: 16px; }
+.ws-editor .ProseMirror ul, .ws-editor .ProseMirror ol { margin: 0 0 12px; padding-left: 26px; }
+.ws-editor .ProseMirror li { margin: 4px 0; }
 .ws-editor .ProseMirror blockquote {
-  margin: 0 0 10px; padding: 2px 14px; border-left: 3px solid var(--border); color: var(--fg-muted);
+  margin: 0 0 12px; padding: 4px 16px; border-left: 3px solid var(--accent); color: var(--fg-muted); font-style: italic;
 }
-.ws-editor .ProseMirror img { max-width: 100%; border-radius: var(--r-md); margin: 6px 0; }
-.ws-editor .ProseMirror code { font: 12.5px var(--mono); background: var(--bg-sunken); padding: 1px 5px; border-radius: 4px; }
-.ws-editor .ProseMirror pre { padding: 10px 12px; background: var(--bg-sunken); border-radius: var(--r-md); overflow-x: auto; margin: 0 0 10px; }
+.ws-editor .ProseMirror img { max-width: 100%; border-radius: var(--r-md); margin: 8px 0; display: block; }
+.ws-editor .ProseMirror code { font: 13px var(--mono); background: var(--bg-sunken); padding: 2px 6px; border-radius: 4px; }
+.ws-editor .ProseMirror pre { padding: 12px 14px; background: var(--bg-sunken); border-radius: var(--r-md); overflow-x: auto; margin: 0 0 12px; }
 .ws-editor .ProseMirror pre code { padding: 0; background: none; }
 
-/* task list */
+/* task list — a real custom checkbox (native input hidden, a styled box
+   drawn instead) rather than the browser's own tiny checkbox, which is
+   what "make the to-do" was really asking to fix. */
 .ws-editor .ProseMirror ul[data-type="taskList"] { list-style: none; padding-left: 2px; }
-.ws-editor .ProseMirror ul[data-type="taskList"] li { display: flex; align-items: flex-start; gap: 8px; }
-.ws-editor .ProseMirror ul[data-type="taskList"] li > label { flex-shrink: 0; margin-top: 3px; user-select: none; }
+.ws-editor .ProseMirror ul[data-type="taskList"] li {
+  display: flex; align-items: flex-start; gap: 10px; margin: 6px 0;
+}
+.ws-editor .ProseMirror ul[data-type="taskList"] li > label {
+  flex-shrink: 0; margin-top: 2px; -webkit-user-select: none; user-select: none; display: flex;
+}
 .ws-editor .ProseMirror ul[data-type="taskList"] li > div { flex: 1; min-width: 0; }
 .ws-editor .ProseMirror ul[data-type="taskList"] li[data-checked="true"] > div { color: var(--fg-subtle); text-decoration: line-through; }
-.ws-editor .ProseMirror ul[data-type="taskList"] input[type="checkbox"] { width: 15px; height: 15px; cursor: pointer; }
+.ws-editor .ProseMirror ul[data-type="taskList"] input[type="checkbox"] {
+  -webkit-appearance: none; appearance: none; width: 18px; height: 18px; margin: 0;
+  border: 1.6px solid var(--border); border-radius: 5px; cursor: pointer; position: relative;
+  background: var(--bg-raised); transition: background .1s, border-color .1s;
+}
+.ws-editor .ProseMirror ul[data-type="taskList"] input[type="checkbox"]:hover { border-color: var(--accent); }
+.ws-editor .ProseMirror ul[data-type="taskList"] input[type="checkbox"]:checked {
+  background: var(--accent); border-color: var(--accent);
+}
+.ws-editor .ProseMirror ul[data-type="taskList"] input[type="checkbox"]:checked::after {
+  content: ''; position: absolute; left: 5px; top: 1.5px; width: 5px; height: 9px;
+  border: solid var(--accent-fg); border-width: 0 2px 2px 0; transform: rotate(45deg);
+}
 
 /* table */
 .ws-editor .ProseMirror table {
-  border-collapse: collapse; width: 100%; margin: 0 0 12px; table-layout: fixed; overflow: hidden;
+  border-collapse: collapse; width: 100%; margin: 4px 0 14px; table-layout: fixed; overflow: hidden;
+  border-radius: var(--r-md); border: 1px solid var(--border-subtle);
 }
 .ws-editor .ProseMirror th, .ws-editor .ProseMirror td {
-  border: 1px solid var(--border-subtle); padding: 6px 9px; font-size: 13.5px; vertical-align: top;
+  border: 1px solid var(--border-subtle); padding: 8px 11px; font-size: 13.5px; vertical-align: top;
   position: relative;
 }
 .ws-editor .ProseMirror th { background: var(--bg-sunken); font-weight: 650; text-align: left; }
@@ -1912,9 +1977,9 @@ a.feed-attachment { text-decoration: none; margin-top: 8px; max-width: 420px; }
    is over, positioned by @tiptap/extension-drag-handle-react itself via a
    portal; this only styles the visual handle passed as its child. */
 .ws-drag-handle {
-  width: 18px; height: 22px; display: flex; align-items: center; justify-content: center;
+  width: 20px; height: 24px; display: flex; align-items: center; justify-content: center;
   color: var(--fg-subtle); background: var(--bg-raised); border: 1px solid var(--border-subtle);
-  border-radius: var(--r-sm); cursor: grab; font-size: 13px; line-height: 1;
+  border-radius: var(--r-sm); cursor: grab; box-shadow: 0 1px 3px rgba(0, 0, 0, .08);
 }
 .ws-drag-handle:hover { color: var(--fg); background: var(--hover); }
 .ws-drag-handle:active { cursor: grabbing; }

@@ -1,10 +1,47 @@
-import { useMemo, useState } from 'react';
-import { WorkspaceIcon, TrashIcon, CaretIcon } from '../icons.jsx';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { WorkspaceIcon, TrashIcon, CaretIcon, MenuDotsIcon } from '../icons.jsx';
+import { PlusIcon, ChevronUpDownIcon } from './toolbarIcons.jsx';
 
 function siblingsOf(pages, parentId) {
   return pages
     .filter((p) => (p.parentId || null) === (parentId || null))
     .sort((a, b) => (a.order - b.order) || (a.id < b.id ? -1 : 1));
+}
+
+// A small "..." menu instead of six tiny icon buttons crammed into every
+// row — move/indent/outdent/delete are real but infrequent actions, so
+// they live one click deeper rather than competing for space with the
+// title on every single row.
+function RowMenu({ onMoveUp, onMoveDown, canMoveUp, canMoveDown, onIndent, canIndent, onOutdent, canOutdent, onDelete }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function onDocClick(e) { if (!ref.current?.contains(e.target)) setOpen(false); }
+    document.addEventListener('mousedown', onDocClick);
+    return () => document.removeEventListener('mousedown', onDocClick);
+  }, [open]);
+
+  function run(fn) {
+    return () => { fn(); setOpen(false); };
+  }
+
+  return (
+    <div className="ws-row-menu" ref={ref}>
+      <button className="ws-icon-btn" title="More" onClick={() => setOpen((v) => !v)}><MenuDotsIcon /></button>
+      {open && (
+        <div className="ws-row-menu-pop">
+          <button disabled={!canMoveUp} onClick={run(onMoveUp)}><ChevronUpDownIcon dir="up" /> Move up</button>
+          <button disabled={!canMoveDown} onClick={run(onMoveDown)}><ChevronUpDownIcon dir="down" /> Move down</button>
+          <button disabled={!canIndent} onClick={run(onIndent)}>Indent (nest under above)</button>
+          <button disabled={!canOutdent} onClick={run(onOutdent)}>Outdent (move up a level)</button>
+          <div className="ws-row-menu-sep" />
+          <button className="danger" onClick={run(onDelete)}><TrashIcon /> Delete</button>
+        </div>
+      )}
+    </div>
+  );
 }
 
 // One page row, plus its own children rendered recursively underneath —
@@ -74,12 +111,14 @@ function PageNode({ page, pages, depth, selectedId, expanded, onToggleExpand, on
             </button>
           )}
         <div className="ws-row-acts">
-          <button title="Move up" disabled={index <= 0} onClick={() => moveUpDown(-1)}>↑</button>
-          <button title="Move down" disabled={index >= siblings.length - 1} onClick={() => moveUpDown(1)}>↓</button>
-          <button title="Indent (nest under the page above)" disabled={index <= 0} onClick={indent}>→</button>
-          <button title="Outdent (move up a level)" disabled={!page.parentId} onClick={outdent}>←</button>
-          <button title="Add sub-page" onClick={() => onCreate(page.id)}>+</button>
-          <button title="Delete" onClick={() => onDelete(page.id)}><TrashIcon /></button>
+          <button className="ws-icon-btn" title="Add sub-page" onClick={() => onCreate(page.id)}><PlusIcon /></button>
+          <RowMenu
+            onMoveUp={() => moveUpDown(-1)} canMoveUp={index > 0}
+            onMoveDown={() => moveUpDown(1)} canMoveDown={index < siblings.length - 1}
+            onIndent={indent} canIndent={index > 0}
+            onOutdent={outdent} canOutdent={!!page.parentId}
+            onDelete={() => onDelete(page.id)}
+          />
         </div>
       </div>
       {isOpen && children.length > 0 && (
@@ -113,7 +152,7 @@ export default function PageTree({ pages, selectedId, onSelect, onCreate, onRena
     <div className="ws-tree">
       <div className="ws-tree-head">
         <span><WorkspaceIcon /> Pages</span>
-        <button className="ws-new-page" onClick={() => onCreate(null)} title="New page">+ New</button>
+        <button className="ws-new-page" onClick={() => onCreate(null)} title="New page"><PlusIcon /> New</button>
       </div>
       {roots.length === 0 && <p className="ws-empty">No pages yet — add one to get started.</p>}
       {roots.map((page) => (
