@@ -1,63 +1,62 @@
 # Roadmap
 
-Planned features, not yet built — recorded here so an idea doesn't get lost
-between conversations. This is a list of intentions, not commitments; nothing
-below has a date attached. See [CONTRIBUTING.md](CONTRIBUTING.md) for how to
-contribute to what already exists.
+Planned features and recently-shipped ones — recorded here so an idea
+doesn't get lost between conversations, and so it's clear what's actually
+live versus still an intention. See [CONTRIBUTING.md](CONTRIBUTING.md) for
+how to contribute to what already exists.
 
-## Planned: a shared, user-uploaded resources library (books/PDFs)
+## Shipped: a shared, user-uploaded resources library (Books)
 
-Not the same as anything that exists today:
+Its own destination (`#__books`, `api/src/functions/books.js`,
+`BooksView.jsx`): a public, browsable shelf anyone signed in can add a
+book/author/notes plus an optional link or an uploaded PDF/doc/image to.
+Reuses the Feed's existing upload endpoint (`uploadFeedFile`) rather than a
+separate one. Distinct from private per-user Notes, a module's own fixed
+"Further reading," and a one-off Feed attachment. Admin-only delete, no
+voting (that's Suggestions, below).
 
-- **Notes** (`api/src/functions/notes.js`) are private, per-user, per-module —
-  nobody else ever sees them.
-- A module's own **"Further reading & sources"** section is curated by
-  whoever wrote that module's content — a fixed bibliography, not something
-  a reader adds to.
-- The **Feed** already accepts PDF/doc uploads on an individual post
-  (`api/src/functions/feed.js`, `ALLOWED_TYPES`), but a book recommendation
-  there is one post among many, not part of a browsable shelf.
+## Shipped: a public suggestions board, with voting
 
-The plan: its own destination (alongside Feed/Community in the rail) — a
-public, browsable list anyone signed in can add a book/PDF/link to, and
-anyone (signed in or not) can browse. Likely reuses most of the Feed's
-existing upload plumbing (`uploadFeedFile`'s type/size validation, magic-byte
-checking, blob storage pattern) rather than inventing new infrastructure —
-the new part is a dedicated list view and its own table, so it doesn't get
-mixed into the Feed's chronological post stream.
+Its own destination (`#__suggestions`, `api/src/functions/suggestions.js`,
+`SuggestionsView.jsx`): anyone signed in can post, everyone sees the list
+sorted by votes, anyone signed in can upvote. Mirrors the Feed's post+vote
+shape (`FeedPosts`/`FeedVotes` → `Suggestions`/`SuggestionVotes`). Distinct
+from the private admin-only Messages inbox (`messages.js`), which still
+exists separately for direct feedback to the admin. **Not yet built**:
+status-tracking (marking a suggestion planned/done/declined) — v1 is a
+plain upvote-sorted list.
 
-## Planned: a public suggestions board, with voting
+## Shipped: a private, per-user Notion-style Workspace
 
-Also not the same as what exists today: `messages.js` / `MessagesInbox.jsx`
-is a private feedback inbox — anyone can submit a message, but only an admin
-ever reads it, and nobody else can see or react to what others suggested.
+Its own destination (`#__workspace`, signed-in only, `api/src/functions/
+workspace.js`, `WorkspaceView.jsx`, `PageTree.jsx`, `BlockEditor.jsx`): a
+nested tree of pages, each holding a real Tiptap/ProseMirror block editor —
+text formatting, headings, lists, a to-do checklist, tables, and uploaded
+images (again reusing the Feed's upload endpoint), with genuine
+drag-and-drop reordering of blocks inside a page. Entirely private, like
+Notes — never shared with anyone else. Lazy-loaded into its own bundle
+chunk since Tiptap is heavy (~600KB) and most visitors never open it.
 
-The plan: a visible board — anyone can post a suggestion, everyone sees the
-list, people upvote. Structurally this is close to the Feed's post+vote
-shape (`FeedPosts` / `FeedVotes` tables, `voteFeedPost` toggle pattern) —
-likely the most direct thing to reuse, rather than building voting again
-from scratch. Worth deciding up front: does an admin get a way to mark a
-suggestion "planned" / "done" / "declined," or is it purely a raw
-upvote-sorted list?
+Scoping notes for anyone picking this up later:
+
+- The page **tree** reorders via indent/outdent + up/down buttons, not
+  drag-and-drop — a full drag-and-drop tree-reparenting UI is a
+  meaningfully bigger job than button controls, and wasn't worth it for a
+  personal-scale page list. Drag-and-drop is real and native *inside* a
+  page (via `@tiptap/extension-drag-handle-react`), just not for the tree
+  itself.
+- There's no slash-command menu (typing `/` to insert a block) — block
+  insertion is toolbar-only in v1. A command menu is a real, separate
+  feature if it's ever wanted.
+- Sibling ordering uses simple numeric nudges (swap/append), not a
+  fractional-indexing scheme — fine at personal scale, would need
+  revisiting if this ever became multi-user/collaborative.
 
 ## Planned: opening up beyond curriculum-content contributions
 
 `CONTRIBUTING.md` already documents how to contribute curriculum content
 (markdown conventions, content blocks, `{{tabs}}`). What's not yet decided:
-what it looks like for other people to contribute to the *app* itself, or to
-the *user-generated* features above (the books library, the suggestions
-board) once they exist — moderation model, whether non-admins get any
-elevated role between "regular user" and "admin," and how abuse/spam gets
-handled once more surfaces accept public write access. This needs its own
-decision before the books library and suggestions board ship, not after.
-
-## Open questions to resolve before building any of the above
-
-- Suggestions board: does status-tracking (planned/done/declined) matter, or
-  is a plain upvote-sorted list enough for now?
-- Books library: freeform uploads, or should it lean toward links (Google
-  Books / Goodreads / an ISBN) with an optional PDF upload instead of every
-  entry being a raw hosted file?
-- Contributor model: is there ever a role between "regular signed-in user"
-  and "admin," or does moderation stay fully centralized on the existing
-  admin-only tools?
+what it looks like for other people to contribute to the *app* itself, or
+to moderate the public user-generated surfaces that now exist (Feed, Books,
+Suggestions) — whether non-admins ever get a role between "regular user"
+and "admin," and how abuse/spam gets handled at more than personal scale.
