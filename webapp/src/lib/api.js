@@ -432,3 +432,47 @@ export async function deleteSuggestion(id) {
   const res = await fetch('/api/manage/suggestions?id=' + encodeURIComponent(id), { method: 'DELETE' });
   if (!res.ok) throw new Error('failed to delete suggestion');
 }
+
+// A private, per-user Notion-style workspace: nested pages, each holding a
+// Tiptap block-editor document (text, todos, tables, images). Entirely
+// personal — never shared, unlike Feed/Books/Suggestions above.
+export async function fetchWorkspacePages() {
+  const res = await fetch('/api/workspace/pages');
+  if (!res.ok) throw new Error('failed to load workspace');
+  return res.json();
+}
+
+export async function fetchWorkspacePage(id) {
+  const res = await fetch('/api/workspace/pages/' + encodeURIComponent(id));
+  if (!res.ok) throw new Error('failed to load page');
+  return res.json();
+}
+
+export async function createWorkspacePage(title, parentId) {
+  const res = await fetch('/api/workspace/pages', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ title, parentId: parentId || null })
+  });
+  if (!res.ok) throw new Error('failed to create page');
+  return res.json();
+}
+
+export async function updateWorkspacePage(id, patch) {
+  const res = await fetch('/api/workspace/pages/' + encodeURIComponent(id), {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(patch)
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || 'failed to save page');
+  }
+  return res.json();
+}
+
+export async function deleteWorkspacePage(id) {
+  const res = await fetch('/api/workspace/pages/' + encodeURIComponent(id), { method: 'DELETE' });
+  if (!res.ok) throw new Error('failed to delete page');
+  return res.json();
+}

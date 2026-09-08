@@ -42,6 +42,10 @@ import MessageOwnerModal from './components/account/MessageOwnerModal.jsx';
 // dead weight for the ~all visitors who aren't the site admin — split them
 // into their own chunk instead of shipping them in the main bundle.
 const AdminDashboard = lazy(() => import('./components/admin/AdminDashboard.jsx'));
+// Lazy: Tiptap/ProseMirror alone added ~600KB to the main bundle for a
+// feature only a signed-in user who opens Workspace ever touches — same
+// reasoning as AdminDashboard above, just for a much heavier dependency.
+const WorkspaceView = lazy(() => import('./components/home/WorkspaceView.jsx'));
 
 const ADMIN_ROUTE = '__admin';
 // Bookmarks and notes merged into one "Saved" destination with two tabs.
@@ -59,6 +63,7 @@ const FEED_ROUTE = '__feed';
 const COMMUNITY_ROUTE = '__community';
 const BOOKS_ROUTE = '__books';
 const SUGGESTIONS_ROUTE = '__suggestions';
+const WORKSPACE_ROUTE = '__workspace';
 
 function collectDirPaths(nodes) {
   const paths = [];
@@ -109,7 +114,8 @@ export default function App() {
   const isFeedRoute = path === FEED_ROUTE;
   const isBooksRoute = path === BOOKS_ROUTE;
   const isSuggestionsRoute = path === SUGGESTIONS_ROUTE;
-  const isSpecialRoute = isAdminRoute || isSavedRoute || isExploreRoute || isCommunityRoute || isFeedRoute || isBooksRoute || isSuggestionsRoute;
+  const isWorkspaceRoute = path === WORKSPACE_ROUTE;
+  const isSpecialRoute = isAdminRoute || isSavedRoute || isExploreRoute || isCommunityRoute || isFeedRoute || isBooksRoute || isSuggestionsRoute || isWorkspaceRoute;
   const currentFile = !isSpecialRoute && path && fileSet.has(path) ? path : null;
 
   useEffect(() => {
@@ -254,6 +260,7 @@ export default function App() {
   const openFeedPost = useCallback((postId) => navigate(FEED_ROUTE, postId), [navigate]);
   const openBooks = useCallback(() => navigate(BOOKS_ROUTE), [navigate]);
   const openSuggestions = useCallback(() => navigate(SUGGESTIONS_ROUTE), [navigate]);
+  const openWorkspace = useCallback(() => navigate(WORKSPACE_ROUTE), [navigate]);
 
   // Two of the three theme states render identically on any given OS, so a
   // press can legitimately change nothing on screen — say which mode it
@@ -294,6 +301,7 @@ export default function App() {
       });
     }
     if (user) list.push({ label: 'Saved — bookmarks and notes', keywords: 'bookmark star note', run: () => navigate(SAVED_ROUTE) });
+    if (user) list.push({ label: 'Workspace — your pages, to-dos, notes', keywords: 'notion pages todo table notes workspace', run: () => navigate(WORKSPACE_ROUTE) });
     if (user?.isAdmin) list.push({ label: 'Admin dashboard', keywords: 'manage moderate content', run: () => navigate(ADMIN_ROUTE) });
     list.push(
       { label: 'Change theme', keywords: 'dark light appearance', hint: 'T', run: handleCycleTheme },
@@ -354,6 +362,7 @@ export default function App() {
           onOpenCommunity={openCommunity}
           onOpenBooks={openBooks}
           onOpenSuggestions={openSuggestions}
+          onOpenWorkspace={openWorkspace}
           onOpenAdmin={openAdmin}
           feedBadge={feedActivity.badgeVisible}
           communityBadge={questionsActivity.badgeVisible}
@@ -444,6 +453,11 @@ export default function App() {
                 )}
                 {isBooksRoute && <BooksView user={user} onLogin={login} onToast={toast.show} />}
                 {isSuggestionsRoute && <SuggestionsView user={user} onLogin={login} onToast={toast.show} />}
+                {isWorkspaceRoute && (
+                  <Suspense fallback={<div id="empty"><p style={{ color: 'var(--fg-subtle)' }}>Loading…</p></div>}>
+                    <WorkspaceView user={user} onLogin={login} />
+                  </Suspense>
+                )}
               </div>
             </div>
           )

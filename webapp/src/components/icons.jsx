@@ -103,6 +103,18 @@ export function LightbulbIcon(props) {
   );
 }
 
+// A stack of pages, for the personal Workspace destination — distinct from
+// BookIcon's bound-spine shape and TreeIcon's list-of-lines curriculum tree.
+export function WorkspaceIcon(props) {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" {...props}>
+      <rect x="2.5" y="1.5" width="9" height="11" rx="1" />
+      <path d="M5 4.5h4M5 7h4M5 9.5h2.5" strokeLinecap="round" />
+      <path d="M13.5 4v9a1 1 0 0 1-1 1h-7" />
+    </svg>
+  );
+}
+
 export function GoogleGIcon(props) {
   return (
     <svg viewBox="0 0 48 48" {...props}>

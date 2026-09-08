@@ -1,4 +1,4 @@
-import { TreeIcon, StarIcon, CompassIcon, FeedIcon, QuestionIcon, BookIcon, LightbulbIcon, GearIcon } from '../icons.jsx';
+import { TreeIcon, StarIcon, CompassIcon, FeedIcon, QuestionIcon, BookIcon, LightbulbIcon, WorkspaceIcon, GearIcon } from '../icons.jsx';
 
 // The permanent left edge: where you can go, not what's in the thing
 // you're looking at. Splitting this out is what lets the curriculum tree
@@ -11,13 +11,16 @@ import { TreeIcon, StarIcon, CompassIcon, FeedIcon, QuestionIcon, BookIcon, Ligh
 // third tab behind Questions/Unanswered.
 export default function DestinationRail({
   activeDest, user, isAdmin,
-  onOpenCurriculum, onOpenExplore, onOpenSaved, onOpenFeed, onOpenCommunity, onOpenBooks, onOpenSuggestions, onOpenAdmin,
+  onOpenCurriculum, onOpenExplore, onOpenSaved, onOpenFeed, onOpenCommunity, onOpenBooks, onOpenSuggestions, onOpenWorkspace, onOpenAdmin,
   feedBadge, communityBadge
 }) {
   const items = [
     { key: null, label: 'Curriculum', Icon: TreeIcon, onClick: onOpenCurriculum, show: true },
     { key: '__explore', label: 'Explore', Icon: CompassIcon, onClick: onOpenExplore, show: true },
     { key: '__saved', label: 'Saved', Icon: StarIcon, onClick: onOpenSaved, show: !!user },
+    // Private to the signed-in user, like Saved — shown only once signed in,
+    // unlike Feed/Books/Suggestions/Community which are public to browse.
+    { key: '__workspace', label: 'Workspace', Icon: WorkspaceIcon, onClick: onOpenWorkspace, show: !!user },
     // Both carry the "something's new" dot — someone else's post, and
     // someone else's question, are each things that happen without you
     // (same pattern as the account menu's reply badge, see
