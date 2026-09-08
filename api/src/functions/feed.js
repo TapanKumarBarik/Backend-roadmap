@@ -1,6 +1,6 @@
 const { app } = require('@azure/functions');
 const crypto = require('crypto');
-const { getTable } = require('../lib/tableClient');
+const { getTable, createEntitySafe, listEntitiesSafe } = require('../lib/tableClient');
 const { getSession, isAdmin } = require('../lib/adminAuth');
 
 const TABLE_NAME = 'FeedPosts';
@@ -139,23 +139,19 @@ function toClientShape(entity, votes, commentCounts) {
 //
 // Best-effort: voteFeedPost creates FeedVotes lazily on the first-ever vote
 // (see its own comment), but until that first vote happens the table simply
-// doesn't exist yet and this throws TableNotFound — the public feed listing
-// shouldn't 500 just because nobody has voted on anything yet.
+// doesn't exist yet — listEntitiesSafe (tableClient.js) treats that the same
+// as "no votes yet" rather than 500ing the public feed listing.
 async function loadFeedVotes(userId) {
   const counts = {};
   const mine = new Set();
-  try {
-    const table = getTable(VOTES_TABLE);
-    for await (const entity of table.listEntities({ queryOptions: { filter: `PartitionKey eq 'feed'` } })) {
-      const idx = entity.rowKey.lastIndexOf('_');
-      const postId = entity.rowKey.slice(0, idx);
-      const voterId = entity.rowKey.slice(idx + 1);
-      counts[postId] = (counts[postId] || 0) + 1;
-      if (userId && voterId === userId) mine.add(postId);
-    }
-  } catch {
-    // table not provisioned yet, or a transient storage hiccup — feed still
-    // renders, just with every post at zero votes.
+  const table = getTable(VOTES_TABLE);
+  const entities = await listEntitiesSafe(table, { queryOptions: { filter: `PartitionKey eq 'feed'` } });
+  for (const entity of entities) {
+    const idx = entity.rowKey.lastIndexOf('_');
+    const postId = entity.rowKey.slice(0, idx);
+    const voterId = entity.rowKey.slice(idx + 1);
+    counts[postId] = (counts[postId] || 0) + 1;
+    if (userId && voterId === userId) mine.add(postId);
   }
   return { counts, mine };
 }
@@ -165,18 +161,14 @@ async function loadFeedVotes(userId) {
 // bounded scan for every post's count, rather than a request per post.
 async function loadCommentCounts() {
   const counts = {};
-  try {
-    const table = getTable(COMMENTS_TABLE);
-    const prefix = encodeURIComponent('feed:');
-    for await (const entity of table.listEntities({
-      queryOptions: { filter: `startswith(PartitionKey, '${prefix}') and hidden eq false` }
-    })) {
-      const postId = decodeURIComponent(entity.partitionKey).slice('feed:'.length);
-      counts[postId] = (counts[postId] || 0) + 1;
-    }
-  } catch {
-    // best-effort, same reasoning as loadFeedVotes — a count glitch shouldn't
-    // take down the feed listing itself.
+  const table = getTable(COMMENTS_TABLE);
+  const prefix = encodeURIComponent('feed:');
+  const entities = await listEntitiesSafe(table, {
+    queryOptions: { filter: `startswith(PartitionKey, '${prefix}') and hidden eq false` }
+  });
+  for (const entity of entities) {
+    const postId = decodeURIComponent(entity.partitionKey).slice('feed:'.length);
+    counts[postId] = (counts[postId] || 0) + 1;
   }
   return counts;
 }
@@ -196,11 +188,8 @@ app.http('listFeed', {
       loadFeedVotes(session && session.sub),
       loadCommentCounts()
     ]);
-    const out = [];
-    for await (const entity of table.listEntities({ queryOptions: { filter: `PartitionKey eq 'feed'` } })) {
-      out.push(toClientShape(entity, votes, commentCounts));
-      if (out.length >= MAX_LIST) break;
-    }
+    const entities = await listEntitiesSafe(table, { queryOptions: { filter: `PartitionKey eq 'feed'` } });
+    const out = entities.slice(0, MAX_LIST).map((e) => toClientShape(e, votes, commentCounts));
     out.sort((a, b) => (a.id < b.id ? 1 : -1));
     return { jsonBody: out };
   }
@@ -230,26 +219,10 @@ app.http('voteFeedPost', {
       return { jsonBody: { voted: false } };
     } catch (err) {
       if (err.statusCode !== 404) throw err;
-      // Table Storage returns the same 404 for "entity not found" and "this
-      // table doesn't exist at all" -- getEntity's 404 above is ambiguous
-      // between the two, but createEntity's own 404 (caught here) can only
-      // mean the table itself is missing, since an entity can't fail to be
-      // "found" on a create. FeedVotes needs no manual Azure Portal/CLI
-      // provisioning step: create it lazily on first vote and retry once,
-      // rather than requiring a setup step outside this code.
-      try {
-        await table.createEntity({ partitionKey: 'feed', rowKey, postId: id, userId: session.sub, createdAt: new Date().toISOString() });
-      } catch (createErr) {
-        if (createErr.statusCode !== 404) throw createErr;
-        try {
-          await table.createTable();
-        } catch (createTableErr) {
-          // 409 = someone else's concurrent first-vote already created it a
-          // moment ago -- fine, proceed to the retry below either way.
-          if (createTableErr.statusCode !== 409) throw createTableErr;
-        }
-        await table.createEntity({ partitionKey: 'feed', rowKey, postId: id, userId: session.sub, createdAt: new Date().toISOString() });
-      }
+      // createEntitySafe (tableClient.js) creates FeedVotes lazily on first
+      // use rather than requiring a manual Azure Portal/CLI provisioning
+      // step — the bug this whole helper exists to fix.
+      await createEntitySafe(table, { partitionKey: 'feed', rowKey, postId: id, userId: session.sub, createdAt: new Date().toISOString() });
       return { jsonBody: { voted: true } };
     }
   }
@@ -313,7 +286,7 @@ app.http('postFeed', {
       linkTitle,
       createdAt: new Date().toISOString()
     };
-    await table.createEntity(entity);
+    await createEntitySafe(table, entity);
     return { status: 201, jsonBody: toClientShape(entity) };
   }
 });

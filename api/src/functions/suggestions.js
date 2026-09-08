@@ -1,6 +1,6 @@
 const { app } = require('@azure/functions');
 const crypto = require('crypto');
-const { getTable } = require('../lib/tableClient');
+const { getTable, createEntitySafe, listEntitiesSafe } = require('../lib/tableClient');
 const { getSession, isAdmin } = require('../lib/adminAuth');
 
 const TABLE_NAME = 'Suggestions';
@@ -52,17 +52,14 @@ function toClientShape(entity, votes) {
 async function loadVotes(userId) {
   const counts = {};
   const mine = new Set();
-  try {
-    const table = getTable(VOTES_TABLE);
-    for await (const entity of table.listEntities({ queryOptions: { filter: `PartitionKey eq 'suggestions'` } })) {
-      const idx = entity.rowKey.lastIndexOf('_');
-      const suggestionId = entity.rowKey.slice(0, idx);
-      const voterId = entity.rowKey.slice(idx + 1);
-      counts[suggestionId] = (counts[suggestionId] || 0) + 1;
-      if (userId && voterId === userId) mine.add(suggestionId);
-    }
-  } catch {
-    // table not provisioned yet, or a transient storage hiccup
+  const table = getTable(VOTES_TABLE);
+  const entities = await listEntitiesSafe(table, { queryOptions: { filter: `PartitionKey eq 'suggestions'` } });
+  for (const entity of entities) {
+    const idx = entity.rowKey.lastIndexOf('_');
+    const suggestionId = entity.rowKey.slice(0, idx);
+    const voterId = entity.rowKey.slice(idx + 1);
+    counts[suggestionId] = (counts[suggestionId] || 0) + 1;
+    if (userId && voterId === userId) mine.add(suggestionId);
   }
   return { counts, mine };
 }
@@ -78,11 +75,8 @@ app.http('listSuggestions', {
     const session = getSession(request);
     const table = getTable(TABLE_NAME);
     const votes = await loadVotes(session && session.sub);
-    const out = [];
-    for await (const entity of table.listEntities({ queryOptions: { filter: `PartitionKey eq 'suggestions'` } })) {
-      out.push(toClientShape(entity, votes));
-      if (out.length >= MAX_LIST) break;
-    }
+    const entities = await listEntitiesSafe(table, { queryOptions: { filter: `PartitionKey eq 'suggestions'` } });
+    const out = entities.slice(0, MAX_LIST).map((e) => toClientShape(e, votes));
     // Most-upvoted first, newest-first within a tie — a suggestions board is
     // read to see what people want most, not strictly chronologically.
     out.sort((a, b) => (b.upvotes - a.upvotes) || (a.id < b.id ? 1 : -1));
@@ -121,17 +115,14 @@ app.http('postSuggestion', {
       text,
       createdAt: new Date().toISOString()
     };
-    await table.createEntity(entity);
+    await createEntitySafe(table, entity);
     return { status: 201, jsonBody: toClientShape(entity) };
   }
 });
 
 // Upvote-only, toggle on repeat click — same shape as feed.js's
-// voteFeedPost, including the lazy table-creation fix that endpoint needed
-// after shipping without it: SuggestionVotes is a brand-new table, and
-// Table Storage returns the same 404 for "entity not found" and "table
-// doesn't exist", so this creates the table on first use rather than
-// requiring a manual provisioning step that's easy to forget.
+// voteFeedPost. createEntitySafe (tableClient.js) creates SuggestionVotes
+// lazily on first use rather than requiring a manual provisioning step.
 app.http('voteSuggestion', {
   methods: ['POST'],
   authLevel: 'anonymous',
@@ -153,17 +144,7 @@ app.http('voteSuggestion', {
       return { jsonBody: { voted: false } };
     } catch (err) {
       if (err.statusCode !== 404) throw err;
-      try {
-        await table.createEntity({ partitionKey: 'suggestions', rowKey, suggestionId: id, userId: session.sub, createdAt: new Date().toISOString() });
-      } catch (createErr) {
-        if (createErr.statusCode !== 404) throw createErr;
-        try {
-          await table.createTable();
-        } catch (createTableErr) {
-          if (createTableErr.statusCode !== 409) throw createTableErr;
-        }
-        await table.createEntity({ partitionKey: 'suggestions', rowKey, suggestionId: id, userId: session.sub, createdAt: new Date().toISOString() });
-      }
+      await createEntitySafe(table, { partitionKey: 'suggestions', rowKey, suggestionId: id, userId: session.sub, createdAt: new Date().toISOString() });
       return { jsonBody: { voted: true } };
     }
   }

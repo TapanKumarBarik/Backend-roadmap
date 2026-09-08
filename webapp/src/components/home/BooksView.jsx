@@ -6,16 +6,6 @@ function initialsOf(name) {
   return (name || '?').trim()[0]?.toUpperCase() || '?';
 }
 
-// Only kinds books.js's own ATTACHMENT_TYPES allowlist accepts (pdf, doc,
-// image) — a subset of what the Feed's upload endpoint supports overall,
-// since a spreadsheet/slide-deck upload doesn't fit "a book."
-const ACCEPT = [
-  'application/pdf', 'image/png', 'image/jpeg', 'image/webp',
-  'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
-].join(',');
-
-const KIND_ICON = { pdf: '📄', doc: '📝', image: '🖼️' };
-
 function fileToBase64(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -28,22 +18,22 @@ function fileToBase64(file) {
 function filenameFromUrl(url) {
   try {
     const last = new URL(url).pathname.split('/').pop() || '';
-    return last.replace(/^\d+-/, '') || 'file';
+    return last.replace(/^\d+-/, '') || 'file.pdf';
   } catch {
-    return 'file';
+    return 'file.pdf';
   }
 }
 
-// A public, browsable shelf anyone signed in can add a book/PDF/link to —
-// distinct from private per-user Notes, a module's own fixed "Further
-// reading," and a one-off Feed attachment (see ROADMAP.md). Reuses the
-// Feed's own upload endpoint/validation rather than duplicating it.
+// A public, browsable shelf anyone signed in can add a book to — just a
+// title plus a link or an uploaded PDF, nothing else to fill in. Distinct
+// from private per-user Notes, a module's own fixed "Further reading," and
+// a one-off Feed attachment (see ROADMAP.md). Reuses the Feed's own upload
+// endpoint rather than duplicating it.
 export default function BooksView({ user, onLogin, onToast }) {
   const [books, setBooks] = useState(null);
   const [error, setError] = useState(null);
   const [title, setTitle] = useState('');
-  const [author, setAuthor] = useState('');
-  const [notes, setNotes] = useState('');
+  const [tag, setTag] = useState('');
   const [linkUrl, setLinkUrl] = useState('');
   const [pendingFile, setPendingFile] = useState(null);
   const [posting, setPosting] = useState(false);
@@ -59,25 +49,23 @@ export default function BooksView({ user, onLogin, onToast }) {
     if (!file) return;
     const dataBase64 = await fileToBase64(file);
     setPendingFile({ name: file.name, contentType: file.type, dataBase64 });
+    setLinkUrl('');
   }
 
   async function handleAdd() {
-    if (!title.trim()) return;
+    if (!title.trim() || (!linkUrl.trim() && !pendingFile)) return;
     setPosting(true);
     setError(null);
     try {
       let attachmentUrl = null;
-      let attachmentType = null;
       if (pendingFile) {
         const up = await uploadFeedFile(pendingFile.name, pendingFile.contentType, pendingFile.dataBase64);
         attachmentUrl = up.url;
-        attachmentType = up.type;
       }
-      const created = await postBook(title.trim(), author.trim(), notes.trim(), linkUrl.trim(), attachmentUrl, attachmentType);
+      const created = await postBook(title.trim(), tag.trim(), linkUrl.trim(), attachmentUrl);
       setBooks((prev) => [created, ...(prev || [])]);
       setTitle('');
-      setAuthor('');
-      setNotes('');
+      setTag('');
       setLinkUrl('');
       setPendingFile(null);
     } catch (e) {
@@ -98,13 +86,13 @@ export default function BooksView({ user, onLogin, onToast }) {
     }
   }
 
-  const canAdd = posting || !title.trim();
+  const canAdd = posting || !title.trim() || (!linkUrl.trim() && !pendingFile);
 
   return (
     <div id="empty">
       <h2>Books</h2>
       <p style={{ color: 'var(--fg-subtle)', fontSize: 13.5 }}>
-        A shared shelf — anyone can browse; sign in with Google to add a book, PDF, or link.
+        A shared shelf — anyone can browse; sign in with Google to add a book.
       </p>
 
       {user
@@ -114,44 +102,39 @@ export default function BooksView({ user, onLogin, onToast }) {
             <div className="feed-composer-body">
               <input
                 className="books-title-input" value={title} onChange={(e) => setTitle(e.target.value.slice(0, 200))}
-                placeholder="Title *"
+                placeholder="Title"
               />
               <input
-                className="books-title-input" value={author} onChange={(e) => setAuthor(e.target.value.slice(0, 150))}
-                placeholder="Author (optional)" style={{ marginTop: 6 }}
-              />
-              <textarea
-                value={notes} onChange={(e) => setNotes(e.target.value.slice(0, 1000))}
-                placeholder="Why is it worth reading? (optional)" style={{ marginTop: 6 }}
+                className="books-title-input" value={tag} onChange={(e) => setTag(e.target.value.slice(0, 40))}
+                placeholder="Tag (optional) — e.g. systems-design" style={{ marginTop: 6 }}
               />
 
-              {pendingFile && (
-                <div className="feed-pending">
-                  <span>{KIND_ICON[pendingFile.contentType.startsWith('image/') ? 'image' : pendingFile.contentType === 'application/pdf' ? 'pdf' : 'doc']} {pendingFile.name}</span>
-                  <button onClick={() => setPendingFile(null)}>Remove</button>
-                </div>
-              )}
-
-              {!pendingFile && (
-                <input
-                  type="url" className="books-title-input" value={linkUrl}
-                  onChange={(e) => setLinkUrl(e.target.value)} placeholder="Link (optional) — e.g. Goodreads, Amazon, a PDF URL"
-                  style={{ marginTop: 6 }}
-                />
-              )}
+              {pendingFile
+                ? (
+                  <div className="feed-pending" style={{ marginTop: 6 }}>
+                    <span>📄 {pendingFile.name}</span>
+                    <button onClick={() => setPendingFile(null)}>Remove</button>
+                  </div>
+                )
+                : (
+                  <input
+                    type="url" className="books-title-input" value={linkUrl}
+                    onChange={(e) => setLinkUrl(e.target.value)} placeholder="Link — e.g. Goodreads, Amazon, a PDF URL"
+                    style={{ marginTop: 6 }}
+                  />
+                )}
 
               <div className="feed-composer-actions">
                 <div className="feed-composer-tools">
-                  <button className="feed-tool-btn" onClick={() => fileInputRef.current?.click()} disabled={!!pendingFile}>
-                    📎 Attach file
+                  <button className="feed-tool-btn" onClick={() => fileInputRef.current?.click()} disabled={!!pendingFile || !!linkUrl.trim()}>
+                    📎 Or upload a PDF
                   </button>
                 </div>
                 <button className="feed-post-btn" onClick={handleAdd} disabled={canAdd}>
                   {posting ? 'Adding…' : 'Add to shelf'}
                 </button>
               </div>
-              <input type="file" accept={ACCEPT} ref={fileInputRef} style={{ display: 'none' }} onChange={handleFilePick} />
-              <p className="feed-hint">PDF, Word doc, or an image — up to 15MB. Or just a link, no file needed.</p>
+              <input type="file" accept="application/pdf" ref={fileInputRef} style={{ display: 'none' }} onChange={handleFilePick} />
             </div>
           </div>
         )
@@ -172,8 +155,9 @@ export default function BooksView({ user, onLogin, onToast }) {
               <span className="feed-avatar" aria-hidden="true">{initialsOf(b.displayName)}</span>
               <div className="feed-card-head-text">
                 <strong>{b.title}</strong>
-                <span>{b.author ? `${b.author} · ` : ''}added by {b.displayName}</span>
+                <span>added by {b.displayName}</span>
               </div>
+              {b.tag && <span className="books-tag">{b.tag}</span>}
               {user?.isAdmin && (
                 <button className="feed-delete-btn" onClick={() => handleDelete(b.id)} aria-label="Remove" title="Remove">
                   <TrashIcon />
@@ -181,18 +165,11 @@ export default function BooksView({ user, onLogin, onToast }) {
               )}
             </div>
 
-            {b.notes && <div className="comment-text">{b.notes}</div>}
-
-            {b.attachmentUrl && b.attachmentType === 'image' && (
-              <a href={b.attachmentUrl} target="_blank" rel="noopener noreferrer">
-                <img className="feed-image" src={b.attachmentUrl} alt="" loading="lazy" decoding="async" />
-              </a>
-            )}
-            {b.attachmentUrl && b.attachmentType !== 'image' && (
+            {b.attachmentUrl && (
               <div className="feed-attachment">
-                <span className="feed-attachment-ic">{KIND_ICON[b.attachmentType] || '📄'}</span>
+                <span className="feed-attachment-ic">📄</span>
                 <span className="feed-attachment-info">
-                  {b.attachmentType === 'pdf' ? 'PDF' : 'Word doc'}
+                  PDF
                   <em>{filenameFromUrl(b.attachmentUrl)}</em>
                 </span>
                 <span className="feed-attachment-acts">

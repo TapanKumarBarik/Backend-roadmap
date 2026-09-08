@@ -1,6 +1,6 @@
 const { app } = require('@azure/functions');
 const crypto = require('crypto');
-const { getTable } = require('../lib/tableClient');
+const { getTable, createEntitySafe, listEntitiesSafe } = require('../lib/tableClient');
 const { getSession } = require('../lib/adminAuth');
 
 // Entirely private, per-user — same privacy model as notes.js, not a
@@ -42,11 +42,8 @@ app.http('listWorkspacePages', {
     if (!session) return { status: 401, jsonBody: { error: 'unauthenticated' } };
 
     const table = getTable(TABLE_NAME);
-    const out = [];
-    for await (const entity of table.listEntities({ queryOptions: { filter: `PartitionKey eq '${session.sub}'` } })) {
-      out.push(toClientShape(entity));
-    }
-    return { jsonBody: out };
+    const entities = await listEntitiesSafe(table, { queryOptions: { filter: `PartitionKey eq '${session.sub}'` } });
+    return { jsonBody: entities.map(toClientShape) };
   }
 });
 
@@ -90,8 +87,9 @@ app.http('createWorkspacePage', {
     // the whole partition is already a small, personal-scale list (module-
     // count-adjacent, not a public table).
     const table = getTable(TABLE_NAME);
+    const siblings = await listEntitiesSafe(table, { queryOptions: { filter: `PartitionKey eq '${session.sub}'` } });
     let maxOrder = -1;
-    for await (const entity of table.listEntities({ queryOptions: { filter: `PartitionKey eq '${session.sub}'` } })) {
+    for (const entity of siblings) {
       const sameParent = (entity.parentId || null) === parentId;
       if (sameParent && typeof entity.order === 'number' && entity.order > maxOrder) maxOrder = entity.order;
     }
@@ -107,7 +105,7 @@ app.http('createWorkspacePage', {
       createdAt: now,
       updatedAt: now
     };
-    await table.createEntity(entity);
+    await createEntitySafe(table, entity);
     return { status: 201, jsonBody: { ...toClientShape(entity), content: null } };
   }
 });
@@ -148,8 +146,7 @@ app.http('updateWorkspacePage', {
       // through this page.
       if (body.parentId === id) return { status: 400, jsonBody: { error: 'a page cannot be its own parent' } };
       if (body.parentId) {
-        const all = [];
-        for await (const e of table.listEntities({ queryOptions: { filter: `PartitionKey eq '${session.sub}'` } })) all.push(e);
+        const all = await listEntitiesSafe(table, { queryOptions: { filter: `PartitionKey eq '${session.sub}'` } });
         let cursor = body.parentId;
         const seen = new Set();
         while (cursor) {
@@ -183,8 +180,7 @@ app.http('deleteWorkspacePage', {
 
     const id = request.params.id;
     const table = getTable(TABLE_NAME);
-    const all = [];
-    for await (const e of table.listEntities({ queryOptions: { filter: `PartitionKey eq '${session.sub}'` } })) all.push(e);
+    const all = await listEntitiesSafe(table, { queryOptions: { filter: `PartitionKey eq '${session.sub}'` } });
 
     const toDelete = new Set([id]);
     let grew = true;

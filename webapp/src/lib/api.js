@@ -379,11 +379,11 @@ export async function fetchBooks() {
   return res.json();
 }
 
-export async function postBook(title, author, notes, linkUrl, attachmentUrl, attachmentType) {
+export async function postBook(title, tag, linkUrl, attachmentUrl) {
   const res = await fetch('/api/books', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ title, author, notes, linkUrl, attachmentUrl, attachmentType })
+    body: JSON.stringify({ title, tag, linkUrl, attachmentUrl })
   });
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));

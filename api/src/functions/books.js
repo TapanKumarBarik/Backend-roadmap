@@ -1,13 +1,12 @@
 const { app } = require('@azure/functions');
 const crypto = require('crypto');
-const { getTable } = require('../lib/tableClient');
+const { getTable, createEntitySafe, listEntitiesSafe } = require('../lib/tableClient');
 const { getSession, isAdmin } = require('../lib/adminAuth');
 
 const TABLE_NAME = 'Books';
 const RATE_LIMIT_TABLE = 'RateLimits';
 const MAX_TITLE_LENGTH = 200;
-const MAX_AUTHOR_LENGTH = 150;
-const MAX_NOTE_LENGTH = 1000;
+const MAX_TAG_LENGTH = 40;
 const RATE_LIMIT_WINDOW_MS = 10 * 60 * 1000; // 10 minutes
 const RATE_LIMIT_MAX = 10; // entries per window, per user
 const MAX_LIST = 500;
@@ -15,10 +14,11 @@ const MAX_LIST = 500;
 // Same trust boundary as feed.js's postFeed: an attachment URL here must be
 // something this app's OWN upload endpoint (feed/upload, reused as-is rather
 // than duplicated — see ROADMAP.md) just handed back, never an arbitrary
-// hotlinked URL presented as a verified upload.
+// hotlinked URL presented as a verified upload. Deliberately just PDFs — a
+// link or a PDF covers "a book," and cutting doc/image kept the composer to
+// title + (link or file), nothing more to fill in.
 const STORAGE_ACCOUNT = 'stroadmapprogress';
 const FEED_CONTAINER = 'feed-uploads';
-const ATTACHMENT_TYPES = new Set(['pdf', 'doc', 'image']);
 
 // Same fixed-window pattern as feed.js/comments.js's own checkRateLimit —
 // its own RateLimits row ('books'), so a burst here doesn't touch either
@@ -48,29 +48,26 @@ function toClientShape(entity) {
     userId: entity.userId,
     displayName: entity.displayName,
     title: entity.title,
-    author: entity.author || null,
-    notes: entity.notes || null,
+    tag: entity.tag || null,
     linkUrl: entity.linkUrl || null,
     attachmentUrl: entity.attachmentUrl || null,
-    attachmentType: entity.attachmentType || null,
     createdAt: entity.createdAt
   };
 }
 
 // Public read, single 'books' partition — same personal-site scale shape as
 // Messages/FeedPosts: one partition everyone reads newest-first, no signed-in
-// requirement to browse the shelf, only to add to it.
+// requirement to browse the shelf, only to add to it. listEntitiesSafe
+// treats a not-yet-provisioned table as an empty list rather than a 500 —
+// see tableClient.js.
 app.http('listBooks', {
   methods: ['GET'],
   authLevel: 'anonymous',
   route: 'books',
   handler: async () => {
     const table = getTable(TABLE_NAME);
-    const out = [];
-    for await (const entity of table.listEntities({ queryOptions: { filter: `PartitionKey eq 'books'` } })) {
-      out.push(toClientShape(entity));
-      if (out.length >= MAX_LIST) break;
-    }
+    const entities = await listEntitiesSafe(table, { queryOptions: { filter: `PartitionKey eq 'books'` } });
+    const out = entities.slice(0, MAX_LIST).map(toClientShape);
     out.sort((a, b) => (a.id < b.id ? 1 : -1));
     return { jsonBody: out };
   }
@@ -90,8 +87,10 @@ app.http('postBook', {
     if (!title) return { status: 400, jsonBody: { error: 'a title is required' } };
     if (title.length > MAX_TITLE_LENGTH) return { status: 400, jsonBody: { error: `title too long (max ${MAX_TITLE_LENGTH} chars)` } };
 
-    const author = typeof body.author === 'string' ? body.author.trim().slice(0, MAX_AUTHOR_LENGTH) : '';
-    const notes = typeof body.notes === 'string' ? body.notes.trim().slice(0, MAX_NOTE_LENGTH) : '';
+    // Freeform, one word/phrase a user tags their own entry with (e.g.
+    // "systems-design", "python") — not a curated taxonomy, just a light
+    // label to help others scan the shelf. Optional.
+    const tag = typeof body.tag === 'string' ? body.tag.trim().slice(0, MAX_TAG_LENGTH) : '';
 
     const linkUrl = typeof body.linkUrl === 'string' ? body.linkUrl.trim() : '';
     if (linkUrl && (!/^https?:\/\//i.test(linkUrl) || linkUrl.length > 2000)) {
@@ -99,16 +98,16 @@ app.http('postBook', {
     }
 
     const attachmentUrl = typeof body.attachmentUrl === 'string' ? body.attachmentUrl.trim() : '';
-    const attachmentType = attachmentUrl && ATTACHMENT_TYPES.has(body.attachmentType) ? body.attachmentType : null;
     if (attachmentUrl) {
       // Must be a URL this API itself just handed back from feed/upload —
       // otherwise a book entry could hotlink an arbitrary URL and have it
       // rendered as though it were a verified upload. Same check as
-      // feed.js's postFeed.
-      if (!attachmentType || !attachmentUrl.startsWith(`https://${STORAGE_ACCOUNT}.blob.core.windows.net/${FEED_CONTAINER}/`)) {
+      // feed.js's postFeed. PDF only, matching feed/upload's own 'pdf' kind.
+      if (!attachmentUrl.startsWith(`https://${STORAGE_ACCOUNT}.blob.core.windows.net/${FEED_CONTAINER}/`) || !attachmentUrl.endsWith('.pdf')) {
         return { status: 400, jsonBody: { error: 'invalid attachment' } };
       }
     }
+    if (!linkUrl && !attachmentUrl) return { status: 400, jsonBody: { error: 'add a link or a PDF' } };
 
     try {
       if (!(await checkRateLimit(session.sub))) {
@@ -125,14 +124,12 @@ app.http('postBook', {
       userId: session.sub,
       displayName: session.name,
       title,
-      author,
-      notes,
-      linkUrl,
+      tag: tag || null,
+      linkUrl: linkUrl || null,
       attachmentUrl: attachmentUrl || null,
-      attachmentType,
       createdAt: new Date().toISOString()
     };
-    await table.createEntity(entity);
+    await createEntitySafe(table, entity);
     return { status: 201, jsonBody: toClientShape(entity) };
   }
 });
