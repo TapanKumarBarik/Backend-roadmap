@@ -368,3 +368,67 @@ export async function fetchMessages() {
   if (!res.ok) throw new Error('failed to load messages');
   return res.json();
 }
+
+// A public, browsable shelf anyone signed in can add a book/PDF/link to —
+// distinct from private per-user Notes and a one-off Feed attachment (see
+// ROADMAP.md). File uploads reuse uploadFeedFile below rather than a
+// separate endpoint.
+export async function fetchBooks() {
+  const res = await fetch('/api/books');
+  if (!res.ok) throw new Error('failed to load books');
+  return res.json();
+}
+
+export async function postBook(title, author, notes, linkUrl, attachmentUrl, attachmentType) {
+  const res = await fetch('/api/books', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ title, author, notes, linkUrl, attachmentUrl, attachmentType })
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || 'failed to add book');
+  }
+  return res.json();
+}
+
+export async function deleteBook(id) {
+  const res = await fetch('/api/manage/books?id=' + encodeURIComponent(id), { method: 'DELETE' });
+  if (!res.ok) throw new Error('failed to delete book');
+}
+
+// A public, upvotable suggestions board — distinct from the private
+// admin-only feedback inbox above (sendMessage/fetchMessages).
+export async function fetchSuggestions() {
+  const res = await fetch('/api/suggestions');
+  if (!res.ok) throw new Error('failed to load suggestions');
+  return res.json();
+}
+
+export async function postSuggestion(text) {
+  const res = await fetch('/api/suggestions', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text })
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || 'failed to post suggestion');
+  }
+  return res.json();
+}
+
+export async function voteSuggestion(id) {
+  const res = await fetch('/api/suggestions/vote', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id })
+  });
+  if (!res.ok) throw new Error('failed to vote');
+  return res.json();
+}
+
+export async function deleteSuggestion(id) {
+  const res = await fetch('/api/manage/suggestions?id=' + encodeURIComponent(id), { method: 'DELETE' });
+  if (!res.ok) throw new Error('failed to delete suggestion');
+}

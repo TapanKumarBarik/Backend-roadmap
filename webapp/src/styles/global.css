@@ -1251,6 +1251,14 @@ body.right-rail-collapsed #toc { display: none; }
   color: var(--fg); background: var(--bg-sunken);
   border: 1px solid var(--border); border-radius: var(--r-md);
 }
+/* Books composer's title/author/link fields — same frame as the textarea
+   above, just single-line. */
+.books-title-input {
+  display: block; width: 100%;
+  font: inherit; font-size: 14px; padding: 10px 12px;
+  color: var(--fg); background: var(--bg-sunken);
+  border: 1px solid var(--border); border-radius: var(--r-md);
+}
 .feed-composer-actions { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 8px; }
 .feed-composer-tools { display: flex; gap: 4px; }
 .feed-tool-btn {

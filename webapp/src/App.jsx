@@ -34,6 +34,8 @@ import ExploreView from './components/home/ExploreView.jsx';
 import CommunityView from './components/home/CommunityView.jsx';
 import FeedView from './components/home/FeedView.jsx';
 import PostDetailView from './components/home/PostDetailView.jsx';
+import BooksView from './components/home/BooksView.jsx';
+import SuggestionsView from './components/home/SuggestionsView.jsx';
 import MessageOwnerModal from './components/account/MessageOwnerModal.jsx';
 
 // Lazy: the GitHub-commit content editor and its admin-only siblings are
@@ -55,6 +57,8 @@ const EXPLORE_ROUTE = '__explore';
 // is that post's own detail page with its comment thread.
 const FEED_ROUTE = '__feed';
 const COMMUNITY_ROUTE = '__community';
+const BOOKS_ROUTE = '__books';
+const SUGGESTIONS_ROUTE = '__suggestions';
 
 function collectDirPaths(nodes) {
   const paths = [];
@@ -103,7 +107,9 @@ export default function App() {
   const isExploreRoute = path === EXPLORE_ROUTE;
   const isCommunityRoute = path === COMMUNITY_ROUTE;
   const isFeedRoute = path === FEED_ROUTE;
-  const isSpecialRoute = isAdminRoute || isSavedRoute || isExploreRoute || isCommunityRoute || isFeedRoute;
+  const isBooksRoute = path === BOOKS_ROUTE;
+  const isSuggestionsRoute = path === SUGGESTIONS_ROUTE;
+  const isSpecialRoute = isAdminRoute || isSavedRoute || isExploreRoute || isCommunityRoute || isFeedRoute || isBooksRoute || isSuggestionsRoute;
   const currentFile = !isSpecialRoute && path && fileSet.has(path) ? path : null;
 
   useEffect(() => {
@@ -246,6 +252,8 @@ export default function App() {
     navigate(FEED_ROUTE);
   }, [navigate, feedActivity.markSeen]);
   const openFeedPost = useCallback((postId) => navigate(FEED_ROUTE, postId), [navigate]);
+  const openBooks = useCallback(() => navigate(BOOKS_ROUTE), [navigate]);
+  const openSuggestions = useCallback(() => navigate(SUGGESTIONS_ROUTE), [navigate]);
 
   // Two of the three theme states render identically on any given OS, so a
   // press can legitimately change nothing on screen — say which mode it
@@ -272,6 +280,8 @@ export default function App() {
       { label: 'Explore by tag', keywords: 'tags browse subject', run: () => navigate(EXPLORE_ROUTE) },
       { label: 'Feed', keywords: 'posts feed share', run: () => navigate(FEED_ROUTE) },
       { label: 'Community', keywords: 'discussion questions', run: () => navigate(COMMUNITY_ROUTE) },
+      { label: 'Books', keywords: 'books pdf library shelf resources', run: () => navigate(BOOKS_ROUTE) },
+      { label: 'Suggestions', keywords: 'feedback ideas vote feature request', run: () => navigate(SUGGESTIONS_ROUTE) },
       { label: 'Your curriculum', keywords: 'home progress paths', run: goHome }
     ];
     if (currentFile) {
@@ -342,6 +352,8 @@ export default function App() {
           onOpenSaved={openSaved}
           onOpenFeed={openFeed}
           onOpenCommunity={openCommunity}
+          onOpenBooks={openBooks}
+          onOpenSuggestions={openSuggestions}
           onOpenAdmin={openAdmin}
           feedBadge={feedActivity.badgeVisible}
           communityBadge={questionsActivity.badgeVisible}
@@ -430,6 +442,8 @@ export default function App() {
                       />
                     )
                 )}
+                {isBooksRoute && <BooksView user={user} onLogin={login} onToast={toast.show} />}
+                {isSuggestionsRoute && <SuggestionsView user={user} onLogin={login} onToast={toast.show} />}
               </div>
             </div>
           )

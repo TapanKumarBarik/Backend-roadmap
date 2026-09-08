@@ -1,4 +1,4 @@
-import { TreeIcon, StarIcon, CompassIcon, FeedIcon, QuestionIcon, GearIcon } from '../icons.jsx';
+import { TreeIcon, StarIcon, CompassIcon, FeedIcon, QuestionIcon, BookIcon, LightbulbIcon, GearIcon } from '../icons.jsx';
 
 // The permanent left edge: where you can go, not what's in the thing
 // you're looking at. Splitting this out is what lets the curriculum tree
@@ -11,7 +11,7 @@ import { TreeIcon, StarIcon, CompassIcon, FeedIcon, QuestionIcon, GearIcon } fro
 // third tab behind Questions/Unanswered.
 export default function DestinationRail({
   activeDest, user, isAdmin,
-  onOpenCurriculum, onOpenExplore, onOpenSaved, onOpenFeed, onOpenCommunity, onOpenAdmin,
+  onOpenCurriculum, onOpenExplore, onOpenSaved, onOpenFeed, onOpenCommunity, onOpenBooks, onOpenSuggestions, onOpenAdmin,
   feedBadge, communityBadge
 }) {
   const items = [
@@ -25,6 +25,8 @@ export default function DestinationRail({
     // your own state; there's nothing there to be notified of.
     { key: '__feed', label: 'Feed', Icon: FeedIcon, onClick: onOpenFeed, show: true, badge: feedBadge },
     { key: '__community', label: 'Community', Icon: QuestionIcon, onClick: onOpenCommunity, show: true, badge: communityBadge },
+    { key: '__books', label: 'Books', Icon: BookIcon, onClick: onOpenBooks, show: true },
+    { key: '__suggestions', label: 'Suggestions', Icon: LightbulbIcon, onClick: onOpenSuggestions, show: true },
     { key: '__admin', label: 'Admin', Icon: GearIcon, onClick: onOpenAdmin, show: isAdmin }
   ].filter((i) => i.show);
 

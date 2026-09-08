@@ -91,6 +91,18 @@ export function MailIcon(props) {
   );
 }
 
+// A lightbulb, for the Suggestions destination — "an idea," distinct from
+// FeedIcon's stacked-post-list and QuestionIcon's speech-bubble.
+export function LightbulbIcon(props) {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" {...props}>
+      <path d="M8 1.5a4.5 4.5 0 0 0-2.5 8.24c.4.28.6.5.6.86v.5h3.8v-.5c0-.36.2-.58.6-.86A4.5 4.5 0 0 0 8 1.5Z" />
+      <path d="M6.1 13.2h3.8" strokeLinecap="round" />
+      <path d="M6.6 14.5h2.8" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 export function GoogleGIcon(props) {
   return (
     <svg viewBox="0 0 48 48" {...props}>
