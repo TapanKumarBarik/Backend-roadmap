@@ -137,10 +137,10 @@ function toClientShape(entity, votes, commentCounts) {
 // page path — with RowKey `${postId}_${userId}`, so counting every vote on
 // every post is one scan, not one query per post.
 //
-// Best-effort: FeedVotes is a brand-new table that has to be provisioned in
-// the storage account before its first use (same manual step CommentVotes
-// needed) — until then this throws TableNotFound, and the public feed listing
-// shouldn't 500 just because voting hasn't been set up yet.
+// Best-effort: voteFeedPost creates FeedVotes lazily on the first-ever vote
+// (see its own comment), but until that first vote happens the table simply
+// doesn't exist yet and this throws TableNotFound — the public feed listing
+// shouldn't 500 just because nobody has voted on anything yet.
 async function loadFeedVotes(userId) {
   const counts = {};
   const mine = new Set();
@@ -230,7 +230,26 @@ app.http('voteFeedPost', {
       return { jsonBody: { voted: false } };
     } catch (err) {
       if (err.statusCode !== 404) throw err;
-      await table.createEntity({ partitionKey: 'feed', rowKey, postId: id, userId: session.sub, createdAt: new Date().toISOString() });
+      // Table Storage returns the same 404 for "entity not found" and "this
+      // table doesn't exist at all" -- getEntity's 404 above is ambiguous
+      // between the two, but createEntity's own 404 (caught here) can only
+      // mean the table itself is missing, since an entity can't fail to be
+      // "found" on a create. FeedVotes needs no manual Azure Portal/CLI
+      // provisioning step: create it lazily on first vote and retry once,
+      // rather than requiring a setup step outside this code.
+      try {
+        await table.createEntity({ partitionKey: 'feed', rowKey, postId: id, userId: session.sub, createdAt: new Date().toISOString() });
+      } catch (createErr) {
+        if (createErr.statusCode !== 404) throw createErr;
+        try {
+          await table.createTable();
+        } catch (createTableErr) {
+          // 409 = someone else's concurrent first-vote already created it a
+          // moment ago -- fine, proceed to the retry below either way.
+          if (createTableErr.statusCode !== 409) throw createTableErr;
+        }
+        await table.createEntity({ partitionKey: 'feed', rowKey, postId: id, userId: session.sub, createdAt: new Date().toISOString() });
+      }
       return { jsonBody: { voted: true } };
     }
   }
