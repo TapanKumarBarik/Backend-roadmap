@@ -2135,29 +2135,30 @@ wsl --list --verbose
 
 # 🎓 43. Graduation Checklist
 
-You are ready for the next module when you can check every box.
+You are ready for the next module when you can honestly answer yes to every item below.
 
-* [ ] I know what Linux is.
-* [ ] I know what Ubuntu is.
-* [ ] I know what WSL is.
-* [ ] I understand the difference between WSL1 and WSL2.
-* [ ] I know that WSL2 uses a Linux kernel.
-* [ ] I understand that WSL2 uses virtualization.
-* [ ] I can explain the relationship between Windows, WSL2, Ubuntu, and Bash.
-* [ ] I can open Ubuntu.
-* [ ] I can identify my Linux username.
-* [ ] I can identify my Linux home directory.
-* [ ] I can check my Ubuntu release.
-* [ ] I can check my Linux kernel.
-* [ ] I can verify that Ubuntu is running under WSL2.
-* [ ] I know the difference between `wsl --terminate` and `wsl --shutdown`.
-* [ ] I know where `/mnt/c` comes from.
-* [ ] I understand where Linux projects should normally live.
-* [ ] I can open a Linux directory using Windows Explorer.
-* [ ] I can start a Linux HTTP server.
-* [ ] I can access that server from Windows.
-* [ ] I can stop the server.
-* [ ] I can troubleshoot basic WSL installation problems.
+> [!check]
+> - I know what Linux is.
+> - I know what Ubuntu is.
+> - I know what WSL is.
+> - I understand the difference between WSL1 and WSL2.
+> - I know that WSL2 uses a Linux kernel.
+> - I understand that WSL2 uses virtualization.
+> - I can explain the relationship between Windows, WSL2, Ubuntu, and Bash.
+> - I can open Ubuntu.
+> - I can identify my Linux username.
+> - I can identify my Linux home directory.
+> - I can check my Ubuntu release.
+> - I can check my Linux kernel.
+> - I can verify that Ubuntu is running under WSL2.
+> - I know the difference between `wsl --terminate` and `wsl --shutdown`.
+> - I know where `/mnt/c` comes from.
+> - I understand where Linux projects should normally live.
+> - I can open a Linux directory using Windows Explorer.
+> - I can start a Linux HTTP server.
+> - I can access that server from Windows.
+> - I can stop the server.
+> - I can troubleshoot basic WSL installation problems.
 
 If you can do all of that without blindly copying commands, you're ready.
 
@@ -2186,7 +2187,7 @@ Now we're going to learn how to actually **talk to Linux**.
 
 Next:
 
-## [01 · Shell Basics and Unix Philosophy](../01-shell-basics-and-philosophy/)
+## [01 · Shell Basics and Unix Philosophy](../01-shell-basics-and-philosophy/README.md)
 
 You'll learn:
 
