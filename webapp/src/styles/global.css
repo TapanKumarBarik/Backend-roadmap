@@ -423,6 +423,15 @@ li.open > .row > .caret { transform: rotate(90deg); }
   border: 1px dashed var(--border); padding: 10px 12px; margin: 20px 0;
 }
 
+/* Rendered ```mermaid diagrams — swapped in for the plain code block by
+   mermaidRender.js once the library resolves. Wide flowcharts scroll inside
+   their own box rather than forcing the page to scroll horizontally. */
+.mermaid-diagram {
+  margin: 20px 0; padding: 16px; overflow-x: auto; text-align: center;
+  background: var(--bg-raised); border: 1px solid var(--border-subtle); border-radius: 10px;
+}
+.mermaid-diagram svg { max-width: 100%; height: auto; }
+
 /* Links read as links: blue + underline. */
 #content a, #crumb a, .feed-card .comment-text a {
   color: var(--link);

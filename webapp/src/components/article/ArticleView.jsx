@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { useMarkdownDoc } from '../../hooks/useMarkdownDoc.js';
 import { enhanceContent } from '../../lib/enhanceContent.js';
+import { renderMermaidDiagrams } from '../../lib/mermaidRender.js';
 import { rewriteLinks } from '../../lib/rewriteLinks.js';
 import { readTimeStats, slugify } from '../../lib/markdown.js';
 import { buildPositions, siblingStats } from '../../lib/curriculumPosition.js';
@@ -60,6 +61,11 @@ export default function ArticleView({
     rewriteLinks(root, path, fileSet, dirIndex);
     applyTabPreference(root);
     enhanceSelfCheck(root, path);
+    // Fire-and-forget: async (lazy-loads the mermaid library on first use),
+    // but every mutation inside checks the target node is still attached
+    // before touching it, so a fast navigation away can't corrupt content
+    // that's already moved on to a different module.
+    renderMermaidDiagrams(root);
 
     const heads = [...root.querySelectorAll('h2, h3')];
     const headingList = heads.map((h) => ({ id: h.id, level: h.tagName, text: h.textContent.replace(/^#/, '').trim() }));
