@@ -10,13 +10,7 @@ Before learning Linux commands, we need a Linux environment.
 
 If you're using Windows, **WSL2 + Ubuntu** gives you a Linux development environment directly on your machine without requiring dual boot.
 
-But this module is not just:
-
-```bash
-wsl --install
-```
-
-and "congratulations, you're done."
+But this module is not just running `wsl --install` and "congratulations, you're done."
 
 You should understand **what you installed, why it exists, where your files live, how Windows and Linux interact, and how to verify that everything is actually working.**
 
@@ -102,13 +96,7 @@ It is part of the **ground beneath the tools**.
 
 You don't need to become a Linux kernel developer.
 
-You do need to be comfortable enough that when a production server says:
-
-```text
-Permission denied
-```
-
-you don't stare at the screen like it just insulted your ancestors.
+You do need to be comfortable enough that when a production server says `Permission denied`, you don't stare at the screen like it just insulted your ancestors.
 
 ---
 
@@ -614,57 +602,13 @@ On first launch, Ubuntu will initialize its filesystem.
 
 Then you'll be asked to create a Linux user.
 
-For example:
-
-```text
-Enter new UNIX username:
-```
-
-Choose a username.
-
-Example:
-
-```text
-developer
-```
-
-Then create a password.
+For example: `Enter new UNIX username:` — choose a username, e.g. `developer`. Then create a password.
 
 ---
 
 # 🔐 14. Why Doesn't My Password Appear?
 
-When you type a password in a Linux terminal, you may see:
-
-```text
-Password:
-```
-
-Then you type:
-
-```text
-mypassword
-```
-
-But the screen may remain:
-
-```text
-Password:
-```
-
-No:
-
-```text
-****
-```
-
-No:
-
-```text
-••••
-```
-
-Nothing.
+When you type a password in a Linux terminal, you'll see a `Password:` prompt — but as you type, the screen doesn't change at all. No `****`, no `••••`, nothing.
 
 That is normal.
 
@@ -676,23 +620,7 @@ Type the password and press Enter.
 
 # 👤 15. Your Windows User and Linux User Are Different
 
-You might have:
-
-```text
-Windows account
-    ↓
-Tapan
-```
-
-and:
-
-```text
-Ubuntu account
-    ↓
-developer
-```
-
-These are separate account systems.
+Your Windows account (`Tapan`, say) and your Ubuntu account (`developer`, say) are separate account systems.
 
 Your Linux account will have its own:
 
@@ -703,12 +631,7 @@ Your Linux account will have its own:
 * ownership
 * Linux identity
 
-We'll explore these properly in:
-
-```text
-03-file-permissions-ownership
-04-users-and-groups
-```
+We'll explore these properly in `03-file-permissions-ownership` and `04-users-and-groups`.
 
 ---
 
@@ -720,11 +643,7 @@ Inside Ubuntu:
 whoami
 ```
 
-Expected:
-
-```text
-developer
-```
+Expected: `developer`.
 
 Now:
 
@@ -732,11 +651,7 @@ Now:
 pwd
 ```
 
-Expected:
-
-```text
-/home/developer
-```
+Expected: `/home/developer`.
 
 Now:
 
@@ -772,12 +687,7 @@ Now:
 wsl --list --verbose
 ```
 
-You should see your Ubuntu distribution and:
-
-```text
-VERSION
-2
-```
+You should see your Ubuntu distribution listed, with `VERSION` showing `2`.
 
 This is an important verification.
 
@@ -969,63 +879,13 @@ Inside Ubuntu:
 pwd
 ```
 
-You may see:
-
-```text
-/home/developer
-```
-
-This is part of the Linux filesystem.
-
-Windows has:
-
-```text
-C:\
-```
-
-Linux has:
-
-```text
-/
-```
-
-Your Linux home directory is:
-
-```text
-/home/developer
-```
+You may see `/home/developer` — this is part of the Linux filesystem. Windows has `C:\`; Linux has `/`. Your Linux home directory is `/home/developer`.
 
 ---
 
 # 🔗 23. Windows Drives Inside Linux
 
-Your Windows drives are exposed inside WSL.
-
-For example:
-
-```text
-C:\
-```
-
-is generally accessible from:
-
-```text
-/mnt/c/
-```
-
-So:
-
-```text
-Windows
-
-C:\Users\Tapan\Projects
-```
-
-can be accessed from Linux through a path such as:
-
-```text
-/mnt/c/Users/Tapan/Projects
-```
+Your Windows drives are exposed inside WSL. For example, `C:\` is generally accessible from `/mnt/c/`. So `C:\Users\Tapan\Projects` on Windows can be accessed from Linux through a path such as `/mnt/c/Users/Tapan/Projects`.
 
 ---
 
@@ -1042,31 +902,9 @@ mkdir -p ~/projects
 cd ~/projects
 ```
 
-Then:
+That puts your project under `/home/developer/projects` rather than under `/mnt/c/Users/...`.
 
-```text
-/home/developer/projects
-```
-
-rather than putting the project under:
-
-```text
-/mnt/c/Users/...
-```
-
-Why?
-
-WSL2 generally performs best when Linux tools work with files stored in the Linux filesystem.
-
-For example:
-
-```text
-🐧 Linux tools
-      ↓
-🐧 Linux filesystem
-```
-
-is generally preferable for Linux-heavy workflows.
+Why? WSL2 generally performs best when Linux tools work with files stored in the Linux filesystem rather than the Windows-mounted one.
 
 ---
 
@@ -1122,11 +960,7 @@ Verify:
 cat index.html
 ```
 
-Expected:
-
-```text
-Hello from Linux
-```
+Expected: `Hello from Linux`.
 
 ---
 
@@ -1144,11 +978,7 @@ Then:
 python3 -m http.server 8000
 ```
 
-You should see something similar to:
-
-```text
-Serving HTTP on 0.0.0.0 port 8000
-```
+You should see something similar to `Serving HTTP on 0.0.0.0 port 8000`.
 
 Your Linux environment is now running a web server.
 
@@ -1156,21 +986,9 @@ Your Linux environment is now running a web server.
 
 # 🌍 28. Access Linux From Windows
 
-Open your Windows browser.
+Open your Windows browser and go to `http://localhost:8000`.
 
-Go to:
-
-```text
-http://localhost:8000
-```
-
-You should see your directory listing or:
-
-```text
-Hello from Linux
-```
-
-depending on how the directory is served.
+You should see your directory listing or `Hello from Linux`, depending on how the directory is served.
 
 This is a powerful moment.
 
@@ -1203,13 +1021,7 @@ That is already a tiny backend environment.
 
 # 🛑 29. Stop the Server
 
-Return to the Ubuntu terminal where the server is running.
-
-Press:
-
-```text
-Ctrl + C
-```
+Return to the Ubuntu terminal where the server is running and press `Ctrl+C`.
 
 The server stops.
 
@@ -1229,19 +1041,7 @@ You started:
 python3 -m http.server 8000
 ```
 
-That created a process.
-
-The process listened on:
-
-```text
-port 8000
-```
-
-Windows connected to:
-
-```text
-localhost:8000
-```
+That created a process. The process listened on `port 8000`; Windows connected to `localhost:8000`.
 
 WSL handled the integration.
 
@@ -1408,11 +1208,7 @@ python3 -m http.server 8000
 
 ### Step 3
 
-Open Windows browser:
-
-```text
-http://localhost:8000
-```
+Open your Windows browser to `http://localhost:8000`.
 
 ### Step 4
 
@@ -1420,11 +1216,7 @@ Verify that your file appears.
 
 ### Step 5
 
-Stop the server:
-
-```text
-Ctrl + C
-```
+Stop the server with `Ctrl+C`.
 
 ### Success condition
 
@@ -1805,11 +1597,7 @@ You run:
 pwd
 ```
 
-and get:
-
-```text
-/home/developer
-```
+and get `/home/developer`.
 
 What does `/home/developer` represent?
 
@@ -1819,11 +1607,7 @@ What does `/home/developer` represent?
 
 ## Scenario 3
 
-You create a file at:
-
-```text
-/home/developer/test.txt
-```
+You create a file at `/home/developer/test.txt`.
 
 Can Windows access it?
 
@@ -1833,21 +1617,9 @@ Can Windows access it?
 
 ## Scenario 4
 
-Your project is located at:
+Your project is located at `/mnt/c/Users/developer/project`, but you're doing heavy Linux development.
 
-```text
-/mnt/c/Users/developer/project
-```
-
-but you're doing heavy Linux development.
-
-Would you consider moving it into:
-
-```text
-/home/developer/project
-```
-
-?
+Would you consider moving it into `/home/developer/project`?
 
 **Answer:** Yes.
 
@@ -2015,17 +1787,7 @@ It shuts down the WSL2 environment. It does not uninstall your Linux distributio
 
 ---
 
-### Q7. Why is this usually preferred for Linux-heavy development?
-
-```text
-/home/developer/project
-```
-
-instead of:
-
-```text
-/mnt/c/Users/developer/project
-```
+### Q7. Why is `/home/developer/project` usually preferred over `/mnt/c/Users/developer/project` for Linux-heavy development?
 
 <details>
 <summary>Answer</summary>
@@ -2107,17 +1869,11 @@ python3 -m http.server 8000
 
 ### 11. Open Windows browser
 
-Visit:
-
-```text
-http://localhost:8000
-```
+Visit `http://localhost:8000`.
 
 ### 12. Stop the server
 
-```text
-Ctrl + C
-```
+Press `Ctrl+C`.
 
 ### 13. Return to Windows
 
