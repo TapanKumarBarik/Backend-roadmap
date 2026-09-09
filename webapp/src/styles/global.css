@@ -431,6 +431,13 @@ li.open > .row > .caret { transform: rotate(90deg); }
   background: var(--bg-sunken); border: 1px solid var(--border-subtle); border-radius: 10px;
 }
 .mermaid-diagram svg { max-width: 100%; height: auto; }
+/* Mermaid's default node is a sharp-cornered rect with a thin, flat outline
+   — a touch more stroke weight is the difference between "generated" and
+   "designed" without changing a single color. Corner rounding is applied as
+   a real rx/ry SVG attribute in mermaidRender.js instead of the CSS
+   properties of the same name, which Safari doesn't support on SVG shapes. */
+.mermaid-diagram .node rect { stroke-width: 1.4px; }
+.mermaid-diagram .edgePath .path { stroke-width: 1.4px; }
 
 /* Links read as links: blue + underline. */
 #content a, #crumb a, .feed-card .comment-text a {

@@ -24,15 +24,20 @@ function cssVar(name) {
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 }
 
+// A plain --border gray outline read as flat and utilitarian rather than
+// designed. --link is the one accent color this app already uses to mean
+// "something purposeful, follow me" (real hyperlinks) — reusing it for node
+// borders and connecting arrows gives a diagram a clear focal color without
+// introducing a palette the rest of the app doesn't already have.
 function themeVariables() {
   return {
     background: cssVar('--bg-sunken'),
     primaryColor: cssVar('--bg-raised'),
     primaryTextColor: cssVar('--fg'),
-    primaryBorderColor: cssVar('--border'),
+    primaryBorderColor: cssVar('--link'),
     secondaryColor: cssVar('--bg-sunken'),
     tertiaryColor: cssVar('--bg-sunken'),
-    lineColor: cssVar('--fg-subtle'),
+    lineColor: cssVar('--link'),
     textColor: cssVar('--fg'),
     fontFamily: cssVar('--sans')
   };
@@ -54,7 +59,13 @@ export async function renderMermaidDiagrams(root) {
   // Re-initialize per call (cheap) rather than once at module load, so a
   // theme toggle before the next navigation still picks the right palette —
   // the memoized import above only avoids re-fetching the library itself.
-  mermaid.initialize({ startOnLoad: false, securityLevel: 'strict', theme: 'base', themeVariables: themeVariables() });
+  mermaid.initialize({
+    startOnLoad: false,
+    securityLevel: 'strict',
+    theme: 'base',
+    themeVariables: themeVariables(),
+    flowchart: { padding: 14, nodeSpacing: 36, rankSpacing: 46, curve: 'basis' }
+  });
 
   for (const code of codes) {
     const host = code.closest('.codeblock') || code.parentElement;
@@ -70,6 +81,12 @@ export async function renderMermaidDiagrams(root) {
       const wrap = document.createElement('div');
       wrap.className = 'mermaid-diagram';
       wrap.innerHTML = svg;
+      // Real SVG attributes, not the CSS properties of the same name — rx/ry
+      // as a CSS property isn't supported in Safari.
+      wrap.querySelectorAll('.node rect').forEach((rect) => {
+        rect.setAttribute('rx', '7');
+        rect.setAttribute('ry', '7');
+      });
       host.replaceWith(wrap);
     } catch {
       // A malformed diagram must not blank the rest of the module — leave
