@@ -159,12 +159,21 @@ async function loadFeedVotes(userId) {
 // Feed-post comments share the Comments table with module discussions
 // (partitionKey `feed:<postId>`, see comments.js's recentQuestions) — one
 // bounded scan for every post's count, rather than a request per post.
+//
+// Not startswith(): confirmed against the real storage account that this
+// SDK/account combination returns a hard 501 "NotImplemented" for the
+// startswith() OData function specifically (eq and range comparisons both
+// work fine) -- this 500'd every single load of the feed. A `ge`/`lt` range
+// scan is the standard Table Storage prefix-match workaround: '￿' sorts
+// after any normal character, so it's an exclusive upper bound that still
+// only matches keys starting with the exact prefix.
 async function loadCommentCounts() {
   const counts = {};
   const table = getTable(COMMENTS_TABLE);
   const prefix = encodeURIComponent('feed:');
+  const upperBound = prefix + '￿';
   const entities = await listEntitiesSafe(table, {
-    queryOptions: { filter: `startswith(PartitionKey, '${prefix}') and hidden eq false` }
+    queryOptions: { filter: `PartitionKey ge '${prefix}' and PartitionKey lt '${upperBound}' and hidden eq false` }
   });
   for (const entity of entities) {
     const postId = decodeURIComponent(entity.partitionKey).slice('feed:'.length);
