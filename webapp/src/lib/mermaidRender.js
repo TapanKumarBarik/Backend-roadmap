@@ -11,11 +11,31 @@ function loadMermaidModule() {
   return mermaidModulePromise;
 }
 
-function isDarkMode() {
-  const attr = document.documentElement.dataset.theme;
-  if (attr === 'dark') return true;
-  if (attr === 'light') return false;
-  return !!(window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
+// Mermaid's built-in 'dark'/'neutral' preset themes ship their own fixed
+// palette, unrelated to this app's actual tokens — against this app's real
+// dark background that came out as near-black node fills with dull, barely
+// legible gray text (confirmed via screenshot). Reading the app's own
+// resolved CSS variables and feeding them to mermaid's 'base' theme
+// (the one meant to be fully driven by themeVariables) guarantees the exact
+// same contrast the rest of the page already has, in whichever theme is
+// currently active, without hand-maintaining a second color palette that
+// could drift from the real one.
+function cssVar(name) {
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+}
+
+function themeVariables() {
+  return {
+    background: cssVar('--bg-sunken'),
+    primaryColor: cssVar('--bg-raised'),
+    primaryTextColor: cssVar('--fg'),
+    primaryBorderColor: cssVar('--border'),
+    secondaryColor: cssVar('--bg-sunken'),
+    tertiaryColor: cssVar('--bg-sunken'),
+    lineColor: cssVar('--fg-subtle'),
+    textColor: cssVar('--fg'),
+    fontFamily: cssVar('--sans')
+  };
 }
 
 let renderCounter = 0;
@@ -34,7 +54,7 @@ export async function renderMermaidDiagrams(root) {
   // Re-initialize per call (cheap) rather than once at module load, so a
   // theme toggle before the next navigation still picks the right palette —
   // the memoized import above only avoids re-fetching the library itself.
-  mermaid.initialize({ startOnLoad: false, securityLevel: 'strict', theme: isDarkMode() ? 'dark' : 'neutral' });
+  mermaid.initialize({ startOnLoad: false, securityLevel: 'strict', theme: 'base', themeVariables: themeVariables() });
 
   for (const code of codes) {
     const host = code.closest('.codeblock') || code.parentElement;

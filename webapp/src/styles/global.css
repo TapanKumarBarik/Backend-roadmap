@@ -428,7 +428,7 @@ li.open > .row > .caret { transform: rotate(90deg); }
    their own box rather than forcing the page to scroll horizontally. */
 .mermaid-diagram {
   margin: 20px 0; padding: 16px; overflow-x: auto; text-align: center;
-  background: var(--bg-raised); border: 1px solid var(--border-subtle); border-radius: 10px;
+  background: var(--bg-sunken); border: 1px solid var(--border-subtle); border-radius: 10px;
 }
 .mermaid-diagram svg { max-width: 100%; height: auto; }
 
