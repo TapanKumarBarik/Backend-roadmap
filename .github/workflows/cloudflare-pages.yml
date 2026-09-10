@@ -1,0 +1,63 @@
+name: Deploy to Cloudflare Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# A second push while a deploy is in flight supersedes it.
+concurrency:
+  group: cf-pages-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            webapp/package-lock.json
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      # A missing await on isAdmin() silently grants admin to everyone;
+      # see scripts/check-admin-guards.js (covers api/ and api-cf/).
+      - name: Check admin guards
+        run: node scripts/check-admin-guards.js
+
+      # docs-index.json / search-index.json are gitignored and regenerated
+      # on every deploy — same as the old Azure workflow.
+      - name: Regenerate content indexes
+        run: |
+          python scripts/gen-docs-index.py
+          python scripts/gen-search-index.py
+
+      # Root deps = hono, which wrangler bundles into the Pages Function.
+      - name: Install API deps
+        run: npm ci
+
+      - name: Build webapp
+        working-directory: webapp
+        run: |
+          rm -rf ../assets
+          npm ci
+          npm run build
+          # Vite builds into the repo root next to the content trees; the
+          # build-only node_modules must not ride along into the deploy.
+          rm -rf node_modules
+
+      - name: Deploy
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy --project-name=backend-roadmap --branch=main --commit-dirty=true

@@ -23,7 +23,12 @@ const fs = require('fs');
 const path = require('path');
 const { execFileSync } = require('child_process');
 
-const ROOT = path.join(__dirname, '..', 'api', 'src');
+// api/src is the Azure Functions API; api-cf is its Cloudflare Pages Functions
+// port. Both are live during the migration and both have admin-gated routes.
+const ROOTS = [
+  path.join(__dirname, '..', 'api', 'src'),
+  path.join(__dirname, '..', 'api-cf')
+].filter(fs.existsSync);
 const CALL = /(?<!\.)\bisAdmin\s*\(/g;
 const NL = String.fromCharCode(10);
 
@@ -47,7 +52,7 @@ function stripComments(src) {
     .join(NL);
 }
 
-const files = walk(ROOT);
+const files = ROOTS.flatMap(walk);
 
 const unparsed = [];
 for (const file of files) {
