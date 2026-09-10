@@ -41,8 +41,8 @@ function splitLastUnderscore(rowKey) {
 const TABLES = {
   admins: {
     file: 'Admins',
-    columns: ['email'],
-    row: (e) => [sqlStr(e.email || decodeURIComponent(e.rowKey))]
+    columns: ['email', 'granted_by', 'granted_at'],
+    row: (e) => [sqlStr(e.email || decodeURIComponent(e.rowKey)), sqlStr(e.grantedBy), sqlStr(e.grantedAt)]
   },
   users: {
     file: 'Users',

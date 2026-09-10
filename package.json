@@ -1,0 +1,9 @@
+{
+  "name": "backend-roadmap",
+  "private": true,
+  "type": "module",
+  "description": "Cloudflare Pages Functions API (migrated from Azure Functions)",
+  "dependencies": {
+    "hono": "^4.6.14"
+  }
+}

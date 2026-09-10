@@ -10,5 +10,9 @@
       "database_name": "backend-roadmap-db",
       "database_id": "700ede1c-3f5c-45c2-87b1-be5b4d2fa610"
     }
-  ]
+  ],
+  "vars": {
+    "ADMIN_EMAIL": "tapankumarbarik7@gmail.com",
+    "SITE_ORIGINS": "https://backend-roadmap.pages.dev,http://localhost:8788"
+  }
 }

@@ -11,7 +11,9 @@
 -- client-side changes are needed.
 
 CREATE TABLE admins (
-  email TEXT PRIMARY KEY
+  email      TEXT PRIMARY KEY,
+  granted_by TEXT,
+  granted_at TEXT
 );
 
 CREATE TABLE users (

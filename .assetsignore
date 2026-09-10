@@ -1,0 +1,31 @@
+# Files under the repo root that are source/tooling, not part of the deployed
+# site. wrangler already skips node_modules, .git and the functions/ dir.
+webapp
+api
+api-cf
+scripts
+cloudflare
+.github
+.claude
+.wrangler
+.git
+.env
+.ENV
+.gitignore
+.nojekyll
+package.json
+package-lock.json
+wrangler.jsonc
+LICENSE
+README.md
+ROADMAP.md
+CONTRIBUTING.md
+SECURITY.md
+LOCAL-SETUP.md
+staticwebapp.config.json
+
+# Cloudflare Pages serves index.html (200) for any unmatched route ONLY when
+# there is no top-level 404.html — that automatic SPA fallback is what
+# replaces Azure SWA's navigationFallback rewrite. The app renders its own
+# in-app "not found" view for bad module paths.
+404.html

@@ -59,3 +59,4 @@ webapp/node_modules/
 # only, no data) is the one file in cloudflare/ meant to be tracked.
 /cloudflare/export/
 /cloudflare/import.sql
+node_modules/
