@@ -43,3 +43,19 @@ webapp/node_modules/
 /apple-touch-icon.png
 /icon-192.png
 /icon-512.png
+.ENV
+
+# wrangler files
+.wrangler
+.dev.vars*
+!.dev.vars.example
+.env*
+!.env.example
+
+# Real exported user data (emails, names, Google profile picture URLs, post
+# text) and the SQL generated from it — this repo is public, never commit
+# either. Regenerate locally with scripts/export-azure-tables.js and
+# scripts/import-to-d1.js when needed; cloudflare/d1-schema.sql (structure
+# only, no data) is the one file in cloudflare/ meant to be tracked.
+/cloudflare/export/
+/cloudflare/import.sql

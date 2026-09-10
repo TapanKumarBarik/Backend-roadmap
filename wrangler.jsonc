@@ -1,0 +1,14 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "backend-roadmap",
+  "compatibility_date": "2026-09-08",
+  "compatibility_flags": ["nodejs_compat"],
+  "pages_build_output_dir": ".",
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "backend-roadmap-db",
+      "database_id": "700ede1c-3f5c-45c2-87b1-be5b4d2fa610"
+    }
+  ]
+}
