@@ -1,10 +1,20 @@
-# I/O Redirection and Pipes
+# Module 07: I/O Redirection and Pipes
+
+> 🎯 **Goal:** Move data between commands and files predictably, while keeping normal output and error output separate when it matters.
+
+By the end of this module, you should be able to explain standard input, output, and error; build and inspect a pipeline; choose between overwriting and appending; and avoid the common shell-expansion mistakes that make a one-line command unexpectedly destructive.
+
+---
 
 ## Why this matters
 
 Nearly every useful Linux command you'll ever run in practice isn't used alone — it's fed input from somewhere, or its output is sent somewhere else, or it's chained together with other commands. Saving command output to a file, silencing noisy error messages, and feeding one command's results into another are everyday tasks for any engineer, and they all rest on the same small set of ideas covered here. This module also sets up exactly what you need to make real use of text-processing tools like `grep`, `sed`, and `awk` in the next module.
 
 ## Concepts
+
+### Think in streams, not screens
+
+Terminal output is usually data flowing through three numbered streams: input (`0`), normal output (`1`), and errors (`2`). Your terminal merely displays them by default. Once you see commands as stream transformers, a pipeline becomes a small, reviewable data-processing program—useful for logs, diagnostics, CSV exports, and deployment scripts.
 
 **Every process has three standard "streams."** When any program runs, Linux automatically gives it three communication channels, each identified by a small number called a file descriptor: **stdin** (standard input, file descriptor `0`) is where the program reads input from — by default, your keyboard. **stdout** (standard output, file descriptor `1`) is where the program writes its normal output — by default, your terminal screen. **stderr** (standard error, file descriptor `2`) is a *separate* channel for error/diagnostic messages — also shown on your terminal screen by default, but kept distinct from stdout so the two can be handled independently. The reason errors get their own channel: it lets you save a command's real output to a file while still seeing any errors on screen (or vice versa), instead of errors getting mixed into your saved results.
 
@@ -87,6 +97,50 @@ Nearly every useful Linux command you'll ever run in practice isn't used alone �
 9. Practice `tee`: run `ps aux | tee processes.txt | less`. Notice you still get the scrollable `less` view (the pipe continues past `tee`), and after quitting `less`, run `cat processes.txt` to confirm the same content was also saved to a file — `tee` split the stream in two without you losing either copy.
 
 10. Break something on purpose, more subtly: run `sort < notes.txt < /this/path/does/not/exist` (redirecting stdin from a file that doesn't exist). Read the error message carefully — it should complain about that missing file specifically, not about `sort` itself, teaching you that redirection errors point at the file/path, not necessarily the command. Then clean up all the practice files from this module: `rm notes.txt error.log combined.txt processes.txt`.
+
+## Production practice: build inspectable data flows
+
+> [!key]
+> Every command starts with standard input, standard output, and standard error. Redirection changes where those streams go; a pipe connects one command's standard output to the next command's standard input.
+
+> [!model]
+> A pipeline is an assembly line: each stage accepts a stream, performs one transformation, and passes the result forward. Keep each stage narrow enough that you can inspect it independently.
+
+```mermaid
+flowchart LR
+    A["journalctl"] -->|stdout| B["grep"] -->|stdout| C["tail"] --> D["terminal"]
+    A -->|stderr| E["error stream"]
+```
+
+> [!example]
+> `journalctl -u nginx --since "10 minutes ago" | grep -F " 500 " | tail -n 20` asks three focused questions in sequence: which recent service events exist, which contain a literal 500 status, and which twenty of those are newest. It does not alter the journal.
+
+> [!pitfall]
+> `>` overwrites a file before the command finishes. Never experiment with it against a file you need. Use a temporary output path, inspect the result, then move it into place; use `>>` only when appending is truly intended.
+
+### Stream-safe workflow
+
+Use an intermediate command or file when learning a pipeline:
+
+```bash
+command | less
+command > /tmp/result.txt
+command 2> /tmp/errors.txt
+command > /tmp/result.txt 2>&1
+```
+
+The last form combines normal output and errors intentionally. Keep them separate while diagnosing when the distinction helps.
+
+> [!exercise]
+> Create a short sample log file with normal lines and errors. First display matching errors with `grep`; then redirect only the matches to a new file; finally redirect an intentionally invalid command's error stream to a separate file and read it. Confirm the original log never changed.
+
+> [!interview]
+> Explain the difference between `|`, `>`, `>>`, and `2>`. Why might mixing stdout and stderr make a machine-readable pipeline unreliable?
+
+> [!check]
+> - Can you identify whether a command reads stdin or writes stdout?
+> - Can you explain why a pipe is not temporary-file syntax?
+> - Can you safely capture an error without hiding the normal result?
 
 ## Independent challenge
 

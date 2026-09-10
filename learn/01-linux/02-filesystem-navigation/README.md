@@ -1,245 +1,1203 @@
-# Filesystem Navigation
+# Module 02: Filesystem Navigation
 
 ## Why this matters
-Docker images, Kubernetes pods, and every Linux server you'll ever touch organize their contents in the same directory structure you're about to learn - configuration in `/etc`, logs in `/var`, temporary files in `/tmp`. Being fluent at moving around, creating, copying, and deleting files from the command line is the single most-used skill in this entire curriculum; you'll do it dozens of times per day going forward.
+
+Every backend developer eventually meets the same little monster:
+
+> "The application is running, but where the hell is the file?"
+
+Maybe it's a configuration file under `/etc`. Maybe the logs are under `/var/log`. Maybe a deployment script created something under `/opt`. Maybe you're inside a container and suddenly `/home` looks nothing like your laptop.
+
+Linux becomes much less mysterious once you understand one simple idea:
+
+**The filesystem is a tree, and every path is an address inside that tree.**
+
+Docker images, Kubernetes containers, Linux servers, CI runners, SSH sessions, and WSL all build on this model.
+
+In this module you'll learn how to:
+
+* understand the Linux filesystem hierarchy
+* navigate using absolute and relative paths
+* understand `.`, `..`, and `~`
+* inspect files and directories
+* create files and directory trees
+* copy and move data
+* remove files safely
+* use shell wildcards
+* search directory trees with `find`
+* reason about paths instead of blindly trying commands
+
+By the end, you should be able to land on an unfamiliar Linux machine and start figuring out where you are without needing a map, a tour guide, or a small ceremonial sacrifice to the terminal.
 
 ## Concepts
 
-**The filesystem is one big tree.** Unlike Windows, which has separate drive letters like `C:\` and `D:\`, Linux has a single unified tree of directories starting from one root, written as `/`. Every file and folder on the system, no matter what physical disk it lives on, appears somewhere under `/`.
+### 🌳 1. Linux has one filesystem tree
 
-**Key top-level directories** (you don't need to memorize all of these today, but recognizing them helps you understand any Linux system you encounter):
-- `/` - the root of the entire filesystem; everything else is nested inside it.
-- `/home` - contains a personal folder for each user, e.g. `/home/yourusername`. This is your own space to create and organize files.
-- `/etc` - system-wide configuration files (short for "et cetera," historically, though people now often read it as "editable text configuration").
-- `/var` - "variable" data that changes while the system runs, like logs (`/var/log`).
-- `/tmp` - temporary files; anything here may be deleted automatically on reboot, so never store anything important there.
-- `/usr` - most installed user programs and their supporting files live under here (not to be confused with `/home` - despite the name, `/usr` historically stood for "Unix System Resources," not "user").
+Linux presents files and directories through a single hierarchical namespace beginning at `/`, called the **root directory**.
 
-```
-/                        ← root: everything lives under here
-├── home/
-│   └── yourusername/    ← your personal space (≈ Windows' C:\Users\you)
-├── etc/                 ← system-wide config files
-├── var/
-│   └── log/              ← logs that grow while the system runs
-├── tmp/                 ← scratch space, may vanish on reboot
-└── usr/                 ← installed programs' supporting files
-```
+Think of `/` as the trunk of a giant tree.
 
-Compare this to Windows, where `C:\`, `D:\`, and a mounted USB drive are all separate roots with no common ancestor. In Linux, a second disk or a USB stick doesn't get its own letter — it gets *mounted* as just another folder somewhere under `/` (often under `/mnt` or `/media`), so from the shell's point of view there is always exactly one tree, no matter how many physical devices back it.
-
-**Absolute vs. relative paths.** A path is just an address for a file or folder.
-- An **absolute path** always starts with `/` and describes the full route from the root, no matter where you currently are, e.g. `/home/yourusername/notes.txt`.
-- A **relative path** describes a location starting from wherever you currently are, e.g. `notes.txt` (a file right here) or `subfolder/notes.txt` (a file inside a folder right here). Relative paths don't start with `/`.
-- Two special shorthand names are used inside relative paths: `.` means "this current directory," and `..` means "one directory up (the parent)." So `cd ..` moves you up one level, and `./script.sh` refers to a file named `script.sh` right where you are.
-- `~` is shorthand for your home directory (e.g. `/home/yourusername`), usable in either absolute-feeling or relative-feeling contexts - `cd ~` always takes you home from anywhere.
-
-If you're standing in `/home/yourusername/linux-practice`, here's how the same target resolves both ways:
-
-```
-Current location:  /home/yourusername/linux-practice
-Target: the "photos" folder inside linux-practice
-
-  Absolute:  /home/yourusername/linux-practice/photos   (works from anywhere)
-  Relative:  photos                                       (works only from here)
-  Relative:  ./photos                                      (same thing, explicit)
-  Relative:  ../linux-practice/photos                      (up, then back down)
+```text
+/
+├── bin/        ← essential commands
+├── dev/        ← device interfaces
+├── etc/        ← system configuration
+├── home/       ← users' home directories
+├── opt/        ← optional/add-on software
+├── proc/       ← process/kernel information
+├── root/       ← root user's home directory
+├── run/        ← runtime state
+├── sbin/       ← essential system administration commands
+├── srv/        ← data served by system services
+├── sys/        ← kernel/device information
+├── tmp/        ← temporary files
+├── usr/        ← most user-space programs and libraries
+└── var/        ← changing data such as logs and caches
 ```
 
-**Wildcards / globbing.** The shell can match multiple filenames at once using special characters, expanded by the shell itself before the command even runs:
-- `*` matches any number of characters (including none). `*.txt` matches every file ending in `.txt`.
-- `?` matches exactly one character. `file?.txt` matches `file1.txt` but not `file10.txt`.
-- This expansion is called "globbing," and it works with essentially any command that takes filenames as arguments (`ls`, `cp`, `rm`, etc.).
+The exact contents and layout of a modern Linux installation can vary, and not every directory will be equally important on every machine. The **Filesystem Hierarchy Standard (FHS)** provides conventions for where major categories of files and directories belong.
+
+You do not need to memorize this tree.
+
+You need to develop the instinct:
+
+> "If I need configuration, logs, a user's files, runtime state, or installed software, I know roughly where to look."
+
+### 🏠 2. The directories you'll repeatedly encounter
+
+| Directory  | What you'll commonly find there                                | Backend relevance                      |
+| ---------- | -------------------------------------------------------------- | -------------------------------------- |
+| `/`        | Root of the entire hierarchy                                   | Starting point for understanding paths |
+| `/home`    | Normal users' home directories                                 | SSH sessions, development files        |
+| `/root`    | Root user's home directory                                     | Administration                         |
+| `/etc`     | System and service configuration                               | Extremely important for servers        |
+| `/var`     | Changing application/system data                               | Logs, caches, queues, databases        |
+| `/var/log` | System/application logs                                        | Troubleshooting                        |
+| `/tmp`     | Temporary data                                                 | Scripts, temporary processing          |
+| `/usr`     | Programs, libraries, shared data                               | Installed software                     |
+| `/opt`     | Optional/add-on software                                       | Third-party applications               |
+| `/srv`     | Data served by system services                                 | Web/service deployments                |
+| `/run`     | Runtime state created since boot                               | Services and process-related state     |
+| `/proc`    | Kernel/process information exposed as a virtual filesystem     | Process inspection                     |
+| `/sys`     | Kernel/device information exposed through a virtual filesystem | Hardware/kernel inspection             |
+| `/dev`     | Device interfaces                                              | Disks, terminals, pseudo-devices       |
+
+Some of these directories are intentionally only introduced here. For example, `/proc` and `/sys` will become much more useful when you learn process management and system administration.
+
+Likewise, **mounts and physical storage are deliberately covered later in Module 12**. For now, concentrate on navigating the namespace.
+
+### 🧠 3. "Where the data physically lives" is a different question
+
+A common beginner assumption is:
+
+> `/var/log` must mean there is physically a disk called "var".
+
+No.
+
+A Linux path is part of the **filesystem namespace**. The underlying data may live on different storage devices or filesystems, but the user sees a unified directory tree.
+
+That distinction becomes important later when you learn mounts, disks, filesystems, containers, and storage.
+
+For now:
+
+**Path = logical location.**
+
+**Storage device = where the bytes are actually backed.**
+
+Do not mix the two.
+
+### 📍 4. Absolute paths
+
+An **absolute path** starts from `/`.
+
+For example:
+
+`/home/tapan/projects/api/server.js`
+
+It describes the complete route from the filesystem root.
+
+Therefore, it does not depend on your current directory.
+
+If you are in `/tmp`, this still points to the same location.
+
+If you are in `/home/tapan`, it still points to the same location.
+
+If you are somewhere inside a Kubernetes container, the same principle applies to that container's filesystem.
+
+### 🧭 5. Relative paths
+
+A **relative path** starts from your current working directory.
+
+Suppose:
+
+`pwd` gives:
+
+`/home/tapan/projects`
+
+Then:
+
+* `api` means `/home/tapan/projects/api`
+* `api/server.js` means `/home/tapan/projects/api/server.js`
+* `../notes.txt` means `/home/tapan/notes.txt`
+
+The same relative path can therefore refer to different locations depending on where you currently are.
+
+This is one of the most important ideas in the module.
+
+### 🪜 6. `.`, `..`, and `~`
+
+Three shortcuts appear everywhere.
+
+| Symbol | Meaning                       |
+| ------ | ----------------------------- |
+| `.`    | Current directory             |
+| `..`   | Parent directory              |
+| `~`    | Current user's home directory |
+
+Examples:
+
+* `cd .` stays where you are.
+* `cd ..` moves one level upward.
+* `cd ../..` moves two levels upward.
+* `cd ~` moves to your home directory.
+* `./script.sh` refers to a script in the current directory.
+
+Suppose you are here:
+
+`/home/tapan/projects/backend`
+
+Then:
+
+```text
+.       → /home/tapan/projects/backend
+..      → /home/tapan/projects
+../..   → /home/tapan
+~/      → /home/tapan/
+```
+
+Once this clicks, Linux paths stop looking like punctuation soup.
+
+### 🏡 7. `~` is convenient, but it isn't `/home`
+
+If your username is `tapan`:
+
+`~` expands to `/home/tapan`.
+
+But `/` means the filesystem root.
+
+These are completely different:
+
+* `~/projects`
+* `/projects`
+
+The first means a directory called `projects` inside your home directory.
+
+The second means a directory called `projects` directly under the filesystem root.
+
+That difference matters.
+
+### 👻 8. Hidden files are usually just names beginning with `.`
+
+Linux does not require a special "hidden file" mechanism for the common Unix convention.
+
+A filename beginning with `.` is normally omitted from ordinary `ls` output.
+
+Examples:
+
+* `.bashrc`
+* `.profile`
+* `.git`
+* `.env`
+
+Use:
+
+`ls -a`
+
+to include them.
+
+This becomes especially important when working with Git repositories and application configuration.
+
+> ⚠️ A hidden file is not necessarily a secret file. `.env` may contain secrets, but the leading `.` itself provides no security.
+
+### 🃏 9. Wildcards are expanded by the shell
+
+The shell supports **pathname expansion**, commonly called **globbing**.
+
+The most useful patterns here are:
+
+| Pattern | Meaning                    | Examples            |
+| ------- | -------------------------- | ------------------- |
+| `*`     | Zero or more characters    | `*.log`, `report-*` |
+| `?`     | Exactly one character      | `file?.txt`         |
+| `[abc]` | One character from the set | `file[123].txt`     |
+| `[0-9]` | One character in the range | `file[0-9].txt`     |
+
+For example:
+
+`ls *.log`
+
+might become conceptually:
+
+`ls app.log error.log access.log`
+
+before `ls` receives the arguments.
+
+This is important because **the shell performs the expansion**.
+
+The command itself doesn't necessarily understand `*`.
+
+That distinction becomes extremely useful when debugging shell commands.
+
+### ⚠️ 10. Globbing can also surprise you
+
+Suppose a directory contains:
+
+```text
+report-1.txt
+report-2.txt
+report-3.txt
+```
+
+Then:
+
+`rm report-*.txt`
+
+can remove all three.
+
+That's convenient.
+
+It's also why you should inspect a pattern before using it with destructive commands.
+
+A good habit is:
+
+```bash
+printf '%s\n' report-*.txt
+```
+
+If the expansion is what you intended, then perform the operation.
+
+This tiny habit becomes surprisingly valuable on production systems.
+
+### 🗺️ 11. Your filesystem workflow
+
+When working with files, use this mental loop:
+
+```text
+┌─────────────────────────────┐
+│  1. WHERE AM I?             │
+│       ↓                     │
+│      pwd                    │
+├─────────────────────────────┤
+│  2. WHAT IS HERE?           │
+│       ↓                     │
+│      ls                     │
+├─────────────────────────────┤
+│  3. WHERE IS THE TARGET?    │
+│       ↓                     │
+│   absolute / relative path  │
+├─────────────────────────────┤
+│  4. WHAT WILL HAPPEN?       │
+│       ↓                     │
+│   inspect → execute → verify│
+└─────────────────────────────┘
+```
+
+This is much more useful than memorizing isolated commands.
+
+When something goes wrong, go back to step 1.
+
+### 🧱 12. Filesystem operations form a small vocabulary
+
+Most everyday navigation tasks fall into a handful of categories:
+
+```text
+NAVIGATE
+  cd
+
+INSPECT
+  pwd, ls
+
+CREATE
+  mkdir, touch
+
+COPY
+  cp
+
+MOVE / RENAME
+  mv
+
+REMOVE
+  rm, rmdir
+
+SEARCH
+  find
+
+MATCH GROUPS OF NAMES
+  globbing: *, ?, [...]
+```
+
+Learn this vocabulary and new commands become easier to place into the bigger picture.
 
 ## Command reference
 
-| Command | What it does | Example |
-|---|---|---|
-| `pwd` | Prints your current directory as an absolute path. | `pwd` |
-| `cd` | Changes your current directory ("change directory"). Used alone, `cd` with no argument takes you to your home directory. | `cd /home/yourusername/projects` |
-| `cd ..` | Moves up one directory level (to the parent of where you currently are). | `cd ..` |
-| `cd ~` | Moves directly to your home directory from anywhere. | `cd ~` |
-| `ls` | Lists the contents (files and folders) of a directory. With no argument, lists the current directory. | `ls` |
-| `ls -l` | The `-l` flag shows a detailed "long" listing: permissions, owner, size, and modification date for each item (permissions are covered fully in module 03). | `ls -l` |
-| `ls -a` | The `-a` flag shows "all" files, including hidden ones (files/folders whose names start with a `.`, which are hidden from a plain `ls` by convention). | `ls -a` |
-| `ls -h` | The `-h` flag makes file sizes "human-readable" (e.g. `4.0K`, `1.2M`) instead of raw byte counts. Typically combined with `-l`, e.g. `ls -lh`. | `ls -lh` |
-| `mkdir` | Creates a new, empty directory ("make directory"). | `mkdir photos` |
-| `mkdir -p` | The `-p` flag creates any missing parent directories along the way, and doesn't error if the directory already exists. | `mkdir -p projects/2026/docker` |
-| `rmdir` | Removes a directory, but only if it is completely empty. Fails with an error otherwise. | `rmdir photos` |
-| `touch` | Creates a new, empty file if it doesn't exist, or updates the "last modified" timestamp if it already does. | `touch notes.txt` |
-| `cp` | Copies a file (or, with a flag, a directory) from a source location to a destination. | `cp notes.txt notes-backup.txt` |
-| `cp -r` | The `-r` flag copies directories "recursively" - meaning the directory and everything inside it, including nested subfolders. Required when copying folders (plain `cp` refuses). | `cp -r projects projects-backup` |
-| `mv` | Moves a file or directory to a new location, or renames it (renaming is just "moving" to a new name in the same folder). | `mv notes.txt archive/notes.txt` |
-| `rm` | Deletes ("removes") a file permanently. There is no recycle bin - deleted files are not easily recoverable. | `rm notes-backup.txt` |
-| `rm -r` | The `-r` flag removes a directory and everything inside it recursively. Without it, `rm` refuses to delete a directory at all. | `rm -r old-folder` |
-| `rm -rf` | Adds `-f` ("force") to `-r`, suppressing confirmation prompts and ignoring nonexistent files. Extremely destructive if pointed at the wrong path - there is no undo, and it will not ask "are you sure?" | `rm -rf old-folder` |
-| `find` | Searches a directory tree for files/folders matching criteria (name, type, size, etc.). | `find . -name "*.txt"` |
-| `tree` | Displays a directory's contents as an indented tree diagram. Not installed by default on Ubuntu - install it with `sudo apt install tree` (package management is covered fully in module 05). | `tree` |
+| Command    | Purpose                                                         | Example                      |
+| ---------- | --------------------------------------------------------------- | ---------------------------- |
+| `pwd`      | Print current working directory                                 | `pwd`                        |
+| `cd`       | Change directory                                                | `cd ~/projects`              |
+| `cd ..`    | Move to parent                                                  | `cd ..`                      |
+| `cd ~`     | Move to home directory                                          | `cd ~`                       |
+| `ls`       | List directory contents                                         | `ls`                         |
+| `ls -l`    | Long listing                                                    | `ls -l`                      |
+| `ls -a`    | Include hidden entries                                          | `ls -a`                      |
+| `ls -h`    | Human-readable sizes                                            | `ls -lh`                     |
+| `mkdir`    | Create directory                                                | `mkdir logs`                 |
+| `mkdir -p` | Create missing parents                                          | `mkdir -p app/config/prod`   |
+| `rmdir`    | Remove an empty directory                                       | `rmdir old`                  |
+| `touch`    | Create file or update timestamp                                 | `touch app.log`              |
+| `cp`       | Copy files                                                      | `cp app.conf app.conf.bak`   |
+| `cp -r`    | Recursively copy directories                                    | `cp -r config config.backup` |
+| `mv`       | Move or rename                                                  | `mv old.conf new.conf`       |
+| `rm`       | Remove files                                                    | `rm old.log`                 |
+| `rm -r`    | Recursively remove directories                                  | `rm -r old-build`            |
+| `rm -f`    | Force removal of files without prompting for certain conditions | `rm -f old.log`              |
+| `rm -rf`   | Recursive + force removal                                       | `rm -rf old-build`           |
+| `find`     | Search directory trees                                          | `find . -name "*.log"`       |
+| `tree`     | Display a tree-style directory listing                          | `tree`                       |
+
+The GNU Coreutils documentation provides the detailed behavior and options for commands such as `ls`, `cp`, `mv`, `mkdir`, and `rm`.
+
+> 🚨 **Production rule:** `rm -rf` is not a "delete button". It is a chainsaw. Verify the path first.
 
 ## Hands-on exercises
 
-1. **Open your Ubuntu terminal.** Confirm your starting location:
-   ```
-   pwd
-   ```
-   Expected output: something like `/home/yourusername`.
+### 1. 📍 Establish your position
 
-2. **List what's already in your home directory.** Run:
-   ```
-   ls
-   ```
-   Then run:
-   ```
-   ls -la
-   ```
-   Compare the two outputs - the second should show more entries, including ones starting with `.` (hidden files) and details like permissions, owner, size, and date (the `-l` part). Notice entries `.` and `..` at the top representing "this directory" and "the parent directory."
+Run:
 
-3. **Create a practice directory structure.** Run:
-   ```
-   mkdir -p ~/linux-practice/photos
-   ```
-   This creates `linux-practice` and, inside it, `photos`, in one step thanks to `-p`. Move into it:
-   ```
-   cd ~/linux-practice
-   ```
-   Confirm with `pwd`.
+```bash
+pwd
+whoami
+ls
+```
 
-4. **Create some files.** Run:
-   ```
-   touch notes.txt todo.txt draft.txt
-   ```
-   Then list them:
-   ```
-   ls -lh
-   ```
-   Expected output: three files, each roughly `0` bytes in size since `touch` just created empty files.
+Answer these questions without looking anything up:
 
-5. **Practice relative vs. absolute paths.** From inside `~/linux-practice`, run:
-   ```
-   ls photos
-   ```
-   (relative path - `photos` is right here). Now run the same thing as an absolute path:
-   ```
-   ls /home/yourusername/linux-practice/photos
-   ```
-   (replace `yourusername` with your actual username from `whoami`). Both should show the same thing: an empty directory listing.
+1. What directory are you in?
+2. Which user are you?
+3. What entries are immediately visible?
 
-6. **Move around with `cd` and `..`.** Run:
-   ```
-   cd photos
-   pwd
-   cd ..
-   pwd
-   cd ..
-   pwd
-   ```
-   Watch the output of each `pwd` - you should see yourself moving from `photos`, back up to `linux-practice`, and then up again to your home directory.
+<details>
+<summary>Answer</summary>
 
-7. **Copy and rename files.** Go back into the practice folder (`cd ~/linux-practice`), then run:
-   ```
-   cp notes.txt notes-copy.txt
-   ls
-   ```
-   You should now see both `notes.txt` and `notes-copy.txt`. Now rename `draft.txt` to `final.txt`:
-   ```
-   mv draft.txt final.txt
-   ls
-   ```
-   Notice `draft.txt` is gone and `final.txt` has appeared in its place - `mv` renamed it since the destination was in the same folder.
+`pwd` tells you your current working directory.
 
-8. **Copy an entire directory.** Run:
-   ```
-   cp -r ~/linux-practice ~/linux-practice-backup
-   ls ~/linux-practice-backup
-   ```
-   Expected output: the backup folder contains the same files and the `photos` subfolder, confirming `-r` copied everything recursively.
+`whoami` tells you the current username.
 
-9. **Use wildcards.** From inside `~/linux-practice`, run:
-   ```
-   ls *.txt
-   ```
-   Expected output: all three `.txt` files listed. Now try:
-   ```
-   touch file1.log file2.log file3.log
-   ls file?.log
-   ```
-   Expected output: all three `.log` files, since `?` matches exactly the single digit character in each name.
+`ls` lists the visible contents of the current directory.
 
-10. **Use `find` to search.** From your home directory (`cd ~`), run:
-    ```
-    find linux-practice -name "*.txt"
-    ```
-    Expected output: a list of paths to every `.txt` file under `linux-practice` and its subfolders/backup copy, demonstrating that `find` searches recursively by default.
+The important lesson is that before manipulating a filesystem, you should know **who you are and where you are**.
 
-11. **Break something on purpose: try to remove a non-empty directory the "safe" way.** Run:
-    ```
-    rmdir ~/linux-practice
-    ```
-    Expected output: an error like `rmdir: failed to remove 'linux-practice': Directory not empty`. Read the error - `rmdir` refuses to delete anything that still has files inside, as a safety feature. This is expected and correct behavior, not a bug.
+</details>
 
-12. **Clean up properly and understand the danger of `rm -rf`.** Now remove the backup folder you no longer need, recursively:
-    ```
-    rm -r ~/linux-practice-backup
-    ```
-    Confirm it's gone with `ls ~`. Before running any `rm -r` or `rm -rf` command in the future, always double check the path with `pwd` and `ls` first - unlike Windows, there is no recycle bin, and `rm -rf` in particular will delete without asking for confirmation and without any way to undo it. Never run `rm -rf` on a path you haven't carefully verified, and never run it on `/` or your home directory root.
+### 2. 👻 Reveal the invisible
+
+Run:
+
+```bash
+ls
+ls -a
+ls -la
+```
+
+Compare the outputs.
+
+Find:
+
+* `.`
+* `..`
+* at least one hidden file or directory
+
+<details>
+<summary>Answer</summary>
+
+`ls` shows ordinary visible entries.
+
+`ls -a` includes hidden entries.
+
+`ls -la` combines `-l` and `-a`, giving a detailed listing including hidden entries.
+
+`.` means the current directory.
+
+`..` means the parent directory.
+
+</details>
+
+### 3. 🏗️ Build a directory tree
+
+Create this structure:
+
+```text
+~/filesystem-lab/
+├── app/
+│   ├── config/
+│   └── logs/
+├── backups/
+└── tmp/
+```
+
+Do it with as few commands as reasonably possible.
+
+<details>
+<summary>Answer</summary>
+
+One solution is:
+
+```bash
+mkdir -p ~/filesystem-lab/app/config ~/filesystem-lab/app/logs ~/filesystem-lab/backups ~/filesystem-lab/tmp
+```
+
+The important concept is not the exact command. It is understanding that `mkdir -p` can create missing parent directories.
+
+</details>
+
+### 4. 🧭 Navigate without guessing
+
+Starting from wherever you currently are:
+
+1. Go to `~/filesystem-lab/app`.
+2. Move into `config`.
+3. Move back to `app` using `..`.
+4. Move to `logs` using a relative path.
+5. Return directly home using `~`.
+
+Use `pwd` after every move.
+
+<details>
+<summary>Answer</summary>
+
+One possible sequence:
+
+```bash
+cd ~/filesystem-lab/app
+pwd
+cd config
+pwd
+cd ..
+pwd
+cd logs
+pwd
+cd ~
+pwd
+```
+
+Notice how both absolute and relative navigation can be mixed.
+
+</details>
+
+### 5. 📝 Create a fake backend project
+
+Inside `~/filesystem-lab/app`, create:
+
+```text
+app/
+├── config/
+│   ├── development.conf
+│   └── production.conf
+├── logs/
+│   ├── app.log
+│   └── error.log
+├── src/
+│   └── server.js
+└── README.md
+```
+
+You are allowed to use `mkdir -p` and `touch`.
+
+Then use `find` to verify the structure.
+
+<details>
+<summary>Answer</summary>
+
+One solution:
+
+```bash
+cd ~/filesystem-lab/app
+mkdir -p config logs src
+touch config/development.conf config/production.conf
+touch logs/app.log logs/error.log
+touch src/server.js README.md
+find .
+```
+
+The exercise is really testing whether you can translate a tree diagram into paths.
+
+</details>
+
+### 6. 🔬 Understand absolute vs relative paths
+
+Assume your current directory is:
+
+`~/filesystem-lab/app`
+
+What does each path refer to?
+
+| Path                       | Your answer |
+| -------------------------- | ----------- |
+| `config`                   | ?           |
+| `./config`                 | ?           |
+| `../backups`               | ?           |
+| `~/filesystem-lab/backups` | ?           |
+| `/tmp`                     | ?           |
+
+<details>
+<summary>Answer</summary>
+
+* `config` → `~/filesystem-lab/app/config`
+* `./config` → `~/filesystem-lab/app/config`
+* `../backups` → `~/filesystem-lab/backups`
+* `~/filesystem-lab/backups` → the same backup directory, using your home shortcut
+* `/tmp` → the system `/tmp` directory
+
+The important distinction is whether the path starts from your current directory or from a known root/home location.
+
+</details>
+
+### 7. 📦 Copy before changing
+
+Copy `production.conf` into the backup directory and rename the copy:
+
+`production.conf.backup`
+
+Then verify that both files exist.
+
+<details>
+<summary>Answer</summary>
+
+From `~/filesystem-lab/app`:
+
+```bash
+cp config/production.conf ~/filesystem-lab/backups/production.conf.backup
+ls -l config/production.conf ~/filesystem-lab/backups/production.conf.backup
+```
+
+`cp` leaves the original untouched.
+
+</details>
+
+### 8. ✏️ Rename without copying
+
+Rename:
+
+`development.conf`
+
+to:
+
+`development.local.conf`
+
+Do not create a duplicate.
+
+<details>
+<summary>Answer</summary>
+
+```bash
+mv config/development.conf config/development.local.conf
+```
+
+`mv` changes the directory entry. When source and destination are on the same filesystem, a rename can often be performed without copying the file's contents.
+
+For this beginner exercise, the important idea is simply:
+
+**`mv` can move or rename.**
+
+</details>
+
+### 9. 🃏 Predict a glob before executing it
+
+Inside `~/filesystem-lab/app`, what should this match?
+
+`logs/*.log`
+
+What about:
+
+`logs/app?.log`
+
+And:
+
+`logs/*.txt`
+
+Write your predictions first.
+
+Then run:
+
+```bash
+printf '%s\n' logs/*.log
+printf '%s\n' logs/app?.log
+printf '%s\n' logs/*.txt
+```
+
+<details>
+<summary>Answer</summary>
+
+Given the files created earlier:
+
+`logs/*.log` should match:
+
+* `logs/app.log`
+* `logs/error.log`
+
+`logs/app?.log` should match nothing because `app.log` has no extra character between `app` and `.log`.
+
+`logs/*.txt` should match nothing because there are no `.txt` files in `logs`.
+
+This is a useful habit: **predict the expansion before using the glob in a real command.**
+
+</details>
+
+### 10. 🔎 Search like a backend developer
+
+Pretend you joined a server and need to find all configuration files under your project.
+
+Search for:
+
+* all `.conf` files
+* all `.log` files
+* a file specifically named `server.js`
+
+<details>
+<summary>Answer</summary>
+
+From `~/filesystem-lab`:
+
+```bash
+find . -name "*.conf"
+find . -name "*.log"
+find . -name "server.js"
+```
+
+`find` searches recursively through the directory tree.
+
+This becomes much more useful later when you combine it with conditions such as file type, size, timestamps, and actions.
+
+</details>
+
+### 11. 🧨 Test the safe delete boundary
+
+Try:
+
+`rmdir ~/filesystem-lab/app`
+
+What happens?
+
+<details>
+<summary>Answer</summary>
+
+It should fail because `app` is not empty.
+
+`rmdir` only removes empty directories.
+
+That limitation is useful: it gives you a deliberately conservative operation for deleting directories.
+
+</details>
+
+### 12. 🧹 Delete only what you intend
+
+Remove only the temporary directory:
+
+`~/filesystem-lab/tmp`
+
+Then prove that:
+
+* `tmp` is gone
+* `app` still exists
+* `backups` still exists
+
+<details>
+<summary>Answer</summary>
+
+```bash
+rm -r ~/filesystem-lab/tmp
+ls ~/filesystem-lab
+```
+
+You should still see `app` and `backups`.
+
+Notice that the exercise deliberately asks you to verify the surrounding structure. A destructive command should be followed by verification.
+
+</details>
+
+### 13. 🧪 Practice the "inspect first" workflow
+
+Create three files:
+
+```bash
+touch ~/filesystem-lab/remove-me-1.txt \
+      ~/filesystem-lab/remove-me-2.txt \
+      ~/filesystem-lab/keep-me.txt
+```
+
+Now you want to remove only the files beginning with `remove-me-`.
+
+Before deleting anything, inspect the expansion.
+
+<details>
+<summary>Answer</summary>
+
+First:
+
+```bash
+printf '%s\n' ~/filesystem-lab/remove-me-*.txt
+```
+
+You should see only:
+
+* `remove-me-1.txt`
+* `remove-me-2.txt`
+
+Then:
+
+```bash
+rm ~/filesystem-lab/remove-me-*.txt
+```
+
+Finally:
+
+```bash
+ls ~/filesystem-lab
+```
+
+`keep-me.txt` should still exist.
+
+This is the habit we want:
+
+**expand → inspect → execute → verify**
+
+</details>
+
+### 14. 🐳 Think ahead to Docker
+
+Imagine a container contains:
+
+```text
+/
+├── app/
+│   ├── config/
+│   ├── logs/
+│   └── server.js
+├── etc/
+└── tmp/
+```
+
+You are currently inside `/app/logs`.
+
+Without executing anything, determine:
+
+1. The absolute path to `server.js`.
+2. The relative path to `server.js`.
+3. The relative path to `/etc`.
+4. The command that would take you directly to `/app`.
+
+<details>
+<summary>Answer</summary>
+
+1. Absolute path: `/app/server.js`
+2. Relative path: `../server.js`
+3. Relative path: `../../etc`
+4. `cd /app`
+
+This is exactly the sort of path reasoning you'll use inside containers.
+
+</details>
 
 ## Independent challenge
 
-No commands given here — figure it out yourself using what you know from this module and earlier ones.
+### 🚀 The deployment-artifact challenge
 
-**Task:** In a single command, build the nested directory path `~/reports/2026/q3` (all three levels at once, even though none of them exist yet). Inside `q3`, create several empty files whose names follow a pattern like `report-a.txt`, `report-b.txt`, `report-1.log`, `report-2.log`. Then, using wildcards rather than typing each filename, copy only the `.txt` files into a brand-new sibling backup directory `~/reports/2026/q3-backup`, and finally prove the copy worked by searching the whole `~/reports` tree for every `.txt` file at once. If you're unsure whether a command supports a flag you need (for instance, to create parents in one shot), reach for the help facilities from module 01 rather than guessing.
+You're preparing a fake backend deployment directory.
+
+Build this structure without being given the exact command sequence:
+
+```text
+~/backend-deploy/
+├── current/
+│   ├── app/
+│   │   ├── config/
+│   │   └── logs/
+│   └── release.txt
+├── releases/
+└── backup/
+```
+
+Inside `current/app`, create:
+
+```text
+config/
+├── app.conf
+├── database.conf
+└── redis.conf
+
+logs/
+├── app.log
+├── error.log
+└── access.log
+```
+
+Then complete all of the following:
+
+1. Create a backup of `app.conf` under `backup/`.
+2. Copy every `.log` file into `backup/`.
+3. Rename `release.txt` to `release-current.txt`.
+4. Use `find` to locate every `.conf` file beneath `backend-deploy`.
+5. Use a wildcard to list all log files before copying them.
+6. Verify that the backup contains the expected files.
+7. Delete one deliberately-created temporary directory using the safest appropriate command.
+8. Finish in your home directory.
+
+### Rules
+
+* Do not use absolute paths for every operation. Practice relative paths.
+* Do not manually type every `.log` filename when a glob can express the pattern.
+* Before every destructive operation, inspect what will be affected.
+* If you forget a command option, use `--help` or `man` from Module 01 rather than searching the internet immediately.
 
 <details>
-<summary>Stuck? One hint</summary>
+<summary>One hint</summary>
 
-One flag on `mkdir` builds a whole chain of missing parents at once; a `*` glob lets you name a group of files by their shared ending; and `find` with a name pattern searches recursively from wherever you point it.
+Think in this order:
+
+**create → populate → inspect → copy → rename → search → verify → clean up**
+
+The challenge is deliberately less prescriptive than the exercises. The goal is to see whether you can construct the solution yourself.
 
 </details>
 
 ## Common mistakes & troubleshooting
 
-- **Running `rm -rf` on the wrong path**: Always run `pwd` and `ls` immediately before a recursive delete to confirm exactly where you are and what you're about to remove. There is no undo.
-- **Forgetting `-r` when copying or removing directories**: `cp` and `rm` both refuse to act on directories without `-r` (or `-rf` for force-delete), producing an error like `cp: -r not specified; omitting directory` or `rm: cannot remove 'folder': Is a directory`. This is a safety feature, not a bug.
-- **Using `rmdir` on a folder that still has files**: `rmdir` only works on empty directories by design. Use `rm -r` instead if you intend to delete a folder and its contents.
-- **Confusing relative and absolute paths**: If a command can't find a file, check whether you're using a relative path from the wrong current directory - run `pwd` first to confirm where you actually are.
-- **Assuming `cd` prints anything**: `cd` is silent on success - if nothing appears to happen, that likely means it worked. Follow it with `pwd` if you want confirmation.
-- **Typing `cd..` instead of `cd ..`**: The space between the command and its argument matters; Linux is strict about this and will report `cd..: command not found`.
-- **Forgetting hidden files exist**: A plain `ls` won't show configuration files/folders starting with `.` (like `.bashrc`). Use `ls -a` when you need the full picture.
-- **Wildcard matched nothing and the command errors oddly**: If `*.txt` doesn't match any files, some commands will pass the literal string `*.txt` through unexpanded, causing confusing "No such file" errors. Double-check with a plain `ls` first.
+### ❌ "No such file or directory"
+
+First ask:
+
+**Where am I?**
+
+Run:
+
+`pwd`
+
+Then ask:
+
+**Does the path actually exist from here?**
+
+Run:
+
+`ls`
+
+If necessary, use an absolute path to remove ambiguity.
+
+### ❌ `cd` appears to do nothing
+
+That's normal.
+
+`cd` normally prints nothing after a successful directory change.
+
+Use:
+
+`pwd`
+
+to confirm where you ended up.
+
+### ❌ `cd..` doesn't work
+
+The command and its argument need to be separated:
+
+`cd ..`
+
+not:
+
+`cd..`
+
+Whitespace matters in shell syntax.
+
+### ❌ `rmdir` says "Directory not empty"
+
+That's exactly what `rmdir` is designed to do.
+
+It only removes empty directories.
+
+If you genuinely intend to remove the contents as well, recursive deletion is required. Verify the target before doing so.
+
+### ❌ `cp` says "omitting directory"
+
+You're trying to copy a directory without requesting recursive behavior.
+
+For example:
+
+`cp project project-backup`
+
+does not mean "copy the entire directory tree."
+
+For a simple recursive copy:
+
+`cp -r project project-backup`
+
+### ❌ `rm` says "Is a directory"
+
+You attempted to remove a directory with the non-recursive form of `rm`.
+
+Stop and decide whether you actually intend to remove the directory and everything inside it.
+
+Do not reflexively add `-r`.
+
+### ❌ Your wildcard matched more files than expected
+
+Stop.
+
+Do not immediately run the destructive command.
+
+Preview the expansion:
+
+```bash
+printf '%s\n' *.log
+```
+
+Then reconsider the pattern.
+
+### ❌ Your wildcard matched nothing
+
+If no names match a glob, Bash may pass the pattern itself to the command.
+
+For example:
+
+`ls *.does-not-exist`
+
+may result in an error referring to the literal `*.does-not-exist`.
+
+Check the directory first:
+
+`ls`
+
+### ❌ `~` isn't working inside quotes
+
+The shell performs tilde expansion in specific contexts, and quoting can prevent that expansion.
+
+For example:
+
+`echo ~/projects`
+
+and:
+
+`echo '~/projects'`
+
+do not behave the same way.
+
+You do not need to master shell expansion rules yet, but remember that **quoting changes how the shell interprets characters**. This becomes important in later Bash modules.
+
+### ❌ You accidentally deleted something
+
+Do not keep typing commands and hope it fixes itself.
+
+Stop.
+
+If the data matters, recovery becomes a filesystem/storage problem rather than a shell-navigation problem.
+
+This is why backups, version control, snapshots, and careful destructive-command habits matter in real systems.
 
 ## Checkpoint quiz
 
-Write down your answer to each question before expanding it — checking without attempting first is the single easiest way to fool yourself into thinking you've learned this.
+Try answering without running the commands.
 
-1. What is the difference between an absolute path and a relative path? Give an example of each.
-2. What do `.` and `..` mean when used in a path?
-3. Why does `rmdir` sometimes refuse to delete a folder, and what command would you use instead?
-4. What is the practical difference between `rm -r` and `rm -rf`, and why should you be more cautious with the second?
-5. If you're in `/home/yourusername/linux-practice` and run `cd ..`, where do you end up, and how would you confirm it?
-6. What does the `*` wildcard match that `?` does not?
-7. Why did copying a directory require the `-r` flag on `cp` but copying a single file did not?
-8. Name two hidden dangers of `rm -rf` and one habit that helps you avoid them.
+### 1. Path reasoning
+
+You are currently in:
+
+`/home/dev/projects/api`
+
+Where does `../config/app.conf` point?
 
 <details>
-<summary>Show answers</summary>
+<summary>Answer</summary>
 
-1. An absolute path always starts from the root `/` and fully specifies the location regardless of where you currently are, e.g. `/home/yourusername/notes.txt`. A relative path is interpreted starting from your current directory and does not start with `/`, e.g. `notes.txt` or `../notes.txt`.
-2. `.` refers to the current directory you're in. `..` refers to the parent directory (one level up from where you are).
-3. `rmdir` only removes directories that are completely empty, as a safety measure against accidentally deleting folders full of files. To delete a non-empty directory and everything inside it, use `rm -r` (or `rm -rf` to also skip confirmations and force it).
-4. `rm -r` recursively deletes a directory and its contents, but Linux may still stop for confirmation on certain protected or write-protected files. `rm -rf` adds `-f` ("force"), which suppresses all prompts and error messages and pushes through regardless - meaning a typo in the path can silently and irreversibly delete the wrong thing with zero warning.
-5. You'd end up in `/home/yourusername` (the parent of `linux-practice`). Confirm it by running `pwd`, which would print `/home/yourusername`.
-6. `*` matches any number of characters (zero or more), so it can match filenames of any length. `?` matches exactly one character, so it only matches names of a specific length pattern.
-7. Because a directory isn't a single unit of data - it's a container that may hold many files and subfolders. `-r` ("recursive") tells `cp` to walk into the directory and copy everything inside it too; without it, `cp` doesn't know how deep to go, so it refuses by default as a safeguard.
-8. Two hidden dangers: (1) it never asks for confirmation, so a typo in the path can delete the wrong folder instantly and irreversibly; (2) there is no recycle bin or undo in Linux, so recovery after the fact is generally not possible. A helpful habit: always run `pwd` and `ls` right before the command to double-check exactly where you are and what you're about to delete.
+`/home/dev/projects/config/app.conf`
+
+`..` moves from `api` to its parent, `projects`.
+
+</details>
+
+### 2. Absolute or relative?
+
+Which of these is an absolute path?
+
+* `./config`
+* `../config`
+* `/etc/nginx`
+* `~/config`
+
+<details>
+<summary>Answer</summary>
+
+`/etc/nginx` is the absolute path.
+
+`./config` and `../config` are relative paths.
+
+`~/config` uses the home-directory shortcut and is not an absolute path syntactically because it does not begin with `/`.
+
+</details>
+
+### 3. What does `.` mean?
+
+If you run:
+
+`ls .`
+
+what directory are you listing?
+
+<details>
+<summary>Answer</summary>
+
+The current working directory.
+
+</details>
+
+### 4. What does `..` mean?
+
+If you are in:
+
+`/var/log/nginx`
+
+and run:
+
+`cd ..`
+
+where do you end up?
+
+<details>
+<summary>Answer</summary>
+
+`/var/log`
+
+</details>
+
+### 5. Predict the glob
+
+Suppose a directory contains:
+
+```text
+app.log
+error.log
+app.txt
+application.log
+```
+
+Which files does `app?.log` match?
+
+<details>
+<summary>Answer</summary>
+
+`app?.log` matches `app.log` only if the `?` can match the required character structure.
+
+Here, it does **not** match `app.log` because `app.log` contains zero characters between `app` and `.log`.
+
+So it matches nothing.
+
+This is a good example of why you should understand the pattern rather than eyeballing it.
+
+</details>
+
+### 6. What does `*.log` match?
+
+Using the same files, what does `*.log` match?
+
+<details>
+<summary>Answer</summary>
+
+It matches:
+
+* `app.log`
+* `error.log`
+* `application.log`
+
+It does not match `app.txt`.
+
+</details>
+
+### 7. Why is this dangerous?
+
+What could happen if you run:
+
+`rm -rf *`
+
+in a directory containing important files?
+
+<details>
+<summary>Answer</summary>
+
+The shell expands `*` to the entries in the current directory, and `rm -rf` can recursively delete those entries without the normal safeguards you would want for an accidental operation.
+
+It can destroy a large amount of data quickly.
+
+The important lesson is:
+
+**A wildcard isn't dangerous by itself. A wildcard combined with a destructive command can be.**
+
+</details>
+
+### 8. `rmdir` vs `rm -r`
+
+Why might you prefer `rmdir` when removing an empty directory?
+
+<details>
+<summary>Answer</summary>
+
+Because `rmdir` refuses to remove non-empty directories.
+
+That makes it a more conservative operation when you only intend to remove an empty directory.
+
+</details>
+
+### 9. Find the configuration
+
+You are inside:
+
+`~/backend`
+
+How would you search recursively for all `.conf` files?
+
+<details>
+<summary>Answer</summary>
+
+`find . -name "*.conf"`
+
+</details>
+
+### 10. Production thinking
+
+You need to remove a directory called `old-release`.
+
+What should you verify before running a recursive delete?
+
+<details>
+<summary>Answer</summary>
+
+At minimum:
+
+1. Your current location with `pwd`.
+2. That the intended directory exists.
+3. The exact target path.
+4. What the directory contains with `ls`.
+5. That the target is actually safe to remove.
+
+A strong habit is:
+
+**inspect first, delete second.**
 
 </details>
 
 ## Further reading & sources
 
-- [The Linux Filesystem Hierarchy Standard (FHS)](https://refspecs.linuxfoundation.org/FHS_3.0/fhs-3.0.pdf) - the actual specification defining what `/etc`, `/var`, `/usr`, etc. are supposed to contain, maintained by the Linux Foundation.
-- [`man7.org`: hier(7)](https://man7.org/linux/man-pages/man7/hier.7.html) - the same hierarchy explained as a man page, browsable online; also available locally via `man hier`.
-- [GNU Coreutils manual](https://www.gnu.org/software/coreutils/manual/html_node/index.html) - the official reference for `ls`, `cp`, `mv`, `rm`, `mkdir`, and nearly every other command in this module's reference table.
-- [`find` command full option reference (man7.org)](https://man7.org/linux/man-pages/man1/find.1.html) - this module only scratches the surface of `find`; the man page covers matching by time, size, permissions, and running commands on results.
+* [Filesystem Hierarchy Standard 3.0](https://refspecs.linuxfoundation.org/FHS_3.0/fhs-3.0.pdf) - the Linux Foundation specification describing the conventional organization of major filesystem directories.
+* [GNU Coreutils Manual](https://www.gnu.org/software/coreutils/manual/html_node/index.html) - authoritative documentation for commands such as `ls`, `mkdir`, `cp`, `mv`, and `rm`.
+* [GNU Findutils Manual](https://www.gnu.org/software/findutils/manual/) - detailed documentation for `find` and related filesystem-search tools.
+* [`hier(7)` Linux manual page](https://man7.org/linux/man-pages/man7/hier.7.html) - a practical reference for the Linux filesystem hierarchy.
+* [`find(1)` Linux manual page](https://man7.org/linux/man-pages/man1/find.1.html) - detailed reference for `find` options and search expressions.
 
 ## Next
-Continue to [03-file-permissions-ownership](../03-file-permissions-ownership/README.md) to learn how Linux controls who can read, write, or execute each file, and how to read and change those permissions yourself.
+
+Continue to [03-file-permissions-ownership](../03-file-permissions-ownership/README.md) to learn how Linux decides **who can read, write, or execute a file** and how permissions become one of the most important security boundaries on a server.

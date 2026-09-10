@@ -1,2022 +1,284 @@
-# 00 · Setting Up WSL2 and Ubuntu
+# Module 00: Set Up WSL2 and Ubuntu
 
-> **From Windows to Linux: build the environment you'll use for the rest of the roadmap.**
+> 🎯 **Goal:** Prepare a Linux environment on Windows for the backend roadmap.
 
----
-
-## 🧭 Module Overview
-
-Before learning Linux commands, we need a Linux environment.
-
-If you're using Windows, **WSL2 + Ubuntu** gives you a Linux development environment directly on your machine without requiring dual boot.
-
-But this module is not just running `wsl --install` and "congratulations, you're done."
-
-You should understand **what you installed, why it exists, where your files live, how Windows and Linux interact, and how to verify that everything is actually working.**
-
-That mental model will save you from a lot of confusion later when we reach:
-
-* processes
-* permissions
-* networking
-* SSH
-* systemd
-* Docker
-* Kubernetes
-* cloud servers
+By the end of this module, you should be able to install or verify Ubuntu on WSL2, distinguish Windows from Linux command contexts, keep projects in the right filesystem, and prove the environment works with a small local web server.
 
 ---
 
-# 🎯 Learning Objectives
+## Why this matters
 
-By the end of this module, you should be able to:
+Backend services, containers, CI runners, and cloud servers commonly run on Linux. WSL2 gives you a real Linux kernel and an Ubuntu environment on your Windows machine, so the tools you learn here transfer to later Docker, Kubernetes, and backend modules.
 
-* Explain what Linux is
-* Explain what Ubuntu is
-* Explain what WSL is
-* Explain the difference between WSL1 and WSL2
-* Explain why WSL2 uses a Linux kernel
-* Understand the relationship between Windows, WSL2, Ubuntu, and the Linux shell
-* Install WSL2 and Ubuntu
-* Create your first Linux user
-* Verify your WSL installation
-* Understand the difference between Windows commands and Linux commands
-* Understand Windows ↔ Linux filesystem integration
-* Know where Linux projects should normally live
-* Run a Linux web server from WSL
-* Access that server from Windows
-* Start, stop, update, and inspect WSL
-* Diagnose common installation problems
-* Understand what WSL is **not**
-* Confirm that your environment is ready for the rest of the Linux track
+> [!key]
+> Windows and Ubuntu are connected by WSL2, but they are still different environments. A command, path, user, and package manager belong to the environment in which you run them.
 
----
+## 1. The pieces of your environment
 
-# 🧠 1. Why Are We Learning Linux?
+| Term | Meaning |
+| --- | --- |
+| PowerShell / Windows Terminal | A Windows command environment |
+| WSL2 | Windows technology that hosts a Linux environment |
+| Linux kernel | The core OS component WSL2 runs |
+| Ubuntu | The Linux distribution installed inside WSL2 |
+| Bash | A common command interpreter running inside Ubuntu |
 
-Imagine you build a backend application.
-
-Locally, it might look like this:
-
-```text
-Your Laptop
-│
-├── Node.js
-├── PostgreSQL
-├── Redis
-└── Your Backend
-```
-
-Then you deploy it.
-
-Suddenly the environment looks more like:
-
-```text
-Cloud Server
-│
-├── Linux
-├── systemd
-├── Nginx
-├── Docker
-├── PostgreSQL
-├── Redis
-├── Firewall
-├── SSH
-├── Logs
-└── Your Backend
-```
-
-The code may be yours.
-
-The operating environment is often Linux.
-
-That's why Linux isn't just another tool in backend development.
-
-It is part of the **ground beneath the tools**.
-
-You don't need to become a Linux kernel developer.
-
-You do need to be comfortable enough that when a production server says `Permission denied`, you don't stare at the screen like it just insulted your ancestors.
-
----
-
-# 🕰️ 2. A Very Short History
-
-Understanding the history helps explain why WSL exists.
-
-## 2.1 The traditional approach
-
-For a long time, Windows developers who wanted Linux had a few major choices.
-
-### Dual boot
-
-Install both Windows and Linux.
-
-```text
-┌──────────────────────────────┐
-│            PC                │
-│                              │
-│   ┌────────┐   ┌─────────┐  │
-│   │Windows │   │  Linux  │  │
-│   └────────┘   └─────────┘  │
-│                              │
-│       Choose at boot         │
-└──────────────────────────────┘
-```
-
-Great isolation.
-
-Not great when you just want to test a shell command and don't want to reboot your computer.
-
----
-
-## 2.2 Virtual machines
-
-Another option was running Linux inside a virtual machine.
-
-```text
-┌─────────────────────────────────┐
-│             Windows             │
-│                                 │
-│  ┌───────────────────────────┐  │
-│  │       Virtual Machine     │  │
-│  │                           │  │
-│  │          Ubuntu           │  │
-│  │          Linux            │  │
-│  └───────────────────────────┘  │
-│                                 │
-└─────────────────────────────────┘
-```
-
-This is still a perfectly valid approach.
-
-But traditional VMs usually require more explicit management of:
-
-* VM memory
-* CPU
-* virtual disks
-* networking
-* startup/shutdown
-* virtualization software
-
----
-
-# 3. Enter WSL
-
-Microsoft introduced:
-
-> **Windows Subsystem for Linux**
-
-or simply:
-
-> **WSL**
-
-The goal was straightforward:
-
-> Allow developers to use a Linux environment directly alongside Windows.
-
-Microsoft describes WSL as a way to run a GNU/Linux environment, including common command-line tools and applications, directly on Windows.
-
----
-
-# 4. WSL1 vs WSL2
-
-This distinction is worth understanding.
-
-## WSL1
-
-WSL1 did not use a real Linux kernel.
-
-Conceptually:
-
-```text
-Linux application
-       │
-       ▼
-Linux system calls
-       │
-       ▼
-Compatibility / translation layer
-       │
-       ▼
-Windows kernel
-```
-
-It was clever technology.
-
-But Linux and Windows do not behave identically.
-
-Some Linux behavior is difficult to reproduce perfectly on top of another operating system.
-
----
-
-## WSL2
-
-WSL2 changed the architecture.
-
-It uses:
-
-* a real Linux kernel
-* virtualization
-* a lightweight managed virtual machine
-* Linux userspace/distributions running within that environment
-
-Conceptually:
-
-```text
-Linux application
-       │
-       ▼
-Linux userspace
-       │
-       ▼
-Linux kernel
-       │
-       ▼
-WSL2 managed VM
-       │
-       ▼
-Windows
-```
-
-This gives WSL2 much stronger Linux compatibility.
-
-Microsoft's current documentation identifies the use of an actual Linux kernel inside a managed VM and full system-call compatibility as major differences between WSL1 and WSL2.
-
----
-
-# 🏗️ 5. WSL2 Architecture
-
-This is the diagram you should remember.
+> [!model]
+> Think of WSL2 as a small Linux computer hosted by Windows. Windows starts it, Ubuntu supplies the Linux tools, and Bash is how you issue Linux commands.
 
 ```mermaid
-flowchart TB
-
-    WIN["🪟 Windows 11"]
-
-    WSL["WSL<br/>Windows Subsystem for Linux"]
-
-    VM["WSL2 Managed Utility VM"]
-
-    KERNEL["🐧 Linux Kernel"]
-
-    DISTRO["Ubuntu Distribution"]
-
-    USERSPACE["Linux Userspace<br/>libraries + utilities + applications"]
-
-    SHELL["Shell<br/>Bash / other shells"]
-
-    APPS["Your Linux Programs<br/>Git • Python • Node • curl • grep • etc."]
-
-    WIN --> WSL
-    WSL --> VM
-    VM --> KERNEL
-    KERNEL --> DISTRO
-    DISTRO --> USERSPACE
-    USERSPACE --> SHELL
-    SHELL --> APPS
+flowchart TD
+    W["Windows 10 or 11"] --> T["Windows Terminal / PowerShell"]
+    W --> S["WSL2 platform"]
+    S --> K["Linux kernel"]
+    K --> U["Ubuntu"]
+    U --> B["Bash + Linux tools"]
 ```
 
-You don't need to memorize every implementation detail.
+WSL2 is not a cloud server or a replacement for Windows. It is a local Linux development environment. You will typically use Windows for your editor and browser, and Ubuntu for Linux commands and Linux-focused development.
 
-Remember this:
+## 2. Check what is already installed
 
-```text
-Windows
-   ↓
-WSL
-   ↓
-WSL2
-   ↓
-Linux kernel
-   ↓
-Ubuntu
-   ↓
-Shell
-   ↓
-Your commands
-```
-
----
-
-# 🧩 6. WSL2 Is Not Ubuntu
-
-This is one of the most common beginner misunderstandings.
-
-These things are different:
-
-### WSL
-
-The Windows feature/platform for running Linux environments.
-
-### WSL2
-
-The modern WSL architecture that uses a Linux kernel in a managed VM.
-
-### Linux
-
-The operating-system kernel.
-
-### Ubuntu
-
-A Linux distribution.
-
-### Bash
-
-A shell used to interact with the Linux environment.
-
-Think of it like layers:
-
-```mermaid
-flowchart TB
-
-    A["Windows"]
-    B["WSL"]
-    C["WSL2"]
-    D["Linux Kernel"]
-    E["Ubuntu"]
-    F["Bash / Shell"]
-    G["Commands & Applications"]
-
-    A --> B
-    B --> C
-    C --> D
-    D --> E
-    E --> F
-    F --> G
-```
-
-This distinction becomes important later.
-
-For example:
-
-```text
-Linux kernel problem
-≠
-Ubuntu package problem
-≠
-Bash problem
-≠
-WSL configuration problem
-```
-
-When you understand the layers, debugging becomes much easier.
-
----
-
-# 🪟 7. Windows and Linux: Two Environments
-
-After installing WSL2, you're working with two operating environments.
-
-```mermaid
-flowchart LR
-
-    WINDOWS["🪟 Windows"]
-
-    POWERSHELL["PowerShell"]
-    WINDOWS_APPS["Windows Applications"]
-    CDRIVE["C:\\"]
-
-    WSL["🐧 WSL2"]
-
-    UBUNTU["Ubuntu"]
-    BASH["Bash"]
-    LINUX_FS["Linux Filesystem"]
-    LINUX_APPS["Linux Applications"]
-
-    WINDOWS --> POWERSHELL
-    WINDOWS --> WINDOWS_APPS
-    WINDOWS --> CDRIVE
-
-    WINDOWS <--> WSL
-
-    WSL --> UBUNTU
-    UBUNTU --> BASH
-    UBUNTU --> LINUX_FS
-    UBUNTU --> LINUX_APPS
-```
-
-The environments are integrated, but they are not identical.
-
-That's why this roadmap will always make the command context explicit.
-
----
-
-# 🧪 8. Command Context Matters
-
-## 🪟 PowerShell
-
-```powershell
-wsl --list --verbose
-```
-
-This is a Windows-side command.
-
----
-
-## 🐧 Ubuntu
-
-```bash
-pwd
-```
-
-This is a Linux command.
-
----
-
-### Why does this matter?
-
-Because later you'll encounter commands such as:
-
-```bash
-systemctl
-journalctl
-chmod
-chown
-grep
-awk
-sed
-ss
-ip
-```
-
-These are Linux commands.
-
-While:
-
-```powershell
-wsl --shutdown
-wsl --update
-wsl --list --verbose
-```
-
-are WSL commands normally executed from Windows.
-
----
-
-# 💻 9. Prerequisites
-
-You should have:
-
-* Windows 11, or another supported Windows version
-* Hardware virtualization support
-* Internet access
-* Administrator access for installation/configuration
-* Enough disk space for your Linux environment
-
-If virtualization is disabled in UEFI/BIOS, WSL2 may fail to start.
-
----
-
-# 🔍 10. Check Your Existing Environment First
-
-Never blindly install software before checking whether it already exists.
-
-Open:
-
-**PowerShell as Administrator**
-
-Run:
+Open **PowerShell** or **Windows Terminal** and run:
 
 ```powershell
 wsl --status
-```
-
-Then:
-
-```powershell
 wsl --list --verbose
 ```
 
-You may see:
+The first command shows a configuration summary. The second lists distributions and their WSL version. If Ubuntu is listed with VERSION `2`, you can move to the verification section.
 
-```text
-  NAME      STATE           VERSION
-* Ubuntu    Stopped         2
-```
+> [!check]
+> Before installing anything, confirm:
+> - Are you in a Windows prompt (`PS C:\...>`) rather than an Ubuntu prompt?
+> - Is Ubuntu already installed?
+> - If it is installed, does it use version 2?
 
-If you already have Ubuntu running under WSL2, congratulations.
+## 3. Install Ubuntu if needed
 
-You probably don't need to reinstall anything.
-
----
-
-# 🚀 11. Install WSL
-
-For a new installation, Microsoft's recommended path is:
-
-```powershell
-wsl --install
-```
-
-This can enable the required Windows components, install WSL, configure WSL2, and install Ubuntu.
-
-You may be asked to restart Windows.
-
-If Windows asks for a restart:
-
-**Restart.**
-
----
-
-## Installing Ubuntu explicitly
-
-You can also specify Ubuntu:
+In an **Administrator PowerShell** window, run:
 
 ```powershell
 wsl --install -d Ubuntu
 ```
 
-To see available distributions:
+Restart Windows if prompted. Launch **Ubuntu** from the Start menu. On its first launch, choose a simple Linux username and a password you can remember.
 
-```powershell
-wsl --list --online
-```
+No characters appear while entering a Linux password—not even dots. That is normal.
 
-Example:
-
-```text
-NAME
-Ubuntu
-Debian
-...
-```
-
-For this roadmap, use **Ubuntu** unless you have a specific reason to use another distribution.
-
----
-
-# ⚠️ 12. Important Installation Detail
-
-If you run:
-
-```powershell
-wsl --install
-```
-
-and instead of installing anything you get the WSL help screen, WSL may already be installed.
-
-In that situation:
-
-```powershell
-wsl --list --online
-```
-
-Then:
-
-```powershell
-wsl --install -d Ubuntu
-```
-
-If installation hangs at `0.0%`, Microsoft also provides:
-
-```powershell
-wsl --install --web-download -d Ubuntu
-```
-
-Don't randomly run ten commands from Stack Overflow.
-
-First identify **which part of the installation actually failed**.
-
----
-
-# 👤 13. First Ubuntu Launch
-
-After installation, launch Ubuntu.
-
-You can use the Start menu.
-
-Or from PowerShell:
-
-```powershell
-wsl
-```
-
-Or explicitly:
-
-```powershell
-wsl -d Ubuntu
-```
-
-On first launch, Ubuntu will initialize its filesystem.
-
-Then you'll be asked to create a Linux user.
-
-For example: `Enter new UNIX username:` — choose a username, e.g. `developer`. Then create a password.
-
----
-
-# 🔐 14. Why Doesn't My Password Appear?
-
-When you type a password in a Linux terminal, you'll see a `Password:` prompt — but as you type, the screen doesn't change at all. No `****`, no `••••`, nothing.
-
-That is normal.
-
-The terminal is still receiving your input.
-
-Type the password and press Enter.
-
----
-
-# 👤 15. Your Windows User and Linux User Are Different
-
-Your Windows account (`Tapan`, say) and your Ubuntu account (`developer`, say) are separate account systems.
-
-Your Linux account will have its own:
-
-* home directory
-* permissions
-* groups
-* shell
-* ownership
-* Linux identity
-
-We'll explore these properly in `03-file-permissions-ownership` and `04-users-and-groups`.
-
----
-
-# 🧪 16. First Linux Verification
-
-Inside Ubuntu:
-
-```bash
-whoami
-```
-
-Expected: `developer`.
-
-Now:
-
-```bash
-pwd
-```
-
-Expected: `/home/developer`.
-
-Now:
-
-```bash
-cat /etc/os-release
-```
-
-You should see information identifying Ubuntu.
-
-You can also run:
-
-```bash
-uname -r
-```
-
-This shows information about the Linux kernel currently running.
-
----
-
-# 🔎 17. Verify From Windows
-
-Exit Ubuntu:
-
-```bash
-exit
-```
-
-You should return to PowerShell.
-
-Now:
-
-```powershell
-wsl --list --verbose
-```
-
-You should see your Ubuntu distribution listed, with `VERSION` showing `2`.
-
-This is an important verification.
-
-You have now confirmed:
-
-```text
-Windows
-   ↓
-WSL
-   ↓
-Ubuntu
-   ↓
-WSL version 2
-```
-
----
-
-# 🔄 18. WSL Lifecycle
-
-WSL environments have a lifecycle.
-
-Useful commands:
-
-### Start WSL
-
-```powershell
-wsl
-```
-
-### Start a specific distribution
-
-```powershell
-wsl -d Ubuntu
-```
-
-### List distributions
-
-```powershell
-wsl --list
-```
-
-### List distributions with details
-
-```powershell
-wsl --list --verbose
-```
-
-### List currently running distributions
-
-```powershell
-wsl --list --running
-```
-
-### Stop one distribution
-
-```powershell
-wsl --terminate Ubuntu
-```
-
-### Shut down the WSL2 environment
-
-```powershell
-wsl --shutdown
-```
-
-### Update WSL
-
-```powershell
-wsl --update
-```
-
-### Check WSL version information
-
-```powershell
-wsl --version
-```
-
-### Get help
-
-```powershell
-wsl --help
-```
-
----
-
-# 🧠 19. `wsl --shutdown` vs `wsl --terminate`
-
-These are different.
-
-## Terminate one distribution
-
-```powershell
-wsl --terminate Ubuntu
-```
-
-Think:
-
-> "Stop Ubuntu."
-
----
-
-## Shutdown WSL
-
-```powershell
-wsl --shutdown
-```
-
-Think:
-
-> "Stop the WSL2 environment."
-
-This distinction becomes useful when troubleshooting.
-
----
-
-# 📦 20. Update Ubuntu Packages
-
-Inside Ubuntu:
-
-```bash
-sudo apt update
-```
-
-Then:
-
-```bash
-sudo apt upgrade
-```
-
-### What is happening?
-
-`apt update` refreshes package metadata.
-
-It does **not** mean:
-
-> "Update every application."
-
-It means:
-
-> "Check the repositories and refresh the information about available packages."
-
-Then:
-
-```bash
-sudo apt upgrade
-```
-
-actually upgrades installed packages where applicable.
-
----
-
-# 🧠 21. `apt update` vs `apt upgrade`
-
-Think of it like a store.
-
-```text
-apt update
-    ↓
-Refresh catalogue
-
-apt upgrade
-    ↓
-Actually install available upgrades
-```
-
-So:
-
-```bash
-sudo apt update
-```
-
-and:
-
-```bash
-sudo apt upgrade
-```
-
-perform different jobs.
-
----
-
-# 📁 22. Where Are My Linux Files?
-
-This is extremely important for backend development.
-
-Inside Ubuntu:
-
-```bash
-pwd
-```
-
-You may see `/home/developer` — this is part of the Linux filesystem. Windows has `C:\`; Linux has `/`. Your Linux home directory is `/home/developer`.
-
----
-
-# 🔗 23. Windows Drives Inside Linux
-
-Your Windows drives are exposed inside WSL. For example, `C:\` is generally accessible from `/mnt/c/`. So `C:\Users\Tapan\Projects` on Windows can be accessed from Linux through a path such as `/mnt/c/Users/Tapan/Projects`.
-
----
-
-# ⚠️ 24. Where Should Linux Projects Live?
-
-This matters more than beginners usually realize.
-
-If you're doing Linux-heavy development, prefer keeping your project inside the Linux filesystem.
-
-For example:
-
-```bash
-mkdir -p ~/projects
-cd ~/projects
-```
-
-That puts your project under `/home/developer/projects` rather than under `/mnt/c/Users/...`.
-
-Why? WSL2 generally performs best when Linux tools work with files stored in the Linux filesystem rather than the Windows-mounted one.
-
----
-
-# 🧭 25. Windows ↔ Linux File Access
-
-From Ubuntu:
-
-```bash
-explorer.exe .
-```
-
-This opens the current Linux directory in Windows File Explorer.
-
-That's one of the nicest WSL integration features.
-
-You can also access Linux files from Windows through the WSL filesystem integration exposed by Windows.
-
-The important rule is:
-
-> **Don't treat ****`/mnt/c`**** and the Linux filesystem as interchangeable performance-wise.**
-
-We'll use this knowledge later when working with:
-
-* Git
-* Node.js
-* Python
-* Docker
-* databases
-* build tools
-
----
-
-# 🌐 26. Your First Backend Experiment
-
-Now let's connect Linux to backend development.
-
-Inside Ubuntu, create a test directory:
-
-```bash
-mkdir -p ~/projects/wsl-demo
-cd ~/projects/wsl-demo
-```
-
-Create a small file:
-
-```bash
-echo "Hello from Linux" > index.html
-```
-
-Verify:
-
-```bash
-cat index.html
-```
-
-Expected: `Hello from Linux`.
-
----
-
-# 🚀 27. Start a Web Server
-
-If Python 3 is available:
-
-```bash
-python3 --version
-```
-
-Then:
-
-```bash
-python3 -m http.server 8000
-```
-
-You should see something similar to `Serving HTTP on 0.0.0.0 port 8000`.
-
-Your Linux environment is now running a web server.
-
----
-
-# 🌍 28. Access Linux From Windows
-
-Open your Windows browser and go to `http://localhost:8000`.
-
-You should see your directory listing or `Hello from Linux`, depending on how the directory is served.
-
-This is a powerful moment.
-
-You just did:
-
-```mermaid
-flowchart LR
-
-    BROWSER["🪟 Windows Browser"]
-
-    LOCALHOST["localhost:8000"]
-
-    WSL["🐧 WSL2"]
-
-    PYTHON["Python HTTP Server"]
-
-    FILE["index.html"]
-
-    BROWSER --> LOCALHOST
-    LOCALHOST --> WSL
-    WSL --> PYTHON
-    PYTHON --> FILE
-```
-
-You have a Linux process serving HTTP traffic that Windows can access.
-
-That is already a tiny backend environment.
-
----
-
-# 🛑 29. Stop the Server
-
-Return to the Ubuntu terminal where the server is running and press `Ctrl+C`.
-
-The server stops.
-
-This is your first introduction to an important backend concept:
-
-> A server is simply a running process waiting for work.
-
-We'll study processes properly later.
-
----
-
-# 🧠 30. What Just Happened?
-
-You started:
-
-```bash
-python3 -m http.server 8000
-```
-
-That created a process. The process listened on `port 8000`; Windows connected to `localhost:8000`.
-
-WSL handled the integration.
-
-The Linux application returned the response.
-
-Conceptually:
-
-```text
-Browser
-   │
-   │ HTTP request
-   ▼
-localhost:8000
-   │
-   ▼
-WSL networking
-   │
-   ▼
-Python process
-   │
-   ▼
-index.html
-   │
-   ▼
-HTTP response
-   │
-   ▼
-Browser
-```
-
-You just encountered:
-
-* processes
-* ports
-* networking
-* HTTP
-* files
-* Windows/Linux integration
-
-We'll study each of those properly later.
-
----
-
-# 🧪 31. Hands-On Lab 1: Prove Your Environment Works
-
-Complete the following without looking at the solution.
-
-## Task
-
-From Windows PowerShell, determine:
-
-1. Whether WSL is installed
-2. Which distributions exist
-3. Which WSL version Ubuntu uses
-4. Whether Ubuntu is currently running
-
-Useful commands:
-
-```powershell
-wsl --status
-wsl --list --verbose
-wsl --list --running
-```
-
-### Expected outcome
-
-You should be able to explain something like:
-
-```text
-WSL is installed.
-
-Ubuntu is installed.
-
-Ubuntu is running under WSL2.
-
-Ubuntu is currently stopped/running.
-```
-
----
-
-# 🧪 32. Hands-On Lab 2: Prove Linux Is Actually Linux
-
-Inside Ubuntu, run:
-
-```bash
-whoami
-```
-
-```bash
-pwd
-```
-
-```bash
-cat /etc/os-release
-```
-
-```bash
-uname -r
-```
-
-Now answer:
-
-* What is your Linux username?
-* What is your home directory?
-* Which distribution are you using?
-* Which kernel are you running?
-
-Don't copy the answers from someone else.
-
-Read your machine.
-
----
-
-# 🧪 33. Hands-On Lab 3: Windows and Linux Files
-
-Inside Ubuntu:
-
-```bash
-mkdir -p ~/projects/environment-test
-cd ~/projects/environment-test
-```
-
-Create a file:
-
-```bash
-echo "Created inside Linux" > linux.txt
-```
-
-Now:
-
-```bash
-explorer.exe .
-```
-
-Find `linux.txt` using Windows Explorer.
-
-Then return to Ubuntu:
-
-```bash
-cat linux.txt
-```
-
-You have now verified that Windows and Linux can interact with the same WSL environment.
-
----
-
-# 🧪 34. Hands-On Lab 4: Windows → Linux → Windows
-
-### Step 1
-
-Inside Ubuntu:
-
-```bash
-cd ~/projects/environment-test
-```
-
-### Step 2
-
-Run:
-
-```bash
-python3 -m http.server 8000
-```
-
-### Step 3
-
-Open your Windows browser to `http://localhost:8000`.
-
-### Step 4
-
-Verify that your file appears.
-
-### Step 5
-
-Stop the server with `Ctrl+C`.
-
-### Success condition
-
-You should be able to explain this entire path:
-
-```text
-Windows Browser
-      ↓
-localhost:8000
-      ↓
-WSL2
-      ↓
-Ubuntu
-      ↓
-Python process
-      ↓
-Linux filesystem
-```
-
----
-
-# 🧪 35. Hands-On Lab 5: Break Something on Purpose
-
-Good engineers don't only learn when everything works.
-
-Let's intentionally make a mistake.
-
-Inside Ubuntu:
-
-```bash
-sduo apt update
-```
-
-You should get an error.
-
-Now immediately run:
-
-```bash
-echo $?
-```
-
-You should see a non-zero exit status.
-
-The exact value isn't the important lesson yet.
-
-The important lesson is:
-
-> Commands communicate whether they succeeded or failed.
-
-We'll build heavily on exit codes in the Bash scripting module.
-
----
-
-# 🔧 36. Troubleshooting
-
-## Problem: `wsl` is not recognized
-
-Possible causes include:
-
-* WSL isn't installed
-* Windows isn't updated enough
-* PATH/environment problems
-
-First check:
-
-```powershell
-wsl --help
-```
-
-If that fails, verify your Windows version and WSL installation.
-
----
-
-## Problem: WSL installation requires a restart
-
-Restart Windows.
-
-Then run:
-
-```powershell
-wsl --status
-```
-
----
-
-## Problem: Ubuntu isn't installed
-
-Run:
-
-```powershell
-wsl --list --online
-```
-
-Then:
-
-```powershell
-wsl --install -d Ubuntu
-```
-
----
-
-## Problem: Ubuntu is using WSL1
-
-Check:
-
-```powershell
-wsl --list --verbose
-```
-
-If you see:
-
-```text
-Ubuntu    Stopped    1
-```
-
-you can convert the distribution:
+If an existing distribution uses WSL1, convert it from Administrator PowerShell:
 
 ```powershell
 wsl --set-version Ubuntu 2
 ```
 
-Then verify:
+Use the exact distribution name shown by `wsl --list --verbose` when it differs from `Ubuntu`.
+
+> [!pitfall]
+> Your Windows username and Ubuntu username are separate. Your Linux home directory is usually `/home/your-linux-name`; it is not `C:\Users\your-windows-name`.
+
+## 4. Know which terminal owns a command
+
+| Prompt | Environment | Examples |
+| --- | --- | --- |
+| `PS C:\Users\...>` | PowerShell on Windows | `wsl --status`, `wsl --shutdown` |
+| `name@machine:~$` | Bash in Ubuntu | `pwd`, `sudo apt update`, `ls` |
+
+Enter your default Ubuntu distribution from PowerShell:
 
 ```powershell
-wsl --list --verbose
+wsl
 ```
 
-You want:
-
-```text
-Ubuntu    Stopped    2
-```
-
----
-
-## Problem: Virtualization error
-
-WSL2 requires virtualization support.
-
-Check whether virtualization is enabled in your system's firmware/UEFI.
-
-The exact setting name varies by manufacturer.
-
-It may appear as something like:
-
-```text
-Intel Virtualization Technology
-Intel VT-x
-AMD-V
-SVM Mode
-Virtualization Technology
-```
-
-Do not blindly change unrelated BIOS settings.
-
----
-
-## Problem: WSL behaves strangely
-
-Try updating WSL:
-
-```powershell
-wsl --update
-```
-
-Then:
-
-```powershell
-wsl --shutdown
-```
-
-Start Ubuntu again:
-
-```powershell
-wsl -d Ubuntu
-```
-
----
-
-## Problem: Installation hangs
-
-If installation appears stuck at `0.0%`, try:
-
-```powershell
-wsl --install --web-download -d Ubuntu
-```
-
----
-
-## Problem: `sudo apt update` fails
-
-First inspect the actual error.
-
-Don't immediately start changing DNS settings, deleting files, or copying random commands from the internet.
-
-Check whether the problem is:
-
-```text
-DNS
-network connectivity
-repository availability
-permissions
-package configuration
-```
-
-We'll learn Linux networking and package management later.
-
----
-
-# 🧯 37. Recovery Mindset
-
-When something breaks, use this sequence:
-
-```text
-STOP
- ↓
-READ THE ERROR
- ↓
-IDENTIFY THE LAYER
- ↓
-CHECK THE CURRENT STATE
- ↓
-MAKE ONE CHANGE
- ↓
-TEST AGAIN
-```
-
-For example:
-
-```text
-Ubuntu won't start
-        ↓
-Is WSL working?
-        ↓
-Is Ubuntu installed?
-        ↓
-Is Ubuntu WSL2?
-        ↓
-Is virtualization available?
-        ↓
-Is WSL updated?
-```
-
-This is much better than:
-
-```text
-Google random error
-        ↓
-copy command
-        ↓
-something else breaks
-        ↓
-Google second error
-        ↓
-existential crisis
-```
-
----
-
-# 🚫 38. What WSL Is NOT
-
-WSL is an excellent development environment.
-
-But don't confuse it with a production Linux server.
-
-WSL has integration with Windows that a real Linux server doesn't have.
-
-For example:
-
-```text
-WSL
-├── Windows integration
-├── /mnt/c
-├── localhost integration
-├── managed lifecycle
-└── Windows-controlled environment
-```
-
-A typical Linux server looks more like:
-
-```text
-Cloud VM
-├── Linux kernel
-├── network interface
-├── public/private IP
-├── firewall
-├── SSH
-├── systemd
-├── disks
-└── applications
-```
-
-Later in this roadmap you'll learn how real Linux servers differ.
-
-WSL is your **laboratory**, not your production server.
-
----
-
-# 🧠 39. A Backend Developer's Mental Model
-
-At this point, you should be able to visualize your development environment like this:
-
-```mermaid
-flowchart TB
-
-    LAPTOP["💻 Your Windows Laptop"]
-
-    WINDOWS["Windows 11"]
-
-    WSL["WSL2"]
-
-    LINUX["🐧 Linux Kernel"]
-
-    UBUNTU["Ubuntu"]
-
-    SHELL["Bash"]
-
-    TOOLS["Linux Tools"]
-
-    BACKEND["Your Backend Application"]
-
-    PORT["Network Port"]
-
-    BROWSER["Browser"]
-
-    LAPTOP --> WINDOWS
-    WINDOWS --> WSL
-    WSL --> LINUX
-    LINUX --> UBUNTU
-    UBUNTU --> SHELL
-    SHELL --> TOOLS
-    TOOLS --> BACKEND
-    BACKEND --> PORT
-    PORT --> BROWSER
-```
-
-This is the environment we will build upon throughout the Linux track.
-
----
-
-# 🎯 40. Scenario-Based Questions
-
-Don't just memorize commands.
-
-Think.
-
----
-
-## Scenario 1
-
-You run:
-
-```powershell
-wsl --list --verbose
-```
-
-and see:
-
-```text
-Ubuntu    Stopped    2
-```
-
-Is WSL broken?
-
-**Answer:** No.
-
-`Stopped` simply means the distribution isn't currently running.
-
-Starting Ubuntu will launch it again.
-
----
-
-## Scenario 2
-
-You run:
-
-```bash
-pwd
-```
-
-and get `/home/developer`.
-
-What does `/home/developer` represent?
-
-**Answer:** Your Linux user's home directory.
-
----
-
-## Scenario 3
-
-You create a file at `/home/developer/test.txt`.
-
-Can Windows access it?
-
-**Answer:** Yes. WSL provides Windows/Linux filesystem integration.
-
----
-
-## Scenario 4
-
-Your project is located at `/mnt/c/Users/developer/project`, but you're doing heavy Linux development.
-
-Would you consider moving it into `/home/developer/project`?
-
-**Answer:** Yes.
-
-For Linux-heavy workflows, keeping files in the Linux filesystem generally provides better filesystem performance.
-
----
-
-## Scenario 5
-
-You run:
-
-```powershell
-wsl --shutdown
-```
-
-Does it uninstall Ubuntu?
-
-**Answer:** No.
-
-It shuts down the WSL2 environment.
-
-Your distribution and files remain.
-
----
-
-## Scenario 6
-
-You run:
-
-```bash
-python3 -m http.server 8000
-```
-
-What does `8000` represent?
-
-**Answer:** The TCP port on which the HTTP server is listening.
-
----
-
-## Scenario 7
-
-You close the Ubuntu terminal.
-
-Does that automatically mean your entire Linux environment is permanently destroyed?
-
-**Answer:** No.
-
-Your distribution and files persist unless you explicitly remove/unregister the distribution.
-
----
-
-# 🧠 41. Quick Knowledge Check
-
-### Q1. What is Ubuntu?
-
-A. A Windows feature
-B. A Linux distribution
-C. A shell
-D. A package manager
-
-<details>
-<summary>Answer</summary>
-
-**B. A Linux distribution**
-
-</details>
-
----
-
-### Q2. What does WSL stand for?
-
-A. Windows System Linux
-B. Windows Subsystem for Linux
-C. Windows Shell Layer
-D. Windows Server Linux
-
-<details>
-<summary>Answer</summary>
-
-**B. Windows Subsystem for Linux**
-
-</details>
-
----
-
-### Q3. What is the biggest architectural difference between WSL1 and WSL2?
-
-A. WSL2 uses a real Linux kernel
-B. WSL2 doesn't support Linux
-C. WSL1 uses Ubuntu
-D. WSL2 removes virtualization
-
-<details>
-<summary>Answer</summary>
-
-**A. WSL2 uses a real Linux kernel**
-
-</details>
-
----
-
-### Q4. Which command shows your installed WSL distributions and their WSL version?
-
-A.
-
-```powershell
-wsl --status
-```
-
-B.
-
-```powershell
-wsl --list --verbose
-```
-
-C.
-
-```powershell
-wsl --shutdown
-```
-
-D.
-
-```powershell
-wsl --update
-```
-
-<details>
-<summary>Answer</summary>
-
-**B.**
-
-</details>
-
----
-
-### Q5. Where does `/mnt/c` generally point?
-
-A. Linux root
-B. Windows C: drive
-C. Ubuntu installation directory
-D. Kernel directory
-
-<details>
-<summary>Answer</summary>
-
-**B. Windows C: drive**
-
-</details>
-
----
-
-### Q6. What does this command do?
-
-```powershell
-wsl --shutdown
-```
-
-<details>
-<summary>Answer</summary>
-
-It shuts down the WSL2 environment. It does not uninstall your Linux distribution.
-
-</details>
-
----
-
-### Q7. Why is `/home/developer/project` usually preferred over `/mnt/c/Users/developer/project` for Linux-heavy development?
-
-<details>
-<summary>Answer</summary>
-
-Linux tools generally perform better when working with files stored in the Linux filesystem rather than the mounted Windows filesystem.
-
-</details>
-
----
-
-# 🏆 42. Final Challenge
-
-You now have enough knowledge to verify your entire environment without following a tutorial step-by-step.
-
-## Your mission
-
-Starting from Windows PowerShell:
-
-### 1. Verify WSL
-
-```powershell
-wsl --status
-```
-
-### 2. Verify Ubuntu
-
-```powershell
-wsl --list --verbose
-```
-
-### 3. Enter Ubuntu
-
-```powershell
-wsl -d Ubuntu
-```
-
-### 4. Verify your Linux identity
-
-```bash
-whoami
-```
-
-### 5. Verify your Linux home
-
-```bash
-pwd
-```
-
-### 6. Verify Ubuntu
-
-```bash
-cat /etc/os-release
-```
-
-### 7. Verify the Linux kernel
-
-```bash
-uname -r
-```
-
-### 8. Create a backend workspace
-
-```bash
-mkdir -p ~/projects/wsl-capstone
-cd ~/projects/wsl-capstone
-```
-
-### 9. Create a webpage
-
-```bash
-echo "Linux backend environment is working!" > index.html
-```
-
-### 10. Start a server
-
-```bash
-python3 -m http.server 8000
-```
-
-### 11. Open Windows browser
-
-Visit `http://localhost:8000`.
-
-### 12. Stop the server
-
-Press `Ctrl+C`.
-
-### 13. Return to Windows
+Return to PowerShell from Bash:
 
 ```bash
 exit
 ```
 
-### 14. Verify again
+> [!example]
+> `wsl --shutdown` is a Windows-side management command. `sudo apt update` is an Ubuntu-side package command. When a command is “not found,” first check which prompt you are using.
 
-```powershell
-wsl --list --verbose
+## 5. Verify Ubuntu
+
+In an Ubuntu terminal, run:
+
+```bash
+whoami
+pwd
+uname -a
+cat /etc/os-release
 ```
 
----
+You should see your Linux username, a path under `/home`, kernel information that mentions WSL or Microsoft, and Ubuntu release information.
 
-# 🎓 43. Graduation Checklist
+Then refresh available package metadata and apply current updates:
 
-You are ready for the next module when you can honestly answer yes to every item below.
+```bash
+sudo apt update
+sudo apt upgrade
+```
+
+The APT module explains package management later. For now, read the proposed changes before confirming and do not interrupt a package operation midway.
+
+## 6. Keep Linux projects in the Linux filesystem
+
+Linux can access the Windows C: drive at `/mnt/c`:
+
+```text
+C:\Users\Asha\notes.txt  →  /mnt/c/Users/Asha/notes.txt
+```
+
+Windows can open the current Linux directory in Explorer from Ubuntu:
+
+```bash
+explorer.exe .
+```
+
+For the course, keep Linux-heavy projects under your Linux home directory, for example `~/projects/api-lab`. This typically gives more predictable file watching, permissions, and tooling performance than developing directly in `/mnt/c`.
+
+```mermaid
+flowchart LR
+    C["Windows files\nC:\\Users\\Asha"] --> M["Visible in Ubuntu\n/mnt/c/Users/Asha"]
+    H["Linux project\n/home/asha/projects/api-lab"] --> L["Linux tools\nGit, Node, Docker"]
+    H --> E["explorer.exe .\nopen from Windows"]
+```
+
+> [!pitfall]
+> Windows-mounted files and Linux files do not have identical permission and performance behavior. Unless a task says otherwise, create course projects under `~/projects`.
+
+## 7. WSL lifecycle commands
+
+Run these from **PowerShell**, not Bash.
+
+| Command | Use it when |
+| --- | --- |
+| `wsl` | You want to enter the default distribution |
+| `wsl -d Ubuntu` | You want to enter a named distribution |
+| `wsl --list --verbose` | You need distributions and their WSL versions |
+| `wsl --status` | You need a configuration summary |
+| `wsl --update` | You want to update WSL itself |
+| `wsl --shutdown` | You need a clean reset of all WSL distributions |
+
+`wsl --shutdown` stops every running Linux process, so save work first.
+
+## Guided lab: prove the setup end to end
+
+This lab creates a disposable Linux project, starts a server inside Ubuntu, reaches it from a Windows browser, and removes it afterward.
+
+> [!exercise]
+> Run these commands in Ubuntu. Each result proves a different part of the environment is working.
+
+### 1. Create a Linux workspace
+
+```bash
+mkdir -p ~/projects/wsl-proof
+cd ~/projects/wsl-proof
+pwd
+```
+
+Expected: the final path starts with `/home/`, not `/mnt/c`.
+
+### 2. Create a page
+
+```bash
+printf '<h1>WSL is working</h1>\n' > index.html
+ls -l index.html
+```
+
+Expected: `index.html` is listed and owned by your Linux account.
+
+### 3. Start a local server
+
+```bash
+python3 -m http.server 8000
+```
+
+Expected: Python reports that it is serving HTTP on port 8000. Keep this terminal open.
+
+### 4. Reach it from Windows
+
+Open [http://localhost:8000](http://localhost:8000) in a Windows browser. You should see **WSL is working**.
+
+> [!model]
+> The browser runs on Windows, the Python server runs in Ubuntu, and WSL exposes the local connection through `localhost`. This is the same basic request path later used by local APIs.
+
+### 5. Open the project in Explorer
+
+In a second Ubuntu terminal, run:
+
+```bash
+cd ~/projects/wsl-proof
+explorer.exe .
+```
+
+Expected: Windows Explorer opens the Linux project directory. This proves Windows can inspect the project without moving it into `C:\`.
+
+### 6. Stop and clean up
+
+Press `Ctrl+C` in the terminal running the server. Then run:
+
+```bash
+rm -r ~/projects/wsl-proof
+```
+
+Expected: `ls ~/projects/wsl-proof` reports that the directory no longer exists.
+
+## Independent challenge
+
+Without copying the lab commands, create `~/projects/environment-check` and a one-line `status.txt` file that contains:
+
+- your Linux username;
+- the current directory;
+- the Ubuntu release name.
+
+Then open the directory in Windows Explorer, inspect the file, and remove the directory from Ubuntu. Explain which steps happened in Linux and which used a Windows application.
+
+> [!interview]
+> A teammate stores a Docker project under `C:\Users\...` and sees slow file watching and unfamiliar permission behavior. Explain why you would recommend moving it to their Linux home directory, while still using a Windows editor or browser when useful.
+
+## Troubleshooting
+
+### `wsl` is not recognized
+
+Confirm that you are in a current PowerShell window. If it is still unavailable, follow Microsoft's installation instructions below rather than downloading WSL from an untrusted source.
+
+### Ubuntu will not start or needs a restart
+
+Restart Windows after an installation or feature change. Then run `wsl --status` and `wsl --list --verbose` from PowerShell.
+
+### Ubuntu is version 1
+
+Run `wsl --set-version <distribution-name> 2` from Administrator PowerShell, using the exact name shown in the distribution list.
+
+### `sudo` rejects the password
+
+Use the password chosen during Ubuntu's first launch, not your Windows password. No characters appear while typing. If you genuinely forgot it, use Microsoft's WSL recovery guidance rather than guessing repeatedly.
+
+### `python3` is missing
+
+Run `sudo apt update`, then install it with `sudo apt install python3`.
+
+### The browser cannot reach `localhost:8000`
+
+Confirm the Python process is still running. From Ubuntu, test `curl http://localhost:8000`. If WSL networking appears stale, stop the server, run `wsl --shutdown` from PowerShell, then restart Ubuntu.
+
+## Checkpoint quiz
 
 > [!check]
-> - I know what Linux is.
-> - I know what Ubuntu is.
-> - I know what WSL is.
-> - I understand the difference between WSL1 and WSL2.
-> - I know that WSL2 uses a Linux kernel.
-> - I understand that WSL2 uses virtualization.
-> - I can explain the relationship between Windows, WSL2, Ubuntu, and Bash.
-> - I can open Ubuntu.
-> - I can identify my Linux username.
-> - I can identify my Linux home directory.
-> - I can check my Ubuntu release.
-> - I can check my Linux kernel.
-> - I can verify that Ubuntu is running under WSL2.
-> - I know the difference between `wsl --terminate` and `wsl --shutdown`.
-> - I know where `/mnt/c` comes from.
-> - I understand where Linux projects should normally live.
-> - I can open a Linux directory using Windows Explorer.
-> - I can start a Linux HTTP server.
-> - I can access that server from Windows.
-> - I can stop the server.
-> - I can troubleshoot basic WSL installation problems.
+> 1. What is the difference between WSL2 and Ubuntu?
+> 2. Which prompt indicates PowerShell instead of Bash?
+> 3. Where should a Linux-heavy course project normally live, and why?
+> 4. Which Windows command lists distributions and WSL versions?
+> 5. What does `wsl --shutdown` stop?
+> 6. How can you open the current Linux directory in Windows Explorer?
 
-If you can do all of that without blindly copying commands, you're ready.
+## Further reading
 
----
+- [Microsoft: Install WSL](https://learn.microsoft.com/windows/wsl/install)
+- [Microsoft: Basic commands for WSL](https://learn.microsoft.com/windows/wsl/basic-commands)
+- [Microsoft: Filesystem performance across OS file systems](https://learn.microsoft.com/windows/wsl/filesystems)
 
-# 🔗 44. Official References
+## Next
 
-Use primary documentation whenever possible.
-
-* Microsoft Learn: WSL installation
-* Microsoft Learn: WSL basic commands
-* Microsoft Learn: WSL architecture and WSL2
-* Microsoft Learn: WSL configuration
-* Ubuntu documentation for WSL
-* WSL GitHub repository
-
-The official documentation should be your source of truth when commands or behavior change across Windows/WSL releases.
-
----
-
-# 🚀 What's Next?
-
-You've built the environment.
-
-Now we're going to learn how to actually **talk to Linux**.
-
-Next:
-
-## [01 · Shell Basics and Unix Philosophy](../01-shell-basics-and-philosophy/README.md)
-
-You'll learn:
-
-```text
-Terminal
-   ↓
-Shell
-   ↓
-Command
-   ↓
-Process
-   ↓
-Kernel
-```
-
-You'll learn:
-
-* What a shell actually is
-* What happens when you type a command
-* How Linux commands are structured
-* The Unix philosophy
-* `man`
-* `help`
-* `--help`
-* command history
-* tab completion
-* command discovery
-* exit status
-
-And from there, we start properly learning Linux.
-
----
-
-# 🧭 Linux Track
-
-```text
-00  Setup WSL2
- ↓
-01  Shell Basics
- ↓
-02  Filesystem Navigation
- ↓
-03  Permissions & Ownership
- ↓
-04  Users & Groups
- ↓
-05  Package Management
- ↓
-06  Process Management
- ↓
-07  I/O Redirection & Pipes
- ↓
-08  Text Processing
- ↓
-09  Bash Scripting
- ↓
-10  Networking
- ↓
-11  systemd
- ↓
-12  Disk & Storage
- ↓
-13  SSH
- ↓
-14  Logging
- ↓
-15  Security
- ↓
-16  Capstone
- ↓
-🐳 Docker
-```
-
-**You now have a Linux machine.**
-
-Next, we're going to learn how to use it.
+Continue to [01 · Shell Basics and Unix Philosophy](../01-shell-basics-and-philosophy/README.md). Your environment is ready; the next module explains how the terminal and shell interpret the commands you type.

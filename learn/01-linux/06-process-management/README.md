@@ -1,10 +1,20 @@
-# Process Management
+# Module 06: Process Management
+
+> 🎯 **Goal:** See what is running, understand its lifecycle, and stop or investigate a program without guessing.
+
+By the end of this module, you should be able to identify a process and its PID, interpret basic process state and resource usage, send a graceful termination signal, distinguish a foreground job from a background job, and trace a listening server back to the process that owns it.
+
+---
 
 ## Why this matters
 
 Every command you run, every server you start, and every script that hangs or misbehaves is a process — and eventually you will need to see what's running, figure out why something is eating CPU or won't respond, and stop it safely (or forcefully). This is exactly the skill you'll reach for later when a Docker container's process won't exit cleanly, or a Kubernetes pod is stuck, so building solid intuition here on plain Linux pays off directly in the later tracks.
 
 ## Concepts
+
+### Start graceful; escalate deliberately
+
+When a program is stuck, first identify it and ask it to exit with `SIGTERM` (the default `kill` signal). Use `SIGKILL` only when the process cannot respond: it gives the program no chance to flush data, remove temporary files, or release resources. The production habit is: observe → identify → terminate gracefully → verify → escalate only if necessary.
 
 **What a process is.** A process is a running instance of a program. When you type `htop` and press Enter, the shell asks the kernel to load that program into memory and start executing it — that running instance is a process, with its own process ID.
 
@@ -87,6 +97,63 @@ The escalation path for a stuck process is always: `SIGTERM` first (`kill <PID>`
 9. Break something on purpose: run `kill 999999` (a PID that almost certainly doesn't exist on your system). Read the error message carefully — it should say "No such process," which tells you the PID was invalid, distinct from a permissions error. Then start `sleep 500 &`, find its real PID with `pgrep sleep`, and try `kill -0 <PID>` (signal `0` sends nothing but checks whether the process exists and you have permission to signal it) to confirm it's alive before finally killing it properly with `kill <PID>`.
 
 10. Test `nohup`: run `nohup sleep 120 &`. Confirm a file named `nohup.out` appeared in your current directory (`ls`). Then run `pgrep sleep` to confirm it's running, and clean up with `pkill sleep` to stop it (and optionally `rm nohup.out` to tidy up the file it created).
+
+## Production practice: diagnose before killing
+
+> [!key]
+> A process is an executing program with an identity, a parent, open resources, and a lifecycle. A PID is only a handle—inspect the command and owner before acting on it.
+
+> [!model]
+> A process tree is a family tree. The parent launches a child; a supervisor such as `systemd` may restart that child when it exits. Killing only the child may appear to work briefly if the parent is designed to bring it back.
+
+```mermaid
+flowchart TD
+    I["systemd (PID 1)"] --> S["myapp.service"]
+    S --> P["myapp process"]
+    P --> W["worker process"]
+    S -. restart on failure .-> P
+```
+
+The tree explains who may restart a process. The response flow below explains how to intervene safely.
+
+```mermaid
+flowchart TD
+    A["Unexpected process or port"] --> B["Inspect PID, owner, command"]
+    B --> C{"Should it stop?"}
+    C -->|No| D["Find parent / supervisor"]
+    C -->|Yes| E["SIGTERM"] --> F{"Exited?"}
+    F -->|Yes| G["Verify socket and logs"]
+    F -->|No| H["Investigate; SIGKILL only if necessary"]
+```
+
+> [!example]
+> A development server keeps port `3000` busy after a terminal closes. `ss -ltnp` identifies the listener and PID; `ps -fp <PID>` confirms it is the old server; `kill <PID>` requests a clean exit; a second `ss` check proves the port is free.
+
+> [!pitfall]
+> Do not use `kill -9` as the first response. `SIGKILL` cannot be caught, so an application cannot flush buffered data, remove a lock file, or close a transaction cleanly. Use it only after you have identified the process and a graceful signal did not work.
+
+### A focused incident loop
+
+```bash
+ps -fp <PID>              # identity, parent, and command
+ps -o pid,ppid,user,stat,%cpu,%mem,command -p <PID>
+ss -ltnp                  # listening TCP processes
+lsof -p <PID>             # open files, when available
+kill -TERM <PID>          # request a clean shutdown
+```
+
+Wait briefly and verify the result. If a process returns, inspect its parent, service manager, or container runtime rather than repeatedly killing it.
+
+> [!exercise]
+> Start `python3 -m http.server 8000` in one terminal. In another, identify its PID from the listening socket, inspect its parent and user, stop it with `SIGTERM`, and prove that `curl http://localhost:8000` now fails because no process owns the port.
+
+> [!interview]
+> Compare `SIGTERM` and `SIGKILL`. Then explain why a process can reappear after being killed and how you would discover what restarted it.
+
+> [!check]
+> - Can you find the process listening on a port without guessing its name?
+> - Can you explain the difference between a PID and a process tree?
+> - Do you have a verification command to run after stopping a process?
 
 ## Independent challenge
 

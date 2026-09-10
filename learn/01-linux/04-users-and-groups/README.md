@@ -1,10 +1,20 @@
-# Users and Groups
+# Module 04: Users and Groups
+
+> 🎯 **Goal:** Understand the identities Linux uses to run people, services, containers, and automated jobs.
+
+By the end of this module, you should be able to inspect your UID and groups, distinguish human accounts from service accounts, safely create or modify a local account in a practice environment, and explain why a process's user matters more than the username shown in a terminal prompt.
+
+---
 
 ## Why this matters
 
 Every file you touch, every process you run, and every permission check you saw in module 03 is enforced against a user and a group. You cannot reason about `chmod`/`chown` without knowing who "the owner" or "the group" actually is, and you cannot administer a real server (or a Docker container running as a specific UID) without knowing how to create, inspect, and manage users. In WSL2 this also explains why your terminal can run `sudo` without a password prompt sometimes, and what "root" actually means on your machine.
 
 ## Concepts
+
+### Identity is part of the runtime
+
+Linux authorizes a process using numeric user and group IDs (UIDs and GIDs). Names such as `ubuntu`, `www-data`, and `root` are convenient labels stored in account databases. This matters in Docker and on mounted volumes: matching names is not enough if the numeric IDs differ. When diagnosing access, check both the file ownership and the identity of the process trying to use it.
 
 **A user is an identity.** Every process on Linux runs "as" some user, and every file is owned by some user (this is exactly the "owner" from module 03's permission bits). Users have a username (like `paresh`) and, under the hood, a numeric user ID (UID). UID 0 is always `root`, the superuser who bypasses normal permission checks.
 
@@ -14,23 +24,19 @@ Every file you touch, every process you run, and every permission check you saw 
 
 **`/etc/group`** is the group equivalent: one line per group, with group name, a placeholder, GID (group ID), and a comma-separated list of member usernames.
 
-```
-/etc/passwd line:
-  paresh : x : 1000 : 1000 : Paresh : /home/paresh : /bin/bash
-    │      │     │      │      │           │              │
- username  │    UID  primary  comment   home dir      login shell
-      password    (own GID)
-      placeholder
-      (real hash → /etc/shadow)
+For example:
 
-/etc/group line:
-  sudo : x : 27 : paresh,student1
-    │    │    │        │
-  group  │   GID   comma-separated
-  name   │        supplementary members
-    password
-    placeholder
+```text
+paresh:x:1000:1000:Paresh:/home/paresh:/bin/bash
+sudo:x:27:paresh,student1
 ```
+
+| File | Fields shown | Why it matters |
+| --- | --- | --- |
+| `/etc/passwd` | name, placeholder, UID, primary GID, comment, home, login shell | Maps a human-readable name to an account's identity and default environment |
+| `/etc/group` | group name, placeholder, GID, listed supplementary members | Maps a group name to its numeric ID and explicit members |
+
+The `x` placeholders indicate that password hashes are stored separately in `/etc/shadow`, which is intentionally protected from ordinary accounts.
 
 A user's identity is really just a number (the UID) — the username is a human-friendly label mapped to it. This is exactly why file ownership survives things like renaming an account, and why Docker containers (which you'll meet in the next track) can run "as UID 1000" without any username existing inside the container at all.
 
@@ -38,21 +44,104 @@ A user's identity is really just a number (the UID) — the username is a human-
 
 **`su`** ("substitute user" or "switch user") starts a new shell as a different user (root by default), and you stay in that shell until you `exit`. `sudo` is generally preferred today because it runs one command at a time and keeps a clear audit trail, rather than dropping you into an open-ended root shell.
 
-```
-  sudo apt update              su - student1
-  ┌──────────────┐             ┌──────────────┐
-  │ your shell    │             │ your shell    │
-  │  ├─ elevated  │             │  └─ su starts  │
-  │  │  one-shot  │             │      a WHOLE   │
-  │  │  command   │             │      new shell │
-  │  └─ back to   │             │      as them,  │
-  │     your      │             │      until you │
-  │     shell     │             │      `exit`    │
-  └──────────────┘             └──────────────┘
-   scoped, audited              open-ended, session-based
-```
+| Tool | Example | Scope | Best use |
+| --- | --- | --- | --- |
+| `sudo` | `sudo apt update` | One command | A deliberate administrative action |
+| `su - student1` | `su - student1` | A new login shell until `exit` | Testing what another account can access |
+| `sudo -i` | `sudo -i` | A root login shell until `exit` | Short, supervised administration when several root commands are genuinely necessary |
 
 **WSL specifics.** When you installed Ubuntu on WSL2, the setup wizard created one Linux user for you and made that user a member of the `sudo` group automatically — this is why `sudo` usually works for you without needing anyone else to configure it. WSL also has a real `root` account (UID 0), just like any Linux system; you can reach it with `sudo` or `su`, and some WSL configurations even let a distro default to logging in as `root` (checked via `/etc/wsl.conf`), though that isn't the normal beginner setup. Being in the `sudo` group is what makes your everyday WSL user "an administrator" of the Linux distro — it is a group membership, not some special WSL-only magic.
+
+### 1. Names are labels; IDs are the credentials Linux checks
+
+When a process opens a file, the kernel evaluates its effective UID and GIDs. It does not ask whether the process's display name “looks like” the file owner. Account names are resolved to numbers before the permission model from module 03 is applied.
+
+```mermaid
+flowchart LR
+    N["Name: appsvc"] --> U["UID: 10001"]
+    G["Group names"] --> I["GIDs: 10001, 20010"]
+    U --> P["Running process credentials"]
+    I --> P
+    P --> K["Kernel permission check"]
+    K --> F["File UID, GID, mode, ACL"]
+```
+
+This is why a container can show a friendly username but still be unable to write to a bind-mounted file: the host sees the numbers, not the container's naming convention.
+
+> [!key]
+> For an access failure, identify the process's effective UID and groups, then inspect the target's numeric owner and group. Comparing names alone can hide the real mismatch.
+
+### 2. Where account information comes from
+
+On a basic WSL installation, local accounts are described in `/etc/passwd`, `/etc/shadow`, and `/etc/group`. On an organization-managed system, the same lookup can also involve LDAP, Active Directory, SSSD, or another identity service.
+
+Use `getent` for investigation:
+
+```bash
+getent passwd "$USER"
+getent group sudo
+getent passwd 1000
+```
+
+`getent` asks the configured Name Service Switch (NSS), so it reports the identity source Linux actually uses. Reading `/etc/passwd` is useful for learning local accounts; `getent` is more portable for diagnosing a real server.
+
+```mermaid
+flowchart TD
+    Q["Program asks for user or group"] --> N["NSS lookup policy\n/etc/nsswitch.conf"]
+    N --> L["Local files\n/etc/passwd, /etc/group"]
+    N --> D["Directory service\nif configured"]
+    L --> R["Resolved UID / GID"]
+    D --> R
+```
+
+### 3. Primary groups, supplementary groups, and new sessions
+
+Every logged-in process has one primary group and can carry zero or more supplementary groups. A process inherits these credentials from its parent, so adding a user to a group changes the account database but does **not** rewrite credentials already attached to open terminals or running services.
+
+After `sudo usermod -aG developers alex`, open a new login session before testing access. `newgrp developers` can start a shell with a new primary group for a focused experiment, but logging out and in again is usually clearer for normal work.
+
+> [!example]
+> You add your account to the `docker` group, but `docker ps` still reports a permission error in the terminal you already had open. The group entry may be correct; that shell is simply still carrying its old supplementary-group list. Start a new session and run `id` before changing permissions on the Docker socket.
+
+### 4. Human accounts and service accounts have different jobs
+
+| Account type | Typical purpose | Login shell / home | Privilege pattern |
+| --- | --- | --- | --- |
+| Human account | An operator or developer signs in | Interactive shell and home directory | Only the access that person needs |
+| Service account | Runs one application or daemon | Often no interactive login and a limited runtime directory | Narrow access to that application's files and sockets |
+| `root` | System administration and recovery | Full system access | Used briefly and deliberately |
+
+Create a dedicated service identity when a program needs persistent local files or a managed service. A service running as your personal account inherits access to your SSH keys, project files, and shell configuration that it does not need.
+
+> [!pitfall]
+> Do not make a service account a member of `sudo` merely to solve an application error. Give the service ownership of its runtime directory or a narrow capability through its service configuration. Broad administrator access turns a small application compromise into a host compromise.
+
+### 5. `sudo` is policy, not a magic word
+
+`sudo` checks the `/etc/sudoers` policy and files under `/etc/sudoers.d/`, then runs a requested command as another user (root by default). It does not permanently turn your terminal into root; `sudo -i` is the separate choice to start a root login shell.
+
+Use these read-only checks before editing privilege policy:
+
+```bash
+sudo -l                 # commands your current user may run with sudo
+getent group sudo       # accounts in the conventional Ubuntu admin group
+sudo visudo -c          # validate sudo policy syntax
+```
+
+Only edit sudo policy through `visudo`, which validates syntax and protects against saving a broken policy file. A malformed sudoers file can remove the only administrator's access to a remote machine.
+
+### 6. Safe account-change sequence
+
+Account changes are persistent system changes. Make the intended state clear before typing a command:
+
+1. Inspect whether the user or group already exists with `getent`.
+2. Create a clearly named practice account only in a disposable environment.
+3. Add only the required supplementary group with `usermod -aG`.
+4. Open a new login shell and verify with `id`.
+5. Remove the practice user and group when the exercise is complete.
+
+> [!model]
+> Treat account management like access provisioning: request a specific identity, grant a specific membership for a stated purpose, verify it from a new session, and remove it when the purpose ends. The command is only one step in that lifecycle.
 
 ## Command reference
 
@@ -63,6 +152,10 @@ A user's identity is really just a number (the UID) — the username is a human-
 | `id <user>` | Shows UID/GID info for another user instead of yourself. | `id root` shows root's UID (0) and groups |
 | `groups` | Lists just the group names you belong to. | `groups` |
 | `groups <user>` | Lists the groups a specific user belongs to. | `groups paresh` |
+| `getent passwd <name>` | Looks up an account through the system's configured identity sources. | `getent passwd appsvc` |
+| `getent group <name>` | Looks up a group through the system's configured identity sources. | `getent group developers` |
+| `sudo -l` | Lists the commands your current user is allowed to run with `sudo`. | `sudo -l` |
+| `sudo visudo -c` | Checks sudo policy syntax without editing it. | `sudo visudo -c` |
 | `sudo <command>` | Runs a single command as root (or another user with `-u`), after confirming your password. | `sudo apt update` runs `apt update` with root privileges |
 | `sudo -i` | Starts an interactive root login shell (use sparingly, and `exit` when done). | `sudo -i` |
 | `su <user>` | Switches to another user's shell (prompts for that user's password); with no argument, switches to root. | `su - paresh` switches to user `paresh`, `-` loads their full login environment |
@@ -80,11 +173,11 @@ A user's identity is really just a number (the UID) — the username is a human-
 
 1. Open your WSL2 Ubuntu terminal. Run `whoami` and then `id`. Note your username, UID, primary group, and every group listed after `groups=`. You should see `sudo` in that list — that's why you can run administrative commands.
 
-2. Run `cat /etc/passwd | grep "$(whoami)"` (this pipes the file through a filter for your username — you'll learn pipes properly in module 07, but this is a taste). Identify which colon-separated field is your UID, and which is your home directory.
+2. Run `getent passwd "$(whoami)"`. Identify which colon-separated field is your UID and which is your home directory. This asks Linux's configured identity lookup rather than assuming the account exists only in a local file.
 
-3. Run `cat /etc/group | grep sudo`. Confirm your username appears in the comma-separated member list at the end of that line.
+3. Run `getent group sudo`. Confirm that your account has administrative membership by comparing this result with `id` and `sudo -l`. On some systems, group membership can be supplied by another identity source, so treat the final comma-separated list as useful evidence rather than the only source of truth.
 
-4. Try to read another user's password hash by running `cat /etc/shadow`. Expect a `Permission denied` error — this file is root-only for a good reason (it holds password hashes). Now run `sudo cat /etc/shadow` and confirm it works. Read the error message carefully before you use `sudo` — this is the "read the error" habit you'll need constantly.
+4. Inspect password-file protection without reading password hashes. Run `ls -l /etc/passwd /etc/shadow`, then run `stat -c '%A %U:%G %n' /etc/passwd /etc/shadow`. Explain why ordinary users can look up account names but should not be able to read the protected password database. Do **not** use `sudo cat /etc/shadow` for this exercise.
 
 5. Create a new group called `learners`: `sudo groupadd learners`. Then confirm it exists: `cat /etc/group | grep learners`.
 
@@ -94,9 +187,55 @@ A user's identity is really just a number (the UID) — the username is a human-
 
 8. Switch into that user's shell: `su - student1` (enter the password you set). Run `whoami` and `id` to confirm you're now `student1`. Then `exit` to return to your own shell — run `whoami` again to confirm you're back.
 
-9. Break something on purpose: as `student1` (use `su - student1` again), try running `sudo apt update`. Expect it to fail or ask for a password `student1` doesn't have sudo rights for, producing something like "is not in the sudoers file. This incident will be reported." This is expected — `student1` was never added to the `sudo` group. Exit back to your own user, then fix it: `sudo usermod -aG sudo student1`. Switch to `student1` again and confirm `sudo apt update` now works (it will ask for `student1`'s own password).
+9. Prove that the practice user is not an administrator. As `student1` (use `su - student1` again), run `sudo -n true`. It should fail without a password prompt because `student1` has no sudo policy entry. Exit back to your own user. Do **not** add the practice user to the `sudo` group; the point is to confirm that a normal account cannot administer the machine.
 
 10. Clean up: exit back to your original user, then delete the practice account entirely: `sudo deluser --remove-home student1`. Confirm it's gone: `cat /etc/passwd | grep student1` should print nothing.
+
+## Production practice: accounts that run software
+
+> [!key]
+> Linux permissions are evaluated against numeric UIDs and GIDs attached to a process. A username is a human-friendly lookup; it is not the authority itself.
+
+> [!model]
+> A service account is like a badge issued to one job, not one person. Its permissions should be limited to the files, sockets, and network access that job requires. Giving a service your personal account makes audit trails and access boundaries blur together.
+
+```mermaid
+flowchart TD
+    U["Human operator"] -->|deploy group| R["Release artifacts"]
+    S["Service account: appsvc"] -->|read/run only| R
+    S -->|owns| D["Runtime data"]
+```
+
+> [!example]
+> A Node application can run as `appsvc`, own `/srv/myapp`, and belong to a `deploy` group that can read release artifacts. Operators may deploy through the group without becoming the service user, while the service cannot modify the deployment tooling.
+
+> [!pitfall]
+> Never edit `/etc/passwd`, `/etc/shadow`, or `/etc/group` with a normal text editor as a first choice. Use `useradd`, `usermod`, `groupadd`, and `getent`; they preserve account database consistency and make your intent explicit.
+
+### Account-inspection workflow
+
+Start with read-only questions:
+
+```bash
+id
+id someuser
+getent passwd someuser
+getent group developers
+ps -eo user,pid,command | head
+```
+
+`getent` is especially useful because it shows the account source the system actually uses, whether data comes from local files, LDAP, or another identity provider.
+
+> [!exercise]
+> In a disposable WSL environment, create a `labops` group and a non-login practice user. Add that user to the group, verify the numeric IDs with `id`, then remove the user from the group and verify again in a new shell. Do not use `root` as the practice account.
+
+> [!interview]
+> A Docker bind mount is owned by UID `1000` on the host, but the process in the container runs as UID `10001`. Explain why matching the visible usernames is insufficient and list two safe ways to resolve the write failure.
+
+> [!check]
+> - Can you distinguish a primary group from supplementary groups?
+> - Do you know how to inspect an account without exposing `/etc/shadow`?
+> - Can you explain why services should normally have dedicated, non-human accounts?
 
 ## Independent challenge
 

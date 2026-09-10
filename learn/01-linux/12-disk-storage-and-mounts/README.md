@@ -1,10 +1,20 @@
-# Disk, Storage, and Mounts
+# Module 12: Disk, Storage, and Mounts
+
+> 🎯 **Goal:** Find where space went, understand how storage appears in the filesystem, and avoid confusing a link with the data it points to.
+
+By the end of this module, you should be able to compare filesystem capacity with directory usage, identify a mount point, reason about WSL's virtual disk, and choose correctly between a hard link and a symbolic link.
+
+---
 
 ## Why this matters
 
 Every server you'll ever operate eventually runs low on disk space, mounts the wrong volume, or fills up a log directory until something crashes. Knowing how to see what's using space, understand what a "mount" actually is, and tell a hard link from a symlink is the difference between a two-minute fix and a confused escalation. In WSL2 this also matters for a Windows-specific reason: your Linux filesystem lives inside a virtual disk file that Windows manages, and that file has its own quirks around growing and shrinking.
 
 ## Concepts
+
+### Capacity and usage are different questions
+
+`df` reports space available on mounted filesystems; `du` reports how much space a directory tree appears to use. Use both before cleanup. Do not delete files solely because a directory looks large—identify the mount, confirm whether a process still has a deleted file open, and use a backup or retention policy for anything valuable.
 
 **Filesystems and mounting.** A filesystem is the structure that organizes data on a storage device - it's how the raw bytes on a disk become "files" and "directories" you can navigate. "Mounting" is the act of attaching a filesystem to a specific point in your existing directory tree so you can reach it by path. Nothing is available until it's mounted somewhere. When Ubuntu boots, it mounts its root filesystem at `/`, and typically mounts other things (like a separate partition, a USB drive, or - in WSL2's case - your Windows drives) at other points underneath `/`.
 
@@ -109,6 +119,52 @@ Two different filesystems, two different drivers (`ext4` vs `drvfs`), stitched i
    The symlink works again because the path it stores now resolves to a real file again.
 
 10. Clean up and check overall usage reporting one more time: run `cd ~ && rm -rf linktest` then `df -h /`. Confirm the filesystem is still mounted and note that deleting a few small files barely moves the `Used`/`Avail` numbers - real space investigations need `du` on larger directories, which is why you practiced step 6.
+
+## Production practice: find the real storage problem
+
+> [!key]
+> A path belongs to a mounted filesystem. `df` answers “which filesystem is full?”; `du` answers “which visible directory data is large?” Use them together.
+
+> [!model]
+> Mounting attaches another filesystem at a directory. From that point, the mounted filesystem's contents appear there, like opening a doorway into a different storage volume.
+
+```mermaid
+flowchart TD
+    D["Disk / virtual disk"] --> F["Filesystem"]
+    F --> M["Mount point: /var"]
+    M --> L["Logs, caches, app data"]
+    D --> W["WSL ext4.vhdx on Windows"]
+```
+
+The storage stack explains where a path lives. This diagnostic flow separates the common “disk full” cases.
+
+```mermaid
+flowchart TD
+    A["Disk-full symptom"] --> B["df -h path"]
+    B --> C{"Filesystem full?"}
+    C -->|Yes| D["du -xhd1 mount point"]
+    C -->|No| E["Check inodes: df -ih"]
+    D --> F{"Visible data explains use?"}
+    F -->|No| G["Check deleted open files"]
+    F -->|Yes| H["Apply retention / cleanup policy"]
+```
+
+> [!example]
+> `df -h /var` can show that `/var` is nearly full. `sudo du -xhd1 /var | sort -h` then narrows the visible consumers without crossing into another mounted filesystem. Check log retention or application behavior before deleting anything.
+
+> [!pitfall]
+> A deleted file can still consume space while a process holds it open. If `df` says a filesystem is full but `du` cannot find the expected data, inspect open deleted files with `lsof +L1` (where available) and restart the owning service only after identifying it.
+
+> [!exercise]
+> In a practice directory, create a file, a hard link, and a symbolic link. Compare `ls -li`, then delete the original filename and explain which link still reaches the data and why. Do not experiment with system paths.
+
+> [!interview]
+> Explain why `du` and `df` can disagree, and compare hard links with symbolic links in terms of what each points to and what happens when the original pathname is removed.
+
+> [!check]
+> - Can you find the filesystem that contains a path?
+> - Can you distinguish capacity, inode exhaustion, and visible directory usage?
+> - Can you state when a symlink can become dangling?
 
 ## Independent challenge
 

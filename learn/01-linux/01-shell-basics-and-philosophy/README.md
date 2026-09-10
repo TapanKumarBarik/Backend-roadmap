@@ -1,235 +1,246 @@
-# Shell Basics and Unix Philosophy
+# Module 01: Shell Basics and Unix Philosophy
+
+> 🎯 **Goal:** Use the Linux terminal as a tool you can reason about rather than a list of commands to memorize.
+
+By the end of this module, you should be able to distinguish a terminal from a shell, read a Bash prompt, understand a command's parts, find help for unfamiliar commands, use completion and history, and explain why small Linux tools compose well.
+
+---
 
 ## Why this matters
-Every interaction you'll have with Docker, Kubernetes, and cloud servers eventually comes down to typing commands into a shell - there's no GUI installer for most of it. Understanding what the shell actually is, how a command is structured, and the design philosophy behind Linux tools will make every future command you learn easier to guess, remember, and combine, instead of feeling like magic incantations.
 
-## Concepts
+You will use the terminal to inspect logs, start development servers, connect to remote machines, run Git and Docker commands, and debug deployments. The syntax matters, but the more useful skill is understanding what the shell is doing with the text you type.
 
-**What is a terminal?** A terminal (or "terminal emulator") is the window on your screen - like the Ubuntu window or a Windows Terminal tab - where you type text and see text come back. Historically, "terminal" referred to a physical device (a screen and keyboard connected to a big computer). Today it's just a program that emulates that experience.
+> [!key]
+> A terminal displays text. A shell interprets commands. A command is a program or shell feature the shell runs. These are separate layers with separate failure modes.
 
-**What is a shell?** The shell is the program running *inside* the terminal that actually reads what you type, interprets it as a command, runs it, and shows you the result. Ubuntu's default shell is called **bash** (Bourne Again SHell). The terminal is the window; the shell is the interpreter living inside it. You could open different terminal apps, but they'd all be running the same bash shell underneath, since that's what Ubuntu ships with by default.
+## 1. Terminal, shell, command, and kernel
 
-**What is a TTY?** TTY stands for "teletypewriter" - an old term from physical hardware terminals. In modern Linux, "TTY" just refers to the text input/output session your shell is attached to. You don't need to manage this directly as a beginner - just know that when people say "open a TTY" or "your TTY," they mean your terminal session.
+| Layer | Responsibility | Example |
+| --- | --- | --- |
+| Terminal emulator | Displays input and output | Windows Terminal |
+| Shell | Reads and interprets a command line | Bash |
+| Command | Performs a task | `pwd`, `ls`, `git` |
+| Kernel | Manages processes, files, and devices | Linux kernel |
 
-**The prompt.** When you open Ubuntu, you see something like:
-```
-yourusername@yourcomputername:~$
-```
-This is called the **prompt** - it's the shell telling you it's ready for input. Breaking it down:
-- `yourusername` - the Linux user you're logged in as (what `whoami` prints).
-- `@yourcomputername` - the name of the machine.
-- `:~` - your current location (directory). The `~` (tilde) is shorthand for your home directory. Module 02 covers this in depth.
-- `$` - indicates you're a regular user. (If you ever see `#` instead, it means you're operating as the root/superuser - a much more powerful and dangerous mode, worth noticing immediately.)
-
-**Command structure.** Nearly every Linux command follows the same shape:
-```
-command [flags/options] [arguments]
-```
-- The **command** is the name of the program to run, e.g. `echo`.
-- **Flags** (also called options or switches) change *how* the command behaves. They usually start with `-` (single-letter, like `-a`) or `--` (full word, like `--all`). Multiple single-letter flags can often be combined, e.g. `-la` instead of `-l -a`.
-- **Arguments** are the things the command acts *on* - like a word to print, or a filename.
-
-For example, in `echo -n hello`, `echo` is the command, `-n` is a flag (meaning "don't print a trailing newline"), and `hello` is the argument.
-
-```
-   echo   -n        hello
-   │      │         │
-   │      │         └── argument: the text acted on
-   │      └── flag: modifies HOW echo behaves (suppress newline)
-   └── command: WHAT program to run
+```mermaid
+flowchart TD
+    T["Terminal emulator"] --> S["Bash shell"]
+    S --> C["Command or shell builtin"]
+    C --> K["Linux kernel"]
+    K --> C
+    C --> S
+    S --> T
 ```
 
-**Where the shell sits in the stack.** The terminal, shell, and OS kernel are three different layers, easy to conflate as a beginner:
+> [!example]
+> If Windows Terminal will not open, that is a terminal problem. If Bash says `syntax error`, it parsed your command unsuccessfully. If `git` says it cannot find a repository, the command ran but encountered an application-level problem.
 
-```
-┌─────────────────────────────────────────────┐
-│  Terminal emulator (Ubuntu app / Windows      │
-│  Terminal tab) — draws the window, fonts,     │
-│  colors. Just I/O plumbing, does no             │
-│  interpreting.                                │
-└───────────────────┬───────────────────────────┘
-                    │ keystrokes in, text out
-┌───────────────────▼───────────────────────────┐
-│  Shell (bash) — reads the line you typed,      │
-│  parses command/flags/arguments, decides       │
-│  what to run, shows you the result.            │
-└───────────────────┬───────────────────────────┘
-                    │ system calls
-┌───────────────────▼───────────────────────────┐
-│  Linux kernel — actually creates the process,   │
-│  manages memory/files/devices, runs the         │
-│  program for real.                              │
-└─────────────────────────────────────────────────┘
+## 2. Read the prompt before acting
+
+A typical Bash prompt looks like this:
+
+```text
+asha@laptop:~/projects$
 ```
 
-Closing the terminal window only kills that top layer's view; the shell process and anything it started go with it, but your files (owned by the kernel/filesystem layer) are untouched — which is *why* exercise-11's "did closing the window reset Linux?" question earlier always answers "no."
+| Part | Meaning |
+| --- | --- |
+| `asha` | Current Linux username |
+| `laptop` | Hostname |
+| `~/projects` | Current directory; `~` means your home directory |
+| `$` | A normal user's prompt |
 
-**The Unix philosophy.** Linux tools were designed around a few core ideas that still shape how you use the terminal today:
-- **Do one thing well.** Each command tends to have a single, narrow job (e.g. `echo` just prints text; it doesn't also search files or manage processes).
-- **Everything is text.** Programs communicate by reading and writing plain text, which means any tool's output can become another tool's input.
-- **Compose small tools together.** Rather than one giant program with every feature, you combine small, focused programs to accomplish bigger tasks. You'll see this later with the pipe symbol (`|`), which sends one command's output into another command as input - you don't need to use it yet, just know the idea exists.
-- **Everything is a file.** In Linux, not just documents but devices, settings, and even some running process information are represented and accessed as files. This is why file-related skills (coming in modules 02-03) generalize so widely across the system.
+The root account commonly ends with `#`. Treat that as a reminder to slow down: a root command can change any part of the system.
 
-Composition in practice looks like this (you're not expected to run this yet — it's previewing the `|` pipe you'll use for real starting in module 03):
+> [!pitfall]
+> Do not type the `$` or `#` prompt marker when copying a command from documentation. It is usually a visual cue, not part of the command.
 
+## 3. Commands have a predictable shape
+
+Most command lines follow this pattern:
+
+```text
+command   options   arguments
+git       status    --short
 ```
-   command A          command B          command C
-  ┌──────────┐  text  ┌──────────┐  text  ┌──────────┐
-  │ produces │ ─────► │ filters/ │ ─────► │ formats/ │ ──► final output
-  │  output  │  pipe  │transforms│  pipe  │ displays │
-  └──────────┘        └──────────┘        └──────────┘
+
+- The **command** chooses a program or shell feature.
+- An **option** changes behavior, often starting with `-` or `--`.
+- An **argument** is the item the command acts on.
+
+For example:
+
+```bash
+ls -la ~/projects
 ```
 
-Each box is a small, single-purpose program that knows nothing about the others — they only agree on "plain text in, plain text out," which is what makes chaining them together possible.
+`ls` lists; `-l` asks for a detailed view; `-a` includes dotfiles; `~/projects` is the target directory.
 
-**Getting help without leaving the terminal.** You will constantly forget exact flag names - that's normal, even for experienced engineers. Linux gives you two built-in ways to check:
-- `command --help` prints a short summary of what a command does and its available flags, directly in your terminal.
-- `man command` opens the full "manual page" - a more detailed, structured reference document. You navigate it with arrow keys or Page Up/Down, and press `q` to quit back to your prompt.
+> [!model]
+> Treat a command line like a short request: choose the tool, choose how it should behave, and name the data or location it should use. When an unfamiliar command fails, identify which part you need to inspect instead of changing everything at once.
 
-**Tab completion.** While typing a command or a filename, pressing the Tab key will try to auto-complete it for you. If there's only one possible match, it completes instantly. If there are several possible matches, pressing Tab twice will list them. This saves typing and helps avoid typos.
+## 4. Some commands are built into Bash
 
-**Command history.** The shell remembers commands you've previously run. Pressing the Up arrow cycles backward through your recent commands (Down arrow goes forward again), letting you reuse or tweak a previous command instead of retyping it from scratch.
+Not every command is a file on disk. `cd`, `alias`, and `history` are shell builtins; they must change or inspect the current shell, so launching a separate program would not work.
 
-## Command reference
+Use these commands to identify what you are invoking:
 
-| Command | What it does | Example |
-|---|---|---|
-| `pwd` | Prints the full path of your current directory ("print working directory"). | `pwd` |
-| `whoami` | Prints the username of the currently logged-in user. | `whoami` |
-| `echo` | Prints (repeats back) text to the screen. Useful for testing, displaying variable values, or generating simple text output. | `echo hello world` |
-| `echo -n` | The `-n` flag tells `echo` to skip printing the trailing newline character after the text, so the next prompt appears right after the text instead of on a new line. | `echo -n "no newline after this"` |
-| `clear` | Clears all visible text from the terminal window, giving you a fresh, empty screen. Your command history is untouched - only the visual clutter is removed. | `clear` |
-| `history` | Lists the numbered commands you've previously run in this shell. | `history` |
-| `date` | Prints the current system date and time. | `date` |
-| `man` | Opens the full manual page for a command. Press `q` to exit back to the prompt, arrow keys or Page Up/Down to scroll. | `man echo` |
-| `--help` | A flag supported by most commands that prints a brief usage summary instead of opening the full manual. | `echo --help` |
+```bash
+type cd
+type ls
+command -v git
+```
 
-## Hands-on exercises
+`type` tells you whether a name is a builtin, alias, function, or executable. `command -v` gives a concise lookup that is useful in scripts.
 
-1. **Open your Ubuntu terminal** (using any of the three methods from module 00). Look closely at your prompt. Run:
-   ```
-   whoami
-   ```
-   Compare the output to the username shown in your prompt before the `@` symbol - they should match.
+## 5. Documentation is part of the workflow
 
-2. **Print your current location.** Run:
-   ```
-   pwd
-   ```
-   Compare the output to what appears after the `:` in your prompt (with `~` representing your home directory shorthand).
+You should not memorize every option. Use the documentation closest to the command:
 
-3. **Use `echo` to print a message.** Run:
-   ```
-   echo Hello, Linux!
-   ```
-   Expected output: `Hello, Linux!` printed back exactly.
+| Need | Use | Example |
+| --- | --- | --- |
+| A quick overview | `command --help` | `ls --help` |
+| Full manual | `man command` | `man ls` |
+| Help for a Bash builtin | `help builtin` | `help cd` |
+| What a name refers to | `type name` | `type echo` |
 
-4. **Try `echo` with a flag.** Run:
-   ```
-   echo -n "No newline here"
-   ```
-   Notice that after it runs, your next prompt appears immediately after the text on the same line, instead of on a fresh line like normal `echo` output does. This demonstrates a flag changing a command's behavior.
+Inside `man`, press `q` to quit and `/word` to search. A manual page has not frozen the terminal; it has opened a pager waiting for navigation.
 
-5. **Check today's date and time.** Run:
-   ```
-   date
-   ```
-   Expected output: the current day, date, time, and timezone.
+> [!exercise]
+> Compare `type cd`, `help cd`, `cd --help`, and `man cd`. Record which one gives useful Bash documentation and why the others differ.
 
-6. **Practice tab completion.** Type `ech` (just those three letters, don't press Enter) and then press the Tab key. It should auto-complete to `echo`. Then finish the command by typing ` tab completion works` and press Enter.
+## 6. Completion and history reduce mistakes
 
-7. **Build up command history.** Run each of these one at a time, pressing Enter after each: `pwd`, `whoami`, `date`, `echo test`. Then run:
-   ```
-   history
-   ```
-   Expected output: a numbered list showing the commands you just ran, most recent at the bottom.
+Press `Tab` to ask Bash to complete a command, path, or option. Press it twice when there is more than one possible completion.
 
-8. **Reuse a previous command with the Up arrow.** Press the Up arrow key several times and watch your previous commands reappear one by one at your prompt without you retyping them. Press Down arrow to move forward again. Pick one, press Enter to rerun it.
+Useful history controls:
 
-9. **Look up a command's manual page.** Run:
-   ```
-   man date
-   ```
-   Scroll down a little using the Down arrow or Page Down, then press `q` to quit back to your normal prompt. Note the structured sections like NAME, SYNOPSIS, and DESCRIPTION.
+| Action | Key or command |
+| --- | --- |
+| Previous command | Up arrow |
+| Search backward through history | `Ctrl+R` |
+| Show history | `history` |
+| Re-run the previous command | `!!` |
+| Clear the screen | `clear` |
 
-10. **Compare `--help` to `man`.** Run:
-    ```
-    date --help
-    ```
-    Notice this is much shorter and more terse than the `man` page - a quick cheat-sheet rather than a full manual.
+`clear` changes what you see; it does not erase your command history.
 
-11. **Intentionally trigger an error and read it.** Run a made-up flag that doesn't exist:
-    ```
-    echo --bogusflag hello
-    ```
-    Note what happens: with `echo`, unrecognized things starting with `-` are often just printed literally rather than causing a hard error, since `echo` is very permissive. Now try a stricter command:
-    ```
-    date --bogusflag
-    ```
-    Expected output: an error like `date: unrecognized option '--bogusflag'` followed by a usage hint. Read the error message and notice how it names the exact problem (an option it doesn't recognize) - this is the pattern you'll use to debug commands throughout this curriculum.
+```mermaid
+flowchart LR
+    I["Start typing"] --> T["Tab completion\nreduce spelling errors"]
+    T --> R["Run command"]
+    R --> H["History records command"]
+    H --> S["Ctrl+R finds it later"]
+```
 
-12. **Clear your screen.** Run:
-    ```
-    clear
-    ```
-    Confirm the screen is now empty except for a fresh prompt. Then run `history` again to confirm your past commands are still remembered even though the screen was cleared.
+> [!pitfall]
+> `!!` is convenient but can be dangerous after a destructive or privileged command. Press Up to inspect and edit the command before re-running it, especially when it begins with `sudo` or `rm`.
+
+## 7. Errors are useful evidence
+
+Read an error literally before adding `sudo`, changing a path, or searching online.
+
+| Error | Usually means | First check |
+| --- | --- | --- |
+| `command not found` | Bash cannot locate that command name | spelling, installation, `type` |
+| `No such file or directory` | A path is wrong or the item is absent | `pwd`, `ls`, spelling |
+| `Permission denied` | The process lacks required access | owner, mode, parent directories |
+| `syntax error` | Bash could not parse the command | quotes, operators, parentheses |
+
+> [!example]
+> `cd projects` fails with “No such file or directory,” while `cd ~/projects` works. The command was valid; the first path was relative to a different current directory.
+
+## 8. The Unix philosophy: compose focused tools
+
+Linux tools often do one task well and pass text to another tool. You will learn pipes in module 07, but the idea matters now: a command's output can become another command's input.
+
+```mermaid
+flowchart LR
+    A["One small tool\nproduces text"] --> B["Another tool\nfilters or transforms"] --> C["Useful result"]
+```
+
+This model is why commands such as `ls`, `grep`, `sort`, `curl`, and `journalctl` work well together. It is not an absolute rule—some data is binary or structured—but it is a powerful default for command-line work.
+
+> [!interview]
+> Explain the difference between a terminal and a shell. Then explain why a developer benefits from small commands that can be connected instead of one giant command that tries to do everything.
+
+## Guided lab: become your own documentation engine
+
+Work in your Ubuntu terminal.
+
+### 1. Identify your environment
+
+```bash
+whoami
+hostname
+pwd
+echo "$SHELL"
+```
+
+Expected: you can name the current user, machine, directory, and shell path.
+
+### 2. Inspect command types
+
+```bash
+type cd
+type pwd
+type ls
+command -v python3
+```
+
+Expected: `cd` is a Bash builtin; `ls` and `python3` are normally executable programs; `pwd` may be either a builtin or executable depending on Bash behavior.
+
+### 3. Discover one unfamiliar option
+
+```bash
+date --help
+man date
+```
+
+Use `/format` inside the manual page, then press `q`. Do not try to memorize output formats; prove that you can find them.
+
+### 4. Use completion deliberately
+
+Type `cd ~/pro` and press `Tab`. If there are several matches, press `Tab` again to view them. Finish the path without typing the rest manually.
+
+### 5. Use history safely
+
+```bash
+echo "shell practice"
+history | tail -n 5
+```
+
+Use Up arrow to bring back the `echo` command, change its text, and run it. Then press `Ctrl+R`, type part of `shell practice`, and locate the earlier command.
+
+### 6. Read an error
+
+```bash
+not-a-real-command
+```
+
+Expected: `command not found`. Use `type not-a-real-command` to confirm that Bash cannot resolve the name.
 
 ## Independent challenge
 
-No commands given here — figure it out yourself using what you know from this module and earlier ones.
+You are given this request: “Find the current directory, list everything in it including hidden names, and learn how `ls` sorts its output.”
 
-**Task:** You want `date` to print today's date in ISO form (four-digit year, then month, then day, e.g. `2026-07-24`), but you don't remember the option that controls its output format. Without anyone handing you the flag, discover the correct option using only the built-in help facilities this module introduced, then run the command to produce exactly that ISO date. In the same shell session, also confirm which Linux user you are and where you currently are in the filesystem (the identity/location commands from module 00). Afterward, be able to say which part of what you did came from module 00 and which part came from module 01's help-and-discovery tools.
+Write the commands you would use, identify which command feature solves each part, and use built-in documentation to find one sorting option you did not already know.
 
-<details>
-<summary>Stuck? One hint</summary>
+> [!check]
+> 1. Can you explain terminal, shell, command, and kernel in one sentence each?
+> 2. Can you tell whether a name is a Bash builtin or executable?
+> 3. Which help system works for `cd`?
+> 4. Does `clear` erase command history?
+> 5. What does `Ctrl+R` do?
+> 6. Why should you read an error before trying `sudo`?
+> 7. What does it mean for Unix tools to compose?
 
-The full manual page and the terse `--help` summary both document a formatting option; look for the one that takes a `+` followed by format codes, or a shorthand option whose name hints at "ISO."
+## Further reading
 
-</details>
-
-## Common mistakes & troubleshooting
-
-- **Confusing the terminal app with the shell**: Closing a Windows Terminal tab doesn't "reset" Linux - the shell (bash) and your files persist independently of which terminal app you used to view them.
-- **Typing flags with the wrong dash style**: `-help` (single dash) is not the same as `--help` (double dash). Single dashes are for short, one-letter flags (possibly combined, like `-la`); double dashes are for full-word flags. Using the wrong style often produces a confusing error or unexpected behavior.
-- **Forgetting to press `q` to exit `man` pages**: Beginners often think the terminal has frozen after running `man something`. It hasn't - you're inside the pager program `less`, viewing the manual. Press `q` to return to your prompt.
-- **Assuming `clear` deletes history**: It only clears the visible screen. Your command history (viewable with `history`) is unaffected.
-- **Not reading the actual error message**: Errors like `command not found` or `unrecognized option` are specific and literal - they tell you exactly what went wrong (a typo, a bad flag) if you read them carefully instead of just reacting to "it broke."
-- **Expecting Tab to always complete instantly**: If there are multiple possible completions, one Tab press does nothing visible - press Tab a second time to see the list of options.
-
-## Checkpoint quiz
-
-Write down your answer to each question before expanding it — checking without attempting first is the single easiest way to fool yourself into thinking you've learned this.
-
-1. What is the difference between a terminal and a shell?
-2. In the command `echo -n hello`, identify the command, the flag, and the argument.
-3. What does the `$` at the end of your prompt tell you, and what would a `#` instead mean?
-4. Why does the Unix philosophy favor many small tools over one large program?
-5. If you forget a command's exact flags, name two built-in ways to look them up, and describe how they differ.
-6. Does pressing `clear` delete your command history? How would you check?
-7. What does "everything is text" mean in the context of Unix, and why does it matter for combining tools?
-8. You ran `date --bogusflag` and got an error. What does that error message tell you, and what would you change to fix it?
-
-<details>
-<summary>Show answers</summary>
-
-1. The terminal is the window/app you see and type into; the shell (like bash) is the program running inside it that actually interprets and executes your commands. Different terminal apps can host the same underlying shell.
-2. `echo` is the command, `-n` is the flag (suppresses the trailing newline), and `hello` is the argument (the text to print).
-3. `$` indicates you're operating as a regular, non-privileged user. A `#` would indicate you're operating as the root/superuser, which has full unrestricted access to the system - something to be extra careful with.
-4. Small, focused tools are easier to understand, test, and reuse. They can be combined in countless ways to solve new problems (later via pipes), rather than needing every possible feature bundled into one monolithic program.
-5. `command --help` gives a quick, terse summary of usage and flags right in the terminal. `man command` opens a longer, more detailed reference document with structured sections, navigated with arrows/Page Up-Down and exited with `q`.
-6. No, `clear` only wipes the visible terminal screen. You can confirm your history is intact by running `history` right after clearing.
-7. It means programs read and write plain, human-readable text rather than proprietary binary formats. This matters because it lets any tool's text output be understood and reused as another tool's input, enabling composability.
-8. The error tells you `--bogusflag` is not a recognized option for the `date` command - it's a literal, specific complaint about an unknown flag, not a vague failure. To fix it, remove the invalid flag or replace it with an actual valid one (checkable via `date --help` or `man date`).
-
-</details>
-
-## Further reading & sources
-
-- [The Art of Unix Programming, ch. 1 (Basics of the Unix Philosophy)](http://www.catb.org/~esr/writings/taoup/html/ch01s06.html) - Eric Raymond's classic, the definitive source for "do one thing well," "everything is text," and the other principles this module summarizes.
-- [GNU Bash Reference Manual](https://www.gnu.org/software/bash/manual/bash.html) - the canonical, exhaustive reference for bash specifically (not just POSIX shell in general).
-- [`explainshell.com`](https://explainshell.com/) - paste any command and it breaks down every flag and argument inline; genuinely useful once commands get longer than this module's examples.
-- [tldr.sh](https://tldr.sh/) - community-maintained, example-first alternative to `man` pages — good for "just show me a working example" when a full man page feels like too much.
-- [`man7.org` Linux man-pages online](https://man7.org/linux/man-pages/) - the same content as local `man` pages, browsable from any device, useful for looking things up before you even have Ubuntu open.
+- [GNU Bash Reference Manual](https://www.gnu.org/software/bash/manual/)
+- [GNU Coreutils: Common options](https://www.gnu.org/software/coreutils/manual/)
+- [`man7.org`: intro(1)](https://man7.org/linux/man-pages/man1/intro.1.html)
 
 ## Next
-Continue to [02-filesystem-navigation](../02-filesystem-navigation/README.md) to learn how Linux organizes files and directories, and how to move around and manage them from the command line.
+
+Continue to [02 · Filesystem Navigation](../02-filesystem-navigation/README.md). The shell needs paths and files to operate on; the next module builds that vocabulary.

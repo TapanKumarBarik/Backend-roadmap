@@ -1,10 +1,20 @@
-# Networking Basics
+# Module 10: Networking Basics
+
+> 🎯 **Goal:** Diagnose how a client reaches a service: name, address, route, port, protocol, and process.
+
+By the end of this module, you should be able to distinguish an IP address from a port and hostname, test DNS and HTTP separately, identify local listening sockets, and reason about the WSL-to-Windows boundary without treating networking as magic.
+
+---
 
 ## Why this matters
 
 Almost nothing you'll do next in this curriculum - pulling Docker images, exposing container ports, reaching services inside a Kubernetes cluster, or hitting an AKS endpoint - makes sense without a working mental model of IP addresses, ports, and DNS. WSL2 also has its own private network identity separate from Windows, which trips up nearly every beginner the first time they try to reach a service running inside it. Getting comfortable with `ip`, `curl`, `ss`, and `dig` now means you'll actually understand *why* a container's port mapping works instead of just memorizing the syntax later.
 
 ## Concepts
+
+### Debug one layer at a time
+
+For a connection failure, do not jump straight to changing firewall rules. First confirm the service is running and listening on the expected address and port; then test locally; then verify DNS, routing, and network policy. `curl`, `ss`, `ip`, and `dig` answer different questions. A focused check makes a network problem explainable and prevents broad, unsafe workarounds.
 
 **IP addresses identify a machine on a network.** Just as a postal address identifies a building, an IP address (like `192.168.1.15` or `172.20.10.2`) identifies a device on a network so traffic knows where to go. Your WSL2 Ubuntu instance has its own IP address, separate from your Windows host's IP address, because WSL2 runs as a lightweight virtual machine with its own virtual network adapter.
 
@@ -91,6 +101,58 @@ Almost nothing you'll do next in this curriculum - pulling Docker images, exposi
 11. Explore `/etc/hosts`: run `cat /etc/hosts`. Note the `127.0.0.1 localhost` line - this is why `ping localhost` or `curl localhost` resolves without needing real DNS. Then test the WSL2-to-Windows localhost forwarding behavior: if you have any web server available on Windows (or skip to just understanding the concept), note that in modern WSL2 setups, a service bound to `localhost` inside WSL2 is generally also reachable via `localhost` from Windows and vice versa - this is a convenience feature layered on top of WSL2's separate networking, not evidence that WSL2 and Windows literally share one network stack.
 
 12. (Optional, if `traceroute` is installed - install with `sudo apt install traceroute` if needed) Run `traceroute google.com` and observe the list of hops. Some hops may show `* * *` (no response) - this is common for routers that don't reply to traceroute probes and doesn't necessarily indicate a problem.
+
+## Production practice: trace a request end to end
+
+> [!key]
+> A hostname, an IP address, a port, and a URL are different pieces of a connection. Diagnose them separately: name resolution, reachability, listener, protocol, and application response.
+
+> [!model]
+> Reaching a web service is like finding an apartment: DNS finds the building address, routing gets you to the street, the port identifies a door, and HTTP is the conversation at that door. A failure at one step says little about the others.
+
+```mermaid
+flowchart LR
+    N["Hostname"] --> D["DNS → IP"] --> R["Route"] --> P["Port / listener"] --> H["HTTP response"]
+```
+
+The request path shows the layers. The diagnostic path prevents changing a firewall or application setting before the failing layer is known.
+
+```mermaid
+flowchart TD
+    A["Connection fails"] --> B{"Localhost works?"}
+    B -->|No| C["Check process + listener"]
+    B -->|Yes| D{"Hostname resolves?"}
+    D -->|No| E["Check DNS"]
+    D -->|Yes| F["Check bind address, route, firewall"]
+```
+
+> [!example]
+> `curl -v http://127.0.0.1:8080/health` bypasses DNS and tests a local HTTP listener. `ss -ltnp` then identifies which process owns 8080. If localhost works but a remote client fails, investigate bind address, firewall, and route before changing application code.
+
+> [!pitfall]
+> Do not expose a service by binding to `0.0.0.0` or opening a firewall port simply to make a local test pass. First decide whether the service should be reachable only from the same machine, a private network, or the public internet.
+
+### Layered connection checklist
+
+```bash
+getent hosts example.com       # name resolution
+ip route                       # routing context
+ss -ltnp                       # local TCP listeners
+curl -v http://localhost:PORT  # HTTP exchange
+```
+
+Use the least invasive check first. Record the exact host, port, and protocol; “the API is down” is not enough information to reproduce a network problem.
+
+> [!exercise]
+> Start a local HTTP server on a non-default port. Prove it responds through `localhost`, identify its listener with `ss`, then stop it and confirm the same `curl` error now reflects a missing listener. If using WSL, compare the result from Ubuntu and Windows deliberately.
+
+> [!interview]
+> A hostname resolves successfully but `curl` times out. Name three layers that may still be failing and one command or observation for each.
+
+> [!check]
+> - Can you distinguish “connection refused” from a timeout?
+> - Can you state which process owns a local port?
+> - Can you explain why a service that works on localhost may fail remotely?
 
 ## Independent challenge
 

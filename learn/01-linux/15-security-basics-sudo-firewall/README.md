@@ -1,10 +1,20 @@
-# Security Basics: sudo, Firewall, and Hardening
+# Module 15: Security Basics — sudo, Firewall, and Hardening
+
+> 🎯 **Goal:** Apply practical least-privilege defaults before a Linux machine or service becomes reachable by others.
+
+By the end of this module, you should be able to explain what `sudo` changes, inspect rather than casually edit privilege rules, expose only intentional network ports, update packages responsibly, and use a short hardening checklist for a learning server.
+
+---
 
 ## Why this matters
 
 Everything you've learned so far - users and permissions, package management, networking, SSH, logging - comes together here into the practical question every operator eventually faces: is this machine reasonably safe to expose, and can I prove it? You don't need to become a security specialist to avoid the most common, avoidable mistakes: overly broad `sudo` access, an open port nobody remembers enabling, or a root account reachable over SSH. This module closes out the Linux track with the fundamentals that matter before you start running Docker containers and Kubernetes clusters that expose services to networks.
 
 ## Concepts
+
+### Security is a series of narrow decisions
+
+Good hardening is not a single command. It is deciding which user needs elevated access, which process must listen on which interface and port, which credentials are permitted, and how you will notice a change. Start restrictive, make one deliberate exception at a time, verify it, and keep a recovery path so you do not lock yourself out of a remote machine.
 
 **Recap: sudo from module 04, and why it exists.** You already know `sudo` lets a permitted user run a command as another user (usually root) without logging in as that user directly. The deeper reason this matters is the principle of least privilege: give an account only the access it needs to do its job, no more. A user who can run *any* command as root via `sudo` is, for practical purposes, root - so the real security question isn't "does this user have sudo" but "exactly what can this user do with sudo, and is that the minimum necessary."
 
@@ -98,6 +108,48 @@ Everything you've learned so far - users and permissions, package management, ne
 11. (Optional) Install `fail2ban` to see it conceptually in action: run `sudo apt install -y fail2ban`, then `sudo systemctl status fail2ban` to confirm it's running, and `sudo fail2ban-client status` to see its currently active protection "jails" (likely just the default SSH jail). You are not expected to fully configure it here - the goal is just to see it installed and running.
 
 12. Tie it all together: run `sudo journalctl -u ssh --since "1 hour ago" | grep -i "fail\|invalid"` (module 14 recap) to look for any failed or invalid login attempts against your own practice SSH server from earlier exercises. Explain in your own words, out loud or in a note, why this single command connects modules 08, 11, 13, and 14 together.
+
+## Production practice: a narrow attack surface
+
+> [!key]
+> Least privilege applies to users, files, services, and ports. Every unnecessary permission or listener is another path that must be secured and monitored.
+
+> [!model]
+> Hardening is a set of gates. An attacker must reach a listening service, authenticate or exploit it, and gain useful permissions. Narrowing any gate reduces exposure; no single gate replaces the others.
+
+```mermaid
+flowchart LR
+    N["Network reachability"] --> F["Firewall rule"] --> S["Listening service"] --> A["Authentication"] --> P["Process permissions"]
+```
+
+The gates explain defense in depth. This change workflow keeps a security improvement from becoming an avoidable outage.
+
+```mermaid
+flowchart TD
+    A["Proposed security change"] --> B["Identify required access"]
+    B --> C["Keep recovery channel open"]
+    C --> D["Apply narrow rule"]
+    D --> E["Test intended access"]
+    E --> F["Test unintended access is blocked"]
+    F --> G["Document and monitor"]
+```
+
+> [!example]
+> A learning VM may need SSH from your own network but not public access to a development database. Allow the intentional SSH rule, verify it from the correct network, and keep the database bound to localhost or a private network rather than opening it “just in case.”
+
+> [!pitfall]
+> Firewall changes can lock you out of a remote server. Before enabling a restrictive policy, keep an existing session open, explicitly allow the management path you need, and know how to reach the provider console or another recovery channel.
+
+> [!exercise]
+> In a local or disposable environment, list active listeners and classify each as expected or unexpected. For one harmless test service, decide whether it should bind to loopback or a broader interface and explain the choice before changing any firewall setting.
+
+> [!interview]
+> Explain why `sudo` is not simply “run as administrator,” why an open firewall port does not make an application secure, and how least privilege changes the impact of a compromised service.
+
+> [!check]
+> - Can you name the user and port each running service actually needs?
+> - Do you have a recovery plan before changing remote access rules?
+> - Can you explain why a security control should be verified after it is changed?
 
 ## Independent challenge
 

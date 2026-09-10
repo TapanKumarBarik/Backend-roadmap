@@ -1,10 +1,20 @@
-# Package Management with APT
+# Module 05: Package Management with APT
+
+> 🎯 **Goal:** Install, update, inspect, and remove Ubuntu software reproducibly without turning your machine into an untracked collection of downloads.
+
+By the end of this module, you should know the difference between package metadata and installed packages, understand `update` versus `upgrade`, find the package that provides a command, and use APT in a way that transfers cleanly to server provisioning and Dockerfiles.
+
+---
 
 ## Why this matters
 
 Almost no real Linux work happens with only the tools that ship in a base install — you'll constantly need to add editors, monitoring tools, language runtimes, and libraries. Manually downloading binaries from random websites is slow, insecure, and creates dependency and update nightmares. Every Linux engineer relies on a package manager daily, and on Ubuntu (and WSL2's Ubuntu) that's APT — you'll use it in almost every module from here on, including to install the tools this very curriculum needs.
 
 ## Concepts
+
+### Treat packages as declared dependencies
+
+On a production machine, an installation command is part of the system's configuration. Prefer packages from trusted, configured repositories; inspect what will change before a broad upgrade; and record tools your project truly depends on in setup documentation or infrastructure code. `sudo apt install` is useful, but it is also a system-wide change—not a disposable experiment.
 
 **What a package manager is, and why it beats manual downloads.** A package is a bundle containing a piece of software, metadata about it (version, description), and a list of other packages it depends on. A package manager is a tool that downloads, installs, upgrades, and removes these packages for you, automatically pulling in anything they depend on. Compare that to manually downloading a program's binary from a website: you'd have to figure out dependencies yourself, there's no easy "uninstall cleanly," no consistent way to check for updates, and no guarantee the file wasn't tampered with. Package managers solve all of this with a curated, verified catalog.
 
@@ -78,6 +88,57 @@ APT is the layer you talk to; `dpkg` is the layer that actually does the unpacki
 9. Remove a package but keep its config: `sudo apt remove tree`. Then reinstall it: `sudo apt install tree`, and notice APT still treats it as a fresh install of program files. Now fully purge it instead: `sudo apt purge tree`. Confirm it's gone: `which tree` should print nothing (or exit with no output/an error, depending on your shell).
 
 10. Clean up unused dependencies: run `sudo apt autoremove`, and read whether it reports anything to remove (on a fresh WSL install with only the exercises above, there may be nothing — that's fine, the point is knowing the command exists and what it targets).
+
+## Production practice: reproducible software changes
+
+> [!key]
+> `apt update` refreshes the local catalog of available packages; `apt upgrade` changes installed software. They are related but deliberately separate operations.
+
+> [!model]
+> Think of an APT repository as a signed catalog and your local package cache as a downloaded edition of that catalog. Installing from stale metadata is like ordering from an old menu; updating the cache lets APT resolve current versions and dependencies.
+
+```mermaid
+flowchart LR
+    R["Trusted repository"] --> U["apt update\nlocal package metadata"] --> I["apt install\nselected package + dependencies"] --> V["Verify command or service"]
+```
+
+An installation flow and an upgrade decision are different pieces of the model. Use this decision path before changing a machine that matters.
+
+```mermaid
+flowchart TD
+    A["Need software or a fix"] --> B["Refresh metadata"]
+    B --> C["Inspect package + candidate version"]
+    C --> D{"Change understood\nand approved?"}
+    D -->|Yes| E["Install / upgrade narrowly"] --> F["Verify + document"]
+    D -->|No| G["Research or defer"]
+```
+
+> [!example]
+> Before adding `jq` to a troubleshooting image, run `apt-cache policy jq` to see the candidate and installed versions. Then install it from the configured repository and verify the binary with `jq --version`. Record the package name in the image's Dockerfile rather than documenting a manual download.
+
+> [!pitfall]
+> Avoid `curl ... | sudo bash` installers unless you have reviewed and trust the source and there is no safer supported package path. A pipe hides the script before it receives administrator privileges and makes repeatability and auditing harder.
+
+### Safe package-change loop
+
+1. Refresh metadata: `sudo apt update`.
+2. Inspect the package and candidate version: `apt show <package>` and `apt-cache policy <package>`.
+3. Install or remove one intentional dependency.
+4. Verify the command or service works.
+5. Record the dependency in project setup instructions or configuration automation.
+
+For upgrades on a machine that matters, read the proposed changes before accepting them and make sure you have a recovery plan.
+
+> [!exercise]
+> Find which package provides `dig` using `apt-file` if installed, or search the Ubuntu package site. Install the correct package, confirm `dig -v`, then use `apt-cache policy` to identify where its candidate version comes from. Do not remove essential packages as part of this exercise.
+
+> [!interview]
+> Explain why `apt update` alone does not patch a vulnerable installed package, why repositories are preferable to random binaries, and how a Dockerfile should use APT layers predictably.
+
+> [!check]
+> - Can you predict whether `apt update` changes installed software?
+> - Can you inspect the proposed package version before installing?
+> - Can you explain why package installation belongs in documented, repeatable setup?
 
 ## Independent challenge
 

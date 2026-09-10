@@ -1,10 +1,20 @@
-# Bash Scripting
+# Module 09: Bash Scripting
+
+> 🎯 **Goal:** Turn a repeatable command sequence into a safe, readable automation script.
+
+By the end of this module, you should be able to create and run a Bash script, use variables and quoting correctly, branch and loop over data, accept arguments, return useful exit codes, and add the guardrails that make a script safe to run more than once.
+
+---
 
 ## Why this matters
 
 Every time you find yourself typing the same three commands in a row, that's a script waiting to be written. Bash scripts turn manual, error-prone sequences into repeatable, shareable automation - this is the foundation of DevOps tooling, deployment scripts, and the capstone project later in this track. Once you can write a script with variables, conditionals, and loops, you can automate almost anything you've learned how to do by hand in modules 00-08.
 
 ## Concepts
+
+### Scripts are production code at a smaller scale
+
+A shell script can change files, deploy software, or delete data just as effectively as a larger program. Give it a clear purpose, quote variable expansions, validate inputs, write useful messages to stderr, and test it in a temporary directory. Prefer `shellcheck` where available, and use `set -euo pipefail` only once you understand how each option changes error handling.
 
 **A script is just a file of commands.** Anything you can type at the prompt, you can put in a file and run as a batch. The first line, `#!/bin/bash`, is called a shebang - it tells the operating system "use the bash program to interpret the rest of this file." Without it, running the file directly may use the wrong interpreter or fail.
 
@@ -210,6 +220,59 @@ Nothing here is new syntax invented for scripts — it's the same commands and s
     ./syscheck.sh
     ```
     Confirm it prints your hostname, the current time, and a disk usage line. Notice this script reuses `awk` from module 08 inside a bash script - this is exactly how real-world scripts combine tools.
+
+## Production practice: scripts people can trust
+
+> [!key]
+> A reliable Bash script validates inputs, quotes expansions, reports failures clearly, and makes its side effects predictable. Short scripts deserve the same review as other operational code.
+
+> [!model]
+> Variables are containers whose contents may include spaces, wildcards, or empty values. Quoting `"$value"` hands the shell one intended argument; leaving it unquoted invites the shell to split or expand it into something else.
+
+```mermaid
+flowchart LR
+    I["Validate input"] --> Q["Quote variables"] --> W["Perform work"] --> V["Verify result"] --> E["Exit with useful code"]
+```
+
+The execution flow is only half the story. This parsing view shows why quoting changes behavior.
+
+```mermaid
+flowchart TD
+    V["value = release candidate"] --> Q{"Use \"$value\"?"}
+    Q -->|Yes| A["One argument\nrelease candidate"]
+    Q -->|No| B["Word splitting\nrelease + candidate"]
+    B --> C["Possible glob expansion"]
+```
+
+> [!example]
+> `rm -rf "$target"` is still a dangerous command, but quoting prevents a directory named `release candidate` from becoming two arguments. A safer script validates that `target` is inside an expected workspace before it considers deletion at all.
+
+> [!pitfall]
+> Do not put secrets directly in shell scripts, command-line arguments, or `set -x` traces. Arguments can be visible to other local users through process listings; scripts are often copied or committed. Load secrets through a properly permissioned environment or secret manager instead.
+
+### A dependable script skeleton
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+
+readonly output_dir="${1:?usage: $0 OUTPUT_DIR}"
+[[ -d "$output_dir" ]] || { echo "not a directory: $output_dir" >&2; exit 2; }
+printf 'Writing report to %s\n' "$output_dir"
+```
+
+Understand each guard before adopting it. In particular, test how your script handles expected non-zero commands inside `if` statements and pipelines.
+
+> [!exercise]
+> Write a script that accepts a directory, refuses an empty or nonexistent argument, counts `.log` files without breaking on spaces in names, and prints a clear exit code. Test it with a temporary directory, a name containing a space, and an invalid path.
+
+> [!interview]
+> Explain word splitting and glob expansion. Why does quoting a variable matter even when you are confident its current value has no spaces?
+
+> [!check]
+> - Does your script state its required arguments when they are missing?
+> - Can you point to every place where a variable is intentionally unquoted?
+> - Can you run the script twice without surprising duplicate or destructive effects?
 
 ## Independent challenge
 

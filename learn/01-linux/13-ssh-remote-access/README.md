@@ -1,10 +1,20 @@
-# SSH and Remote Access
+# Module 13: SSH and Remote Access
+
+> 🎯 **Goal:** Connect to remote Linux machines securely and predictably using SSH keys, hosts, and scoped configuration.
+
+By the end of this module, you should be able to generate and protect a key pair, verify a host's identity, use an SSH config alias, transfer files safely, and explain why private keys must never be copied into source control, chat, or a server you do not trust.
+
+---
 
 ## Why this matters
 
 Almost nothing you manage professionally sits on the machine in front of you - servers, cloud VMs, Kubernetes nodes, and container hosts are all reached remotely, and SSH is the near-universal way to do that securely. Once you get to the Docker and Kubernetes parts of this curriculum, you'll be SSHing into hosts and copying files around constantly, so getting comfortable with key pairs, `ssh`, and `scp` now removes a huge amount of friction later.
 
 ## Concepts
+
+### The first connection is a trust decision
+
+SSH encryption protects a connection only if you verify the server you intended to reach. Read the host fingerprint on first connect and confirm it through a trusted channel for real systems. Keep private keys private, prefer passphrases and an agent, and use a separate key or restricted account when a project requires different access boundaries.
 
 **What SSH is and why it replaced telnet.** SSH (Secure Shell) is a protocol for getting a remote command-line session on another machine over a network, the same way you've been getting a local shell on your own machine since module 01. Older tools like `telnet` did the same basic job but sent everything - including your password - as plain, unencrypted text over the network, so anyone watching the traffic could read it. SSH encrypts the entire session: your login, your keystrokes, and everything the remote machine sends back. This is why SSH is the default today and telnet is essentially never used for remote administration anymore.
 
@@ -107,6 +117,51 @@ Almost nothing you manage professionally sits on the machine in front of you - s
     Save it, then run `chmod 600 ~/.ssh/config` and test with `ssh mylocal`. You should connect without specifying the username or key file on the command line, confirming the alias is working.
 
 11. If you have access to a real remote machine or cloud VM (optional but recommended for realism), run `ssh-copy-id user@<that-machine's-address>` to copy your public key there, then `ssh user@<that-machine's-address>` to confirm passwordless login works against an actual separate machine, not just `localhost`. This is the scenario the WSL2 NAT note above described as the realistic way to practice SSH.
+
+## Production practice: remote access with trust boundaries
+
+> [!key]
+> SSH combines server authentication, encrypted transport, and client authentication. A successful password or key prompt does not by itself prove you reached the intended server—the host key does that job.
+
+> [!model]
+> Your SSH private key is your unshareable signing device. The public key placed on a server tells that server what signatures it will accept; the host key tells your client which server it reached.
+
+```mermaid
+sequenceDiagram
+    participant C as SSH client
+    participant S as Server
+    C->>S: Connect to host and port
+    S->>C: Present host key
+    C->>C: Verify known_hosts fingerprint
+    C->>S: Prove possession of private key
+    S->>C: Encrypted session
+```
+
+The handshake sequence explains a connection. This key-placement model clarifies what may and may not leave your client.
+
+```mermaid
+flowchart LR
+    K["Private key\nclient only"] -->|proves possession| C["SSH client"]
+    P["Public key\nserver ~/.ssh/authorized_keys"] --> S["SSH server"]
+    H["Server host key"] --> N["Client known_hosts"]
+```
+
+> [!example]
+> A `~/.ssh/config` entry can give a server a memorable alias, a specific user, and a dedicated key. `ssh production-api` is then clearer and less error-prone than repeatedly typing a long command, while the private key remains only on your client.
+
+> [!pitfall]
+> Never “fix” an unexpected host-key warning by deleting the entry blindly. It can be a routine rebuild, but it can also indicate DNS or network interception. Verify the new fingerprint through a trusted channel before updating `known_hosts`.
+
+> [!exercise]
+> Generate a dedicated practice key pair with a passphrase. Inspect its public-key fingerprint, add a harmless host alias in `~/.ssh/config`, and use `ssh -G <alias>` to see the resolved configuration. Do not paste either key into this repository.
+
+> [!interview]
+> Explain the difference between a user key and a host key. Why does disabling host-key verification make an encrypted session less trustworthy?
+
+> [!check]
+> - Can you locate your public and private key files and state which may be shared?
+> - Can you explain what `known_hosts` protects?
+> - Can you use a config alias without embedding a password or key in a command?
 
 ## Independent challenge
 

@@ -1,10 +1,20 @@
-# Text Processing: grep, sed, awk, and Friends
+# Module 08: Text Processing with grep, sed, and awk
+
+> 🎯 **Goal:** Extract evidence from logs and structured text quickly, without manually scanning thousands of lines.
+
+By the end of this module, you should be able to search safely with `grep`, choose fixed-string or regular-expression matching intentionally, make targeted transformations with `sed`, summarize fields with `awk`, and build a read-only diagnostic pipeline before changing data.
+
+---
 
 ## Why this matters
 
 Real servers produce mountains of text: logs, config files, CSV exports, command output. You will not open these in a GUI editor — you will slice them at the command line. `grep`, `sed`, and `awk` are the difference between "I read through 50,000 lines by eye" and "I found the 3 lines I needed in half a second." Combined with pipes (module 07), these tools let you build custom filters on the fly without writing a program.
 
 ## Concepts
+
+### Search first; mutate second
+
+Text tools are extremely powerful because they compose. Start with a command that only prints what it would match. When using `sed`, avoid in-place edits until you have inspected the output and made a backup or are working in a disposable practice directory. Logs can contain secrets, so share the smallest relevant redacted excerpt—not an entire production log file.
 
 **Pattern matching with grep.** `grep` searches text for lines matching a pattern and prints those lines. The simplest use is a literal word search, but `grep` also understands regular expressions (regex) - patterns that describe *shapes* of text, not just exact words. For example, the regex `^Error` means "a line starting with the word Error," and `[0-9]+` means "one or more digits."
 
@@ -124,6 +134,44 @@ Each stage does exactly one job and knows nothing about the others — the same 
 12. Combine several tools in one pipeline: find all ERROR lines, extract the time field, and sort them: `grep ERROR app.log | awk '{print $2}' | sort`. Confirm you get 3 sorted timestamps.
 
 13. Use `tail -f` to watch the log live. In one terminal run `tail -f app.log`. In a second WSL2 terminal (open a new tab/window), run `echo "2024-01-10 09:00:00 INFO New line appended live" >> ~/textprocessing/app.log` and watch the first terminal update instantly. Press Ctrl+C in the first terminal to stop following.
+
+## Production practice: interrogate text safely
+
+> [!key]
+> Pick the simplest tool that answers the question: `grep` selects matching lines, `sed` transforms a stream, and `awk` understands fields and can aggregate values.
+
+> [!model]
+> Treat a log line like a record in a lightweight database. `grep` is a filter, `cut`/`awk` select columns, and `sort | uniq -c` provides a small group-by. This works well only when the input format is understood.
+
+```mermaid
+flowchart LR
+    L["Access log"] --> G["grep: filter route"] --> A["awk: select status"] --> U["sort + uniq -c"] --> R["Count by status"]
+```
+
+> [!example]
+> To count HTTP status codes in a space-separated access log: `awk '{print $9}' access.log | sort | uniq -c | sort -nr`. First check a few lines and confirm that field 9 is actually the status code for *that* log format.
+
+> [!pitfall]
+> Regular expressions are not always the right parser. Do not use line-oriented text tools to rewrite JSON, YAML, CSV with quoted fields, or security-sensitive configuration when a format-aware tool is available. Use `jq`, a YAML parser, or a proper CSV library instead.
+
+### Diagnostic loop for unfamiliar text
+
+1. Inspect representative lines with `head`, `tail`, or `less`.
+2. Search with a fixed string (`grep -F`) when regular-expression syntax is unnecessary.
+3. Make matching case-sensitive or insensitive deliberately.
+4. Print the fields you believe you are selecting before counting or transforming them.
+5. Save or mutate data only after inspecting output.
+
+> [!exercise]
+> Create a small access-log fixture containing 200, 404, and 500 responses. Use `grep -F` to find one route, `awk` to print status codes, and `sort | uniq -c` to summarize them. Explain why `grep 50` would be a poor way to find only 500 responses.
+
+> [!interview]
+> When would you use `grep -F` rather than `grep -E`? Explain why `awk` field positions should be validated before using them in a production incident.
+
+> [!check]
+> - Can you distinguish a literal match from a regular expression?
+> - Can you compose a read-only query before editing a file?
+> - Can you name a structured format where `sed` is the wrong editing tool?
 
 ## Independent challenge
 

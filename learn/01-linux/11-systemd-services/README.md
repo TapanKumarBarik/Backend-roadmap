@@ -1,10 +1,20 @@
-# systemd and Services
+# Module 11: systemd and Services
+
+> 🎯 **Goal:** Run and troubleshoot long-lived Linux programs as managed services rather than fragile terminal sessions.
+
+By the end of this module, you should be able to inspect a unit, start and stop a service, distinguish enabled from running, read its recent status and logs, and write a small service unit with a deliberate user, working directory, and restart policy.
+
+---
 
 ## Why this matters
 
 Every long-running background process on a modern Linux server - web servers, databases, container runtimes, your future Kubernetes node agents - is managed by systemd. Knowing how to start, stop, enable, and inspect a service (and how to write a minimal one yourself) is a baseline skill you'll lean on constantly, including later when Docker's engine itself runs as a systemd service. WSL2 also has a specific quirk here: systemd support had to be explicitly added and isn't always on by default, so you need to know how to check for it and turn it on.
 
 ## Concepts
+
+### A service has a lifecycle and an owner
+
+`systemd` is the service manager on most modern Linux servers. A unit file is a declaration of how a process should run and recover—not merely a shortcut for a command. Treat a service definition as configuration: run the process with the least-privileged user possible, use absolute paths, make dependencies explicit, reload the manager after edits, and inspect status before assuming it started.
 
 **An init system is the first process that starts everything else.** When Linux boots, the kernel starts exactly one process (PID 1), and that process is responsible for starting and supervising every other background service on the machine. Nearly all modern Linux distributions, including Ubuntu, use systemd as this init system.
 
@@ -126,6 +136,62 @@ And the four states this module keeps distinguishing:
 12. Break something on purpose to practice reading systemd errors. Edit `/etc/systemd/system/heartbeat.service` and intentionally introduce a typo in the path, e.g. change `ExecStart` to point at `/home/YOUR_USERNAME/scripts/heartbeatXYZ.sh` (a file that doesn't exist). Run `sudo systemctl daemon-reload` then `sudo systemctl restart heartbeat.service`. Run `systemctl status heartbeat.service` and read the error - it should indicate the service failed to start, often mentioning "status=203/EXEC" or similar, meaning the executable couldn't be found/run. Check `journalctl -u heartbeat.service` for more detail. Fix the typo, run `sudo systemctl daemon-reload` and `sudo systemctl restart heartbeat.service` again, and confirm it returns to `active (running)`.
 
 13. Clean up (optional but good practice): `sudo systemctl stop heartbeat.service`, `sudo systemctl disable heartbeat.service`, then remove the file with `sudo rm /etc/systemd/system/heartbeat.service` and run `sudo systemctl daemon-reload` once more so systemd forgets about it.
+
+## Production practice: a service you can operate
+
+> [!key]
+> A systemd unit declares a process's lifecycle: who runs it, where it runs, when it starts, how it restarts, and how operators inspect it. `enable` and `start` answer different questions.
+
+> [!model]
+> `systemd` is the supervisor at the centre of a service lifecycle. The unit file is the desired-state declaration; logs and status are the evidence of what actually happened.
+
+```mermaid
+flowchart LR
+    U["Unit file"] --> R["daemon-reload"] --> S["systemd manager"]
+    S -->|start| P["Service process"]
+    P -->|stdout / stderr| J["journalctl"]
+    S -->|status / restart| O["Operator"]
+```
+
+The lifecycle diagram shows control flow; this view separates “running now” from “starts after reboot.”
+
+```mermaid
+stateDiagram-v2
+    [*] --> Loaded: daemon-reload
+    Loaded --> Running: systemctl start
+    Running --> Stopped: systemctl stop
+    Loaded --> Enabled: systemctl enable
+    Enabled --> Running: boot / dependency starts unit
+```
+
+> [!example]
+> A small API unit might set `User=appsvc`, `WorkingDirectory=/srv/api`, and `ExecStart=/usr/bin/node server.js`. With `Restart=on-failure`, systemd can restart unexpected exits. It should not run as root merely because the deployment user does.
+
+> [!pitfall]
+> Editing a unit file does nothing until `sudo systemctl daemon-reload` asks systemd to reread it. Restarting a service without reading `systemctl status` can hide a failing executable path, permission issue, or missing environment variable.
+
+### Service-change loop
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl start myapp.service
+systemctl status myapp.service --no-pager
+journalctl -u myapp.service -n 50 --no-pager
+sudo systemctl enable myapp.service
+```
+
+`start` runs a unit now. `enable` creates the boot-time relationship. Use both only when both are intended.
+
+> [!exercise]
+> In WSL only after confirming that systemd is enabled, create a harmless service that writes one timestamped line to the journal and exits. Inspect its status and logs; then disable or remove it cleanly. Do not replace or edit a system service.
+
+> [!interview]
+> A unit shows `active (running)` after `systemctl start`, but requests still fail. Explain why service state is not a complete health check and what you would test next.
+
+> [!check]
+> - Can you distinguish a unit file from the process it starts?
+> - Can you explain `start` versus `enable`?
+> - Can you name the commands that show a service's status and recent logs?
 
 ## Independent challenge
 

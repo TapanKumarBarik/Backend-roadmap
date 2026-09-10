@@ -1,4 +1,10 @@
-# Capstone Project: Log Watchdog
+# Module 16: Capstone Project — Log Watchdog
+
+> 🎯 **Goal:** Combine the Linux track into a small, secure, observable automation that solves a realistic operational problem.
+
+This capstone is successful when you can explain every moving part: where the script runs, which user owns it, which logs it reads, how it handles an error, how its output is inspected, and how you would safely disable or change it later.
+
+---
 
 ## Why this matters
 
@@ -11,6 +17,10 @@ the bridge into the Docker track: the next thing you'll do with this exact
 script is put it inside a container.
 
 ## The project
+
+### Build it like a small production service
+
+Work in a practice directory or a disposable WSL environment. Keep configuration separate from executable code, avoid embedding secrets, test the script manually before scheduling it, and document the checks that prove it works. The goal is not to make a complex watchdog; it is to demonstrate careful command-line reasoning, safe automation, and a clear operational handoff.
 
 Build **Log Watchdog**: a bash script, run automatically on a schedule by
 systemd, that scans a directory of log files for problems, archives old
@@ -83,6 +93,62 @@ Requirements:
    - The `reports/` and `archive/` directories are writable only by the user the script runs as — not world-writable.
    - Regular/other users on the box cannot read log contents that might be sensitive (your call on how strict, but be able to justify it).
 2. Verify the timer/service actually runs as the unprivileged user you intended, not root — prove it (e.g. have the script write `whoami`/`id` output into its own run log during testing, then remove/tighten that once confirmed).
+
+## Operational design review
+
+> [!key]
+> The capstone is not complete because the script runs once. It is complete when its inputs, privileges, schedule, output, failure behavior, and removal path are all understood and verified.
+
+> [!model]
+> The watchdog is a small operations system: a scheduler invokes a least-privileged script; the script reads a defined log source; it produces an observable result; and an operator can use that result to decide what to do next.
+
+```mermaid
+flowchart LR
+    T["systemd timer / scheduler"] --> S["logwatch.sh\nleast-privileged user"]
+    S --> L["Read approved log source"]
+    S --> R["Write status / alert result"]
+    R --> O["Operator reviews evidence"]
+    O -->|change or disable| T
+```
+
+The architecture shows the normal path. The failure path is equally important because it defines what an operator should trust and do next.
+
+```mermaid
+flowchart TD
+    A["Scheduled run"] --> B{"Input and output paths valid?"}
+    B -->|No| C["Write clear failure\nnon-zero exit"]
+    B -->|Yes| D{"Threshold exceeded?"}
+    D -->|No| E["Healthy result\nexit 0"]
+    D -->|Yes| F["Actionable alert\nnon-zero exit"]
+    C --> G["Operator reviews logs"]
+    F --> G
+```
+
+> [!example]
+> A good first watchdog checks a single log file for a defined error pattern over a defined interval, exits `0` when healthy and non-zero when it finds the threshold, and writes a concise timestamped result. It does not attempt to repair the service automatically.
+
+> [!pitfall]
+> Do not schedule an untested script or run it as root just because the scheduler can. Test the exact command as the intended service account, use absolute paths, keep output somewhere inspectable, and make every destructive action opt-in.
+
+### Suggested delivery sequence
+
+1. Write the script and make it work manually against a sample log.
+2. Add argument validation, clear output, and meaningful exit codes.
+3. Restrict ownership and permissions to the intended runtime identity.
+4. Schedule one safe, observable run.
+5. Inspect status and logs after it runs.
+6. Document how to stop, disable, or remove the watchdog.
+
+> [!exercise]
+> Before scheduling, create a test matrix: empty log, one matching line, threshold exceeded, unreadable log, and missing output directory. For each case, record the expected output and exit status, then run the matrix manually.
+
+> [!interview]
+> Present your watchdog as if handing it to an on-call engineer: explain its trigger, identity, inputs, outputs, failure modes, permissions, and the one command that disables it safely.
+
+> [!check]
+> - Can you run and test the watchdog without `sudo` except where its defined log access requires it?
+> - Does its output make the next human action clear?
+> - Can another learner remove the scheduler and files using your documentation?
 
 ## Acceptance criteria checklist
 

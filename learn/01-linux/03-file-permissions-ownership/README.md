@@ -1,9 +1,19 @@
-# File Permissions and Ownership
+# Module 03: File Permissions and Ownership
+
+> 🎯 **Goal:** Read Linux permissions with confidence, choose the least access a file needs, and recover safely from a permission failure.
+
+By the end of this module, you should be able to inspect ownership, explain the meaning of each permission bit on files *and* directories, use symbolic and octal `chmod` deliberately, and recognize when `sudo` is appropriate rather than using it by reflex.
+
+---
 
 ## Why this matters
 Nearly every confusing "Permission denied" error you'll hit in Linux, Docker, or Kubernetes comes down to the concepts in this module - who owns a file and what they're allowed to do with it. Docker containers run processes as specific users with specific permissions, and getting file permissions wrong is one of the most common causes of broken deployments. Understanding this model now will save you hours of confusion later.
 
 ## Concepts
+
+### Your operating rule: inspect before changing
+
+Permissions are security controls, not decoration. Before changing a mode or owner, inspect the target with `ls -ld path` (a directory) or `ls -l path` (a file), state who needs access and why, then make the smallest change that solves the problem. Avoid copying commands such as `chmod -R 777` from a forum: they can make application data writable by every local process and hide the real ownership problem.
 
 **Every file has an owner and a group.** When you create a file (with `touch`, for example), Linux automatically records two things about it: which **user** owns it, and which **group** it belongs to. Think of the owner as "the specific person responsible for this file" and the group as "a team of users who share some level of access to it." A file can only have one owner and one group at a time, but a user can belong to multiple groups.
 
@@ -75,6 +85,91 @@ So `chmod 750 script.sh` means: owner gets 7 (rwx), group gets 5 (r-x), other ge
 
 **Umask - a basic introduction.** When you create a new file or directory, Linux doesn't start it at "no permissions" - it starts from a default and then subtracts based on a setting called the **umask** ("user file-creation mask"). On a typical Ubuntu setup, new files are usually created as `rw-r--r--` (644) and new directories as `rwxr-xr-x` (755) by default. You don't need to configure umask yourself as a beginner - just understand that this is *why* newly created files already have some permissions set even though you never ran `chmod` on them.
 
+### 1. Permission classes are selected, not combined
+
+Linux does **not** add together the owner, group, and other triples for one access check.
+
+It selects exactly one class:
+
+1. If the process UID matches the file owner, Linux uses the **owner** triple.
+2. Otherwise, if one of the process's groups matches the file group, Linux uses the **group** triple.
+3. Otherwise, Linux uses the **other** triple.
+
+This explains a surprising case. If you own a file with mode `640`, you cannot use its group's read permission to bypass the owner's missing read bit: once you match the owner, the owner triple is the one that applies.
+
+> [!example]
+> `-w-r----- alex developers config.yml` gives owner `alex` write-only access, even if Alex also belongs to `developers`. The group read bit does not supplement the owner's missing read bit. Change the owner mode deliberately instead of assuming group membership will help.
+
+### 2. A directory is a lookup table, not a regular file
+
+The same `r`, `w`, and `x` letters have a different practical effect on directories.
+
+| Directory permission | What it allows | What it does **not** guarantee |
+| --- | --- | --- |
+| `r` | List directory entry names | Open an entry or `cd` into the directory |
+| `w` | Create, delete, and rename entries | Read the contents of those files |
+| `x` | Traverse the directory and access a known entry by name | List all entry names |
+| `rwx` | List, traverse, and change entries | Permission to ignore the target file's mode |
+
+The subtle consequence is that deleting `team/report.txt` depends primarily on write and execute permission on the **`team` directory**, not write permission on `report.txt`. The sticky bit, covered below, adds a safety rule for shared directories.
+
+```mermaid
+flowchart TD
+    A["Want to read /srv/app/config.yml"] --> B["Can traverse every parent?\nNeed x on /srv and /srv/app"]
+    B -->|No| X["Permission denied before target"]
+    B -->|Yes| C["Can read config.yml?\nNeed r on target"]
+    C -->|No| Y["Permission denied at target"]
+    C -->|Yes| Z["Read succeeds"]
+```
+
+### 3. Executing a file is more than setting `x`
+
+The execute bit only permits an attempt to execute. The file must still contain something Linux can run:
+
+- a native executable format, or
+- a script with a valid interpreter line, such as `#!/usr/bin/env bash`.
+
+For a shell script, `chmod u+x deploy.sh` and `./deploy.sh` use the interpreter declared in its shebang. `bash deploy.sh` instead asks Bash to read the file directly, so it can work even without the execute bit. That is useful for debugging but does not make the script executable by other tools or users.
+
+> [!pitfall]
+> `chmod +x` is not a universal repair command. If a script reports `bad interpreter`, inspect its first line and line endings. A script copied from Windows may contain CRLF line endings; use `file script.sh` to identify that before changing permissions again.
+
+### 4. Shared directories need a little more vocabulary
+
+Most day-to-day work needs only `rwx`, but two special directory modes are worth recognizing:
+
+| Mode | Typical use | Effect |
+| --- | --- | --- |
+| Sticky bit (`+t`) | Shared temporary directory such as `/tmp` | Users can create files, but may remove or rename only files they own (or files owned by the directory owner/root) |
+| Setgid (`g+s`) on a directory | Shared project directory | New entries inherit the directory's group, helping a team keep one group ownership model |
+
+You may see a sticky directory as `drwxrwxrwt`: the final `t` is the sticky bit in the other-execute position. Do not set special bits casually on application directories; recognize them, then use them only when you can explain the shared-workflow requirement.
+
+### 5. ACLs are an exception layer, not a replacement for basics
+
+Some systems use POSIX access control lists (ACLs) to grant a named user or group access beyond the usual owner/group/other model. `getfacl path` shows them and `setfacl` changes them. Learn the basic mode bits first: ACLs are useful for a specific exception, but they make access harder to reason about and should be documented.
+
+> [!model]
+> Start with a simple ownership model: one service user owns runtime data, one group shares deliberate collaboration access, and “other” gets no access unless there is a clear reason. Add an ACL only when that clean model cannot express a genuine exception.
+
+### 6. Diagnose permission errors in a fixed order
+
+When a command fails, resist changing random modes. Work from the process toward the object:
+
+```text
+Which user runs the process?
+        ↓
+Which path is it trying to use?
+        ↓
+Can that user traverse every parent directory?
+        ↓
+Which permission class applies at the target?
+        ↓
+Is an ACL, mount option, immutable flag, or security policy involved?
+```
+
+For ordinary learning environments, `id`, `namei -l`, `ls -ld`, and `stat` solve most cases. The later possibilities are a reminder not to claim that every access failure can be fixed with `chmod`.
+
 ## Command reference
 
 | Command | What it does | Example |
@@ -87,6 +182,10 @@ So `chmod 750 script.sh` means: owner gets 7 (rwx), group gets 5 (r-x), other ge
 | `chown user:group` | Changes both the owner and the group in a single command, separated by a colon. | `sudo chown alice:developers notes.txt` |
 | `chgrp` | Changes only the group of a file, leaving the owner unchanged. | `sudo chgrp developers notes.txt` |
 | `umask` | Displays your current umask value (the default permission-subtracting mask applied to newly created files/directories). Run with no arguments to just view it. | `umask` |
+| `stat` | Shows detailed metadata, including numeric IDs and mode. | `stat config.yml` |
+| `namei -l` | Shows ownership and permissions for every component of a path. | `namei -l /srv/app/config.yml` |
+| `id` | Shows the current user's UID, primary group, and supplementary groups. | `id` |
+| `getfacl` | Displays ACL entries when ACLs are in use. | `getfacl shared-report.txt` |
 
 ## Hands-on exercises
 
@@ -197,6 +296,53 @@ So `chmod 750 script.sh` means: owner gets 7 (rwx), group gets 5 (r-x), other ge
     cd ~
     rm -r ~/perms-practice
     ```
+
+## Production practice: making access intentional
+
+> [!key]
+> A permission problem has three parts: the identity of the process, the ownership and mode of the target, and every directory in the path. Changing only the final file often treats the symptom, not the cause.
+
+> [!model]
+> Think of a path as a row of locked doors. To read `/srv/app/config/settings.json`, a process needs permission on `settings.json` **and** traverse (`x`) permission on `/`, `srv`, `app`, and `config`. The first blocked door is where investigation should begin.
+
+```mermaid
+flowchart LR
+    P["Process: appsvc"] --> A["/srv<br/>x needed"] --> B["/srv/app<br/>x needed"] --> C["config<br/>x needed"] --> D["settings.json<br/>r needed"]
+```
+
+The path diagram explains *where* access is checked. This second view explains how the final target's mode is decoded.
+
+```mermaid
+flowchart LR
+    M["-rwxr-x---"] --> O["Owner: rwx\n7"]
+    M --> G["Group: r-x\n5"]
+    M --> X["Other: ---\n0"]
+```
+
+> [!example]
+> A web server running as `www-data` cannot read `/home/alex/project/.env`, even if the file itself is `644`, when `/home/alex` is not traversable by `www-data`. Moving deployable configuration to a deliberately owned service directory is usually safer than opening a whole home directory.
+
+> [!pitfall]
+> Do not solve a permission error with `chmod -R 777`. It makes every file writable by every local user and process, can mark non-executable data as executable, and leaves no explanation of who actually needs access. Choose a narrow owner, group, and mode instead.
+
+### A repeatable permission investigation
+
+1. Identify the process user: `ps -o user= -p <PID>` or inspect the service unit's `User=` value.
+2. Inspect each path component: `namei -l /path/to/target` (install `util-linux` if it is unavailable).
+3. Inspect the target: `stat target` gives the numeric UID/GID and mode as well as friendly names.
+4. Decide the intended access: read, write, execute, or traverse—and for which user or group.
+5. Change the smallest relevant owner, group, or permission bit; then retest as the affected user when possible.
+
+> [!exercise]
+> Create `~/access-lab/private/reports`, set the top-level directory to `700`, and place a readable file inside it. Use `namei -l` to explain why a different user would be blocked before reaching the file. Restore the directory to `755` only after you can describe the security trade-off.
+
+> [!interview]
+> Explain why a directory needs execute permission, why `644` is common for ordinary files but not executable scripts, and why a process may receive “Permission denied” despite permissive-looking permissions on the final file.
+
+> [!check]
+> - Can you decode `drwxr-x---` without looking it up?
+> - Can you state the owner/group/other mode you would use for a private `.env` file and why?
+> - Before using `sudo`, can you name the process and path component that lacks the required access?
 
 ## Independent challenge
 

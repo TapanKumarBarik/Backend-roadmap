@@ -1,10 +1,20 @@
-# Logging and journald
+# Module 14: Logging and journald
+
+> 🎯 **Goal:** Turn logs into a timeline of evidence so you can explain a failure rather than merely restart around it.
+
+By the end of this module, you should be able to query journal entries by service and time window, follow new events, distinguish application logs from system logs, and capture a focused, sanitized diagnostic excerpt for an incident or bug report.
+
+---
 
 ## Why this matters
 
 When something breaks - a service won't start, a login fails, a container crashes - the logs are almost always where the answer lives. You already started services with systemd in module 11; this module is the deep dive into actually reading what those services (and the system as a whole) are telling you, both through traditional `/var/log` files and through `journalctl`, systemd's structured logging query tool. Being fast and precise with logs is one of the most transferable troubleshooting skills in all of Linux, Docker, and Kubernetes work.
 
 ## Concepts
+
+### Logs are evidence, not background noise
+
+Begin with a precise question: which service, which host, and what time did the symptom occur? Filter early by unit, priority, and time. Correlate log events with process state and network checks rather than trusting a single error line. Treat logs as sensitive operational data: they may include tokens, email addresses, IPs, or request bodies.
 
 **Two logging worlds that coexist.** Modern Ubuntu has two overlapping ways logs get stored: traditional flat text files under `/var/log` (a long-standing Unix convention), and `journald`, systemd's own logging service, which stores log data in a structured, indexed binary format and is queried with `journalctl`. Some things log to both, some log mainly to one. You already met systemd services in module 11 - `journald` is what's capturing the console output of everything systemd starts and manages.
 
@@ -87,6 +97,43 @@ Some things land in both worlds, some in only one — that's why this module tea
 10. Look at a `logrotate` config to see rotation policy in practice: run `cat /etc/logrotate.d/rsyslog` (or `ls /etc/logrotate.d/` first if that file isn't present, and pick any file that exists there). Identify the `rotate` (how many old copies to keep), `weekly`/`daily` (how often), and `compress` directives if present.
 
 11. Practice a safe vacuum. Run `sudo journalctl --vacuum-time=2weeks`. Even if nothing is old enough to delete, confirm the command reports how much space (if any) it reclaimed, and that it completes without error - this is the command you'd reach for on a real machine that's running low on space due to journal growth.
+
+## Production practice: build an evidence timeline
+
+> [!key]
+> Logs become useful when scoped by service and time. A large unfiltered stream is not observability; it is noise that makes the relevant event harder to find.
+
+> [!model]
+> A debugging timeline correlates symptom, service event, process state, and request. The first error may be a consequence, so move backward and forward around the known failure time.
+
+```mermaid
+flowchart LR
+    S["User-visible symptom"] --> T["Time window"] --> J["journalctl -u service"] --> P["Process / socket state"] --> H["Hypothesis + verification"]
+```
+
+An incident timeline finds the cause. This query-shaping diagram shows how to reduce a noisy journal into a safe artifact to share.
+
+```mermaid
+flowchart LR
+    A["All journal events"] --> B["Filter unit"] --> C["Filter time window"] --> D["Filter priority / message"] --> E["Redact + share small excerpt"]
+```
+
+> [!example]
+> `journalctl -u myapp.service --since "2026-09-10 10:00" --until "2026-09-10 10:10" --no-pager` limits the evidence to a ten-minute incident window. Pair it with `systemctl status myapp` and a targeted health request rather than pasting the whole journal into a ticket.
+
+> [!pitfall]
+> Logs may contain credentials, tokens, personal data, URLs with query parameters, and internal addresses. Redact before sharing, and do not turn on verbose request-body logging in production just to chase one error.
+
+> [!exercise]
+> Start a harmless service or command that writes two distinct messages. Use `journalctl` to find them by unit and time, then export only the relevant small window. Practice explaining what each line proves versus what it merely suggests.
+
+> [!interview]
+> A service returns 500 at 10:03. Describe how you would choose a journal time window, what context you would collect besides logs, and how you would avoid leaking sensitive data in an incident report.
+
+> [!check]
+> - Can you follow a service's new log events without losing the ability to stop the view?
+> - Can you filter journal output by unit and time?
+> - Can you distinguish evidence, inference, and a verified cause?
 
 ## Independent challenge
 
