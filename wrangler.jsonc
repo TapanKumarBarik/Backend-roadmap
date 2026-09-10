@@ -13,6 +13,6 @@
   ],
   "vars": {
     "ADMIN_EMAIL": "tapankumarbarik7@gmail.com",
-    "SITE_ORIGINS": "https://backend-roadmap.pages.dev,http://localhost:8788"
+    "SITE_ORIGINS": "https://backendroadmap.com,https://www.backendroadmap.com,https://backend-roadmap.pages.dev,http://localhost:8788"
   }
 }
