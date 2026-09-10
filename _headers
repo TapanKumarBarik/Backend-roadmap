@@ -1,8 +1,9 @@
-# Reproduces staticwebapp.config.json's globalHeaders. The CSP is the one this
-# project already tuned for mermaid (style-src allows 'unsafe-inline' because
-# mermaid sets inline styles on the SVG it generates; script-src stays strict).
+# Reproduces staticwebapp.config.json's globalHeaders, plus:
+#  - style-src 'unsafe-inline' for mermaid (it sets inline styles on its SVG)
+#  - static.cloudflareinsights.com / cloudflareinsights.com for Cloudflare Web
+#    Analytics (auto-injected by the proxied zone; cookie-less, privacy-first)
 /*
-  Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://stroadmapprogress.blob.core.windows.net https://*.googleusercontent.com; font-src 'self'; connect-src 'self' https://stroadmapprogress.blob.core.windows.net; frame-src 'self' https://stroadmapprogress.blob.core.windows.net https://view.officeapps.live.com; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'
+  Content-Security-Policy: default-src 'self'; script-src 'self' https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://stroadmapprogress.blob.core.windows.net https://*.googleusercontent.com; font-src 'self'; connect-src 'self' https://stroadmapprogress.blob.core.windows.net https://cloudflareinsights.com; frame-src 'self' https://stroadmapprogress.blob.core.windows.net https://view.officeapps.live.com; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'
   X-Content-Type-Options: nosniff
   X-Frame-Options: DENY
   Referrer-Policy: strict-origin-when-cross-origin
