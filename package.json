@@ -8,6 +8,6 @@
     "check": "node scripts/check-admin-guards.js"
   },
   "dependencies": {
-    "hono": "^4.6.14"
+    "hono": "^4.13.10"
   }
 }
