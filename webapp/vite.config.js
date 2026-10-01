@@ -39,9 +39,8 @@ function serveRepoContent() {
   };
 }
 
-// Builds into the repo root (not a nested dist/) so staticwebapp.config.json's
-// existing app_location:"/" / output_location:"" keep working unchanged, and
-// docs-index.json / the content trees / scripts/gen-docs-index.py stay put.
+// Builds into the repo root (next to docs-index.json and the content trees);
+// scripts/stage-dist.cjs then copies an allowlist of it into dist/ for deploy.
 // emptyOutDir is false because the repo root also holds the markdown content
 // this app serves — wiping it on every build would be catastrophic. CI is
 // responsible for removing stale /assets/* before each build instead.
@@ -58,18 +57,15 @@ export default defineConfig({
     emptyOutDir: false,
     assetsDir: 'assets'
   },
-  // `npm run dev` and `npm run preview` both need /api to reach the local
-  // Functions host. Only `server` was configured, so `vite preview` — which
-  // serves the real built output, and is the closer match to production —
-  // answered every /api call itself and failed.
+  // /api goes to `wrangler pages dev` (see LOCAL-SETUP.md) in both modes.
   server: {
     proxy: {
-      '/api': 'http://localhost:7071'
+      '/api': 'http://localhost:8788'
     }
   },
   preview: {
     proxy: {
-      '/api': 'http://localhost:7071'
+      '/api': 'http://localhost:8788'
     }
   }
 });

@@ -12,10 +12,12 @@ plus the progress-tracking app that serves it.
 - `webapp/` — the React app that renders the curriculum: a searchable module tree, progress tracking
   (works signed-out via IndexedDB, syncs across devices once signed in with Google), bookmarks, private
   notes, comments, reactions, and an admin dashboard.
-- `api/` — the Azure Functions backend (Node.js): Google OAuth, progress sync, comments, notes,
-  bookmarks, reactions, streaks, a GitHub-commit-based content editor, and a daily Table Storage backup.
-- `scripts/` — build-time index generators (`gen-docs-index.py`, `gen-search-index.py`) that CI runs
-  before every deploy.
+- `api-cf/` — the API: a [Hono](https://hono.dev) app on Cloudflare Pages Functions (entry point
+  `functions/api/[[path]].js`) backed by Cloudflare D1 — Google OAuth, progress sync, comments, notes,
+  bookmarks, reactions, streaks, feed, and a GitHub-commit-based content editor. Uploaded files live in
+  Azure Blob Storage. Schema: `cloudflare/d1-schema.sql`.
+- `scripts/` — build-time index generators (`gen-docs-index.py`, `gen-search-index.py`), the deploy
+  stager (`stage-dist.cjs`), and the admin-guard check, all run by CI.
 
 ## Writing module content
 
@@ -49,25 +51,25 @@ retrofitting is optional and incremental. The admin editor has an insert button 
 ## Running it locally
 
 ```bash
-cd api    && npm install && func start --port 7071        # backend
+npx wrangler pages dev --port 8788                        # backend (repo root)
 cd webapp && npm install && npm run dev -- --port 4173    # frontend
 ```
 
 Then <http://localhost:4173>. Use **port 4173** — it's the one registered with
 Google as an OAuth redirect URI, and sign-in fails on any other.
 
-The backend needs `api/local.settings.json`, which is gitignored and holds real
-credentials. **[LOCAL-SETUP.md](LOCAL-SETUP.md)** covers generating it, the
-Functions Core Tools install, and what to do when sign-in or a port misbehaves.
+The backend needs `.dev.vars` (gitignored, holds real credentials) and a local
+D1 database. **[LOCAL-SETUP.md](LOCAL-SETUP.md)** covers both.
 
 ## Deployment
 
-Pushes to `main` trigger two CI/CD workflows: Azure Static Web Apps (the live site, with the API) and
-GitHub Pages (a static mirror with no login/API). See `.github/workflows/`.
+Pushes to `main` trigger two workflows: Cloudflare Pages (the live site and API) and GitHub Pages (a
+static mirror with no login/API). See `.github/workflows/`. Only the allowlisted `dist/` built by
+`scripts/stage-dist.cjs` is ever deployed.
 
 ## Contributing
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) — curriculum corrections and additions are welcome; the app in `webapp/`/`api/` is maintained more tightly since it's live for real accounts.
+See [CONTRIBUTING.md](CONTRIBUTING.md) — curriculum corrections and additions are welcome; the app in `webapp/`/`api-cf/` is maintained more tightly since it's live for real accounts.
 
 Found a security issue? See [SECURITY.md](SECURITY.md) rather than opening a public issue.
 

@@ -58,8 +58,8 @@
       <code>anonymous</code> — visible only to the site's one admin, for the same visitor-count
       purpose</li>
   </ul>
-  <p>This is held in a single signed-in session cookie (30 days) and in Azure Table Storage
-  (East US region). Nothing here is sold or shared with anyone outside this project, and there's
+  <p>This is held in a single signed-in session cookie (30 days) and in a Cloudflare D1 database;
+  files you upload are stored in Azure Blob Storage (East US region). Nothing here is sold or shared with anyone outside this project, and there's
   no payment or billing data anywhere because nothing on this site costs money.</p>
 
   <h2>Deleting your data</h2>

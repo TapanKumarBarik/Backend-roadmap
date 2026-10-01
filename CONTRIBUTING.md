@@ -1,7 +1,7 @@
 # Contributing
 
 This repo is two things at once: a curriculum (markdown) and the app that
-serves it (React + Azure Functions). What "contributing" means depends on
+serves it (React + a Hono API on Cloudflare Pages Functions). What "contributing" means depends on
 which one you're touching.
 
 ## Curriculum content
@@ -28,13 +28,13 @@ A few conventions worth knowing before you write:
 You do **not** need to touch `docs-index.json` or `search-index.json` — both
 are generated (see below) and regenerated automatically before every deploy.
 
-## The app (`webapp/`, `api/`)
+## The app (`webapp/`, `api-cf/`)
 
 This part is maintained more tightly, since it's live for real users with
 real accounts. Before sending a PR here:
 
 1. Read `LOCAL-SETUP.md` and get the app running locally.
-2. If you touched anything in `api/`, run
+2. If you touched anything in `api-cf/`, run
    `node scripts/check-admin-guards.js` — CI does, and it fails the build if
    an admin check is missing its `await`.
 3. `cd webapp && npm run build` should succeed with no errors.

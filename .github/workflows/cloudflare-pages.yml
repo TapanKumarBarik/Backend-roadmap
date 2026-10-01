@@ -51,9 +51,11 @@ jobs:
           rm -rf ../assets
           npm ci
           npm run build
-          # Vite builds into the repo root next to the content trees; the
-          # build-only node_modules must not ride along into the deploy.
-          rm -rf node_modules
+
+      # Only an explicit allowlist is ever uploaded (dist/) — never the repo
+      # root, which also holds source, local secrets and data exports.
+      - name: Stage deployable site
+        run: node scripts/stage-dist.cjs
 
       - name: Deploy
         uses: cloudflare/wrangler-action@v3

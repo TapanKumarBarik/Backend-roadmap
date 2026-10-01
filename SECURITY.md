@@ -22,18 +22,18 @@ formal SLA.
 
 In scope:
 
-- `api/` — the Azure Functions backend (auth, progress sync, comments,
-  the admin endpoints, the content editor)
+- `api-cf/` and `functions/` — the Cloudflare Pages Functions API (auth,
+  progress sync, comments, the admin endpoints, the content editor)
 - `webapp/` — the React frontend
-- The deployment configuration (`staticwebapp.config.json`, the GitHub
-  Actions workflows)
+- The deployment configuration (`_headers`, `_routes.json`, `wrangler.jsonc`,
+  `scripts/stage-dist.cjs`, the GitHub Actions workflows)
 
 Out of scope:
 
 - The curriculum content itself (`backend/`, `learn/`, `lld/`, `genai/`) —
   factual or technical corrections there are a pull request, not a security
   report
-- Third parties this app depends on (Google, Azure, GitHub) — report those
+- Third parties this app depends on (Google, Cloudflare, Azure, GitHub) — report those
   to them directly
 
 ## What would actually matter here
@@ -46,21 +46,22 @@ that could:
 - reach an admin-only endpoint without being an admin
 - use the content editor's GitHub token to write to this repo without going
   through the app's own auth
-- exfiltrate the Table Storage connection string, the session signing
-  secret, or the Google OAuth client secret
+- exfiltrate the session signing secret, the Google OAuth client secret,
+  the GitHub token, or the Azure Blob SAS tokens
 
 ## What's already been considered
 
 Documented in code comments near the relevant logic, in case it saves you
 time:
 
-- Sessions are HMAC-signed, host-only cookies (`api/src/lib/session.js`) —
+- Sessions are HMAC-signed, host-only cookies (`api-cf/lib/session.js`) —
   not JWTs, not encrypted (the payload holds nothing sensitive).
-- Admin access is an email allowlist with one hardcoded owner who cannot be
+- Admin access is an email allowlist with one configured owner who cannot be
   revoked and cannot revoke themselves, specifically to prevent a lockout
-  (`api/src/lib/adminAuth.js`). Every admin check must be `await`ed — an
+  (`api-cf/lib/admin.js`). Every admin check must be `await`ed — an
   un-awaited call would silently grant admin to everyone, which is why
   `scripts/check-admin-guards.js` fails CI if one is missing.
-- OAuth `redirect_uri` is derived from the request and checked against an
-  allowlist, not trusted blindly from a client-supplied header
-  (`api/src/functions/auth.js`).
+- OAuth `redirect_uri` is derived from the request URL and checked against an
+  allowlist (`api-cf/routes/auth.js`).
+- Deploys upload only an explicit allowlist (`scripts/stage-dist.cjs`), never
+  the repo root.

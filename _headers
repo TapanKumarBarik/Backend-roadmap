@@ -1,4 +1,4 @@
-# Reproduces staticwebapp.config.json's globalHeaders, plus:
+# Security headers for every response, plus:
 #  - style-src 'unsafe-inline' for mermaid (it sets inline styles on its SVG)
 #  - static.cloudflareinsights.com / cloudflareinsights.com for Cloudflare Web
 #    Analytics (auto-injected by the proxied zone; cookie-less, privacy-first)
