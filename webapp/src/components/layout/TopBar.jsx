@@ -61,7 +61,7 @@ export default function TopBar({
           to confuse with the destination rail now that one exists. It moved
           onto the panel itself. */}
       <button className="brand" onClick={onGoHome} type="button">
-        <span className="mark">C</span><span>Curriculum</span>
+        <span className="mark">C</span><span>Backend Roadmap</span>
       </button>
       <button id="searchTrigger" onClick={() => onOpenPalette()}>
         <SearchIcon style={{ width: 14, height: 14, flexShrink: 0 }} />

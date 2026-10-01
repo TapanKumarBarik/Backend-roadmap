@@ -164,8 +164,14 @@ const homeLinks = tree.filter((t) => t.file).map((t) => {
   return `<li><a href="${moduleUrl(t.file)}">${esc(t.title || t.name)}</a>${kids ? `<ul>${kids}</ul>` : ''}</li>`;
 }).join('');
 const homeDescription = (template.match(/<meta name="description" content="([^"]*)">/) || [])[1] || '';
+// Google takes a site's name in results from WebSite data on the homepage;
+// alternateName covers how people actually type it.
 let home = replaceOnce(template, /<\/head>/, `${HIDE_UNTIL_NO_JS}${jsonLd({
-  '@context': 'https://schema.org', '@type': 'WebSite', name: SITE_NAME, url: SITE + '/'
+  '@context': 'https://schema.org',
+  '@type': 'WebSite',
+  name: SITE_NAME,
+  alternateName: ['BackendRoadmap', 'backendroadmap.com'],
+  url: SITE + '/'
 })}</head>`);
 home = replaceOnce(home, /<div id="root"><\/div>/,
   `<div id="root"><div class="prerender"><h1>${SITE_NAME}</h1><p>${homeDescription}</p><ul>${homeLinks}</ul></div></div>`);

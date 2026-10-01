@@ -142,7 +142,7 @@ export default function App() {
   useEffect(() => {
     const node = currentFile && nodeByFile[currentFile];
     if (node) document.title = `${node.title || node.name} · Backend Roadmap`;
-    else if (!path || isSpecialRoute) document.title = 'Curriculum';
+    else if (!path || isSpecialRoute) document.title = 'Backend Roadmap — Backend Engineering, System Design & GenAI Curriculum';
   }, [currentFile, nodeByFile, path, isSpecialRoute]);
 
   const openFile = useCallback((filePath, headingId) => {
