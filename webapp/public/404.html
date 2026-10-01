@@ -17,10 +17,13 @@
   main { text-align: center; padding: 24px; }
   .mark {
     width: 40px; height: 40px; border-radius: 6px; margin: 0 auto 20px;
-    background: #111111; color: #ffffff; display: grid; place-items: center;
-    font-weight: 800; font-size: 20px;
+    background: #16181c; color: #ffffff; display: grid; place-items: center;
   }
-  @media (prefers-color-scheme: dark) { .mark { background: #ededed; color: #0a0a0a; } }
+  .mark .dot { fill: #e9a053; }
+  @media (prefers-color-scheme: dark) {
+    .mark { background: #e7eaee; color: #0e1116; }
+    .mark .dot { fill: #b25a08; }
+  }
   h1 { font-size: 20px; margin: 0 0 8px; }
   p { color: #6b6b6b; margin: 0 0 20px; }
   a {
@@ -31,7 +34,13 @@
 </head>
 <body>
 <main>
-  <div class="mark">C</div>
+  <div class="mark" aria-hidden="true">
+    <svg viewBox="0 0 24 24" width="40" height="40">
+      <circle cx="7" cy="17.6" r="1.9" fill="none" stroke="currentColor" stroke-width="1.7"/>
+      <path d="M7 15.7V13.8Q7 11.3 9.5 11.3H14.5Q17 11.3 17 8.8V8.4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+      <circle class="dot" cx="17" cy="6.3" r="2.5"/>
+    </svg>
+  </div>
   <h1>Page not found</h1>
   <p>That link doesn&rsquo;t point anywhere on this curriculum.</p>
   <a href="/">Back to the curriculum</a>
