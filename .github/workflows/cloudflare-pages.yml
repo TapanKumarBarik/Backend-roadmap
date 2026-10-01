@@ -62,4 +62,7 @@ jobs:
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: pages deploy --project-name=backend-roadmap --branch=main --commit-dirty=true
+          # The action defaults to wrangler 3.x, which predates our wrangler.jsonc
+          # setup; pin the major we develop and deploy with locally.
+          wranglerVersion: '4.145.0'
+          command: pages deploy dist --project-name=backend-roadmap --branch=main --commit-dirty=true
