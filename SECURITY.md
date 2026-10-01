@@ -22,11 +22,11 @@ formal SLA.
 
 In scope:
 
-- `api-cf/` and `functions/` — the Cloudflare Pages Functions API (auth,
+- `api/` and `functions/` — the Cloudflare Pages Functions API (auth,
   progress sync, comments, the admin endpoints, the content editor)
 - `webapp/` — the React frontend
 - The deployment configuration (`_headers`, `_routes.json`, `wrangler.jsonc`,
-  `scripts/stage-dist.cjs`, the GitHub Actions workflows)
+  `scripts/copy-content.cjs`, the GitHub Actions workflows)
 
 Out of scope:
 
@@ -54,14 +54,14 @@ that could:
 Documented in code comments near the relevant logic, in case it saves you
 time:
 
-- Sessions are HMAC-signed, host-only cookies (`api-cf/lib/session.js`) —
+- Sessions are HMAC-signed, host-only cookies (`api/lib/session.js`) —
   not JWTs, not encrypted (the payload holds nothing sensitive).
 - Admin access is an email allowlist with one configured owner who cannot be
   revoked and cannot revoke themselves, specifically to prevent a lockout
-  (`api-cf/lib/admin.js`). Every admin check must be `await`ed — an
+  (`api/lib/admin.js`). Every admin check must be `await`ed — an
   un-awaited call would silently grant admin to everyone, which is why
   `scripts/check-admin-guards.js` fails CI if one is missing.
 - OAuth `redirect_uri` is derived from the request URL and checked against an
-  allowlist (`api-cf/routes/auth.js`).
-- Deploys upload only an explicit allowlist (`scripts/stage-dist.cjs`), never
-  the repo root.
+  allowlist (`api/routes/auth.js`).
+- Deploys upload only `dist/`, and `scripts/copy-content.cjs` fails the build if
+  anything secret-shaped is in it — never the repo root.

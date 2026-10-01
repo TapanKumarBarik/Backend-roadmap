@@ -1,4 +1,4 @@
-// Port of api/src/functions/auth.js — custom Google OAuth. The one real
+// Custom Google OAuth (ported from the retired Azure API). The one real
 // simplification: on Cloudflare Pages the request URL is the true public URL,
 // so siteOrigin() no longer has to dig the original host out of SWA's
 // x-ms-original-url / x-forwarded-host proxy headers.

@@ -1,11 +1,11 @@
 /* Offline support for the curriculum reader.
  *
- * Hand-written rather than generated. The Vite build writes into the repo
- * ROOT (see vite.config.js — outDir '../', emptyOutDir false), so a plugin
- * that precaches "everything in the output directory" would try to bundle the
- * entire repository: ~480 markdown modules, a 6MB search index, .git, and
- * node_modules. Everything here is cached at runtime, on demand, instead —
- * you get offline access to what you've actually read.
+ * Hand-written rather than generated. The deployed site (dist/) holds ~800
+ * markdown modules, a pre-rendered page for each, and a 1.6MB search index, so
+ * a plugin that precaches "everything in the output directory" would make
+ * every first visit download the whole curriculum. Everything here is cached
+ * at runtime, on demand, instead — you get offline access to what you've
+ * actually read.
  *
  * Four rules, in order of specificity:
  *

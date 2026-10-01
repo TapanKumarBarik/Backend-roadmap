@@ -1,4 +1,4 @@
-import { routeUrl } from './moduleUrl.js';
+import { routeUrl } from '../curriculum/moduleUrl.js';
 
 // Manual ../. relative-path resolver, ported verbatim. Content is fetch()ed
 // as text with no real page navigation happening, so there's no natural

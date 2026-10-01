@@ -1,4 +1,4 @@
-// Port of api/src/lib/adminAuth.js. Same rules: the owner is decided from an
+// Admin access (ported from the retired Azure API, same rules): the owner is decided from an
 // env var without touching storage (so a broken admins table can never lock
 // them out), granted admins come from the `admins` D1 table, and the result
 // is cached briefly per isolate.

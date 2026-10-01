@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { fetchFeed, deleteFeedPost, voteFeedPost } from '../../lib/api.js';
-import { renderUserMarkdown } from '../../lib/renderUserMarkdown.js';
+import { renderUserMarkdown } from '../../lib/markdown/renderUserMarkdown.js';
 import FeedAttachment from './FeedAttachment.jsx';
 import CommentsSection from '../article/CommentsSection.jsx';
 

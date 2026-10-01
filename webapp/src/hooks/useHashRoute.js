@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useState } from 'react';
-import { fileFromPathname, routeUrl } from '../lib/moduleUrl.js';
+import { fileFromPathname, routeUrl } from '../lib/curriculum/moduleUrl.js';
 
 // Where the app is, as { path, heading }:
 //
 //   /backend/01-x/02-y/#some-heading   a curriculum module — its own page, see
-//                                      lib/moduleUrl.js; the hash is a heading
+//                                      lib/curriculum/moduleUrl.js; the hash is a heading
 //   /#__feed   /#__feed@postId         app screens, which live in the hash
 //   /#backend%2F...%2FREADME.md@h      the original all-hash links. They're in
 //                                      bookmarks and shared links, so they are

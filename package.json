@@ -2,9 +2,10 @@
   "name": "backend-roadmap",
   "private": true,
   "type": "module",
-  "description": "Cloudflare Pages Functions API (migrated from Azure Functions)",
+  "description": "Backend Roadmap — curriculum content, the React app (webapp/) and its API (api/, on Cloudflare Pages Functions)",
   "scripts": {
-    "site": "node scripts/stage-dist.cjs && node webapp/scripts/prerender.mjs"
+    "build": "npm --prefix webapp run build && python scripts/gen-docs-index.py && python scripts/gen-search-index.py && node scripts/copy-content.cjs && node scripts/prerender.mjs",
+    "check": "node scripts/check-admin-guards.js"
   },
   "dependencies": {
     "hono": "^4.6.14"

@@ -1,4 +1,4 @@
-// Port of api/src/functions/content.js — the admin-only content editor:
+// The admin-only content editor:
 // read/commit a repo file through the GitHub API, and upload a content image
 // to the Azure `images` container via SAS. Unchanged apart from Buffer →
 // bytes helpers.

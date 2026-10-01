@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import NotesPanel from '../article/NotesPanel.jsx';
-import { CaretIcon } from '../icons.jsx';
+import { CaretIcon } from '../common/icons.jsx';
 
 // The right rail carries both ways of working with the page you're on:
 // finding your way around it, and writing down what you took from it.

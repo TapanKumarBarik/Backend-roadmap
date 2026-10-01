@@ -1,4 +1,4 @@
-// Port of api/src/functions/feed.js. Table Storage's single 'feed' partition
+// The public feed (ported from the retired Azure API). Table Storage's single 'feed' partition
 // becomes plain rows in feed_posts; the manually-concatenated
 // `${postId}_${userId}` FeedVotes row key becomes real post_id / voter_id
 // columns. File uploads still PUT to the Azure feed-uploads container via SAS.

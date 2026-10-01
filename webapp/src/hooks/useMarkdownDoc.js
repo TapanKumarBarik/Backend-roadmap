@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { renderMarkdownDoc } from '../lib/markdown.js';
+import { renderMarkdownDoc } from '../lib/markdown/markdown.js';
 
 // Fetches the raw .md file and runs it through the tabs+marked pipeline to
 // an HTML string. DOM-dependent post-processing (heading anchors, code

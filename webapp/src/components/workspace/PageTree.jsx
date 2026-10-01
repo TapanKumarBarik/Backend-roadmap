@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { WorkspaceIcon, TrashIcon, CaretIcon, MenuDotsIcon } from '../icons.jsx';
+import { WorkspaceIcon, TrashIcon, CaretIcon, MenuDotsIcon } from '../common/icons.jsx';
 import { PlusIcon, ChevronUpDownIcon } from './toolbarIcons.jsx';
 
 function siblingsOf(pages, parentId) {

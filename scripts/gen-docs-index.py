@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""Regenerate docs-index.json by scanning the repo for README.md / *.md files.
+"""Regenerate dist/docs-index.json by scanning the repo for README.md / *.md files.
 
-Run this whenever files/folders under backend/, learn/, genai/ change:
+Part of `npm run build` (repo root); run on its own after adding or renaming
+a module while working locally:
     python scripts/gen-docs-index.py
 """
 import json
@@ -111,7 +112,8 @@ def main():
         "tree": tree,
         "tags": dict(sorted(catalogue.items(), key=lambda kv: (-kv[1], kv[0]))),
     }
-    out_path = os.path.join(ROOT, "docs-index.json")
+    os.makedirs(os.path.join(ROOT, "dist"), exist_ok=True)
+    out_path = os.path.join(ROOT, "dist", "docs-index.json")
     with open(out_path, "w", encoding="utf-8") as f:
         json.dump(out, f, indent=2, ensure_ascii=False)
 

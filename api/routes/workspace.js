@@ -1,4 +1,4 @@
-// Port of api/src/functions/workspace.js — a private, per-user Notion-style
+// The private, per-user Notion-style
 // page tree. Partitioned by userId in Table Storage; here every query is
 // scoped `WHERE user_id = ?` and the table is indexed on user_id.
 

@@ -15,27 +15,27 @@ import { useBookmarks } from './hooks/useBookmarks.js';
 import { useStreak } from './hooks/useStreak.js';
 import { useCommentActivity } from './hooks/useCommentActivity.js';
 import { useFeedActivity, useQuestionsActivity } from './hooks/useCommunityActivity.js';
-import { computeTreeVisibility } from './lib/treeFilter.js';
-import { globalCounts } from './lib/progressStats.js';
-import { ancestorDirPaths } from './lib/treeAncestors.js';
+import { computeTreeVisibility } from './lib/curriculum/treeFilter.js';
+import { globalCounts } from './lib/curriculum/progressStats.js';
+import { ancestorDirPaths } from './lib/curriculum/treeAncestors.js';
 import { trackPageView, deleteAccount } from './lib/api.js';
-import { pickContinue, studyableFiles } from './lib/curriculumPosition.js';
+import { pickContinue, studyableFiles } from './lib/curriculum/curriculumPosition.js';
 
 import TopBar from './components/layout/TopBar.jsx';
 import Sidebar from './components/layout/Sidebar.jsx';
 import DestinationRail from './components/layout/DestinationRail.jsx';
-import { CaretIcon } from './components/icons.jsx';
+import { CaretIcon } from './components/common/icons.jsx';
 import MainColumn from './components/layout/MainColumn.jsx';
 import RightRail from './components/layout/RightRail.jsx';
 import CommandPalette from './components/palette/CommandPalette.jsx';
-import Toast from './components/Toast.jsx';
-import SavedView from './components/home/SavedView.jsx';
-import ExploreView from './components/home/ExploreView.jsx';
-import CommunityView from './components/home/CommunityView.jsx';
-import FeedView from './components/home/FeedView.jsx';
-import PostDetailView from './components/home/PostDetailView.jsx';
-import BooksView from './components/home/BooksView.jsx';
-import SuggestionsView from './components/home/SuggestionsView.jsx';
+import Toast from './components/common/Toast.jsx';
+import SavedView from './components/saved/SavedView.jsx';
+import ExploreView from './components/explore/ExploreView.jsx';
+import CommunityView from './components/community/CommunityView.jsx';
+import FeedView from './components/feed/FeedView.jsx';
+import PostDetailView from './components/feed/PostDetailView.jsx';
+import BooksView from './components/community/BooksView.jsx';
+import SuggestionsView from './components/community/SuggestionsView.jsx';
 import MessageOwnerModal from './components/account/MessageOwnerModal.jsx';
 
 // Lazy: the GitHub-commit content editor and its admin-only siblings are
@@ -45,7 +45,7 @@ const AdminDashboard = lazy(() => import('./components/admin/AdminDashboard.jsx'
 // Lazy: Tiptap/ProseMirror alone added ~600KB to the main bundle for a
 // feature only a signed-in user who opens Workspace ever touches — same
 // reasoning as AdminDashboard above, just for a much heavier dependency.
-const WorkspaceView = lazy(() => import('./components/home/WorkspaceView.jsx'));
+const WorkspaceView = lazy(() => import('./components/workspace/WorkspaceView.jsx'));
 
 const ADMIN_ROUTE = '__admin';
 // Bookmarks and notes merged into one "Saved" destination with two tabs.
@@ -136,7 +136,7 @@ export default function App() {
     trackPageView(currentFile);
   }, [currentFile, nodeByFile, openMany]);
 
-  // Each module page is served with its own <title> (webapp/scripts/prerender.mjs);
+  // Each module page is served with its own <title> (scripts/prerender.mjs);
   // keep it right as the reader moves between modules without a page load.
   // While the docs index is still loading, leave whatever the page shipped with.
   useEffect(() => {

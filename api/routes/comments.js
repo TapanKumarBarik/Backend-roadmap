@@ -1,4 +1,4 @@
-// Port of api/src/functions/comments.js. The comments table is indexed on
+// Comments on modules and feed posts (ported from the retired Azure API). Indexed on
 // `path` (idx_comments_path), so the per-page reads are a real index lookup
 // now instead of a partition scan; the cross-curriculum "questions" and
 // "activity" views become GROUP BY / JOIN queries instead of bounded

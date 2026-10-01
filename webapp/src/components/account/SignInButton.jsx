@@ -1,4 +1,4 @@
-import { GoogleGIcon } from '../icons.jsx';
+import { GoogleGIcon } from '../common/icons.jsx';
 
 // The actual point of the React rewrite: a real, labeled "Sign in with
 // Google" button — Google's official G glyph kept in full color (the same

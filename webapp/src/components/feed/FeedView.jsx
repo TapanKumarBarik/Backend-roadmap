@@ -1,8 +1,8 @@
 import { useRef, useState, useEffect } from 'react';
 import { fetchFeed, postFeedItem, uploadFeedFile, deleteFeedPost, voteFeedPost } from '../../lib/api.js';
-import { renderUserMarkdown } from '../../lib/renderUserMarkdown.js';
+import { renderUserMarkdown } from '../../lib/markdown/renderUserMarkdown.js';
 import FeedAttachment from './FeedAttachment.jsx';
-import { TrashIcon } from '../icons.jsx';
+import { TrashIcon } from '../common/icons.jsx';
 
 function initialsOf(name) {
   return (name || '?').trim()[0]?.toUpperCase() || '?';

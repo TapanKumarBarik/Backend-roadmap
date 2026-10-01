@@ -7,7 +7,7 @@ how to contribute to what already exists.
 
 ## Shipped: a shared, user-uploaded resources library (Books)
 
-Its own destination (`#__books`, `api-cf/routes/community.js`,
+Its own destination (`#__books`, `api/routes/community.js`,
 `BooksView.jsx`): a public, browsable shelf anyone signed in can add a
 book/author/notes plus an optional link or an uploaded PDF/doc/image to.
 Reuses the Feed's existing upload endpoint (`uploadFeedFile`) rather than a
@@ -17,7 +17,7 @@ voting (that's Suggestions, below).
 
 ## Shipped: a public suggestions board, with voting
 
-Its own destination (`#__suggestions`, `api-cf/routes/community.js`,
+Its own destination (`#__suggestions`, `api/routes/community.js`,
 `SuggestionsView.jsx`): anyone signed in can post, everyone sees the list
 sorted by votes, anyone signed in can upvote. Mirrors the Feed's post+vote
 shape (`FeedPosts`/`FeedVotes` → `Suggestions`/`SuggestionVotes`). Distinct
@@ -28,7 +28,7 @@ plain upvote-sorted list.
 
 ## Shipped: a private, per-user Notion-style Workspace
 
-Its own destination (`#__workspace`, signed-in only, `api-cf/routes/
+Its own destination (`#__workspace`, signed-in only, `api/routes/
 workspace.js`, `WorkspaceView.jsx`, `PageTree.jsx`, `BlockEditor.jsx`): a
 nested tree of pages, each holding a real Tiptap/ProseMirror block editor —
 text formatting, headings, lists, a to-do checklist, tables, and uploaded

@@ -1,5 +1,5 @@
-// Port of api/src/lib/session.js. Same HMAC-signed (not encrypted) cookie
-// format — `<base64url(payload)>.<base64url(hmac)>` — so a session cookie
+// Session cookies, ported from the retired Azure API: the same HMAC-signed (not
+// encrypted) format — `<base64url(payload)>.<base64url(hmac)>` — so a session cookie
 // minted by the old Azure deployment stays valid here as long as
 // SESSION_SECRET is carried over unchanged. Node's crypto.createHmac /
 // timingSafeEqual are swapped for Web Crypto (crypto.subtle), which is the

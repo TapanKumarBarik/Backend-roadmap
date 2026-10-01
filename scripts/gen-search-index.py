@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""Regenerate search-index.json — a compact inverted word index over every
+"""Regenerate dist/search-index.json — a compact inverted word index over every
 module's raw markdown body, so the command palette can match on content,
-not just title/path/tags. Run alongside gen-docs-index.py:
+not just title/path/tags. Part of `npm run build`; on its own, run alongside
+gen-docs-index.py:
 
     python scripts/gen-docs-index.py
     python scripts/gen-search-index.py
@@ -71,7 +72,8 @@ def main():
             index.setdefault(word, []).append(i)
 
     out = {"files": file_paths, "index": index}
-    out_path = os.path.join(ROOT, "search-index.json")
+    os.makedirs(os.path.join(ROOT, "dist"), exist_ok=True)
+    out_path = os.path.join(ROOT, "dist", "search-index.json")
     with open(out_path, "w", encoding="utf-8") as f:
         json.dump(out, f, separators=(",", ":"), ensure_ascii=False)
 

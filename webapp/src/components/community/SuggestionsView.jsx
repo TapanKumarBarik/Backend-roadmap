@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { fetchSuggestions, postSuggestion, voteSuggestion, deleteSuggestion } from '../../lib/api.js';
-import { TrashIcon } from '../icons.jsx';
+import { TrashIcon } from '../common/icons.jsx';
 
 function initialsOf(name) {
   return (name || '?').trim()[0]?.toUpperCase() || '?';

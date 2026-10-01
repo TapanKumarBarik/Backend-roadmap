@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Writes a real, indexable HTML page for every curriculum module into dist/,
-// plus dist/sitemap.xml listing them all. Runs after scripts/stage-dist.cjs.
+// plus dist/sitemap.xml listing them all. The last step of `npm run build`.
 //
 // Each page is the built app shell (same hashed JS/CSS) with the module's own
 // <title>, description, canonical URL, social tags and structured data, and
@@ -12,13 +12,13 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { renderMarkdownDoc } from '../src/lib/markdown.js';
-import { moduleUrl, routeUrl } from '../src/lib/moduleUrl.js';
-import { resolvePath } from '../src/lib/rewriteLinks.js';
+import { renderMarkdownDoc } from '../webapp/src/lib/markdown/markdown.js';
+import { moduleUrl, routeUrl } from '../webapp/src/lib/curriculum/moduleUrl.js';
+import { resolvePath } from '../webapp/src/lib/markdown/rewriteLinks.js';
 
 const SITE = 'https://backendroadmap.com';
 const SITE_NAME = 'Backend Roadmap';
-const DIST = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', 'dist');
+const DIST = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'dist');
 
 const template = fs.readFileSync(path.join(DIST, 'index.html'), 'utf8');
 const { tree } = JSON.parse(fs.readFileSync(path.join(DIST, 'docs-index.json'), 'utf8'));
@@ -50,7 +50,7 @@ const modules = [];
 
 const ABSOLUTE_URL = /^([a-z][a-z0-9+.-]*:)?\/\//i;
 
-// Mirrors lib/rewriteLinks.js, on the HTML string instead of the DOM.
+// Mirrors lib/markdown/rewriteLinks.js, on the HTML string instead of the DOM.
 function rewriteLinks(html, file) {
   const baseDir = file.includes('/') ? file.slice(0, file.lastIndexOf('/')) : '';
   return html

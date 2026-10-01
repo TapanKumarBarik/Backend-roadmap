@@ -3,7 +3,7 @@ import {
   HamburgerIcon, SearchIcon, SunIcon, MoonIcon, AutoIcon, MenuDotsIcon,
   ExportIcon, ImportIcon, ResetIcon, ExpandIcon, CollapseIcon, KeysIcon, SignOutIcon, TrashIcon,
   MailIcon, ClockIcon
-} from '../icons.jsx';
+} from '../common/icons.jsx';
 import SignInButton from '../account/SignInButton.jsx';
 import UserAvatar from '../account/UserAvatar.jsx';
 import { BUILD_TIME } from '../../lib/buildInfo.js';

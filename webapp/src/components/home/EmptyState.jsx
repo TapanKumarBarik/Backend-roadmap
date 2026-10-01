@@ -1,10 +1,10 @@
 import { useState } from 'react';
-import { ArrowRightIcon, StarIcon } from '../icons.jsx';
+import { ArrowRightIcon, StarIcon } from '../common/icons.jsx';
 import ProgressStats from './ProgressStats.jsx';
-import { subtreeStats } from '../../lib/progressStats.js';
-import { buildPositions, shortTitle, pickContinue, nextUp, siblingStats, stripOrdinal, studyableFiles } from '../../lib/curriculumPosition.js';
+import { subtreeStats } from '../../lib/curriculum/progressStats.js';
+import { buildPositions, shortTitle, pickContinue, nextUp, siblingStats, stripOrdinal, studyableFiles } from '../../lib/curriculum/curriculumPosition.js';
 import { BUILD_TIME } from '../../lib/buildInfo.js';
-import { routeUrl } from '../../lib/moduleUrl.js';
+import { routeUrl } from '../../lib/curriculum/moduleUrl.js';
 
 // The stylesheet already hides the Ctrl-K hint in the search box on narrow
 // screens, but the body copy went on telling phone users to press a key

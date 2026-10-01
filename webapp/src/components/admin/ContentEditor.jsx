@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react';
 import { fetchAdminContent, saveAdminContent, uploadAdminImage } from '../../lib/api.js';
-import { renderMarkdownDoc } from '../../lib/markdown.js';
-import { BLOCK_TYPES } from '../../lib/contentBlocks.js';
+import { renderMarkdownDoc } from '../../lib/markdown/markdown.js';
+import { BLOCK_TYPES } from '../../lib/markdown/contentBlocks.js';
 import { lineDiff } from '../../lib/lineDiff.js';
 
 function fileToBase64(file) {

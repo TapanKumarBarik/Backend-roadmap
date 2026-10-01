@@ -344,7 +344,7 @@ export async function fetchStreak() {
 
 // Deletes progress/notes/bookmarks/streaks/reactions outright, anonymizes
 // this user's comments and pageview history in place, and signs them out
-// server-side (clears the session cookie) — see the /account route in api-cf/routes/study.js
+// server-side (clears the session cookie) — see the /account route in api/routes/study.js
 // for exactly what "delete my data" does to each table.
 export async function deleteAccount() {
   const res = await fetch('/api/account', { method: 'DELETE' });

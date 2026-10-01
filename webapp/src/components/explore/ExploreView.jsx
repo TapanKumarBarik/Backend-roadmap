@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { groupTags } from '../../lib/tagDomains.js';
+import { groupTags } from '../../lib/curriculum/tagDomains.js';
 
 // The home screen used to open with 26 monospace tag chips ordered by
 // frequency — the loudest thing on the page, above the curriculum itself,

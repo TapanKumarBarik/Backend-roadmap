@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { fetchAllNotes } from '../../lib/api.js';
-import { StarIcon } from '../icons.jsx';
+import { StarIcon } from '../common/icons.jsx';
 
 // Bookmarks and notes were two separate destinations holding the same
 // kind of thing — a module you set aside. One destination, two tabs.

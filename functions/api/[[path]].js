@@ -2,6 +2,6 @@
 // to the Hono app. Bindings (D1 as env.DB, the SAS tokens, SESSION_SECRET,
 // the Google OAuth secrets) arrive on context.env.
 
-import app from '../../api-cf/app.js';
+import app from '../../api/app.js';
 
 export const onRequest = (context) => app.fetch(context.request, context.env, context);

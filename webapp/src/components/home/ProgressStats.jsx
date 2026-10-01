@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { activityByDay, weeklyCounts, paceEstimate } from '../../lib/progressStats.js';
+import { activityByDay, weeklyCounts, paceEstimate } from '../../lib/curriculum/progressStats.js';
 
 const WEEKS = 13;
 const DAYS = WEEKS * 7;

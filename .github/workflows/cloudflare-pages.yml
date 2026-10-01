@@ -29,34 +29,21 @@ jobs:
         with:
           python-version: '3.12'
 
-      # A missing await on isAdmin() silently grants admin to everyone;
-      # see scripts/check-admin-guards.js (covers api/ and api-cf/).
-      - name: Check admin guards
-        run: node scripts/check-admin-guards.js
-
-      # docs-index.json / search-index.json are gitignored and regenerated
-      # on every deploy — same as the old Azure workflow.
-      - name: Regenerate content indexes
-        run: |
-          python scripts/gen-docs-index.py
-          python scripts/gen-search-index.py
-
       # Root deps = hono, which wrangler bundles into the Pages Function.
-      - name: Install API deps
-        run: npm ci
-
-      - name: Build webapp
-        working-directory: webapp
+      - name: Install dependencies
         run: |
-          rm -rf ../assets
           npm ci
-          npm run build
+          npm ci --prefix webapp
 
-      # Only an explicit allowlist is ever uploaded (dist/) — never the repo
-      # root, which also holds source, local secrets and data exports. Then a
-      # real page per module plus the sitemap (webapp/scripts/prerender.mjs).
-      - name: Stage deployable site
-        run: npm run site
+      # A missing await on isAdmin() silently grants admin to everyone;
+      # see scripts/check-admin-guards.js.
+      - name: Check admin guards
+        run: npm run check
+
+      # Assembles the whole site in dist/ — the only thing deployed. See the
+      # "build" script in the root package.json for the steps.
+      - name: Build
+        run: npm run build
 
       # Failures surface as annotations (::error::), which — unlike step logs —
       # are readable on the public repo without signing in.

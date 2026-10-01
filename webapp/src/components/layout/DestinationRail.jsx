@@ -1,4 +1,4 @@
-import { TreeIcon, StarIcon, CompassIcon, FeedIcon, QuestionIcon, BookIcon, LightbulbIcon, WorkspaceIcon, GearIcon } from '../icons.jsx';
+import { TreeIcon, StarIcon, CompassIcon, FeedIcon, QuestionIcon, BookIcon, LightbulbIcon, WorkspaceIcon, GearIcon } from '../common/icons.jsx';
 
 // The permanent left edge: where you can go, not what's in the thing
 // you're looking at. Splitting this out is what lets the curriculum tree

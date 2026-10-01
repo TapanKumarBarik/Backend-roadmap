@@ -1,6 +1,6 @@
 # Running the app locally
 
-The site is a React frontend (`webapp/`) plus an API (`api-cf/`, a Hono app
+The site is a React frontend (`webapp/`) plus an API (`api/`, a Hono app
 served by the Cloudflare Pages Function in `functions/api/[[path]].js`) backed
 by Cloudflare D1. The frontend alone renders the curriculum; everything
 account-shaped — progress sync, comments, notes, bookmarks, the admin
@@ -14,27 +14,26 @@ of D1 (in `.wrangler/state/`), never the production database.
 ### 1. Dependencies
 
 ```bash
-npm install                 # repo root: hono (bundled into the Pages Function)
-cd webapp && npm install
+npm install                    # repo root: hono (bundled into the Pages Function)
+npm install --prefix webapp
 ```
 
-### 2. Content indexes
-
-`docs-index.json` and `search-index.json` are generated from the curriculum
-markdown, not committed — see the note in `.gitignore` for why:
+### 2. Build the site
 
 ```bash
-python3 scripts/gen-docs-index.py
-python3 scripts/gen-search-index.py
+npm run build
 ```
 
-Re-run these after adding or renaming a module. CI does this before every
-deploy, so this only matters for your own clone.
+This assembles the whole site in `dist/` — the only build output; nothing
+generated is written anywhere else. In order: the webapp bundle, the content
+indexes (`docs-index.json`, `search-index.json`), the curriculum trees and
+Cloudflare config, then a pre-rendered page per module plus `sitemap.xml`.
+Re-run it after adding or renaming a module.
 
 ### 3. Local database
 
 ```bash
-npx wrangler d1 execute backend-roadmap-db --local --file=cloudflare/d1-schema.sql
+npx wrangler d1 execute backend-roadmap-db --local --file=api/schema.sql
 ```
 
 ### 4. `.dev.vars`
@@ -48,21 +47,13 @@ cp .dev.vars.example .dev.vars
 
 > [!WARNING]
 > Never deploy the repo root, and never copy `.dev.vars` anywhere under
-> `dist/`. Deploys upload only what `scripts/stage-dist.cjs` allowlists —
-> `wrangler pages deploy` does **not** honor `.assetsignore`, and deploying the
-> root once published this file.
+> `dist/`. Deploys upload only `dist/`, and `scripts/copy-content.cjs` fails
+> the build if anything secret-shaped is in it — `wrangler pages deploy` does
+> **not** honor `.assetsignore`, and deploying the root once published this file.
 
 ## Running it
 
-Two terminals. The API serves from `dist/`, so build and stage once first:
-
-```bash
-cd webapp && npm run build && cd .. && npm run site
-```
-
-`npm run site` stages the allowlisted `dist/` and writes a real HTML page for
-every module plus `sitemap.xml` (`webapp/scripts/prerender.mjs`). Re-run it
-after a webapp build to see changes.
+Two terminals, after `npm run build` (the API serves from `dist/`):
 
 **Backend** (repo root):
 
@@ -91,7 +82,7 @@ include `http://localhost:4173`.
 On any other port you'll get `redirect_uri_mismatch` from Google, or a
 `400 Sign-in link expired or invalid` from the callback — the `oauth_state`
 cookie is host-and-port scoped. See
-[`api-cf/routes/auth.js`](api-cf/routes/auth.js).
+[`api/routes/auth.js`](api/routes/auth.js).
 
 ## Signing in
 
@@ -103,10 +94,12 @@ table, managed from **Admin → People**.
 ## Working without the API
 
 ```bash
-cd webapp && npm run dev -- --port 4173
+npm run dev --prefix webapp -- --port 4173
 ```
 
-Progress tracking still works — it's IndexedDB-backed and only syncs once
+The dev server serves the curriculum from the repo and the indexes from
+`dist/`, so run `npm run build` (or just the two `scripts/gen-*.py`) once
+first. Progress tracking still works — it's IndexedDB-backed and only syncs once
 you're signed in. Everything account-shaped fails its fetch and renders its
 error state.
 
@@ -115,8 +108,8 @@ error state.
 CI runs these:
 
 ```bash
-node scripts/check-admin-guards.js    # every isAdmin() awaited; every API file parses
-cd webapp && npm run build
+npm run check    # every isAdmin() awaited; every API file parses
+npm run build    # the full site build, as deployed
 ```
 
 Pushing to `main` deploys via `.github/workflows/cloudflare-pages.yml`.

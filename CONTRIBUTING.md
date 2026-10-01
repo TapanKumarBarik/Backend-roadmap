@@ -28,16 +28,16 @@ A few conventions worth knowing before you write:
 You do **not** need to touch `docs-index.json` or `search-index.json` — both
 are generated (see below) and regenerated automatically before every deploy.
 
-## The app (`webapp/`, `api-cf/`)
+## The app (`webapp/`, `api/`)
 
 This part is maintained more tightly, since it's live for real users with
 real accounts. Before sending a PR here:
 
 1. Read `LOCAL-SETUP.md` and get the app running locally.
-2. If you touched anything in `api-cf/`, run
+2. If you touched anything in `api/`, run
    `node scripts/check-admin-guards.js` — CI does, and it fails the build if
    an admin check is missing its `await`.
-3. `cd webapp && npm run build` should succeed with no errors.
+3. `npm run build` (repo root) should succeed with no errors.
 4. Say what you tested and how, in the PR description.
 
 For anything more than a small fix, open an issue first to check the
@@ -52,8 +52,8 @@ Not here — see [SECURITY.md](SECURITY.md).
 ## Regenerating the indexes locally
 
 ```bash
-python3 scripts/gen-docs-index.py
-python3 scripts/gen-search-index.py
+python scripts/gen-docs-index.py   # writes dist/docs-index.json
+python scripts/gen-search-index.py # writes dist/search-index.json
 ```
 
 Needed once after cloning (they're gitignored, not committed) and again

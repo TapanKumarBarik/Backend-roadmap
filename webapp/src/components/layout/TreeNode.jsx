@@ -1,6 +1,6 @@
-import { CaretIcon, TickIcon } from '../icons.jsx';
-import { subtreeStats } from '../../lib/progressStats.js';
-import { shortTitle } from '../../lib/curriculumPosition.js';
+import { CaretIcon, TickIcon } from '../common/icons.jsx';
+import { subtreeStats } from '../../lib/curriculum/progressStats.js';
+import { shortTitle } from '../../lib/curriculum/curriculumPosition.js';
 
 export default function TreeNode({
   node, statusMap, openDirs, filter, visibleFiles, currentFile,

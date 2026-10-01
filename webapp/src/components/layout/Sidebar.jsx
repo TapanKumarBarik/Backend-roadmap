@@ -1,5 +1,5 @@
 import Tree from './Tree.jsx';
-import { CaretIcon } from '../icons.jsx';
+import { CaretIcon } from '../common/icons.jsx';
 
 const FILTERS = [
   { key: 'all', label: 'All' },

@@ -243,7 +243,7 @@ study.post('/reactions/:path{.+}', async (c) => {
 // Delete-my-data: hard-delete the private per-user tables, anonymize
 // identity on content other people's threads depend on (comments, feed
 // posts, messages, page views), then clear the session cookie. Mirrors
-// api/src/functions/account.js exactly.
+// the retired Azure API's account deletion exactly.
 study.delete('/account', async (c) => {
   const { session, res } = await requireSession(c);
   if (res) return res;

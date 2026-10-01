@@ -23,7 +23,7 @@ const fs = require('fs');
 const path = require('path');
 const { execFileSync } = require('child_process');
 
-const ROOTS = [path.join(__dirname, '..', 'api-cf')];
+const ROOTS = [path.join(__dirname, '..', 'api')];
 const CALL = /(?<!\.)\bisAdmin\s*\(/g;
 const NL = String.fromCharCode(10);
 

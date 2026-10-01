@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { runSearch, markRuns } from '../../lib/fuzzyScore.js';
-import { searchContent } from '../../lib/contentSearch.js';
+import { runSearch, markRuns } from '../../lib/search/fuzzyScore.js';
+import { searchContent } from '../../lib/search/contentSearch.js';
 
 // Actions make the palette the fast path for everything, not just
 // navigation — and give the utility items a searchable home instead of

@@ -1,6 +1,6 @@
 // Every curriculum module has its own real URL: the folder holding its README,
 // so backend/01-x/02-y/README.md lives at /backend/01-x/02-y/. The deploy build
-// (webapp/scripts/prerender.mjs) writes a static page at each of these so search
+// (scripts/prerender.mjs) writes a static page at each of these so search
 // engines can index modules individually. App screens (__feed, __admin, ...)
 // stay in the hash, as does the rare module that isn't a README.
 

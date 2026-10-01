@@ -1,8 +1,8 @@
 import { useEffect, useState, useCallback } from 'react';
 import { useWorkspace } from '../../hooks/useWorkspace.js';
 import { fetchWorkspacePage, updateWorkspacePage } from '../../lib/api.js';
-import PageTree from '../workspace/PageTree.jsx';
-import BlockEditor from '../workspace/BlockEditor.jsx';
+import PageTree from './PageTree.jsx';
+import BlockEditor from './BlockEditor.jsx';
 
 // A private, per-user Notion-style workspace: a nested tree of pages (left),
 // each holding a real block-editor document (right) — text, to-dos, tables,
