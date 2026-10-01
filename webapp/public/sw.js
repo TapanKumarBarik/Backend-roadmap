@@ -16,8 +16,10 @@
  *   /assets/*       cache-first, permanently. Vite content-hashes these
  *                   filenames, so a given URL's bytes never change.
  *   navigations     network-first. Ensures a deploy is picked up as soon as
- *                   you're online, with the last good shell as the offline
- *                   fallback.
+ *                   you're online. Each page is cached under its own URL
+ *                   (modules have their own pre-rendered pages); offline, an
+ *                   uncached page falls back to the root shell, which routes
+ *                   from the URL like any other page.
  *   docs-index      network-first. This is the NAVIGATION TREE, not content:
  *                   if it is stale, whole tracks are invisible in the sidebar
  *                   and there is no way for the reader to know they exist.
@@ -30,15 +32,17 @@
  *                   A stale module or a missing search hit degrades one
  *                   result; a stale tree hides the curriculum.
  */
-const VERSION = 'v1';
+const VERSION = 'v2';
 const SHELL = `shell-${VERSION}`;
+const PAGES = `pages-${VERSION}`;
 const ASSETS = `assets-${VERSION}`;
 const CONTENT = `content-${VERSION}`;
-const KEEP = new Set([SHELL, ASSETS, CONTENT]);
+const KEEP = new Set([SHELL, PAGES, ASSETS, CONTENT]);
 
 // Enough to cover a serious reading history without letting a long-lived
 // browser profile grow unbounded.
 const MAX_CONTENT_ENTRIES = 400;
+const MAX_PAGES = 200;
 
 self.addEventListener('install', (event) => {
   // Cache the shell up front so a first-ever offline load has something to
@@ -91,6 +95,19 @@ async function networkFirst(request, cacheName, fallbackUrl) {
   }
 }
 
+async function navigation(request) {
+  const pages = await caches.open(PAGES);
+  try {
+    const res = await fetch(request);
+    if (res.ok) pages.put(request, res.clone()).then(() => trim(PAGES, MAX_PAGES));
+    return res;
+  } catch (err) {
+    const hit = (await pages.match(request)) || (await caches.match('/', { cacheName: SHELL }));
+    if (hit) return hit;
+    throw err;
+  }
+}
+
 async function staleWhileRevalidate(request, cacheName) {
   const cache = await caches.open(cacheName);
   const hit = await cache.match(request);
@@ -124,7 +141,7 @@ self.addEventListener('fetch', (event) => {
   }
 
   if (request.mode === 'navigate') {
-    event.respondWith(networkFirst(request, SHELL, '/index.html'));
+    event.respondWith(navigation(request));
     return;
   }
 

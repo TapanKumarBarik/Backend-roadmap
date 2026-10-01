@@ -6,7 +6,7 @@
 let indexPromise = null;
 function loadIndex() {
   if (!indexPromise) {
-    indexPromise = fetch('search-index.json').then((res) => {
+    indexPromise = fetch('/search-index.json').then((res) => {
       if (!res.ok) throw new Error('search index unavailable');
       return res.json();
     });

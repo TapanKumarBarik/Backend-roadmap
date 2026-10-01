@@ -136,6 +136,15 @@ export default function App() {
     trackPageView(currentFile);
   }, [currentFile, nodeByFile, openMany]);
 
+  // Each module page is served with its own <title> (webapp/scripts/prerender.mjs);
+  // keep it right as the reader moves between modules without a page load.
+  // While the docs index is still loading, leave whatever the page shipped with.
+  useEffect(() => {
+    const node = currentFile && nodeByFile[currentFile];
+    if (node) document.title = `${node.title || node.name} · Backend Roadmap`;
+    else if (!path || isSpecialRoute) document.title = 'Curriculum';
+  }, [currentFile, nodeByFile, path, isSpecialRoute]);
+
   const openFile = useCallback((filePath, headingId) => {
     navigate(filePath, headingId || null);
     if (window.innerWidth <= 860) setNavOpen(false);

@@ -1,56 +1,71 @@
 import { useCallback, useEffect, useState } from 'react';
+import { fileFromPathname, routeUrl } from '../lib/moduleUrl.js';
 
-// path@headingId hash format, ported from the vanilla app's openFile()/
-// hashchange listener — with one fix: the vanilla initial-load handler
-// checked `fileRows[fromHash]` directly without splitting on '@', so a deep
-// link with a heading anchor (`#some%2Fpath.md@some-heading`) silently
-// failed to open on first load even though the identical hash worked fine
-// once the app was already running (the hashchange listener DID split on
-// '@'). Both paths go through the same parseHash() here, so that
-// inconsistency can't recur.
+// Where the app is, as { path, heading }:
 //
-// Always uses history.replaceState, never pushState — the vanilla app never
-// pushed either, so there was never a back/forward history stack to begin
-// with; this preserves that (a click never adds a browser-history entry).
+//   /backend/01-x/02-y/#some-heading   a curriculum module — its own page, see
+//                                      lib/moduleUrl.js; the hash is a heading
+//   /#__feed   /#__feed@postId         app screens, which live in the hash
+//   /#backend%2F...%2FREADME.md@h      the original all-hash links. They're in
+//                                      bookmarks and shared links, so they are
+//                                      still accepted, then rewritten to the
+//                                      module's real URL.
 //
-// One small, deliberate simplification vs. the original: an unrecognized
-// hash (edited by hand, or a stale link) resolves to the home/empty state
-// here, rather than the vanilla behavior of silently ignoring it and
-// leaving whatever was already on screen in place. Validating "is this a
-// known file" needs the docs index, which this hook intentionally doesn't
-// depend on — the caller (App) does that check against `path`.
-function parseHash() {
-  const raw = decodeURIComponent(location.hash.replace(/^#/, ''));
-  if (!raw) return { path: null, heading: null };
-  const [path, heading] = raw.split('@');
-  return { path: path || null, heading: heading || null };
+// Like the original hash router, navigation uses replaceState and never adds a
+// browser-history entry.
+function parseLocation() {
+  let hash;
+  try { hash = decodeURIComponent(location.hash.replace(/^#/, '')); } catch { hash = ''; }
+
+  const legacyModule = hash.includes('/') || hash.endsWith('.md');
+  const file = fileFromPathname(location.pathname);
+
+  if (legacyModule || (!file && hash.startsWith('__'))) {
+    const [path, heading] = hash.split('@');
+    return { path: path || null, heading: heading || null };
+  }
+  // On a module page the hash is only ever a heading — including ids like
+  // "__init__" from a Python heading, which must not read as an app screen.
+  return { path: file, heading: file ? hash || null : null };
+}
+
+function withSearch(url) {
+  return url.replace(/#|$/, (m) => location.search + m);
+}
+
+// Rewrites old-style and stray URLs to the one canonical form for this route.
+function canonicalize(route) {
+  if (!route.path) return;
+  const url = routeUrl(route.path, route.heading);
+  if (url !== location.pathname + location.hash) history.replaceState(null, '', withSearch(url));
 }
 
 export function useHashRoute() {
-  const [route, setRoute] = useState(parseHash);
+  const [route, setRoute] = useState(parseLocation);
 
   useEffect(() => {
-    function onHashChange() {
-      setRoute((prev) => {
-        const next = parseHash();
-        return next.path === prev.path && next.heading === prev.heading ? prev : next;
-      });
+    function sync() {
+      const next = parseLocation();
+      canonicalize(next);
+      setRoute((prev) => (next.path === prev.path && next.heading === prev.heading ? prev : next));
     }
-    window.addEventListener('hashchange', onHashChange);
-    return () => window.removeEventListener('hashchange', onHashChange);
+    sync();
+    window.addEventListener('hashchange', sync);
+    window.addEventListener('popstate', sync);
+    return () => {
+      window.removeEventListener('hashchange', sync);
+      window.removeEventListener('popstate', sync);
+    };
   }, []);
 
   const navigate = useCallback((path, heading = null, { updateUrl = true } = {}) => {
     setRoute({ path, heading: heading || null });
-    if (updateUrl) {
-      const hash = '#' + encodeURIComponent(path) + (heading ? '@' + heading : '');
-      history.replaceState(null, '', hash);
-    }
+    if (updateUrl) history.replaceState(null, '', routeUrl(path, heading));
   }, []);
 
   const goHome = useCallback(() => {
     setRoute({ path: null, heading: null });
-    history.replaceState(null, '', location.pathname + location.search);
+    history.replaceState(null, '', '/' + location.search);
   }, []);
 
   return { path: route.path, heading: route.heading, navigate, goHome };

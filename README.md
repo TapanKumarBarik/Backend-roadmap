@@ -65,7 +65,9 @@ D1 database. **[LOCAL-SETUP.md](LOCAL-SETUP.md)** covers both.
 
 Pushes to `main` trigger two workflows: Cloudflare Pages (the live site and API) and GitHub Pages (a
 static mirror with no login/API). See `.github/workflows/`. Only the allowlisted `dist/` built by
-`scripts/stage-dist.cjs` is ever deployed.
+`npm run site` is ever deployed; that step also generates a real, indexable page for every module
+(each at its folder's URL, e.g. `/backend/01-request-response-fundamentals/`) and the sitemap.
+Module content stays in markdown — the HTML is generated from it on every deploy.
 
 ## Contributing
 

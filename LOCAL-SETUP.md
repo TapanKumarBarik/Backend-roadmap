@@ -57,8 +57,12 @@ cp .dev.vars.example .dev.vars
 Two terminals. The API serves from `dist/`, so build and stage once first:
 
 ```bash
-cd webapp && npm run build && cd .. && node scripts/stage-dist.cjs
+cd webapp && npm run build && cd .. && npm run site
 ```
+
+`npm run site` stages the allowlisted `dist/` and writes a real HTML page for
+every module plus `sitemap.xml` (`webapp/scripts/prerender.mjs`). Re-run it
+after a webapp build to see changes.
 
 **Backend** (repo root):
 

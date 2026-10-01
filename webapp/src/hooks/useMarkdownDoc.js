@@ -15,7 +15,7 @@ export function useMarkdownDoc(path) {
     }
     let cancelled = false;
     setState({ html: null, rawText: null, loading: true, error: null });
-    fetch(path)
+    fetch('/' + path)
       .then((res) => {
         if (!res.ok) throw new Error(res.status + ' ' + res.statusText);
         return res.text();

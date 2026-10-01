@@ -4,6 +4,7 @@ import ProgressStats from './ProgressStats.jsx';
 import { subtreeStats } from '../../lib/progressStats.js';
 import { buildPositions, shortTitle, pickContinue, nextUp, siblingStats, stripOrdinal, studyableFiles } from '../../lib/curriculumPosition.js';
 import { BUILD_TIME } from '../../lib/buildInfo.js';
+import { routeUrl } from '../../lib/moduleUrl.js';
 
 // The stylesheet already hides the Ctrl-K hint in the search box on narrow
 // screens, but the body copy went on telling phone users to press a key
@@ -78,7 +79,7 @@ export default function EmptyState({
           <div className="home-h">{started ? 'Continue learning' : 'Start here'}</div>
           <a
             className="continue-card"
-            href={'#' + encodeURIComponent(continueFile)}
+            href={routeUrl(continueFile)}
             onClick={(e) => { e.preventDefault(); onOpenFile(continueFile); }}
           >
             <div className="continue-main">

@@ -1,6 +1,10 @@
+import { routeUrl } from './moduleUrl.js';
+
 // Manual ../. relative-path resolver, ported verbatim. Content is fetch()ed
 // as text with no real page navigation happening, so there's no natural
 // browser base URL to resolve markdown-relative image/link paths against.
+// Results are repo-relative; prefix '/' before using one as a URL, since the
+// page itself may be at a nested module URL.
 export function resolvePath(baseDir, rel) {
   const stack = baseDir ? baseDir.split('/') : [];
   rel.split('/').forEach((p) => {
@@ -29,7 +33,7 @@ export function rewriteLinks(root, filePath, fileSet, dirIndex) {
     const src = img.getAttribute('src');
     if (!src) return;
     if (!ABSOLUTE_URL_RE.test(src) && !src.startsWith('data:') && !src.startsWith('/')) {
-      img.setAttribute('src', resolvePath(baseDir, src));
+      img.setAttribute('src', '/' + resolvePath(baseDir, src));
     }
     img.loading = 'lazy';
     img.addEventListener('error', () => {
@@ -60,12 +64,12 @@ export function rewriteLinks(root, filePath, fileSet, dirIndex) {
     else if (dirIndex[clean]) target = dirIndex[clean];
 
     if (target) {
-      a.setAttribute('href', '#' + encodeURIComponent(target));
+      a.setAttribute('href', routeUrl(target, hash || null));
       a.dataset.internalLink = 'true';
       a.dataset.path = target;
       if (hash) a.dataset.heading = hash;
     } else {
-      a.setAttribute('href', resolved + (hash ? '#' + hash : ''));
+      a.setAttribute('href', '/' + resolved + (hash ? '#' + hash : ''));
     }
   });
 }

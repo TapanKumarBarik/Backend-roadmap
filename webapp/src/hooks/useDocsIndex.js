@@ -20,7 +20,7 @@ export function useDocsIndex() {
 
   useEffect(() => {
     let cancelled = false;
-    fetch('docs-index.json')
+    fetch('/docs-index.json')
       .then((res) => {
         if (!res.ok) throw new Error('docs-index.json fetch failed: ' + res.status);
         return res.json();

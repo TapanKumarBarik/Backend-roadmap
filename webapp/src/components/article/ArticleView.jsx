@@ -3,6 +3,7 @@ import { useMarkdownDoc } from '../../hooks/useMarkdownDoc.js';
 import { enhanceContent } from '../../lib/enhanceContent.js';
 import { renderMermaidDiagrams } from '../../lib/mermaidRender.js';
 import { rewriteLinks } from '../../lib/rewriteLinks.js';
+import { routeUrl } from '../../lib/moduleUrl.js';
 import { readTimeStats, slugify } from '../../lib/markdown.js';
 import { buildPositions, siblingStats } from '../../lib/curriculumPosition.js';
 import { getPosition, savePosition, clearPosition, describeWhen } from '../../lib/readingPosition.js';
@@ -158,7 +159,7 @@ export default function ArticleView({
       e.preventDefault();
       const id = anchor.dataset.headingAnchor;
       document.getElementById(id)?.scrollIntoView({ block: 'start' });
-      history.replaceState(null, '', '#' + encodeURIComponent(path) + '@' + id);
+      history.replaceState(null, '', routeUrl(path, id));
       return;
     }
     const copyBtn = e.target.closest('.cb-copy');
@@ -211,7 +212,7 @@ export default function ArticleView({
               <Fragment key={i}>
                 {i > 0 && <span className="sep">/</span>}
                 {!last && targetFile
-                  ? <a href={'#' + encodeURIComponent(targetFile)} onClick={(e) => { e.preventDefault(); onOpenFile(targetFile); }}>{p}</a>
+                  ? <a href={routeUrl(targetFile)} onClick={(e) => { e.preventDefault(); onOpenFile(targetFile); }}>{p}</a>
                   : <span className={last ? 'cur' : ''}>{label}</span>}
               </Fragment>
             );
@@ -367,14 +368,14 @@ export default function ArticleView({
           leaving one card floating against a gap. */}
       <nav id="pager" className={prevFile && nextFile ? '' : 'single'}>
         {prevFile && (
-          <a className="pg prev" href={'#' + encodeURIComponent(prevFile)}
+          <a className="pg prev" href={routeUrl(prevFile)}
             onClick={(e) => { e.preventDefault(); onOpenFile(prevFile); }}>
             <span className="lbl">← Previous</span>
             <span className="ttl">{nodeByFile[prevFile]?.title || nodeByFile[prevFile]?.name}</span>
           </a>
         )}
         {nextFile && (
-          <a className="pg next" href={'#' + encodeURIComponent(nextFile)}
+          <a className="pg next" href={routeUrl(nextFile)}
             onClick={(e) => { e.preventDefault(); onOpenFile(nextFile); }}>
             <span className="lbl">Next →</span>
             <span className="ttl">{nodeByFile[nextFile]?.title || nodeByFile[nextFile]?.name}</span>

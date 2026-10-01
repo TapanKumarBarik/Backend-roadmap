@@ -3,6 +3,9 @@
   "private": true,
   "type": "module",
   "description": "Cloudflare Pages Functions API (migrated from Azure Functions)",
+  "scripts": {
+    "site": "node scripts/stage-dist.cjs && node webapp/scripts/prerender.mjs"
+  },
   "dependencies": {
     "hono": "^4.6.14"
   }
