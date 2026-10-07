@@ -1,0 +1,26 @@
+name: Feature request
+description: An idea for the learning app, the API, or the curriculum itself
+title: "Idea: "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would you like to see?
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: Why would it help learners?
+      description: The problem it solves, or the moment in learning it improves.
+  - type: dropdown
+    id: help
+    attributes:
+      label: Would you like to build it?
+      options:
+        - Yes, I'd like to build it
+        - Maybe, with some guidance
+        - No, I'm just suggesting it
+    validations:
+      required: true

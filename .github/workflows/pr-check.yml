@@ -1,0 +1,46 @@
+name: PR checks
+
+# Builds the whole site on every pull request so contributors get feedback
+# before review. No deploy and no secrets — safe for pull requests from forks.
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            webapp/package-lock.json
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          npm ci
+          npm ci --prefix webapp
+
+      # A missing await on isAdmin() silently grants admin to everyone;
+      # see scripts/check-admin-guards.js.
+      - name: Check admin guards
+        run: npm run check
+
+      - name: Build the site
+        run: npm run build

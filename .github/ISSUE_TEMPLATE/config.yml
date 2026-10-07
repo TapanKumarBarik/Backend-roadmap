@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/TapanKumarBarik/Backend-roadmap/blob/main/SECURITY.md
+    about: Please don't file security issues publicly - follow the private process in SECURITY.md.
+  - name: How to contribute
+    url: https://github.com/TapanKumarBarik/Backend-roadmap#contribute
+    about: Where help is needed, the modules waiting for authors, and how to start.

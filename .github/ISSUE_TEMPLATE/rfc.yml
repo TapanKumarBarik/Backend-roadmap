@@ -1,0 +1,43 @@
+name: RFC - propose a better approach
+description: Suggest a different design, structure or architecture (big or small)
+title: "RFC: "
+labels: ["rfc"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Better ideas are welcome — for the content, the learning experience, or the whole stack. Nothing here is set in stone.
+
+        The more of the four sections below you can fill in, the easier it is to discuss. A prototype or branch beats a long argument, but a sharp critique of the current design is a contribution too.
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What's wrong or missing today, and who feels it?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Your proposal
+      description: Enough detail that someone else can evaluate it.
+    validations:
+      required: true
+  - type: textarea
+    id: tradeoffs
+    attributes:
+      label: Trade-offs and alternatives
+      description: What gets worse? What does it cost? What else did you consider?
+    validations:
+      required: true
+  - type: textarea
+    id: migration
+    attributes:
+      label: Migration
+      description: How do we get there without breaking module URLs, learners' saved progress, or existing contributions?
+  - type: checkboxes
+    id: help
+    attributes:
+      label: Can you help build it?
+      options:
+        - label: I'm willing to prototype or implement this.

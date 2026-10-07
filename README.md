@@ -175,7 +175,7 @@ git grep -l "has not been written yet" -- genai
 **How to claim one (so two people don't write the same module):**
 
 1. **Pick** a module — or a whole track if you're feeling ambitious.
-2. **[Open an issue](https://github.com/TapanKumarBarik/Backend-roadmap/issues/new)** titled `Claim: genai/09-retrieval-augmented-generation/01-naive-rag-end-to-end` so others can see it's taken. Say roughly when you expect to have a draft.
+2. **Claim it** — click **Claim this module** on the module's page on the site, or [open an issue](https://github.com/TapanKumarBarik/Backend-roadmap/issues/new?template=claim-a-module.yml) titled `Claim: genai/09-retrieval-augmented-generation/01-naive-rag-end-to-end` — so others can see it's taken. Say roughly when you expect to have a draft.
 3. **Write it** using the [module recipe](#what-a-great-module-looks-like) below. Replace the placeholder file's content entirely.
 4. **Open a pull request.** One module per PR is the easiest to review. A draft PR early is welcome — you'll get feedback before you've sunk a weekend into it.
 
@@ -201,7 +201,7 @@ What improvement looks like:
 - **Add "Further reading & sources" to `learn/`** — most modules in `learn/` tracks 04–24 are missing this section. Each one needs a handful of *real, authoritative* links (official docs, RFCs, papers, well-known talks) with a one-line reason each. Perfect first PR; no deep expertise needed beyond judging a good source.
 - **Check the commands.** Run the shell commands and code in a module on a clean machine. If something fails or is outdated, fix it and say what you tested on.
 - **Add a diagram or an exercise** where a module has a wall of text.
-- **Fix a typo, a broken link, or a confusing sentence.** Every module page has a comments section too — if you spot an issue, you're welcome to raise it there or here.
+- **Fix a typo, a broken link, or a confusing sentence.** Click **Edit this page on GitHub** at the bottom of any module on the site — GitHub walks you through forking and opening the PR in your browser, no setup needed.
 
 ### What a great module looks like
 
@@ -339,7 +339,7 @@ The app and API are a real, live codebase, so changes there are reviewed a littl
 
   > interactive labs and in-browser code exercises · a system-design playground · architecture visualisations · personalised learning paths · an AI study assistant · interview-prep mode · richer progress analytics · community-written modules · real-world project walkthroughs
 
-For anything bigger than a small fix, **open an issue first** so we can agree on the direction before you invest the time — larger changes are much easier to align on before the code is written than after. [CONTRIBUTING.md](CONTRIBUTING.md) has the checklist; [ROADMAP.md](ROADMAP.md) lists what's shipped and what's planned.
+For anything bigger than a small fix, **open an issue first** so we can agree on the direction before you invest the time — larger changes are much easier to align on before the code is written than after. [CONTRIBUTING.md](CONTRIBUTING.md) has the full guide and checklist; [ROADMAP.md](ROADMAP.md) lists what's shipped and what's planned.
 
 ### Open to better ideas — including the architecture
 
@@ -441,7 +441,7 @@ dist/                         the built site (gitignored) — the only thing dep
 
 ## Community
 
-- **Be kind.** Assume good intent, critique ideas and content rather than people, and help newcomers the way you'd want to be helped. Harassment and discrimination aren't tolerated; maintainers may remove comments or contributions that cross that line.
+- **Be kind.** Assume good intent, critique ideas and content rather than people, and help newcomers the way you'd want to be helped. We follow the [Code of Conduct](CODE_OF_CONDUCT.md); harassment and discrimination aren't tolerated, and maintainers may remove comments or contributions that cross that line.
 - **Questions, ideas, "I'd like to help with…"** → [open an issue](https://github.com/TapanKumarBarik/Backend-roadmap/issues/new). There are no silly questions here.
 - **Found a security problem?** Please don't file it publicly — see [SECURITY.md](SECURITY.md).
 - **Found something wrong in a module?** Use the [content-issue template](https://github.com/TapanKumarBarik/Backend-roadmap/issues/new?template=content-issue.md), or just fix it and send a PR.

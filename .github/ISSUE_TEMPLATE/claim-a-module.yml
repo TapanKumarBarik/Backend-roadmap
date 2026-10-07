@@ -1,0 +1,45 @@
+name: Claim a module
+description: Say you're writing a module, so two people don't write the same one
+title: "Claim: "
+labels: ["claim-a-module", "content"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for picking one up! Unwritten modules say *"Content for this module has not been written yet."* — list them with `git grep -l "has not been written yet" -- genai`.
+
+        Claiming just lets others know it's taken. Nothing is locked: if life gets busy, say so here and someone else can take over.
+  - type: input
+    id: module
+    attributes:
+      label: Module
+      description: The folder path of the module (or track) you'll write.
+      placeholder: genai/09-retrieval-augmented-generation/01-naive-rag-end-to-end
+    validations:
+      required: true
+  - type: dropdown
+    id: when
+    attributes:
+      label: When do you expect a first draft?
+      description: A rough guess is fine — it helps others plan.
+      options:
+        - Within a week
+        - Within two weeks
+        - Within a month
+        - Not sure yet
+    validations:
+      required: true
+  - type: textarea
+    id: notes
+    attributes:
+      label: Anything else?
+      description: Your background with the topic, questions about scope, or a plan for the hands-on exercises.
+  - type: checkboxes
+    id: recipe
+    attributes:
+      label: Before you start
+      options:
+        - label: I've read the [module recipe](https://github.com/TapanKumarBarik/Backend-roadmap#what-a-great-module-looks-like) and the [contributing guide](https://github.com/TapanKumarBarik/Backend-roadmap/blob/main/CONTRIBUTING.md).
+          required: true
+        - label: I'll run every command and code sample I include, and cite real sources.
+          required: true
