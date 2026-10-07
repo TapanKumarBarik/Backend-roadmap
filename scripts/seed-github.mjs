@@ -257,7 +257,7 @@ Cloudflare Pages Functions can't run on a cron schedule, so this needs a small s
   },
   {
     title: 'Describe the API with OpenAPI',
-    labels: ['docs', 'api', 'help wanted'],
+    labels: ['documentation', 'api', 'help wanted'],
     refs: ['api/app.js', 'api/routes/feed.js', 'webapp/src/lib/api.js'],
     body: `The API (\`api/routes/*\`) has no machine-readable description. An OpenAPI document would make it easier for contributors to understand and test.
 
@@ -375,7 +375,7 @@ const LABELS = {
   accessibility: ['d4c5f9', 'Accessibility'],
   performance: ['d4c5f9', 'Performance'],
   tooling: ['ededed', 'Build, CI and developer tooling'],
-  docs: ['0075ca', 'Documentation'],
+  documentation: ['0075ca', 'Improvements or additions to documentation'],
   rfc: ['b60205', 'A proposal to discuss'],
   enhancement: ['a2eeef', 'New feature or request']
 };
