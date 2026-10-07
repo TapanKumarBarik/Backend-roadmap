@@ -106,7 +106,7 @@ for (const t of dirs('genai').filter((d) => /^\d\d-/.test(d))) {
   const trackTitle = title(read(`genai/${t}/README.md`), t).replace(/^Track\s+\d+\s*:\s*/i, '');
   add({
     title: `Write genai/${t} — ${open.length} modules need an author`,
-    labels: ['claim-a-module', 'content', 'track:genai', 'help wanted', 'hacktoberfest'],
+    labels: ['claim-a-module', 'content', 'track:genai', 'help wanted'],
     body: `**Track ${num}: ${trackTitle}** has **${open.length} modules that are placeholders** (their README says *“Content for this module has not been written yet.”*).
 
 **What this track covers:** ${genaiTopics(num)}
@@ -132,7 +132,7 @@ for (let i = 0; i < learnTracks.length; i += 3) {
   const range = group.length > 1 ? `${group[0].t.slice(0, 2)}–${group[group.length - 1].t.slice(0, 2)}` : group[0].t.slice(0, 2);
   add({
     title: `Add “Further reading & sources” to learn/ tracks ${range} (${total} modules)`,
-    labels: ['good first issue', 'content', 'track:learn', 'help wanted', 'hacktoberfest'],
+    labels: ['good first issue', 'content', 'track:learn', 'help wanted'],
     body: `Every module should end with **Further reading & sources**: a few real, authoritative links, each with a one-line reason. These ${total} modules don't have the section yet. It's a great first contribution — you need to judge a good source, not be a deep expert.
 
 ${SOURCES_HELP}
@@ -152,7 +152,7 @@ for (const track of ['backend', 'lld']) {
   if (!total) continue;
   add({
     title: `Add “Further reading & sources” to ${total} ${track}/ modules`,
-    labels: ['good first issue', 'content', `track:${track}`, 'help wanted', 'hacktoberfest'],
+    labels: ['good first issue', 'content', `track:${track}`, 'help wanted'],
     body: `${total} ${track}/ modules are missing the **Further reading & sources** section every module should end with.
 
 ${SOURCES_HELP}
@@ -170,7 +170,7 @@ Comment below with what you're taking.`
 const staticIssues = [
   {
     title: 'Add unit tests for the markdown pipeline (Vitest)',
-    labels: ['good first issue', 'testing', 'app', 'help wanted', 'hacktoberfest'],
+    labels: ['good first issue', 'testing', 'app', 'help wanted'],
     refs: ['webapp/src/lib/curriculum/moduleUrl.js', 'webapp/src/lib/markdown/rewriteLinks.js', 'webapp/src/lib/markdown/contentBlocks.js', 'webapp/package.json'],
     body: `The app has **no automated tests** yet. A small, well-contained place to start: the pure functions in \`webapp/src/lib/\`.
 
@@ -199,7 +199,7 @@ Run it from \`npm run check\` / the PR workflow once it's stable.`
   },
   {
     title: 'Accessibility audit of the module page (and fix what you find)',
-    labels: ['accessibility', 'app', 'help wanted', 'hacktoberfest'],
+    labels: ['accessibility', 'app', 'help wanted'],
     refs: ['webapp/src/components/article/ArticleView.jsx', 'webapp/src/components/layout/Sidebar.jsx'],
     body: `Learners use keyboards, screen readers and zoom. Let's make sure the module page works for all of them.
 
@@ -213,7 +213,7 @@ Start in \`webapp/src/components/article/ArticleView.jsx\` and \`webapp/src/comp
   },
   {
     title: 'Check the app on small phones (320–360px) and fix layout bugs',
-    labels: ['good first issue', 'app', 'help wanted', 'hacktoberfest'],
+    labels: ['good first issue', 'app', 'help wanted'],
     refs: ['webapp/src/styles/global.css'],
     body: `Many learners read on a phone. Open the site at **320, 360 and 390px** wide (browser devtools are fine), light and dark, and look for anything cut off, overlapping, too small to tap, or scrolling sideways — module pages with wide tables or code, the sidebar drawer, the bottom navigation, the feed and workspace.
 
@@ -280,7 +280,7 @@ Existing modules won't all pass, so start as **warnings**, or check only files c
   },
   {
     title: 'Find and fix broken external links in “Further reading” sections',
-    labels: ['good first issue', 'tooling', 'content', 'help wanted', 'hacktoberfest'],
+    labels: ['good first issue', 'tooling', 'content', 'help wanted'],
     refs: ['CONTRIBUTING.md'],
     body: `Hundreds of modules cite external sources, and links rot. Run a link checker (e.g. [lychee](https://github.com/lycheeverse/lychee)) over \`backend/\`, \`learn/\`, \`genai/\` and \`lld/\`, then:
 
@@ -362,7 +362,6 @@ const LABELS = {
   'good first issue': ['7057ff', 'Good for newcomers'],
   'help wanted': ['008672', 'Extra attention is welcome'],
   'claim-a-module': ['fbca04', 'A module (or track) that needs an author'],
-  hacktoberfest: ['ff7518', 'Eligible for Hacktoberfest'],
   welcome: ['bfd4f2', 'Introductions and getting started'],
   content: ['1d76db', 'Curriculum markdown'],
   'track:genai': ['c5def5', 'GenAI curriculum'],
@@ -381,7 +380,7 @@ const LABELS = {
   enhancement: ['a2eeef', 'New feature or request']
 };
 
-const TOPICS = ['backend', 'backend-development', 'system-design', 'roadmap', 'learning-path', 'curriculum', 'kubernetes', 'docker', 'devops', 'terraform', 'genai', 'rag', 'ai-agents', 'mcp', 'vllm', 'langgraph', 'low-level-design', 'design-patterns', 'education', 'hacktoberfest'];
+const TOPICS = ['backend', 'backend-development', 'system-design', 'roadmap', 'learning-path', 'curriculum', 'kubernetes', 'docker', 'devops', 'terraform', 'genai', 'rag', 'ai-agents', 'mcp', 'vllm', 'langgraph', 'low-level-design', 'design-patterns', 'education', 'open-source'];
 const DESCRIPTION = 'Free, open-source, hands-on curriculum for backend engineering, system design, cloud/DevOps and GenAI — built in the open. Contributors welcome.';
 
 // ───────────────────────────────── output ─────────────────────────────────
