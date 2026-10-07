@@ -2,11 +2,12 @@ import { useRef } from 'react';
 import {
   HamburgerIcon, SearchIcon, SunIcon, MoonIcon, AutoIcon, MenuDotsIcon,
   ExportIcon, ImportIcon, ResetIcon, ExpandIcon, CollapseIcon, KeysIcon, SignOutIcon, TrashIcon,
-  MailIcon, ClockIcon
+  MailIcon, ClockIcon, GithubIcon
 } from '../common/icons.jsx';
 import SignInButton from '../account/SignInButton.jsx';
 import UserAvatar from '../account/UserAvatar.jsx';
 import { BUILD_TIME } from '../../lib/buildInfo.js';
+import { CONTRIBUTE_URL } from '../../lib/curriculum/contribute.js';
 
 const THEME_ICON = { auto: AutoIcon, light: SunIcon, dark: MoonIcon };
 
@@ -152,6 +153,11 @@ export default function TopBar({
         <div className="grp">View</div>
         <button onClick={() => handleMenuAction('expand')}><ExpandIcon />Expand all</button>
         <button onClick={() => handleMenuAction('collapse')}><CollapseIcon />Collapse all</button>
+        <div className="div" />
+        <div className="grp">Open source</div>
+        <button onClick={() => { onCloseMenu(); window.open(CONTRIBUTE_URL, '_blank', 'noopener,noreferrer'); }}>
+          <GithubIcon />Contribute on GitHub
+        </button>
         <div className="div" />
         <button onClick={() => handleMenuAction('keys')}><KeysIcon />Keyboard shortcuts</button>
         <button onClick={() => handleMenuAction('deployed')}><ClockIcon />Last deployed</button>

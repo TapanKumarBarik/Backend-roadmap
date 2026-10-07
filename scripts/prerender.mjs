@@ -93,7 +93,7 @@ const HIDE_UNTIL_NO_JS =
 const jsonLd = (data) =>
   `<script type="application/ld+json">${JSON.stringify(data).replace(/</g, '\\u003c')}</script>`;
 
-function page({ title, fullTitle, description, url, type, ld, body }) {
+function page({ title, fullTitle, description, url, type, ld, body, noindex = false }) {
   let html = template;
   html = replaceOnce(html, /<title>[^<]*<\/title>/, `<title>${esc(fullTitle)}</title>`);
   html = replaceOnce(html, /<meta name="description" content="[^"]*">/, `<meta name="description" content="${esc(description)}">`);
@@ -102,13 +102,15 @@ function page({ title, fullTitle, description, url, type, ld, body }) {
   html = replaceOnce(html, /<meta property="og:type" content="[^"]*">/, `<meta property="og:type" content="${type}">`);
   html = replaceOnce(html, /<meta property="og:title" content="[^"]*">/, `<meta property="og:title" content="${esc(title)}">`);
   html = replaceOnce(html, /<meta property="og:description" content="[^"]*">/, `<meta property="og:description" content="${esc(description)}">`);
-  html = replaceOnce(html, /<\/head>/, `${HIDE_UNTIL_NO_JS}${jsonLd(ld)}</head>`);
+  const robots = noindex ? '<meta name="robots" content="noindex, follow">' : '';
+  html = replaceOnce(html, /<\/head>/, `${robots}${HIDE_UNTIL_NO_JS}${jsonLd(ld)}</head>`);
   html = replaceOnce(html, /<div id="root"><\/div>/, `<div id="root"><div class="prerender">${body}</div></div>`);
   return html;
 }
 
 const urls = ['/'];
 let written = 0;
+let skipped = 0;
 
 for (const { node, ancestors } of modules) {
   const url = moduleUrl(node.file);
@@ -116,7 +118,13 @@ for (const { node, ancestors } of modules) {
   if (!url || !fs.existsSync(source)) continue;
 
   const title = node.title || node.name;
-  const html = rewriteLinks(renderMarkdownDoc(fs.readFileSync(source, 'utf8')), node.file);
+  const raw = fs.readFileSync(source, 'utf8');
+  // An unwritten module is a placeholder, not content: keep it out of the index
+  // and the sitemap (thin pages drag down a whole site's ranking). It reappears
+  // on the next build once someone writes it. Same marker the app checks
+  // (webapp/src/lib/curriculum/contribute.js).
+  const placeholder = raw.split('\n', 25).join('\n').includes('has not been written yet');
+  const html = rewriteLinks(renderMarkdownDoc(raw), node.file);
   const track = ancestors[0]?.title || title;
   const description = describe(html, `${title} — part of the ${track} curriculum on ${SITE_NAME}.`);
 
@@ -129,6 +137,7 @@ for (const { node, ancestors } of modules) {
     description,
     url,
     type: 'article',
+    noindex: placeholder,
     ld: {
       '@context': 'https://schema.org',
       '@graph': [
@@ -153,8 +162,9 @@ for (const { node, ancestors } of modules) {
   const dir = path.join(DIST, ...decodeURIComponent(url).split('/').filter(Boolean));
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(path.join(dir, 'index.html'), out);
-  urls.push(url);
+  if (!placeholder) urls.push(url);
   written++;
+  if (placeholder) skipped++;
 }
 
 // Home: the tracks and their sections, so crawlers can walk in from the root.
@@ -182,4 +192,4 @@ fs.writeFileSync(path.join(DIST, 'sitemap.xml'),
   urls.map((u) => `  <url><loc>${esc(SITE + u)}</loc></url>`).join('\n') +
   '\n</urlset>\n');
 
-console.log(`prerender: ${written} module pages, sitemap with ${urls.length} URLs`);
+console.log(`prerender: ${written} module pages (${skipped} placeholders set to noindex), sitemap with ${urls.length} URLs`);

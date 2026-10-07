@@ -4,6 +4,7 @@ import { enhanceContent } from '../../lib/markdown/enhanceContent.js';
 import { renderMermaidDiagrams } from '../../lib/markdown/mermaidRender.js';
 import { rewriteLinks } from '../../lib/markdown/rewriteLinks.js';
 import { routeUrl } from '../../lib/curriculum/moduleUrl.js';
+import { isPlaceholder, editUrl, reportUrl, claimUrl, WRITE_GUIDE_URL } from '../../lib/curriculum/contribute.js';
 import { readTimeStats, slugify } from '../../lib/markdown/markdown.js';
 import { buildPositions, siblingStats } from '../../lib/curriculum/curriculumPosition.js';
 import { getPosition, savePosition, clearPosition, describeWhen } from '../../lib/curriculum/readingPosition.js';
@@ -189,6 +190,7 @@ export default function ArticleView({
   const nextFile = idx >= 0 && idx < flatFiles.length - 1 ? flatFiles[idx + 1] : null;
   const nodeTags = (node && node.tags) || [];
   const readTime = rawText ? readTimeStats(rawText) : null;
+  const placeholder = isPlaceholder(rawText);
 
   // Walks the whole tree, so keep it off the per-render path — it only
   // changes when docs-index.json does.
@@ -304,6 +306,21 @@ export default function ArticleView({
         </div>
       )}
 
+      {placeholder && (
+        <aside className="help-write" aria-label="This module is open for an author">
+          <div className="help-write-h">This module hasn&apos;t been written yet</div>
+          <p>
+            It&apos;s planned, and this project is open source — <strong>you can write it</strong>. Claim it
+            first so two people don&apos;t write the same module, then follow the recipe.
+          </p>
+          <div className="help-write-acts">
+            <a className="btn-primary" href={claimUrl(path)} target="_blank" rel="noopener noreferrer">Claim this module</a>
+            <a className="btn-ghost" href={editUrl(path)} target="_blank" rel="noopener noreferrer">Write it on GitHub</a>
+            <a className="btn-ghost" href={WRITE_GUIDE_URL} target="_blank" rel="noopener noreferrer">How to write a module</a>
+          </div>
+        </aside>
+      )}
+
       {loading && <div id="content"><p style={{ color: 'var(--fg-subtle)' }}>Loading…</p></div>}
       {error && (
         <div id="content">
@@ -382,6 +399,15 @@ export default function ArticleView({
           </a>
         )}
       </nav>
+
+      {!placeholder && html != null && (
+        <p className="edit-on-github">
+          Found a mistake, or know a better way to explain this?{' '}
+          <a href={editUrl(path)} target="_blank" rel="noopener noreferrer">Edit this page on GitHub</a>
+          {' · '}
+          <a href={reportUrl(path)} target="_blank" rel="noopener noreferrer">Report a problem</a>
+        </p>
+      )}
     </article>
   );
 }

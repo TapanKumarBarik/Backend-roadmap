@@ -623,6 +623,22 @@ h1:hover .anchor, h2:hover .anchor, h3:hover .anchor, h4:hover .anchor { opacity
   background: var(--signal); border-color: var(--signal); color: #fff; font-weight: 600;
 }
 
+/* ---------- contribute links ----------
+   Where reading turns into improving: the banner on a module nobody has
+   written yet, and the quiet "edit this page" line under every other one. */
+.help-write {
+  margin: 4px 0 22px; padding: 16px 18px;
+  border: 1px dashed var(--signal-line); border-radius: var(--r-lg); background: var(--signal-bg);
+}
+.help-write-h { font-size: 15px; font-weight: 640; color: var(--fg); }
+.help-write p { margin: 6px 0 12px; font-size: 13.5px; color: var(--fg-muted); line-height: 1.5; }
+.help-write-acts { display: flex; flex-wrap: wrap; gap: 8px; }
+.help-write-acts a { text-decoration: none; }
+.help-write-acts a:hover { text-decoration: none; }
+.edit-on-github { margin: 20px 0 0; font-size: 12.5px; color: var(--fg-subtle); }
+.edit-on-github a { color: var(--fg-muted); text-decoration: underline; text-underline-offset: 2px; }
+.edit-on-github a:hover { color: var(--fg); }
+
 /* prev / next */
 #pager { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 24px; }
 /* First and last module of the whole curriculum only have one neighbour —
