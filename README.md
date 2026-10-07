@@ -125,6 +125,8 @@ The curriculum is read through a purpose-built web app (React + Vite) at **[back
 
 > **You do not need to be an expert.** If you're learning backend engineering and want to contribute *while* learning, that's welcome — writing a module is one of the best ways to understand a topic. If you're experienced, your review is worth more than you think.
 
+> **Nothing here is set in stone.** If you think a module is wrong, a better structure exists, or **the whole app should be built differently**, say so. Better ideas are the point — [see how to propose one](#open-to-better-ideas--including-the-architecture).
+
 This project is run on a simple idea:
 
 > **"Let's build this properly."** &nbsp;— not a drive-by PR and then silence, but a few people who care about making this the best free resource for backend engineers.
@@ -140,6 +142,7 @@ This project is run on a simple idea:
 | **UI / UX designer** | Learning-flow ideas, diagrams that teach, a design pass on the module page, a better progress dashboard |
 | **Backend dev (the app's API)** | Tests for the API · suggestion status tracking · scheduled backups · pagination · OpenAPI docs |
 | **Technical writer / editor** | Clarity edits, consistent terminology, shorter explanations, better examples |
+| **Senior engineer / architect** | **Challenge the existing content and the architecture** — [propose a better approach](#open-to-better-ideas--including-the-architecture) |
 | **Teacher / mentor / student** | Tell us where you got stuck — **a confusing paragraph is a bug**. [Open an issue](https://github.com/TapanKumarBarik/Backend-roadmap/issues/new) |
 | **Translator** | Open an issue to discuss translating a track before starting |
 | **Anyone with 5 minutes** | Fix a typo, a broken link, or an outdated command |
@@ -177,6 +180,21 @@ git grep -l "has not been written yet" -- genai
 4. **Open a pull request.** One module per PR is the easiest to review. A draft PR early is welcome — you'll get feedback before you've sunk a weekend into it.
 
 Claimed something and life got busy? No problem — just say so on the issue and someone else can pick it up.
+
+### Improve existing content
+
+**Making a module that exists better is just as valuable as writing a new one** — often more, because many people have already read it. The ~520 written modules aren't finished or sacred; if you know a better way to explain something, change it.
+
+What improvement looks like:
+
+- **Correct it.** A wrong claim, an outdated version, a command that no longer works, a number that's off. If you're disagreeing with what a module says, link the source that backs you up.
+- **Explain it better.** A clearer analogy, a shorter path to the idea, a diagram that replaces three paragraphs, a worked example where there was only theory.
+- **Deepen it.** Add the failure mode people hit in production, the trade-off the module glossed over, the "why" behind a default.
+- **Complete it.** Bring older modules up to the [module recipe](#what-a-great-module-looks-like) — add the missing exercises, quiz, interview question, project, or *Further reading & sources*.
+- **Restructure it.** Split a module that's too long, merge two that overlap, reorder a track so concepts arrive in the right sequence. (For anything that moves or renames files, [open an issue](https://github.com/TapanKumarBarik/Backend-roadmap/issues/new) first — module URLs are shared and bookmarked.)
+- **Tighten it.** Cut what doesn't teach.
+
+**How to do it well:** keep each PR focused on one module or one idea, say *what* you changed and *why* in the description, and cite a source for factual changes. Disagreement is welcome — a respectful "I think this is wrong, here's why" is a contribution.
 
 ### Easy first contributions
 
@@ -322,6 +340,36 @@ The app and API are a real, live codebase, so changes there are reviewed a littl
   > interactive labs and in-browser code exercises · a system-design playground · architecture visualisations · personalised learning paths · an AI study assistant · interview-prep mode · richer progress analytics · community-written modules · real-world project walkthroughs
 
 For anything bigger than a small fix, **open an issue first** so we can agree on the direction before you invest the time — larger changes are much easier to align on before the code is written than after. [CONTRIBUTING.md](CONTRIBUTING.md) has the checklist; [ROADMAP.md](ROADMAP.md) lists what's shipped and what's planned.
+
+### Open to better ideas — including the architecture
+
+**If you have a better way to build this, I want to hear it** — for the content, the learning experience, or the whole stack. This started as one person's project and it's deliberately not precious about its own design. Big changes are on the table, as long as they're argued well and nothing breaks for learners along the way.
+
+Here's how it works today, and *why*, so you can argue with it properly:
+
+- **Markdown is the source of truth.** One `README.md` per module, readable on GitHub with no tooling, so contributing content needs no setup.
+- **One React single-page app renders everything**, with a build step that pre-renders every module to its own real page for search engines.
+- **The API is small and serverless** — Hono on Cloudflare Pages Functions with D1 — chosen because it's free to run and needs no servers to babysit.
+
+Things I'd genuinely like opinions on (not a promise — a list of open questions):
+
+- Should the site move to a **content-first framework** (Astro and similar) instead of a single-page app plus a pre-render script?
+- Is there a better **search** story than the current in-browser index?
+- A **content pipeline** that validates every module (required sections, working links, runnable code) in CI
+- A **test strategy** for the app, the API and the markdown pipeline
+- **Monorepo / workspace** structure, shared tooling, developer experience
+- Where **interactive learning** (labs, in-browser code, playgrounds) should live architecturally
+- How to support **translations** without forking the curriculum
+- **Anything else** you'd do differently
+
+**To propose something**, [open an issue](https://github.com/TapanKumarBarik/Backend-roadmap/issues/new) titled `RFC: <your idea>` and cover:
+
+1. **The problem** — what's wrong or missing today, and who feels it
+2. **Your proposal** — enough detail to evaluate
+3. **Trade-offs** — what gets worse, what it costs, what alternatives you considered
+4. **Migration** — how we get there without breaking module URLs, learner progress, or existing contributions
+
+A prototype or a proof-of-concept branch beats a long argument, but a sharp critique of the current design is a contribution too. Strong disagreement is fine; contempt isn't ([see Community](#community)).
 
 ### The 5-step workflow
 
