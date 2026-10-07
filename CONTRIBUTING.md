@@ -122,7 +122,7 @@ For anything bigger than a small fix, please open an issue *before* investing th
 ## Pull requests
 
 - **Branch** from `main` with a descriptive name: `claim-genai-09-01`, `fix-http-caching-typo`.
-- **Commit messages** explain *why*, in plain language. One logical change per commit is nice but not required — PRs are squash-merged.
+- **Commit messages** explain *why*, in plain language. One logical change per commit is nice but not required.
 - **Checks:** CI builds the whole site on every PR. If it fails, the log says why; ask if it's unclear.
 - **Review:** this is a one-maintainer project, so allow a few days — thank you for your patience. Reviews are about the *work*, never the person, and you'll always get a reason for any change requested.
 - **Regular contributors** who know a track well may be invited to help review it.
