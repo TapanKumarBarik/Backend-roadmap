@@ -124,6 +124,7 @@ a:hover { text-decoration: underline; }
   gap: 12px; padding: 0 14px; border-bottom: 1px solid var(--border-subtle);
   background: var(--bg); position: relative; z-index: 30;
 }
+@media (max-width: 360px) { #topbar { padding: 0; gap: 8px;} }
 .brand { display: flex; align-items: center; gap: 9px; font-weight: 650; font-size: 14.5px; letter-spacing: -.01em; background: none; border: 0; color: inherit; padding: 0; }
 .brand .mark {
   width: 24px; height: 24px; border-radius: var(--r-sm); flex-shrink: 0;
