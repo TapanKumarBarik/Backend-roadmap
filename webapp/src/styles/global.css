@@ -603,7 +603,8 @@ h1:hover .anchor, h2:hover .anchor, h3:hover .anchor, h4:hover .anchor { opacity
   font-size: 12.5px; color: var(--fg-muted); margin-top: 3px;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.finish-acts { display: flex; align-items: center; gap: 8px; flex-shrink: 0; flex-wrap: wrap; }
+.finish-acts { display: flex; flex-direction: row; align-items: center; gap: 8px; flex-shrink: 0; flex-wrap: wrap; }
+@media (max-width: 410px) { .finish-acts { flex-direction: column; align-items: start; } }
 .btn-primary {
   display: inline-flex; align-items: center; gap: 7px;
   background: var(--accent); color: var(--accent-fg); border: 1px solid var(--accent);
