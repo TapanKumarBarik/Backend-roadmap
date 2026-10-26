@@ -10,7 +10,7 @@ Please be kind to each other. This project follows a [Code of Conduct](CODE_OF_C
 
 | I want to… | Start here |
 |---|---|
-| **Write a missing module** | [Claim a module](#writing-a-new-module) — 183 are waiting |
+| **Write a missing module** | [Claim a module](#writing-a-new-module) — 164 are waiting |
 | **Fix or improve an existing module** | [Improving existing content](#improving-existing-content) |
 | **Fix a typo / broken link / outdated command** | Click **Edit this page on GitHub** at the bottom of any module, or open a PR |
 | **Work on the app or API** | [Contributing to the app](#contributing-to-the-app) |
@@ -30,7 +30,7 @@ That's it. Typos, broken links, outdated commands, and unclear sentences are all
 
 ## Writing a new module
 
-**183 modules are placeholders** (their `README.md` says *"Content for this module has not been written yet."*). To list them:
+**164 modules are placeholders** (their `README.md` says *"Content for this module has not been written yet."*). To list them:
 
 ```bash
 git grep -l "has not been written yet" -- genai
