@@ -1,8 +1,1134 @@
 # Module 01: Chat Completions Deep Dive
 
-*Content for this module has not been written yet.*
+## Roadmap
 
-This module is part of [Track 06: OpenAI & the Model Landscape](../README.md). The track's full
-module list and the order to work through them live there; see
-[`genai/README.md`](../../README.md) for the whole curriculum and its
-build status.
+You are in Track 06, **OpenAI & the Model Landscape**. [Module 00](../00-the-openai-api-your-first-call/README.md) made one request over raw HTTP and read the response safely. This module opens the request up: the `messages` array and its roles, how a multi-turn conversation works when **your code** owns the state, what each sampling and length parameter does, what `finish_reason` and `usage` tell you, and how to keep a growing conversation inside the model's context window. It builds on Track 01: [Module 16: Sampling Strategies](../../01-tokens-and-language-modeling/16-sampling-strategies-greedy-temperature-top-k-top-p/README.md) explains what temperature and top-p do inside the model, [Module 11: Context Windows Explained](../../01-tokens-and-language-modeling/11-context-windows-explained/README.md) explains the shared window, and [Module 12: Token Cost Economics](../../01-tokens-and-language-modeling/12-token-cost-economics/README.md) explains why tokens are the unit of cost.
+
+After this module you can:
+
+- build a `messages` array with the right roles and explain who owns the conversation state;
+- choose and validate the documented sampling and length parameters, and know which parameters the docs mark as deprecated;
+- branch on `finish_reason` (including `length` truncation) and read `usage` to see what a conversation costs;
+- compute an input budget from a context window and write a tested message-trimming utility with a clearly labelled approximate token counter;
+- check parameter names against the published OpenAPI spec instead of a blog post.
+
+Why it matters: many production chat bugs are not model bugs. They are a history that silently grew past the window, a truncated answer shown as complete, a deprecated parameter that a newer model rejects, or a bill that grows with the square of the conversation length.
+
+Not covered here: streaming ([Module 03](../03-streaming-responses/README.md)), tools ([Module 06](../06-function-calling-basics/README.md)), JSON schemas ([Module 07](../07-structured-outputs-and-json-schema/README.md)), and the newer stateful API ([Module 02](../02-the-responses-api-and-statefulness/README.md)).
+
+> [!note] How this module was verified. No real provider was called. Parameter names, types, ranges and defaults were read from the official OpenAPI spec (`openai/openai-openapi`, commit `8243cc8`, 24 Oct 2026) and checked programmatically by the code below; roles, finish reasons and guidance come from the official docs pages fetched on 26 Oct 2026. The runnable code uses **a local stand-in that mimics the documented shape; the model behind it is scripted, not a real model**. The stand-in checks parameter names and ranges, but temperature, top-p, penalties and seed do nothing there, so nothing in this module shows how a real model responds to them. The official docs are the source of truth and may have changed since.
+
+## Concept
+
+> [!key] A chat completion call is stateless: the model sees only the `messages` array you send, so your code owns the conversation, re-sends it every turn, pays for it every turn, and must keep it inside the shared input-plus-output context window, by budgeting tokens and trimming old turns deliberately rather than failing on a 400 or silently truncating an answer.
+
+## Explanation
+
+### The request: `model` and `messages`
+
+Two fields are required (the spec's `CreateChatCompletionRequest`): `model` and `messages`. The spec describes `messages` as "a list of messages comprising the conversation so far". Each message is an object with a `role` and `content`. `content` is a string, or a list of typed content parts (text, and for some models images or audio; see [Module 09](../09-vision-and-audio-inputs/README.md)). Everything else on the request is optional and, when omitted, takes its documented default. The spec allows `null` for many optional fields, but omitting a parameter you do not want to set is simpler and does not depend on how `null` is treated.
+
+### Roles, as the docs define them
+
+| Role | What the docs say | Notes |
+| --- | --- | --- |
+| `developer` | "instructions provided by the application developer, prioritized ahead of user messages" (text guide) | the role the current docs and SDK README examples use for instructions |
+| `system` | the spec: "Developer-provided instructions that the model should follow, regardless of messages sent by the user. With o1 models and newer, use `developer` messages for this purpose instead." | still in the schema; the docs steer new code to `developer`. If you send the same request shape to another server ([Module 17](../17-provider-abstraction-and-model-routing/README.md)), check which instruction roles it accepts |
+| `user` | "instructions provided by an end user, prioritized behind developer messages" | the human turn; input for the developer's instructions |
+| `assistant` | "Messages generated by the model have the `assistant` role" | you send earlier ones back as history; may carry `refusal` or `tool_calls` |
+| `tool` | the result of a tool call; requires a `tool_call_id` ("Tool call that this message is responding to") | Module 06 |
+| `function` | legacy, replaced by `tool` | do not use in new code |
+
+The text guide offers an analogy: "You could think about `developer` and `user` messages like a function and its arguments in a programming language." The developer message is the function definition, the user message supplies the arguments. The text guide says the model spec "describes how our models give different levels of priority to messages with different roles". My own caution, not a docs claim: treat that as a priority between instructions, not as a security boundary. Anything you put in a prompt, including text copied from a web page or a user, can still influence the model.
+
+### Multi-turn conversations: the client owns the state
+
+The conversation-state guide says: "each text generation request is independent and stateless", and the migration guide repeats it for this endpoint: "In Chat Completions, conversation state must be managed manually." So a chat product is a loop in your code:
+
+1. append the new user message to the history you store;
+2. send the history (or a trimmed view of it) as `messages`;
+3. read `choices[0].message`, append it to the history as an `assistant` message;
+4. repeat.
+
+Three consequences. **You hold the data**: the history lives in your database, with your retention and deletion rules. **Every turn re-sends everything**, so the prompt grows each turn and so does the bill (below). **A failed turn must not stay in the history**: if the call raises, remove the user message you just appended (the `Conversation` class below does, and a test shows it).
+
+### Parameters, by the job they do
+
+Facts below are from the OpenAPI spec (commit `8243cc8`, checked 26 Oct 2026); names, types, ranges, defaults and deprecation flags were confirmed by `spec_check.py` in the Code section. Parameter support differs by model; the spec says so itself: "Parameter support can differ depending on the model used to generate the response, particularly for newer reasoning models." Read the model's page and the reasoning guide, and treat a 400 about a parameter as information, not as a bug in your client.
+
+**Sampling** (what Track 01's sampling module explains):
+
+| Parameter | Type, range, default | Docs say |
+| --- | --- | --- |
+| `temperature` | number, 0 to 2, default 1 | "Higher values like 0.8 will make the output more random, while lower values like 0.2 will make it more focused and deterministic." |
+| `top_p` | number, 0 to 1, default 1 | nucleus sampling: "0.1 means only the tokens comprising the top 10% probability mass are considered" |
+
+For both: "We generally recommend altering this or `top_p` [respectively `temperature`] but not both."
+
+**Length and stopping:**
+
+| Parameter | Type, range, default | Docs say |
+| --- | --- | --- |
+| `max_completion_tokens` | integer or null | "An upper bound for the number of tokens that can be generated for a completion, including visible output tokens and reasoning tokens" |
+| `max_tokens` | integer or null, **deprecated** | "deprecated in favor of `max_completion_tokens`, and is not compatible with o-series models" |
+| `stop` | string or array of strings | "Up to 4 sequences where the API will stop generating further tokens. The returned text will not contain the stop sequence." The spec adds that it is not supported with some reasoning models |
+
+The token-counting guide adds a warning that matters for budgeting: these limits "limit all tokens generated by the model, including non-visible tokens", and it advises you to "leave headroom in these limits when you need a specific amount of visible output".
+
+**Other documented knobs** (use them only when you have a reason):
+
+| Parameter | Type, range, default | Docs say |
+| --- | --- | --- |
+| `n` | integer, 1 to 128, default 1 | number of choices; "you will be charged based on the number of generated tokens across all of the choices. Keep `n` as `1` to minimize costs." The Responses API has no `n` |
+| `frequency_penalty` | number, -2 to 2, default 0 | positive values penalize tokens by how often they already appeared, "decreasing the model's likelihood to repeat the same line verbatim" |
+| `presence_penalty` | number, -2 to 2, default 0 | positive values penalize tokens that appeared at all, "increasing the model's likelihood to talk about new topics" |
+| `seed` | integer, **deprecated**, Beta | "best effort to sample deterministically"; "Determinism is not guaranteed" |
+| `logprobs`, `top_logprobs` | boolean, default false; integer 0 to 20 | per-token log probabilities; `top_logprobs` requires `logprobs: true` |
+| `logit_bias` | map from token id to a value in -100 to 100 | adds a bias to those tokens' logits; ids are tokenizer-specific |
+| `store`, `metadata`, `service_tier` | bookkeeping | the spec's default for `store` is false, while the migration guide says chat completions "are stored by default for new accounts", so set it explicitly ([Module 02](../02-the-responses-api-and-statefulness/README.md)) |
+| `user` | **deprecated** | replaced by `safety_identifier` and `prompt_cache_key` |
+
+`stream` and `stream_options` are Module 03; `tools`, `tool_choice` and `parallel_tool_calls` are Module 06; `response_format` is Module 07; `reasoning_effort` and `verbosity` are [Module 05](../05-reasoning-models-and-test-time-compute/README.md). A few of these differ in the Responses API (`reasoning.effort`, `text.verbosity`, `max_output_tokens`); Exercise 1 checks which names exist where.
+
+> [!pitfall] `temperature=0` does not promise identical outputs. The only documented lever for repeatability, `seed`, is flagged beta and deprecated, and the spec says "Determinism is not guaranteed". Do not write tests that assert exact model text; assert properties of it.
+
+### The response: `finish_reason`
+
+Each choice ends with a `finish_reason`. The spec lists five values:
+
+| Value | Spec meaning | What your code should do |
+| --- | --- | --- |
+| `stop` | "a natural stop point or a provided stop sequence" | normal completion |
+| `length` | "the maximum number of tokens specified in the request was reached" | the text is **cut off**; never present it as complete (below) |
+| `content_filter` | "content was omitted due to a flag from our content filters" | show a safe message; log the request id |
+| `tool_calls` | "the model called a tool" | run the tool and continue (Module 06) |
+| `function_call` | deprecated form of `tool_calls` | handle only for old integrations |
+
+Separately, `message.refusal` carries a refusal text (and `content` is then null). Check it before the text.
+
+**Handling `length`.** The answer stopped because it hit your `max_completion_tokens`, or because input and output together reached the context window (the conversation-state guide: "Tokens generated in excess of the context window limit may be truncated in API responses"). Options: raise the cap if the window leaves room; ask for a shorter answer; or fail visibly and let the user continue. Retrying with a bigger cap costs the tokens again, since the first attempt is billed (the Code section shows 8, 16, 32 and 64). If the response is supposed to be JSON, truncation makes it invalid JSON (Module 07). Reasoning tokens count toward the cap, so a reasoning model can reach `length` with little or no visible text; give such models a generous limit.
+
+### Usage accounting
+
+`usage` has `prompt_tokens`, `completion_tokens` and `total_tokens`, plus detail objects (`prompt_tokens_details.cached_tokens`, `completion_tokens_details.reasoning_tokens`). The token-counting guide says reported output usage "includes all tokens generated by the model, not only the text visible in a response", and the Chat Completions field for it is `completion_tokens`.
+
+The bill for one call is `prompt_tokens × input_rate + completion_tokens × output_rate`, with rates from the pricing page (this track does not quote prices; [Module 16](../16-pricing-rate-limits-and-quotas/README.md) shows how to read them). What matters here is the shape of the growth. Turn *k* re-sends every earlier message, so with a fixed instruction of `S` tokens and `t` tokens added per exchange, turn *k* sends about `S + t·(k-1)` input tokens, and the total over *n* turns is `n·S + t·n(n-1)/2`. Doubling the length of a conversation roughly quadruples its input cost. Section 4 of the demo shows it on the stand-in's fake counter: with `S` = 20 and `t` = 40, six turns give 6·20 + 40·15 = 720 input tokens, which is the total it prints.
+
+### The context window and the budget
+
+The conversation-state guide: "The context window is the maximum number of tokens that can be used in a single request. This max tokens number includes input, output, and reasoning tokens." The input and the output share one pool ([Track 01 Module 11](../../01-tokens-and-language-modeling/11-context-windows-explained/README.md)). So:
+
+```
+input_budget = (context_window - reserved_for_output) * safety
+```
+
+- **`context_window`** comes from the model's page in the docs. The spec's model object (`GET /v1/models`) has no such field. Keep it in configuration per model id and re-check it when you change models.
+- **`reserved_for_output`** is the `max_completion_tokens` you intend to allow (plus room for reasoning tokens on reasoning models).
+- **`safety`** (below 1, for example 0.9) absorbs the error of your token counter.
+
+**Counting is the hard part.** The accurate counter is the provider's. The token-counting guide notes that local tokenizers such as `tiktoken` "work for plain text" but "estimates like `characters / 4` are inaccurate" for images, files and tool schemas, and that the true count includes "formatting tokens used to represent request structure, such as message roles and boundaries". It documents an input-token counting endpoint (`POST /v1/responses/input_tokens`) that takes the Responses input format; the migration guide says text-only message arrays are compatible with that format, but this module did not call it. The code below uses a **deliberately crude approximation** (about 4 characters per token plus a flat overhead per message, both my choices) and shows two ways to stay safe with an inexact counter: a safety margin, and calibration against the `usage.prompt_tokens` that every real response reports.
+
+**What to cut.** Dropping the oldest turns is the simplest policy and the one implemented here. The alternatives are summarizing old turns (costs a model call and loses detail), retrieving only the relevant past messages (Track 08), and the server-side compaction in the Responses API (Module 02). Whatever you choose, keep these rules: always keep the instructions; cut whole turns from the oldest end so that no assistant reply is left without its question; never edit or reorder messages; never cut a tool call away from its tool result (Module 06).
+
+> [!pitfall] Trimming from the front changes the beginning of every later prompt. The prompt-caching guide says "Prompt caching reuses work when requests share the same prompt prefix" and "Cache reuse requires the entire rendered prefix to match", so a sliding window can reduce cache hits compared with an append-only history. That is my inference from those two statements, not a measurement; weigh it against the cost of the longer prompt ([Module 16](../16-pricing-rate-limits-and-quotas/README.md)).
+
+> [!model] Think of the window as a suitcase with a fixed size. The instructions are the things you always pack. The reply is a space you must leave empty for the souvenirs you will bring back. Whatever room is left holds the conversation, and when it is full you take out the oldest clothes, not a sleeve from one shirt.
+
+## Code
+
+Python 3.10 or newer, standard library only; all files go in one folder. Everything was run with Python 3.13 and the outputs below are what that run printed. The stand-in (collapsed, it is plumbing) validates the documented names, types and ranges, enforces a context window using its **own fake word-count tokens**, and replies from a script: the reply describes the messages it received, which is how the demo proves what the client sent. Token counts printed by the demo are the stand-in's, not a real tokenizer's.
+
+<details>
+<summary>standin_chat.py: a local stand-in for POST /v1/chat/completions (plumbing)</summary>
+
+```python
+"""standin_chat.py - a LOCAL STAND-IN for POST /v1/chat/completions.
+It mimics the documented request/response SHAPE and enforces the documented parameter names,
+types and ranges. The "model" behind it is a script, not a real model: temperature, top_p, penalties
+and seed are validated and then ignored. Standard library only."""
+import json
+import threading
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+FIXED_CREATED = 1_700_000_000
+
+# name -> (python type, minimum, maximum); ranges copied from the OpenAPI spec (commit 8243cc8).
+LIMITS = {"temperature": (float, 0, 2), "top_p": (float, 0, 1),
+          "frequency_penalty": (float, -2, 2), "presence_penalty": (float, -2, 2),
+          "n": (int, 1, 128), "top_logprobs": (int, 0, 20)}
+# The only request fields this stand-in accepts; anything else is rejected so typos surface.
+ACCEPTED = {"model", "messages", "max_completion_tokens", "max_tokens", "stop", "seed", "logprobs",
+            "logit_bias", "store", "metadata", "user", "safety_identifier", "service_tier"} | set(LIMITS)
+ROLES = {"developer", "system", "user", "assistant", "tool"}
+
+
+class QuietServer(ThreadingHTTPServer):
+    def handle_error(self, request, client_address):
+        pass
+
+
+def text_of(content):
+    """A message's content is a string or a list of content parts; keep only the text parts."""
+    if isinstance(content, list):
+        return " ".join(p.get("text", "") for p in content if p.get("type") == "text")
+    return content or ""
+
+
+def fake_count(messages):
+    """The stand-in's OWN token accounting: whitespace words + 3 per message. Not a real tokenizer."""
+    return sum(len(text_of(m.get("content")).split()) + 3 for m in messages)
+
+
+def error_body(message, param=None, code=None):
+    return {"error": {"message": message, "type": "invalid_request_error", "param": param, "code": code}}
+
+
+class StandInChat:
+    def __init__(self, api_key, context_window=10_000):
+        self.api_key, self.context_window = api_key, context_window
+        self.requests_seen, self.last_body, self._server = 0, None, None
+
+    def start(self):
+        outer = self
+
+        class Handler(BaseHTTPRequestHandler):
+            def log_message(self, *args):
+                pass
+
+            def _send(self, status, body):
+                data = json.dumps(body).encode()
+                self.send_response(status)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(data)))
+                self.send_header("x-request-id", f"req_standin_{outer.requests_seen:04d}")
+                self.end_headers()
+                self.wfile.write(data)
+
+            def do_POST(self):
+                outer.requests_seen += 1
+                raw = self.rfile.read(int(self.headers.get("Content-Length") or 0))
+                if self.headers.get("Authorization") != f"Bearer {outer.api_key}":
+                    return self._send(401, error_body("Incorrect API key provided."))
+                try:
+                    req = json.loads(raw)
+                except ValueError:
+                    return self._send(400, error_body("Body is not valid JSON."))
+                outer.last_body = req
+                status, body = outer.handle(req)
+                self._send(status, body)
+
+        self._server = QuietServer(("127.0.0.1", 0), Handler)
+        self._server.daemon_threads = True
+        threading.Thread(target=self._server.serve_forever, daemon=True).start()
+        return self
+
+    @property
+    def base_url(self):
+        return f"http://127.0.0.1:{self._server.server_address[1]}/v1"
+
+    def stop(self):
+        self._server.shutdown()
+        self._server.server_close()
+
+    # ---- the scripted "model" ------------------------------------------------
+    def handle(self, req):
+        for name in req:
+            if name not in ACCEPTED:
+                return 400, error_body(f"Unrecognized or unsupported request argument: '{name}'.", param=name)
+        if not isinstance(req.get("model"), str) or not req["model"]:
+            return 400, error_body("Missing required parameter: 'model'.", param="model")
+        msgs = req.get("messages")
+        if not isinstance(msgs, list) or not msgs:
+            return 400, error_body("Missing required parameter: 'messages'.", param="messages")
+        for i, m in enumerate(msgs):
+            if m.get("role") not in ROLES:
+                return 400, error_body(f"Invalid role in messages[{i}].", param=f"messages[{i}].role")
+        for name, (typ, lo, hi) in LIMITS.items():
+            v = req.get(name)
+            if v is None:
+                continue
+            ok = isinstance(v, (int, float)) and not isinstance(v, bool) and (typ is float or isinstance(v, int))
+            if not ok or not lo <= v <= hi:
+                return 400, error_body(f"'{name}' must be a number between {lo} and {hi}.", param=name)
+        if req.get("top_logprobs") is not None and not req.get("logprobs"):
+            return 400, error_body("'logprobs' must be true when 'top_logprobs' is used.", param="top_logprobs")
+        stop = req.get("stop")
+        stops = [stop] if isinstance(stop, str) else (stop or [])
+        if len(stops) > 4:
+            return 400, error_body("'stop' accepts at most 4 sequences.", param="stop")
+
+        prompt_tokens = fake_count(msgs)
+        if prompt_tokens > self.context_window:
+            return 400, error_body(f"Input is {prompt_tokens} tokens; the context window is {self.context_window} "
+                                   "(stand-in counting).", param="messages", code="context_length_exceeded")
+        cap = req.get("max_completion_tokens") or req.get("max_tokens")
+        limit = min(cap or 10**9, self.context_window - prompt_tokens)   # output shares the window
+
+        users = [text_of(m["content"]) for m in msgs if m["role"] == "user"]
+        last, first = (users[-1] if users else ""), (users[0] if users else "")
+        if "REFUSE" in last:
+            message = {"role": "assistant", "content": None, "refusal": "(scripted refusal)", "annotations": []}
+            return 200, self._wrap(req, [(message, "stop")], prompt_tokens, 0)
+        if "FILTER" in last:
+            message = {"role": "assistant", "content": None, "refusal": None, "annotations": []}
+            return 200, self._wrap(req, [(message, "content_filter")], prompt_tokens, 0)
+        if "ESSAY" in last:
+            text = " ".join(f"word{i}" for i in range(1, 41))
+        else:
+            text = (f"I see {len(msgs)} message(s); the first user message was '{first[:25]}' "
+                    f"and the last was '{last[:25]}'.")
+        choices, completion_tokens = [], 0
+        for i in range(req.get("n") or 1):
+            reply = text if i == 0 else f"{text} (variant {i})"
+            for s in stops:                                   # the stop sequence itself is not returned
+                if s and s in reply:
+                    reply = reply[:reply.index(s)]
+            finish = "stop"
+            words = reply.split(" ")
+            if len(words) > limit:                            # token cap, or the shared window, reached
+                reply, finish = " ".join(words[:max(limit, 0)]), "length"
+            completion_tokens += len(reply.split())
+            choices.append(({"role": "assistant", "content": reply, "refusal": None, "annotations": []}, finish))
+        return 200, self._wrap(req, choices, prompt_tokens, completion_tokens)
+
+    def _wrap(self, req, choices, prompt_tokens, completion_tokens):
+        return {"id": f"chatcmpl-standin-{self.requests_seen:04d}", "object": "chat.completion",
+                "created": FIXED_CREATED, "model": req["model"],
+                "choices": [{"index": i, "message": m, "logprobs": None, "finish_reason": f}
+                            for i, (m, f) in enumerate(choices)],
+                "usage": {"prompt_tokens": prompt_tokens, "completion_tokens": completion_tokens,
+                          "total_tokens": prompt_tokens + completion_tokens}}
+```
+
+</details>
+
+### 1. Roles, state, parameters, finish reasons and usage
+
+```python
+"""chat_demo.py - the chat endpoint in depth, against the LOCAL STAND-IN (scripted model, not a real one)."""
+import json
+import urllib.error
+import urllib.request
+
+from standin_chat import StandInChat
+
+KEY = "demo-key-for-local-stand-in"      # fake; only the stand-in accepts it
+
+
+class ApiError(Exception):
+    def __init__(self, status, body):
+        err = (body or {}).get("error", {}) if isinstance(body, dict) else {}
+        self.status, self.param, self.code = status, err.get("param"), err.get("code")
+        super().__init__(f"HTTP {status}: {err.get('message')}")
+
+
+def chat(base_url, payload, timeout=10):
+    """POST /chat/completions. (Module 00 has the hardened version; this one is minimal.)"""
+    req = urllib.request.Request(base_url + "/chat/completions", data=json.dumps(payload).encode(),
+                                 headers={"Authorization": f"Bearer {KEY}", "Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            return json.loads(resp.read())
+    except urllib.error.HTTPError as e:
+        raise ApiError(e.code, json.loads(e.read())) from None
+
+
+def build_request(model, messages, **params):
+    """Omit unset parameters instead of sending null; the documented defaults then apply."""
+    body = {"model": model, "messages": messages}
+    body.update({k: v for k, v in params.items() if v is not None})
+    return body
+
+
+def handle_choice(choice):
+    """Turn one choice into (kind, text). New finish_reason values may appear, so keep a default."""
+    msg, reason = choice["message"], choice["finish_reason"]
+    if msg.get("refusal"):
+        return "refused", msg["refusal"]
+    return {"stop": "ok", "length": "truncated", "content_filter": "filtered",
+            "tool_calls": "tool_calls"}.get(reason, f"unknown({reason})"), msg.get("content")
+
+
+class Conversation:
+    """The CLIENT owns the state: the API sees only what we put in `messages` on each call."""
+
+    def __init__(self, base_url, model, system=None, **defaults):
+        self.base_url, self.model, self.defaults = base_url, model, defaults
+        self.messages = [{"role": "developer", "content": system}] if system else []
+        self.usage_log = []
+
+    def say(self, text, **params):
+        self.messages.append({"role": "user", "content": text})
+        try:
+            resp = chat(self.base_url, build_request(self.model, self.messages, **{**self.defaults, **params}))
+        except ApiError:
+            self.messages.pop()                  # a failed turn must not stay in the history
+            raise
+        self.messages.append({"role": "assistant", "content": resp["choices"][0]["message"]["content"] or ""})
+        self.usage_log.append(resp["usage"])
+        return resp
+
+
+def main():
+    server = StandInChat(KEY).start()
+    base = server.base_url
+    try:
+        print("== 1. multi-turn: the client owns the state")
+        conv = Conversation(base, "standin-small", system="You are terse.")
+        conv.say("My name is Ada.")
+        r = conv.say("What is my name?")
+        print("with history   :", r["choices"][0]["message"]["content"])
+        r = chat(base, build_request("standin-small", [{"role": "user", "content": "What is my name?"}]))
+        print("without history:", r["choices"][0]["message"]["content"])
+        before = list(conv.messages)
+        try:
+            conv.say("hi", temperature=9)
+        except ApiError as e:
+            print(f"failed turn -> HTTP {e.status}, history unchanged: {conv.messages == before}")
+
+        print("\n== 2. parameters: names, ranges, types (the stand-in enforces the documented ones)")
+        msgs = [{"role": "user", "content": "hello"}]
+        cases = [("temperature=0", dict(temperature=0)), ("temperature=2.5", dict(temperature=2.5)),
+                 ("top_p=1.5", dict(top_p=1.5)), ("n=3", dict(n=3)), ("n=0", dict(n=0)),
+                 ("presence_penalty=2.1", dict(presence_penalty=2.1)),
+                 ("5 stop sequences", dict(stop=list("abcde"))),
+                 ("max_completion_tokens=5", dict(max_completion_tokens=5)),
+                 ("max_tokens=5 (deprecated)", dict(max_tokens=5)),
+                 ("max_token=5 (typo)", dict(max_token=5)),
+                 ("top_logprobs=3 alone", dict(top_logprobs=3)),
+                 ("logprobs+top_logprobs", dict(logprobs=True, top_logprobs=3)),
+                 ("temperature=None", dict(temperature=None))]
+        for label, params in cases:
+            body = build_request("standin-small", msgs, **params)
+            try:
+                resp = chat(base, body)
+                print(f"{label:<28} 200  choices={len(resp['choices'])}")
+            except ApiError as e:
+                print(f"{label:<28} {e.status}  param={e.param}")
+
+        print("\n== 3. finish_reason and how to handle it")
+        tests = [("plain question", "What is 2+2?", {}),
+                 ("long answer, no cap", "ESSAY please", {}),
+                 ("long answer, cap of 8", "ESSAY please", {"max_completion_tokens": 8}),
+                 ("stop sequence 'word5'", "ESSAY please", {"stop": ["word5"]}),
+                 ("content filter", "FILTER this", {}), ("refusal", "REFUSE this", {})]
+        for label, text, params in tests:
+            resp = chat(base, build_request("standin-small", [{"role": "user", "content": text}], **params))
+            ch = resp["choices"][0]
+            kind, out = handle_choice(ch)
+            shown = repr(out if out is None or len(out) < 44 else out[:40] + "...")
+            print(f"{label:<24} finish={ch['finish_reason']:<15} kind={kind:<10} text={shown}"
+                  f"  completion_tokens={resp['usage']['completion_tokens']}")
+
+        print("\n-- one strategy for 'length': retry with a larger cap (costs tokens again)")
+        cap, attempts = 8, []
+        while True:
+            resp = chat(base, build_request("standin-small", [{"role": "user", "content": "ESSAY please"}],
+                                            max_completion_tokens=cap))
+            attempts.append((cap, resp["choices"][0]["finish_reason"], resp["usage"]["completion_tokens"]))
+            if resp["choices"][0]["finish_reason"] != "length" or cap >= 64:
+                break
+            cap *= 2
+        print("attempts (cap, finish_reason, completion_tokens):", attempts)
+
+        print("\n== 4. usage accounting: the whole history is re-sent (and re-billed) every turn")
+        conv = Conversation(base, "standin-small", system="You are terse.")
+        for i in range(1, 7):
+            conv.say(f"Question number {i}: tell me one short thing about topic {i}.")
+        prompts = [u["prompt_tokens"] for u in conv.usage_log]
+        print("prompt_tokens per turn:", prompts)
+        print("sum of prompt tokens billed over 6 turns:", sum(prompts))
+        print("turn 6 vs turn 1: x%.1f" % (prompts[-1] / prompts[0]))
+    finally:
+        server.stop()
+
+
+if __name__ == "__main__":
+    main()
+```
+
+Verified output:
+
+```
+== 1. multi-turn: the client owns the state
+with history   : I see 4 message(s); the first user message was 'My name is Ada.' and the last was 'What is my name?'.
+without history: I see 1 message(s); the first user message was 'What is my name?' and the last was 'What is my name?'.
+failed turn -> HTTP 400, history unchanged: True
+
+== 2. parameters: names, ranges, types (the stand-in enforces the documented ones)
+temperature=0                200  choices=1
+temperature=2.5              400  param=temperature
+top_p=1.5                    400  param=top_p
+n=3                          200  choices=3
+n=0                          400  param=n
+presence_penalty=2.1         400  param=presence_penalty
+5 stop sequences             400  param=stop
+max_completion_tokens=5      200  choices=1
+max_tokens=5 (deprecated)    200  choices=1
+max_token=5 (typo)           400  param=max_token
+top_logprobs=3 alone         400  param=top_logprobs
+logprobs+top_logprobs        200  choices=1
+temperature=None             200  choices=1
+
+== 3. finish_reason and how to handle it
+plain question           finish=stop            kind=ok         text='I see 1 message(s); the first user messa...'  completion_tokens=19
+long answer, no cap      finish=stop            kind=ok         text='word1 word2 word3 word4 word5 word6 word...'  completion_tokens=40
+long answer, cap of 8    finish=length          kind=truncated  text='word1 word2 word3 word4 word5 word6 word...'  completion_tokens=8
+stop sequence 'word5'    finish=stop            kind=ok         text='word1 word2 word3 word4 '  completion_tokens=4
+content filter           finish=content_filter  kind=filtered   text=None  completion_tokens=0
+refusal                  finish=stop            kind=refused    text='(scripted refusal)'  completion_tokens=0
+
+-- one strategy for 'length': retry with a larger cap (costs tokens again)
+attempts (cap, finish_reason, completion_tokens): [(8, 'length', 8), (16, 'length', 16), (32, 'length', 32), (64, 'stop', 40)]
+
+== 4. usage accounting: the whole history is re-sent (and re-billed) every turn
+prompt_tokens per turn: [20, 60, 100, 140, 180, 220]
+sum of prompt tokens billed over 6 turns: 720
+turn 6 vs turn 1: x11.0
+```
+
+What to notice:
+
+- **Section 1.** The same question is answered with "4 message(s)" when the client sends the history and "1 message(s)" when it does not. The API remembers nothing between calls. A failed turn is rolled back out of the history.
+- **Section 2.** The typo `max_token` is rejected here only because this stand-in is strict; do not assume a real endpoint treats unknown fields the same way. `temperature=None` was dropped from the body by `build_request`, so the call is valid.
+- **Section 3.** The scripted truncation (`cap of 8` gives `finish=length` with 8 completion tokens) is handled as `truncated`, not as an answer. The stop sequence is cut from the returned text, as documented.
+- **Section 4.** Prompt tokens climb 20, 60, 100, ... Turn 6's prompt (220) already contains the whole conversation, yet the total billed across the six turns is 720. That is the `n·S + t·n(n-1)/2` shape from the Explanation (6·20 + 40·15 = 720).
+
+### 2. Check parameter names against the spec
+
+This needs network access to `raw.githubusercontent.com`. It reads the OpenAPI document pinned to one commit and prints each name's type, default and range, or says it is not in the spec.
+
+```python
+"""spec_check.py - verify parameter names against the published OpenAPI spec (needs network access)."""
+import json
+import urllib.request
+
+# Pinned to one commit of github.com/openai/openai-openapi so the output reproduces; `main` moves.
+URL = "https://raw.githubusercontent.com/openai/openai-openapi/8243cc8fa6f04430fb1f1a6a2cb926fbeb4f7f26/openapi.json"
+with urllib.request.urlopen(URL, timeout=60) as r:
+    spec = json.load(r)
+SCHEMAS = spec["components"]["schemas"]
+
+
+def resolve(node):
+    while "$ref" in node:
+        node = SCHEMAS[node["$ref"].rsplit("/", 1)[1]]
+    return node
+
+
+def properties(node):
+    """All properties of a schema, following $ref and allOf."""
+    node = resolve(node)
+    props = dict(node.get("properties", {}))
+    for part in node.get("allOf", []):
+        props.update(properties(part))
+    return props
+
+
+def type_names(node):
+    node = resolve(node)
+    t = node.get("type")
+    if t:
+        return [t] if isinstance(t, str) else list(t)
+    return [x for b in node.get("anyOf", []) + node.get("oneOf", []) for x in type_names(b)]
+
+
+def describe(prop):
+    """One line: types (null included), default, range, deprecated. Constraints come from the first typed branch."""
+    node = resolve(prop)
+    for key in ("anyOf", "oneOf"):
+        branches = [resolve(b) for b in node.get(key, []) if resolve(b).get("type") != "null"]
+        if branches:
+            node = {**branches[0], **{k: v for k, v in node.items() if k in ("deprecated", "default")}}
+    parts = ["|".join(dict.fromkeys(type_names(prop))) or "object"]
+    for k in ("default", "minimum", "maximum"):
+        if k in node:
+            parts.append(f"{k}={node[k]}")
+    if node.get("deprecated") or resolve(prop).get("deprecated"):
+        parts.append("DEPRECATED")
+    return "  ".join(parts)
+
+
+if __name__ == "__main__":
+    request_props = properties({"$ref": "#/components/schemas/CreateChatCompletionRequest"})
+    names = ["model", "messages", "temperature", "top_p", "max_completion_tokens", "max_tokens", "stop", "n",
+             "frequency_penalty", "presence_penalty", "seed", "logprobs", "top_logprobs", "logit_bias",
+             "stream", "store", "user", "safety_identifier", "max_token", "maxTokens"]
+    for name in names:
+        print(f"{name:<22}", describe(request_props[name]) if name in request_props else "NOT IN THE SPEC")
+    print("\nfinish_reason values:",
+          properties(resolve(SCHEMAS["CreateChatCompletionResponse"])["properties"]["choices"]["items"])["finish_reason"]["enum"])
+    print("message roles:", [resolve(m)["properties"]["role"]["enum"][0]
+                             for m in SCHEMAS["ChatCompletionRequestMessage"]["oneOf"]])
+```
+
+Verified output:
+
+```
+model                  string
+messages               array
+temperature            number|null  default=1  minimum=0  maximum=2
+top_p                  number|null  default=1  minimum=0  maximum=1
+max_completion_tokens  integer|null
+max_tokens             integer|null  DEPRECATED
+stop                   string|array|null  default=None
+n                      integer|null  default=1  minimum=1  maximum=128
+frequency_penalty      number|null  default=0  minimum=-2  maximum=2
+presence_penalty       number|null  default=0  minimum=-2  maximum=2
+seed                   integer|null  minimum=-9223372036854775808  maximum=9223372036854775807  DEPRECATED
+logprobs               boolean|null  default=False
+top_logprobs           integer|null  minimum=0  maximum=20
+logit_bias             object|null  default=None
+stream                 boolean|null  default=False
+store                  boolean|null  default=False
+user                   string|null  DEPRECATED
+safety_identifier      string|null
+max_token              NOT IN THE SPEC
+maxTokens              NOT IN THE SPEC
+
+finish_reason values: ['stop', 'length', 'tool_calls', 'content_filter', 'function_call']
+message roles: ['developer', 'system', 'user', 'assistant', 'tool', 'function']
+```
+
+This is where the tables above come from. `max_tokens` and `seed` and `user` are flagged deprecated, `stream` and `store` default to false, and the typos are caught. Repeat the check against the current `main` spec before you rely on any of it.
+
+### 3. A message-trimming utility, with tests
+
+```python
+"""trim.py - keep a chat history inside a token budget, and test it. Standard library only."""
+import math
+import random
+
+# ---- APPROXIMATE token counting ---------------------------------------------------------------
+# This is NOT a tokenizer. It assumes about 4 characters per token (a rough rule for English prose;
+# code, other languages and emoji differ a lot) plus a flat per-message overhead that I chose.
+# Real counts depend on the model. Keep a safety margin and calibrate against `usage` from real responses.
+CHARS_PER_TOKEN = 4
+PER_MESSAGE_OVERHEAD = 4
+
+
+def approx_tokens(msg):
+    content = msg["content"]
+    if isinstance(content, list):                      # content parts: count the text parts only
+        content = " ".join(p.get("text", "") for p in content if p.get("type") == "text")
+    return math.ceil(len(content or "") / CHARS_PER_TOKEN) + PER_MESSAGE_OVERHEAD
+
+
+class BudgetError(ValueError):
+    """Even the instructions plus the newest message do not fit the budget."""
+
+
+def trim_messages(messages, max_input_tokens, count=approx_tokens, safety=0.9):
+    """Return (trimmed, dropped). Keeps leading system/developer messages, then the longest suffix of the
+    rest that fits, starting at a user message so no assistant reply is left without its question.
+    Nothing is edited or removed from the middle, and the input list is not modified."""
+    budget = int(max_input_tokens * safety)
+    n_head = 0
+    while n_head < len(messages) and messages[n_head]["role"] in ("system", "developer"):
+        n_head += 1
+    head, tail = messages[:n_head], messages[n_head:]
+    room = budget - sum(count(m) for m in head)
+    if room < 0:
+        raise BudgetError(f"instructions alone need {budget - room} tokens; budget is {budget}")
+    start, used = len(tail), 0
+    while start > 0 and used + count(tail[start - 1]) <= room:       # grow the suffix from the newest message
+        start -= 1
+        used += count(tail[start])
+    while start < len(tail) and tail[start]["role"] != "user":       # never begin with an orphan reply
+        start += 1
+    if tail and start == len(tail):
+        raise BudgetError(f"the newest message does not fit in {room} tokens")
+    return head + tail[start:], start
+
+
+# ---- tests -----------------------------------------------------------------------------------------
+def msg(role, chars, tag=""):
+    return {"role": role, "content": (tag + "x" * chars)[:chars]}
+
+
+def conversation(turns):
+    """developer(40 chars) + turns x (user 40 chars, assistant 80 chars) + final user(40 chars).
+    Costs with approx_tokens: 14, then 14 + 24 per turn, then 14."""
+    msgs = [msg("developer", 40, "sys")]
+    for i in range(turns):
+        msgs += [msg("user", 40, f"u{i}"), msg("assistant", 80, f"a{i}")]
+    return msgs + [msg("user", 40, "last")]
+
+
+def reference_trim(messages, max_input_tokens, count, safety):
+    """Slow, obviously-correct version: try every start from the longest suffix down."""
+    budget = int(max_input_tokens * safety)
+    n_head = next((i for i, m in enumerate(messages) if m["role"] not in ("system", "developer")), len(messages))
+    head, tail = messages[:n_head], messages[n_head:]
+    if not tail:
+        if sum(count(m) for m in head) <= budget:
+            return head, 0
+    for start in range(len(tail)):                          # the newest message must always be kept
+        if tail[start]["role"] != "user":
+            continue
+        cand = head + tail[start:]
+        if sum(count(m) for m in cand) <= budget:
+            return cand, start
+    raise BudgetError("nothing fits")
+
+
+def run_tests():
+    full = conversation(5)
+    total = sum(approx_tokens(m) for m in full)
+    print("conversation: %d messages, %d approx tokens" % (len(full), total))
+
+    kept, dropped = trim_messages(full, total, safety=1.0)
+    assert kept == full and dropped == 0
+    print("PASS fits: returned unchanged, dropped 0")
+
+    kept, dropped = trim_messages(full, 150, safety=1.0)
+    print("budget 150 -> kept %d messages, dropped %d, first kept after the instructions: %s"
+          % (len(kept), dropped, kept[1]["content"][:2]))
+    assert dropped == 4 and kept[0]["role"] == "developer" and kept[1]["role"] == "user" and kept[-1] == full[-1]
+    assert sum(approx_tokens(m) for m in kept) <= 150
+    print("PASS 150: instructions kept, newest message kept, starts at a user message, within budget")
+
+    odd = trim_messages(full, 150 - 14, safety=1.0)   # 14 tokens fewer: room for the assistant reply but not its question
+    assert odd[0][1]["role"] == "user" and odd[1] == 6
+    print("PASS orphan: a reply whose question was dropped is dropped too (dropped %d)" % odd[1])
+
+    for bad, why in ((10, "instructions"), (27, "newest message")):
+        try:
+            trim_messages(full, bad, safety=1.0)
+        except BudgetError as e:
+            print(f"PASS BudgetError for a budget too small for the {why}: {e}")
+    original = [dict(m) for m in full]
+    trim_messages(full, 100, safety=1.0)
+    assert full == original
+    print("PASS the input list was not modified")
+
+    rng, checked, both_raise = random.Random(2026), 0, 0
+    for _ in range(2000):
+        msgs = [msg("developer", rng.randint(0, 120))] if rng.random() < 0.8 else []
+        for _ in range(rng.randint(0, 12)):
+            msgs += [msg("user", rng.randint(1, 200)), msg("assistant", rng.randint(1, 400))]
+        msgs.append(msg("user", rng.randint(1, 200)))
+        budget, safety = rng.randint(10, 2500), rng.choice([1.0, 0.9, 0.75])
+        try:
+            want = reference_trim(msgs, budget, approx_tokens, safety)
+        except BudgetError:
+            try:
+                trim_messages(msgs, budget, safety=safety)
+                raise AssertionError("expected BudgetError")
+            except BudgetError:
+                both_raise += 1
+                continue
+        got = trim_messages(msgs, budget, safety=safety)
+        assert got == want
+        kept, dropped = got
+        assert sum(approx_tokens(m) for m in kept) <= int(budget * safety)
+        n_head = next((i for i, m in enumerate(msgs) if m["role"] != "developer"), len(msgs))
+        assert kept[:n_head] == msgs[:n_head] and kept[n_head:] == msgs[n_head + dropped:]   # head + contiguous suffix
+        assert kept[-1] == msgs[-1]
+        checked += 1
+    print(f"PASS differential test: {checked} random conversations match the slow reference (each result fits its "
+          f"budget and ends with the newest message); in {both_raise} more, both versions raise BudgetError")
+
+
+if __name__ == "__main__":
+    run_tests()
+```
+
+Verified output:
+
+```
+conversation: 12 messages, 218 approx tokens
+PASS fits: returned unchanged, dropped 0
+budget 150 -> kept 8 messages, dropped 4, first kept after the instructions: u2
+PASS 150: instructions kept, newest message kept, starts at a user message, within budget
+PASS orphan: a reply whose question was dropped is dropped too (dropped 6)
+PASS BudgetError for a budget too small for the instructions: instructions alone need 14 tokens; budget is 10
+PASS BudgetError for a budget too small for the newest message: the newest message does not fit in 13 tokens
+PASS the input list was not modified
+PASS differential test: 1978 random conversations match the slow reference (each result fits its budget and ends with the newest message); in 22 more, both versions raise BudgetError
+```
+
+The differential test is the important one. `reference_trim` is a slow, obviously correct version (try every start from the longest suffix down). The first run of this test failed: my first draft of the reference allowed an empty tail, which "kept" a conversation without its newest message. The bug was in the test oracle, not in `trim_messages`, and the fix made the oracle follow the rule written in the docstring.
+
+### 4. A conversation against a tiny context window
+
+```python
+"""budget_chat.py - a long conversation against a stand-in with a SMALL context window, with and without trimming.
+Needs standin_chat.py, chat_demo.py and trim.py from the same folder."""
+import math
+import re
+
+from chat_demo import ApiError, KEY, build_request, chat
+from standin_chat import StandInChat
+from trim import approx_tokens, trim_messages
+
+
+def run_chat(base, window, reserve, texts, trim=True, safety=0.9, calibrate=False):
+    """The client keeps the FULL history; what it sends is a trimmed view of it."""
+    history = [{"role": "developer", "content": "You are terse."}]
+    scale, rows = 1.0, []
+    for turn, text in enumerate(texts, 1):
+        history.append({"role": "user", "content": text})
+        count = lambda m: math.ceil(approx_tokens(m) * scale)           # noqa: E731
+        view, dropped = trim_messages(history, window - reserve, count=count, safety=safety) if trim else (list(history), 0)
+        try:
+            resp = chat(base, build_request("standin-small", view))
+        except ApiError as e:
+            history.pop()
+            rows.append({"turn": turn, "error": f"HTTP {e.status} {e.code}"})
+            break
+        reported = resp["usage"]["prompt_tokens"]
+        estimated = sum(approx_tokens(m) for m in view)
+        if calibrate:
+            scale = max(scale, reported / estimated)                    # learn from the provider's own count
+        reply = resp["choices"][0]["message"]["content"]
+        history.append({"role": "assistant", "content": reply})
+        rows.append({"turn": turn, "history": len(history) - 1, "sent": len(view), "dropped": dropped,
+                     "est": estimated, "reported": reported,
+                     "oldest_seen": re.search(r"first user message was '([^']*)'", reply).group(1)})
+    return rows, scale
+
+
+def show(rows):
+    print(f"{'turn':>4} {'history':>7} {'sent':>4} {'dropped':>7} {'estimate':>8} {'reported':>8}  oldest user message the model saw")
+    for r in rows:
+        if "error" in r:
+            print(f"{r['turn']:>4}  -> {r['error']}")
+        else:
+            print(f"{r['turn']:>4} {r['history']:>7} {r['sent']:>4} {r['dropped']:>7} {r['est']:>8} {r['reported']:>8}  {r['oldest_seen']}")
+
+
+def main():
+    server = StandInChat(KEY, context_window=160).start()      # a deliberately tiny window, in the stand-in's counting
+    try:
+        prose = [f"Question number {i}: tell me one short thing about topic {i}." for i in range(1, 9)]
+        print("A1. no trimming: the history outgrows the window")
+        rows, _ = run_chat(server.base_url, 160, 40, prose, trim=False)
+        show(rows)
+        print("\nA2. trim_messages(history, window - reserve_for_output)")
+        rows, _ = run_chat(server.base_url, 160, 40, prose)
+        show(rows)
+    finally:
+        server.stop()
+
+    server = StandInChat(KEY, context_window=300).start()
+    try:
+        choppy = [" ".join(["a"] * 40) + f" ({i})" for i in range(1, 9)]    # many one-letter words: 4 chars/token is too optimistic
+        print("\nB1. optimistic estimate, no safety margin")
+        rows, _ = run_chat(server.base_url, 300, 40, choppy, safety=1.0)
+        show(rows[-2:])
+        print("\nB2. same text, same margin, but the estimate is scaled by reported/estimated seen so far")
+        rows, scale = run_chat(server.base_url, 300, 40, choppy, safety=1.0, calibrate=True)
+        show(rows[-2:])
+        print("turns completed:", len([r for r in rows if "error" not in r]), "| final scale: %.2f" % scale)
+    finally:
+        server.stop()
+
+
+if __name__ == "__main__":
+    main()
+```
+
+Verified output:
+
+```
+A1. no trimming: the history outgrows the window
+turn history sent dropped estimate reported  oldest user message the model saw
+   1       2    2       0       27       20  Question number 1: tell m
+   2       4    4       0       80       60  Question number 1: tell m
+   3       6    6       0      133      100  Question number 1: tell m
+   4       8    8       0      186      140  Question number 1: tell m
+   5  -> HTTP 400 context_length_exceeded
+
+A2. trim_messages(history, window - reserve_for_output)
+turn history sent dropped estimate reported  oldest user message the model saw
+   1       2    2       0       27       20  Question number 1: tell m
+   2       4    4       0       80       60  Question number 1: tell m
+   3       6    4       2       80       60  Question number 2: tell m
+   4       8    4       4       80       60  Question number 3: tell m
+   5      10    4       6       80       60  Question number 4: tell m
+   6      12    4       8       80       60  Question number 5: tell m
+   7      14    4      10       80       60  Question number 6: tell m
+   8      16    4      12       80       60  Question number 7: tell m
+
+B1. optimistic estimate, no safety margin
+turn history sent dropped estimate reported  oldest user message the model saw
+   3       6    6       0      151      222  a a a a a a a a a a a a a
+   4  -> HTTP 400 context_length_exceeded
+
+B2. same text, same margin, but the estimate is scaled by reported/estimated seen so far
+turn history sent dropped estimate reported  oldest user message the model saw
+   7      14    6       8      151      222  a a a a a a a a a a a a a
+   8      16    6      10      151      222  a a a a a a a a a a a a a
+turns completed: 8 | final scale: 1.52
+```
+
+What to notice:
+
+- **A1** fails with a 400 once the history passes the stand-in's window (the `context_length_exceeded` code is the stand-in's own choice; look at a real error body for the real string).
+- **A2** keeps working, and the last column shows the cost: the model's oldest visible user message moves forward each turn. It has forgotten the early questions. Trimming is a decision to forget.
+- **B1** shows what an optimistic counter does. The text is made of one-letter words, so "4 characters per token" underestimates (the estimate says 151, the stand-in counts 222), the request is trimmed too little, and it fails.
+- **B2** uses the same text and no extra margin, but scales the estimate by the largest `reported / estimated` ratio seen so far. It completes all eight turns. This is a simple, conservative calibration, not a general solution.
+
+## Visual diagram
+
+```
+  YOUR PROCESS (owns the state)                                  THE API (stateless)
+
+  ┌─────────────────────────────────┐
+  │ full history, stored by you     │
+  │ developer u1 a1 u2 a2 ... un    │
+  └────────────────┬────────────────┘
+                   │ trim_messages(budget = (window - reserve) * safety)
+                   ▼
+  ┌─────────────────────────────────┐   POST /chat/completions   ┌──────────────────────────┐
+  │ view = developer + recent whole │ ─────────────────────────► │ sees ONLY `messages`     │
+  │ turns + the newest user message │   messages = view          │ remembers nothing        │
+  └─────────────────────────────────┘   max_completion_tokens    │ between calls            │
+                   ▲                    = reserve                └────────────┬─────────────┘
+                   │                                                          │
+                   │ append choices[0].message as an `assistant` message      │ 200 + JSON
+  ┌────────────────┴────────────────┐ ◄───────────────────────────────────────┘
+  │ check the response              │
+  │ stop           ► use it         │
+  │ length         ► truncated: say │
+  │ content_filter ► safe message   │
+  │ refusal field  ► show it        │
+  │ log usage and x-request-id      │
+  └─────────────────────────────────┘
+
+
+  One context window: input AND output share it
+
+  ┌───────────┬───────────────┬──────────────────────────┬─────────┬──────────────┬────────┐
+  │ developer │ dropped       │ kept: whole turns, a     │ newest  │ reserved for │ safety │
+  │ (always)  │ oldest turns  │ contiguous suffix that   │ user    │ the reply    │ margin │
+  │           │ (forgotten)   │ starts at a user message │ message │              │        │
+  └───────────┴───────────────┴──────────────────────────┴─────────┴──────────────┴────────┘
+               └── not sent ─┘ └─────── sent as `messages` ───────┘ └ the reply ─┘
+   The developer message is sent too. input budget = (context window - reserved for the reply) * safety;
+   the reply is capped with max_completion_tokens.
+
+
+  Input tokens summed over n turns   (S = instruction tokens, t = tokens added per exchange)
+    no trimming:  n*S + t*n(n-1)/2   quadratic in n
+    trimmed:      linear once the input budget is reached
+    Demo part 4 (S=20, t=40, n=6):  6*20 + 40*15 = 720 input tokens billed in total
+```
+
+## Practice
+
+### 1. Which names exist where?
+
+Reusing `spec_check.py`, find out which of these names are request fields of Chat Completions and which are request fields of the Responses API: `reasoning_effort`, `verbosity`, `prompt_cache_key`, `service_tier`, `modalities`, `prediction`, `metadata`, `max_output_tokens`, `instructions`, `previous_response_id`.
+
+<details><summary>Answer</summary>
+
+```python
+from spec_check import properties          # spec_check.py from the Code section (it downloads the pinned spec on import)
+
+chat = properties({"$ref": "#/components/schemas/CreateChatCompletionRequest"})
+responses = properties({"$ref": "#/components/schemas/CreateResponse"})
+names = ["reasoning_effort", "verbosity", "prompt_cache_key", "service_tier", "modalities", "prediction",
+         "metadata", "max_output_tokens", "instructions", "previous_response_id"]
+print(f"{'name':<22}{'Chat Completions':<18}Responses")
+for name in names:
+    print(f"{name:<22}{'yes' if name in chat else 'no':<18}{'yes' if name in responses else 'no'}")
+```
+
+Output (run in the folder that contains `spec_check.py`):
+
+```
+name                  Chat Completions  Responses
+reasoning_effort      yes               no
+verbosity             yes               no
+prompt_cache_key      yes               yes
+service_tier          yes               yes
+modalities            yes               no
+prediction            yes               no
+metadata              yes               yes
+max_output_tokens     no                yes
+instructions          no                yes
+previous_response_id  no                yes
+```
+
+`max_output_tokens`, `instructions` and `previous_response_id` exist only on the Responses side, which is a common source of 400s when you paste an example from the wrong API. A "no" in the Responses column does not always mean the feature is missing: it can be nested. In the spec, Responses has `reasoning` (with `effort`) and `text` (with `verbosity`) objects, which is where Chat Completions' top-level `reasoning_effort` and `verbosity` went. Always search the right schema.
+
+</details>
+
+### 2. A sliding window by turns versus by tokens
+
+Write `last_k_turns(messages, k)` (keep the instructions and the last *k* user turns) and compare it with `trim_messages` on a history in which one recent turn contains a huge pasted document.
+
+<details><summary>Answer</summary>
+
+```python
+from trim import approx_tokens, trim_messages          # trim.py from the Code section
+
+def last_k_turns(messages, k):
+    """Keep the leading instructions and the last k user turns (a user message plus whatever follows it)."""
+    n_head = next((i for i, m in enumerate(messages) if m["role"] not in ("system", "developer")), len(messages))
+    user_idx = [i for i, m in enumerate(messages) if i >= n_head and m["role"] == "user"]
+    start = user_idx[-k] if len(user_idx) >= k else n_head
+    return messages[:n_head] + messages[start:]
+
+def m(role, chars):
+    return {"role": role, "content": "x" * chars}
+
+history = [m("developer", 40),
+           m("user", 40), m("assistant", 80),
+           m("user", 4000), m("assistant", 200),          # a recent turn with a huge pasted document
+           m("user", 40), m("assistant", 80),
+           m("user", 40)]
+cost = lambda msgs: sum(approx_tokens(x) for x in msgs)
+print("whole history      :", len(history), "messages,", cost(history), "approx tokens")
+view = last_k_turns(history, 3)
+print("last 3 turns       :", len(view), "messages,", cost(view), "approx tokens")
+view, dropped = trim_messages(history, 300, safety=1.0)
+print("trim to 300 tokens :", len(view), "messages,", cost(view), "approx tokens, dropped", dropped)
+```
+
+Output (run in the folder that contains `trim.py`):
+
+```
+whole history      : 8 messages, 1162 approx tokens
+last 3 turns       : 6 messages, 1124 approx tokens
+trim to 300 tokens : 4 messages, 66 approx tokens, dropped 4
+```
+
+Counting turns is not counting tokens: three turns here are 1,124 approximate tokens, because one of them is huge. `trim_messages` kept only the last turn and a half. It could not keep the older turns either, because the kept part must be a contiguous suffix, so the huge message acts as a wall: everything older than it goes too. If you want to keep the older small turns and drop only the large one, you need a different policy (for example summarizing or truncating the large message), and you should choose it deliberately.
+
+</details>
+
+### 3. How big can `max_completion_tokens` be?
+
+Write `choose_max_tokens(window, prompt_tokens, want)` returning the largest cap that still fits the window with a 5% margin, and raising when less than 16 tokens of room remain.
+
+<details><summary>Answer</summary>
+
+```python
+class BudgetError(ValueError):
+    pass
+
+def choose_max_tokens(window, prompt_tokens, want, margin=0.05, min_useful=16):
+    """Largest max_completion_tokens that still fits: the output shares the window with the prompt."""
+    room = int(window * (1 - margin)) - prompt_tokens
+    if room < min_useful:
+        raise BudgetError(f"only {room} tokens of room left; trim the prompt first")
+    return min(want, room)
+
+print(f"{'window':>7} {'prompt':>7} {'want':>6}  result")
+for window, prompt, want in [(8000, 1000, 500), (8000, 7500, 500), (8000, 7200, 500), (8000, 7600, 500), (8000, 900, 20000)]:
+    try:
+        print(f"{window:>7} {prompt:>7} {want:>6}  {choose_max_tokens(window, prompt, want)}")
+    except BudgetError as e:
+        print(f"{window:>7} {prompt:>7} {want:>6}  BudgetError: {e}")
+```
+
+Output:
+
+```
+ window  prompt   want  result
+   8000    1000    500  500
+   8000    7500    500  100
+   8000    7200    500  400
+   8000    7600    500  BudgetError: only 0 tokens of room left; trim the prompt first
+   8000     900  20000  6700
+```
+
+The output shares the window with the prompt, so a prompt that nearly fills it leaves a cap of 100 (or nothing). When the function raises, the right response is to trim the prompt, not to send the request and hope. For reasoning models, remember that the cap also covers reasoning tokens.
+
+</details>
+
+### Checkpoint quiz
+
+1. Why does the model "remember" your earlier question in a Chat Completions conversation, given that the API is stateless?
+2. Which role do the current docs use for application instructions, and what do the docs say about the older `system` role?
+3. A response has `finish_reason: "length"`. List two possible causes and two things you could do.
+4. Why is `max_tokens` a risky parameter to use in new code?
+5. Why must a trimming function never drop a message from the middle of the history, and what must it do about the first message it keeps?
+
+<details><summary>Answers</summary>
+
+1. It doesn't. Your code stores the history and re-sends all of it as `messages` on every call. What looks like memory is the client replaying the conversation (demo section 1).
+2. `developer`, described as instructions from the application developer, prioritized ahead of user messages. The spec says that with o1 models and newer, developer messages replace the previous system messages; `system` remains in the schema.
+3. Causes: the `max_completion_tokens` cap was reached; the input plus output reached the context window; on reasoning models, reasoning tokens consumed the cap. Actions: raise the cap if the window allows (and accept paying again), shorten the prompt or ask for a shorter answer, trim the history, or surface the truncation to the user instead of presenting a cut-off answer as complete.
+4. It is deprecated in favour of `max_completion_tokens` and, per the docs, not compatible with o-series models; the replacement also covers reasoning tokens.
+5. Dropping from the middle breaks the logic of the conversation and can leave a reply without its question or a tool result without its call. Cut whole turns from the oldest end, and start the kept part at a user message so there is no orphaned assistant reply.
+
+</details>
+
+> [!check]
+> - I can explain why the history must be re-sent and what that costs.
+> - I can name the roles and say which one the docs use for instructions.
+> - I can state what `temperature`, `top_p`, `max_completion_tokens` and `stop` do, and which parameters are deprecated.
+> - I can handle `stop`, `length`, `content_filter` and a refusal differently.
+> - I can compute an input budget from a context window and a reserved output.
+> - I can say why an approximate counter needs a safety margin or calibration.
+> - I can check a parameter name against the OpenAPI spec.
+
+## Project
+
+Build a `ConversationManager` for a chat service, with no code given. It stores every conversation in SQLite (full history, never trimmed in storage), and builds each request from a policy object that you can swap: drop-oldest (this module), "pinned" messages that are never dropped (for example a user's stated preferences), and a summarizing policy that replaces dropped turns with one scripted summary message. It must use a counter that is calibrated against the `usage.prompt_tokens` of previous responses, keep a per-model configuration table (window, reserved output, safety), refuse to send a request that cannot fit instead of letting the server reject it, roll back failed turns, and record per turn: tokens sent, tokens dropped, the `finish_reason` and the request id. Test it against the stand-in with a small window: pinned messages survive 100 turns; no request ever exceeds the window; a `length` finish is reported to the caller as truncated; and the stored history stays byte-identical to what happened regardless of the policy. Then write a short comparison of the three policies on cost (total prompt tokens) and on what the model could still "see", using only measurements from your own runs.
+
+## Interview questions
+
+> [!interview] Chat Completions is stateless. How do you build a chatbot with memory, and how do you stop long conversations from failing or getting expensive?
+
+<details><summary>What a strong answer covers</summary>
+
+- The client stores the history and replays it as `messages` each turn; appends the assistant message from `choices[0].message`; rolls back failed turns.
+- The window is shared by input and output: budget = window minus reserved output, with a safety margin; the window comes from the model's docs, kept in config.
+- Cost grows roughly quadratically with turns because the full history is re-billed each turn; policies: trim oldest whole turns (keep instructions and the newest message), summarize, retrieve, or use server-side compaction.
+- Counting: the provider's count or usage is authoritative; local estimates need a margin and calibration; mention the prompt-cache interaction as a trade-off, labelled as an inference.
+
+</details>
+
+> [!interview] A completion comes back with `finish_reason` of `length`. What happened and what does your code do?
+
+<details><summary>What a strong answer covers</summary>
+
+- It stopped at the token cap or at the context window; the text is incomplete. Reasoning models count reasoning tokens toward the cap, so visible text may be short or empty.
+- The code never presents it as complete: it raises the cap if room allows (paying again), shortens the prompt, or reports truncation; for JSON output, truncation means invalid JSON.
+- It logs `usage`, the cap and the request id so the cap can be tuned from data.
+- It distinguishes `length` from `content_filter` and a `refusal`.
+
+</details>
+
+> [!interview] Someone proposes `temperature=0` and a fixed `seed` so that tests can compare exact model outputs. What is your view?
+
+<details><summary>What a strong answer covers</summary>
+
+- The docs do not promise determinism: the spec says "Determinism is not guaranteed" for `seed`, which is also deprecated; model snapshots change behaviour.
+- Test properties (schema validity, presence of required facts, refusal behaviour) and use evaluations over sets of cases rather than exact string equality; pin model snapshots.
+- Use the scripted stand-in or recorded responses for deterministic unit tests of your own code, and a small set of live evaluation runs for model behaviour.
+- Temperature and top-p change the spread of outputs but are not repeatability controls; do not alter both at once.
+
+</details>
+
+## Common mistakes & troubleshooting
+
+- **The model "forgot" something you said.** The history was not sent, was trimmed, or a failed turn was dropped without you noticing. Log the number of messages sent per call, as the demo's table does.
+- **A 400 after copying an example.** The example was for the Responses API: `instructions`, `input` and `max_output_tokens` are Responses names; here they are a `developer` message, `messages` and `max_completion_tokens` (Exercise 1).
+- **The answer ends mid-sentence.** `finish_reason` was `length`. Check it on every call, not just in tests.
+- **A reasoning model returns little or no visible text.** Reasoning tokens used up the cap. Raise `max_completion_tokens` and read `completion_tokens_details.reasoning_tokens` in `usage`.
+- **`max_tokens` is rejected, or ignored.** It is deprecated and, per the docs, not compatible with o-series models. Use `max_completion_tokens`.
+- **A trimmed conversation starts with an assistant message, or a tool message has no call.** The trimming kept a suffix that did not begin at a user message. Start at a user message and keep tool calls with their results.
+- **Requests fail near the limit even though your counter says they fit.** The counter underestimates (non-English text, code, images and tool schemas make 4 characters per token unreliable). Add a safety margin, calibrate against `usage.prompt_tokens`, or use the provider's counting endpoint.
+- **The bill grows faster than usage.** Every turn re-sends the history. Look at `prompt_tokens` per turn, not at user messages per day.
+- **Identical settings, different outputs.** Sampling is random and determinism is not guaranteed; see the pitfall above.
+
+## Further reading & sources
+
+- [Create chat completion | OpenAI API Reference](https://developers.openai.com/api/reference/resources/chat/subresources/completions/methods/create) - the request and response reference for this endpoint: parameter names, ranges, defaults and `finish_reason` values used throughout the module.
+- [openai/openai-openapi: OpenAPI specification for the OpenAI API](https://github.com/openai/openai-openapi) - the machine-readable spec that `spec_check.py` reads; the final word on parameter names, types and deprecations.
+- [Text generation | OpenAI API](https://developers.openai.com/api/docs/guides/text) - the definitions of the `developer`, `user` and `assistant` roles and the function-and-arguments analogy.
+- [Conversation state | OpenAI API](https://developers.openai.com/api/docs/guides/conversation-state) - states that requests are stateless, shows manual state management, and defines the context window as shared by input, output and reasoning tokens.
+- [Counting tokens | OpenAI API](https://developers.openai.com/api/docs/guides/token-counting) - why `characters / 4` is only an estimate, what formatting tokens are, and how output limits include non-visible tokens.
+- [Models | OpenAI API](https://developers.openai.com/api/docs/models) - where the context window and output limits of each model are published; keep these in configuration, never in code.
+- [Prompt caching | OpenAI API](https://developers.openai.com/api/docs/guides/prompt-caching) - explains prefix-based caching, the reason a sliding window can change cache behaviour.
+- [Migrate to the Responses API | OpenAI API](https://developers.openai.com/api/docs/guides/migrate-to-responses) - the official comparison of Chat Completions and Responses, including the manual-state and no-`n` differences cited here.
+
+## Next
+
+[Module 02: The Responses API and Statefulness](../02-the-responses-api-and-statefulness/README.md)
