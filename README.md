@@ -35,8 +35,8 @@ It's also **a community project, not a product**. The curriculum is plain markdo
 |---|---|
 | **Curricula** | 4 — Backend Engineering · Learn (Linux → Cloud) · GenAI Engineering · Low-Level Design |
 | **Modules** | **734** — 58 tracks across three curricula, plus the 24-module LLD course¹ |
-| **Written today** | **524** modules — over **220,000 lines** of content |
-| **Waiting for an author** | **210** modules — [claim one](#claim-a-module) |
+| **Written today** | **546** modules — over **230,000 lines** of content |
+| **Waiting for an author** | **188** modules — [claim one](#claim-a-module) |
 | **Cost / login to read** | Free, no account needed |
 | **License** | [MIT](LICENSE) — code **and** content |
 
@@ -71,7 +71,7 @@ Linux · Docker · Kubernetes · networking · Azure networking, Container Apps 
 <td width="50%" valign="top">
 
 ### GenAI Engineering
-*Python → agents, MCP & production LLM systems* — **17 tracks, 297 modules** (210 still to be written)
+*Python → agents, MCP & production LLM systems* — **17 tracks, 297 modules** (188 still to be written)
 
 Foundations · tokens & language modeling · the transformer · BERT/GPT/MoE · training, fine-tuning & alignment · GPUs & hardware · the model landscape · prompt engineering · embeddings & vector DBs · **RAG** · **AI agents** · **LangChain / LangGraph** · multi-agent orchestration · **Model Context Protocol (MCP)** · **vLLM** inference & serving · evaluation, observability & safety · speech & multimodal
 
@@ -136,7 +136,7 @@ This project is run on a simple idea:
 | If you are a… | Good places to start |
 |---|---|
 | **Backend / system design engineer** | [Write a module](#claim-a-module) in your specialty · review an existing module for accuracy · add real-world failure stories and war-stories · improve a track's capstone project |
-| **GenAI / ML engineer** | **210 unwritten GenAI modules** — RAG, agents, MCP, vLLM, evaluation… [claim a track](#claim-a-module) |
+| **GenAI / ML engineer** | **188 unwritten GenAI modules** — RAG, agents, MCP, vLLM, evaluation… [claim a track](#claim-a-module) |
 | **DevOps / cloud / SRE** | Add runnable labs to `learn/` · verify every command still works on current versions · write the missing sections of the Azure / Kubernetes / Terraform tracks |
 | **Frontend (React) developer** | Accessibility pass · performance (a few chunks exceed 500 kB) · keyboard navigation · mobile polish · tests for the markdown pipeline |
 | **UI / UX designer** | Learning-flow ideas, diagrams that teach, a design pass on the module page, a better progress dashboard |
@@ -149,14 +149,13 @@ This project is run on a simple idea:
 
 ### Claim a module
 
-**210 modules are placeholders** — their `README.md` literally says *"Content for this module has not been written yet."* They're the clearest, most valuable thing you can pick up. All of them are in the GenAI curriculum:
+**188 modules are placeholders** — their `README.md` literally says *"Content for this module has not been written yet."* They're the clearest, most valuable thing you can pick up. All of them are in the GenAI curriculum:
 
 | Track | Unwritten | What it covers |
 |---|:---:|---|
-| [`05-gpus-and-genai-hardware`](genai/05-gpus-and-genai-hardware/) | 16 | Why GPUs, GPU architecture for software engineers, VRAM, mixed precision, distributed training |
 | [`06-openai-and-the-model-landscape`](genai/06-openai-and-the-model-landscape/) | 19 | The OpenAI API, choosing models, function calling, Anthropic/Google/open-weight, small & on-device models |
 | [`07-prompt-engineering`](genai/07-prompt-engineering/) | 17 | Anatomy of a prompt, few-shot, chain-of-thought, structured outputs, prompt injection |
-| [`08-embeddings-and-vector-databases`](genai/08-embeddings-and-vector-databases/) | 18 | Embedding models, chunking, vector DBs, approximate nearest-neighbour search |
+| [`08-embeddings-and-vector-databases`](genai/08-embeddings-and-vector-databases/) | 12 | Chunking, vector DBs (pgvector, Chroma, Pinecone, Weaviate, Qdrant), approximate nearest-neighbour search, hybrid queries — modules 00–05 are done |
 | [`09-retrieval-augmented-generation`](genai/09-retrieval-augmented-generation/) | 18 | RAG architecture, hybrid search, reranking, evaluating RAG, failure modes |
 | [`10-ai-agents`](genai/10-ai-agents/) | 18 | What an agent is, the ReAct loop, tool calling, planning & memory — built by hand |
 | [`11-langchain-and-langgraph`](genai/11-langchain-and-langgraph/) | 19 | Core abstractions, chains & memory, tools & retrievers, LangGraph state/cycles/checkpointing |

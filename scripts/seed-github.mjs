@@ -77,6 +77,9 @@ Add it as a \`## Further reading & sources\` section just before \`## Next\`. Op
 const issues = [];
 const add = (i) => issues.push({ labels: [], ...i });
 
+const unwritten = dirs('genai').filter((d) => /^\d\d-/.test(d))
+  .reduce((n, t) => n + modulesOf(`genai/${t}`).filter((m) => isPlaceholder(m.md)).length, 0);
+
 // 0. the welcome thread
 add({
   title: 'Start here: say hi and tell us what you’d like to work on',
@@ -85,7 +88,7 @@ add({
 
 **Comment below with the area you'd like to work on** (and anything about your background that helps us point you at the right thing). Some areas:
 
-- ✍️ **Write a module** — 210 are waiting; see the [GenAI issues](https://github.com/${REPO}/issues?q=is%3Aissue+is%3Aopen+label%3Aclaim-a-module)
+- ✍️ **Write a module** — ${unwritten} are waiting; see the [GenAI issues](https://github.com/${REPO}/issues?q=is%3Aissue+is%3Aopen+label%3Aclaim-a-module)
 - 🔧 **Improve an existing module** — fix, clarify, deepen, add exercises or sources
 - 🧪 **Tests, accessibility, performance** for the app
 - 🎨 **UI / UX and learning-experience ideas**
