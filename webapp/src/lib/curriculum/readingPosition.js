@@ -4,7 +4,8 @@
 // localStorage rather than the server on purpose: this is a per-device
 // convenience, not part of your progress. Reading half of something on a phone
 // shouldn't move where the laptop resumes.
-const KEY = 'docs.readingPositions';
+import { STORAGE } from '../../config/index.js';
+import { readJson, writeJson } from '../storage.js';
 
 // Below this you haven't really started, so there's nothing worth offering to
 // return to; above it you've essentially finished and the offer is noise.
@@ -16,22 +17,14 @@ const DONE_RATIO = 0.92;
 const MAX_ENTRIES = 60;
 
 function readAll() {
-  try {
-    const raw = localStorage.getItem(KEY);
-    const parsed = raw ? JSON.parse(raw) : null;
-    return parsed && typeof parsed === 'object' ? parsed : {};
-  } catch {
-    return {};
-  }
+  const parsed = readJson(STORAGE.readingPositions, null);
+  return parsed && typeof parsed === 'object' ? parsed : {};
 }
 
 function writeAll(map) {
-  try {
-    localStorage.setItem(KEY, JSON.stringify(map));
-  } catch {
-    // Quota exceeded or storage disabled (private mode). Losing a scroll
-    // position is not worth surfacing to anyone.
-  }
+  // Quota exceeded or storage disabled (private mode): writeJson reports it and
+  // we ignore it. Losing a scroll position is not worth surfacing to anyone.
+  writeJson(STORAGE.readingPositions, map);
 }
 
 export function getPosition(path) {

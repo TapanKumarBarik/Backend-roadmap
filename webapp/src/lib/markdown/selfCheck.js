@@ -9,7 +9,8 @@
 // queue, no server. This is the cheap half: it establishes whether recalling
 // at the end of a module is something you actually do, before anything gets
 // built on top of it.
-const KEY = 'docs.selfCheck';
+import { STORAGE } from '../../config/index.js';
+import { readJson, writeJson } from '../storage.js';
 
 // Keyed by content, not position: editing a module or inserting a bullet
 // shouldn't silently transfer your answer to a different question. The
@@ -22,17 +23,12 @@ function hashText(s) {
 }
 
 function readAll() {
-  try {
-    const raw = localStorage.getItem(KEY);
-    const parsed = raw ? JSON.parse(raw) : null;
-    return parsed && typeof parsed === 'object' ? parsed : {};
-  } catch {
-    return {};
-  }
+  const parsed = readJson(STORAGE.selfCheck, null);
+  return parsed && typeof parsed === 'object' ? parsed : {};
 }
 
 function writeAll(map) {
-  try { localStorage.setItem(KEY, JSON.stringify(map)); } catch { /* storage disabled */ }
+  writeJson(STORAGE.selfCheck, map); // storage disabled or full: the answers just are not remembered
 }
 
 export function getAnswers(path) {

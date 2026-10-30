@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-
-const LS_KEY = 'docs.openDirs';
+import { STORAGE } from '../config/index.js';
+import { readJson, writeJson } from '../lib/storage.js';
 
 // Set<dirPath> of expanded directories, debounced (150ms, matching the
 // vanilla saveOpenDirs) to localStorage.
@@ -18,15 +18,14 @@ export function useOpenDirs(treeData) {
   useEffect(() => {
     if (initializedRef.current || !treeData.length) return;
     initializedRef.current = true;
-    let saved = [];
-    try { saved = JSON.parse(localStorage.getItem(LS_KEY) || '[]'); } catch { /* ignore */ }
-    setOpenDirs(new Set(saved));
+    const saved = readJson(STORAGE.openDirs, []);
+    setOpenDirs(new Set(Array.isArray(saved) ? saved : []));
   }, [treeData]);
 
   const persist = useCallback((set) => {
     clearTimeout(saveTimerRef.current);
     saveTimerRef.current = setTimeout(() => {
-      try { localStorage.setItem(LS_KEY, JSON.stringify([...set])); } catch { /* ignore */ }
+      writeJson(STORAGE.openDirs, [...set]);
     }, 150);
   }, []);
 

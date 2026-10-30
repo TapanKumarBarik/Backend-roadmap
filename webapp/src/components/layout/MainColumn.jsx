@@ -1,13 +1,14 @@
 import { useRef, useState } from 'react';
 import ArticleView from '../article/ArticleView.jsx';
 import EmptyState from '../home/EmptyState.jsx';
+import Landing from '../home/Landing.jsx';
 
 export default function MainColumn({
   currentFile, node, statusMap, timeMap, flatFiles, nodeByFile, dirIndex, fileSet, allTags,
   onOpenFile, onSetStatus, onOpenPalette, headingTarget, onToast,
   onTocChange, onActiveHeadingChange,
   counts, treeCount, treeData, user, onLogin, isBookmarked, onToggleBookmark, bookmarks,
-  showNotesInArticle
+  showNotesInArticle, showLanding, siteStats, onDismissLanding
 }) {
   const mainRef = useRef(null);
   const [readProgress, setReadProgress] = useState(0);
@@ -49,22 +50,33 @@ export default function MainColumn({
               showNotesInArticle={showNotesInArticle}
             />
           )
-          : (
-            <EmptyState
-              timeMap={timeMap}
-              counts={counts}
-              treeCount={treeCount}
-              treeData={treeData}
-              statusMap={statusMap}
-              nodeByFile={nodeByFile}
-              dirIndex={dirIndex}
-              allTags={allTags}
-              flatFiles={flatFiles}
-              bookmarks={bookmarks}
-              onOpenFile={onOpenFile}
-              onOpenPalette={onOpenPalette}
-            />
-          )}
+          : showLanding
+            ? (
+              <Landing
+                stats={siteStats}
+                user={user}
+                onLogin={onLogin}
+                onOpenFile={onOpenFile}
+                onDismiss={onDismissLanding}
+                onOpenPalette={onOpenPalette}
+              />
+            )
+            : (
+              <EmptyState
+                timeMap={timeMap}
+                counts={counts}
+                treeCount={treeCount}
+                treeData={treeData}
+                statusMap={statusMap}
+                nodeByFile={nodeByFile}
+                dirIndex={dirIndex}
+                allTags={allTags}
+                flatFiles={flatFiles}
+                bookmarks={bookmarks}
+                onOpenFile={onOpenFile}
+                onOpenPalette={onOpenPalette}
+              />
+            )}
       </div>
     </div>
   );

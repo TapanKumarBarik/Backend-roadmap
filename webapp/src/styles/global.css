@@ -155,11 +155,12 @@ kbd {
 }
 .skip-link:focus { top: 8px; }
 
-.home-footer {
-  display: flex; gap: 8px; align-items: center; margin-top: 48px;
-  font-size: 12px; color: var(--fg-subtle);
-}
-.home-footer a { color: var(--fg-subtle); text-decoration: underline; }
+/* Shared by the landing page and the dashboard (components/common/SiteFooter.jsx). */
+.site-footer { margin-top: 48px; font-size: 12.5px; color: var(--fg-subtle); }
+.site-footer .sf-row { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: center; margin: 0 0 6px; color: inherit; }
+.site-footer a { color: var(--fg-muted); text-decoration: underline; text-underline-offset: 3px; }
+.site-footer a:hover { color: var(--fg); }
+.site-footer strong { color: var(--fg-muted); font-weight: 600; }
 .icon-btn {
   width: 32px; height: 32px; display: grid; place-items: center; border-radius: var(--r-sm);
   border: 1px solid transparent; background: transparent; color: var(--fg-muted);
@@ -2805,3 +2806,5 @@ li[data-checked="true"] > div {
     transition: none !important;
   }
 }
+/* Shown above a mermaid block whose source failed to parse (see lib/markdown/mermaidRender.js). */
+.mermaid-failed-note { margin: 18px 0 6px; font-size: 13px; color: var(--danger); }

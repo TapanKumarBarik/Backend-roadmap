@@ -3,8 +3,10 @@ import { ArrowRightIcon, StarIcon } from '../common/icons.jsx';
 import ProgressStats from './ProgressStats.jsx';
 import { subtreeStats } from '../../lib/curriculum/progressStats.js';
 import { buildPositions, shortTitle, pickContinue, nextUp, siblingStats, stripOrdinal, studyableFiles } from '../../lib/curriculum/curriculumPosition.js';
-import { BUILD_TIME } from '../../lib/buildInfo.js';
 import { routeUrl } from '../../lib/curriculum/moduleUrl.js';
+import { STORAGE } from '../../config/index.js';
+import { readStored } from '../../lib/storage.js';
+import SiteFooter from '../common/SiteFooter.jsx';
 
 // The stylesheet already hides the Ctrl-K hint in the search box on narrow
 // screens, but the body copy went on telling phone users to press a key
@@ -28,7 +30,7 @@ export default function EmptyState({
 }) {
   const [openPath, setOpenPath] = useState(null);
 
-  const lastFile = (() => { try { return localStorage.getItem('docs.lastFile'); } catch { return null; } })();
+  const lastFile = readStored(STORAGE.lastFile);
   const positions = buildPositions(treeData);
   const studyable = studyableFiles(flatFiles, nodeByFile);
   const continueFile = pickContinue(studyable, statusMap, lastFile);
@@ -199,17 +201,7 @@ export default function EmptyState({
           itself — now lives on Explore, grouped by subject rather than
           ordered by raw frequency. */}
 
-      <div className="home-footer">
-        <a href="/privacy.html">Privacy</a>
-        <span aria-hidden="true">·</span>
-        <a href="/terms.html">Terms</a>
-        {BUILD_TIME && (
-          <>
-            <span aria-hidden="true">·</span>
-            <span>Site last published {new Date(BUILD_TIME).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })}</span>
-          </>
-        )}
-      </div>
+      <SiteFooter />
     </div>
   );
 }

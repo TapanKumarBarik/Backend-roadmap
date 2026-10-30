@@ -13,6 +13,10 @@ import { useMediaQuery } from './hooks/useMediaQuery.js';
 import { useToast } from './hooks/useToast.js';
 import { useBookmarks } from './hooks/useBookmarks.js';
 import { useStreak } from './hooks/useStreak.js';
+import { useSiteStats } from './hooks/useSiteStats.js';
+import { STORAGE } from './config/index.js';
+import { readStored, writeStored } from './lib/storage.js';
+import { useLanding } from './hooks/useLanding.js';
 import { useCommentActivity } from './hooks/useCommentActivity.js';
 import { useFeedActivity, useQuestionsActivity } from './hooks/useCommunityActivity.js';
 import { computeTreeVisibility } from './lib/curriculum/treeFilter.js';
@@ -130,7 +134,7 @@ export default function App() {
 
   useEffect(() => {
     if (!currentFile) return;
-    try { localStorage.setItem('docs.lastFile', currentFile); } catch { /* ignore */ }
+    writeStored(STORAGE.lastFile, currentFile);
     const node = nodeByFile[currentFile];
     if (node) openMany(ancestorDirPaths(node));
     trackPageView(currentFile);
@@ -165,6 +169,15 @@ export default function App() {
   }, [filter, visibility, openMany]);
 
   const counts = useMemo(() => globalCounts(flatFiles, statusMap), [flatFiles, statusMap]);
+
+  // The front door is only for the bare root URL. Keying on `path` rather than `currentFile` matters: on a
+  // deep link currentFile is null until the module index has loaded, which would flash this page first.
+  const siteStats = useSiteStats();
+  const { showLanding, dismiss: dismissLanding } = useLanding({
+    started: counts.done + counts.wip > 0,
+    hasOpenFile: !!path,
+    isSpecialRoute
+  });
 
   const toggleStatus = useCallback((file, forceStatus) => {
     if (forceStatus) { setStatus(file, forceStatus); return; }
@@ -289,7 +302,7 @@ export default function App() {
   const paletteActions = useMemo(() => {
     const continueFile = pickContinue(
       studyableFiles(flatFiles, nodeByFile), statusMap,
-      (() => { try { return localStorage.getItem('docs.lastFile'); } catch { return null; } })()
+      readStored(STORAGE.lastFile)
     );
     const list = [
       { label: 'Continue learning', keywords: 'resume next module', hint: 'where you left off', run: () => (continueFile ? openFile(continueFile) : goHome()) },
@@ -323,9 +336,7 @@ export default function App() {
   }, [flatFiles, nodeByFile, statusMap, currentFile, user, openFile, goHome, navigate,
     setStatus, handleCycleTheme, expandAll, allDirPaths, collapseAll, handleExport, handleReset]);
 
-  const lastViewedFile = (() => {
-    try { return localStorage.getItem('docs.lastFile') || ''; } catch { return ''; }
-  })();
+  const lastViewedFile = readStored(STORAGE.lastFile) || '';
 
   return (
     <>
@@ -350,7 +361,7 @@ export default function App() {
         onReset={handleReset}
         onExpandAll={() => expandAll(allDirPaths)}
         onCollapseAll={collapseAll}
-        onMobileToggle={isSpecialRoute ? null : () => setNavOpen((v) => !v)}
+        onMobileToggle={isSpecialRoute || showLanding ? null : () => setNavOpen((v) => !v)}
         onDeleteAccount={handleDeleteAccount}
         onOpenMessage={user ? () => setMessageOpen(true) : null}
         onToast={toast.show}
@@ -382,7 +393,7 @@ export default function App() {
         {/* Collapsed, the panel is gone entirely — so there has to be a way
             back that isn't only a keyboard shortcut. A slim strip against
             the rail, in the place the panel would occupy. */}
-        {!isSpecialRoute && sidebarCollapsed && (
+        {!isSpecialRoute && !showLanding && sidebarCollapsed && (
           <button
             id="treePeek"
             title="Show the module tree (press B)"
@@ -392,7 +403,7 @@ export default function App() {
             <CaretIcon />
           </button>
         )}
-        {!isSpecialRoute && (
+        {!isSpecialRoute && !showLanding && (
           <>
             <Sidebar
               onCollapse={toggleSidebarCollapsed}
@@ -497,6 +508,9 @@ export default function App() {
               onToggleBookmark={toggleBookmark}
               bookmarks={bookmarks}
               showNotesInArticle={!railVisible}
+              showLanding={showLanding}
+              siteStats={siteStats}
+              onDismissLanding={dismissLanding}
             />
           )}
         {!isSpecialRoute && rightRailCollapsed && railVisible && currentFile && (

@@ -9,6 +9,8 @@ import { readTimeStats, slugify } from '../../lib/markdown/markdown.js';
 import { buildPositions, siblingStats } from '../../lib/curriculum/curriculumPosition.js';
 import { getPosition, savePosition, clearPosition, describeWhen } from '../../lib/curriculum/readingPosition.js';
 import { enhanceSelfCheck, handleSelfCheckClick } from '../../lib/markdown/selfCheck.js';
+import { STORAGE } from '../../config/index.js';
+import { readStored, writeStored } from '../../lib/storage.js';
 import { ClockIcon, StarIcon, ArrowRightIcon } from '../common/icons.jsx';
 import CommentsSection from './CommentsSection.jsx';
 import NotesPanel from './NotesPanel.jsx';
@@ -19,16 +21,13 @@ import ReactionsBar from './ReactionsBar.jsx';
 // than kept with a disclaimer nobody hovers; a real per-file date needs git
 // history per path, computed at index-build time like docs-index.json.
 
-const LANG_PREF_KEY = 'docLangPref';
-
 function activateTab(group, lang) {
   group.querySelectorAll('.tab-btn').forEach((b) => b.classList.toggle('active', b.dataset.lang === lang));
   group.querySelectorAll('.tab-pane').forEach((p) => { p.style.display = p.dataset.lang === lang ? 'block' : 'none'; });
 }
 
 function applyTabPreference(root) {
-  let pref;
-  try { pref = localStorage.getItem(LANG_PREF_KEY); } catch { pref = null; }
+  const pref = readStored(STORAGE.languagePreference);
   if (!pref) return;
   root.querySelectorAll('.tabs').forEach((g) => {
     if (g.querySelector(`.tab-btn[data-lang="${CSS.escape(pref)}"]`)) activateTab(g, pref);
@@ -147,7 +146,7 @@ export default function ArticleView({
     if (tabBtn) {
       const group = tabBtn.closest('.tabs');
       activateTab(group, tabBtn.dataset.lang);
-      try { localStorage.setItem(LANG_PREF_KEY, tabBtn.dataset.lang); } catch { /* ignore */ }
+      writeStored(STORAGE.languagePreference, tabBtn.dataset.lang);
       contentRef.current.querySelectorAll('.tabs').forEach((g) => {
         if (g !== group && g.querySelector(`.tab-btn[data-lang="${CSS.escape(tabBtn.dataset.lang)}"]`)) {
           activateTab(g, tabBtn.dataset.lang);

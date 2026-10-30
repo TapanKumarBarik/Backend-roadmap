@@ -1,14 +1,20 @@
 import { useCallback, useEffect, useState } from 'react';
+import { STORAGE } from '../config/index.js';
+import { readStored, writeStored } from '../lib/storage.js';
 
 const ORDER = ['auto', 'light', 'dark'];
-const KEY = 'docs.theme';
 
 export function useTheme() {
-  const [theme, setTheme] = useState(() => localStorage.getItem(KEY) || 'auto');
+  // This runs while the app starts: an unguarded read here used to take the whole page down in a browser
+  // that blocks site data. readStored never throws.
+  const [theme, setTheme] = useState(() => {
+    const saved = readStored(STORAGE.theme);
+    return ORDER.includes(saved) ? saved : 'auto';
+  });
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
-    try { localStorage.setItem(KEY, theme); } catch { /* ignore */ }
+    writeStored(STORAGE.theme, theme);
   }, [theme]);
 
   // Returns the theme it moved to, so the caller can say so out loud.

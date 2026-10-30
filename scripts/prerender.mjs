@@ -11,14 +11,14 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { renderMarkdownDoc } from '../webapp/src/lib/markdown/markdown.js';
 import { moduleUrl, routeUrl } from '../webapp/src/lib/curriculum/moduleUrl.js';
 import { resolvePath } from '../webapp/src/lib/markdown/rewriteLinks.js';
+import { ROOT, config, SITE_URL, isPlaceholderText } from './lib/config.mjs';
 
-const SITE = 'https://backendroadmap.com';
-const SITE_NAME = 'Backend Roadmap';
-const DIST = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'dist');
+const SITE = SITE_URL;
+const SITE_NAME = config.site.name;
+const DIST = path.join(ROOT, 'dist');
 
 const template = fs.readFileSync(path.join(DIST, 'index.html'), 'utf8');
 const { tree } = JSON.parse(fs.readFileSync(path.join(DIST, 'docs-index.json'), 'utf8'));
@@ -122,8 +122,8 @@ for (const { node, ancestors } of modules) {
   // An unwritten module is a placeholder, not content: keep it out of the index
   // and the sitemap (thin pages drag down a whole site's ranking). It reappears
   // on the next build once someone writes it. Same marker the app checks
-  // (webapp/src/lib/curriculum/contribute.js).
-  const placeholder = raw.split('\n', 25).join('\n').includes('has not been written yet');
+  // (webapp/src/lib/curriculum/contribute.js); both read it from site.config.json.
+  const placeholder = isPlaceholderText(raw);
   const html = rewriteLinks(renderMarkdownDoc(raw), node.file);
   const track = ancestors[0]?.title || title;
   const description = describe(html, `${title} — part of the ${track} curriculum on ${SITE_NAME}.`);

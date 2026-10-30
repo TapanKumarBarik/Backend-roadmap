@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
-
-const LS_KEY = 'docs.sidebarW';
+import { STORAGE } from '../config/index.js';
+import { readStored, writeStored } from '../lib/storage.js';
 
 // Ported from the vanilla initResizer IIFE. Drags --sidebar-w directly as a
 // CSS custom property (no React state involved — this is display-only,
@@ -10,7 +10,7 @@ export function useSidebarResize(resizerRef) {
   const draggingRef = useRef(false);
 
   useEffect(() => {
-    const saved = localStorage.getItem(LS_KEY);
+    const saved = readStored(STORAGE.sidebarWidth);
     if (saved) document.documentElement.style.setProperty('--sidebar-w', saved + 'px');
 
     const resizer = resizerRef.current;
@@ -33,7 +33,7 @@ export function useSidebarResize(resizerRef) {
       resizer.classList.remove('drag');
       document.body.style.userSelect = '';
       const w = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--sidebar-w'), 10);
-      if (w) localStorage.setItem(LS_KEY, String(w));
+      if (w) writeStored(STORAGE.sidebarWidth, String(w));
     }
 
     resizer.addEventListener('mousedown', onMouseDown);

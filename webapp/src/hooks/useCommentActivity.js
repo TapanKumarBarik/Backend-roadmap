@@ -1,23 +1,13 @@
 import { useCallback, useEffect, useState } from 'react';
 import { fetchCommentActivity } from '../lib/api.js';
-
-const LS_KEY = 'docs.activityLastSeen';
+import { STORAGE } from '../config/index.js';
+import { readOrInitTimestamp, writeStored } from '../lib/storage.js';
 
 // First-ever use on a given browser starts "caught up" (baseline = now)
 // rather than surfacing every @mention of this user that ever happened —
 // same reasoning most read/unread features use (nothing looks more broken
 // than "247 unread" on first load).
-function getOrInitBaseline() {
-  try {
-    const existing = localStorage.getItem(LS_KEY);
-    if (existing) return existing;
-    const now = new Date().toISOString();
-    localStorage.setItem(LS_KEY, now);
-    return now;
-  } catch {
-    return new Date().toISOString();
-  }
-}
+const getOrInitBaseline = () => readOrInitTimestamp(STORAGE.activityLastSeen);
 
 export function useCommentActivity(user) {
   const [count, setCount] = useState(0);
@@ -52,7 +42,7 @@ export function useCommentActivity(user) {
   // deliberately leaves count/paths in place — the just-opened menu still
   // needs something to show; the avatar dot is what actually disappears.
   const markSeen = useCallback(() => {
-    try { localStorage.setItem(LS_KEY, new Date().toISOString()); } catch { /* ignore */ }
+    writeStored(STORAGE.activityLastSeen, new Date().toISOString());
     setSeen(true);
   }, []);
 

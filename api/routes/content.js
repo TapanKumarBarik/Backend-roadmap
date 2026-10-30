@@ -4,12 +4,14 @@
 // bytes helpers.
 
 import { Hono } from 'hono';
+import site from '../../site.config.json';
 import { requireAdmin } from '../lib/admin.js';
 import { IMAGE_CONTAINER, blobBase, bytesFromBase64, putBlob } from '../lib/blob.js';
 
 const content = new Hono();
 
-const GITHUB_REPO = 'TapanKumarBarik/Backend-roadmap';
+const GITHUB_REPO = `${site.repo.owner}/${site.repo.name}`;
+const GITHUB_BRANCH = site.repo.branch;
 const GITHUB_API = 'https://api.github.com';
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 const ALLOWED_IMAGE_TYPES = {
@@ -35,7 +37,7 @@ content.get('/manage/content', async (c) => {
   const path = c.req.query('path');
   if (!path) return c.json({ error: 'path is required' }, 400);
 
-  const res = await fetch(`${GITHUB_API}/repos/${GITHUB_REPO}/contents/${path}?ref=main`, {
+  const res = await fetch(`${GITHUB_API}/repos/${GITHUB_REPO}/contents/${path}?ref=${GITHUB_BRANCH}`, {
     headers: githubHeaders(c.env)
   });
   if (!res.ok) return c.json({ error: 'GitHub fetch failed: ' + res.status }, res.status);
@@ -62,7 +64,7 @@ content.put('/manage/content', async (c) => {
       message: body.message || `Edit ${path} via admin editor`,
       content: Buffer.from(fileContent, 'utf-8').toString('base64'),
       sha,
-      branch: 'main'
+      branch: GITHUB_BRANCH
     })
   });
   if (!res.ok) {

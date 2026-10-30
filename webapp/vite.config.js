@@ -22,7 +22,7 @@ const MIME_TYPES = {
 // during `vite build` or `vite preview`.
 function serveRepoContent() {
   const contentRoots = ['backend', 'genai', 'learn', 'lld'];
-  const generated = ['docs-index.json', 'search-index.json'];
+  const generated = ['docs-index.json', 'search-index.json', 'site-stats.json'];
   return {
     name: 'serve-repo-content',
     configureServer(server) {
@@ -45,6 +45,8 @@ function serveRepoContent() {
 // the content trees and a pre-rendered page per module are added to it.
 export default defineConfig({
   plugins: [react(), serveRepoContent()],
+  // site.config.json lives at the repo root, one level above this project; the dev server must be allowed to read it.
+  server: { fs: { allow: [repoRoot] } },
   // Baked in at build time (CI runs a fresh build on every deploy, so this is
   // effectively "when was this deployed") — read via src/lib/buildInfo.js,
   // never referenced as a bare identifier elsewhere.

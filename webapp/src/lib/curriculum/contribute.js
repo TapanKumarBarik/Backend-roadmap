@@ -2,24 +2,21 @@
 // GitHub (a non-collaborator is walked through forking automatically), report
 // a problem with the module prefilled, or claim an unwritten module.
 
-export const REPO_URL = 'https://github.com/TapanKumarBarik/Backend-roadmap';
+import { REPO, REPO_URL, isPlaceholderText } from '../../config/index.js';
+
+export { REPO_URL };
 export const WRITE_GUIDE_URL = `${REPO_URL}#what-a-great-module-looks-like`;
 export const CONTRIBUTE_URL = `${REPO_URL}#contribute`;
 
-// A module whose README still carries this sentence is a placeholder waiting
-// for an author. Replacing the file's content clears it; nothing is flagged
-// by hand.
-const PLACEHOLDER_MARKER = 'has not been written yet';
-
-export function isPlaceholder(rawText) {
-  return !!rawText && rawText.split('\n', 25).join('\n').includes(PLACEHOLDER_MARKER);
-}
+// A module whose README still carries the marker sentence (site.config.json) is a placeholder waiting for
+// an author. Replacing the file's content clears it; nothing is flagged by hand.
+export const isPlaceholder = isPlaceholderText;
 
 const encodePath = (file) => file.split('/').map(encodeURIComponent).join('/');
 const folderOf = (file) => file.replace(/\/?README\.md$/, '');
 
 export function editUrl(file) {
-  return `${REPO_URL}/edit/main/${encodePath(file)}`;
+  return `${REPO_URL}/edit/${REPO.branch}/${encodePath(file)}`;
 }
 
 export function reportUrl(file) {

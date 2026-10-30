@@ -1,0 +1,58 @@
+{
+  "site": {
+    "name": "Backend Roadmap",
+    "url": "https://backendroadmap.com",
+    "license": "MIT"
+  },
+  "developer": {
+    "name": "Tapan Kumar Barik",
+    "email": "tapankumarbarik7@gmail.com",
+    "linkedin": "https://www.linkedin.com/in/tapan-barik-7b896a171/",
+    "github": "https://github.com/TapanKumarBarik"
+  },
+  "repo": {
+    "owner": "TapanKumarBarik",
+    "name": "Backend-roadmap",
+    "branch": "main"
+  },
+  "content": {
+    "curricula": ["backend", "learn", "genai", "lld"],
+    "placeholderMarker": "has not been written yet",
+    "placeholderScanLines": 25
+  },
+  "storage": {
+    "lastFile": "docs.lastFile",
+    "seenLanding": "docs.seenLanding",
+    "theme": "docs.theme",
+    "sidebarCollapsed": "docs.sidebarCollapsed",
+    "sidebarWidth": "docs.sidebarW",
+    "rightRailCollapsed": "docs.rightRailCollapsed",
+    "openDirs": "docs.openDirs",
+    "readingPositions": "docs.readingPositions",
+    "selfCheck": "docs.selfCheck",
+    "activityLastSeen": "docs.activityLastSeen",
+    "feedLastSeen": "docs.feedLastSeen",
+    "questionsLastSeen": "docs.questionsLastSeen",
+    "languagePreference": "docLangPref"
+  },
+  "screenshots": {
+    "dir": "screenshots",
+    "defaultBase": "http://localhost:4180",
+    "browserChannel": "msedge",
+    "variants": [
+      { "suffix": "desktop", "width": 1440, "height": 900 },
+      { "suffix": "mobile", "width": 390, "height": 844 },
+      { "suffix": "dark", "width": 1440, "height": 900, "colorScheme": "dark" }
+    ],
+    "pages": [
+      { "name": "landing", "path": "/", "height": 2500, "mobileHeight": 3700 },
+      { "name": "dashboard", "path": "/", "seenLanding": true },
+      { "name": "module", "path": "/genai/05-gpus-and-genai-hardware/05-calculating-a-models-memory-requirements/" },
+      { "name": "module-mermaid", "path": "/learn/01-linux/09-bash-scripting/" },
+      { "name": "curriculum-overview", "path": "/genai/" },
+      { "name": "unwritten-module", "path": "/genai/09-retrieval-augmented-generation/00-why-rag-exists/" },
+      { "name": "explore", "path": "/#__explore" },
+      { "name": "community", "path": "/#__community" }
+    ]
+  }
+}

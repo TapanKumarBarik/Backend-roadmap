@@ -1,21 +1,13 @@
 import { useCallback, useEffect, useState } from 'react';
 import { fetchFeed, fetchQuestions } from '../lib/api.js';
+import { STORAGE } from '../config/index.js';
+import { readOrInitTimestamp, writeStored } from '../lib/storage.js';
 
 // Same "first visit starts caught up" reasoning as useCommentActivity —
 // nothing kills a new feature's credibility like "47 new" the first time
 // anyone opens the app. One baseline per destination, since Feed and
 // Community are now separate places with separate badges.
-function getOrInitBaseline(lsKey) {
-  try {
-    const existing = localStorage.getItem(lsKey);
-    if (existing) return existing;
-    const now = new Date().toISOString();
-    localStorage.setItem(lsKey, now);
-    return now;
-  } catch {
-    return new Date().toISOString();
-  }
-}
+const getOrInitBaseline = readOrInitTimestamp;
 
 // Shared shape: "did anything new land in this public list since you last
 // looked," working signed OUT too (both the feed and questions are public
@@ -40,7 +32,7 @@ function useActivity(lsKey, fetcher) {
   }, [lsKey]);
 
   const markSeen = useCallback(() => {
-    try { localStorage.setItem(lsKey, new Date().toISOString()); } catch { /* ignore */ }
+    writeStored(lsKey, new Date().toISOString());
     setSeen(true);
   }, [lsKey]);
 
@@ -49,10 +41,10 @@ function useActivity(lsKey, fetcher) {
 
 // Feed's own destination badge — new posts since last visit.
 export function useFeedActivity() {
-  return useActivity('docs.feedLastSeen', fetchFeed);
+  return useActivity(STORAGE.feedLastSeen, fetchFeed);
 }
 
 // Community's own destination badge — new questions since last visit.
 export function useQuestionsActivity() {
-  return useActivity('docs.questionsLastSeen', fetchQuestions);
+  return useActivity(STORAGE.questionsLastSeen, fetchQuestions);
 }

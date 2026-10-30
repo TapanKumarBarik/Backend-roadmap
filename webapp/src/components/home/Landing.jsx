@@ -1,0 +1,141 @@
+import { ArrowRightIcon, GithubIcon, SearchIcon } from '../common/icons.jsx';
+import SignInButton from '../account/SignInButton.jsx';
+import SiteFooter from '../common/SiteFooter.jsx';
+import { routeUrl } from '../../lib/curriculum/moduleUrl.js';
+import { REPO_URL, CONTRIBUTE_URL } from '../../lib/curriculum/contribute.js';
+import { SITE } from '../../config/index.js';
+import { FALLBACK_START_FILE, HERO, ROUTE, PATHS, FRESH, INSIDE, ACCOUNT, OPEN_SOURCE } from '../../config/landing.js';
+import '../../styles/landing.css';
+
+// The front door, shown to someone who has not started yet (see hooks/useLanding.js). This component only
+// lays things out: the words are in config/landing.js and the numbers come from build-time stats. If the
+// stats are missing the page still reads correctly, it just says less.
+export default function Landing({ stats, user, onLogin, onOpenFile, onDismiss, onOpenPalette }) {
+  const link = (file) => ({
+    href: routeUrl(file),
+    onClick: (e) => {
+      if (e.metaKey || e.ctrlKey || e.shiftKey || e.button === 1) return; // let the browser open a new tab
+      e.preventDefault();
+      onOpenFile(file);
+    }
+  });
+
+  const modules = stats?.modules;
+  const startFile = stats?.curricula?.backend?.start || FALLBACK_START_FILE;
+
+  // Newest work in the featured curriculum: the last finished tracks, then any track part-way through.
+  const featured = stats?.tracks?.[FRESH.curriculum] || [];
+  const finished = featured.filter((t) => t.modules && t.written === t.modules).slice(-FRESH.finishedShown);
+  const inProgress = featured.filter((t) => t.written > 0 && t.written < t.modules);
+  const fresh = [...finished, ...inProgress];
+
+  return (
+    <div className="lp">
+      <section className="lp-hero" aria-labelledby="lp-h1">
+        <div className="lp-hero-copy">
+          <p className="lp-eyebrow">{HERO.eyebrow}</p>
+          <h1 id="lp-h1">{HERO.headline}</h1>
+          <p className="lp-lead">{HERO.lead(modules)}</p>
+          <div className="lp-cta">
+            <a className="lp-btn lp-btn-primary" {...link(startFile)}>
+              {HERO.startLabel} <ArrowRightIcon />
+            </a>
+            <button type="button" className="lp-btn" onClick={onDismiss}>{HERO.browseLabel}</button>
+          </div>
+          <button type="button" className="lp-search" onClick={onOpenPalette}>
+            <SearchIcon />
+            <span>{HERO.searchLabel(modules)}</span>
+          </button>
+        </div>
+
+        <figure className="lp-route">
+          <figcaption>{HERO.routeCaption}</figcaption>
+          <ol>
+            {ROUTE.map((s) => (
+              <li key={s.file}>
+                <a {...link(s.file)}>
+                  <span className="lp-stop" aria-hidden="true" />
+                  <span className="lp-stop-t">{s.label}</span>
+                  <span className="lp-stop-s">{s.sub}</span>
+                </a>
+              </li>
+            ))}
+          </ol>
+        </figure>
+      </section>
+
+      <section className="lp-sec" aria-labelledby="lp-paths">
+        <h2 id="lp-paths">{PATHS.heading}</h2>
+        <div className="lp-paths">
+          {PATHS.items.map((p) => {
+            const c = stats?.curricula?.[p.id];
+            return (
+              <article key={p.id} className="lp-card">
+                <h3>{p.title}</h3>
+                <p>{p.blurb}</p>
+                {c && <div className="lp-meta">{PATHS.meta(p.id, c, PATHS.unitFor(p.id))}</div>}
+                <div className="lp-card-acts">
+                  {c?.start && <a className="lp-link lp-link-strong" {...link(c.start)}>{PATHS.startLabel} <ArrowRightIcon /></a>}
+                  {c?.overview && <a className="lp-link" {...link(c.overview)}>{PATHS.tracksLabel}</a>}
+                </div>
+              </article>
+            );
+          })}
+        </div>
+      </section>
+
+      {fresh.length > 0 && (
+        <section className="lp-sec" aria-labelledby="lp-new">
+          <h2 id="lp-new">{FRESH.heading}</h2>
+          <p className="lp-sec-sub">{FRESH.sub}</p>
+          <div className="lp-fresh">
+            {fresh.map((t) => (
+              <a key={t.id} className="lp-fresh-item" {...link(t.file)}>
+                <span className="lp-fresh-t">{t.title}</span>
+                <span className="lp-fresh-m">{FRESH.meta(t)}</span>
+              </a>
+            ))}
+          </div>
+        </section>
+      )}
+
+      <section className="lp-sec" aria-labelledby="lp-inside">
+        <h2 id="lp-inside">{INSIDE.heading}</h2>
+        <p className="lp-sec-sub">{INSIDE.sub}</p>
+        <ul className="lp-inside">
+          {INSIDE.items.map(([t, d]) => (
+            <li key={t}><strong>{t}</strong><span>{d}</span></li>
+          ))}
+        </ul>
+      </section>
+
+      {!user && (
+        <section className="lp-account" aria-labelledby="lp-acct">
+          <div>
+            <h2 id="lp-acct">{ACCOUNT.heading}</h2>
+            <p>{ACCOUNT.body}</p>
+            <p className="lp-account-note">{ACCOUNT.note}</p>
+          </div>
+          <div className="lp-account-act">
+            <SignInButton onClick={onLogin} />
+          </div>
+        </section>
+      )}
+
+      <section className="lp-open" aria-labelledby="lp-oss">
+        <div>
+          <h2 id="lp-oss">{OPEN_SOURCE.heading}</h2>
+          <p>{OPEN_SOURCE.body(modules, SITE.license)}</p>
+        </div>
+        <div className="lp-open-acts">
+          <a className="lp-btn lp-btn-invert" href={CONTRIBUTE_URL} target="_blank" rel="noopener noreferrer">{OPEN_SOURCE.primaryLabel}</a>
+          <a className="lp-btn lp-btn-ghost" href={REPO_URL} target="_blank" rel="noopener noreferrer">
+            <GithubIcon /> {OPEN_SOURCE.secondaryLabel}
+          </a>
+        </div>
+      </section>
+
+      <SiteFooter />
+    </div>
+  );
+}

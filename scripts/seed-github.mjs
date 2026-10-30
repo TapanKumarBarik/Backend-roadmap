@@ -19,13 +19,11 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { ROOT, config, REPO_SLUG, SITE_URL, isPlaceholderText } from './lib/config.mjs';
 
-const REPO = process.env.GITHUB_REPOSITORY || 'TapanKumarBarik/Backend-roadmap';
-const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
-const BLOB = `https://github.com/${REPO}/blob/main`;
-const SITE = 'https://backendroadmap.com';
-const PLACEHOLDER = 'has not been written yet';
+const REPO = process.env.GITHUB_REPOSITORY || REPO_SLUG;
+const BLOB = `https://github.com/${REPO}/blob/${config.repo.branch}`;
+const SITE = SITE_URL;
 
 const args = process.argv.slice(2);
 const APPLY = args.includes('--apply');
@@ -45,7 +43,7 @@ function modulesOf(track) {
     return exists(file) ? { dir: d, file, md: read(file) } : null;
   }).filter(Boolean);
 }
-const isPlaceholder = (md) => md.split('\n', 25).join('\n').includes(PLACEHOLDER);
+const isPlaceholder = isPlaceholderText;
 const hasFurtherReading = (md) => /^#{2,3}\s.*further reading/im.test(md);
 const shortTitle = (m) => title(m.md, m.dir).replace(/^(Module|Track)\s+\d+\s*[:\-–—]\s*/i, '');
 
