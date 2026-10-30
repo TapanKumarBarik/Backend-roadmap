@@ -1,0 +1,1598 @@
+﻿openapi: 3.1.0
+info:
+  title: Backend Roadmap API
+  version: 1.0.0
+  description: >
+    Machine-readable description of the API served by `api/` (Hono app mounted
+    under `/api`). Endpoints are grouped by route file. Authentication is a
+    Google OAuth flow that sets an HMAC-signed `session` cookie; endpoints that
+    require a signed-in user declare `security: [cookieAuth]`, and admin-only
+    endpoints additionally require the signed-in user to be an admin.
+    Public endpoints declare no security.
+servers:
+  - url: /
+    description: Same origin as the webapp (Cloudflare Pages)
+tags:
+  - name: Auth
+  - name: Tracking
+  - name: Feed
+  - name: Comments
+  - name: Community
+  - name: Study
+  - name: Workspace
+  - name: Admin
+  - name: Content
+components:
+  securitySchemes:
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: session
+      description: >
+        HMAC-signed session cookie issued by GET /api/auth/callback. Required by
+        every signed-in endpoint.
+  schemas:
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+      required: [error]
+    User:
+      type: object
+      properties:
+        userId:
+          type: string
+          nullable: true
+        email:
+          type: string
+        name:
+          type: string
+        picture:
+          type: string
+          nullable: true
+        isAdmin:
+          type: boolean
+    FeedPost:
+      type: object
+      properties:
+        id:
+          type: string
+        userId:
+          type: string
+        displayName:
+          type: string
+        text:
+          type: string
+        attachmentUrl:
+          type: string
+          nullable: true
+        attachmentType:
+          type: string
+          nullable: true
+        linkTitle:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        upvotes:
+          type: integer
+        votedByMe:
+          type: boolean
+        commentCount:
+          type: integer
+    Comment:
+      type: object
+      properties:
+        id:
+          type: string
+        userId:
+          type: string
+        displayName:
+          type: string
+        text:
+          type: string
+        parentId:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+        editedAt:
+          type: string
+          format: date-time
+          nullable: true
+        isAnswer:
+          type: boolean
+        upvotes:
+          type: integer
+        votedByMe:
+          type: boolean
+    Question:
+      type: object
+      properties:
+        id:
+          type: string
+        path:
+          type: string
+        displayName:
+          type: string
+        text:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        isAnswer:
+          type: boolean
+        replies:
+          type: integer
+        answered:
+          type: boolean
+    Book:
+      type: object
+      properties:
+        id:
+          type: string
+        userId:
+          type: string
+        displayName:
+          type: string
+        title:
+          type: string
+        tag:
+          type: string
+          nullable: true
+        linkUrl:
+          type: string
+          nullable: true
+        attachmentUrl:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+    Suggestion:
+      type: object
+      properties:
+        id:
+          type: string
+        userId:
+          type: string
+        displayName:
+          type: string
+        text:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+        upvotes:
+          type: integer
+        votedByMe:
+          type: boolean
+    Message:
+      type: object
+      properties:
+        id:
+          type: string
+        displayName:
+          type: string
+        email:
+          type: string
+        text:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+    WorkspacePage:
+      type: object
+      properties:
+        id:
+          type: string
+        parentId:
+          type: string
+          nullable: true
+        title:
+          type: string
+        order:
+          type: integer
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+    WorkspacePageDetail:
+      allOf:
+        - $ref: '#/components/schemas/WorkspacePage'
+        - type: object
+          properties:
+            content:
+              nullable: true
+    Note:
+      type: object
+      properties:
+        path:
+          type: string
+        text:
+          type: string
+        updatedAt:
+          type: string
+          format: date-time
+          nullable: true
+paths:
+  /api/auth/login:
+    get:
+      tags: [Auth]
+      summary: Start Google OAuth sign-in
+      description: Public. Redirects the browser to Google's OAuth consent screen.
+      parameters:
+        - name: redirect
+          in: query
+          description: Path to redirect to after successful sign-in.
+          schema:
+            type: string
+      responses:
+        '302':
+          description: Redirect to Google OAuth.
+  /api/auth/callback:
+    get:
+      tags: [Auth]
+      summary: OAuth callback
+      description: Public. Exchanges the authorization code, sets the session cookie, redirects.
+      parameters:
+        - name: code
+          in: query
+          schema:
+            type: string
+        - name: state
+          in: query
+          schema:
+            type: string
+      responses:
+        '302':
+          description: Redirect after successful sign-in.
+        '400':
+          description: Invalid or expired sign-in link.
+        '401':
+          description: Google sign-in or token validation failed.
+  /api/auth/me:
+    get:
+      tags: [Auth]
+      summary: Current signed-in user
+      description: "Returns `{ user: null }` when not signed in; no error."
+      responses:
+        '200':
+          description: Current user or null.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user:
+                    oneOf:
+                      - $ref: '#/components/schemas/User'
+                      - type: 'null'
+  /api/auth/logout:
+    get:
+      tags: [Auth]
+      summary: Sign out
+      description: Public. Clears the session cookie and redirects.
+      parameters:
+        - name: redirect
+          in: query
+          schema:
+            type: string
+      responses:
+        '302':
+          description: Redirect after sign-out.
+  /api/track:
+    post:
+      tags: [Tracking]
+      summary: Record a page view
+      description: Public; session cookie optional (signed-in views are attributed).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                path:
+                  type: string
+              required: [path]
+      responses:
+        '204':
+          description: Recorded.
+        '400':
+          description: Missing path.
+  /api/feed:
+    get:
+      tags: [Feed]
+      summary: List feed posts
+      description: Public. Session cookie optional (affects vote state).
+      responses:
+        '200':
+          description: Feed posts.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/FeedPost'
+    post:
+      tags: [Feed]
+      summary: Create a feed post
+      description: Requires a signed-in session.
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                text:
+                  type: string
+                attachmentUrl:
+                  type: string
+                attachmentType:
+                  type: string
+                  enum: [image, pdf, text, doc, slide, sheet, link]
+                linkTitle:
+                  type: string
+      responses:
+        '201':
+          description: Created post.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FeedPost'
+        '400':
+          description: Invalid body or content.
+        '401':
+          description: Unauthenticated.
+        '429':
+          description: Rate limited.
+  /api/feed/vote:
+    post:
+      tags: [Feed]
+      summary: Toggle a vote on a feed post
+      description: Requires a signed-in session.
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                id:
+                  type: string
+              required: [id]
+      responses:
+        '200':
+          description: Vote toggled.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  voted:
+                    type: boolean
+        '400':
+          description: Missing id.
+        '401':
+          description: Unauthenticated.
+  /api/feed/upload:
+    post:
+      tags: [Feed]
+      summary: Upload a feed attachment
+      description: Requires a signed-in session.
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                filename:
+                  type: string
+                contentType:
+                  type: string
+                dataBase64:
+                  type: string
+              required: [contentType, dataBase64]
+      responses:
+        '200':
+          description: Uploaded.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  url:
+                    type: string
+                  type:
+                    type: string
+                  filename:
+                    type: string
+        '400':
+          description: Invalid file.
+        '401':
+          description: Unauthenticated.
+        '429':
+          description: Rate limited.
+        '500':
+          description: Storage not configured.
+  /api/manage/feed:
+    delete:
+      tags: [Feed, Admin]
+      summary: Delete a feed post
+      description: Requires an admin session.
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Deleted.
+        '400':
+          description: Missing id.
+        '401':
+          description: Unauthenticated.
+        '403':
+          description: Forbidden (not admin).
+  /api/comments/questions:
+    get:
+      tags: [Comments]
+      summary: List all top-level questions
+      description: Public.
+      responses:
+        '200':
+          description: Questions.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Question'
+  /api/comments/activity:
+    get:
+      tags: [Comments]
+      summary: Comment activity since a timestamp
+      description: Requires a signed-in session.
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: since
+          in: query
+          schema:
+            type: string
+            format: date-time
+      responses:
+        '200':
+          description: Activity counts.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  count:
+                    type: integer
+                  replies:
+                    type: integer
+                  mentions:
+                    type: integer
+                  paths:
+                    type: array
+                    items:
+                      type: string
+        '401':
+          description: Unauthenticated.
+  /api/comments/vote:
+    post:
+      tags: [Comments]
+      summary: Toggle a vote on a comment
+      description: Requires a signed-in session.
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                path:
+                  type: string
+                id:
+                  type: string
+              required: [path, id]
+      responses:
+        '200':
+          description: Vote toggled.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  voted:
+                    type: boolean
+        '400':
+          description: Missing fields.
+        '401':
+          description: Unauthenticated.
+  /api/comments/edit:
+    put:
+      tags: [Comments]
+      summary: Edit a comment
+      description: Requires a signed-in session; author or admin.
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                path:
+                  type: string
+                id:
+                  type: string
+                text:
+                  type: string
+              required: [path, id, text]
+      responses:
+        '200':
+          description: Updated comment.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Comment'
+        '400':
+          description: Invalid body.
+        '401':
+          description: Unauthenticated.
+        '403':
+          description: Forbidden.
+        '404':
+          description: Not found.
+  /api/comments/own:
+    delete:
+      tags: [Comments]
+      summary: Delete own comment
+      description: Requires a signed-in session; author or admin.
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: path
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: id
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Deleted.
+        '400':
+          description: Missing fields.
+        '401':
+          description: Unauthenticated.
+        '403':
+          description: Forbidden.
+  /api/manage/comments/answer:
+    put:
+      tags: [Comments, Admin]
+      summary: Set a comment's answer state
+      description: Requires an admin session.
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                path:
+                  type: string
+                id:
+                  type: string
+                isAnswer:
+                  type: boolean
+              required: [path, id]
+      responses:
+        '204':
+          description: Updated.
+        '400':
+          description: Missing fields.
+        '401':
+          description: Unauthenticated.
+        '403':
+          description: Forbidden.
+  /api/manage/comments:
+    get:
+      tags: [Comments, Admin]
+      summary: List all comments (admin)
+      description: Requires an admin session.
+      security:
+        - cookieAuth: []
+      responses:
+        '200':
+          description: Comments.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  allOf:
+                    - $ref: '#/components/schemas/Comment'
+                    - type: object
+                      properties:
+                        path:
+                          type: string
+                        hidden:
+                          type: boolean
+        '401':
+          description: Unauthenticated.
+        '403':
+          description: Forbidden.
+    delete:
+      tags: [Comments, Admin]
+      summary: Delete a comment (admin)
+      description: Requires an admin session.
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: path
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: id
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Deleted.
+        '400':
+          description: Missing fields.
+        '401':
+          description: Unauthenticated.
+        '403':
+          description: Forbidden.
+  /api/comments/{path}:
+    parameters:
+      - name: path
+        in: path
+        required: true
+        description: Module/content path (may contain slashes, URL-encoded).
+        schema:
+          type: string
+    get:
+      tags: [Comments]
+      summary: List comments for a path
+      description: Public read; session cookie optional (affects vote state).
+      responses:
+        '200':
+          description: Comments.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Comment'
+    post:
+      tags: [Comments]
+      summary: Post a comment
+      description: Requires a signed-in session.
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                text:
+                  type: string
+                parentId:
+                  type: string
+              required: [text]
+      responses:
+        '201':
+          description: Created comment.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Comment'
+        '400':
+          description: Invalid body.
+        '401':
+          description: Unauthenticated.
+        '429':
+          description: Rate limited.
+  /api/books:
+    get:
+      tags: [Community]
+      summary: List books
+      description: Public.
+      responses:
+        '200':
+          description: Books.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Book'
+    post:
+      tags: [Community]
+      summary: Add a book
+      description: Requires a signed-in session.
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title:
+                  type: string
+                tag:
+                  type: string
+                linkUrl:
+                  type: string
+                attachmentUrl:
+                  type: string
+              required: [title]
+      responses:
+        '201':
+          description: Created book.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Book'
+        '400':
+          description: Invalid body.
+        '401':
+          description: Unauthenticated.
+        '429':
+          description: Rate limited.
+  /api/manage/books:
+    delete:
+      tags: [Community, Admin]
+      summary: Delete a book
+      description: Requires an admin session.
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Deleted.
+        '400':
+          description: Missing id.
+        '401':
+          description: Unauthenticated.
+        '403':
+          description: Forbidden.
+  /api/suggestions:
+    get:
+      tags: [Community]
+      summary: List suggestions
+      description: Public read; session cookie optional (affects vote state).
+      responses:
+        '200':
+          description: Suggestions.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Suggestion'
+    post:
+      tags: [Community]
+      summary: Post a suggestion
+      description: Requires a signed-in session.
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                text:
+                  type: string
+              required: [text]
+      responses:
+        '201':
+          description: Created suggestion.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Suggestion'
+        '400':
+          description: Invalid body.
+        '401':
+          description: Unauthenticated.
+        '429':
+          description: Rate limited.
+  /api/suggestions/vote:
+    post:
+      tags: [Community]
+      summary: Toggle a vote on a suggestion
+      description: Requires a signed-in session.
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                id:
+                  type: string
+              required: [id]
+      responses:
+        '200':
+          description: Vote toggled.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  voted:
+                    type: boolean
+        '400':
+          description: Missing id.
+        '401':
+          description: Unauthenticated.
+  /api/manage/suggestions:
+    delete:
+      tags: [Community, Admin]
+      summary: Delete a suggestion
+      description: Requires an admin session.
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: id
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Deleted.
+        '400':
+          description: Missing id.
+        '401':
+          description: Unauthenticated.
+        '403':
+          description: Forbidden.
+  /api/messages:
+    post:
+      tags: [Community]
+      summary: Send a message to the admin inbox
+      description: Requires a signed-in session.
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                text:
+                  type: string
+              required: [text]
+      responses:
+        '204':
+          description: Sent.
+        '400':
+          description: Invalid body.
+        '401':
+          description: Unauthenticated.
+        '429':
+          description: Rate limited.
+  /api/manage/messages:
+    get:
+      tags: [Community, Admin]
+      summary: List inbox messages
+      description: Requires an admin session.
+      security:
+        - cookieAuth: []
+      responses:
+        '200':
+          description: Messages.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Message'
+        '401':
+          description: Unauthenticated.
+        '403':
+          description: Forbidden.
+  /api/manage/users:
+    get:
+      tags: [Admin]
+      summary: List users and admins
+      description: Requires an admin session.
+      security:
+        - cookieAuth: []
+      responses:
+        '200':
+          description: Users, admins, root email.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  users:
+                    type: array
+                    items:
+                      type: object
+                  admins:
+                    type: array
+                    items:
+                      type: object
+                  rootEmail:
+                    type: string
+        '401':
+          description: Unauthenticated.
+        '403':
+          description: Forbidden.
+  /api/manage/admins:
+    put:
+      tags: [Admin]
+      summary: Grant admin access
+      description: Requires an admin session.
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email:
+                  type: string
+              required: [email]
+      responses:
+        '200':
+          description: Granted.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  email:
+                    type: string
+                  granted:
+                    type: boolean
+        '400':
+          description: Invalid email.
+        '401':
+          description: Unauthenticated.
+        '403':
+          description: Forbidden.
+    delete:
+      tags: [Admin]
+      summary: Revoke admin access
+      description: Requires an admin session.
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: email
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Revoked.
+        '400':
+          description: Missing/invalid email.
+        '401':
+          description: Unauthenticated.
+        '403':
+          description: Forbidden.
+  /api/manage/pageviews:
+    get:
+      tags: [Admin]
+      summary: Page-view statistics
+      description: Requires an admin session.
+      security:
+        - cookieAuth: []
+      responses:
+        '200':
+          description: Statistics.
+        '401':
+          description: Unauthenticated.
+        '403':
+          description: Forbidden.
+  /api/manage/usage:
+    get:
+      tags: [Admin]
+      summary: Storage/table usage statistics
+      description: Requires an admin session.
+      security:
+        - cookieAuth: []
+      responses:
+        '200':
+          description: Usage.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  tables:
+                    type: object
+                  containers:
+                    type: object
+        '401':
+          description: Unauthenticated.
+        '403':
+          description: Forbidden.
+  /api/manage/content:
+    get:
+      tags: [Content, Admin]
+      summary: Read a repo file via GitHub
+      description: Requires an admin session.
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: path
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: File content.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  path:
+                    type: string
+                  content:
+                    type: string
+                  sha:
+                    type: string
+        '400':
+          description: Missing path.
+        '401':
+          description: Unauthenticated.
+        '403':
+          description: Forbidden.
+    put:
+      tags: [Content, Admin]
+      summary: Commit a repo file change via GitHub
+      description: Requires an admin session.
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                path:
+                  type: string
+                content:
+                  type: string
+                sha:
+                  type: string
+                message:
+                  type: string
+              required: [path, content, sha]
+      responses:
+        '200':
+          description: Committed.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  path:
+                    type: string
+                  sha:
+                    type: string
+                  commit:
+                    type: string
+        '400':
+          description: Missing fields.
+        '401':
+          description: Unauthenticated.
+        '403':
+          description: Forbidden.
+  /api/manage/image:
+    post:
+      tags: [Content, Admin]
+      summary: Upload a content image
+      description: Requires an admin session.
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                filename:
+                  type: string
+                contentType:
+                  type: string
+                dataBase64:
+                  type: string
+              required: [contentType, dataBase64]
+      responses:
+        '200':
+          description: Uploaded.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  url:
+                    type: string
+        '400':
+          description: Invalid image.
+        '401':
+          description: Unauthenticated.
+        '403':
+          description: Forbidden.
+        '500':
+          description: Storage not configured.
+  /api/bookmarks:
+    get:
+      tags: [Study]
+      summary: List bookmarked paths
+      description: Requires a signed-in session.
+      security:
+        - cookieAuth: []
+      responses:
+        '200':
+          description: Paths.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: string
+        '401':
+          description: Unauthenticated.
+  /api/bookmarks/{path}:
+    parameters:
+      - name: path
+        in: path
+        required: true
+        description: Content path (may contain slashes, URL-encoded).
+        schema:
+          type: string
+    put:
+      tags: [Study]
+      summary: Add a bookmark
+      description: Requires a signed-in session.
+      security:
+        - cookieAuth: []
+      responses:
+        '204':
+          description: Added.
+        '401':
+          description: Unauthenticated.
+    delete:
+      tags: [Study]
+      summary: Remove a bookmark
+      description: Requires a signed-in session.
+      security:
+        - cookieAuth: []
+      responses:
+        '204':
+          description: Removed.
+        '401':
+          description: Unauthenticated.
+  /api/notes:
+    get:
+      tags: [Study]
+      summary: List notes
+      description: Requires a signed-in session.
+      security:
+        - cookieAuth: []
+      responses:
+        '200':
+          description: Notes.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Note'
+        '401':
+          description: Unauthenticated.
+  /api/notes/{path}:
+    parameters:
+      - name: path
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      tags: [Study]
+      summary: Get a note
+      description: Requires a signed-in session.
+      security:
+        - cookieAuth: []
+      responses:
+        '200':
+          description: Note.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  text:
+                    type: string
+                  updatedAt:
+                    type: string
+                    format: date-time
+                    nullable: true
+        '401':
+          description: Unauthenticated.
+    put:
+      tags: [Study]
+      summary: Save a note
+      description: Requires a signed-in session.
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                text:
+                  type: string
+      responses:
+        '204':
+          description: Saved.
+        '401':
+          description: Unauthenticated.
+  /api/progress:
+    get:
+      tags: [Study]
+      summary: Get progress map
+      description: Requires a signed-in session.
+      security:
+        - cookieAuth: []
+      responses:
+        '200':
+          description: Map of path to status.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties:
+                  type: string
+                  enum: [todo, wip, done]
+        '401':
+          description: Unauthenticated.
+  /api/progress/times:
+    get:
+      tags: [Study]
+      summary: Get progress update times
+      description: Requires a signed-in session.
+      security:
+        - cookieAuth: []
+      responses:
+        '200':
+          description: Map of path to ISO timestamp.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties:
+                  type: string
+                  format: date-time
+        '401':
+          description: Unauthenticated.
+  /api/progress/reset:
+    post:
+      tags: [Study]
+      summary: Reset progress
+      description: Requires a signed-in session.
+      security:
+        - cookieAuth: []
+      responses:
+        '204':
+          description: Reset.
+        '401':
+          description: Unauthenticated.
+  /api/progress/{path}:
+    parameters:
+      - name: path
+        in: path
+        required: true
+        schema:
+          type: string
+    put:
+      tags: [Study]
+      summary: Set progress status
+      description: Requires a signed-in session.
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                status:
+                  type: string
+                  enum: [todo, wip, done]
+              required: [status]
+      responses:
+        '204':
+          description: Updated.
+        '400':
+          description: Invalid status.
+        '401':
+          description: Unauthenticated.
+  /api/streak:
+    get:
+      tags: [Study]
+      summary: Get/update streak
+      description: Requires a signed-in session.
+      security:
+        - cookieAuth: []
+      responses:
+        '200':
+          description: Streak.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  currentStreak:
+                    type: integer
+                  longestStreak:
+                    type: integer
+                  lastActiveDate:
+                    type: string
+        '401':
+          description: Unauthenticated.
+  /api/reactions/{path}:
+    parameters:
+      - name: path
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      tags: [Study]
+      summary: Get reactions for a path
+      description: Public read; session cookie optional (affects `mine`).
+      responses:
+        '200':
+          description: Reactions.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  counts:
+                    type: object
+                    additionalProperties:
+                      type: integer
+                  mine:
+                    type: array
+                    items:
+                      type: string
+    post:
+      tags: [Study]
+      summary: Toggle a reaction
+      description: Requires a signed-in session.
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                emoji:
+                  type: string
+                  enum: ["👍", "🔥", "🤔"]
+              required: [emoji]
+      responses:
+        '200':
+          description: Toggled.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  active:
+                    type: boolean
+        '400':
+          description: Unsupported reaction.
+        '401':
+          description: Unauthenticated.
+  /api/account:
+    delete:
+      tags: [Study]
+      summary: Delete account and data
+      description: Requires a signed-in session.
+      security:
+        - cookieAuth: []
+      responses:
+        '204':
+          description: Deleted.
+        '401':
+          description: Unauthenticated.
+  /api/workspace/pages:
+    get:
+      tags: [Workspace]
+      summary: List workspace pages
+      description: Requires a signed-in session.
+      security:
+        - cookieAuth: []
+      responses:
+        '200':
+          description: Pages.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/WorkspacePage'
+        '401':
+          description: Unauthenticated.
+    post:
+      tags: [Workspace]
+      summary: Create a workspace page
+      description: Requires a signed-in session.
+      security:
+        - cookieAuth: []
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title:
+                  type: string
+                parentId:
+                  type: string
+                  nullable: true
+      responses:
+        '201':
+          description: Created page.
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/WorkspacePage'
+                  - type: object
+                    properties:
+                      content:
+                        nullable: true
+        '401':
+          description: Unauthenticated.
+  /api/workspace/pages/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+    get:
+      tags: [Workspace]
+      summary: Get a workspace page
+      description: Requires a signed-in session.
+      security:
+        - cookieAuth: []
+      responses:
+        '200':
+          description: Page with content.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkspacePageDetail'
+        '401':
+          description: Unauthenticated.
+        '404':
+          description: Not found.
+    put:
+      tags: [Workspace]
+      summary: Update a workspace page
+      description: Requires a signed-in session.
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title:
+                  type: string
+                content:
+                  nullable: true
+                parentId:
+                  type: string
+                  nullable: true
+                order:
+                  type: integer
+      responses:
+        '200':
+          description: Updated page.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkspacePage'
+        '400':
+          description: Invalid body.
+        '401':
+          description: Unauthenticated.
+        '404':
+          description: Not found.
+    delete:
+      tags: [Workspace]
+      summary: Delete a workspace page (and descendants)
+      description: Requires a signed-in session.
+      security:
+        - cookieAuth: []
+      responses:
+        '200':
+          description: Deleted ids.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  deletedIds:
+                    type: array
+                    items:
+                      type: string
+        '401':
+          description: Unauthenticated.
+
