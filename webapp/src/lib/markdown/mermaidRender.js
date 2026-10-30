@@ -88,9 +88,18 @@ export async function renderMermaidDiagrams(root) {
         rect.setAttribute('ry', '7');
       });
       host.replaceWith(wrap);
-    } catch {
+    } catch (err) {
       // A malformed diagram must not blank the rest of the module — leave
-      // the original (already-enhanced) code block rendered as plain text.
+      // the original (already-enhanced) code block rendered as plain text. But say so: a diagram that
+      // silently turns into code just looks like a rendering bug, and the author never finds out.
+      // eslint-disable-next-line no-console
+      console.warn('Mermaid diagram could not be rendered:', String(err && err.message ? err.message : err).split('\n')[0]);
+      if (host.isConnected && !host.previousElementSibling?.classList?.contains('mermaid-failed-note')) {
+        const note = document.createElement('p');
+        note.className = 'mermaid-failed-note';
+        note.textContent = 'This diagram could not be drawn, so its source is shown instead.';
+        host.before(note);
+      }
     }
   }
 }

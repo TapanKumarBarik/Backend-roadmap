@@ -238,7 +238,7 @@ The execution flow is only half the story. This parsing view shows why quoting c
 
 ```mermaid
 flowchart TD
-    V["value = release candidate"] --> Q{"Use \"$value\"?"}
+    V["value = release candidate"] --> Q{"Use #quot;$value#quot;?"}
     Q -->|Yes| A["One argument\nrelease candidate"]
     Q -->|No| B["Word splitting\nrelease + candidate"]
     B --> C["Possible glob expansion"]
