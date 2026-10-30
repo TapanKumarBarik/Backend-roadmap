@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
+import { friendlyMessage } from '../../lib/errors.js';
 import TaskList from '@tiptap/extension-task-list';
 import TaskItem from '@tiptap/extension-task-item';
 import { Table } from '@tiptap/extension-table';
@@ -97,7 +98,7 @@ export default function BlockEditor({ page, onSave, onToast }) {
       if (up.type !== 'image') { onToast?.('Only images can be inserted here'); return; }
       editor.chain().focus().setImage({ src: up.url, alt: file.name }).run();
     } catch (err) {
-      onToast?.(err.message || 'Image upload failed');
+      onToast?.(friendlyMessage(err));
     }
   }
 

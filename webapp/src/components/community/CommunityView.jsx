@@ -1,5 +1,8 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { fetchQuestions } from '../../lib/api.js';
+import { useLoader } from '../../hooks/useLoader.js';
+import LoadError from '../common/LoadError.jsx';
+import { LOAD_WHAT } from '../../config/messages.js';
 
 // Community, restructured around the thing this site is for.
 //
@@ -17,13 +20,7 @@ import { fetchQuestions } from '../../lib/api.js';
 // pages and comments.
 export default function CommunityView({ nodeByFile, onOpenFile }) {
   const [tab, setTab] = useState('questions');
-  const [questions, setQuestions] = useState(null);
-  const [error, setError] = useState(null);
-
-  useEffect(() => {
-    if (questions) return;
-    fetchQuestions().then(setQuestions).catch((e) => setError(e.message));
-  }, [questions]);
+  const { data: questions, error, reload } = useLoader(fetchQuestions);
 
   const unanswered = useMemo(() => (questions || []).filter((q) => !q.answered), [questions]);
   const shown = tab === 'unanswered' ? unanswered : (questions || []);
@@ -49,7 +46,7 @@ export default function CommunityView({ nodeByFile, onOpenFile }) {
         </button>
       </div>
 
-      {error && <p style={{ color: 'var(--danger)' }}>{error}</p>}
+      {error && <LoadError error={error} what={LOAD_WHAT.questions} onRetry={reload} />}
       {!questions && !error && <p style={{ color: 'var(--fg-subtle)' }}>Loading…</p>}
 
       {questions && shown.length === 0 && (

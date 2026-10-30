@@ -1,8 +1,13 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { fetchFeed, deleteFeedPost, voteFeedPost } from '../../lib/api.js';
 import { renderUserMarkdown } from '../../lib/markdown/renderUserMarkdown.js';
 import FeedAttachment from './FeedAttachment.jsx';
 import CommentsSection from '../article/CommentsSection.jsx';
+import { useLoader } from '../../hooks/useLoader.js';
+import LoadError from '../common/LoadError.jsx';
+import ErrorText from '../common/ErrorText.jsx';
+import { friendlyMessage } from '../../lib/errors.js';
+import { LOAD_WHAT } from '../../config/messages.js';
 
 function initialsOf(name) {
   return (name || '?').trim()[0]?.toUpperCase() || '?';
@@ -18,12 +23,8 @@ function initialsOf(name) {
 // the one post by id, rather than adding an endpoint for what's really a
 // client-side lookup at this scale.
 export default function PostDetailView({ postId, user, onLogin, onBack, onToast }) {
-  const [posts, setPosts] = useState(null);
-  const [error, setError] = useState(null);
-
-  useEffect(() => {
-    fetchFeed().then(setPosts).catch((e) => setError(e.message));
-  }, []);
+  const { data: posts, setData: setPosts, error: loadError, reload } = useLoader(fetchFeed);
+  const [error, setError] = useState(null); // a delete that failed; the post failing to load is loadError
 
   async function handleDelete() {
     if (!window.confirm('Delete this post?')) return;
@@ -32,7 +33,7 @@ export default function PostDetailView({ postId, user, onLogin, onBack, onToast 
       onToast?.('Post deleted');
       onBack();
     } catch (e) {
-      setError(e.message);
+      setError(friendlyMessage(e));
     }
   }
 
@@ -56,8 +57,9 @@ export default function PostDetailView({ postId, user, onLogin, onBack, onToast 
     <div id="empty">
       <button className="back-link" onClick={onBack}>← Back to Feed</button>
 
-      {error && <p style={{ color: 'var(--danger)' }}>{error}</p>}
-      {!posts && !error && <p style={{ color: 'var(--fg-subtle)' }}>Loading…</p>}
+      <ErrorText>{error}</ErrorText>
+      {loadError && <LoadError error={loadError} what={LOAD_WHAT.feed} onRetry={reload} />}
+      {!posts && !loadError && <p style={{ color: 'var(--fg-subtle)' }}>Loading…</p>}
 
       {posts && !post && (
         <p className="discussion-empty">

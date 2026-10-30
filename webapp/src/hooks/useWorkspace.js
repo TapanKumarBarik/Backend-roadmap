@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { fetchWorkspacePages, createWorkspacePage, updateWorkspacePage, deleteWorkspacePage } from '../lib/api.js';
+import { friendlyMessage } from '../lib/errors.js';
 
 // Manages the workspace's page TREE (id/parentId/title/order for every
 // page) — never a page's full editor content, which BlockEditor loads and
@@ -8,14 +9,18 @@ import { fetchWorkspacePages, createWorkspacePage, updateWorkspacePage, deleteWo
 // entirely private per-user (unlike Feed/Books/Suggestions).
 export function useWorkspace(user) {
   const [pages, setPages] = useState(null);
-  const [error, setError] = useState(null);
+  const [error, setError] = useState(null); // a rename or move that failed (a sentence for the person)
+  const [loadError, setLoadError] = useState(null); // the page list failing to load (the error itself, for LoadError)
 
+  // Returns the promise so "Try again" can show it is working.
   const reload = useCallback(() => {
-    if (!user) { setPages([]); return; }
-    fetchWorkspacePages().then(setPages).catch((e) => setError(e.message));
+    if (!user) { setPages([]); return Promise.resolve(); }
+    return fetchWorkspacePages()
+      .then((list) => { setPages(list); setLoadError(null); })
+      .catch(setLoadError);
   }, [user]);
 
-  useEffect(reload, [reload]);
+  useEffect(() => { reload(); }, [reload]);
 
   const createPage = useCallback(async (title, parentId) => {
     const created = await createWorkspacePage(title, parentId || null);
@@ -28,7 +33,7 @@ export function useWorkspace(user) {
     try {
       await updateWorkspacePage(id, { title });
     } catch (e) {
-      setError(e.message);
+      setError(friendlyMessage(e));
     }
   }, []);
 
@@ -52,5 +57,5 @@ export function useWorkspace(user) {
     setPages((prev) => prev.filter((p) => !deletedIds.includes(p.id)));
   }, []);
 
-  return { pages, error, createPage, renamePage, movePage, removePage, reload };
+  return { pages, error, loadError, createPage, renamePage, movePage, removePage, reload };
 }

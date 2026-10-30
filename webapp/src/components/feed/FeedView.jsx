@@ -1,8 +1,13 @@
-import { useRef, useState, useEffect } from 'react';
+import { useRef, useState } from 'react';
 import { fetchFeed, postFeedItem, uploadFeedFile, deleteFeedPost, voteFeedPost } from '../../lib/api.js';
 import { renderUserMarkdown } from '../../lib/markdown/renderUserMarkdown.js';
 import FeedAttachment from './FeedAttachment.jsx';
 import { TrashIcon } from '../common/icons.jsx';
+import { useLoader } from '../../hooks/useLoader.js';
+import LoadError from '../common/LoadError.jsx';
+import ErrorText from '../common/ErrorText.jsx';
+import { friendlyMessage } from '../../lib/errors.js';
+import { LOAD_WHAT } from '../../config/messages.js';
 
 function initialsOf(name) {
   return (name || '?').trim()[0]?.toUpperCase() || '?';
@@ -58,8 +63,8 @@ function fileToBase64(file) {
 // own detail page (PostDetailView) with its comment thread, the way
 // clicking a Facebook post opens its own page.
 export default function FeedView({ user, onLogin, onToast, onOpenPost, embedded }) {
-  const [posts, setPosts] = useState(null);
-  const [error, setError] = useState(null);
+  const { data: posts, setData: setPosts, error: loadError, reload } = useLoader(fetchFeed);
+  const [error, setError] = useState(null); // a post or delete that failed; the feed itself failing to load is loadError
   const [text, setText] = useState('');
   const [pendingFile, setPendingFile] = useState(null);
   const [linkMode, setLinkMode] = useState(false);
@@ -67,10 +72,6 @@ export default function FeedView({ user, onLogin, onToast, onOpenPost, embedded 
   const [linkTitle, setLinkTitle] = useState('');
   const [posting, setPosting] = useState(false);
   const fileInputRef = useRef(null);
-
-  useEffect(() => {
-    fetchFeed().then(setPosts).catch((e) => setError(e.message));
-  }, []);
 
   async function handleFilePick(e) {
     const file = e.target.files[0];
@@ -124,7 +125,7 @@ export default function FeedView({ user, onLogin, onToast, onOpenPost, embedded 
       setPendingFile(null);
       cancelLink();
     } catch (e) {
-      setError(e.message);
+      setError(friendlyMessage(e));
     } finally {
       setPosting(false);
     }
@@ -137,7 +138,7 @@ export default function FeedView({ user, onLogin, onToast, onOpenPost, embedded 
       setPosts((prev) => prev.filter((p) => p.id !== id));
       onToast?.('Post deleted');
     } catch (e) {
-      setError(e.message);
+      setError(friendlyMessage(e));
     }
   }
 
@@ -238,9 +239,10 @@ export default function FeedView({ user, onLogin, onToast, onOpenPost, embedded 
           </div>
         )}
 
-      {error && <p style={{ color: 'var(--danger)' }}>{error}</p>}
+      <ErrorText>{error}</ErrorText>
+      {loadError && <LoadError error={loadError} what={LOAD_WHAT.feed} onRetry={reload} />}
 
-      {!posts && !error && <p style={{ color: 'var(--fg-subtle)' }}>Loading…</p>}
+      {!posts && !loadError && <p style={{ color: 'var(--fg-subtle)' }}>Loading…</p>}
       {posts && posts.length === 0 && <p style={{ color: 'var(--fg-subtle)' }}>Nothing here yet — be the first to post.</p>}
 
       <div className="feed-list">

@@ -12,6 +12,8 @@ import { enhanceSelfCheck, handleSelfCheckClick } from '../../lib/markdown/selfC
 import { STORAGE } from '../../config/index.js';
 import { readStored, writeStored } from '../../lib/storage.js';
 import { ClockIcon, StarIcon, ArrowRightIcon } from '../common/icons.jsx';
+import LoadError from '../common/LoadError.jsx';
+import { LOAD_WHAT } from '../../config/messages.js';
 import CommentsSection from './CommentsSection.jsx';
 import NotesPanel from './NotesPanel.jsx';
 import ReactionsBar from './ReactionsBar.jsx';
@@ -40,7 +42,7 @@ export default function ArticleView({
   onTocChange, onActiveHeadingChange, mainRef, user, onLogin,
   isBookmarked, onToggleBookmark, showNotesInArticle
 }) {
-  const { html, rawText, loading, error } = useMarkdownDoc(path);
+  const { html, rawText, loading, error, reload: reloadDoc } = useMarkdownDoc(path);
   const contentRef = useRef(null);
   const observerRef = useRef(null);
 
@@ -321,63 +323,64 @@ export default function ArticleView({
       )}
 
       {loading && <div id="content"><p style={{ color: 'var(--fg-subtle)' }}>Loading…</p></div>}
-      {error && (
-        <div id="content">
-          <h2>Couldn&apos;t load this file</h2>
-          <p style={{ color: 'var(--fg-muted)' }}>{path}</p>
-          <p style={{ color: 'var(--danger)' }}>{String(error)}</p>
-        </div>
-      )}
+      {error && <LoadError error={error} what={LOAD_WHAT.module} onRetry={reloadDoc} devHint={false} />}
       {!loading && !error && html != null && (
         <div id="content" ref={contentRef} onClick={handleContentClick} dangerouslySetInnerHTML={{ __html: html }} />
       )}
 
-      {/* The end of the module is where you decide you're done with it, so
-          that's where recording it belongs — one action that marks this
-          complete and moves you on, instead of scrolling back to the top
-          for a segmented control and then back down for the pager. */}
-      <div className={'finish' + (status === 'done' ? ' is-done' : '')}>
-        <div className="finish-main">
-          <div className="finish-h">
-            {status === 'done' ? 'You’ve completed this module' : 'Reached the end?'}
-          </div>
-          {nextFile && (
-            <div className="finish-sub">
-              Next: {nodeByFile[nextFile]?.title || nodeByFile[nextFile]?.name}
+      {/* Everything below belongs to the content, so it appears only once the content has loaded. When the
+          module failed to load, "Mark complete" would let someone finish a module they never saw, and the
+          discussion would add a second error to the first. The pager further down stays, so you can move on. */}
+      {!loading && !error && html != null && (
+        <>
+        {/* The end of the module is where you decide you're done with it, so
+            that's where recording it belongs — one action that marks this
+            complete and moves you on, instead of scrolling back to the top
+            for a segmented control and then back down for the pager. */}
+        <div className={'finish' + (status === 'done' ? ' is-done' : '')}>
+          <div className="finish-main">
+            <div className="finish-h">
+              {status === 'done' ? 'You’ve completed this module' : 'Reached the end?'}
             </div>
-          )}
-        </div>
-        <div className="finish-acts">
-          {status !== 'done' && (
+            {nextFile && (
+              <div className="finish-sub">
+                Next: {nodeByFile[nextFile]?.title || nodeByFile[nextFile]?.name}
+              </div>
+            )}
+          </div>
+          <div className="finish-acts">
+            {status !== 'done' && (
+              <button
+                className="btn-ghost"
+                onClick={() => onSetStatus(path, status === 'wip' ? 'todo' : 'wip')}
+                aria-pressed={status === 'wip'}
+              >
+                {status === 'wip' ? 'In progress' : 'Still working'}
+              </button>
+            )}
             <button
-              className="btn-ghost"
-              onClick={() => onSetStatus(path, status === 'wip' ? 'todo' : 'wip')}
-              aria-pressed={status === 'wip'}
+              className={'btn-primary' + (status === 'done' ? ' undo' : '')}
+              onClick={() => {
+                if (status === 'done') { onSetStatus(path, 'todo'); return; }
+                onSetStatus(path, 'done');
+                onToast(nextFile ? 'Marked complete — on to the next' : 'Marked complete');
+                if (nextFile) onOpenFile(nextFile);
+              }}
             >
-              {status === 'wip' ? 'In progress' : 'Still working'}
+              {status === 'done'
+                ? 'Mark not complete'
+                : <>Mark complete{nextFile && <> &amp; continue</>} <ArrowRightIcon /></>}
             </button>
-          )}
-          <button
-            className={'btn-primary' + (status === 'done' ? ' undo' : '')}
-            onClick={() => {
-              if (status === 'done') { onSetStatus(path, 'todo'); return; }
-              onSetStatus(path, 'done');
-              onToast(nextFile ? 'Marked complete — on to the next' : 'Marked complete');
-              if (nextFile) onOpenFile(nextFile);
-            }}
-          >
-            {status === 'done'
-              ? 'Mark not complete'
-              : <>Mark complete{nextFile && <> &amp; continue</>} <ArrowRightIcon /></>}
-          </button>
+          </div>
         </div>
-      </div>
 
-      <ReactionsBar path={path} user={user} onLogin={onLogin} />
-      {/* Notes normally live in the right rail; below 1180px that rail is
-          hidden, so they fall back into the article rather than vanishing. */}
-      {showNotesInArticle && <NotesPanel path={path} user={user} onLogin={onLogin} />}
-      <CommentsSection path={path} user={user} onLogin={onLogin} />
+        <ReactionsBar path={path} user={user} onLogin={onLogin} />
+        {/* Notes normally live in the right rail; below 1180px that rail is
+            hidden, so they fall back into the article rather than vanishing. */}
+        {showNotesInArticle && <NotesPanel path={path} user={user} onLogin={onLogin} />}
+        <CommentsSection path={path} user={user} onLogin={onLogin} />
+        </>
+      )}
 
       {/* Only the very first and very last module of the curriculum have a
           single neighbour — those used to reserve a hidden half-width cell,

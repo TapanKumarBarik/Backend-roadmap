@@ -3,9 +3,11 @@
 // the redirect internally without ever navigating the browser. Those stay as
 // raw window.location.href assignments in useAuth.
 
+import { apiError } from './errors.js';
+
 export async function fetchServerStatus() {
   const res = await fetch('/api/progress');
-  if (!res.ok) throw new Error('progress fetch failed: ' + res.status);
+  if (!res.ok) throw await apiError(res, 'progress fetch failed: ' + res.status);
   return res.json();
 }
 
@@ -14,7 +16,7 @@ export async function fetchServerStatus() {
 // that callers compare directly against 'done'; see the endpoint's comment.
 export async function fetchServerTimes() {
   const res = await fetch('/api/progress/times');
-  if (!res.ok) throw new Error('progress times fetch failed: ' + res.status);
+  if (!res.ok) throw await apiError(res, 'progress times fetch failed: ' + res.status);
   return res.json();
 }
 
@@ -43,7 +45,7 @@ function encodedPath(path) {
 
 export async function fetchComments(path) {
   const res = await fetch('/api/comments/' + encodedPath(path));
-  if (!res.ok) throw new Error('failed to load comments');
+  if (!res.ok) throw await apiError(res, 'failed to load comments');
   return res.json();
 }
 
@@ -53,10 +55,7 @@ export async function postComment(path, text, parentId) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ text, parentId: parentId || '' })
   });
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    throw new Error(body.error || 'failed to post comment');
-  }
+  if (!res.ok) throw await apiError(res, 'failed to post comment');
   return res.json();
 }
 
@@ -72,19 +71,19 @@ export function trackPageView(path) {
 // whether it's been answered. Backs the Community screen's tabs.
 export async function fetchQuestions() {
   const res = await fetch('/api/comments/questions');
-  if (!res.ok) throw new Error('failed to load questions');
+  if (!res.ok) throw await apiError(res, 'failed to load questions');
   return res.json();
 }
 
 export async function fetchAllComments() {
   const res = await fetch('/api/manage/comments');
-  if (!res.ok) throw new Error('failed to load comments');
+  if (!res.ok) throw await apiError(res, 'failed to load comments');
   return res.json();
 }
 
 export async function deleteComment(path, id) {
   const res = await fetch(`/api/manage/comments?path=${encodeURIComponent(path)}&id=${encodeURIComponent(id)}`, { method: 'DELETE' });
-  if (!res.ok) throw new Error('failed to delete comment');
+  if (!res.ok) throw await apiError(res, 'failed to delete comment');
 }
 
 // A short-lived, shared cache: the feed is fetched from three independent
@@ -101,8 +100,8 @@ export async function fetchFeed() {
   if (feedCache && now - feedCache.ts < FEED_CACHE_MS) return feedCache.data;
   if (feedInflight) return feedInflight;
   feedInflight = fetch('/api/feed')
-    .then((res) => {
-      if (!res.ok) throw new Error('failed to load feed');
+    .then(async (res) => {
+      if (!res.ok) throw await apiError(res, 'failed to load feed');
       return res.json();
     })
     .then((data) => {
@@ -132,10 +131,7 @@ export async function postFeedItem(text, attachmentUrl, attachmentType, linkTitl
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ text, attachmentUrl, attachmentType, linkTitle })
   });
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    throw new Error(body.error || 'failed to post');
-  }
+  if (!res.ok) throw await apiError(res, 'failed to post');
   invalidateFeedCache();
   return res.json();
 }
@@ -146,16 +142,13 @@ export async function uploadFeedFile(filename, contentType, dataBase64) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ filename, contentType, dataBase64 })
   });
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    throw new Error(body.error || 'upload failed');
-  }
+  if (!res.ok) throw await apiError(res, 'upload failed');
   return res.json();
 }
 
 export async function deleteFeedPost(id) {
   const res = await fetch('/api/manage/feed?id=' + encodeURIComponent(id), { method: 'DELETE' });
-  if (!res.ok) throw new Error('failed to delete post');
+  if (!res.ok) throw await apiError(res, 'failed to delete post');
   invalidateFeedCache();
 }
 
@@ -165,7 +158,7 @@ export async function voteFeedPost(id) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ id })
   });
-  if (!res.ok) throw new Error('failed to vote');
+  if (!res.ok) throw await apiError(res, 'failed to vote');
   invalidateFeedCache();
   return res.json();
 }
@@ -174,7 +167,7 @@ export async function voteFeedPost(id) {
 // current admin list. Admin-only.
 export async function fetchPeople() {
   const res = await fetch('/api/manage/users');
-  if (!res.ok) throw new Error('failed to load people');
+  if (!res.ok) throw await apiError(res, 'failed to load people');
   return res.json();
 }
 
@@ -184,36 +177,30 @@ export async function grantAdmin(email) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ email })
   });
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    throw new Error(body.error || 'failed to grant admin access');
-  }
+  if (!res.ok) throw await apiError(res, 'failed to grant admin access');
   return res.json();
 }
 
 export async function revokeAdmin(email) {
   const res = await fetch('/api/manage/admins?email=' + encodeURIComponent(email), { method: 'DELETE' });
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    throw new Error(body.error || 'failed to remove admin access');
-  }
+  if (!res.ok) throw await apiError(res, 'failed to remove admin access');
 }
 
 export async function fetchUsageStats() {
   const res = await fetch('/api/manage/usage');
-  if (!res.ok) throw new Error('failed to load usage stats');
+  if (!res.ok) throw await apiError(res, 'failed to load usage stats');
   return res.json();
 }
 
 export async function fetchPageViews() {
   const res = await fetch('/api/manage/pageviews');
-  if (!res.ok) throw new Error('failed to load visitor stats');
+  if (!res.ok) throw await apiError(res, 'failed to load visitor stats');
   return res.json();
 }
 
 export async function fetchAdminContent(path) {
   const res = await fetch('/api/manage/content?path=' + encodeURIComponent(path));
-  if (!res.ok) throw new Error('failed to load file (check the path)');
+  if (!res.ok) throw await apiError(res, 'failed to load file (check the path)');
   return res.json();
 }
 
@@ -223,10 +210,7 @@ export async function saveAdminContent(path, content, sha, message) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ path, content, sha, message })
   });
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    throw new Error(body.error || 'failed to save');
-  }
+  if (!res.ok) throw await apiError(res, 'failed to save');
   return res.json();
 }
 
@@ -236,7 +220,7 @@ export async function uploadAdminImage(filename, contentType, dataBase64) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ filename, contentType, dataBase64 })
   });
-  if (!res.ok) throw new Error('image upload failed');
+  if (!res.ok) throw await apiError(res, 'image upload failed');
   return res.json();
 }
 
@@ -246,21 +230,18 @@ export async function editOwnComment(path, id, text) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ path, id, text })
   });
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    throw new Error(body.error || 'failed to edit comment');
-  }
+  if (!res.ok) throw await apiError(res, 'failed to edit comment');
   return res.json();
 }
 
 export async function deleteOwnComment(path, id) {
   const res = await fetch(`/api/comments/own?path=${encodeURIComponent(path)}&id=${encodeURIComponent(id)}`, { method: 'DELETE' });
-  if (!res.ok) throw new Error('failed to delete comment');
+  if (!res.ok) throw await apiError(res, 'failed to delete comment');
 }
 
 export async function fetchCommentActivity(since) {
   const res = await fetch('/api/comments/activity?since=' + encodeURIComponent(since));
-  if (!res.ok) throw new Error('failed to load activity');
+  if (!res.ok) throw await apiError(res, 'failed to load activity');
   return res.json();
 }
 
@@ -270,7 +251,7 @@ export async function voteComment(path, id) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ path, id })
   });
-  if (!res.ok) throw new Error('failed to vote');
+  if (!res.ok) throw await apiError(res, 'failed to vote');
   return res.json();
 }
 
@@ -280,18 +261,18 @@ export async function setCommentAnswer(path, id, isAnswer) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ path, id, isAnswer })
   });
-  if (!res.ok) throw new Error('failed to update answer state');
+  if (!res.ok) throw await apiError(res, 'failed to update answer state');
 }
 
 export async function fetchAllNotes() {
   const res = await fetch('/api/notes');
-  if (!res.ok) throw new Error('failed to load notes');
+  if (!res.ok) throw await apiError(res, 'failed to load notes');
   return res.json();
 }
 
 export async function fetchNote(path) {
   const res = await fetch('/api/notes/' + encodedPath(path));
-  if (!res.ok) throw new Error('failed to load note');
+  if (!res.ok) throw await apiError(res, 'failed to load note');
   return res.json();
 }
 
@@ -301,28 +282,28 @@ export async function saveNote(path, text) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ text })
   });
-  if (!res.ok) throw new Error('failed to save note');
+  if (!res.ok) throw await apiError(res, 'failed to save note');
 }
 
 export async function fetchBookmarks() {
   const res = await fetch('/api/bookmarks');
-  if (!res.ok) throw new Error('failed to load bookmarks');
+  if (!res.ok) throw await apiError(res, 'failed to load bookmarks');
   return res.json();
 }
 
 export async function addBookmark(path) {
   const res = await fetch('/api/bookmarks/' + encodedPath(path), { method: 'PUT' });
-  if (!res.ok) throw new Error('failed to add bookmark');
+  if (!res.ok) throw await apiError(res, 'failed to add bookmark');
 }
 
 export async function removeBookmark(path) {
   const res = await fetch('/api/bookmarks/' + encodedPath(path), { method: 'DELETE' });
-  if (!res.ok) throw new Error('failed to remove bookmark');
+  if (!res.ok) throw await apiError(res, 'failed to remove bookmark');
 }
 
 export async function fetchReactions(path) {
   const res = await fetch('/api/reactions/' + encodedPath(path));
-  if (!res.ok) throw new Error('failed to load reactions');
+  if (!res.ok) throw await apiError(res, 'failed to load reactions');
   return res.json();
 }
 
@@ -332,13 +313,13 @@ export async function toggleReaction(path, emoji) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ emoji })
   });
-  if (!res.ok) throw new Error('failed to react');
+  if (!res.ok) throw await apiError(res, 'failed to react');
   return res.json();
 }
 
 export async function fetchStreak() {
   const res = await fetch('/api/streak');
-  if (!res.ok) throw new Error('failed to load streak');
+  if (!res.ok) throw await apiError(res, 'failed to load streak');
   return res.json();
 }
 
@@ -348,7 +329,7 @@ export async function fetchStreak() {
 // for exactly what "delete my data" does to each table.
 export async function deleteAccount() {
   const res = await fetch('/api/account', { method: 'DELETE' });
-  if (!res.ok) throw new Error('failed to delete account');
+  if (!res.ok) throw await apiError(res, 'failed to delete account');
 }
 
 export async function sendMessage(text) {
@@ -357,15 +338,12 @@ export async function sendMessage(text) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ text })
   });
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    throw new Error(body.error || 'failed to send message');
-  }
+  if (!res.ok) throw await apiError(res, 'failed to send message');
 }
 
 export async function fetchMessages() {
   const res = await fetch('/api/manage/messages');
-  if (!res.ok) throw new Error('failed to load messages');
+  if (!res.ok) throw await apiError(res, 'failed to load messages');
   return res.json();
 }
 
@@ -375,7 +353,7 @@ export async function fetchMessages() {
 // separate endpoint.
 export async function fetchBooks() {
   const res = await fetch('/api/books');
-  if (!res.ok) throw new Error('failed to load books');
+  if (!res.ok) throw await apiError(res, 'failed to load books');
   return res.json();
 }
 
@@ -385,23 +363,20 @@ export async function postBook(title, tag, linkUrl, attachmentUrl) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ title, tag, linkUrl, attachmentUrl })
   });
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    throw new Error(body.error || 'failed to add book');
-  }
+  if (!res.ok) throw await apiError(res, 'failed to add book');
   return res.json();
 }
 
 export async function deleteBook(id) {
   const res = await fetch('/api/manage/books?id=' + encodeURIComponent(id), { method: 'DELETE' });
-  if (!res.ok) throw new Error('failed to delete book');
+  if (!res.ok) throw await apiError(res, 'failed to delete book');
 }
 
 // A public, upvotable suggestions board — distinct from the private
 // admin-only feedback inbox above (sendMessage/fetchMessages).
 export async function fetchSuggestions() {
   const res = await fetch('/api/suggestions');
-  if (!res.ok) throw new Error('failed to load suggestions');
+  if (!res.ok) throw await apiError(res, 'failed to load suggestions');
   return res.json();
 }
 
@@ -411,10 +386,7 @@ export async function postSuggestion(text) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ text })
   });
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    throw new Error(body.error || 'failed to post suggestion');
-  }
+  if (!res.ok) throw await apiError(res, 'failed to post suggestion');
   return res.json();
 }
 
@@ -424,13 +396,13 @@ export async function voteSuggestion(id) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ id })
   });
-  if (!res.ok) throw new Error('failed to vote');
+  if (!res.ok) throw await apiError(res, 'failed to vote');
   return res.json();
 }
 
 export async function deleteSuggestion(id) {
   const res = await fetch('/api/manage/suggestions?id=' + encodeURIComponent(id), { method: 'DELETE' });
-  if (!res.ok) throw new Error('failed to delete suggestion');
+  if (!res.ok) throw await apiError(res, 'failed to delete suggestion');
 }
 
 // A private, per-user Notion-style workspace: nested pages, each holding a
@@ -438,13 +410,13 @@ export async function deleteSuggestion(id) {
 // personal — never shared, unlike Feed/Books/Suggestions above.
 export async function fetchWorkspacePages() {
   const res = await fetch('/api/workspace/pages');
-  if (!res.ok) throw new Error('failed to load workspace');
+  if (!res.ok) throw await apiError(res, 'failed to load workspace');
   return res.json();
 }
 
 export async function fetchWorkspacePage(id) {
   const res = await fetch('/api/workspace/pages/' + encodeURIComponent(id));
-  if (!res.ok) throw new Error('failed to load page');
+  if (!res.ok) throw await apiError(res, 'failed to load page');
   return res.json();
 }
 
@@ -454,7 +426,7 @@ export async function createWorkspacePage(title, parentId) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ title, parentId: parentId || null })
   });
-  if (!res.ok) throw new Error('failed to create page');
+  if (!res.ok) throw await apiError(res, 'failed to create page');
   return res.json();
 }
 
@@ -464,15 +436,12 @@ export async function updateWorkspacePage(id, patch) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(patch)
   });
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    throw new Error(body.error || 'failed to save page');
-  }
+  if (!res.ok) throw await apiError(res, 'failed to save page');
   return res.json();
 }
 
 export async function deleteWorkspacePage(id) {
   const res = await fetch('/api/workspace/pages/' + encodeURIComponent(id), { method: 'DELETE' });
-  if (!res.ok) throw new Error('failed to delete page');
+  if (!res.ok) throw await apiError(res, 'failed to delete page');
   return res.json();
 }

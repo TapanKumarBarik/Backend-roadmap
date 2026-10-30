@@ -1,5 +1,9 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { fetchPeople, grantAdmin, revokeAdmin } from '../../lib/api.js';
+import { useLoader } from '../../hooks/useLoader.js';
+import LoadError from '../common/LoadError.jsx';
+import { friendlyMessage } from '../../lib/errors.js';
+import { LOAD_WHAT } from '../../config/messages.js';
 
 function initials(name, email) {
   const src = (name || email || '?').trim();
@@ -25,19 +29,12 @@ function Avatar({ user }) {
 }
 
 export default function PeoplePanel({ currentUserEmail }) {
-  const [data, setData] = useState(null);
-  const [error, setError] = useState(null);
+  const { data, error: loadError, reload } = useLoader(fetchPeople);
   const [busy, setBusy] = useState(null);
   const [notice, setNotice] = useState(null);
   const [email, setEmail] = useState('');
   const [query, setQuery] = useState('');
   const [sort, setSort] = useState('lastSeen');
-
-  const load = useCallback(() => {
-    fetchPeople().then((d) => { setData(d); setError(null); }).catch((e) => setError(e.message));
-  }, []);
-
-  useEffect(() => { load(); }, [load]);
 
   const shown = useMemo(() => {
     if (!data) return [];
@@ -64,9 +61,9 @@ export default function PeoplePanel({ currentUserEmail }) {
     try {
       await grantAdmin(target);
       setNotice({ kind: 'ok', text: `${target} is now an admin.` });
-      load();
+      reload();
     } catch (err) {
-      setNotice({ kind: 'err', text: err.message });
+      setNotice({ kind: 'err', text: friendlyMessage(err) });
     } finally {
       setBusy(null);
     }
@@ -86,15 +83,15 @@ export default function PeoplePanel({ currentUserEmail }) {
     try {
       await revokeAdmin(target);
       setNotice({ kind: 'ok', text: `Removed admin access for ${target}.` });
-      load();
+      reload();
     } catch (err) {
-      setNotice({ kind: 'err', text: err.message });
+      setNotice({ kind: 'err', text: friendlyMessage(err) });
     } finally {
       setBusy(null);
     }
   }
 
-  if (error) return <p style={{ color: 'var(--danger)' }}>{error}</p>;
+  if (loadError) return <LoadError error={loadError} what={LOAD_WHAT.people} onRetry={reload} />;
   if (!data) return <p style={{ color: 'var(--fg-subtle)' }}>Loading…</p>;
 
   const admins = data.admins || [];

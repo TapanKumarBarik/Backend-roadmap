@@ -8,6 +8,8 @@ import SignInButton from '../account/SignInButton.jsx';
 import UserAvatar from '../account/UserAvatar.jsx';
 import { BUILD_TIME } from '../../lib/buildInfo.js';
 import { CONTRIBUTE_URL } from '../../lib/curriculum/contribute.js';
+import { DEVELOPER } from '../../config/index.js';
+import { CONTACT } from '../../config/messages.js';
 
 const THEME_ICON = { auto: AutoIcon, light: SunIcon, dark: MoonIcon };
 
@@ -135,7 +137,7 @@ export default function TopBar({
                 <div className="div" />
               </>
             )}
-            {onOpenMessage && <button onClick={() => { onCloseMenu(); onOpenMessage(); }}><MailIcon />Message Tapan</button>}
+            {onOpenMessage && <button onClick={() => { onCloseMenu(); onOpenMessage(); }}><MailIcon />{CONTACT.messageDeveloper(DEVELOPER.shortName)}</button>}
             <button onClick={() => { onCloseMenu(); onLogout(); }}><SignOutIcon />Sign out</button>
             {onDeleteAccount && (
               <button className="danger" onClick={() => { onCloseMenu(); onDeleteAccount(); }}>

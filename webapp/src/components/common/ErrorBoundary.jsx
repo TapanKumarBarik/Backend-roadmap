@@ -1,10 +1,11 @@
 import { Component } from 'react';
+import { DEVELOPER, DEVELOPER_EMAIL_LINK } from '../../config/index.js';
+import { CRASH_SCREEN } from '../../config/messages.js';
 
-// Deliberately has zero dependency on anything else in the app (no api.js,
-// no hooks, no other components) — if something broke badly enough to reach
-// here, this fallback needs to render on its own with nothing else assumed
-// to still be working. Inline styles for the same reason: no reliance on
-// global.css having loaded/applied correctly.
+// Deliberately has no dependency on the rest of the app (no api.js, no hooks, no other components): if
+// something broke badly enough to reach here, this fallback needs to render on its own. The only imports are
+// the two config files, which are plain data. Inline styles for the same reason: no reliance on global.css
+// having loaded/applied correctly.
 export default class ErrorBoundary extends Component {
   state = { error: null };
 
@@ -25,14 +26,10 @@ export default class ErrorBoundary extends Component {
         padding: 24, textAlign: 'center'
       }}>
         <div>
-          <div style={{
-            width: 40, height: 40, borderRadius: 6, margin: '0 auto 20px', background: '#111111',
-            color: '#ffffff', display: 'grid', placeItems: 'center', fontWeight: 800, fontSize: 20
-          }}>C</div>
-          <h1 style={{ fontSize: 20, margin: '0 0 8px' }}>Something went wrong</h1>
+          <img src="/favicon.svg" alt="" width="40" height="40" style={{ display: 'block', margin: '0 auto 20px' }} />
+          <h1 style={{ fontSize: 20, margin: '0 0 8px' }}>{CRASH_SCREEN.title}</h1>
           <p style={{ color: '#6b6b6b', margin: '0 0 20px', maxWidth: 360 }}>
-            This page hit an unexpected error. Reloading usually fixes it — if it keeps happening,
-            let Tapan know what you were doing when it broke.
+            {CRASH_SCREEN.body(DEVELOPER.shortName)}
           </p>
           <button
             onClick={() => window.location.reload()}
@@ -41,8 +38,16 @@ export default class ErrorBoundary extends Component {
               color: '#111111', fontWeight: 600, fontSize: 14, cursor: 'pointer'
             }}
           >
-            Reload
+            {CRASH_SCREEN.reload}
           </button>
+          <p style={{ margin: '16px 0 0', fontSize: 13 }}>
+            <a
+              href={`${DEVELOPER_EMAIL_LINK}?subject=${encodeURIComponent(CRASH_SCREEN.emailSubject)}`}
+              style={{ color: '#6b6b6b' }}
+            >
+              {CRASH_SCREEN.emailLabel(DEVELOPER.shortName)}
+            </a>
+          </p>
         </div>
       </div>
     );

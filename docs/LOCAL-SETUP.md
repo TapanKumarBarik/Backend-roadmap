@@ -100,8 +100,14 @@ npm run dev --prefix webapp -- --port 4173
 The dev server serves the curriculum from the repo and the indexes from
 `dist/`, so run `npm run build` (or just `npm run index`) once
 first. Progress tracking still works — it's IndexedDB-backed and only syncs once
-you're signed in. Everything account-shaped fails its fetch and renders its
-error state.
+you're signed in.
+
+Everything account-shaped (Community, Feed, Books, Suggestions, notes, comments)
+needs the API, so without it each of those shows an amber **"The server hit a
+problem"** notice with a **Try again** button. That is expected here, not a bug.
+`npm run dev` adds a line to that notice saying the API isn't running; real
+visitors never see that line. If the module index is missing, the whole app shows
+**"We couldn't load the curriculum"** with a reminder to run `npm run index`.
 
 ## Before you push
 

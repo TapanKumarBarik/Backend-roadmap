@@ -1,6 +1,11 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { fetchSuggestions, postSuggestion, voteSuggestion, deleteSuggestion } from '../../lib/api.js';
 import { TrashIcon } from '../common/icons.jsx';
+import { useLoader } from '../../hooks/useLoader.js';
+import LoadError from '../common/LoadError.jsx';
+import ErrorText from '../common/ErrorText.jsx';
+import { friendlyMessage } from '../../lib/errors.js';
+import { LOAD_WHAT } from '../../config/messages.js';
 
 function initialsOf(name) {
   return (name || '?').trim()[0]?.toUpperCase() || '?';
@@ -10,14 +15,10 @@ function initialsOf(name) {
 // admin-only feedback inbox (Messages). Anyone can see and vote on what
 // others have asked for. See docs/ROADMAP.md.
 export default function SuggestionsView({ user, onLogin, onToast }) {
-  const [suggestions, setSuggestions] = useState(null);
-  const [error, setError] = useState(null);
+  const { data: suggestions, setData: setSuggestions, error: loadError, reload } = useLoader(fetchSuggestions);
+  const [error, setError] = useState(null); // a post or delete that failed; the list failing to load is loadError
   const [text, setText] = useState('');
   const [posting, setPosting] = useState(false);
-
-  useEffect(() => {
-    fetchSuggestions().then(setSuggestions).catch((e) => setError(e.message));
-  }, []);
 
   async function handlePost() {
     if (!text.trim()) return;
@@ -31,7 +32,7 @@ export default function SuggestionsView({ user, onLogin, onToast }) {
       setSuggestions((prev) => [...(prev || []), created].sort((a, b) => (b.upvotes - a.upvotes) || (a.id < b.id ? 1 : -1)));
       setText('');
     } catch (e) {
-      setError(e.message);
+      setError(friendlyMessage(e));
     } finally {
       setPosting(false);
     }
@@ -60,7 +61,7 @@ export default function SuggestionsView({ user, onLogin, onToast }) {
       setSuggestions((prev) => prev.filter((s) => s.id !== id));
       onToast?.('Deleted');
     } catch (e) {
-      setError(e.message);
+      setError(friendlyMessage(e));
     }
   }
 
@@ -92,8 +93,9 @@ export default function SuggestionsView({ user, onLogin, onToast }) {
           </div>
         )}
 
-      {error && <p style={{ color: 'var(--danger)' }}>{error}</p>}
-      {!suggestions && !error && <p style={{ color: 'var(--fg-subtle)' }}>Loading…</p>}
+      <ErrorText>{error}</ErrorText>
+      {loadError && <LoadError error={loadError} what={LOAD_WHAT.suggestions} onRetry={reload} />}
+      {!suggestions && !loadError && <p style={{ color: 'var(--fg-subtle)' }}>Loading…</p>}
       {suggestions && suggestions.length === 0 && <p style={{ color: 'var(--fg-subtle)' }}>No suggestions yet — be the first.</p>}
 
       <div className="feed-list">

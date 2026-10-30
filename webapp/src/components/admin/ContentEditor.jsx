@@ -3,6 +3,8 @@ import { fetchAdminContent, saveAdminContent, uploadAdminImage } from '../../lib
 import { renderMarkdownDoc } from '../../lib/markdown/markdown.js';
 import { BLOCK_TYPES } from '../../lib/markdown/contentBlocks.js';
 import { lineDiff } from '../../lib/lineDiff.js';
+import { friendlyMessage } from '../../lib/errors.js';
+import { REPO } from '../../config/index.js';
 
 function fileToBase64(file) {
   return new Promise((resolve, reject) => {
@@ -60,7 +62,7 @@ export default function ContentEditor({ initialPath }) {
       setMode('edit');
       setStatus({ type: 'ok', text: 'Loaded.' });
     } catch (e) {
-      setStatus({ type: 'error', text: e.message });
+      setStatus({ type: 'error', text: friendlyMessage(e) });
       setSha(null);
     } finally {
       setLoading(false);
@@ -75,9 +77,9 @@ export default function ContentEditor({ initialPath }) {
       const result = await saveAdminContent(path.trim(), content, sha, `Edit ${path} via admin editor`);
       setSha(result.sha);
       setOriginalContent(content);
-      setStatus({ type: 'ok', text: 'Saved — committed to main.' });
+      setStatus({ type: 'ok', text: `Saved — committed to ${REPO.branch}.` });
     } catch (e) {
-      setStatus({ type: 'error', text: e.message });
+      setStatus({ type: 'error', text: friendlyMessage(e) });
     } finally {
       setSaving(false);
     }
@@ -95,7 +97,7 @@ export default function ContentEditor({ initialPath }) {
       setContent((prev) => prev + `\n\n![](${url})\n`);
       setStatus({ type: 'ok', text: 'Image uploaded and inserted at the end of the document.' });
     } catch (err) {
-      setStatus({ type: 'error', text: err.message });
+      setStatus({ type: 'error', text: friendlyMessage(err) });
     } finally {
       setUploading(false);
     }

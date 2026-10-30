@@ -1,5 +1,9 @@
 import { useState } from 'react';
 import { sendMessage } from '../../lib/api.js';
+import ErrorText from '../common/ErrorText.jsx';
+import { friendlyMessage } from '../../lib/errors.js';
+import { DEVELOPER } from '../../config/index.js';
+import { CONTACT } from '../../config/messages.js';
 
 export default function MessageOwnerModal({ onClose, onToast }) {
   const [text, setText] = useState('');
@@ -15,7 +19,7 @@ export default function MessageOwnerModal({ onClose, onToast }) {
       onToast('Sent — thanks!');
       onClose();
     } catch (e) {
-      setError(e.message);
+      setError(friendlyMessage(e));
     } finally {
       setSending(false);
     }
@@ -23,8 +27,8 @@ export default function MessageOwnerModal({ onClose, onToast }) {
 
   return (
     <div id="msgModalBg" onClick={(e) => { if (e.target.id === 'msgModalBg') onClose(); }}>
-      <div id="msgModal" role="dialog" aria-modal="true" aria-label="Message Tapan">
-        <div className="home-h" style={{ margin: '0 0 10px' }}>Message Tapan</div>
+      <div id="msgModal" role="dialog" aria-modal="true" aria-label={CONTACT.messageDeveloper(DEVELOPER.shortName)}>
+        <div className="home-h" style={{ margin: '0 0 10px' }}>{CONTACT.messageDeveloper(DEVELOPER.shortName)}</div>
         <p style={{ color: 'var(--fg-subtle)', fontSize: 13, margin: '0 0 12px' }}>
           Bug report, suggestion, whatever — goes straight to the person running this site, not
           posted anywhere public.
@@ -37,7 +41,7 @@ export default function MessageOwnerModal({ onClose, onToast }) {
           placeholder="Write your message…"
           autoFocus
         />
-        {error && <p style={{ color: 'var(--danger)', fontSize: 13 }}>{error}</p>}
+        <ErrorText small>{error}</ErrorText>
         <div className="comment-form-actions" style={{ marginTop: 10 }}>
           <button onClick={handleSend} disabled={sending || !text.trim()}>{sending ? 'Sending…' : 'Send'}</button>
           <button onClick={onClose}>Cancel</button>

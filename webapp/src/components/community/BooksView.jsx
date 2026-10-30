@@ -1,6 +1,11 @@
-import { useRef, useState, useEffect } from 'react';
+import { useRef, useState } from 'react';
 import { fetchBooks, postBook, uploadFeedFile, deleteBook } from '../../lib/api.js';
 import { TrashIcon } from '../common/icons.jsx';
+import { useLoader } from '../../hooks/useLoader.js';
+import LoadError from '../common/LoadError.jsx';
+import ErrorText from '../common/ErrorText.jsx';
+import { friendlyMessage } from '../../lib/errors.js';
+import { LOAD_WHAT } from '../../config/messages.js';
 
 function initialsOf(name) {
   return (name || '?').trim()[0]?.toUpperCase() || '?';
@@ -30,18 +35,14 @@ function filenameFromUrl(url) {
 // a one-off Feed attachment (see docs/ROADMAP.md). Reuses the Feed's own upload
 // endpoint rather than duplicating it.
 export default function BooksView({ user, onLogin, onToast }) {
-  const [books, setBooks] = useState(null);
-  const [error, setError] = useState(null);
+  const { data: books, setData: setBooks, error: loadError, reload } = useLoader(fetchBooks);
+  const [error, setError] = useState(null); // an add or remove that failed; the shelf failing to load is loadError
   const [title, setTitle] = useState('');
   const [tag, setTag] = useState('');
   const [linkUrl, setLinkUrl] = useState('');
   const [pendingFile, setPendingFile] = useState(null);
   const [posting, setPosting] = useState(false);
   const fileInputRef = useRef(null);
-
-  useEffect(() => {
-    fetchBooks().then(setBooks).catch((e) => setError(e.message));
-  }, []);
 
   async function handleFilePick(e) {
     const file = e.target.files[0];
@@ -69,7 +70,7 @@ export default function BooksView({ user, onLogin, onToast }) {
       setLinkUrl('');
       setPendingFile(null);
     } catch (e) {
-      setError(e.message);
+      setError(friendlyMessage(e));
     } finally {
       setPosting(false);
     }
@@ -82,7 +83,7 @@ export default function BooksView({ user, onLogin, onToast }) {
       setBooks((prev) => prev.filter((b) => b.id !== id));
       onToast?.('Removed');
     } catch (e) {
-      setError(e.message);
+      setError(friendlyMessage(e));
     }
   }
 
@@ -144,8 +145,9 @@ export default function BooksView({ user, onLogin, onToast }) {
           </div>
         )}
 
-      {error && <p style={{ color: 'var(--danger)' }}>{error}</p>}
-      {!books && !error && <p style={{ color: 'var(--fg-subtle)' }}>Loading…</p>}
+      <ErrorText>{error}</ErrorText>
+      {loadError && <LoadError error={loadError} what={LOAD_WHAT.books} onRetry={reload} />}
+      {!books && !loadError && <p style={{ color: 'var(--fg-subtle)' }}>Loading…</p>}
       {books && books.length === 0 && <p style={{ color: 'var(--fg-subtle)' }}>Nothing on the shelf yet — be the first to add something.</p>}
 
       <div className="feed-list">

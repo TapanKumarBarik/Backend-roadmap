@@ -1,5 +1,7 @@
-import { useEffect, useState } from 'react';
 import { fetchUsageStats } from '../../lib/api.js';
+import { useLoader } from '../../hooks/useLoader.js';
+import LoadError from '../common/LoadError.jsx';
+import { LOAD_WHAT } from '../../config/messages.js';
 
 function formatBytes(n) {
   if (n < 1024) return `${n} B`;
@@ -8,14 +10,9 @@ function formatBytes(n) {
 }
 
 export default function UsageStats() {
-  const [data, setData] = useState(null);
-  const [error, setError] = useState(null);
+  const { data, error, reload } = useLoader(fetchUsageStats);
 
-  useEffect(() => {
-    fetchUsageStats().then(setData).catch((e) => setError(e.message));
-  }, []);
-
-  if (error) return <p style={{ color: 'var(--danger)' }}>{error}</p>;
+  if (error) return <LoadError error={error} what={LOAD_WHAT.stats} onRetry={reload} />;
   if (!data) return <p style={{ color: 'var(--fg-subtle)' }}>Loading…</p>;
 
   return (

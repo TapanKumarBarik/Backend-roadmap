@@ -1,6 +1,10 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { fetchComments, postComment, editOwnComment, deleteOwnComment, setCommentAnswer, voteComment } from '../../lib/api.js';
 import MentionTextarea from './MentionTextarea.jsx';
+import LoadError from '../common/LoadError.jsx';
+import ErrorText from '../common/ErrorText.jsx';
+import { friendlyMessage } from '../../lib/errors.js';
+import { LOAD_WHAT } from '../../config/messages.js';
 
 function CommentRow({ comment, isReply, user, onLogin, onReply, onEdit, onDelete, onToggleAnswer, onVote, participants }) {
   const [editing, setEditing] = useState(false);
@@ -65,16 +69,28 @@ export default function CommentsSection({
   const [replyTo, setReplyTo] = useState(null);
   const [replyText, setReplyText] = useState('');
   const [posting, setPosting] = useState(false);
-  const [error, setError] = useState(null);
+  const [error, setError] = useState(null); // a post, edit, delete or answer that failed
+  const [loadError, setLoadError] = useState(null); // the discussion itself failing to load
 
+  // Returns the promise so "Try again" can show it is working (the effect below must not return it).
+  // A failed load used to look exactly like "no comments yet"; now it says so.
+  const pathRef = useRef(path);
+  pathRef.current = path;
   function load() {
+    const forPath = path;
     setLoading(true);
     setReplyTo(null);
-    fetchComments(path)
-      .then((c) => { setComments(c); setLoading(false); })
-      .catch(() => setLoading(false));
+    return fetchComments(path)
+      .then((c) => { if (pathRef.current === forPath) { setComments(c); setLoadError(null); } })
+      .catch((e) => { if (pathRef.current === forPath) setLoadError(e); })
+      .finally(() => { if (pathRef.current === forPath) setLoading(false); });
   }
-  useEffect(load, [path]);
+  useEffect(() => {
+    setComments([]); // the previous module's discussion must not linger while this one loads, or if it fails
+    setLoadError(null);
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [path]);
 
   async function submit(parentId, value, reset) {
     if (!value.trim()) return;
@@ -86,7 +102,7 @@ export default function CommentsSection({
       reset('');
       setReplyTo(null);
     } catch (e) {
-      setError(e.message);
+      setError(friendlyMessage(e));
     } finally {
       setPosting(false);
     }
@@ -100,7 +116,7 @@ export default function CommentsSection({
       // object would visibly zero out the upvote count on every edit.
       setComments((prev) => prev.map((c) => (c.id === id ? { ...c, text: updated.text, editedAt: updated.editedAt } : c)));
     } catch (e) {
-      setError(e.message);
+      setError(friendlyMessage(e));
     }
   }
 
@@ -125,7 +141,7 @@ export default function CommentsSection({
       await deleteOwnComment(path, id);
       setComments((prev) => prev.filter((c) => c.id !== id));
     } catch (e) {
-      setError(e.message);
+      setError(friendlyMessage(e));
     }
   }
 
@@ -134,7 +150,7 @@ export default function CommentsSection({
       await setCommentAnswer(path, id, isAnswer);
       setComments((prev) => prev.map((c) => (c.id === id ? { ...c, isAnswer } : c)));
     } catch (e) {
-      setError(e.message);
+      setError(friendlyMessage(e));
     }
   }
 
@@ -177,8 +193,9 @@ export default function CommentsSection({
         )}
       </div>
 
-      {loading && <p style={{ color: 'var(--fg-subtle)' }}>Loading discussion…</p>}
-      {!loading && topLevel.length === 0 && (
+      {loading && !loadError && <p style={{ color: 'var(--fg-subtle)' }}>Loading discussion…</p>}
+      {loadError && <LoadError compact error={loadError} what={LOAD_WHAT.comments} onRetry={load} onSignIn={onLogin} />}
+      {!loading && !loadError && topLevel.length === 0 && (
         <p className="discussion-empty">{emptyText}</p>
       )}
 
@@ -221,7 +238,7 @@ export default function CommentsSection({
         )
         : <button className="signin-link" onClick={onLogin}>{signInLabel}</button>}
 
-      {error && <p style={{ color: 'var(--danger)' }}>{error}</p>}
+      <ErrorText>{error}</ErrorText>
     </section>
   );
 }

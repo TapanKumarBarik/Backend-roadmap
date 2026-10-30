@@ -1,15 +1,12 @@
-import { useEffect, useState } from 'react';
 import { fetchMessages } from '../../lib/api.js';
+import { useLoader } from '../../hooks/useLoader.js';
+import LoadError from '../common/LoadError.jsx';
+import { LOAD_WHAT } from '../../config/messages.js';
 
 export default function MessagesInbox() {
-  const [messages, setMessages] = useState(null);
-  const [error, setError] = useState(null);
+  const { data: messages, error, reload } = useLoader(fetchMessages);
 
-  useEffect(() => {
-    fetchMessages().then(setMessages).catch((e) => setError(e.message));
-  }, []);
-
-  if (error) return <p style={{ color: 'var(--danger)' }}>{error}</p>;
+  if (error) return <LoadError error={error} what={LOAD_WHAT.messages} onRetry={reload} />;
   if (!messages) return <p style={{ color: 'var(--fg-subtle)' }}>Loading…</p>;
   if (!messages.length) return <p style={{ color: 'var(--fg-subtle)' }}>No messages yet.</p>;
 

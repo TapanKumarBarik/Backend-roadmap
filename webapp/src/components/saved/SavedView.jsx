@@ -1,19 +1,16 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { fetchAllNotes } from '../../lib/api.js';
 import { StarIcon } from '../common/icons.jsx';
+import { useLoader } from '../../hooks/useLoader.js';
+import LoadError from '../common/LoadError.jsx';
+import { LOAD_WHAT } from '../../config/messages.js';
 
 // Bookmarks and notes were two separate destinations holding the same
 // kind of thing — a module you set aside. One destination, two tabs.
 export default function SavedView({ bookmarks, nodeByFile, onOpenFile, onToggleBookmark, user, onLogin, initialTab }) {
   const [tab, setTab] = useState(initialTab === 'notes' ? 'notes' : 'bookmarks');
-  const [notes, setNotes] = useState(null);
-  const [error, setError] = useState(null);
   const [query, setQuery] = useState('');
-
-  useEffect(() => {
-    if (!user || tab !== 'notes' || notes) return;
-    fetchAllNotes().then(setNotes).catch((e) => setError(e.message));
-  }, [user, tab, notes]);
+  const { data: notes, error, reload } = useLoader(fetchAllNotes, [], { enabled: !!user && tab === 'notes' });
 
   const bookmarkPaths = [...bookmarks];
 
@@ -80,7 +77,7 @@ export default function SavedView({ bookmarks, nodeByFile, onOpenFile, onToggleB
 
       {tab === 'notes' && (
         <>
-          {error && <p style={{ color: 'var(--danger)' }}>{error}</p>}
+          {error && <LoadError error={error} what={LOAD_WHAT.notes} onRetry={reload} onSignIn={onLogin} />}
           {!notes && !error && <p style={{ color: 'var(--fg-subtle)' }}>Loading…</p>}
           {notes && notes.length === 0 && (
             <p>No notes yet — every module has a private notes tab in the right-hand rail.</p>

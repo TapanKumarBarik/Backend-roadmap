@@ -1,5 +1,8 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { fetchPageViews } from '../../lib/api.js';
+import { useLoader } from '../../hooks/useLoader.js';
+import LoadError from '../common/LoadError.jsx';
+import { LOAD_WHAT } from '../../config/messages.js';
 import { DailyViewsChart, BarList, SplitMeter } from './charts.jsx';
 
 // Page paths are long and front-loaded with the same few prefixes, so the tail
@@ -21,20 +24,15 @@ function relative(ts) {
 }
 
 export default function VisitorStats({ onOpenFile }) {
-  const [data, setData] = useState(null);
-  const [error, setError] = useState(null);
+  const { data, error, reload } = useLoader(fetchPageViews);
   const [tab, setTab] = useState('pages');
-
-  useEffect(() => {
-    fetchPageViews().then(setData).catch((e) => setError(e.message));
-  }, []);
 
   const busiest = useMemo(() => {
     if (!data || !data.daily || !data.daily.length) return null;
     return data.daily.reduce((m, d) => (d.views > m.views ? d : m), data.daily[0]);
   }, [data]);
 
-  if (error) return <p style={{ color: 'var(--danger)' }}>{error}</p>;
+  if (error) return <LoadError error={error} what={LOAD_WHAT.stats} onRetry={reload} />;
   if (!data) return <p style={{ color: 'var(--fg-subtle)' }}>Loading…</p>;
 
   const signedIn = data.signedInViews ?? 0;

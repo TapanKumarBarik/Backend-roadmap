@@ -80,7 +80,10 @@ function collectDirPaths(nodes) {
 }
 
 export default function App() {
-  const { treeData, tags, nodeByFile, flatFiles, fileSet, dirIndex, searchItems } = useDocsIndex();
+  const {
+    treeData, tags, nodeByFile, flatFiles, fileSet, dirIndex, searchItems,
+    loading: indexLoading, error: indexError, reload: reloadIndex
+  } = useDocsIndex();
   const { path, heading, navigate, goHome } = useHashRoute();
   const { theme, cycleTheme } = useTheme();
   const { user, login, logout } = useAuth();
@@ -511,6 +514,9 @@ export default function App() {
               showLanding={showLanding}
               siteStats={siteStats}
               onDismissLanding={dismissLanding}
+              indexLoading={indexLoading}
+              indexError={indexError}
+              onReloadIndex={reloadIndex}
             />
           )}
         {!isSpecialRoute && rightRailCollapsed && railVisible && currentFile && (
