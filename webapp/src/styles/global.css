@@ -256,9 +256,11 @@ kbd {
   background: var(--signal-bg); border-color: var(--signal-line); color: var(--signal);
 }
 #sidebarNav .icon-btn.on:hover { background: var(--signal-bg); color: var(--signal); }
-#filterRow { display: flex; gap: 4px; }
+/* Four filters share one row; with a path picked there is a fifth ("My path"), and the row wraps rather than
+   cutting the labels short. */
+#filterRow { display: flex; flex-wrap: wrap; gap: 4px; }
 .chip {
-  flex: 1; font-size: 12px; padding: 5px 4px; border-radius: var(--r-sm);
+  flex: 1 0 auto; font-size: 12px; padding: 5px 4px; border-radius: var(--r-sm);
   border: 1px solid var(--border); background: var(--bg); color: var(--fg-muted);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis; transition: .12s;
 }
@@ -969,7 +971,7 @@ body.sidebar-collapsed #resizer { display: none; }
 
 /* Collapse control, on the panel it collapses. */
 #treeCollapse {
-  width: 26px; height: 26px; flex-shrink: 0; align-self: center;
+  width: 26px; height: 26px; flex-shrink: 0; align-self: center; margin-left: auto;
   color: var(--fg-subtle); border-radius: var(--r-sm);
 }
 #treeCollapse svg { width: 12px; height: 12px; transform: rotate(180deg); }

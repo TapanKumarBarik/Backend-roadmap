@@ -30,16 +30,16 @@ function level(n) {
 // signed-out-and-never-marked user gets no empty chrome, and the several
 // hundred pre-existing rows that predate updatedAt simply don't appear rather
 // than showing up as a false burst of activity "today".
-export default function ProgressStats({ statusMap, timeMap, totalModules }) {
+export default function ProgressStats({ statusMap, timeMap, totalModules, scopeFiles }) {
   const stats = useMemo(() => {
     const week = weeklyCounts(statusMap, timeMap);
     if (!week.total) return null;
     return {
       week,
-      pace: paceEstimate(statusMap, timeMap, totalModules),
+      pace: paceEstimate(statusMap, timeMap, totalModules, Date.now(), scopeFiles),
       strip: activityByDay(statusMap, timeMap, DAYS)
     };
-  }, [statusMap, timeMap, totalModules]);
+  }, [statusMap, timeMap, totalModules, scopeFiles]);
 
   if (!stats) return null;
   const { week, pace, strip } = stats;

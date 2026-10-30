@@ -6,14 +6,16 @@ import { rewriteLinks } from '../../lib/markdown/rewriteLinks.js';
 import { routeUrl } from '../../lib/curriculum/moduleUrl.js';
 import { isPlaceholder, editUrl, reportUrl, claimUrl, WRITE_GUIDE_URL } from '../../lib/curriculum/contribute.js';
 import { readTimeStats, slugify } from '../../lib/markdown/markdown.js';
-import { buildPositions, siblingStats, neighbourModules } from '../../lib/curriculum/curriculumPosition.js';
+import { buildPositions, siblingStats } from '../../lib/curriculum/curriculumPosition.js';
 import { getPosition, savePosition, clearPosition, describeWhen } from '../../lib/curriculum/readingPosition.js';
 import { enhanceSelfCheck, handleSelfCheckClick } from '../../lib/markdown/selfCheck.js';
 import { STORAGE, CONTENT } from '../../config/index.js';
+import { PATH_COPY } from '../../config/paths.js';
 import { readStored, writeStored } from '../../lib/storage.js';
 import { ClockIcon, StarIcon, ArrowRightIcon } from '../common/icons.jsx';
 import LoadError from '../common/LoadError.jsx';
 import { LOAD_WHAT } from '../../config/messages.js';
+import PathStrip from './PathStrip.jsx';
 import CommentsSection from './CommentsSection.jsx';
 import NotesPanel from './NotesPanel.jsx';
 import ReactionsBar from './ReactionsBar.jsx';
@@ -37,7 +39,7 @@ function applyTabPreference(root) {
 }
 
 export default function ArticleView({
-  path, node, statusMap, flatFiles, nodeByFile, dirIndex, fileSet, allTags, treeData,
+  path, node, statusMap, neighbours, pathPlace, pathOffer, onPickPath, onFinishPath, nodeByFile, dirIndex, fileSet, allTags, treeData,
   onOpenFile, onSetStatus, onOpenPalette, headingTarget, onToast,
   onTocChange, onActiveHeadingChange, mainRef, user, onLogin,
   isBookmarked, onToggleBookmark, showNotesInArticle
@@ -188,7 +190,7 @@ export default function ArticleView({
 
   const crumbParts = path.split('/');
   const status = statusMap[path] || 'todo';
-  const { prev: prevFile, next: nextFile } = neighbourModules(flatFiles, nodeByFile, path);
+  const { prev: prevFile, next: nextFile } = neighbours(path);
   const nodeTags = (node && node.tags) || [];
   const placeholder = isPlaceholder(rawText);
   const readTime = rawText && !placeholder ? readTimeStats(rawText, CONTENT.wordsPerMinute) : null;
@@ -221,6 +223,7 @@ export default function ArticleView({
             );
           })}
         </div>
+        {!placeholder && <PathStrip place={pathPlace} offer={pathOffer} onPick={onPickPath} />}
         {/* Where this module sits in its track. The status control used to
             live here, at the top — but you decide you're finished at the
             bottom, so it moved to the end of the article. */}
@@ -347,11 +350,13 @@ export default function ArticleView({
             <div className="finish-h">
               {status === 'done' ? 'You’ve completed this module' : 'Reached the end?'}
             </div>
-            {nextFile && (
-              <div className="finish-sub">
-                Next: {nodeByFile[nextFile]?.title || nodeByFile[nextFile]?.name}
-              </div>
-            )}
+            {pathPlace?.completesPath
+              ? <div className="finish-sub">The last module of {pathPlace.title}</div>
+              : nextFile && (
+                <div className="finish-sub">
+                  Next: {nodeByFile[nextFile]?.title || nodeByFile[nextFile]?.name}
+                </div>
+              )}
           </div>
           <div className="finish-acts">
             {status !== 'done' && (
@@ -368,13 +373,17 @@ export default function ArticleView({
               onClick={() => {
                 if (status === 'done') { onSetStatus(path, 'todo'); return; }
                 onSetStatus(path, 'done');
+                // The last module of a path ends at the dashboard, where the path's send-off is.
+                if (pathPlace?.completesPath) { onToast(PATH_COPY.pathDone); onFinishPath(); return; }
                 onToast(nextFile ? 'Marked complete — on to the next' : 'Marked complete');
                 if (nextFile) onOpenFile(nextFile);
               }}
             >
               {status === 'done'
                 ? 'Mark not complete'
-                : <>Mark complete{nextFile && <> &amp; continue</>} <ArrowRightIcon /></>}
+                : pathPlace?.completesPath
+                  ? <>{PATH_COPY.finishPath} <ArrowRightIcon /></>
+                  : <>Mark complete{nextFile && <> &amp; continue</>} <ArrowRightIcon /></>}
             </button>
           </div>
         </div>

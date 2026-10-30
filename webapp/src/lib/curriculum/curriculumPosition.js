@@ -69,7 +69,7 @@ export function siblingStats(parentNode, statusMap) {
 // which earns its place in the tree, where order is the point, but reads as
 // noise inside a sentence like "1 / 14 in 01 - Request/Response Fundamentals".
 export function stripOrdinal(title) {
-  return (title || '').replace(/^\d+\s*[-–—.)]\s*/, '');
+  return (title || '').replace(/^(?:track\s+)?\d+\s*[-–—.):]\s*/i, '');
 }
 
 // Only the pages you'd actually sit down and study. Every container node

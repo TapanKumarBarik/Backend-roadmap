@@ -25,6 +25,7 @@
   },
   "storage": {
     "lastFile": "docs.lastFile",
+    "activePath": "docs.activePath",
     "seenLanding": "docs.seenLanding",
     "theme": "docs.theme",
     "sidebarCollapsed": "docs.sidebarCollapsed",

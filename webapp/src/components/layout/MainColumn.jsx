@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import ArticleView from '../article/ArticleView.jsx';
 import EmptyState from '../home/EmptyState.jsx';
 import Landing from '../home/Landing.jsx';
@@ -11,10 +11,17 @@ export default function MainColumn({
   onTocChange, onActiveHeadingChange,
   counts, treeCount, treeData, user, onLogin, isBookmarked, onToggleBookmark, bookmarks,
   showNotesInArticle, showLanding, siteStats, onDismissLanding,
-  indexLoading, indexError, onReloadIndex
+  indexLoading, indexError, onReloadIndex,
+  paths, activePath, onPickPath, choosingPath, onChoosingPath, neighbours, pathPlace, pathOffer, onFinishPath
 }) {
   const mainRef = useRef(null);
   const [readProgress, setReadProgress] = useState(0);
+
+  // The dashboard is a different page from a module but shares its scroll container, so arriving from the foot of
+  // a module (finishing a path does) used to leave it scrolled to the foot too, with its heading out of sight.
+  useEffect(() => {
+    if (!currentFile && mainRef.current) mainRef.current.scrollTop = 0;
+  }, [currentFile, choosingPath]);
 
   function handleScroll(e) {
     const el = e.currentTarget;
@@ -32,7 +39,11 @@ export default function MainColumn({
               path={currentFile}
               node={node}
               statusMap={statusMap}
-              flatFiles={flatFiles}
+              neighbours={neighbours}
+              pathPlace={pathPlace}
+              pathOffer={pathOffer}
+              onPickPath={onPickPath}
+              onFinishPath={onFinishPath}
               nodeByFile={nodeByFile}
               dirIndex={dirIndex}
               fileSet={fileSet}
@@ -86,6 +97,12 @@ export default function MainColumn({
                     bookmarks={bookmarks}
                     onOpenFile={onOpenFile}
                     onOpenPalette={onOpenPalette}
+                    paths={paths}
+                    activePath={activePath}
+                    onPickPath={onPickPath}
+                    choosing={choosingPath}
+                    onChoosing={onChoosingPath}
+                    onToast={onToast}
                   />
                 )}
       </div>

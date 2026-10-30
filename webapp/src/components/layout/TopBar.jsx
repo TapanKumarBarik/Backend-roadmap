@@ -14,7 +14,7 @@ import { CONTACT } from '../../config/messages.js';
 const THEME_ICON = { auto: AutoIcon, light: SunIcon, dark: MoonIcon };
 
 export default function TopBar({
-  counts, theme, onCycleTheme, user, onLogin, onLogout,
+  counts, pathProgress, theme, onCycleTheme, user, onLogin, onLogout,
   menuOpen, onToggleMenu, onCloseMenu, onOpenPalette, onGoHome,
   onExport, onImportFile, onReset, onExpandAll, onCollapseAll, onMobileToggle,
   onDeleteAccount, onOpenMessage, onToast, streak,
@@ -22,7 +22,12 @@ export default function TopBar({
 }) {
   const importInputRef = useRef(null);
   const ThemeIcon = THEME_ICON[theme] || AutoIcon;
-  const pct = counts.total ? Math.round((counts.done / counts.total) * 100) : 0;
+  // With a path picked the bar measures that path (it has a finish line); otherwise the whole library.
+  const scope = pathProgress || counts;
+  const pct = scope.total ? Math.round((scope.done / scope.total) * 100) : 0;
+  const statSummary = pathProgress
+    ? `${scope.done} of ${scope.total} modules done on your path, ${pathProgress.title}`
+    : `${scope.done} of ${scope.total} modules complete`;
 
   function handleMenuAction(act) {
     onCloseMenu();
@@ -87,15 +92,15 @@ export default function TopBar({
       <button
         id="globalStat"
         onClick={onGoHome}
-        title={`${counts.done} of ${counts.total} modules complete — open your curriculum`}
-        aria-label={`Progress: ${pct} percent, ${counts.done} of ${counts.total} modules complete. Open your curriculum.`}
+        title={`${statSummary} — open your curriculum`}
+        aria-label={`Progress: ${pct} percent, ${statSummary}. Open your curriculum.`}
       >
         <span className="bar">
-          <i className="d" style={{ width: counts.total ? (counts.done / counts.total) * 100 + '%' : '0%' }} />
-          <i className="w" style={{ width: counts.total ? (counts.wip / counts.total) * 100 + '%' : '0%' }} />
+          <i className="d" style={{ width: scope.total ? (scope.done / scope.total) * 100 + '%' : '0%' }} />
+          <i className="w" style={{ width: scope.total ? (scope.wip / scope.total) * 100 + '%' : '0%' }} />
         </span>
         <strong>{pct}%</strong>
-        <span className="lbl">done</span>
+        <span className="lbl">{pathProgress ? 'of path' : 'done'}</span>
         {streak && streak.currentStreak > 1 && (
           <span className="streak" title={`${streak.currentStreak}-day streak · longest ${streak.longestStreak}`}>
             · 🔥 {streak.currentStreak}

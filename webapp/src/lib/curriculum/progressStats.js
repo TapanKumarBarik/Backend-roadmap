@@ -89,7 +89,9 @@ export function weeklyCounts(statusMap, timeMap, now = Date.now()) {
 // ago shouldn't promise a finish date the current pace can't keep. Returns
 // null rather than a wild guess when there isn't enough recent activity, or
 // when there's nothing left to finish.
-export function paceEstimate(statusMap, timeMap, totalModules, now = Date.now()) {
+// With `scopeFiles` (a learning path's modules) "remaining" is what is left of those, while the pace is still
+// the reader's pace overall: a path's finish date is how long its remaining modules take at the speed they work.
+export function paceEstimate(statusMap, timeMap, totalModules, now = Date.now(), scopeFiles = null) {
   const windowStart = now - 28 * DAY;
   let recent = 0, done = 0;
   for (const [path, iso] of Object.entries(timeMap)) {
@@ -102,7 +104,9 @@ export function paceEstimate(statusMap, timeMap, totalModules, now = Date.now())
   // Count of done modules can exceed timeMap's coverage (rows predating
   // updatedAt), so take the larger of the two for "remaining".
   const doneTotal = Object.values(statusMap).filter((s) => s === 'done').length;
-  const remaining = Math.max(0, totalModules - Math.max(done, doneTotal));
+  const remaining = scopeFiles
+    ? scopeFiles.filter((f) => statusMap[f] !== 'done').length
+    : Math.max(0, totalModules - Math.max(done, doneTotal));
   if (remaining === 0) return { remaining: 0, perWeek: 0, finishDate: null, done: doneTotal };
   if (recent < 3) return { remaining, perWeek: recent / 4, finishDate: null, done: doneTotal };
 

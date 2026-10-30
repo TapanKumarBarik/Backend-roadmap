@@ -1,0 +1,102 @@
+/* Learning paths (components/home/Path*.jsx, components/article/PathStrip.jsx): the picker, a path's home, its
+   steps, the finish, and the strip on a module page. Built from the app's tokens, so every theme follows.
+
+   Every selector starts with #root. These appear inside #empty and #article, whose own rules (`#empty h2`,
+   `#empty p`, `#content ...`) are ID selectors and would otherwise beat any class here. Names start with `lpath-`
+   (learning path): `.path-*` already means a curriculum row on the same page, and `.lp-*` is the landing page's. */
+
+/* ---------- picker ---------- */
+#root .lpath-picker-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 0 8px; }
+#root .lpath-picker-head h2 { margin: 0; font-size: 26px; letter-spacing: -.022em; }
+#root .lpath-lead { margin: 0 0 22px; max-width: 62ch; font-size: 14.5px; line-height: 1.6; color: var(--fg-muted); }
+#root .lpath-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(270px, 1fr)); gap: 12px; }
+#root .lpath-card {
+  display: flex; flex-direction: column; padding: 16px 18px 14px;
+  border: 1px solid var(--border-subtle); border-radius: var(--r-lg); background: var(--bg-raised);
+  transition: border-color .12s;
+}
+#root .lpath-card:hover { border-color: var(--fg-subtle); }
+#root .lpath-card.current { border-color: var(--accent); }
+#root .lpath-topic { margin-bottom: 6px; font-size: 10.5px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; color: var(--signal); }
+#root .lpath-title { margin: 0 0 6px; font-size: 17px; font-weight: 650; line-height: 1.3; letter-spacing: -.01em; color: var(--fg); }
+#root .lpath-goal { margin: 0 0 8px; font-size: 13.5px; line-height: 1.55; color: var(--fg); }
+#root .lpath-for { margin: 0 0 10px; font-size: 12.5px; line-height: 1.5; color: var(--fg-muted); }
+#root .lpath-route { margin: 0 0 14px; font-size: 12px; line-height: 1.5; color: var(--fg-subtle); }
+#root .lpath-foot { margin-top: auto; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px 10px; }
+#root .lpath-meta { font-size: 12px; color: var(--fg-muted); font-variant-numeric: tabular-nums; }
+#root .lpath-start { padding: 7px 13px; font-size: 13px; font-weight: 600; color: var(--fg); }
+#root .lpath-card:hover .lpath-start:not(:disabled) { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); }
+#root .lpath-start:disabled { opacity: .6; cursor: default; }
+
+/* ---------- a picked path: its head, steps and finish ---------- */
+#root .lpath-head { margin: 0 0 6px; }
+#root .lpath-head-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 6px; }
+#root .lpath-eyebrow { font-size: 11px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; color: var(--fg-subtle); }
+#root .lpath-head h2 { margin: 0 0 8px; font-size: 26px; letter-spacing: -.022em; }
+#root .lpath-head .lpath-goal { margin: 0 0 18px; max-width: 62ch; font-size: 14.5px; line-height: 1.6; color: var(--fg-muted); }
+#root .lpath-prog { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 12px; }
+#root .lpath-prog .bar { flex: 1 1 160px; min-width: 120px; height: 6px; }
+#root .lpath-prog-n { font-size: 13px; color: var(--fg); font-variant-numeric: tabular-nums; }
+#root .lpath-prog-left { font-size: 13px; color: var(--fg-muted); }
+
+#root .lpath-steps ol { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 0; list-style: none; }
+#root .lpath-step {
+  display: flex; align-items: center; gap: 12px; width: 100%; padding: 10px 14px;
+  border: 1px solid var(--border-subtle); border-radius: var(--r-md); background: var(--bg-raised);
+  color: var(--fg); font: inherit; text-align: left; cursor: pointer;
+}
+#root .lpath-step:hover { border-color: var(--fg-subtle); }
+#root .lpath-step-n {
+  flex: none; display: grid; place-items: center; width: 22px; height: 22px; border: 1px solid var(--border); border-radius: 50%;
+  font-size: 11.5px; font-weight: 650; color: var(--fg-muted); font-variant-numeric: tabular-nums;
+}
+#root .lpath-step.done .lpath-step-n { background: var(--done); border-color: var(--done); color: var(--bg); }
+#root .lpath-step-name { flex: 1; min-width: 0; overflow: hidden; font-size: 14px; font-weight: 560; text-overflow: ellipsis; white-space: nowrap; }
+#root .lpath-step .bar { flex: none; width: 92px; }
+#root .lpath-step-count { flex: none; min-width: 40px; text-align: right; font-size: 11.5px; color: var(--fg-subtle); font-variant-numeric: tabular-nums; }
+
+#root .lpath-done {
+  display: flex; align-items: flex-start; gap: 16px; margin-bottom: 8px; padding: 20px 22px;
+  border: 1px solid var(--border); border-radius: var(--r-lg); background: var(--bg-raised); box-shadow: var(--shadow-md);
+}
+#root .lpath-done-mark { flex: none; display: grid; place-items: center; width: 34px; height: 34px; border-radius: 50%; background: var(--done); color: var(--bg); }
+#root .lpath-done-mark svg { width: 16px; height: 16px; }
+#root .lpath-done-body { min-width: 0; }
+#root .lpath-done h2 { margin: 0 0 6px; font-size: 22px; letter-spacing: -.02em; }
+#root .lpath-done p { margin: 0 0 16px; max-width: 58ch; font-size: 14px; line-height: 1.6; color: var(--fg-muted); }
+#root .lpath-done-acts { display: flex; flex-wrap: wrap; gap: 8px; }
+#root .lpath-done-acts a { text-decoration: none; }
+
+/* The whole library, behind a heading: a picked path is the way in, and the rest is still one click away. */
+#root .lpath-library > summary { display: flex; align-items: center; gap: 8px; cursor: pointer; list-style: none; }
+#root .lpath-library > summary::-webkit-details-marker { display: none; }
+#root .lpath-library > summary::before {
+  content: ""; width: 6px; height: 6px; border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor;
+  transform: rotate(-45deg); transition: transform .15s;
+}
+#root .lpath-library[open] > summary::before { transform: rotate(45deg); }
+#root .lpath-library .lpath-lead { margin-bottom: 14px; }
+
+/* ---------- on a module page, and in the tree ---------- */
+#root .lpath-strip {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 6px 12px; margin: 0 0 14px; padding: 9px 12px;
+  border: 1px solid var(--border-subtle); border-radius: var(--r-md); background: var(--bg-raised);
+  font-size: 12.5px; color: var(--fg-muted);
+}
+#root .lpath-strip strong { font-weight: 620; color: var(--fg); }
+#root .lpath-strip .bar { flex: none; width: 72px; }
+#root .lpath-strip-k { font-size: 10.5px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; color: var(--signal); }
+#root .lpath-strip-pos { font-variant-numeric: tabular-nums; }
+#root .lpath-strip .btn-ghost { margin-left: auto; padding: 5px 11px; font-size: 12.5px; }
+
+#root .lpath-hint {
+  margin: 0 8px 8px; padding: 8px 10px; border: 1px dashed var(--border); border-radius: var(--r-md);
+  font-size: 12px; line-height: 1.45; color: var(--fg-muted);
+}
+#root .lpath-hint button { padding: 0; border: 0; background: none; color: var(--fg); font: inherit; text-decoration: underline; cursor: pointer; }
+
+@media (max-width: 700px) {
+  #root .lpath-done { flex-direction: column; gap: 12px; }
+  #root .lpath-step .bar { display: none; }
+  #root .lpath-picker-head h2, #root .lpath-head h2 { font-size: 23px; }
+}

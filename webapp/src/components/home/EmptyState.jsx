@@ -1,10 +1,17 @@
 import { useState } from 'react';
 import { ArrowRightIcon, StarIcon } from '../common/icons.jsx';
+import ProgressBar from '../common/ProgressBar.jsx';
 import ProgressStats from './ProgressStats.jsx';
+import PathPicker from './PathPicker.jsx';
+import PathHeader from './PathHeader.jsx';
+import PathSteps from './PathSteps.jsx';
+import PathComplete from './PathComplete.jsx';
 import { subtreeStats, plannedCount } from '../../lib/curriculum/progressStats.js';
 import { buildPositions, shortTitle, pickContinue, nextUp, siblingStats, stripOrdinal, studyableFiles } from '../../lib/curriculum/curriculumPosition.js';
+import { pathProgress, stepProgress } from '../../lib/curriculum/learningPaths.js';
 import { routeUrl } from '../../lib/curriculum/moduleUrl.js';
 import { STORAGE } from '../../config/index.js';
+import { PATH_COPY } from '../../config/paths.js';
 import { readStored } from '../../lib/storage.js';
 import SiteFooter from '../common/SiteFooter.jsx';
 
@@ -15,30 +22,39 @@ const hasKeyboard = () => typeof window === 'undefined'
   || !window.matchMedia
   || !window.matchMedia('(pointer: coarse)').matches;
 
-function Bar({ done, wip, total }) {
-  return (
-    <span className="bar">
-      <i className="d" style={{ width: total ? (done / total) * 100 + '%' : 0 }} />
-      <i className="w" style={{ width: total ? (wip / total) * 100 + '%' : 0 }} />
-    </span>
-  );
-}
-
+// The dashboard has one job: say what to do next. Which "next" depends on where the reader is:
+//   new         nothing picked, nothing started: choose a path
+//   library     progress but no path: carry on, or give it a finish line
+//   path        a path is picked: its progress, what is next, its steps
+//   finished    the path is done: a send-off and a next path
+//   choose      the reader pressed "Switch path"
 export default function EmptyState({
   counts, treeCount, treeData, statusMap, timeMap, nodeByFile, dirIndex, flatFiles,
-  bookmarks, onOpenFile
+  bookmarks, onOpenFile, paths, activePath, onPickPath, choosing, onChoosing, onToast
 }) {
   const [openPath, setOpenPath] = useState(null);
 
   const lastFile = readStored(STORAGE.lastFile);
   const positions = buildPositions(treeData);
   const studyable = studyableFiles(flatFiles, nodeByFile);
-  const continueFile = pickContinue(studyable, statusMap, lastFile);
+  const started = counts.done > 0 || counts.wip > 0;
+
+  const progress = activePath ? pathProgress(activePath.files, statusMap, nodeByFile) : null;
+  const finished = !!progress && progress.finished && !choosing;
+  const mode = choosing ? 'choose'
+    : activePath ? (finished ? 'finished' : 'path')
+      : started ? 'library' : 'new';
+
+  // "Continue" and "Next up" draw from the reader's path when they have one, otherwise from the whole library.
+  const pool = activePath ? activePath.files : studyable;
+  const showContinue = mode === 'path' || mode === 'library';
+  const continueFile = showContinue ? pickContinue(pool, statusMap, lastFile) : null;
   const continueNode = continueFile && nodeByFile[continueFile];
   const continuePos = continueFile && positions[continueFile];
-  const queue = nextUp(studyable, statusMap, continueFile, 3);
-  const started = counts.done > 0 || counts.wip > 0;
+  const queue = showContinue ? nextUp(pool, statusMap, continueFile, 3) : [];
   const trackStats = siblingStats(continuePos?.parentNode, statusMap);
+  const pathStarted = progress ? progress.done + progress.wip > 0 : started;
+  const nextPath = activePath && paths.find((p) => p.id === activePath.next);
 
   const savedPaths = bookmarks ? [...bookmarks].slice(0, 5) : [];
 
@@ -66,36 +82,41 @@ export default function EmptyState({
     };
   });
 
+  const pickPath = (id) => { onPickPath(id); onChoosing(false); };
+
   return (
     <div id="empty">
-      <h2>Your curriculum</h2>
-      <p className="home-sub">
-        {counts.total} modules across {treeCount} curricula — <strong>{counts.done}</strong> done,{' '}
-        <strong>{counts.wip}</strong> in progress, <strong>{counts.todo}</strong> to go.{' '}
-        {hasKeyboard()
-          ? <>Press <kbd>Ctrl K</kbd> to jump to any module.</>
-          : 'Tap search to jump to any module.'}
-      </p>
+      {mode === 'path' && <PathHeader path={activePath} progress={progress} onSwitch={() => onChoosing(true)} />}
+      {mode === 'finished' && (
+        <PathComplete path={activePath} nextPath={nextPath} onPick={pickPath} onChoose={() => onChoosing(true)} onToast={onToast} />
+      )}
+      {mode === 'library' && <h2>Your curriculum</h2>}
 
       {continueNode && (
         <>
-          <div className="home-h">{started ? 'Continue learning' : 'Start here'}</div>
+          <div className="home-h">
+            {activePath ? (pathStarted ? 'Continue your path' : 'Start your path') : (started ? 'Continue learning' : 'Start here')}
+          </div>
           <a
             className="continue-card"
             href={routeUrl(continueFile)}
             onClick={(e) => { e.preventDefault(); onOpenFile(continueFile); }}
           >
             <div className="continue-main">
-              {continuePos?.curriculumTitle && (
-                <div className="continue-eyebrow">
-                  {continuePos.curriculumTitle}
-                  {continuePos.total > 1 && ` · ${continuePos.unit} ${continuePos.index} of ${continuePos.total}`}
-                </div>
-              )}
+              <div className="continue-eyebrow">
+                {activePath
+                  ? `${activePath.title} · module ${activePath.files.indexOf(continueFile) + 1} of ${activePath.files.length}`
+                  : continuePos?.curriculumTitle && (
+                    <>
+                      {continuePos.curriculumTitle}
+                      {continuePos.total > 1 && ` · ${continuePos.unit} ${continuePos.index} of ${continuePos.total}`}
+                    </>
+                  )}
+              </div>
               <div className="continue-title">{continueNode.title || continueNode.name}</div>
               {trackStats && (
                 <div className="continue-prog">
-                  <Bar {...trackStats} />
+                  <ProgressBar {...trackStats} />
                   <span className="continue-prog-n">
                     {trackStats.done} / {trackStats.total} in {stripOrdinal(continuePos.parentTitle)}
                   </span>
@@ -103,7 +124,7 @@ export default function EmptyState({
               )}
             </div>
             <span className="continue-go">
-              {started ? 'Continue' : 'Start'} <ArrowRightIcon />
+              {pathStarted ? 'Continue' : 'Start'} <ArrowRightIcon />
             </span>
           </a>
         </>
@@ -128,63 +149,89 @@ export default function EmptyState({
         </>
       )}
 
-      <ProgressStats statusMap={statusMap} timeMap={timeMap || {}} totalModules={counts.total} />
+      {paths.length > 0 && (mode === 'new' || mode === 'library' || mode === 'choose') && (
+        <PathPicker
+          paths={paths}
+          activeId={activePath?.id}
+          title={mode === 'choose' ? PATH_COPY.switchTitle : mode === 'library' ? PATH_COPY.pickerStartedTitle : PATH_COPY.pickerTitle}
+          lead={mode === 'choose' ? PATH_COPY.switchLead : mode === 'library' ? PATH_COPY.pickerStartedLead : PATH_COPY.pickerLead}
+          onPick={pickPath}
+          onKeep={mode === 'choose' ? () => onChoosing(false) : undefined}
+        />
+      )}
 
-      <div className="home-h">Your paths</div>
-      <div className="path-list">
-        {curricula.map(({ root, title, stats, soon, tracks, target, notBuilt }) => {
-          const pct = stats.total ? Math.round((stats.done / stats.total) * 100) : 0;
-          const expanded = openPath === root.path;
-          return (
-            <div key={root.path} className="path">
-              <div className="path-row">
-                <button
-                  className="path-name"
-                  onClick={() => (target ? onOpenFile(target) : null)}
-                  disabled={!target}
-                >
-                  {title}
-                  {soon > 0 && <span className="path-soon">{soon} more coming soon</span>}
-                </button>
-                {notBuilt
-                  ? <span className="path-empty">Not built out yet</span>
-                  : (
-                    <>
-                      <Bar {...stats} />
-                      <span className="path-pc">{pct}%</span>
-                      <span className="path-n">{stats.done}/{stats.total}</span>
-                    </>
-                  )}
-                {tracks.length > 0
-                  ? (
-                    <button
-                      className={'path-toggle' + (expanded ? ' open' : '')}
-                      aria-expanded={expanded}
-                      aria-label={`${expanded ? 'Hide' : 'Show'} ${tracks.length} tracks in ${title}`}
-                      onClick={() => setOpenPath(expanded ? null : root.path)}
-                    >
-                      {tracks.length} tracks
-                    </button>
-                  )
-                  // Nothing to expand (modules sit directly under the curriculum): keep the toggle's place
-                  // so this row's bar lines up with the others.
-                  : <span className="path-toggle-slot" aria-hidden="true" />}
-              </div>
-              {expanded && (
-                <div className="track-list">
-                  {tracks.map(({ node, stats: s, target: t }) => (
-                    <button key={node.path} className="track-row" onClick={() => t && onOpenFile(t)}>
-                      <span className="track-nm">{node.title || node.name}</span>
-                      <Bar {...s} />
-                      <span className="track-n">{s.done}/{s.total}</span>
-                    </button>
-                  ))}
+      {activePath && (mode === 'path' || mode === 'finished') && (
+        <PathSteps steps={stepProgress(activePath, statusMap)} onOpen={onOpenFile} />
+      )}
+
+      {(started || activePath) && (
+        <ProgressStats statusMap={statusMap} timeMap={timeMap || {}} totalModules={counts.total} scopeFiles={activePath ? activePath.files : null} />
+      )}
+
+      <details className="lpath-library" open={!activePath}>
+        <summary className="home-h">{PATH_COPY.libraryTitle}</summary>
+        <p className="lpath-lead">
+          {counts.total} modules across {treeCount} curricula — <strong>{counts.done}</strong> done,{' '}
+          <strong>{counts.wip}</strong> in progress, <strong>{counts.todo}</strong> to go.{' '}
+          {hasKeyboard()
+            ? <>Press <kbd>Ctrl K</kbd> to jump to any module.</>
+            : 'Tap search to jump to any module.'}
+        </p>
+        <div className="path-list">
+          {curricula.map(({ root, title, stats, soon, tracks, target, notBuilt }) => {
+            const pct = stats.total ? Math.round((stats.done / stats.total) * 100) : 0;
+            const expanded = openPath === root.path;
+            return (
+              <div key={root.path} className="path">
+                <div className="path-row">
+                  <button
+                    className="path-name"
+                    onClick={() => (target ? onOpenFile(target) : null)}
+                    disabled={!target}
+                  >
+                    {title}
+                    {soon > 0 && <span className="path-soon">{soon} more coming soon</span>}
+                  </button>
+                  {notBuilt
+                    ? <span className="path-empty">Not built out yet</span>
+                    : (
+                      <>
+                        <ProgressBar {...stats} />
+                        <span className="path-pc">{pct}%</span>
+                        <span className="path-n">{stats.done}/{stats.total}</span>
+                      </>
+                    )}
+                  {tracks.length > 0
+                    ? (
+                      <button
+                        className={'path-toggle' + (expanded ? ' open' : '')}
+                        aria-expanded={expanded}
+                        aria-label={`${expanded ? 'Hide' : 'Show'} ${tracks.length} tracks in ${title}`}
+                        onClick={() => setOpenPath(expanded ? null : root.path)}
+                      >
+                        {tracks.length} tracks
+                      </button>
+                    )
+                    // Nothing to expand (modules sit directly under the curriculum): keep the toggle's place
+                    // so this row's bar lines up with the others.
+                    : <span className="path-toggle-slot" aria-hidden="true" />}
                 </div>
-              )}
-            </div>
-          );
-        })}
-      </div>
+                {expanded && (
+                  <div className="track-list">
+                    {tracks.map(({ node, stats: s, target: t }) => (
+                      <button key={node.path} className="track-row" onClick={() => t && onOpenFile(t)}>
+                        <span className="track-nm">{node.title || node.name}</span>
+                        <ProgressBar {...s} />
+                        <span className="track-n">{s.done}/{s.total}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </details>
 
       {savedPaths.length > 0 && (
         <>

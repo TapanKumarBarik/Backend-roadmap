@@ -5,6 +5,7 @@ import { useTheme } from './hooks/useTheme.js';
 import { useAuth } from './hooks/useAuth.js';
 import { useProgressStore } from './hooks/useProgressStore.js';
 import { useOpenDirs } from './hooks/useOpenDirs.js';
+import { useActivePath } from './hooks/useActivePath.js';
 import { useSidebarResize } from './hooks/useSidebarResize.js';
 import { useSidebarCollapse } from './hooks/useSidebarCollapse.js';
 import { useRightRailCollapse } from './hooks/useRightRailCollapse.js';
@@ -15,6 +16,7 @@ import { useBookmarks } from './hooks/useBookmarks.js';
 import { useStreak } from './hooks/useStreak.js';
 import { useSiteStats } from './hooks/useSiteStats.js';
 import { STORAGE } from './config/index.js';
+import { LEARNING_PATHS, PATH_COPY } from './config/paths.js';
 import { readStored, writeStored } from './lib/storage.js';
 import { useLanding } from './hooks/useLanding.js';
 import { useCommentActivity } from './hooks/useCommentActivity.js';
@@ -24,6 +26,7 @@ import { globalCounts } from './lib/curriculum/progressStats.js';
 import { dirsOnPath } from './lib/curriculum/treePath.js';
 import { trackPageView, deleteAccount } from './lib/api.js';
 import { pickContinue, neighbourModules } from './lib/curriculum/curriculumPosition.js';
+import { resolvePaths, pathProgress, pathNeighbours, placeOnPath } from './lib/curriculum/learningPaths.js';
 
 import TopBar from './components/layout/TopBar.jsx';
 import Sidebar from './components/layout/Sidebar.jsx';
@@ -84,6 +87,9 @@ export default function App() {
     treeData, tags, nodeByFile, flatFiles, learnFiles, fileSet, dirIndex, searchItems,
     loading: indexLoading, error: indexError, reload: reloadIndex
   } = useDocsIndex();
+  // The reader's picked learning path (paths.json), if any. See lib/curriculum/learningPaths.js.
+  const paths = useMemo(() => resolvePaths(LEARNING_PATHS, dirIndex, nodeByFile, treeData), [dirIndex, nodeByFile, treeData]);
+  const { active: activePath, pick: pickPathId } = useActivePath(paths);
   const { path, heading, navigate, goHome } = useHashRoute();
   const { theme, cycleTheme } = useTheme();
   const { user, login, logout } = useAuth();
@@ -104,7 +110,11 @@ export default function App() {
   const { collapsed: sidebarCollapsed, toggle: toggleSidebarCollapsed } = useSidebarCollapse();
   const { collapsed: rightRailCollapsed, toggle: toggleRightRailCollapsed } = useRightRailCollapse();
 
-  const [filter, setFilter] = useState('all');
+  // A picked path is the default view of the tree ("All" is the library); a choice the reader makes wins, until
+  // the path it refers to is gone.
+  const [filterChoice, setFilterChoice] = useState(null);
+  const filter = filterChoice && !(filterChoice === 'path' && !activePath) ? filterChoice : (activePath ? 'path' : 'all');
+  const [choosingPath, setChoosingPath] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [paletteQuery, setPaletteQuery] = useState('');
   const [menuOpen, setMenuOpen] = useState(false);
@@ -151,6 +161,7 @@ export default function App() {
 
   const openFile = useCallback((filePath, headingId) => {
     navigate(filePath, headingId || null);
+    setChoosingPath(false);
     if (window.innerWidth <= 860) setNavOpen(false);
   }, [navigate]);
 
@@ -161,8 +172,8 @@ export default function App() {
   const closePalette = useCallback(() => setPaletteOpen(false), []);
 
   const visibility = useMemo(
-    () => computeTreeVisibility(treeData, statusMap, filter),
-    [treeData, statusMap, filter]
+    () => computeTreeVisibility(treeData, statusMap, filter, activePath?.fileSet),
+    [treeData, statusMap, filter, activePath]
   );
 
   // The tree opens by itself only around where you are (and, under a status filter, around the matches);
@@ -195,12 +206,36 @@ export default function App() {
     setStatus(file, order[(order.indexOf(cur) + 1) % order.length]);
   }, [statusMap, setStatus]);
 
+  // Previous / next module: along the path while you are on it, otherwise along the library.
+  const neighbours = useCallback((file) => (
+    activePath && activePath.fileSet.has(file)
+      ? pathNeighbours(activePath.files, file)
+      : neighbourModules(flatFiles, nodeByFile, file)
+  ), [activePath, flatFiles, nodeByFile]);
+
   const navigateRelative = useCallback((dir) => {
     if (!currentFile) return;
-    const { prev, next } = neighbourModules(flatFiles, nodeByFile, currentFile);
+    const { prev, next } = neighbours(currentFile);
     const target = dir < 0 ? prev : next;
     if (target) openFile(target);
-  }, [currentFile, flatFiles, nodeByFile, openFile]);
+  }, [currentFile, neighbours, openFile]);
+
+  const pathStats = useMemo(
+    () => (activePath ? pathProgress(activePath.files, statusMap, nodeByFile) : null),
+    [activePath, statusMap, nodeByFile]
+  );
+  const pathPlace = useMemo(() => placeOnPath(activePath, statusMap, currentFile), [activePath, statusMap, currentFile]);
+  // A reader with no path, on a module that belongs to one, is offered it right there.
+  const pathOffer = !activePath && currentFile ? paths.find((p) => p.fileSet.has(currentFile)) || null : null;
+
+  const pickPath = useCallback((id) => {
+    pickPathId(id);
+    setChoosingPath(false);
+    setFilterChoice(null);
+    const picked = paths.find((p) => p.id === id);
+    if (picked) toast.show(PATH_COPY.pathSet(picked.title));
+  }, [pickPathId, paths, toast]);
+  const finishPath = useCallback(() => { setChoosingPath(false); goHome(); }, [goHome]);
 
   const toggleDone = useCallback(() => {
     if (!currentFile) return;
@@ -273,6 +308,7 @@ export default function App() {
 
   const handleGoHome = useCallback(() => {
     goHome();
+    setChoosingPath(false);
     setNavOpen(false);
   }, [goHome]);
 
@@ -309,9 +345,10 @@ export default function App() {
   // only way to find them without knowing the palette exists, and export and
   // reset work signed-out, where there is no account menu to move them into.
   const paletteActions = useMemo(() => {
-    const continueFile = pickContinue(learnFiles, statusMap, readStored(STORAGE.lastFile));
+    const continueFile = pickContinue(activePath ? activePath.files : learnFiles, statusMap, readStored(STORAGE.lastFile));
     const list = [
       { label: 'Continue learning', keywords: 'resume next module', hint: 'where you left off', run: () => (continueFile ? openFile(continueFile) : goHome()) },
+      { label: activePath ? 'Switch learning path' : 'Pick a learning path', keywords: 'path route goal roadmap track plan', run: () => { setChoosingPath(true); goHome(); } },
       { label: 'Explore by tag', keywords: 'tags browse subject', run: () => navigate(EXPLORE_ROUTE) },
       { label: 'Feed', keywords: 'posts feed share', run: () => navigate(FEED_ROUTE) },
       { label: 'Community', keywords: 'discussion questions', run: () => navigate(COMMUNITY_ROUTE) },
@@ -339,7 +376,7 @@ export default function App() {
       { label: 'Reset all progress', keywords: 'clear delete wipe', run: handleReset }
     );
     return list;
-  }, [learnFiles, statusMap, currentFile, user, openFile, goHome, navigate,
+  }, [learnFiles, activePath, statusMap, currentFile, user, openFile, goHome, navigate,
     setStatus, handleCycleTheme, expandAll, allDirPaths, collapseAll, handleExport, handleReset]);
 
   const lastViewedFile = readStored(STORAGE.lastFile) || '';
@@ -349,6 +386,7 @@ export default function App() {
       <a href="#main" className="skip-link">Skip to content</a>
       <TopBar
         counts={counts}
+        pathProgress={pathStats && { ...pathStats, title: activePath.title }}
         theme={theme}
         onCycleTheme={handleCycleTheme}
         user={user}
@@ -418,8 +456,10 @@ export default function App() {
               openDirs={openDirs}
               onToggleDir={toggleDir}
               filter={filter}
-              onSetFilter={setFilter}
+              onSetFilter={setFilterChoice}
               counts={counts}
+              pathCount={activePath ? activePath.files.length : null}
+              offPath={filter === 'path' && !!currentFile && !!activePath && !activePath.fileSet.has(currentFile)}
               visibleFiles={visibility.visibleFiles}
               currentFile={currentFile}
               onOpenFile={openFile}
@@ -494,6 +534,15 @@ export default function App() {
               statusMap={statusMap}
               timeMap={timeMap}
               flatFiles={flatFiles}
+              neighbours={neighbours}
+              paths={paths}
+              activePath={activePath}
+              onPickPath={pickPath}
+              choosingPath={choosingPath}
+              onChoosingPath={setChoosingPath}
+              pathPlace={pathPlace}
+              pathOffer={pathOffer}
+              onFinishPath={finishPath}
               nodeByFile={nodeByFile}
               dirIndex={dirIndex}
               fileSet={fileSet}
