@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 292 48" width="292" height="48" role="img" aria-label="Backend Roadmap">
+  <title>Backend Roadmap</title>
+  <!-- The Backend Roadmap logo: the mark (a route from a start ring to an amber destination dot) and the name.
+       The mark is the same drawing as favicon.svg. Light and dark follow the viewer's colour scheme. -->
+  <style>
+    .tile { fill: #16181c } .ink { stroke: #ffffff } .dot { fill: #e9a053 } .word { fill: #16181c }
+    @media (prefers-color-scheme: dark) { .tile { fill: #e7eaee } .ink { stroke: #0e1116 } .dot { fill: #b25a08 } .word { fill: #e7eaee } }
+  </style>
+  <g transform="scale(2)">
+    <rect class="tile" width="24" height="24" rx="5.5"/>
+    <circle class="ink" cx="7" cy="17.6" r="1.9" fill="none" stroke-width="1.7"/>
+    <path class="ink" d="M7 15.7V13.8Q7 11.3 9.5 11.3H14.5Q17 11.3 17 8.8V8.4" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+    <circle class="dot" cx="17" cy="6.3" r="2.5"/>
+  </g>
+  <text class="word" x="62" y="32" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif" font-size="25" font-weight="700" letter-spacing="-0.4">Backend Roadmap</text>
+</svg>

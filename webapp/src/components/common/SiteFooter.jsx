@@ -1,4 +1,5 @@
 import { SITE, DEVELOPER, DEVELOPER_EMAIL_LINK, REPO_URL } from '../../config/index.js';
+import BrandMark from './BrandMark.jsx';
 import { BUILD_TIME } from '../../lib/buildInfo.js';
 
 // Shared by the landing page and the dashboard. BUILD_TIME is the moment of the last deploy, which is when
@@ -10,6 +11,11 @@ export default function SiteFooter() {
   const updated = BUILD_TIME ? new Date(BUILD_TIME) : null;
   return (
     <footer className="site-footer">
+      <p className="sf-row sf-brand">
+        <BrandMark size={22} />
+        <strong>{SITE.name}</strong>
+        <span>Free and open source</span>
+      </p>
       <p className="sf-row">
         <a href="/privacy.html">Privacy</a>
         <span aria-hidden="true">·</span>

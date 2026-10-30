@@ -6,9 +6,10 @@ import {
 } from '../common/icons.jsx';
 import SignInButton from '../account/SignInButton.jsx';
 import UserAvatar from '../account/UserAvatar.jsx';
+import BrandMark from '../common/BrandMark.jsx';
 import { BUILD_TIME } from '../../lib/buildInfo.js';
 import { CONTRIBUTE_URL } from '../../lib/curriculum/contribute.js';
-import { DEVELOPER } from '../../config/index.js';
+import { DEVELOPER, SITE } from '../../config/index.js';
 import { CONTACT } from '../../config/messages.js';
 
 const THEME_ICON = { auto: AutoIcon, light: SunIcon, dark: MoonIcon };
@@ -68,17 +69,9 @@ export default function TopBar({
           the far top-left, nowhere near the panel it controlled, and easy
           to confuse with the destination rail now that one exists. It moved
           onto the panel itself. */}
-      <button className="brand" onClick={onGoHome} type="button" aria-label="Backend Roadmap — home">
-        <span className="mark" aria-hidden="true">
-          {/* Same drawing as public/favicon.svg; the square is .mark's own background. */}
-          <svg viewBox="0 0 24 24" width="24" height="24">
-            <circle cx="7" cy="17.6" r="1.9" fill="none" stroke="currentColor" strokeWidth="1.7" />
-            <path d="M7 15.7V13.8Q7 11.3 9.5 11.3H14.5Q17 11.3 17 8.8V8.4" fill="none" stroke="currentColor"
-              strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-            <circle cx="17" cy="6.3" r="2.5" style={{ fill: 'var(--mark-dot)' }} />
-          </svg>
-        </span>
-        <span>Backend Roadmap</span>
+      <button className="brand" onClick={onGoHome} type="button" aria-label={`${SITE.name} — home`}>
+        <BrandMark />
+        <span>{SITE.name}</span>
       </button>
       <button id="searchTrigger" onClick={() => onOpenPalette()}>
         <SearchIcon style={{ width: 14, height: 14, flexShrink: 0 }} />
