@@ -2,7 +2,7 @@
 
 Planned features and recently-shipped ones — recorded here so an idea
 doesn't get lost between conversations, and so it's clear what's actually
-live versus still an intention. See [CONTRIBUTING.md](CONTRIBUTING.md) for
+live versus still an intention. See [CONTRIBUTING.md](../CONTRIBUTING.md) for
 how to contribute to what already exists.
 
 ## Shipped: a shared, user-uploaded resources library (Books)

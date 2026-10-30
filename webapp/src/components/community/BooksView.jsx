@@ -27,7 +27,7 @@ function filenameFromUrl(url) {
 // A public, browsable shelf anyone signed in can add a book to — just a
 // title plus a link or an uploaded PDF, nothing else to fill in. Distinct
 // from private per-user Notes, a module's own fixed "Further reading," and
-// a one-off Feed attachment (see ROADMAP.md). Reuses the Feed's own upload
+// a one-off Feed attachment (see docs/ROADMAP.md). Reuses the Feed's own upload
 // endpoint rather than duplicating it.
 export default function BooksView({ user, onLogin, onToast }) {
   const [books, setBooks] = useState(null);

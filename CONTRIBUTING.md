@@ -100,7 +100,7 @@ Making a written module better is as valuable as writing a new one. Typical impr
 
 The app and API are a live codebase with real user accounts, so changes here are reviewed a little more carefully.
 
-1. Read [LOCAL-SETUP.md](LOCAL-SETUP.md) and get it running. You can do **frontend and content work with no secrets**; see the README's [quick start](README.md#run-it-locally).
+1. Read [LOCAL-SETUP.md](docs/LOCAL-SETUP.md) and get it running. You can do **frontend and content work with no secrets**; see the README's [quick start](README.md#run-it-locally).
 2. Keep the change small and focused.
 3. Run the checks before you push:
    ```bash
@@ -136,8 +136,7 @@ Stuck on anything? [Open an issue](https://github.com/TapanKumarBarik/Backend-ro
 The search and navigation indexes are generated, not committed:
 
 ```bash
-python scripts/gen-docs-index.py   # writes dist/docs-index.json  (python3 on macOS / Linux)
-python scripts/gen-search-index.py # writes dist/search-index.json
+npm run index   # writes dist/docs-index.json, search-index.json and site-stats.json  (needs python; python3 on macOS / Linux)
 ```
 
 Run them once after cloning, and again after you add or rename a module. CI does this on every deploy regardless.

@@ -4,10 +4,11 @@
   "type": "module",
   "description": "Backend Roadmap — curriculum content, the React app (webapp/) and its API (api/, on Cloudflare Pages Functions)",
   "scripts": {
-    "build": "npm --prefix webapp run build && python scripts/gen-docs-index.py && python scripts/gen-search-index.py && node scripts/gen-site-stats.mjs && node scripts/copy-content.cjs && node scripts/prerender.mjs",
-    "check": "node scripts/check-admin-guards.js",
+    "build": "npm --prefix webapp run build && npm run index && node scripts/build/copy-content.cjs && node scripts/build/prerender.mjs",
+    "index": "python scripts/build/gen-docs-index.py && python scripts/build/gen-search-index.py && node scripts/build/gen-site-stats.mjs",
+    "check": "node scripts/check/check-admin-guards.js",
     "check:diagrams": "node scripts/check/mermaid.mjs",
-    "preview":"npm --prefix webapp exec -- vite preview --outDir ../dist --port 4180 --strictPort",
+    "preview": "npm --prefix webapp exec -- vite preview --outDir ../dist --port 4180 --strictPort",
     "shots": "node scripts/dev/screenshots.mjs",
     "shots:live": "node scripts/dev/screenshots.mjs --live"
   },

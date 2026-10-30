@@ -337,7 +337,7 @@ The app and API are a real, live codebase, so changes there are reviewed a littl
 
   > interactive labs and in-browser code exercises · a system-design playground · architecture visualisations · personalised learning paths · an AI study assistant · interview-prep mode · richer progress analytics · community-written modules · real-world project walkthroughs
 
-For anything bigger than a small fix, **open an issue first** so we can agree on the direction before you invest the time — larger changes are much easier to align on before the code is written than after. [CONTRIBUTING.md](CONTRIBUTING.md) has the full guide and checklist; [ROADMAP.md](ROADMAP.md) lists what's shipped and what's planned.
+For anything bigger than a small fix, **open an issue first** so we can agree on the direction before you invest the time — larger changes are much easier to align on before the code is written than after. [CONTRIBUTING.md](CONTRIBUTING.md) has the full guide and checklist; [ROADMAP.md](docs/ROADMAP.md) lists what's shipped and what's planned.
 
 ### Open to better ideas — including the architecture
 
@@ -392,8 +392,7 @@ git clone https://github.com/<you>/Backend-roadmap.git
 cd Backend-roadmap
 
 npm install --prefix webapp
-python scripts/gen-docs-index.py         # use python3 on macOS / Linux
-python scripts/gen-search-index.py       # use python3 on macOS / Linux
+npm run index                            # builds the module index; needs python (python3 on macOS / Linux)
 npm run dev --prefix webapp -- --port 4173
 ```
 
@@ -401,7 +400,7 @@ Open **<http://localhost:4173>**. Edit any `.md` file under `backend/`, `learn/`
 
 ### The whole site, including the API
 
-The account features (sign-in, comments, notes, progress sync) need the API plus a local database. Because Google sign-in only redirects to registered addresses, you'll create your own free Google OAuth client for local use. Everything is in **[LOCAL-SETUP.md](LOCAL-SETUP.md)**.
+The account features (sign-in, comments, notes, progress sync) need the API plus a local database. Because Google sign-in only redirects to registered addresses, you'll create your own free Google OAuth client for local use. Everything is in **[LOCAL-SETUP.md](docs/LOCAL-SETUP.md)**.
 
 ```bash
 npm install                  # repo root (the API's dependencies)
@@ -433,7 +432,9 @@ webapp/                       the React app
 api/                          the Hono API
   routes/  lib/  schema.sql     endpoints, shared helpers, the D1 schema
 functions/api/[[path]].js     the Cloudflare entry point that hands /api/* to api/
-scripts/                      build steps (index generators, prerender) and checks
+scripts/                      build/ (index, stats, prerender), check/, dev/ (screenshots), maintain/, lib/
+docs/                         local setup and the roadmap
+site.config.json              the one place for site name, developer, repo, storage keys and curricula
 dist/                         the built site (gitignored) — the only thing deployed
 ```
 

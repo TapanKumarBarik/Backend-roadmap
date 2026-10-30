@@ -11,10 +11,9 @@ import re
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from site_config import ROOT, TRACK_DIRS  # noqa: E402
 from tags import tags_for  # noqa: E402
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-TRACK_DIRS = ["backend", "learn", "genai", "lld"]
 SKIP_DIRS = {".git", "node_modules", "__pycache__"}
 
 TITLE_RE = re.compile(r"^#\s+(.+?)\s*$")

@@ -7,7 +7,7 @@ import BlockEditor from './BlockEditor.jsx';
 // A private, per-user Notion-style workspace: a nested tree of pages (left),
 // each holding a real block-editor document (right) — text, to-dos, tables,
 // images, with drag-and-drop reordering inside a page. Entirely personal;
-// nothing here is ever visible to anyone else. See ROADMAP.md.
+// nothing here is ever visible to anyone else. See docs/ROADMAP.md.
 export default function WorkspaceView({ user, onLogin }) {
   const { pages, error, createPage, renamePage, movePage, removePage } = useWorkspace(user);
   const [selectedId, setSelectedId] = useState(null);

@@ -36,7 +36,7 @@ jobs:
           npm ci --prefix webapp
 
       # A missing await on isAdmin() silently grants admin to everyone;
-      # see scripts/check-admin-guards.js.
+      # see scripts/check/check-admin-guards.js.
       - name: Check admin guards
         run: npm run check
 

@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 
 const repoRoot = join(fileURLToPath(new URL('.', import.meta.url)), '..');
 const distDir = join(repoRoot, 'dist');
+const siteConfig = JSON.parse(readFileSync(join(repoRoot, 'site.config.json'), 'utf8'));
 
 const MIME_TYPES = {
   '.json': 'application/json', '.md': 'text/markdown; charset=utf-8',
@@ -16,12 +17,12 @@ const MIME_TYPES = {
 // `vite dev` only serves webapp/, but the app also fetches the curriculum
 // markdown (the backend/genai/learn/lld trees at the repo root) and the two
 // generated indexes (dist/docs-index.json, dist/search-index.json — run
-// scripts/gen-docs-index.py and gen-search-index.py once). Without this, those
+// `npm run index` once, from the repo root). Without this, those
 // requests fall through to the SPA's index.html with a 200 and the app renders
 // "0 modules" with no visible error. Dev only: configureServer never runs
 // during `vite build` or `vite preview`.
 function serveRepoContent() {
-  const contentRoots = ['backend', 'genai', 'learn', 'lld'];
+  const contentRoots = siteConfig.content.curricula;
   const generated = ['docs-index.json', 'search-index.json', 'site-stats.json'];
   return {
     name: 'serve-repo-content',
@@ -45,8 +46,6 @@ function serveRepoContent() {
 // the content trees and a pre-rendered page per module are added to it.
 export default defineConfig({
   plugins: [react(), serveRepoContent()],
-  // site.config.json lives at the repo root, one level above this project; the dev server must be allowed to read it.
-  server: { fs: { allow: [repoRoot] } },
   // Baked in at build time (CI runs a fresh build on every deploy, so this is
   // effectively "when was this deployed") — read via src/lib/buildInfo.js,
   // never referenced as a bare identifier elsewhere.
@@ -58,8 +57,10 @@ export default defineConfig({
     emptyOutDir: true,
     assetsDir: 'assets'
   },
-  // /api goes to `wrangler pages dev` (see LOCAL-SETUP.md) in both modes.
+  // /api goes to `wrangler pages dev` (see docs/LOCAL-SETUP.md) in both modes.
   server: {
+    // site.config.json lives at the repo root, one level above this project; the dev server must be allowed to read it.
+    fs: { allow: [repoRoot] },
     proxy: {
       '/api': 'http://localhost:8788'
     }

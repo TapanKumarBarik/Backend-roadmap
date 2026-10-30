@@ -6,7 +6,7 @@
 // pre-render step uses to noindex it - so the count a visitor sees matches what they can actually read.
 import fs from 'node:fs';
 import path from 'node:path';
-import { ROOT, CURRICULA, isPlaceholderText } from './lib/config.mjs';
+import { ROOT, CURRICULA, isPlaceholderText } from '../lib/config.mjs';
 
 const dirs = (p) => (fs.existsSync(p) ? fs.readdirSync(p, { withFileTypes: true }) : [])
   .filter((d) => d.isDirectory() && /^\d\d-/.test(d.name)).map((d) => d.name).sort();

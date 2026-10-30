@@ -11,10 +11,10 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { renderMarkdownDoc } from '../webapp/src/lib/markdown/markdown.js';
-import { moduleUrl, routeUrl } from '../webapp/src/lib/curriculum/moduleUrl.js';
-import { resolvePath } from '../webapp/src/lib/markdown/rewriteLinks.js';
-import { ROOT, config, SITE_URL, isPlaceholderText } from './lib/config.mjs';
+import { renderMarkdownDoc } from '../../webapp/src/lib/markdown/markdown.js';
+import { moduleUrl, routeUrl } from '../../webapp/src/lib/curriculum/moduleUrl.js';
+import { resolvePath } from '../../webapp/src/lib/markdown/rewriteLinks.js';
+import { ROOT, config, SITE_URL, isPlaceholderText } from '../lib/config.mjs';
 
 const SITE = SITE_URL;
 const SITE_NAME = config.site.name;

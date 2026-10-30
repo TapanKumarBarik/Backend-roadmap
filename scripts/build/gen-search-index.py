@@ -12,8 +12,9 @@ import os
 import re
 import sys
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-TRACK_DIRS = ["backend", "learn", "genai", "lld"]
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from site_config import ROOT, TRACK_DIRS  # noqa: E402
+
 SKIP_DIRS = {".git", "node_modules", "__pycache__"}
 
 # Presence-only inverted index (word -> file indices), not term-frequency —

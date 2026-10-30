@@ -47,7 +47,7 @@ cp .dev.vars.example .dev.vars
 
 > [!WARNING]
 > Never deploy the repo root, and never copy `.dev.vars` anywhere under
-> `dist/`. Deploys upload only `dist/`, and `scripts/copy-content.cjs` fails
+> `dist/`. Deploys upload only `dist/`, and `scripts/build/copy-content.cjs` fails
 > the build if anything secret-shaped is in it — `wrangler pages deploy` does
 > **not** honor `.assetsignore`, and deploying the root once published this file.
 
@@ -70,7 +70,7 @@ npm run dev -- --port 4173        # hot reload, for working on the UI
 
 Then open **<http://localhost:4173>**, or **<http://localhost:4173/#__admin>**
 for the admin dashboard. Vite proxies `/api` to `http://localhost:8788`
-([`webapp/vite.config.js`](webapp/vite.config.js)).
+([`webapp/vite.config.js`](../webapp/vite.config.js)).
 
 ## Why the port matters
 
@@ -82,7 +82,7 @@ include `http://localhost:4173`.
 On any other port you'll get `redirect_uri_mismatch` from Google, or a
 `400 Sign-in link expired or invalid` from the callback — the `oauth_state`
 cookie is host-and-port scoped. See
-[`api/routes/auth.js`](api/routes/auth.js).
+[`api/routes/auth.js`](../api/routes/auth.js).
 
 ## Signing in
 
@@ -98,7 +98,7 @@ npm run dev --prefix webapp -- --port 4173
 ```
 
 The dev server serves the curriculum from the repo and the indexes from
-`dist/`, so run `npm run build` (or just the two `scripts/gen-*.py`) once
+`dist/`, so run `npm run build` (or just `npm run index`) once
 first. Progress tracking still works — it's IndexedDB-backed and only syncs once
 you're signed in. Everything account-shaped fails its fetch and renders its
 error state.

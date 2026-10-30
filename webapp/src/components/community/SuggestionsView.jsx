@@ -8,7 +8,7 @@ function initialsOf(name) {
 
 // A public, upvotable suggestions board — distinct from the private
 // admin-only feedback inbox (Messages). Anyone can see and vote on what
-// others have asked for. See ROADMAP.md.
+// others have asked for. See docs/ROADMAP.md.
 export default function SuggestionsView({ user, onLogin, onToast }) {
   const [suggestions, setSuggestions] = useState(null);
   const [error, setError] = useState(null);

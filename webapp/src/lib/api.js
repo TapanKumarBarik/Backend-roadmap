@@ -371,7 +371,7 @@ export async function fetchMessages() {
 
 // A public, browsable shelf anyone signed in can add a book/PDF/link to —
 // distinct from private per-user Notes and a one-off Feed attachment (see
-// ROADMAP.md). File uploads reuse uploadFeedFile below rather than a
+// docs/ROADMAP.md). File uploads reuse uploadFeedFile below rather than a
 // separate endpoint.
 export async function fetchBooks() {
   const res = await fetch('/api/books');

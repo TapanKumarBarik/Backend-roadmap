@@ -7,10 +7,10 @@
 // placeholders, which lack "Further reading & sources"), so their lists and
 // counts are never stale.
 //
-//   node scripts/seed-github.mjs                       dry run: print the plan, create nothing
-//   node scripts/seed-github.mjs --preview <dir>       dry run + write every issue body to <dir>/*.md to read
-//   GITHUB_TOKEN=... node scripts/seed-github.mjs --apply             create labels + issues
-//   GITHUB_TOKEN=... node scripts/seed-github.mjs --apply --settings  ...and set description, topics, Discussions
+//   node scripts/maintain/seed-github.mjs                       dry run: print the plan, create nothing
+//   node scripts/maintain/seed-github.mjs --preview <dir>       dry run + write every issue body to <dir>/*.md to read
+//   GITHUB_TOKEN=... node scripts/maintain/seed-github.mjs --apply             create labels + issues
+//   GITHUB_TOKEN=... node scripts/maintain/seed-github.mjs --apply --settings  ...and set description, topics, Discussions
 //
 // The token needs, on this repo: Issues (write) — and Administration (write)
 // for --settings. A fine-grained token limited to this one repo is enough.
@@ -19,7 +19,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { ROOT, config, REPO_SLUG, SITE_URL, isPlaceholderText } from './lib/config.mjs';
+import { ROOT, config, REPO_SLUG, SITE_URL, isPlaceholderText } from '../lib/config.mjs';
 
 const REPO = process.env.GITHUB_REPOSITORY || REPO_SLUG;
 const BLOB = `https://github.com/${REPO}/blob/${config.repo.branch}`;
@@ -236,8 +236,8 @@ Goal: a faster first load on slow connections, with no change in behaviour.`
   {
     title: 'Suggestion status tracking (planned / in progress / done)',
     labels: ['enhancement', 'app', 'api', 'help wanted'],
-    refs: ['api/routes/community.js', 'api/schema.sql', 'webapp/src/components/community/SuggestionsView.jsx', 'ROADMAP.md'],
-    body: `The public suggestions board is a plain upvote-sorted list. [ROADMAP.md](${BLOB}/ROADMAP.md) lists status tracking as not built yet.
+    refs: ['api/routes/community.js', 'api/schema.sql', 'webapp/src/components/community/SuggestionsView.jsx', 'docs/ROADMAP.md'],
+    body: `The public suggestions board is a plain upvote-sorted list. [ROADMAP.md](${BLOB}/docs/ROADMAP.md) lists status tracking as not built yet.
 
 **Scope**
 - Add a \`status\` column to \`suggestions\` in [\`api/schema.sql\`](${BLOB}/api/schema.sql) (and a migration for the existing database)
@@ -272,7 +272,7 @@ A good first task: document one route file (e.g. \`feed.js\`) as a PR, and agree
   {
     title: 'Validate modules in CI (required sections, links, code-fence languages)',
     labels: ['tooling', 'content', 'help wanted'],
-    refs: ['scripts/check-admin-guards.js', '.github/workflows/pr-check.yml', 'CONTRIBUTING.md'],
+    refs: ['scripts/check/check-admin-guards.js', '.github/workflows/pr-check.yml', 'CONTRIBUTING.md'],
     body: `Every module should follow the [module recipe](https://github.com/${REPO}#what-a-great-module-looks-like). Today nothing checks that, so quality depends on reviewer attention.
 
 **Scope:** a script (e.g. \`scripts/check-content.js\`) that reports, for changed or all modules: a missing H1, a missing *Further reading & sources* or *Next* section, a *Next* link that doesn't resolve, broken relative links, code fences without a language tag, and placeholder text left in a finished module.
@@ -293,11 +293,11 @@ Bonus: add the link check as a scheduled GitHub Action that opens an issue when 
   {
     title: 'Show a “last updated” date on each module (from git history)',
     labels: ['enhancement', 'app', 'help wanted'],
-    refs: ['scripts/prerender.mjs', 'webapp/src/components/article/ArticleView.jsx'],
+    refs: ['scripts/build/prerender.mjs', 'webapp/src/components/article/ArticleView.jsx'],
     body: `The module page used to show a "Published" date from the site's build time, which was misleading — every module claimed the same date. It was removed (see the comment in \`ArticleView.jsx\`) because a real per-file date needs git history.
 
 **Scope:** at build time, get each file's last-modified date (\`git log -1 --format=%cI -- <file>\`), then use it for:
-- \`<lastmod>\` in the sitemap (\`scripts/prerender.mjs\`)
+- \`<lastmod>\` in the sitemap (\`scripts/build/prerender.mjs\`)
 - a "Last updated" line on the module page
 
 Note CI checks out the repo — make sure the checkout has history (\`fetch-depth: 0\`) or the dates will all be the same.`
@@ -305,24 +305,24 @@ Note CI checks out the repo — make sure the checkout has history (\`fetch-dept
   {
     title: 'Generate an RSS/Atom feed of new and updated modules',
     labels: ['enhancement', 'app', 'help wanted'],
-    refs: ['scripts/prerender.mjs'],
-    body: `Let people subscribe to new modules. At build time, \`scripts/prerender.mjs\` already walks every module and writes the sitemap; extend it (or add a sibling script) to emit \`dist/feed.xml\` (Atom or RSS 2.0) listing the most recent modules, and add a \`<link rel="alternate" type="application/atom+xml">\` to the page head.
+    refs: ['scripts/build/prerender.mjs'],
+    body: `Let people subscribe to new modules. At build time, \`scripts/build/prerender.mjs\` already walks every module and writes the sitemap; extend it (or add a sibling script) to emit \`dist/feed.xml\` (Atom or RSS 2.0) listing the most recent modules, and add a \`<link rel="alternate" type="application/atom+xml">\` to the page head.
 
 This pairs well with the "last updated" date issue, since a feed needs dates — coordinate with whoever picks that up.`
   },
   {
     title: 'RFC: a content-first framework (Astro or similar) instead of an SPA + pre-render script?',
     labels: ['rfc', 'help wanted'],
-    refs: ['scripts/prerender.mjs', 'webapp/vite.config.js'],
-    body: `Today the site is one React single-page app, and a build script (\`scripts/prerender.mjs\`) pre-renders every module to its own HTML page for search engines. A content-first framework such as **Astro** could make each module a first-class page, with the interactive parts (progress, comments, notes, workspace) as islands.
+    refs: ['scripts/build/prerender.mjs', 'webapp/vite.config.js'],
+    body: `Today the site is one React single-page app, and a build script (\`scripts/build/prerender.mjs\`) pre-renders every module to its own HTML page for search engines. A content-first framework such as **Astro** could make each module a first-class page, with the interactive parts (progress, comments, notes, workspace) as islands.
 
 This is an open question, not a plan. If you have experience with it, please weigh in using the [RFC template](https://github.com/${REPO}/issues/new?template=rfc.yml): the problem it solves here, the trade-offs, and a migration path that keeps **module URLs and learners' saved progress** working. A small prototype branch is worth a lot.`
   },
   {
     title: 'RFC: a better search story (Pagefind or similar)?',
     labels: ['rfc', 'performance', 'help wanted'],
-    refs: ['webapp/src/lib/search/contentSearch.js', 'scripts/gen-search-index.py'],
-    body: `Full-text search works by downloading a ~1.6 MB inverted index (\`search-index.json\`, built by \`scripts/gen-search-index.py\`) on the first query and matching in the browser (\`webapp/src/lib/search/contentSearch.js\`).
+    refs: ['webapp/src/lib/search/contentSearch.js', 'scripts/build/gen-search-index.py'],
+    body: `Full-text search works by downloading a ~1.6 MB inverted index (\`search-index.json\`, built by \`scripts/build/gen-search-index.py\`) on the first query and matching in the browser (\`webapp/src/lib/search/contentSearch.js\`).
 
 Is there a better approach — e.g. [Pagefind](https://pagefind.app), which loads small index chunks on demand? Please share an RFC (see the [template](https://github.com/${REPO}/issues/new?template=rfc.yml)) with measurements: download size, time to first result, relevance on real queries, and how it fits the build.`
   },
