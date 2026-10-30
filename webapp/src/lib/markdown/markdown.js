@@ -19,9 +19,11 @@ export function stripFencedCode(md) {
   return md.replace(/```[\s\S]*?```/g, ' ');
 }
 
-export function readTimeStats(md) {
+// The reading speed is passed in (site.config.json content.wordsPerMinute) rather than imported: the build's
+// pre-render step loads this file in plain Node, which cannot import the config JSON the way Vite does.
+export function readTimeStats(md, wordsPerMinute) {
   const words = stripFencedCode(md).split(/\s+/).filter(Boolean).length;
-  const minutes = Math.max(1, Math.round(words / 210));
+  const minutes = Math.max(1, Math.round(words / wordsPerMinute));
   return { words, minutes };
 }
 

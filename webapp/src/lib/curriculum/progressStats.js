@@ -1,7 +1,17 @@
+import { isModule } from './nodeKind.js';
+
+// A track is as done as the modules inside it: there is no separate "I read the overview" to tick.
+export function derivedStatus({ done, wip, total }) {
+  if (total > 0 && done === total) return 'done';
+  return done + wip > 0 ? 'wip' : 'todo';
+}
+
+// Progress over the modules under a node. Track and curriculum READMEs are signposts, and planned modules do not
+// exist yet, so neither is counted (see isModule).
 export function subtreeStats(node, statusMap) {
   let done = 0, wip = 0, total = 0;
   (function walk(n) {
-    if (n.file) {
+    if (isModule(n)) {
       total++;
       const s = statusMap[n.file] || 'todo';
       if (s === 'done') done++;
@@ -10,6 +20,16 @@ export function subtreeStats(node, statusMap) {
     (n.children || []).forEach(walk);
   })(node);
   return { done, wip, total };
+}
+
+// How many modules under a node are still waiting for an author.
+export function plannedCount(node) {
+  let planned = 0;
+  (function walk(n) {
+    if (n.planned) planned++;
+    (n.children || []).forEach(walk);
+  })(node);
+  return planned;
 }
 
 const DAY = 86400000;

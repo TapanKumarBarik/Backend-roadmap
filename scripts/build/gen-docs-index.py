@@ -11,7 +11,7 @@ import re
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from site_config import ROOT, TRACK_DIRS  # noqa: E402
+from site_config import ROOT, TRACK_DIRS, IGNORED_FILES, reading_facts  # noqa: E402
 from tags import tags_for  # noqa: E402
 
 SKIP_DIRS = {".git", "node_modules", "__pycache__"}
@@ -36,6 +36,16 @@ def humanize(name):
     return name.replace("-", " ").replace("_", " ").strip().title()
 
 
+def add_lesson_facts(node, md_path):
+    """A lesson (a leaf) is either still planned, or has a reading time. A track or curriculum README is a
+    signpost, not a lesson, so it carries neither: the app counts progress over lessons only."""
+    planned, minutes = reading_facts(md_path)
+    if planned:
+        node["planned"] = True
+    else:
+        node["min"] = minutes
+
+
 def build_node(dir_path):
     name = os.path.basename(dir_path)
     rel_dir = os.path.relpath(dir_path, ROOT).replace(os.sep, "/")
@@ -56,8 +66,9 @@ def build_node(dir_path):
             child = build_node(full)
             if child is not None:
                 children.append(child)
-        elif entry.endswith(".md") and entry != "README.md":
+        elif entry.endswith(".md") and entry != "README.md" and entry not in IGNORED_FILES:
             rel = os.path.relpath(full, ROOT).replace(os.sep, "/")
+            # A loose page beside the modules: listed, but not a lesson, so no reading time and no progress.
             children.append({
                 "name": entry,
                 "path": rel_dir,
@@ -70,7 +81,7 @@ def build_node(dir_path):
     if file_rel is None and not children:
         return None
 
-    return {
+    node = {
         "name": name,
         "path": rel_dir,
         "file": file_rel,
@@ -78,6 +89,9 @@ def build_node(dir_path):
         "tags": own_tags,
         "children": children,
     }
+    if file_rel and not children:
+        add_lesson_facts(node, own_readme)
+    return node
 
 
 def main():

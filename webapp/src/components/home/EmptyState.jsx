@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { ArrowRightIcon, StarIcon } from '../common/icons.jsx';
 import ProgressStats from './ProgressStats.jsx';
-import { subtreeStats } from '../../lib/curriculum/progressStats.js';
+import { subtreeStats, plannedCount } from '../../lib/curriculum/progressStats.js';
 import { buildPositions, shortTitle, pickContinue, nextUp, siblingStats, stripOrdinal, studyableFiles } from '../../lib/curriculum/curriculumPosition.js';
 import { routeUrl } from '../../lib/curriculum/moduleUrl.js';
 import { STORAGE } from '../../config/index.js';
@@ -56,6 +56,7 @@ export default function EmptyState({
       root,
       title: shortTitle(root),
       stats,
+      soon: plannedCount(root),
       tracks,
       // A curriculum with no children is a placeholder — its only file is
       // its own README. Reporting that as "0/1" implies a one-module course
@@ -131,7 +132,7 @@ export default function EmptyState({
 
       <div className="home-h">Your paths</div>
       <div className="path-list">
-        {curricula.map(({ root, title, stats, tracks, target, notBuilt }) => {
+        {curricula.map(({ root, title, stats, soon, tracks, target, notBuilt }) => {
           const pct = stats.total ? Math.round((stats.done / stats.total) * 100) : 0;
           const expanded = openPath === root.path;
           return (
@@ -143,6 +144,7 @@ export default function EmptyState({
                   disabled={!target}
                 >
                   {title}
+                  {soon > 0 && <span className="path-soon">{soon} more coming soon</span>}
                 </button>
                 {notBuilt
                   ? <span className="path-empty">Not built out yet</span>

@@ -13,7 +13,7 @@ import re
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from site_config import ROOT, TRACK_DIRS  # noqa: E402
+from site_config import ROOT, TRACK_DIRS, IGNORED_FILES  # noqa: E402
 
 SKIP_DIRS = {".git", "node_modules", "__pycache__"}
 
@@ -48,7 +48,7 @@ def collect_files(dir_path, out_files):
         if os.path.isdir(full):
             if entry not in SKIP_DIRS:
                 collect_files(full, out_files)
-        elif entry.endswith(".md"):
+        elif entry.endswith(".md") and entry not in IGNORED_FILES:
             rel = os.path.relpath(full, ROOT).replace(os.sep, "/")
             out_files.append((rel, full))
 

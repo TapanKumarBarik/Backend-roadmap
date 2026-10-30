@@ -6,10 +6,10 @@ import { rewriteLinks } from '../../lib/markdown/rewriteLinks.js';
 import { routeUrl } from '../../lib/curriculum/moduleUrl.js';
 import { isPlaceholder, editUrl, reportUrl, claimUrl, WRITE_GUIDE_URL } from '../../lib/curriculum/contribute.js';
 import { readTimeStats, slugify } from '../../lib/markdown/markdown.js';
-import { buildPositions, siblingStats } from '../../lib/curriculum/curriculumPosition.js';
+import { buildPositions, siblingStats, neighbourModules } from '../../lib/curriculum/curriculumPosition.js';
 import { getPosition, savePosition, clearPosition, describeWhen } from '../../lib/curriculum/readingPosition.js';
 import { enhanceSelfCheck, handleSelfCheckClick } from '../../lib/markdown/selfCheck.js';
-import { STORAGE } from '../../config/index.js';
+import { STORAGE, CONTENT } from '../../config/index.js';
 import { readStored, writeStored } from '../../lib/storage.js';
 import { ClockIcon, StarIcon, ArrowRightIcon } from '../common/icons.jsx';
 import LoadError from '../common/LoadError.jsx';
@@ -58,7 +58,9 @@ export default function ArticleView({
   // per rendered doc — mirrors the vanilla openFile()'s post-render steps.
   useEffect(() => {
     const root = contentRef.current;
-    if (!root || html == null) return;
+    if (html == null) return;
+    // No body to read (a planned module shows only its "write this" panel): the previous page's outline must go.
+    if (!root) { onTocChange([]); return; }
 
     enhanceContent(root);
     rewriteLinks(root, path, fileSet, dirIndex);
@@ -186,12 +188,10 @@ export default function ArticleView({
 
   const crumbParts = path.split('/');
   const status = statusMap[path] || 'todo';
-  const idx = flatFiles.indexOf(path);
-  const prevFile = idx > 0 ? flatFiles[idx - 1] : null;
-  const nextFile = idx >= 0 && idx < flatFiles.length - 1 ? flatFiles[idx + 1] : null;
+  const { prev: prevFile, next: nextFile } = neighbourModules(flatFiles, nodeByFile, path);
   const nodeTags = (node && node.tags) || [];
-  const readTime = rawText ? readTimeStats(rawText) : null;
   const placeholder = isPlaceholder(rawText);
+  const readTime = rawText && !placeholder ? readTimeStats(rawText, CONTENT.wordsPerMinute) : null;
 
   // Walks the whole tree, so keep it off the per-render path — it only
   // changes when docs-index.json does.
@@ -241,7 +241,8 @@ export default function ArticleView({
             )}
           </div>
         )}
-        <div id="metaRow">
+        {/* Nothing to time, finish or save on a module that does not exist yet. */}
+        {!placeholder && <div id="metaRow">
           {status !== 'todo' && (
             <span className={'status-pill ' + status}>
               {status === 'done' ? 'Completed' : 'In progress'}
@@ -261,7 +262,7 @@ export default function ArticleView({
           >
             <StarIcon />
           </button>
-        </div>
+        </div>}
         {/* Some modules carry a dozen tags, which made the header shout
             louder than the title underneath it. Show a handful; the rest
             are one click away in search, which is where tag browsing
@@ -307,6 +308,8 @@ export default function ArticleView({
         </div>
       )}
 
+      {/* The title normally comes from the module's own text, which a planned module does not have. */}
+      {placeholder && <h1 className="planned-title">{node?.title || node?.name}</h1>}
       {placeholder && (
         <aside className="help-write" aria-label="This module is open for an author">
           <div className="help-write-h">This module hasn&apos;t been written yet</div>
@@ -324,14 +327,16 @@ export default function ArticleView({
 
       {loading && <div id="content"><p style={{ color: 'var(--fg-subtle)' }}>Loading…</p></div>}
       {error && <LoadError error={error} what={LOAD_WHAT.module} onRetry={reloadDoc} devHint={false} />}
-      {!loading && !error && html != null && (
+      {/* A planned module's file is a stub of build notes for the author, so only the panel above is shown. */}
+      {!loading && !error && html != null && !placeholder && (
         <div id="content" ref={contentRef} onClick={handleContentClick} dangerouslySetInnerHTML={{ __html: html }} />
       )}
 
       {/* Everything below belongs to the content, so it appears only once the content has loaded. When the
           module failed to load, "Mark complete" would let someone finish a module they never saw, and the
-          discussion would add a second error to the first. The pager further down stays, so you can move on. */}
-      {!loading && !error && html != null && (
+          discussion would add a second error to the first. A module nobody has written yet has nothing to
+          finish or discuss either. The pager further down stays, so you can move on. */}
+      {!loading && !error && html != null && !placeholder && (
         <>
         {/* The end of the module is where you decide you're done with it, so
             that's where recording it belongs — one action that marks this

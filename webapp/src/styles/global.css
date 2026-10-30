@@ -300,6 +300,18 @@ li.open > .row > .caret { transform: rotate(90deg); }
 .check[data-s="wip"]::after { content:""; width: 7px; height: 1.8px; background: var(--bg); }
 .check[data-s="done"] { background: var(--done); border-color: var(--done); }
 .check[data-s="done"] svg { opacity: 1; }
+/* A track's tick follows its modules, so it is not something to click. */
+.check.derived { pointer-events: none; }
+/* Rows with nothing to tick keep the column, so names line up. */
+.check.ph { visibility: hidden; }
+
+/* A module nobody has written yet: shown in its place in the track, but quiet. */
+li.node.planned > .row .name { color: var(--fg-subtle); }
+li.node.planned > .row.sel .name { color: var(--fg-muted); }
+.soon-tag {
+  flex-shrink: 0; font-size: 10px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase;
+  color: var(--fg-subtle); border: 1px solid var(--border-subtle); border-radius: 999px; padding: 1px 7px;
+}
 
 .row .name {
   flex: 1; min-width: 0; font-size: 13.5px; line-height: 1.35;
@@ -630,6 +642,8 @@ h1:hover .anchor, h2:hover .anchor, h3:hover .anchor, h4:hover .anchor { opacity
 /* ---------- contribute links ----------
    Where reading turns into improving: the banner on a module nobody has
    written yet, and the quiet "edit this page" line under every other one. */
+/* Same voice as a module's own h1 (#content h1), for the planned module that has no text to take it from. */
+.planned-title { font-size: 30px; margin: 0 0 18px; font-weight: 720; line-height: 1.3; letter-spacing: -.015em; }
 .help-write {
   margin: 4px 0 22px; padding: 16px 18px;
   border: 1px dashed var(--signal-line); border-radius: var(--r-lg); background: var(--signal-bg);
@@ -758,6 +772,8 @@ h1:hover .anchor, h2:hover .anchor, h3:hover .anchor, h4:hover .anchor { opacity
 }
 .path-name:hover:not(:disabled) { text-decoration: underline; text-underline-offset: 2px; }
 .path-name:disabled { color: var(--fg-subtle); cursor: default; }
+/* inline-block so the name's hover underline does not run under it */
+.path-soon { display: inline-block; margin-left: 9px; font-size: 12px; font-weight: 400; color: var(--fg-subtle); }
 .path-row .bar { width: 92px; flex-shrink: 0; }
 .path-pc { font-size: 12px; color: var(--fg); font-weight: 600; font-variant-numeric: tabular-nums; min-width: 32px; text-align: right; }
 .path-n { font-size: 11.5px; color: var(--fg-subtle); font-variant-numeric: tabular-nums; min-width: 46px; text-align: right; }
@@ -1024,7 +1040,7 @@ body.right-rail-collapsed #toc { display: none; }
   body.nav-open #sidebar { transform: none; }
   body.nav-open #scrim { display: block; position: fixed; inset: var(--topbar-h) 0 0 0; background: rgba(31,35,40,.4); z-index: 45; }
   #resizer { display: none; }
-  #content h1 { font-size: 25px; }
+  #content h1, .planned-title { font-size: 25px; }
   #content h2 { font-size: 19px; }
   #pager { grid-template-columns: 1fr; }
   .brand span { display: none; }

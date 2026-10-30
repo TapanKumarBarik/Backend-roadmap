@@ -19,7 +19,9 @@
   "content": {
     "curricula": ["backend", "learn", "genai", "lld"],
     "placeholderMarker": "has not been written yet",
-    "placeholderScanLines": 25
+    "placeholderScanLines": 25,
+    "wordsPerMinute": 210,
+    "ignoredFiles": ["STATUS.md"]
   },
   "storage": {
     "lastFile": "docs.lastFile",

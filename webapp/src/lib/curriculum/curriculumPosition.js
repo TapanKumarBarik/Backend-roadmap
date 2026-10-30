@@ -5,14 +5,16 @@
 // and genai is empty. So "what is this node's parent, and which number is
 // it out of how many" is derived from the tree rather than assumed from
 // path depth.
+import { isModule } from './nodeKind.js';
+import { subtreeStats, derivedStatus } from './progressStats.js';
 
 // file -> { index, total, unit, parentTitle, parentPath, curriculumTitle }
-// index is 1-based, and counts only siblings that are themselves pages.
+// index is 1-based, and counts only siblings that are themselves pages (a planned module is not one yet).
 export function buildPositions(treeData) {
   const positions = {};
 
   (function walk(nodes, parent, curriculum) {
-    const pages = nodes.filter((n) => n.file);
+    const pages = nodes.filter((n) => n.file && !n.planned);
     pages.forEach((n, i) => {
       positions[n.file] = {
         index: i + 1,
@@ -50,10 +52,13 @@ export function shortTitle(node) {
 // a bar reading 2/15.
 export function siblingStats(parentNode, statusMap) {
   if (!parentNode || !parentNode.children) return null;
-  const pages = parentNode.children.filter((n) => n.file);
+  const pages = parentNode.children.filter((n) => n.file && !n.planned);
   let done = 0, wip = 0;
   pages.forEach((n) => {
-    const s = statusMap[n.file] || 'todo';
+    // A track (a sibling with modules of its own) is as done as its modules; a module has its own status.
+    const s = n.children && n.children.length
+      ? derivedStatus(subtreeStats(n, statusMap))
+      : (statusMap[n.file] || 'todo');
     if (s === 'done') done++;
     else if (s === 'wip') wip++;
   });
@@ -72,9 +77,23 @@ export function stripOrdinal(title) {
 // tables of contents, not modules. Including them meant "Start here"
 // offered the curriculum index page ("Backend Engineering: Fundamentals →
 // Distributed Systems → System Design") as if it were a lesson, and the
-// next-up queue interleaved signposts with real work.
+// next-up queue interleaved signposts with real work. Modules still waiting for an author are left out too:
+// there is nothing in them to study.
 export function studyableFiles(flatFiles, nodeByFile) {
-  return flatFiles.filter((f) => !(nodeByFile[f]?.children?.length));
+  return flatFiles.filter((f) => isModule(nodeByFile[f]));
+}
+
+// The modules on either side of a page, in reading order. The pager and the J/K keys step between modules: a
+// track's own README is a table of contents and a planned module is an empty page, and neither is somewhere to
+// send a reader who asked for "next".
+export function neighbourModules(flatFiles, nodeByFile, file) {
+  const at = flatFiles.indexOf(file);
+  if (at < 0) return { prev: null, next: null };
+  let prev = null;
+  let next = null;
+  for (let i = at - 1; i >= 0 && !prev; i--) if (isModule(nodeByFile[flatFiles[i]])) prev = flatFiles[i];
+  for (let i = at + 1; i < flatFiles.length && !next; i++) if (isModule(nodeByFile[flatFiles[i]])) next = flatFiles[i];
+  return { prev, next };
 }
 
 // The single module the learner should open next.

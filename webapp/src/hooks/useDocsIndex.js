@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ApiError } from '../lib/errors.js';
+import { studyableFiles } from '../lib/curriculum/curriculumPosition.js';
 
 // Ported from indexNodes()/main()'s docs-index.json fetch. Derives the same
 // lookup structures the vanilla app built once at boot: nodeByFile (path ->
-// node), flatFiles (ordered, for prev/next + J/K), dirIndex (dir path ->
-// its README's file path, for breadcrumb/link resolution), fileSet (for
-// O(1) internal-link resolution), and searchItems (palette search corpus).
+// node), flatFiles (every page, in order), learnFiles (just the modules you can
+// study, in order: what progress, "continue" and learning paths are made of),
+// dirIndex (dir path -> its README's file path, for breadcrumb/link resolution),
+// fileSet (for O(1) internal-link resolution), and searchItems (palette search corpus).
 function buildIndex(data) {
   const nodeByFile = {};
   const flatFiles = [];
@@ -38,6 +40,7 @@ function buildIndex(data) {
     tags: data.tags || {},
     nodeByFile,
     flatFiles,
+    learnFiles: studyableFiles(flatFiles, nodeByFile),
     fileSet: new Set(flatFiles),
     dirIndex,
     searchItems
@@ -54,6 +57,7 @@ export function useDocsIndex() {
     error: null,
     nodeByFile: {},
     flatFiles: [],
+    learnFiles: [],
     fileSet: new Set(),
     dirIndex: {},
     searchItems: []

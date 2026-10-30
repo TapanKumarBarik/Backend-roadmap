@@ -23,7 +23,7 @@ import { computeTreeVisibility } from './lib/curriculum/treeFilter.js';
 import { globalCounts } from './lib/curriculum/progressStats.js';
 import { dirsOnPath } from './lib/curriculum/treePath.js';
 import { trackPageView, deleteAccount } from './lib/api.js';
-import { pickContinue, studyableFiles } from './lib/curriculum/curriculumPosition.js';
+import { pickContinue, neighbourModules } from './lib/curriculum/curriculumPosition.js';
 
 import TopBar from './components/layout/TopBar.jsx';
 import Sidebar from './components/layout/Sidebar.jsx';
@@ -81,7 +81,7 @@ function collectDirPaths(nodes) {
 
 export default function App() {
   const {
-    treeData, tags, nodeByFile, flatFiles, fileSet, dirIndex, searchItems,
+    treeData, tags, nodeByFile, flatFiles, learnFiles, fileSet, dirIndex, searchItems,
     loading: indexLoading, error: indexError, reload: reloadIndex
   } = useDocsIndex();
   const { path, heading, navigate, goHome } = useHashRoute();
@@ -175,7 +175,9 @@ export default function App() {
   }, [matchDirs, currentFile, nodeByFile]);
   const { openDirs, toggleDir, expandAll, collapseAll } = useOpenDirs(defaultOpenDirs, `${currentFile || ''}|${filter}`);
 
-  const counts = useMemo(() => globalCounts(flatFiles, statusMap), [flatFiles, statusMap]);
+  // Over the modules you can study, not every page: overview READMEs and modules still waiting for an author are
+  // not something to finish (see lib/curriculum/curriculumPosition.js isModule).
+  const counts = useMemo(() => globalCounts(learnFiles, statusMap), [learnFiles, statusMap]);
 
   // The front door is only for the bare root URL. Keying on `path` rather than `currentFile` matters: on a
   // deep link currentFile is null until the module index has loaded, which would flash this page first.
@@ -195,10 +197,10 @@ export default function App() {
 
   const navigateRelative = useCallback((dir) => {
     if (!currentFile) return;
-    const i = flatFiles.indexOf(currentFile);
-    const next = i + dir;
-    if (next >= 0 && next < flatFiles.length) openFile(flatFiles[next]);
-  }, [currentFile, flatFiles, openFile]);
+    const { prev, next } = neighbourModules(flatFiles, nodeByFile, currentFile);
+    const target = dir < 0 ? prev : next;
+    if (target) openFile(target);
+  }, [currentFile, flatFiles, nodeByFile, openFile]);
 
   const toggleDone = useCallback(() => {
     if (!currentFile) return;
@@ -246,10 +248,10 @@ export default function App() {
   }, [importStatuses, toast]);
 
   const handleReset = useCallback(async () => {
-    if (!window.confirm(`Reset progress on all ${flatFiles.length} modules? This cannot be undone.`)) return;
+    if (!window.confirm(`Reset progress on all ${learnFiles.length} modules? This cannot be undone.`)) return;
     await reset();
     toast.show('All progress reset');
-  }, [reset, flatFiles.length, toast]);
+  }, [reset, learnFiles.length, toast]);
 
   const handleDeleteAccount = useCallback(async () => {
     if (!window.confirm(
@@ -307,10 +309,7 @@ export default function App() {
   // only way to find them without knowing the palette exists, and export and
   // reset work signed-out, where there is no account menu to move them into.
   const paletteActions = useMemo(() => {
-    const continueFile = pickContinue(
-      studyableFiles(flatFiles, nodeByFile), statusMap,
-      readStored(STORAGE.lastFile)
-    );
+    const continueFile = pickContinue(learnFiles, statusMap, readStored(STORAGE.lastFile));
     const list = [
       { label: 'Continue learning', keywords: 'resume next module', hint: 'where you left off', run: () => (continueFile ? openFile(continueFile) : goHome()) },
       { label: 'Explore by tag', keywords: 'tags browse subject', run: () => navigate(EXPLORE_ROUTE) },
@@ -340,7 +339,7 @@ export default function App() {
       { label: 'Reset all progress', keywords: 'clear delete wipe', run: handleReset }
     );
     return list;
-  }, [flatFiles, nodeByFile, statusMap, currentFile, user, openFile, goHome, navigate,
+  }, [learnFiles, statusMap, currentFile, user, openFile, goHome, navigate,
     setStatus, handleCycleTheme, expandAll, allDirPaths, collapseAll, handleExport, handleReset]);
 
   const lastViewedFile = readStored(STORAGE.lastFile) || '';
