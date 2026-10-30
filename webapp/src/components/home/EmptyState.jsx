@@ -5,8 +5,9 @@ import PathPicker from './PathPicker.jsx';
 import PathHeader from './PathHeader.jsx';
 import PathSteps from './PathSteps.jsx';
 import PathComplete from './PathComplete.jsx';
+import BrowseLinks from './BrowseLinks.jsx';
 import { buildPositions, pickContinue, nextUp, siblingStats, stripOrdinal, studyableFiles } from '../../lib/curriculum/curriculumPosition.js';
-import { pathProgress, stepProgress } from '../../lib/curriculum/learningPaths.js';
+import { pathProgress, stepProgress, pickPathNext } from '../../lib/curriculum/learningPaths.js';
 import { routeUrl } from '../../lib/curriculum/moduleUrl.js';
 import { STORAGE } from '../../config/index.js';
 import { PATH_COPY } from '../../config/paths.js';
@@ -20,8 +21,9 @@ import SiteFooter from '../common/SiteFooter.jsx';
 //   finished    the path is done: a send-off and a next path
 //   choose      the reader pressed "Switch path"
 //
-// The library itself is not listed here. It is the sidebar tree, which is where you browse; this page used to
-// repeat the same four curricula under the paths, which only added a second copy of the same list.
+// The library itself is not listed here, and there is no sidebar on this page: the paths, or a path's outline, are the way
+// in, and the tree appears once you open a module. A line of links to the curricula is the way in for someone who would
+// rather browse.
 export default function EmptyState({
   counts, treeData, statusMap, timeMap, nodeByFile, flatFiles,
   bookmarks, onOpenFile, paths, activePath, onPickPath, choosing, onChoosing, onToast
@@ -40,10 +42,11 @@ export default function EmptyState({
   // "Continue" and "Next up" draw from the reader's path when they have one, otherwise from the whole library.
   const pool = activePath ? activePath.files : studyable;
   const showContinue = mode === 'path' || mode === 'library';
-  const continueFile = showContinue ? pickContinue(pool, statusMap, lastFile) : null;
+  const continueFile = !showContinue ? null : activePath ? pickPathNext(activePath.files, statusMap) : pickContinue(pool, statusMap, lastFile);
   const continueNode = continueFile && nodeByFile[continueFile];
   const continuePos = continueFile && positions[continueFile];
-  const queue = showContinue ? nextUp(pool, statusMap, continueFile, 3) : [];
+  // On a path the outline below already shows what comes next, so the short queue is only for the open library.
+  const queue = mode === 'library' ? nextUp(pool, statusMap, continueFile, 3) : [];
   const trackStats = siblingStats(continuePos?.parentNode, statusMap);
   const pathStarted = progress ? progress.done + progress.wip > 0 : started;
   const nextPath = activePath && paths.find((p) => p.id === activePath.next);
@@ -129,8 +132,10 @@ export default function EmptyState({
       )}
 
       {activePath && (mode === 'path' || mode === 'finished') && (
-        <PathSteps steps={stepProgress(activePath, statusMap)} onOpen={onOpenFile} />
+        <PathSteps steps={stepProgress(activePath, statusMap)} nodeByFile={nodeByFile} statusMap={statusMap} nextFile={continueFile} onOpen={onOpenFile} />
       )}
+
+      <BrowseLinks treeData={treeData} onOpenFile={onOpenFile} />
 
       {(started || activePath) && (
         <ProgressStats statusMap={statusMap} timeMap={timeMap || {}} totalModules={counts.total} scopeFiles={activePath ? activePath.files : null} />

@@ -50,6 +50,15 @@ export function resolvePaths(catalogue, dirIndex, nodeByFile, treeData) {
   }).filter((path) => path.files.length);
 }
 
+// Where "Start" and "Continue" open on a path. A path nobody has started opens at its first module, wherever the reader
+// happened to wander before; one under way resumes a module marked "in progress", else the first not yet done, in the
+// path's order. (The library's pickContinue resumes the last module opened; on a path that put a new reader at
+// "module 3 of 46" because that was the last page they had looked at.) Null once everything is done.
+export function pickPathNext(files, statusMap) {
+  const status = (f) => statusMap[f] || 'todo';
+  return files.find((f) => status(f) === 'wip') || files.find((f) => status(f) !== 'done') || null;
+}
+
 // Done / in progress / total over a list of files, and the reading time still ahead.
 export function pathProgress(files, statusMap, nodeByFile) {
   let done = 0;

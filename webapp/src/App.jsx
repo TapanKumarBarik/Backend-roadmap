@@ -1,4 +1,4 @@
-import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useMemo, useState } from 'react';
 import { useDocsIndex } from './hooks/useDocsIndex.js';
 import { useHashRoute } from './hooks/useHashRoute.js';
 import { useTheme } from './hooks/useTheme.js';
@@ -26,7 +26,7 @@ import { globalCounts } from './lib/curriculum/progressStats.js';
 import { dirsOnPath } from './lib/curriculum/treePath.js';
 import { trackPageView, deleteAccount } from './lib/api.js';
 import { pickContinue, neighbourModules } from './lib/curriculum/curriculumPosition.js';
-import { resolvePaths, pathProgress, pathNeighbours, placeOnPath } from './lib/curriculum/learningPaths.js';
+import { resolvePaths, pathProgress, pathNeighbours, pickPathNext, placeOnPath } from './lib/curriculum/learningPaths.js';
 
 import TopBar from './components/layout/TopBar.jsx';
 import Sidebar from './components/layout/Sidebar.jsx';
@@ -100,8 +100,7 @@ export default function App() {
   const feedActivity = useFeedActivity();
   const questionsActivity = useQuestionsActivity();
   const toast = useToast();
-  const resizerRef = useRef(null);
-  useSidebarResize(resizerRef);
+  useSidebarResize();
   // The right rail is display:none below 1180px, so notes have to fall back
   // into the article there. Deciding here — rather than rendering both and
   // hiding one — keeps it a single panel: two live instances would each
@@ -178,7 +177,8 @@ export default function App() {
 
   // The tree opens by itself only around where you are (and, under a status filter, around the matches);
   // see hooks/useOpenDirs.js for why nothing else is open.
-  const matchDirs = filter === 'all' ? null : visibility.autoOpenDirs;
+  // (Status filters open the branches that hold matches, to find them; "All" and "My path" open only the way to the module.)
+  const matchDirs = filter === 'all' || filter === 'path' ? null : visibility.autoOpenDirs;
   const defaultOpenDirs = useMemo(() => {
     const open = new Set(matchDirs);
     dirsOnPath(currentFile && nodeByFile[currentFile]).forEach((dir) => open.add(dir));
@@ -198,6 +198,11 @@ export default function App() {
     hasOpenFile: !!path,
     isSpecialRoute
   });
+
+  // The tree belongs to a page you are reading. The dashboard and the landing page have none: a path's outline is
+  // the way in, and the tree appears once you open a module. Keyed on `path` (the URL), not `currentFile`, so a
+  // deep link does not start without a sidebar and gain one when the module index has loaded.
+  const showSidebar = !isSpecialRoute && !showLanding && !!path;
 
   const toggleStatus = useCallback((file, forceStatus) => {
     if (forceStatus) { setStatus(file, forceStatus); return; }
@@ -347,7 +352,7 @@ export default function App() {
   // only way to find them without knowing the palette exists, and export and
   // reset work signed-out, where there is no account menu to move them into.
   const paletteActions = useMemo(() => {
-    const continueFile = pickContinue(activePath ? activePath.files : learnFiles, statusMap, readStored(STORAGE.lastFile));
+    const continueFile = activePath ? pickPathNext(activePath.files, statusMap) : pickContinue(learnFiles, statusMap, readStored(STORAGE.lastFile));
     const list = [
       { label: 'Continue learning', keywords: 'resume next module', hint: 'where you left off', run: () => (continueFile ? openFile(continueFile) : goHome()) },
       { label: activePath ? 'Switch learning path' : 'Pick a learning path', keywords: 'path route goal roadmap track plan', run: () => { setChoosingPath(true); goHome(); } },
@@ -407,7 +412,7 @@ export default function App() {
         onReset={handleReset}
         onExpandAll={() => expandAll(allDirPaths)}
         onCollapseAll={collapseAll}
-        onMobileToggle={isSpecialRoute || showLanding ? null : () => setNavOpen((v) => !v)}
+        onMobileToggle={showSidebar ? () => setNavOpen((v) => !v) : null}
         onDeleteAccount={handleDeleteAccount}
         onOpenMessage={user ? () => setMessageOpen(true) : null}
         onToast={toast.show}
@@ -439,7 +444,7 @@ export default function App() {
         {/* Collapsed, the panel is gone entirely — so there has to be a way
             back that isn't only a keyboard shortcut. A slim strip against
             the rail, in the place the panel would occupy. */}
-        {!isSpecialRoute && !showLanding && sidebarCollapsed && (
+        {showSidebar && sidebarCollapsed && (
           <button
             id="treePeek"
             title="Show the module tree (press B)"
@@ -449,7 +454,7 @@ export default function App() {
             <CaretIcon />
           </button>
         )}
-        {!isSpecialRoute && !showLanding && (
+        {showSidebar && (
           <>
             <Sidebar
               onCollapse={toggleSidebarCollapsed}
@@ -467,7 +472,7 @@ export default function App() {
               onOpenFile={openFile}
               onToggleStatus={toggleStatus}
             />
-            <div id="resizer" ref={resizerRef} />
+            <div id="resizer" />
           </>
         )}
         <div id="scrim" style={navOpen ? { display: 'block' } : undefined} onClick={() => setNavOpen(false)} />

@@ -7,7 +7,7 @@ export const LEARNING_PATHS = catalogue.paths;
 
 export const PATH_COPY = {
   pickerTitle: 'Pick a path',
-  pickerLead: 'A path is a short, ordered route with a finish line. Choose one, work through it in order and finish it. To browse everything instead, use the sidebar or search.',
+  pickerLead: 'A path is a short, ordered route with a finish line. Choose one, work through it in order and finish it.',
   pickerStartedTitle: 'Or follow a path',
   pickerStartedLead: 'You are part-way through the library. A path gives that work a finish line: pick one and everything you have already done counts towards it.',
   switchTitle: 'Switch path',
@@ -21,6 +21,9 @@ export const PATH_COPY = {
   notInPath: 'This module is not in your path.',
   showAll: 'Show everything',
   stepsTitle: 'On this path',
+  upNext: 'Up next',
+  stepMeta: (modules, time) => `${modules} ${modules === 1 ? 'module' : 'modules'} · about ${time}`,
+  browse: 'Browse a whole curriculum:',
   complete: (title) => `You finished ${title}`,
   completeLead: (modules, time) => `${modules} modules, about ${time} of reading, all finished.`,
   nextPath: 'Next',
