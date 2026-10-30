@@ -3,3 +3,13 @@
 // a promise. Progress counts modules only: counting signposts and promises as well made "797 to go" out of the
 // 570 modules a reader can actually open.
 export const isModule = (node) => !!node && node.min != null;
+
+// The modules at or under a node, in reading order.
+export function modulesUnder(node) {
+  const modules = [];
+  (function walk(n) {
+    if (isModule(n)) modules.push(n);
+    (n.children || []).forEach(walk);
+  })(node);
+  return modules;
+}

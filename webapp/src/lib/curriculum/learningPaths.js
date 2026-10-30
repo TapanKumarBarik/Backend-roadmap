@@ -3,17 +3,8 @@
 // A path is only ever a list of modules. Everything else (what is done, what is next, how long is left) is derived
 // from the reader's per-module progress, so switching paths loses nothing and a module counts in every path that
 // includes it.
-import { isModule } from './nodeKind.js';
+import { modulesUnder } from './nodeKind.js';
 import { shortTitle, stripOrdinal } from './curriculumPosition.js';
-
-function modulesUnder(node) {
-  const modules = [];
-  (function walk(n) {
-    if (isModule(n)) modules.push(n);
-    (n.children || []).forEach(walk);
-  })(node);
-  return modules;
-}
 
 const sumMinutes = (modules) => modules.reduce((total, m) => total + m.min, 0);
 

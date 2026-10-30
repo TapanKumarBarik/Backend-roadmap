@@ -3,14 +3,13 @@ import '../../styles/paths.css';
 import ProgressBar from '../common/ProgressBar.jsx';
 import { CaretIcon } from '../common/icons.jsx';
 import { useOpenDirs } from '../../hooks/useOpenDirs.js';
+import { stripOrdinal } from '../../lib/curriculum/curriculumPosition.js';
 import { PATH_COPY, formatDuration } from '../../config/paths.js';
 
-// "Module 03: HTTP Methods" -> "HTTP Methods": the number belongs to the track's own list, not to a sentence about it.
-const plainTitle = (title) => (title || '').replace(/^Module\s+\d+\s*[:.\-–—]\s*/i, '');
-
-// What is inside, in the words of the first three modules, so a card says more than its name.
+// What is inside, in the words of the first three modules ("Module 03: HTTP Methods" -> "HTTP Methods": the number
+// belongs to the track's own list, not to a sentence about it), so a card says more than its name.
 function teaser(files, nodeByFile) {
-  const names = files.map((f) => plainTitle(nodeByFile[f]?.title || nodeByFile[f]?.name));
+  const names = files.map((f) => stripOrdinal(nodeByFile[f]?.title || nodeByFile[f]?.name));
   const rest = names.length - 3;
   return names.slice(0, 3).join(' · ') + (rest > 0 ? ` and ${rest} more` : '');
 }

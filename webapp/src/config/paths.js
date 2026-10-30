@@ -22,7 +22,9 @@ export const PATH_COPY = {
   showAll: 'Show everything',
   stepsTitle: 'On this path',
   upNext: 'Up next',
-  stepMeta: (modules, time) => `${modules} ${modules === 1 ? 'module' : 'modules'} · about ${time}`,
+  // Every total of time on the site is reading time (the same count as a module's "min read"; the exercises come on
+  // top), and says so, so that a track with hours of hands-on work is not promised as an afternoon.
+  stepMeta: (modules, time) => `${modules} ${modules === 1 ? 'module' : 'modules'} · about ${time} of reading`,
   browse: 'Browse a whole curriculum:',
   complete: (title) => `You finished ${title}`,
   completeLead: (modules, time) => `${modules} modules, about ${time} of reading, all finished.`,
@@ -37,8 +39,15 @@ export const PATH_COPY = {
   pathSet: (title) => `Path set: ${title}`,
   pathDone: 'Path complete. Well done.',
   finishPath: 'Mark complete & finish path',
-  left: (time) => `about ${time} left`,
-  meta: (modules, time, tracks) => `${modules} modules · about ${time}${tracks > 1 ? ` · ${tracks} tracks` : ''}`
+  left: (time) => `about ${time} of reading left`,
+  meta: (modules, time, tracks) => `${modules} modules · about ${time} of reading${tracks > 1 ? ` · ${tracks} tracks` : ''}`
+};
+
+// The line under the title of a track's or curriculum's own page: its size is worded like a path step's.
+export const SIGNPOST_COPY = {
+  start: 'Start',
+  resume: 'Continue',
+  finished: 'Completed'
 };
 
 // "6 h", "2.5 h", "40 min": a reading estimate, so nothing finer than half an hour is claimed.

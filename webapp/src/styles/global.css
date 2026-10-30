@@ -318,11 +318,15 @@ li.node.planned > .row.sel .name { color: var(--fg-muted); }
   color: var(--fg-subtle); border: 1px solid var(--border-subtle); border-radius: 999px; padding: 1px 7px;
 }
 
-.row .name {
-  flex: 1; min-width: 0; font-size: 13.5px; line-height: 1.35;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+.row .name { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 7px; font-size: 13.5px; line-height: 1.35; }
+/* The author's number, quiet and the same width on every row so the names line up. */
+.row .name .ord { flex: none; min-width: 1.45em; font-size: 11.5px; color: var(--fg-subtle); font-variant-numeric: tabular-nums; }
+/* A long name takes a second line before it is cut (its full title is the row's tooltip); one line of ellipsis hid
+   the end of most names in a 300px panel. */
+.row .name .ttl {
+  min-width: 0; overflow: hidden; overflow-wrap: anywhere;
+  display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
 }
-.row.dir .name { white-space: normal; }
 
 .nprog { display: flex; align-items: center; gap: 5px; flex-shrink: 0; }
 .nprog .bar { width: 26px; height: 4px; }
@@ -345,29 +349,27 @@ li.node.planned > .row.sel .name { color: var(--fg-muted); }
    their own overflow-x so they aren't the constraint on body text. */
 #article { max-width: 740px; margin: 0 auto; padding: 40px 40px 120px; }
 
-#docHead { margin-bottom: 28px; }
+/* The header leads with the title: a line saying where the page sits, the path strip if there is one, the title, and
+   under it what is known about the page (reading time, status, tags). It used to stack four lines above the title,
+   which put the title a third of the way down the screen. */
+#docHead { margin-bottom: 34px; }
 #crumb {
-  font-size: 12.5px; color: var(--fg-subtle); margin-bottom: 14px;
-  display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+  font-size: 12.5px; color: var(--fg-subtle); margin-bottom: 16px;
+  display: flex; align-items: center; justify-content: space-between; gap: 4px 18px; flex-wrap: wrap;
 }
+.crumb-trail { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; min-width: 0; }
 #crumb .sep { opacity: .5; }
-/* Now that the trailing crumb is the module's title rather than its
-   filename it can be long — keep it to one line instead of letting the
-   breadcrumb wrap into a paragraph above the heading. */
-#crumb .cur {
-  color: var(--fg-muted); min-width: 0; max-width: 100%;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
-/* Position in track, above the title — you should always know where you
-   are in a sequence of 17 things. */
-#posRow { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; flex-wrap: wrap; }
-.pos-label { font-size: 12px; color: var(--fg-subtle); letter-spacing: .01em; }
-.pos-label strong { color: var(--fg-muted); font-weight: 640; }
-.pos-prog { display: flex; align-items: center; gap: 7px; }
-.pos-prog .bar { width: 74px; }
-.pos-prog-n { font-size: 11px; color: var(--fg-subtle); font-variant-numeric: tabular-nums; }
+/* Where the page sits among its siblings, with how many of them are done. */
+.crumb-pos { display: inline-flex; align-items: center; gap: 9px; font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.crumb-pos .bar { width: 56px; }
 
 #metaRow { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+/* A track's or curriculum's own page: size, progress and a way in, where a module shows its reading time. */
+.sign-summary { display: flex; align-items: center; gap: 8px 16px; flex-wrap: wrap; font-size: 13px; color: var(--fg-muted); }
+.sign-prog { display: inline-flex; align-items: center; gap: 8px; }
+.sign-prog .bar { width: 110px; }
+.sign-count { font-size: 12px; color: var(--fg-subtle); font-variant-numeric: tabular-nums; }
+.sign-go { margin-left: auto; padding: 6px 14px; font-size: 13px; }
 /* Replaces the three-button segmented control that used to sit here — the
    header only needs to report state now that setting it lives at the end. */
 .status-pill {
@@ -392,7 +394,7 @@ li.node.planned > .row.sel .name { color: var(--fg-muted); }
 .meta-pill svg { width: 13px; height: 13px; }
 
 /* tags */
-#tagRow { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 12px; }
+#tagRow { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 14px; }
 .tag {
   font-size: 11.5px; font-family: var(--mono); line-height: 1;
   padding: 4px 8px; border: 1px solid var(--border); border-radius: var(--r-sm);
@@ -417,12 +419,19 @@ li.node.planned > .row.sel .name { color: var(--fg-muted); }
 
 /* ---------- markdown content ---------- */
 #content { line-height: 1.7; font-size: 16.5px; }
+/* A word with nowhere to break (a long identifier in inline code, the text of a link) wraps at the edge instead of
+   pushing the column wider than the screen: about one module in ten wobbled sideways on a phone. Code blocks and
+   tables scroll inside their own box, so they are not affected. */
+#content { overflow-wrap: break-word; }
 @media (max-width: 360px) { #content { overflow-wrap: anywhere; } }
 #content > *:first-child { margin-top: 0; }
 #content h1, #content h2, #content h3, #content h4 {
   line-height: 1.3; letter-spacing: -.015em; scroll-margin-top: 24px; position: relative;
 }
 #content h1 { font-size: 30px; margin: 0 0 18px; font-weight: 720; }
+/* A module's own title (splitTitle lifts it out of the body into the header): the same heading, with the reading
+   facts directly under it. */
+.doc-title { font-size: 30px; margin: 0 0 12px; font-weight: 720; line-height: 1.3; letter-spacing: -.015em; }
 #content h2 {
   font-size: 21px; margin: 44px 0 14px; font-weight: 680;
   padding-bottom: 7px; border-bottom: 1px solid var(--border-subtle);
@@ -470,12 +479,15 @@ li.node.planned > .row.sel .name { color: var(--fg-muted); }
 .mermaid-diagram .edgePath .path { stroke-width: 1.4px; }
 
 /* Links read as links: blue + underline. */
-#content a, #crumb a, .feed-card .comment-text a {
+#content a, .feed-card .comment-text a {
   color: var(--link);
   text-decoration: underline; text-underline-offset: 2px; text-decoration-thickness: 1px;
 }
 #content a:visited { color: var(--link-visited); }
-#content a:hover, #crumb a:hover { text-decoration-thickness: 2px; }
+#content a:hover { text-decoration-thickness: 2px; }
+/* The breadcrumb is wayfinding, not a sentence: quiet until you point at it. */
+#crumb a { color: var(--fg-muted); text-decoration: none; }
+#crumb a:hover { color: var(--fg); text-decoration: underline; text-underline-offset: 2px; }
 #content a.anchor, #content a.anchor:visited {
   color: var(--fg-subtle); text-decoration: none;
 }
@@ -486,8 +498,9 @@ li.node.planned > .row.sel .name { color: var(--fg-muted); }
 }
 h1:hover .anchor, h2:hover .anchor, h3:hover .anchor, h4:hover .anchor { opacity: 1; }
 
-/* code */
-#content code {
+/* code: the inline pill is for `code` in a sentence only. A fenced block is <pre><code>, and `#content code` (an id
+   outranks the class below) used to reach into it too, so every block rendered as a row of per-line pills at 85% size. */
+#content :not(pre) > code {
   font-family: var(--mono); font-size: 85%; background: var(--bg-sunken);
   padding: .18em .4em; border-radius: var(--r-sm); border: 1px solid var(--border-subtle);
 }
@@ -495,14 +508,21 @@ h1:hover .anchor, h2:hover .anchor, h3:hover .anchor, h4:hover .anchor { opacity
 .codeblock pre {
   margin: 0; background: var(--bg-sunken); border: 1px solid var(--border-subtle);
   border-radius: var(--r-md); padding: 14px 16px; overflow-x: auto;
-  font-size: 13.2px; line-height: 1.62;
+  font-family: var(--mono); font-size: 13.2px; line-height: 1.62;
 }
-.codeblock pre code { background: none; border: 0; padding: 0; font-size: inherit; }
+.codeblock pre code { font-family: inherit; font-size: inherit; }
 .cb-bar {
   position: absolute; top: 7px; right: 8px; display: flex; gap: 5px; align-items: center;
   opacity: 0; transition: opacity .15s;
 }
-.codeblock:hover .cb-bar { opacity: 1; }
+/* Hover is how a mouse finds the copy button; a keyboard (focus) and a touch screen (no hover) need it showing. On a
+   touch screen it gets a band of its own at the top of the block, because floating over the code it hid the end of
+   the first line. */
+.codeblock:hover .cb-bar, .codeblock:focus-within .cb-bar { opacity: 1; }
+@media (hover: none) {
+  .cb-bar { opacity: 1; }
+  .codeblock pre { padding-top: 38px; }
+}
 .cb-lang { font-size: 10.5px; color: var(--fg-subtle); font-family: var(--mono); text-transform: uppercase; letter-spacing: .04em; }
 .cb-copy {
   font-size: 11.5px; padding: 3px 9px; border-radius: var(--r-sm); border: 1px solid var(--border);
@@ -1020,7 +1040,7 @@ body.right-rail-collapsed #toc { display: none; }
   body.nav-open #sidebar { transform: none; }
   body.nav-open #scrim { display: block; position: fixed; inset: var(--topbar-h) 0 0 0; background: rgba(31,35,40,.4); z-index: 45; }
   #resizer { display: none; }
-  #content h1, .planned-title { font-size: 25px; }
+  #content h1, .doc-title, .planned-title { font-size: 25px; }
   #content h2 { font-size: 19px; }
   #pager { grid-template-columns: 1fr; }
   .brand span { display: none; }

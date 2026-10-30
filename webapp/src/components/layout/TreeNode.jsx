@@ -1,6 +1,6 @@
 import { CaretIcon, TickIcon } from '../common/icons.jsx';
 import { subtreeStats, derivedStatus } from '../../lib/curriculum/progressStats.js';
-import { shortTitle } from '../../lib/curriculum/curriculumPosition.js';
+import { ordinalOf, shortTitle, stripOrdinal } from '../../lib/curriculum/curriculumPosition.js';
 import { isModule } from '../../lib/curriculum/nodeKind.js';
 
 export default function TreeNode({
@@ -25,6 +25,13 @@ export default function TreeNode({
     onToggleStatus(node.file, order[(order.indexOf(status) + 1) % order.length]);
   }
 
+  // A row is a number and a name. "Module 08: " in front of every name in a list that is already in order cost each
+  // row ten characters and left the part that tells one from the next to be cut off, so the number is kept (the
+  // lessons refer to it) but quiet, and the name is the title without it.
+  const fullTitle = node.title || node.name;
+  const ordinal = depth === 0 ? null : ordinalOf(node);
+  const label = depth === 0 ? shortTitle(node) : stripOrdinal(fullTitle) || fullTitle;
+
   let prog = null;
   if (hasKids) {
     prog = (
@@ -45,7 +52,7 @@ export default function TreeNode({
       <div
         className={'row' + (hasKids ? ' dir' : '') + (node.file === currentFile ? ' sel' : '')}
         data-file={node.file || undefined}
-        title={node.planned ? 'Coming soon: this module has not been written yet' : node.file}
+        title={node.planned ? 'Coming soon: this module has not been written yet' : fullTitle}
         onClick={handleRowClick}
         ref={node.file ? (el) => registerRow(node.file, el) : undefined}
       >
@@ -69,8 +76,9 @@ export default function TreeNode({
             → AKS → Platform Engineering"), which wrapped to three lines in
             a 340px panel. The part before the colon is the name people
             actually use; the full text stays as the row's tooltip. */}
-        <span className="name" title={depth === 0 ? (node.title || node.name) : undefined}>
-          {depth === 0 ? shortTitle(node) : (node.title || node.name)}
+        <span className="name" title={depth === 0 ? fullTitle : undefined}>
+          {ordinal && <span className="ord">{ordinal}</span>}
+          <span className="ttl">{label}</span>
         </span>
         {prog}
       </div>

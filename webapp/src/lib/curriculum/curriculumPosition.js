@@ -8,7 +8,7 @@
 import { isModule } from './nodeKind.js';
 import { subtreeStats, derivedStatus } from './progressStats.js';
 
-// file -> { index, total, unit, parentTitle, parentPath, curriculumTitle }
+// file -> { index, total, parentTitle, parentPath, parentNode, curriculumTitle, curriculumPath }
 // index is 1-based, and counts only siblings that are themselves pages (a planned module is not one yet).
 export function buildPositions(treeData) {
   const positions = {};
@@ -19,9 +19,6 @@ export function buildPositions(treeData) {
       positions[n.file] = {
         index: i + 1,
         total: pages.length,
-        // A node with children is a container of modules — call it a track.
-        // A leaf is a module, whichever depth it happens to sit at.
-        unit: n.children && n.children.length ? 'Track' : 'Module',
         parentTitle: parent ? (parent.title || parent.name) : null,
         parentPath: parent ? parent.path : null,
         parentNode: parent,
@@ -35,6 +32,13 @@ export function buildPositions(treeData) {
   })(treeData, null, null);
 
   return positions;
+}
+
+// What a position counts among, for "3 / 14 in …": the track a module is in, or the curriculum itself when its modules
+// sit straight under it (lld). A curriculum's own title is long, so it is the short name here too (see shortTitle).
+export function placeName(position) {
+  if (!position) return '';
+  return position.parentPath === position.curriculumPath ? position.curriculumTitle : stripOrdinal(position.parentTitle);
 }
 
 // Curriculum titles are long ("Backend Engineering: Fundamentals →
@@ -65,11 +69,34 @@ export function siblingStats(parentNode, statusMap) {
   return { done, wip, total: pages.length };
 }
 
-// Track titles carry an ordinal prefix ("01 - Request/Response Fundamentals")
-// which earns its place in the tree, where order is the point, but reads as
-// noise inside a sentence like "1 / 14 in 01 - Request/Response Fundamentals".
+// Titles carry their number in several spellings ("01 - Request/Response Fundamentals", "Track 2: Docker",
+// "Module 08: Content Negotiation"). The number is the author's order, which a list already shows by being in
+// order, and it reads as noise inside a sentence like "1 / 14 in 01 - Request/Response Fundamentals" or when it
+// costs a sidebar row the part of the name that tells it from its neighbours. See ordinalOf for keeping the number.
 export function stripOrdinal(title) {
-  return (title || '').replace(/^(?:track\s+)?\d+\s*[-–—.):]\s*/i, '');
+  return (title || '').replace(/^(?:(?:track|module)\s+)?\d+\s*[-–—.):]\s*/i, '');
+}
+
+// The number a folder was given by its author ("08-content-negotiation" -> "08"): the one the text of the
+// curriculum refers to ("recall modules 01 and 07"), and the same in every title spelling above. Null without one.
+export function ordinalOf(node) {
+  const match = /^(\d+)(?:[-_]|$)/.exec((node && node.name) || '');
+  return match ? match[1] : null;
+}
+
+// The pages above one, outermost first, as { file, title } to link to: a module's track and curriculum, a track's
+// curriculum, nothing for a curriculum itself. A README is its own folder's page, so that folder is not above it.
+export function ancestorsOf(path, dirIndex, nodeByFile) {
+  const dirs = path.split('/').slice(0, -1);
+  if (/(^|\/)README\.md$/i.test(path)) dirs.pop();
+  return dirs
+    .map((_, i) => {
+      const file = dirIndex[dirs.slice(0, i + 1).join('/')];
+      const node = file && nodeByFile[file];
+      if (!node) return null;
+      return { file, title: i === 0 ? shortTitle(node) : stripOrdinal(node.title || node.name) };
+    })
+    .filter(Boolean);
 }
 
 // Only the pages you'd actually sit down and study. Every container node

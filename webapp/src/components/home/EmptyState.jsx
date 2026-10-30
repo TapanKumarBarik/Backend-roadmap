@@ -6,7 +6,7 @@ import PathHeader from './PathHeader.jsx';
 import PathSteps from './PathSteps.jsx';
 import PathComplete from './PathComplete.jsx';
 import BrowseLinks from './BrowseLinks.jsx';
-import { buildPositions, pickContinue, nextUp, siblingStats, stripOrdinal, studyableFiles } from '../../lib/curriculum/curriculumPosition.js';
+import { buildPositions, pickContinue, nextUp, placeName, siblingStats, stripOrdinal, studyableFiles } from '../../lib/curriculum/curriculumPosition.js';
 import { pathProgress, stepProgress, pickPathNext } from '../../lib/curriculum/learningPaths.js';
 import { routeUrl } from '../../lib/curriculum/moduleUrl.js';
 import { STORAGE } from '../../config/index.js';
@@ -75,21 +75,19 @@ export default function EmptyState({
           >
             <div className="continue-main">
               <div className="continue-eyebrow">
+                {/* The library card names the curriculum; where the module sits in its track is the progress line below
+                    (a "Module 9 of 14" here read as the 9th of 14 in the whole curriculum, and clashed with the title's
+                    own "Module 08"). */}
                 {activePath
                   ? `${activePath.title} · module ${activePath.files.indexOf(continueFile) + 1} of ${activePath.files.length}`
-                  : continuePos?.curriculumTitle && (
-                    <>
-                      {continuePos.curriculumTitle}
-                      {continuePos.total > 1 && ` · ${continuePos.unit} ${continuePos.index} of ${continuePos.total}`}
-                    </>
-                  )}
+                  : continuePos?.curriculumTitle}
               </div>
               <div className="continue-title">{continueNode.title || continueNode.name}</div>
               {trackStats && (
                 <div className="continue-prog">
                   <ProgressBar {...trackStats} />
                   <span className="continue-prog-n">
-                    {trackStats.done} / {trackStats.total} in {stripOrdinal(continuePos.parentTitle)}
+                    {trackStats.done} / {trackStats.total} in {placeName(continuePos)}
                   </span>
                 </div>
               )}

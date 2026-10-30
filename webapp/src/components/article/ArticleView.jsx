@@ -5,8 +5,8 @@ import { renderMermaidDiagrams } from '../../lib/markdown/mermaidRender.js';
 import { rewriteLinks } from '../../lib/markdown/rewriteLinks.js';
 import { routeUrl } from '../../lib/curriculum/moduleUrl.js';
 import { isPlaceholder, editUrl, reportUrl, claimUrl, WRITE_GUIDE_URL } from '../../lib/curriculum/contribute.js';
-import { readTimeStats, slugify } from '../../lib/markdown/markdown.js';
-import { buildPositions, siblingStats } from '../../lib/curriculum/curriculumPosition.js';
+import { readTimeStats, slugify, splitTitle } from '../../lib/markdown/markdown.js';
+import { ancestorsOf, buildPositions, placeName, siblingStats } from '../../lib/curriculum/curriculumPosition.js';
 import { getPosition, savePosition, clearPosition, describeWhen } from '../../lib/curriculum/readingPosition.js';
 import { enhanceSelfCheck, handleSelfCheckClick } from '../../lib/markdown/selfCheck.js';
 import { STORAGE, CONTENT } from '../../config/index.js';
@@ -16,6 +16,8 @@ import { ClockIcon, StarIcon, ArrowRightIcon } from '../common/icons.jsx';
 import LoadError from '../common/LoadError.jsx';
 import { LOAD_WHAT } from '../../config/messages.js';
 import PathStrip from './PathStrip.jsx';
+import SignpostSummary from './SignpostSummary.jsx';
+import ProgressBar from '../common/ProgressBar.jsx';
 import CommentsSection from './CommentsSection.jsx';
 import NotesPanel from './NotesPanel.jsx';
 import ReactionsBar from './ReactionsBar.jsx';
@@ -188,64 +190,59 @@ export default function ArticleView({
     }
   }
 
-  const crumbParts = path.split('/');
   const status = statusMap[path] || 'todo';
   const { prev: prevFile, next: nextFile } = neighbours(path);
   const nodeTags = (node && node.tags) || [];
   const placeholder = isPlaceholder(rawText);
-  const readTime = rawText && !placeholder ? readTimeStats(rawText, CONTENT.wordsPerMinute) : null;
+  // A track's or curriculum's own page is a signpost: it has no length worth quoting.
+  const signpost = !!(node && node.children && node.children.length);
+  const readTime = rawText && !placeholder && !signpost ? readTimeStats(rawText, CONTENT.wordsPerMinute) : null;
+  const { title: titleHtml, body: bodyHtml } = useMemo(() => splitTitle(html), [html]);
 
   // Walks the whole tree, so keep it off the per-render path — it only
   // changes when docs-index.json does.
   const positions = useMemo(() => buildPositions(treeData || []), [treeData]);
   const position = positions[path];
   const trackStats = siblingStats(position?.parentNode, statusMap);
+  const ancestors = ancestorsOf(path, dirIndex, nodeByFile);
+  // One "n of N" in the header at a time: on the reader's path the strip below says where they are on it, which is
+  // the count that matters to them (and for a one-track curriculum the same number again).
+  const showPosition = !!position && !!position.curriculumPath && position.total > 1 && !pathPlace;
 
   return (
     <article id="article">
-      <div id="docHead">
-        <div id="crumb">
-          {crumbParts.map((p, i) => {
-            const last = i === crumbParts.length - 1;
-            const dirPath = crumbParts.slice(0, i + 1).join('/');
-            const targetFile = dirIndex[dirPath];
-            // The final segment is the file on disk, so the crumb used to
-            // end in "README.md". Show the module's title instead — the
-            // filename is an implementation detail of the content repo.
-            const label = last ? (node?.title || node?.name || p) : p;
-            return (
-              <Fragment key={i}>
-                {i > 0 && <span className="sep">/</span>}
-                {!last && targetFile
-                  ? <a href={routeUrl(targetFile)} onClick={(e) => { e.preventDefault(); onOpenFile(targetFile); }}>{p}</a>
-                  : <span className={last ? 'cur' : ''}>{label}</span>}
-              </Fragment>
-            );
-          })}
-        </div>
-        {!placeholder && <PathStrip place={pathPlace} offer={pathOffer} onPick={onPickPath} />}
-        {/* Where this module sits in its track. The status control used to
-            live here, at the top — but you decide you're finished at the
-            bottom, so it moved to the end of the article. */}
-        {position && (
-          <div id="posRow">
-            <span className="pos-label">
-              {position.curriculumTitle && <strong>{position.curriculumTitle}</strong>}
-              {position.total > 1 && ` · ${position.unit} ${position.index} of ${position.total}`}
-            </span>
-            {trackStats && trackStats.total > 1 && (
-              <span className="pos-prog" title={`${trackStats.done} of ${trackStats.total} done in ${position.parentTitle}`}>
-                <span className="bar">
-                  <i className="d" style={{ width: (trackStats.done / trackStats.total) * 100 + '%' }} />
-                  <i className="w" style={{ width: (trackStats.wip / trackStats.total) * 100 + '%' }} />
-                </span>
-                <span className="pos-prog-n">{trackStats.done}/{trackStats.total}</span>
+      <header id="docHead">
+        {/* The folders above this page, by their titles (the folder names are the content repo's business), with the
+            page's place among its siblings alongside. The page's own title is the heading right below, so it is not
+            repeated here. */}
+        {(ancestors.length > 0 || showPosition) && (
+          <div id="crumb">
+            <nav className="crumb-trail" aria-label="Breadcrumb">
+              {ancestors.map((a, i) => (
+                <Fragment key={a.file}>
+                  {i > 0 && <span className="sep" aria-hidden="true">/</span>}
+                  <a href={routeUrl(a.file)} onClick={(e) => { e.preventDefault(); onOpenFile(a.file); }}>{a.title}</a>
+                </Fragment>
+              ))}
+            </nav>
+            {showPosition && (
+              <span className="crumb-pos" title={trackStats ? `${trackStats.done} of ${trackStats.total} done in ${placeName(position)}` : undefined}>
+                {position.index} of {position.total}
+                {trackStats && trackStats.total > 1 && <ProgressBar done={trackStats.done} wip={trackStats.wip} total={trackStats.total} />}
               </span>
             )}
           </div>
         )}
-        {/* Nothing to time, finish or save on a module that does not exist yet. */}
-        {!placeholder && <div id="metaRow">
+        {!placeholder && <PathStrip place={pathPlace} offer={pathOffer} onPick={onPickPath} />}
+        {/* The title normally comes from the module's own text, which a planned module does not have. */}
+        {placeholder
+          ? <h1 className="planned-title">{node?.title || node?.name}</h1>
+          : titleHtml && <h1 className="doc-title" dangerouslySetInnerHTML={{ __html: titleHtml }} />}
+        {/* Status used to be set here, at the top — but you decide you're finished at the bottom, so setting it moved
+            to the end of the article, and the header only reports it. Nothing to time, finish or save on a module
+            that does not exist yet, nor on a track's own page, which is a signpost. */}
+        {signpost && !placeholder && <SignpostSummary node={node} statusMap={statusMap} nodeByFile={nodeByFile} onOpenFile={onOpenFile} />}
+        {!placeholder && !signpost && <div id="metaRow">
           {status !== 'todo' && (
             <span className={'status-pill ' + status}>
               {status === 'done' ? 'Completed' : 'In progress'}
@@ -289,7 +286,7 @@ export default function ArticleView({
             )}
           </div>
         )}
-      </div>
+      </header>
 
       {resume && !loading && !error && html != null && (
         <div className="resume">
@@ -311,8 +308,6 @@ export default function ArticleView({
         </div>
       )}
 
-      {/* The title normally comes from the module's own text, which a planned module does not have. */}
-      {placeholder && <h1 className="planned-title">{node?.title || node?.name}</h1>}
       {placeholder && (
         <aside className="help-write" aria-label="This module is open for an author">
           <div className="help-write-h">This module hasn&apos;t been written yet</div>
@@ -332,7 +327,7 @@ export default function ArticleView({
       {error && <LoadError error={error} what={LOAD_WHAT.module} onRetry={reloadDoc} devHint={false} />}
       {/* A planned module's file is a stub of build notes for the author, so only the panel above is shown. */}
       {!loading && !error && html != null && !placeholder && (
-        <div id="content" ref={contentRef} onClick={handleContentClick} dangerouslySetInnerHTML={{ __html: html }} />
+        <div id="content" ref={contentRef} onClick={handleContentClick} dangerouslySetInnerHTML={{ __html: bodyHtml }} />
       )}
 
       {/* Everything below belongs to the content, so it appears only once the content has loaded. When the

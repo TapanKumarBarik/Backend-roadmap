@@ -15,6 +15,14 @@ export function renderMarkdownDoc(rawText) {
   return restore(marked.parse(prepared), store);
 }
 
+// A module's title is its first heading. The page lifts it out of the body so the header can put what is known about
+// the module (reading time, status, tags) under the title, where a reader looks for it, instead of stacking all of it
+// above. A document that does not open with a heading keeps its body whole and has no title to show.
+export function splitTitle(html) {
+  const match = /^\s*<h1\b[^>]*>([\s\S]*?)<\/h1>\s*/i.exec(html || '');
+  return match ? { title: match[1], body: html.slice(match[0].length) } : { title: null, body: html };
+}
+
 export function stripFencedCode(md) {
   return md.replace(/```[\s\S]*?```/g, ' ');
 }
