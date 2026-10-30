@@ -45,6 +45,63 @@ function themeVariables() {
 
 let renderCounter = 0;
 
+// Each drawn diagram remembers its source, so it can be drawn again when the theme changes. The colours are
+// read from the app's CSS variables at draw time, so without this a diagram drawn in the light palette
+// stays light (white boxes) after the reader switches to dark mode, and the other way round.
+const sourceOf = new WeakMap();
+
+function initialize(mermaid) {
+  mermaid.initialize({
+    startOnLoad: false,
+    securityLevel: 'strict',
+    theme: 'base',
+    themeVariables: themeVariables(),
+    flowchart: { padding: 14, nodeSpacing: 36, rankSpacing: 46, curve: 'basis' }
+  });
+}
+
+function paint(wrap, svg) {
+  wrap.innerHTML = svg;
+  // Real SVG attributes, not the CSS properties of the same name — rx/ry
+  // as a CSS property isn't supported in Safari.
+  wrap.querySelectorAll('.node rect').forEach((rect) => {
+    rect.setAttribute('rx', '7');
+    rect.setAttribute('ry', '7');
+  });
+}
+
+async function redrawAll() {
+  const wraps = [...document.querySelectorAll('.mermaid-diagram')].filter((w) => w.isConnected && sourceOf.has(w));
+  if (!wraps.length) return;
+  let mermaid;
+  try { mermaid = await loadMermaidModule(); } catch { return; }
+  initialize(mermaid);
+  for (const wrap of wraps) {
+    try {
+      const { svg } = await mermaid.render('mermaid-diagram-' + (renderCounter++), sourceOf.get(wrap));
+      if (wrap.isConnected) paint(wrap, svg);
+    } catch { /* keep the drawing it already has */ }
+  }
+}
+
+let watchingTheme = false;
+function watchTheme() {
+  if (watchingTheme) return;
+  watchingTheme = true;
+  let queued = false;
+  // Two frames: let the new theme's CSS variables settle before reading them.
+  const schedule = () => {
+    if (queued) return;
+    queued = true;
+    requestAnimationFrame(() => requestAnimationFrame(() => { queued = false; redrawAll(); }));
+  };
+  // The app's own theme button (auto / light / dark) sets data-theme on <html> ...
+  new MutationObserver(schedule).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+  // ... and in "auto" the operating system's setting decides, which can change at any time.
+  const media = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)');
+  if (media && media.addEventListener) media.addEventListener('change', schedule);
+}
+
 export async function renderMermaidDiagrams(root) {
   const codes = [...root.querySelectorAll('code.language-mermaid')];
   if (!codes.length) return;
@@ -56,16 +113,10 @@ export async function renderMermaidDiagrams(root) {
     return; // library failed to fetch — leave the plain code blocks as-is
   }
 
-  // Re-initialize per call (cheap) rather than once at module load, so a
-  // theme toggle before the next navigation still picks the right palette —
-  // the memoized import above only avoids re-fetching the library itself.
-  mermaid.initialize({
-    startOnLoad: false,
-    securityLevel: 'strict',
-    theme: 'base',
-    themeVariables: themeVariables(),
-    flowchart: { padding: 14, nodeSpacing: 36, rankSpacing: 46, curve: 'basis' }
-  });
+  // Re-initialize per call (cheap) rather than once at module load, so the palette always matches the theme
+  // that is active right now — the memoized import above only avoids re-fetching the library itself.
+  initialize(mermaid);
+  watchTheme();
 
   for (const code of codes) {
     const host = code.closest('.codeblock') || code.parentElement;
@@ -80,13 +131,8 @@ export async function renderMermaidDiagrams(root) {
       if (!host.isConnected) continue; // re-check post-await for the same reason
       const wrap = document.createElement('div');
       wrap.className = 'mermaid-diagram';
-      wrap.innerHTML = svg;
-      // Real SVG attributes, not the CSS properties of the same name — rx/ry
-      // as a CSS property isn't supported in Safari.
-      wrap.querySelectorAll('.node rect').forEach((rect) => {
-        rect.setAttribute('rx', '7');
-        rect.setAttribute('ry', '7');
-      });
+      sourceOf.set(wrap, source);
+      paint(wrap, svg);
       host.replaceWith(wrap);
     } catch (err) {
       // A malformed diagram must not blank the rest of the module — leave
