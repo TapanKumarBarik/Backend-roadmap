@@ -771,43 +771,13 @@ h1:hover .anchor, h2:hover .anchor, h3:hover .anchor, h4:hover .anchor { opacity
 .queue-t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .queue-p { font-size: 11.5px; color: var(--fg-subtle); flex-shrink: 0; max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-/* One row per curriculum, expandable to its tracks. */
-.path-list { display: flex; flex-direction: column; gap: 6px; }
-.path { border: 1px solid var(--border-subtle); border-radius: var(--r-md); background: var(--bg-raised); }
-.path-row { display: flex; align-items: center; gap: 11px; padding: 11px 14px; min-width: 0; }
-.path-name {
-  flex: 1; min-width: 0; text-align: left; background: none; border: 0; padding: 0;
-  font-size: 14.5px; font-weight: 580; color: var(--fg);
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
-.path-name:hover:not(:disabled) { text-decoration: underline; text-underline-offset: 2px; }
-.path-name:disabled { color: var(--fg-subtle); cursor: default; }
-/* inline-block so the name's hover underline does not run under it */
-.path-soon { display: inline-block; margin-left: 9px; font-size: 12px; font-weight: 400; color: var(--fg-subtle); }
-.path-row .bar { width: 92px; flex-shrink: 0; }
-.path-pc { font-size: 12px; color: var(--fg); font-weight: 600; font-variant-numeric: tabular-nums; min-width: 32px; text-align: right; }
-.path-n { font-size: 11.5px; color: var(--fg-subtle); font-variant-numeric: tabular-nums; min-width: 46px; text-align: right; }
-.path-empty { font-size: 12px; color: var(--fg-subtle); }
+/* The pill button used by Explore's "Show all". */
 .path-toggle {
   flex-shrink: 0; min-width: 74px; font-size: 11.5px; color: var(--fg-subtle); background: none; text-align: center;
   border: 1px solid var(--border-subtle); border-radius: 99px; padding: 3px 9px;
 }
-.path-toggle-slot { flex: none; width: 74px; }
 .path-toggle:hover { color: var(--fg); border-color: var(--border); }
 .path-toggle.open { background: var(--accent-subtle); color: var(--fg); border-color: var(--border); }
-.track-list { border-top: 1px solid var(--border-subtle); padding: 5px; display: flex; flex-direction: column; gap: 1px; }
-.track-row {
-  display: flex; align-items: center; gap: 10px; width: 100%; text-align: left;
-  padding: 7px 9px; border: 0; border-radius: var(--r-sm); background: none;
-  color: var(--fg-muted); font-size: 13px; min-width: 0;
-}
-.track-row:hover { background: var(--hover); color: var(--fg); }
-.track-nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.track-row .bar { width: 64px; flex-shrink: 0; }
-.track-n { font-size: 11px; color: var(--fg-subtle); font-variant-numeric: tabular-nums; min-width: 40px; text-align: right; }
-/* .track-grid / .track-card / .track-empty-note lived here. Home now renders
-   one .path row per curriculum (expandable to .track-row), and saved items
-   render as .list-row, so nothing referenced them any more. */
 
 /* ---------- list row ----------
    Saved items (bookmarks, notes) are not progress — they were reusing
@@ -1072,17 +1042,7 @@ body.right-rail-collapsed #toc { display: none; }
   #searchTrigger span { display: none; }
 }
 
-/* Narrow rows: the progress apparatus wraps under the title instead of
-   competing with it for the same line. On a 390px screen the bar, the
-   percentage, the count and the expander together left the curriculum
-   name no room at all — it was squeezed to zero width and simply
-   disappeared, the same failure as the track cards had. */
 @media (max-width: 700px) {
-  .path-row { flex-wrap: wrap; row-gap: 9px; }
-  .path-name { flex: 1 0 100%; white-space: normal; }
-  .path-row .bar { flex: 1; width: auto; min-width: 60px; }
-  .path-n, .path-pc { min-width: 0; }
-  .path-toggle-slot { display: none; }
 
   .continue-card { flex-wrap: wrap; row-gap: 14px; }
   .continue-go { width: 100%; justify-content: center; }

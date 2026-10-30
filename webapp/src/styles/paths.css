@@ -22,7 +22,8 @@
 #root .lpath-goal { margin: 0 0 8px; font-size: 13.5px; line-height: 1.55; color: var(--fg); }
 #root .lpath-for { margin: 0 0 10px; font-size: 12.5px; line-height: 1.5; color: var(--fg-muted); }
 #root .lpath-route { margin: 0 0 14px; font-size: 12px; line-height: 1.5; color: var(--fg-subtle); }
-#root .lpath-foot { margin-top: auto; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px 10px; }
+/* Always stacked: with the button beside the size on some cards and below it on others, the row of cards looked uneven. */
+#root .lpath-foot { margin-top: auto; display: flex; flex-direction: column; align-items: flex-start; gap: 10px; }
 #root .lpath-meta { font-size: 12px; color: var(--fg-muted); font-variant-numeric: tabular-nums; }
 #root .lpath-start { padding: 7px 13px; font-size: 13px; font-weight: 600; color: var(--fg); }
 #root .lpath-card:hover .lpath-start:not(:disabled) { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); }
@@ -66,16 +67,6 @@
 #root .lpath-done p { margin: 0 0 16px; max-width: 58ch; font-size: 14px; line-height: 1.6; color: var(--fg-muted); }
 #root .lpath-done-acts { display: flex; flex-wrap: wrap; gap: 8px; }
 #root .lpath-done-acts a { text-decoration: none; }
-
-/* The whole library, behind a heading: a picked path is the way in, and the rest is still one click away. */
-#root .lpath-library > summary { display: flex; align-items: center; gap: 8px; cursor: pointer; list-style: none; }
-#root .lpath-library > summary::-webkit-details-marker { display: none; }
-#root .lpath-library > summary::before {
-  content: ""; width: 6px; height: 6px; border-right: 1.5px solid currentColor; border-bottom: 1.5px solid currentColor;
-  transform: rotate(-45deg); transition: transform .15s;
-}
-#root .lpath-library[open] > summary::before { transform: rotate(45deg); }
-#root .lpath-library .lpath-lead { margin-bottom: 14px; }
 
 /* ---------- on a module page, and in the tree ---------- */
 #root .lpath-strip {

@@ -9,7 +9,7 @@ export default function MainColumn({
   currentFile, node, statusMap, timeMap, flatFiles, nodeByFile, dirIndex, fileSet, allTags,
   onOpenFile, onSetStatus, onOpenPalette, headingTarget, onToast,
   onTocChange, onActiveHeadingChange,
-  counts, treeCount, treeData, user, onLogin, isBookmarked, onToggleBookmark, bookmarks,
+  counts, treeData, user, onLogin, isBookmarked, onToggleBookmark, bookmarks,
   showNotesInArticle, showLanding, siteStats, onDismissLanding,
   indexLoading, indexError, onReloadIndex,
   paths, activePath, onPickPath, choosingPath, onChoosingPath, neighbours, pathPlace, pathOffer, onFinishPath, onStartPath
@@ -88,11 +88,9 @@ export default function MainColumn({
                   <EmptyState
                     timeMap={timeMap}
                     counts={counts}
-                    treeCount={treeCount}
                     treeData={treeData}
                     statusMap={statusMap}
                     nodeByFile={nodeByFile}
-                    dirIndex={dirIndex}
                     allTags={allTags}
                     flatFiles={flatFiles}
                     bookmarks={bookmarks}

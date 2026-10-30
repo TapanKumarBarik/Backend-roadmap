@@ -558,7 +558,6 @@ export default function App() {
               onTocChange={setTocHeadings}
               onActiveHeadingChange={setActiveHeadingId}
               counts={counts}
-              treeCount={treeData.length}
               treeData={treeData}
               user={user}
               onLogin={login}
