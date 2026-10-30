@@ -4,13 +4,13 @@ import SiteFooter from '../common/SiteFooter.jsx';
 import { routeUrl } from '../../lib/curriculum/moduleUrl.js';
 import { REPO_URL, CONTRIBUTE_URL } from '../../lib/curriculum/contribute.js';
 import { SITE } from '../../config/index.js';
-import { FALLBACK_START_FILE, HERO, ROUTE, PATHS, FRESH, INSIDE, ACCOUNT, OPEN_SOURCE } from '../../config/landing.js';
+import { FALLBACK_START_FILE, HERO, ROUTE, PICK, LIBRARY, FRESH, INSIDE, ACCOUNT, OPEN_SOURCE } from '../../config/landing.js';
 import '../../styles/landing.css';
 
 // The front door, shown to someone who has not started yet (see hooks/useLanding.js). This component only
 // lays things out: the words are in config/landing.js and the numbers come from build-time stats. If the
 // stats are missing the page still reads correctly, it just says less.
-export default function Landing({ stats, user, onLogin, onOpenFile, onDismiss, onOpenPalette }) {
+export default function Landing({ stats, user, onLogin, onOpenFile, onStartPath, onDismiss, onOpenPalette }) {
   const link = (file) => ({
     href: routeUrl(file),
     onClick: (e) => {
@@ -20,8 +20,20 @@ export default function Landing({ stats, user, onLogin, onOpenFile, onDismiss, o
     }
   });
 
+  // Starting a learning path picks it and opens its first module; the link still works in a new tab.
+  const startLink = (p) => ({
+    ...link(p.start),
+    onClick: (e) => {
+      if (e.metaKey || e.ctrlKey || e.shiftKey || e.button === 1) return;
+      e.preventDefault();
+      onStartPath(p.id, p.start);
+    }
+  });
+
   const modules = stats?.modules;
   const startFile = stats?.curricula?.backend?.start || FALLBACK_START_FILE;
+  const paths = stats?.paths || [];
+  const heroPath = paths.find((p) => p.id === HERO.startPath);
 
   // Newest work in the featured curriculum: the last finished tracks, then any track part-way through.
   const featured = stats?.tracks?.[FRESH.curriculum] || [];
@@ -37,9 +49,9 @@ export default function Landing({ stats, user, onLogin, onOpenFile, onDismiss, o
           <h1 id="lp-h1">{HERO.headline}</h1>
           <p className="lp-lead">{HERO.lead(modules)}</p>
           <div className="lp-cta">
-            <a className="lp-btn lp-btn-primary" {...link(startFile)}>
-              {HERO.startLabel} <ArrowRightIcon />
-            </a>
+            {heroPath
+              ? <a className="lp-btn lp-btn-primary" {...startLink(heroPath)}>{HERO.startLabel(heroPath.title)} <ArrowRightIcon /></a>
+              : <a className="lp-btn lp-btn-primary" {...link(startFile)}>{HERO.fallbackStartLabel} <ArrowRightIcon /></a>}
             <button type="button" className="lp-btn" onClick={onDismiss}>{HERO.browseLabel}</button>
           </div>
           <button type="button" className="lp-search" onClick={onOpenPalette}>
@@ -64,19 +76,40 @@ export default function Landing({ stats, user, onLogin, onOpenFile, onDismiss, o
         </figure>
       </section>
 
+      {paths.length > 0 && (
+        <section className="lp-sec" aria-labelledby="lp-pick">
+          <h2 id="lp-pick">{PICK.heading}</h2>
+          <p className="lp-sec-sub">{PICK.sub}</p>
+          <div className="lp-paths">
+            {paths.map((p) => (
+              <article key={p.id} className="lp-card">
+                <div className="lp-topic">{p.topic}</div>
+                <h3>{p.title}</h3>
+                <p>{p.goal}</p>
+                <div className="lp-meta">{PICK.meta(p)}</div>
+                <div className="lp-card-acts">
+                  <a className="lp-link lp-link-strong" {...startLink(p)}>{PICK.startLabel} <ArrowRightIcon /></a>
+                </div>
+              </article>
+            ))}
+          </div>
+        </section>
+      )}
+
       <section className="lp-sec" aria-labelledby="lp-paths">
-        <h2 id="lp-paths">{PATHS.heading}</h2>
+        <h2 id="lp-paths">{LIBRARY.heading}</h2>
+        <p className="lp-sec-sub">{LIBRARY.sub}</p>
         <div className="lp-paths">
-          {PATHS.items.map((p) => {
+          {LIBRARY.items.map((p) => {
             const c = stats?.curricula?.[p.id];
             return (
               <article key={p.id} className="lp-card">
                 <h3>{p.title}</h3>
                 <p>{p.blurb}</p>
-                {c && <div className="lp-meta">{PATHS.meta(p.id, c, PATHS.unitFor(p.id))}</div>}
+                {c && <div className="lp-meta">{LIBRARY.meta(p.id, c, LIBRARY.unitFor(p.id))}</div>}
                 <div className="lp-card-acts">
-                  {c?.start && <a className="lp-link lp-link-strong" {...link(c.start)}>{PATHS.startLabel} <ArrowRightIcon /></a>}
-                  {c?.overview && <a className="lp-link" {...link(c.overview)}>{PATHS.tracksLabel}</a>}
+                  {c?.start && <a className="lp-link lp-link-strong" {...link(c.start)}>{LIBRARY.startLabel} <ArrowRightIcon /></a>}
+                  {c?.overview && <a className="lp-link" {...link(c.overview)}>{LIBRARY.tracksLabel}</a>}
                 </div>
               </article>
             );

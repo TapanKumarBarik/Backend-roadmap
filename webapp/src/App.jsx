@@ -236,6 +236,8 @@ export default function App() {
     if (picked) toast.show(PATH_COPY.pathSet(picked.title));
   }, [pickPathId, paths, toast]);
   const finishPath = useCallback(() => { setChoosingPath(false); goHome(); }, [goHome]);
+  // From the front door: pick the path and open its first module.
+  const startPath = useCallback((id, file) => { pickPath(id); openFile(file); }, [pickPath, openFile]);
 
   const toggleDone = useCallback(() => {
     if (!currentFile) return;
@@ -543,6 +545,7 @@ export default function App() {
               pathPlace={pathPlace}
               pathOffer={pathOffer}
               onFinishPath={finishPath}
+              onStartPath={startPath}
               nodeByFile={nodeByFile}
               dirIndex={dirIndex}
               fileSet={fileSet}

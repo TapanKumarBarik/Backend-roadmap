@@ -58,6 +58,7 @@
 
 .lp-paths { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
 .lp-card { display: flex; flex-direction: column; padding: 22px 24px; border: 1px solid var(--border-subtle); border-radius: var(--r-lg); background: var(--bg-raised); box-shadow: var(--shadow-sm); }
+.lp-topic { margin-bottom: 8px; font-size: 11px; font-weight: 700; letter-spacing: .07em; text-transform: uppercase; color: var(--signal); }
 .lp-card h3 { margin: 0 0 8px; font-size: 18px; line-height: 1.25; letter-spacing: -.012em; }
 .lp-card p { margin: 0 0 14px; font-size: 14.5px; line-height: 1.6; color: var(--fg-muted); }
 .lp-meta { margin-top: auto; padding-bottom: 14px; font-size: 12.5px; font-family: var(--mono); color: var(--fg-subtle); }

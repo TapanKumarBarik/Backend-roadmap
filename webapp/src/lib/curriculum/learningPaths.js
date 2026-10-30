@@ -40,10 +40,8 @@ export function resolvePaths(catalogue, dirIndex, nodeByFile, treeData) {
       });
     });
     const files = steps.flatMap((s) => s.files);
-    const first = nodeByFile[files[0]];
     return {
       ...path,
-      topic: first ? shortTitle(curriculumOf(first.path) || first) : '',
       steps,
       files,
       fileSet: new Set(files),

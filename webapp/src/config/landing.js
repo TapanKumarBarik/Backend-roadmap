@@ -1,6 +1,8 @@
 // Everything the landing page says and links to. components/home/Landing.jsx only lays it out, so changing
 // the wording, a path blurb or a route stop means editing this file and nothing else.
 // Numbers come from build-time stats (scripts/gen-site-stats.mjs) and are passed to the functions below.
+// The learning paths themselves (titles, goals, steps) are in paths.json at the repo root.
+import { PATH_COPY, formatDuration } from './paths.js';
 
 const fmt = (n) => (typeof n === 'number' ? n.toLocaleString('en-US') : '');
 
@@ -11,7 +13,11 @@ export const HERO = {
   eyebrow: 'Free · Open source · No sign-up to read',
   headline: 'Backend engineering, system design and GenAI, taught by running real code.',
   lead: (modules) => `${modules ? `${fmt(modules.written)} hands-on modules` : 'Hands-on modules'} that go from HTTP and databases to Kubernetes and LLM APIs. Every module is a markdown file in a public repository: read it here, run the code, and fix it if it is wrong.`,
-  startLabel: 'Start with Backend',
+  // The primary button starts this learning path (an id from paths.json). If it is missing, it opens
+  // FALLBACK_START_FILE instead.
+  startPath: 'backend-foundations',
+  startLabel: (title) => `Start ${title}`,
+  fallbackStartLabel: 'Start with Backend',
   browseLabel: 'Browse the curriculum',
   searchLabel: (modules) => (modules ? `Search ${fmt(modules.written)} modules and topics` : 'Search modules and topics'),
   routeCaption: 'A route through it'
@@ -28,9 +34,19 @@ export const ROUTE = [
   { label: 'LLM APIs', sub: 'Streaming, tools, structured output', file: 'genai/06-openai-and-the-model-landscape/README.md' }
 ];
 
-// `id` is the curriculum folder (site.config.json -> content.curricula); the numbers come from the stats.
-export const PATHS = {
+// The learning paths, as cards. The numbers come from the stats (`stats.paths`).
+export const PICK = {
   heading: 'Pick a path',
+  sub: 'Each path is a short, ordered route with a finish line, built from the written modules. Pick one and your progress is tracked against it.',
+  startLabel: 'Start this path',
+  meta: (p) => PATH_COPY.meta(p.modules, formatDuration(p.minutes), p.tracks)
+};
+
+// The whole library, one card per curriculum. `id` is the curriculum folder (site.config.json -> content.curricula);
+// the numbers come from the stats.
+export const LIBRARY = {
+  heading: 'Or browse the library',
+  sub: 'Every module, grouped by curriculum. The paths above are routes through this.',
   startLabel: 'Start',
   tracksLabel: 'See the tracks',
   items: [

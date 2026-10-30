@@ -12,7 +12,7 @@ export default function MainColumn({
   counts, treeCount, treeData, user, onLogin, isBookmarked, onToggleBookmark, bookmarks,
   showNotesInArticle, showLanding, siteStats, onDismissLanding,
   indexLoading, indexError, onReloadIndex,
-  paths, activePath, onPickPath, choosingPath, onChoosingPath, neighbours, pathPlace, pathOffer, onFinishPath
+  paths, activePath, onPickPath, choosingPath, onChoosingPath, neighbours, pathPlace, pathOffer, onFinishPath, onStartPath
 }) {
   const mainRef = useRef(null);
   const [readProgress, setReadProgress] = useState(0);
@@ -71,6 +71,7 @@ export default function MainColumn({
                 user={user}
                 onLogin={onLogin}
                 onOpenFile={onOpenFile}
+                onStartPath={onStartPath}
                 onDismiss={onDismissLanding}
                 onOpenPalette={onOpenPalette}
               />

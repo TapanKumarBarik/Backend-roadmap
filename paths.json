@@ -1,9 +1,10 @@
 {
-  "_about": "Learning paths: short, ordered routes through the library, each with a finish line. A step is the folder of a track (all its written modules, in order) or of a single module. Order matters: it is the order a reader follows. `next` is the path to suggest once this one is finished. Run `npm run check:paths` after editing.",
+  "_about": "Learning paths: short, ordered routes through the library, each with a finish line. `topic` is the small label above the title. A step is the folder of a track (all its written modules, in order) or of a single module. Order matters: it is the order a reader follows. `next` is the path to suggest once this one is finished. Run `npm run check:paths` after editing.",
   "paths": [
     {
       "id": "backend-foundations",
       "title": "Backend foundations",
+      "topic": "Backend",
       "goal": "Follow a request from the browser to the database and back, and learn to build APIs that are correct and secure.",
       "audience": "New to backend work, or self-taught with gaps to fill.",
       "steps": [
@@ -17,6 +18,7 @@
     {
       "id": "production-backend",
       "title": "Fast, observable and reliable",
+      "topic": "Backend",
       "goal": "Take a working service and make it hold up: caching, background jobs and realtime, monitoring, and the patterns distributed systems rely on.",
       "audience": "You can build an API and now need it to survive real traffic.",
       "steps": [
@@ -30,6 +32,7 @@
     {
       "id": "system-design-interview",
       "title": "System design interview sprint",
+      "topic": "Interviews",
       "goal": "Learn the building blocks interviews lean on, then practise the structure of a system design answer.",
       "audience": "Preparing for backend interviews.",
       "steps": [
@@ -42,6 +45,7 @@
     {
       "id": "linux-and-git",
       "title": "Linux and Git, the working basics",
+      "topic": "Cloud & DevOps",
       "goal": "Get comfortable in a Linux shell and keep your work safe and reviewable in Git.",
       "audience": "Developers who still avoid the terminal.",
       "steps": [
@@ -53,6 +57,7 @@
     {
       "id": "docker-and-kubernetes",
       "title": "Docker and Kubernetes",
+      "topic": "Cloud & DevOps",
       "goal": "Package a service in a container, then run and scale it on Kubernetes.",
       "audience": "You can build an app and now need to ship it.",
       "steps": [
@@ -64,6 +69,7 @@
     {
       "id": "genai-foundations",
       "title": "How language models work",
+      "topic": "GenAI",
       "goal": "Understand what a token is, how a language model predicts text, and how the transformer architecture works.",
       "audience": "Developers who use LLMs and want to know what is inside.",
       "steps": [
@@ -76,6 +82,7 @@
     {
       "id": "openai-api",
       "title": "Build with the OpenAI API",
+      "topic": "GenAI",
       "goal": "Call a hosted model from your own code, then compare the providers and route between them.",
       "audience": "You can code and want to add an LLM to a product.",
       "steps": [
@@ -85,6 +92,7 @@
     {
       "id": "low-level-design",
       "title": "Low-level design",
+      "topic": "Code design",
       "goal": "Learn object-oriented design, SOLID and the classic design patterns, then practise the standard interview problems.",
       "audience": "Preparing for LLD rounds, or tired of tangled code.",
       "steps": [
