@@ -21,7 +21,11 @@
     "placeholderMarker": "has not been written yet",
     "placeholderScanLines": 25,
     "wordsPerMinute": 210,
-    "ignoredFiles": ["STATUS.md"]
+    "ignoredFiles": ["STATUS.md"],
+    "images": {
+      "maxBytes": 204800,
+      "extensions": [".svg", ".png", ".jpg", ".jpeg", ".webp", ".gif"]
+    }
   },
   "storage": {
     "lastFile": "docs.lastFile",

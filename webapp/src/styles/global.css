@@ -436,12 +436,17 @@ li.node.planned > .row.sel .name { color: var(--fg-muted); }
 #content hr { border: 0; border-top: 1px solid var(--border-subtle); margin: 36px 0; }
 #content strong { font-weight: 660; }
 
-/* Images: no frame, no rounding — just the image, scaled to fit. */
-#content img { max-width: 100%; height: auto; display: block; margin: 20px 0; }
+/* Images (how to make them: docs/IMAGES.md). An image keeps its own size, never wider than the column, and sits
+   in the middle. Illustrations bring their own card (background, border and corners are drawn in the SVG, so they
+   read the same in either theme); other images, such as screenshots, get a thin frame. A caption is the italic
+   line straight after the image. */
+#content img { max-width: 100%; height: auto; display: block; margin: 20px 0; border-radius: var(--r-md); }
+#content img:not([src$=".svg"]) { border: 1px solid var(--border-subtle); }
 #content p > img:only-child { margin: 20px auto; }
-#content img[src$=".svg"] { width: 100%; }
 #content figure { margin: 20px 0; }
 #content figcaption { font-size: 13px; color: var(--fg-subtle); margin-top: 7px; }
+#content p:has(> img:only-child) + p:has(> em:only-child) { margin-top: -8px; text-align: center; font-size: 13px; line-height: 1.5; color: var(--fg-subtle); }
+#content p:has(> img:only-child) + p > em:only-child { font-style: normal; }
 #content img.broken { display: none; }
 .img-missing {
   font-family: var(--mono); font-size: 12.5px; color: var(--fg-subtle);

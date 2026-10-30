@@ -157,6 +157,10 @@ Date: Sat, 26 Jul 2026 10:00:00 GMT
 The symmetry is the point: *request = (request line + headers + blank +
 body)*, *response = (status line + headers + blank + body)*. Same skeleton.
 
+![A GET request and the response to it, side by side. Each is a start line, headers, a blank line (CRLF) and a body.](images/http-request-and-response.svg)
+
+*The same four parts, in the same order, in both directions. The dashed row is the blank line that ends the headers.*
+
 ### CRLF: the line ending that actually matters
 
 > [!pitfall] Using `\n` instead of `\r\n`, or forgetting the blank line.

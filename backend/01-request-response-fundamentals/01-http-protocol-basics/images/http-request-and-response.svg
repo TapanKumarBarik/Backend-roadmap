@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 500 536" width="500" height="536" role="img" aria-labelledby="t d" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif">
+  <title id="t">An HTTP request and its response</title>
+  <desc id="d">A GET request made of a request line, headers, a blank line and an empty body, and the response made of a status line, headers, a blank line and a JSON body. Both have the same shape.</desc>
+  <rect x=".75" y=".75" width="498.5" height="534.5" rx="16" fill="#fbfbf9" stroke="#e4e4de" stroke-width="1.5"/>
+  <text x="20" y="34" font-size="13" font-weight="700" letter-spacing=".09em" fill="#9a4f06">REQUEST</text>
+  <text x="95.2" y="34" font-size="13.5" fill="#575c65">the client asks</text>
+  <rect x="20" y="46" width="300" height="200" rx="10" fill="#16181c"/>
+  <text x="38" y="83" font-size="15" font-weight="700" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" fill="#e9a053">GET /users HTTP/1.1</text>
+  <text x="38" y="119" font-size="15" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" fill="#e7eaee">Host<tspan fill="#8f98a6">: api.example.com</tspan></text>
+  <text x="38" y="155" font-size="15" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" fill="#e7eaee">Accept<tspan fill="#8f98a6">: application/json</tspan></text>
+  <rect x="30" y="171" width="280" height="30" rx="5" fill="none" stroke="#e9a053" stroke-width="1.5" stroke-dasharray="4 4"/>
+  <path d="M58 178 v7 h-12 m4 -4 l-4 4 l4 4" stroke="#e9a053" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="70" y="190" font-size="12.5" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" fill="#8f98a6">CRLF</text>
+  <path d="M326 63 h6 V93 h-6" stroke="#b25a08" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="346" y="77" font-size="14.5" font-weight="700" fill="#9a4f06">request line</text>
+  <text x="346" y="93" font-size="12.5" fill="#575c65">method + target</text>
+  <path d="M326 99 h6 V165 h-6" stroke="#8a9099" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="346" y="131" font-size="14.5" font-weight="700" fill="#16181c">headers</text>
+  <text x="346" y="147" font-size="12.5" fill="#575c65">metadata</text>
+  <path d="M326 171 h6 V201 h-6" stroke="#8a9099" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="346" y="185" font-size="14.5" font-weight="700" fill="#16181c">blank line</text>
+  <text x="346" y="201" font-size="12.5" fill="#575c65">ends the headers</text>
+  <path d="M326 207 h6 V237 h-6" stroke="#8a9099" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="346" y="221" font-size="14.5" font-weight="700" fill="#16181c">body</text>
+  <text x="346" y="237" font-size="12.5" fill="#575c65">empty for a GET</text>
+  <text x="20" y="296" font-size="13" font-weight="700" letter-spacing=".09em" fill="#9a4f06">RESPONSE</text>
+  <text x="104.8" y="296" font-size="13.5" fill="#575c65">the server answers</text>
+  <rect x="20" y="308" width="300" height="200" rx="10" fill="#16181c"/>
+  <text x="38" y="345" font-size="15" font-weight="700" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" fill="#e9a053">HTTP/1.1 200 OK</text>
+  <text x="38" y="381" font-size="15" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" fill="#e7eaee">Content-Type<tspan fill="#8f98a6">: application/json</tspan></text>
+  <text x="38" y="417" font-size="15" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" fill="#e7eaee">Content-Length<tspan fill="#8f98a6">: 52</tspan></text>
+  <rect x="30" y="433" width="280" height="30" rx="5" fill="none" stroke="#e9a053" stroke-width="1.5" stroke-dasharray="4 4"/>
+  <path d="M58 440 v7 h-12 m4 -4 l-4 4 l4 4" stroke="#e9a053" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="70" y="452" font-size="12.5" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" fill="#8f98a6">CRLF</text>
+  <text x="38" y="489" font-size="15" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" fill="#e7eaee">[{"id": 1, "name": "Ada"}, …]</text>
+  <path d="M326 325 h6 V355 h-6" stroke="#b25a08" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="346" y="339" font-size="14.5" font-weight="700" fill="#9a4f06">status line</text>
+  <text x="346" y="355" font-size="12.5" fill="#575c65">version + code</text>
+  <path d="M326 361 h6 V427 h-6" stroke="#8a9099" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="346" y="393" font-size="14.5" font-weight="700" fill="#16181c">headers</text>
+  <text x="346" y="409" font-size="12.5" fill="#575c65">what the body is</text>
+  <path d="M326 433 h6 V463 h-6" stroke="#8a9099" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="346" y="447" font-size="14.5" font-weight="700" fill="#16181c">blank line</text>
+  <text x="346" y="463" font-size="12.5" fill="#575c65">ends the headers</text>
+  <path d="M326 469 h6 V499 h-6" stroke="#8a9099" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="346" y="483" font-size="14.5" font-weight="700" fill="#16181c">body</text>
+  <text x="346" y="499" font-size="12.5" fill="#575c65">exactly 52 bytes</text>
+  </svg>

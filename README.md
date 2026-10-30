@@ -213,7 +213,7 @@ Every module teaches in the same order, so learners always know where they are:
 | **Concept** | The core idea in a sentence or two — a `> [!key]` block |
 | **Explanation** | The depth: mental models, how it actually works, common traps (*Concepts*, with `###` subheadings) |
 | **Code** | Real, runnable examples — not pseudo-code |
-| **Visual diagram** | A diagram that *teaches* (ASCII box-drawing in `backend/`, `genai/`, `lld/`; Mermaid is welcome in `learn/`) |
+| **Visual diagram** | A diagram that *teaches* (ASCII box-drawing in `backend/`, `genai/`, `lld/`; Mermaid is welcome in `learn/`), and now and then an illustration where a drawing explains it better: see [Images in modules](docs/IMAGES.md) |
 | **Practice** | Hands-on exercises with answers hidden in `<details>`, plus a short checkpoint quiz |
 | **Project** | A small build that uses the module (*Independent challenge*); each track ends with a capstone |
 | **Interview question** | What a strong answer sounds like — an `> [!interview]` block |

@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 560 700" width="560" height="700" role="img" aria-labelledby="t d" font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif">
+  <title id="t">The journey of one HTTP request</title>
+  <desc id="d">A route from the browser through DNS, the TCP and TLS handshakes, the internet and a load balancer to your handler. Almost all of the waiting happens before your code runs.</desc>
+  <rect x=".75" y=".75" width="558.5" height="698.5" rx="16" fill="#fbfbf9" stroke="#e4e4de" stroke-width="1.5"/>
+  <rect x="20" y="90" width="520" height="378" rx="14" fill="#f3ece1"/>
+  <text x="116" y="112" font-size="11.5" font-weight="700" letter-spacing=".09em" fill="#9a4f06">SETUP AND TRANSIT: MOST OF THE WAIT</text>
+  <path d="M78 60 V612" stroke="#16181c" stroke-width="4" stroke-linecap="round" fill="none"/>
+  <circle cx="78" cy="60" r="13" fill="#fbfbf9" stroke="#16181c" stroke-width="3.5"/>
+  <text x="116" y="57" font-size="16.5" font-weight="700" fill="#16181c">Browser</text>
+  <text x="116" y="78" font-size="13.5" fill="#575c65">parses the URL; it needs an IP address</text>
+  <rect x="472" y="38" width="64" height="26" rx="13" fill="#fbfbf9" stroke="#cdcdc5" stroke-width="1.5"/>
+  <text x="504" y="56" font-size="13" font-weight="600" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" fill="#16181c">~0 ms</text>
+  <circle cx="78" cy="152" r="8" fill="#16181c"/>
+  <text x="116" y="149" font-size="16.5" font-weight="700" fill="#16181c">DNS lookup</text>
+  <text x="116" y="170" font-size="13.5" fill="#575c65">asks a resolver: what is api.example.com?</text>
+  <rect x="465" y="130" width="71" height="26" rx="13" fill="#fbfbf9" stroke="#cdcdc5" stroke-width="1.5"/>
+  <text x="500.5" y="148" font-size="13" font-weight="600" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" fill="#16181c">~20 ms</text>
+  <circle cx="78" cy="244" r="8" fill="#16181c"/>
+  <text x="116" y="241" font-size="16.5" font-weight="700" fill="#16181c">TCP handshake</text>
+  <text x="116" y="262" font-size="13.5" fill="#575c65">SYN, SYN-ACK, ACK: the pipe is open</text>
+  <rect x="417" y="222" width="119" height="26" rx="13" fill="#fbfbf9" stroke="#cdcdc5" stroke-width="1.5"/>
+  <text x="476.5" y="240" font-size="13" font-weight="600" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" fill="#16181c">1 round trip</text>
+  <circle cx="78" cy="336" r="8" fill="#16181c"/>
+  <text x="116" y="333" font-size="16.5" font-weight="700" fill="#16181c">TLS handshake</text>
+  <text x="116" y="354" font-size="13.5" fill="#575c65">keys exchanged, certificate checked</text>
+  <rect x="393" y="314" width="143" height="26" rx="13" fill="#fbfbf9" stroke="#cdcdc5" stroke-width="1.5"/>
+  <text x="464.5" y="332" font-size="13" font-weight="600" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" fill="#16181c">1–2 round trips</text>
+  <circle cx="78" cy="428" r="8" fill="#16181c"/>
+  <text x="116" y="425" font-size="16.5" font-weight="700" fill="#16181c">Across the internet</text>
+  <text x="116" y="446" font-size="13.5" fill="#575c65">routers, ISPs, maybe an undersea cable</text>
+  <rect x="465" y="406" width="71" height="26" rx="13" fill="#fbfbf9" stroke="#cdcdc5" stroke-width="1.5"/>
+  <text x="500.5" y="424" font-size="13" font-weight="600" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" fill="#16181c">~40 ms</text>
+  <circle cx="78" cy="520" r="8" fill="#16181c"/>
+  <text x="116" y="517" font-size="16.5" font-weight="700" fill="#16181c">Load balancer and proxy</text>
+  <text x="116" y="538" font-size="13.5" fill="#575c65">picks one of N servers, ends TLS</text>
+  <rect x="472" y="498" width="64" height="26" rx="13" fill="#fbfbf9" stroke="#cdcdc5" stroke-width="1.5"/>
+  <text x="504" y="516" font-size="13" font-weight="600" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" fill="#16181c">~2 ms</text>
+  <circle cx="78" cy="612" r="17" fill="#e9a053" stroke="#16181c" stroke-width="3.5"/>
+  <text x="116" y="609" font-size="16.5" font-weight="700" fill="#16181c">Your handler</text>
+  <text x="116" y="630" font-size="13.5" fill="#575c65">your code finally runs: the part you write</text>
+  <rect x="472" y="590" width="64" height="26" rx="13" fill="#e9a053" stroke="#16181c" stroke-width="1.5"/>
+  <text x="504" y="608" font-size="13" font-weight="600" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, 'Liberation Mono', monospace" fill="#16181c">~2 ms</text>
+  </svg>

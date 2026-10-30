@@ -87,6 +87,10 @@ trip, in order, before your backend function runs:
    through the proxy, the load balancer, back across the internet, into
    your browser, which parses it and hands the data to the page.
 
+![A vertical route from the browser, through DNS, the TCP and TLS handshakes, the internet and a load balancer, to your handler. Almost all of the waiting happens before your code runs.](images/request-journey.svg)
+
+*One request, end to end. The shaded part is setup and transit: most of the wait is over before your handler starts.*
+
 The same journey, drawn with where the milliseconds actually go — notice
 how little of the total is your handler:
 
