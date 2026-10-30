@@ -21,7 +21,7 @@ import { useCommentActivity } from './hooks/useCommentActivity.js';
 import { useFeedActivity, useQuestionsActivity } from './hooks/useCommunityActivity.js';
 import { computeTreeVisibility } from './lib/curriculum/treeFilter.js';
 import { globalCounts } from './lib/curriculum/progressStats.js';
-import { ancestorDirPaths } from './lib/curriculum/treeAncestors.js';
+import { dirsOnPath } from './lib/curriculum/treePath.js';
 import { trackPageView, deleteAccount } from './lib/api.js';
 import { pickContinue, studyableFiles } from './lib/curriculum/curriculumPosition.js';
 
@@ -88,7 +88,6 @@ export default function App() {
   const { theme, cycleTheme } = useTheme();
   const { user, login, logout } = useAuth();
   const { statusMap, timeMap, setStatus, reset, importStatuses } = useProgressStore(user);
-  const { openDirs, toggleDir, openMany, expandAll, collapseAll } = useOpenDirs(treeData);
   const { bookmarks, toggle: toggleBookmark } = useBookmarks(user);
   const streak = useStreak(user);
   const activity = useCommentActivity(user);
@@ -138,10 +137,8 @@ export default function App() {
   useEffect(() => {
     if (!currentFile) return;
     writeStored(STORAGE.lastFile, currentFile);
-    const node = nodeByFile[currentFile];
-    if (node) openMany(ancestorDirPaths(node));
     trackPageView(currentFile);
-  }, [currentFile, nodeByFile, openMany]);
+  }, [currentFile]);
 
   // Each module page is served with its own <title> (scripts/prerender.mjs);
   // keep it right as the reader moves between modules without a page load.
@@ -167,9 +164,16 @@ export default function App() {
     () => computeTreeVisibility(treeData, statusMap, filter),
     [treeData, statusMap, filter]
   );
-  useEffect(() => {
-    if (filter !== 'all' && visibility.autoOpenDirs.size) openMany([...visibility.autoOpenDirs]);
-  }, [filter, visibility, openMany]);
+
+  // The tree opens by itself only around where you are (and, under a status filter, around the matches);
+  // see hooks/useOpenDirs.js for why nothing else is open.
+  const matchDirs = filter === 'all' ? null : visibility.autoOpenDirs;
+  const defaultOpenDirs = useMemo(() => {
+    const open = new Set(matchDirs);
+    dirsOnPath(currentFile && nodeByFile[currentFile]).forEach((dir) => open.add(dir));
+    return open;
+  }, [matchDirs, currentFile, nodeByFile]);
+  const { openDirs, toggleDir, expandAll, collapseAll } = useOpenDirs(defaultOpenDirs, `${currentFile || ''}|${filter}`);
 
   const counts = useMemo(() => globalCounts(flatFiles, statusMap), [flatFiles, statusMap]);
 

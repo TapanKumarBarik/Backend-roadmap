@@ -1,70 +1,44 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { STORAGE } from '../config/index.js';
-import { readJson, writeJson } from '../lib/storage.js';
+import { useCallback, useMemo, useState } from 'react';
 
-// Set<dirPath> of expanded directories, debounced (150ms, matching the
-// vanilla saveOpenDirs) to localStorage.
+const NO_CHOICES = new Map();
+
+// Which branches of the module tree are open.
 //
-// First visit starts fully collapsed — four curriculum rows. Opening every
-// root by default put 70 rows on screen before you'd asked for anything,
-// which is what made the tree read as a wall rather than a way in.
-// Navigating to a module still auto-expands its ancestors (see App's
-// openMany(ancestorDirPaths)), so the tree opens around wherever you are.
-export function useOpenDirs(treeData) {
-  const [openDirs, setOpenDirs] = useState(() => new Set());
-  const initializedRef = useRef(false);
-  const saveTimerRef = useRef(null);
+// The tree is a "you are here" aid, not a record of everywhere you have been. It used to remember every
+// branch you had ever opened (and every branch a status filter had opened), so a returning reader met an
+// arbitrary patchwork of open and closed branches that had nothing to do with what they were reading. Now:
+//
+//   - `defaultOpen` is what the tree shows by itself: the way to the module being read (see lib/curriculum/
+//     treePath.js) and, while a status filter is on, every branch with a match. Nothing else is open, so a
+//     fresh visit, a reload and the dashboard are all the same few closed rows.
+//   - Clicking a caret overrides that for the branch you clicked. Those choices last until `resetKey`
+//     changes (another module, another filter), then the tree goes back to the default for the new place.
+//   - Nothing is saved between visits: reopening a module reopens its path, which is all there is to restore.
+export function useOpenDirs(defaultOpen, resetKey) {
+  const [state, setState] = useState({ key: resetKey, choices: NO_CHOICES });
+  const choices = state.key === resetKey ? state.choices : NO_CHOICES;
 
-  useEffect(() => {
-    if (initializedRef.current || !treeData.length) return;
-    initializedRef.current = true;
-    const saved = readJson(STORAGE.openDirs, []);
-    setOpenDirs(new Set(Array.isArray(saved) ? saved : []));
-  }, [treeData]);
+  const openDirs = useMemo(() => {
+    if (!choices.size) return defaultOpen;
+    const open = new Set(defaultOpen);
+    choices.forEach((isOpen, dir) => (isOpen ? open.add(dir) : open.delete(dir)));
+    return open;
+  }, [defaultOpen, choices]);
 
-  const persist = useCallback((set) => {
-    clearTimeout(saveTimerRef.current);
-    saveTimerRef.current = setTimeout(() => {
-      writeJson(STORAGE.openDirs, [...set]);
-    }, 150);
-  }, []);
-
-  const toggleDir = useCallback((path, force) => {
-    setOpenDirs((prev) => {
-      const isOpen = prev.has(path);
-      const nextOpen = force !== undefined ? force : !isOpen;
-      if (nextOpen === isOpen) return prev;
-      const next = new Set(prev);
-      if (nextOpen) next.add(path); else next.delete(path);
-      persist(next);
-      return next;
+  // Applies `decide(currentlyChosen)` -> [dir, isOpen] pairs on top of the choices made for this place.
+  const choose = useCallback((decide) => {
+    setState((prev) => {
+      const current = prev.key === resetKey ? prev.choices : NO_CHOICES;
+      const next = new Map(current);
+      decide((dir) => (current.has(dir) ? current.get(dir) : defaultOpen.has(dir)))
+        .forEach(([dir, isOpen]) => next.set(dir, isOpen));
+      return { key: resetKey, choices: next };
     });
-  }, [persist]);
+  }, [resetKey, defaultOpen]);
 
-  // Opens every path in `paths` that isn't already open, in one update —
-  // used for expand-ancestors-on-navigate and filter-driven auto-expand.
-  const openMany = useCallback((paths) => {
-    setOpenDirs((prev) => {
-      let changed = false;
-      const next = new Set(prev);
-      paths.forEach((p) => { if (!next.has(p)) { next.add(p); changed = true; } });
-      if (!changed) return prev;
-      persist(next);
-      return next;
-    });
-  }, [persist]);
+  const toggleDir = useCallback((dir) => choose((isOpen) => [[dir, !isOpen(dir)]]), [choose]);
+  const expandAll = useCallback((allDirs) => choose(() => allDirs.map((dir) => [dir, true])), [choose]);
+  const collapseAll = useCallback(() => choose(() => [...openDirs].map((dir) => [dir, false])), [choose, openDirs]);
 
-  const expandAll = useCallback((allDirPaths) => {
-    const next = new Set(allDirPaths);
-    setOpenDirs(next);
-    persist(next);
-  }, [persist]);
-
-  const collapseAll = useCallback(() => {
-    const next = new Set();
-    setOpenDirs(next);
-    persist(next);
-  }, [persist]);
-
-  return { openDirs, toggleDir, openMany, expandAll, collapseAll };
+  return { openDirs, toggleDir, expandAll, collapseAll };
 }

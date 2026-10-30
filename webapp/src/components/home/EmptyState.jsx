@@ -153,16 +153,20 @@ export default function EmptyState({
                       <span className="path-n">{stats.done}/{stats.total}</span>
                     </>
                   )}
-                {tracks.length > 0 && (
-                  <button
-                    className={'path-toggle' + (expanded ? ' open' : '')}
-                    aria-expanded={expanded}
-                    aria-label={`${expanded ? 'Hide' : 'Show'} ${tracks.length} tracks in ${title}`}
-                    onClick={() => setOpenPath(expanded ? null : root.path)}
-                  >
-                    {tracks.length} tracks
-                  </button>
-                )}
+                {tracks.length > 0
+                  ? (
+                    <button
+                      className={'path-toggle' + (expanded ? ' open' : '')}
+                      aria-expanded={expanded}
+                      aria-label={`${expanded ? 'Hide' : 'Show'} ${tracks.length} tracks in ${title}`}
+                      onClick={() => setOpenPath(expanded ? null : root.path)}
+                    >
+                      {tracks.length} tracks
+                    </button>
+                  )
+                  // Nothing to expand (modules sit directly under the curriculum): keep the toggle's place
+                  // so this row's bar lines up with the others.
+                  : <span className="path-toggle-slot" aria-hidden="true" />}
               </div>
               {expanded && (
                 <div className="track-list">
