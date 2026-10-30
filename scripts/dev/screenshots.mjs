@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // Development screenshots: opens the site in a real browser and saves every page and viewport listed in
-// site.config.json -> screenshots, so a UI change can be looked at (and compared with the last run) instead
-// of imagined. Output stays local: screenshots/ is gitignored.
+// site.config.json -> screenshots, so a UI change can be looked at instead of imagined. There is one copy of each
+// screenshot and a run replaces it: no dated folders, no "latest" duplicate. Output stays local: screenshots/ is
+// gitignored.
 //
 //   npm run shots                      against the local preview (config: screenshots.defaultBase)
 //   npm run shots -- --base <url>      against any other URL (a dev server, a branch preview)
@@ -25,13 +26,8 @@ const only = (value('only') || '').split(',').map((s) => s.trim()).filter(Boolea
 const pages = only.length ? cfg.pages.filter((p) => only.includes(p.name)) : cfg.pages;
 if (!pages.length) { console.error(`No page matches --only ${only.join(',')}. Known: ${cfg.pages.map((p) => p.name).join(', ')}`); process.exit(1); }
 
-const stamp = new Date().toISOString().slice(0, 16).replace('T', '_').replace(':', '');
-const outRoot = path.join(ROOT, cfg.dir);
-const runDir = path.join(outRoot, stamp);
-const latestDir = path.join(outRoot, 'latest');
-fs.mkdirSync(runDir, { recursive: true });
-fs.rmSync(latestDir, { recursive: true, force: true });
-fs.mkdirSync(latestDir, { recursive: true });
+const outDir = path.join(ROOT, cfg.dir);
+fs.mkdirSync(outDir, { recursive: true });
 
 const launchOptions = process.env.CHROME_PATH ? { executablePath: process.env.CHROME_PATH } : { channel: cfg.browserChannel };
 const browser = await chromium.launch(launchOptions).catch((e) => {
@@ -56,9 +52,7 @@ for (const p of pages) {
     try {
       await page.goto(base + p.path, { waitUntil: 'networkidle', timeout: 60000 });
       await page.waitForTimeout(1500);
-      const file = path.join(runDir, name);
-      await page.screenshot({ path: file });
-      fs.copyFileSync(file, path.join(latestDir, name));
+      await page.screenshot({ path: path.join(outDir, name) });
       console.log(`  ok   ${name}`);
     } catch (e) {
       failures += 1;
@@ -68,5 +62,5 @@ for (const p of pages) {
   }
 }
 await browser.close();
-console.log(`\nSaved to ${path.relative(ROOT, runDir)} (and copied to ${path.relative(ROOT, latestDir)})`);
+console.log(`\nSaved to ${path.relative(ROOT, outDir)} (each run replaces the previous copy of what it captured)`);
 process.exit(failures ? 1 : 0);
