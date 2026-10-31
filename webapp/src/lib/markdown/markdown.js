@@ -12,9 +12,13 @@ import { createStash, restore } from './htmlStash.js';
 // the document is parsed. See htmlStash.js.
 export function renderMarkdownDoc(rawText) {
   const store = createStash();
-  const prepared = renderTabs(renderBlocks(renderVideos(rawText, store), store), store);
+  const prepared = renderTabs(renderBlocks(renderVideos(normalizeNewlines(rawText), store), store), store);
   return restore(marked.parse(prepared), store);
 }
+
+// Windows line endings (a checkout made there, a file edited there) must not change how a page renders: the callout,
+// tab and video syntaxes are all matched line by line, and a stray "\r" at the end of a line stops them matching.
+export const normalizeNewlines = (text) => text.replace(/\r\n?/g, '\n');
 
 // A module's title as the page heading shows it: the index keeps the heading's raw text, which may hold a little
 // inline markdown (`code`), so the header can draw the same heading before the module itself has arrived.

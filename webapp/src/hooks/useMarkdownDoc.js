@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { renderMarkdownDoc } from '../lib/markdown/markdown.js';
+import { normalizeNewlines, renderMarkdownDoc } from '../lib/markdown/markdown.js';
 import { ApiError } from '../lib/errors.js';
 
 // Fetches the raw .md file and runs it through the tabs+marked pipeline to
@@ -21,7 +21,8 @@ export function useMarkdownDoc(path) {
         if (!res.ok) throw new ApiError(res.status + ' ' + res.statusText, { status: res.status, url: res.url });
         return res.text();
       })
-      .then((text) => ({ html: renderMarkdownDoc(text), rawText: text }))
+      .then((text) => normalizeNewlines(text))
+      .then((rawText) => ({ html: renderMarkdownDoc(rawText), rawText }))
       .then(
         ({ html, rawText }) => { if (current()) setState({ html, rawText, loading: false, error: null }); },
         (error) => { if (current()) setState({ html: null, rawText: null, loading: false, error }); }
