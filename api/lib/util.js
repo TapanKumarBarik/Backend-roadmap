@@ -2,6 +2,17 @@
 // on Node's Buffer and crypto.randomBytes; on the Workers runtime we have
 // Buffer (via nodejs_compat) but random comes from the Web Crypto global.
 
+/** @typedef {import('hono/utils/http-status').ContentfulStatusCode} HttpStatus */
+
+/**
+ * The status of a failed upstream (GitHub) response, handed on to our own client.
+ * @param {Response} res
+ * @returns {HttpStatus}
+ */
+export function upstreamStatus(res) {
+  return /** @type {HttpStatus} */ (res.status);
+}
+
 export function randomHex(bytes = 4) {
   const a = new Uint8Array(bytes);
   crypto.getRandomValues(a);

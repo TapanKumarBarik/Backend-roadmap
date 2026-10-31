@@ -3,7 +3,7 @@
 // so siteOrigin() no longer has to dig the original host out of SWA's
 // x-ms-original-url / x-forwarded-host proxy headers.
 
-import { Hono } from 'hono';
+import { createRouter } from '../lib/router.js';
 import { run } from '../lib/d1.js';
 import { SESSION_COOKIE, parseCookies, sign, verify, cookieAttrs } from '../lib/session.js';
 import { isAdmin } from '../lib/admin.js';
@@ -14,7 +14,7 @@ const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
 const STATE_COOKIE = 'oauth_state';
 const SESSION_MAX_AGE = 60 * 60 * 24 * 30; // 30 days
 
-const auth = new Hono();
+const auth = createRouter();
 
 function clientId(env) {
   return (env.GOOGLE_CLIENT_ID || '').trim();

@@ -25,6 +25,6 @@ const ALLOWED_TAGS = [
 const ALLOWED_ATTR = ['href', 'target', 'rel'];
 
 export function renderUserMarkdown(text) {
-  const html = marked.parse(text || '', { renderer, gfm: true, breaks: true, async: false });
+  const html = /** @type {string} */ (marked.parse(text || '', { renderer, gfm: true, breaks: true, async: false }));
   return DOMPurify.sanitize(html, { ALLOWED_TAGS, ALLOWED_ATTR });
 }

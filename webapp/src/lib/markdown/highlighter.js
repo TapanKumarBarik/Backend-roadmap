@@ -26,7 +26,8 @@ import sql from 'highlight.js/lib/languages/sql';
 import xml from 'highlight.js/lib/languages/xml'; // also covers the 'html' alias
 import yaml from 'highlight.js/lib/languages/yaml';
 
-[
+/** @type {[string, import('highlight.js').LanguageFn][]} */
+const GRAMMARS = [
   ['bash', bash], // also registers the 'sh'/'zsh' aliases
   ['csharp', csharp],
   ['dockerfile', dockerfile],
@@ -43,7 +44,8 @@ import yaml from 'highlight.js/lib/languages/yaml';
   ['sql', sql],
   ['xml', xml], // also registers the 'html'/'svg'/... aliases
   ['yaml', yaml]
-].forEach(([name, lang]) => hljs.registerLanguage(name, lang));
+];
+GRAMMARS.forEach(([name, lang]) => hljs.registerLanguage(name, lang));
 
 // Only when an explicit, known language is declared. Bare fences in this curriculum are usually ASCII
 // diagrams/tables — auto detection mangles those.

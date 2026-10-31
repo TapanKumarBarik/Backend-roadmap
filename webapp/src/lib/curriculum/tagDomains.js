@@ -48,6 +48,7 @@ const FORMAT_TAGS = new Set(['exercises', 'challenge', 'quiz', 'review', 'dual-l
 
 export function groupTags(allTags, { includeFormat = false } = {}) {
   const claimed = new Set();
+  /** @type {{ name: string, items: { tag: string, count: number }[], rest?: boolean }[]} */
   const groups = DOMAINS.map(({ name, tags }) => {
     const items = tags
       .filter((t) => allTags[t] && (includeFormat || !FORMAT_TAGS.has(t)))

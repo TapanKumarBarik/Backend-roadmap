@@ -2,12 +2,12 @@
 // page tree. Partitioned by userId in Table Storage; here every query is
 // scoped `WHERE user_id = ?` and the table is indexed on user_id.
 
-import { Hono } from 'hono';
+import { createRouter } from '../lib/router.js';
 import { all, first, run, batch } from '../lib/d1.js';
 import { getSession } from '../lib/admin.js';
 import { timeId } from '../lib/util.js';
 
-const workspace = new Hono();
+const workspace = createRouter();
 
 const MAX_TITLE_LENGTH = 200;
 const MAX_CONTENT_BYTES = 200 * 1024;

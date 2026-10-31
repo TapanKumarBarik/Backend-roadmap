@@ -2,7 +2,7 @@
 // endpoints. The bounded full-table scans the Table Storage versions used for
 // per-user activity counts become GROUP BY aggregates.
 
-import { Hono } from 'hono';
+import { createRouter } from '../lib/router.js';
 import { all, first, run } from '../lib/d1.js';
 import {
   getSession, isAdmin, requireAdmin, listAdmins, grantAdmin, revokeAdmin, normalize, adminEmail
@@ -10,7 +10,7 @@ import {
 import { timeId } from '../lib/util.js';
 import { STORAGE_ACCOUNT } from '../lib/blob.js';
 
-const admin = new Hono();
+const admin = createRouter();
 
 const DAILY_WINDOW = 30;
 const RECENT_SCAN = 2000;

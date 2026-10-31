@@ -44,6 +44,12 @@ jobs:
       - name: Check admin guards
         run: npm run check
 
+      - name: Lint
+        run: npm run lint
+
+      - name: Type check
+        run: npm run typecheck
+
       - name: Test
         run: npm test
 

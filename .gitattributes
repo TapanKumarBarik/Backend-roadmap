@@ -1,0 +1,14 @@
+# One line ending everywhere: LF in the repository and in every checkout (.editorconfig says the same), so the
+# build gives byte-identical output on Windows and Linux and a diff never shows a file as changed only because
+# of its line endings.
+* text=auto eol=lf
+
+# Never touched by line-ending conversion.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.ico binary
+*.woff2 binary
+*.pdf binary

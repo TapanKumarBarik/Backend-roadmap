@@ -2,12 +2,12 @@
 // account.js — the private, per-user "study" surface. Every route is keyed by
 // the signed-in user's Google `sub` (session.sub).
 
-import { Hono } from 'hono';
+import { createRouter } from '../lib/router.js';
 import { all, first, run, batch } from '../lib/d1.js';
 import { getSession } from '../lib/admin.js';
 import { SESSION_COOKIE, cookieAttrs } from '../lib/session.js';
 
-const study = new Hono();
+const study = createRouter();
 
 async function requireSession(c) {
   const session = await getSession(c);
@@ -157,7 +157,7 @@ function todayStr() {
   return new Date().toISOString().slice(0, 10);
 }
 function daysBetween(a, b) {
-  return Math.round((new Date(b + 'T00:00:00Z') - new Date(a + 'T00:00:00Z')) / 86400000);
+  return Math.round((new Date(b + 'T00:00:00Z').getTime() - new Date(a + 'T00:00:00Z').getTime()) / 86400000);
 }
 
 study.get('/streak', async (c) => {

@@ -3,14 +3,14 @@
 // `${postId}_${userId}` FeedVotes row key becomes real post_id / voter_id
 // columns. File uploads still PUT to the Azure feed-uploads container via SAS.
 
-import { Hono } from 'hono';
+import { createRouter } from '../lib/router.js';
 import { all, first, run } from '../lib/d1.js';
 import { getSession, requireAdmin } from '../lib/admin.js';
 import { checkRateLimit } from '../lib/rateLimit.js';
 import { timeId } from '../lib/util.js';
 import { FEED_CONTAINER, blobBase, bytesFromBase64, bytesMatch, putBlob } from '../lib/blob.js';
 
-const feed = new Hono();
+const feed = createRouter();
 
 const MAX_TEXT_LENGTH = 20000;
 const RATE_LIMIT_WINDOW_MS = 10 * 60 * 1000;

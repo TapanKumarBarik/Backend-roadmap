@@ -8,6 +8,8 @@
     "index": "python scripts/build/gen-docs-index.py && python scripts/build/gen-search-index.py && node scripts/build/gen-site-stats.mjs",
     "test": "node --test \"webapp/src/**/*.test.js\" \"scripts/**/*.test.mjs\"",
     "test:e2e": "node --test \"tests/e2e/*.e2e.mjs\"",
+    "lint": "eslint . --max-warnings 0",
+    "typecheck": "tsc -p api && tsc -p scripts && tsc -p webapp",
     "check": "node scripts/check/check-admin-guards.js && node scripts/check/check-paths.mjs && node scripts/check/check-images.mjs",
     "check:paths": "node scripts/check/check-paths.mjs",
     "check:images": "node scripts/check/check-images.mjs",
@@ -20,6 +22,14 @@
     "hono": "^4.6.14"
   },
   "devDependencies": {
-    "playwright-core": "^1.64.1"
+    "@cloudflare/workers-types": "^4.20260702.1",
+    "@eslint/js": "^9.39.5",
+    "@types/node": "^22.20.5",
+    "eslint": "^9.39.5",
+    "eslint-plugin-react": "^7.37.5",
+    "eslint-plugin-react-hooks": "^5.2.0",
+    "globals": "^17.13.0",
+    "playwright-core": "^1.64.1",
+    "typescript": "^7.0.2"
   }
 }

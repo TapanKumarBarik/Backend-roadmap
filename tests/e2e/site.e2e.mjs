@@ -74,7 +74,7 @@ test('code is highlighted after the text, from its own chunk', async () => {
 });
 
 test('the heading is on screen before the text arrives, and nothing moves when it does', async () => {
-  const { context, page, goto } = await open(LESSON);
+  const { context, page } = await open(LESSON);
   await context.route('**/README.md', async (route) => { await new Promise((r) => setTimeout(r, 1500)); await route.continue(); });
   await page.addInitScript(() => {
     window.__cls = 0;

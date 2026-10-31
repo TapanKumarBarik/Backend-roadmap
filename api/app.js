@@ -3,7 +3,7 @@
 // frontend already calls (webapp/src/lib/api.js). The Pages Function at
 // functions/api/[[path]].js forwards every /api/* request here.
 
-import { Hono } from 'hono';
+import { createRouter } from './lib/router.js';
 
 import study from './routes/study.js';
 import auth from './routes/auth.js';
@@ -14,7 +14,7 @@ import workspace from './routes/workspace.js';
 import admin from './routes/admin.js';
 import content from './routes/content.js';
 
-const app = new Hono();
+const app = createRouter();
 
 app.route('/api', auth);
 app.route('/api', study);

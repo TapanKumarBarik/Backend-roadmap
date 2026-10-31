@@ -34,7 +34,7 @@ const previewDir = args.includes('--preview') ? args[args.indexOf('--preview') +
 const read = (rel) => fs.readFileSync(path.join(ROOT, rel), 'utf8');
 const exists = (rel) => fs.existsSync(path.join(ROOT, rel));
 const dirs = (rel) => fs.readdirSync(path.join(ROOT, rel), { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => e.name).sort();
-const title = (md, fallback) => (md.match(/^#\s+(.+?)\s*$/m) || [, fallback])[1];
+const title = (md, fallback) => md.match(/^#\s+(.+?)\s*$/m)?.[1] ?? fallback;
 const link = (rel, text) => `[${text}](${BLOB}/${rel.split('/').map(encodeURIComponent).join('/')})`;
 
 function modulesOf(track) {

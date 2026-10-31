@@ -138,7 +138,6 @@ export async function renderMermaidDiagrams(root) {
       // A malformed diagram must not blank the rest of the module — leave
       // the original (already-enhanced) code block rendered as plain text. But say so: a diagram that
       // silently turns into code just looks like a rendering bug, and the author never finds out.
-      // eslint-disable-next-line no-console
       console.warn('Mermaid diagram could not be rendered:', String(err && err.message ? err.message : err).split('\n')[0]);
       if (host.isConnected && !host.previousElementSibling?.classList?.contains('mermaid-failed-note')) {
         const note = document.createElement('p');

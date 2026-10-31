@@ -1,0 +1,17 @@
+{
+  "compilerOptions": {
+    "allowJs": true,
+    "checkJs": true,
+    "noEmit": true,
+    "strict": false,
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "types": ["node"],
+    "resolveJsonModule": true,
+    "skipLibCheck": true
+  },
+  "include": ["src/globals.d.ts", "src/lib/**/*.js", "src/config/**/*.js", "src/hooks/**/*.js"],
+  "exclude": ["**/*.test.js"]
+}

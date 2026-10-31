@@ -57,10 +57,11 @@ await page.addScriptTag({ content: fs.readFileSync(MERMAID_BUNDLE, 'utf8') });
 
 // Same settings the app renders with (webapp/src/lib/markdown/mermaidRender.js): strict security, no auto-start.
 const results = await page.evaluate(async (items) => {
-  window.mermaid.initialize({ startOnLoad: false, securityLevel: 'strict' });
+  const mermaid = /** @type {any} */ (window).mermaid;
+  mermaid.initialize({ startOnLoad: false, securityLevel: 'strict' });
   const out = [];
   for (let i = 0; i < items.length; i++) {
-    try { await window.mermaid.render(`check-${i}`, items[i].source); out.push(null); }
+    try { await mermaid.render(`check-${i}`, items[i].source); out.push(null); }
     catch (e) { out.push(String((e && e.message) || e).split('\n').slice(0, 2).join(' ').slice(0, 200)); }
   }
   return out;

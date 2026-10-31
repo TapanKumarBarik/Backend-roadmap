@@ -13,7 +13,7 @@ const dirs = (p) => (fs.existsSync(p) ? fs.readdirSync(p, { withFileTypes: true 
   .filter((d) => d.isDirectory() && /^\d\d-/.test(d.name)).map((d) => d.name).sort();
 const read = (p) => fs.readFileSync(p, 'utf8');
 const isPlaceholder = (p) => isPlaceholderText(read(p));
-const h1 = (p) => (read(p).match(/^#\s+(.+)$/m) || [, ''])[1].trim();
+const h1 = (p) => (read(p).match(/^#\s+(.+)$/m)?.[1] ?? '').trim();
 const trackTitle = (p) => h1(p).replace(/^Track\s+\d+\s*[:\-–—]\s*/i, '');
 
 const out = { generated: new Date().toISOString(), modules: { total: 0, written: 0, planned: 0 }, curricula: {}, tracks: {} };

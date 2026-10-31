@@ -348,16 +348,17 @@ export default function App() {
 
   const openAdmin = useCallback(() => navigate(ADMIN_ROUTE), [navigate]);
   const openSaved = useCallback(() => navigate(SAVED_ROUTE), [navigate]);
-  const openNotes = useCallback(() => navigate(NOTES_ROUTE), [navigate]);
   const openExplore = useCallback(() => navigate(EXPLORE_ROUTE), [navigate]);
+  const markQuestionsSeen = questionsActivity.markSeen;
+  const markFeedSeen = feedActivity.markSeen;
   const openCommunity = useCallback(() => {
-    questionsActivity.markSeen();
+    markQuestionsSeen();
     navigate(COMMUNITY_ROUTE);
-  }, [navigate, questionsActivity.markSeen]);
+  }, [navigate, markQuestionsSeen]);
   const openFeed = useCallback(() => {
-    feedActivity.markSeen();
+    markFeedSeen();
     navigate(FEED_ROUTE);
-  }, [navigate, feedActivity.markSeen]);
+  }, [navigate, markFeedSeen]);
   const openFeedPost = useCallback((postId) => navigate(FEED_ROUTE, postId), [navigate]);
   const openBooks = useCallback(() => navigate(BOOKS_ROUTE), [navigate]);
   const openSuggestions = useCallback(() => navigate(SUGGESTIONS_ROUTE), [navigate]);

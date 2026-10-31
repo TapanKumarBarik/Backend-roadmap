@@ -5,13 +5,13 @@
 // full-table scans. CommentVotes' `${commentId}_${userId}` row key becomes
 // real comment_id / voter_id columns.
 
-import { Hono } from 'hono';
+import { createRouter } from '../lib/router.js';
 import { all, first, run } from '../lib/d1.js';
 import { getSession, isAdmin, requireAdmin } from '../lib/admin.js';
 import { checkRateLimit } from '../lib/rateLimit.js';
 import { timeId } from '../lib/util.js';
 
-const comments = new Hono();
+const comments = createRouter();
 
 const MAX_LENGTH = 2000;
 const RATE_LIMIT_WINDOW_MS = 5 * 60 * 1000;

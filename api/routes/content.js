@@ -3,12 +3,13 @@
 // to the Azure `images` container via SAS. Unchanged apart from Buffer →
 // bytes helpers.
 
-import { Hono } from 'hono';
+import { createRouter } from '../lib/router.js';
 import site from '../../site.config.json';
 import { requireAdmin } from '../lib/admin.js';
+import { upstreamStatus } from '../lib/util.js';
 import { IMAGE_CONTAINER, blobBase, bytesFromBase64, putBlob } from '../lib/blob.js';
 
-const content = new Hono();
+const content = createRouter();
 
 const GITHUB_REPO = `${site.repo.owner}/${site.repo.name}`;
 const GITHUB_BRANCH = site.repo.branch;
@@ -40,7 +41,7 @@ content.get('/manage/content', async (c) => {
   const res = await fetch(`${GITHUB_API}/repos/${GITHUB_REPO}/contents/${path}?ref=${GITHUB_BRANCH}`, {
     headers: githubHeaders(c.env)
   });
-  if (!res.ok) return c.json({ error: 'GitHub fetch failed: ' + res.status }, res.status);
+  if (!res.ok) return c.json({ error: 'GitHub fetch failed: ' + res.status }, upstreamStatus(res));
   const data = await res.json();
   const decoded = Buffer.from(data.content.replace(/\n/g, ''), 'base64').toString('utf-8');
   return c.json({ path, content: decoded, sha: data.sha });
@@ -68,7 +69,7 @@ content.put('/manage/content', async (c) => {
     })
   });
   if (!res.ok) {
-    return c.json({ error: 'GitHub commit failed', detail: await res.text() }, res.status);
+    return c.json({ error: 'GitHub commit failed', detail: await res.text() }, upstreamStatus(res));
   }
   const data = await res.json();
   return c.json({ path, sha: data.content.sha, commit: data.commit.sha });

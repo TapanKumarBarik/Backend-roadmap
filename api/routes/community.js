@@ -3,14 +3,14 @@
 // signed-in users can add); Messages is a private admin-only inbox. The
 // `${id}_${userId}` SuggestionVotes row key becomes real columns.
 
-import { Hono } from 'hono';
+import { createRouter } from '../lib/router.js';
 import { all, first, run } from '../lib/d1.js';
 import { getSession, requireAdmin } from '../lib/admin.js';
 import { checkRateLimit } from '../lib/rateLimit.js';
 import { timeId } from '../lib/util.js';
 import { FEED_CONTAINER, blobBase } from '../lib/blob.js';
 
-const community = new Hono();
+const community = createRouter();
 
 const LIST_LIMIT = 500;
 

@@ -18,7 +18,7 @@ import { resolvePath } from '../../webapp/src/lib/markdown/rewriteLinks.js';
 import { buildPageTitles } from '../../webapp/src/lib/curriculum/pageTitle.js';
 import { neighbourModules } from '../../webapp/src/lib/curriculum/curriculumPosition.js';
 import { ROOT, config, SITE_URL, isPlaceholderText } from '../lib/config.mjs';
-import { descriptionCandidates, pickDescription, textOf } from '../lib/describe.mjs';
+import { descriptionCandidates, pickDescription } from '../lib/describe.mjs';
 import { gitDates } from '../lib/gitDates.mjs';
 
 const SITE = SITE_URL;
