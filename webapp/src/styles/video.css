@@ -1,0 +1,35 @@
+/* A video in a module (lib/markdown/video.js): its thumbnail and a play button, which become the player when
+   pressed. The selectors carry an extra class because global.css, which styles #content's links and images,
+   is loaded after this file. */
+#content .video {
+  position: relative; margin: 26px 0; aspect-ratio: 16 / 9; overflow: hidden;
+  border-radius: var(--r-lg); background: #0e1116; box-shadow: var(--shadow-md);
+}
+#content .video .video-link, #content .video .video-link:visited, #content .video .video-link:hover {
+  position: absolute; inset: 0; display: block; color: #fff; text-decoration: none;
+}
+/* The thumbnail has black bars above and below its 16:9 picture; covering the box crops exactly those. */
+#content .video .video-link img {
+  display: block; width: 100%; height: 100%; margin: 0; border: 0; border-radius: 0; object-fit: cover;
+  transition: transform var(--dur-slow) var(--ease-out);
+}
+#content .video .video-link:hover img { transform: scale(1.03); }
+#content .video .video-play {
+  position: absolute; left: 50%; top: 50%; width: 68px; height: 48px; margin: -24px 0 0 -34px;
+  border-radius: 14px; background: rgba(14, 17, 22, .82);
+  transition: background var(--dur-base), transform var(--dur-base) var(--ease-out);
+}
+#content .video .video-play::after {
+  content: ''; position: absolute; left: 27px; top: 14px;
+  border-style: solid; border-width: 10px 0 10px 17px; border-color: transparent transparent transparent #fff;
+}
+#content .video .video-link:hover .video-play, #content .video .video-link:focus-visible .video-play {
+  background: var(--signal); transform: scale(1.07);
+}
+#content .video .video-link:focus-visible { outline: 3px solid var(--signal); outline-offset: -3px; }
+#content .video .video-label {
+  position: absolute; left: 0; right: 0; bottom: 0; padding: 30px 18px 13px;
+  font-size: 14px; font-weight: 600; line-height: 1.3;
+  background: linear-gradient(transparent, rgba(0, 0, 0, .74));
+}
+#content .video iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }

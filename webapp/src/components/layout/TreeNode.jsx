@@ -1,7 +1,9 @@
+import { useMemo } from 'react';
 import { CaretIcon, TickIcon } from '../common/icons.jsx';
 import { subtreeStats, derivedStatus } from '../../lib/curriculum/progressStats.js';
 import { ordinalOf, shortTitle, stripOrdinal } from '../../lib/curriculum/curriculumPosition.js';
 import { isModule } from '../../lib/curriculum/nodeKind.js';
+import { routeUrl } from '../../lib/curriculum/moduleUrl.js';
 
 export default function TreeNode({
   node, statusMap, openDirs, filter, visibleFiles, currentFile,
@@ -14,6 +16,12 @@ export default function TreeNode({
   const hidden = filter !== 'all' && node.file && !visibleFiles.has(node.file);
 
   function handleRowClick(e) {
+    // The name is a real link (so a crawler, or a reader who wants a new tab or to copy the address, can use it);
+    // an ordinary click is handled here instead of reloading the page, a click meant for a new tab is left alone.
+    if (e.target.closest('a.name')) {
+      if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+      e.preventDefault();
+    }
     if (hasKids && e.target.closest('.caret')) { onToggleDir(node.path); return; }
     if (node.file) { onOpenFile(node.file); closeNavOnMobile(); return; }
     if (hasKids) onToggleDir(node.path);
@@ -31,6 +39,13 @@ export default function TreeNode({
   const fullTitle = node.title || node.name;
   const ordinal = depth === 0 ? null : ordinalOf(node);
   const label = depth === 0 ? shortTitle(node) : stripOrdinal(fullTitle) || fullTitle;
+  const url = useMemo(() => (node.file ? routeUrl(node.file) : null), [node.file]);
+  const nameContent = (
+    <>
+      {ordinal && <span className="ord">{ordinal}</span>}
+      <span className="ttl">{label}</span>
+    </>
+  );
 
   let prog = null;
   if (hasKids) {
@@ -76,10 +91,9 @@ export default function TreeNode({
             → AKS → Platform Engineering"), which wrapped to three lines in
             a 340px panel. The part before the colon is the name people
             actually use; the full text stays as the row's tooltip. */}
-        <span className="name" title={depth === 0 ? fullTitle : undefined}>
-          {ordinal && <span className="ord">{ordinal}</span>}
-          <span className="ttl">{label}</span>
-        </span>
+        {url
+          ? <a className="name" href={url} title={depth === 0 ? fullTitle : undefined}>{nameContent}</a>
+          : <span className="name" title={depth === 0 ? fullTitle : undefined}>{nameContent}</span>}
         {prog}
       </div>
       {hasKids && (

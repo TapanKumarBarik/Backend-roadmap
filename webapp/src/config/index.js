@@ -8,6 +8,7 @@ export const DEVELOPER = site.developer;
 export const REPO = site.repo;
 export const CONTENT = site.content;
 export const STORAGE = site.storage;
+export const YOUTUBE = site.youtube;
 
 export const REPO_URL = `https://github.com/${REPO.owner}/${REPO.name}`;
 export const DEVELOPER_EMAIL_LINK = `mailto:${DEVELOPER.email}`;

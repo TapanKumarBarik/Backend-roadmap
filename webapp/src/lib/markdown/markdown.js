@@ -1,18 +1,25 @@
 import { marked } from 'marked';
 import { renderTabs } from './tabs.js';
 import { renderBlocks } from './contentBlocks.js';
+import { renderVideos } from './video.js';
 import { createStash, restore } from './htmlStash.js';
 
-// Blocks first, then tabs, then the document. Both generators produce HTML
-// before marked sees the page, and both put that HTML into a shared stash
-// in place of a one-line placeholder — marked ends an HTML block at the
-// first blank line, so anything multi-line spliced inline gets torn apart
-// and its remainder re-parsed as markdown. The stash is restored after the
-// document is parsed. See htmlStash.js.
+// Videos and blocks first, then tabs, then the document. Each generator
+// produces HTML before marked sees the page, and each puts that HTML into a
+// shared stash in place of a one-line placeholder — marked ends an HTML block
+// at the first blank line, so anything multi-line spliced inline gets torn
+// apart and its remainder re-parsed as markdown. The stash is restored after
+// the document is parsed. See htmlStash.js.
 export function renderMarkdownDoc(rawText) {
   const store = createStash();
-  const prepared = renderTabs(renderBlocks(rawText, store), store);
+  const prepared = renderTabs(renderBlocks(renderVideos(rawText, store), store), store);
   return restore(marked.parse(prepared), store);
+}
+
+// A module's title as the page heading shows it: the index keeps the heading's raw text, which may hold a little
+// inline markdown (`code`), so the header can draw the same heading before the module itself has arrived.
+export function inlineTitleHtml(title) {
+  return marked.parseInline(title || '');
 }
 
 // A module's title is its first heading. The page lifts it out of the body so the header can put what is known about

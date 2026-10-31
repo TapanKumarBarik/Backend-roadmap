@@ -50,3 +50,14 @@ Illustrations should look like one family. They are drawn in SVG, by hand or wit
 - **One idea per picture.**
 
 The logo and these colours come from the site's own design tokens in `webapp/src/styles/global.css`.
+
+## Animated illustrations
+
+An SVG can move without any script: CSS animation inside the file runs even when the file is used as a normal image (`![...](images/x.svg)`), so there is nothing to wire up. Use it when motion *is* the explanation (a request travelling a route, a message passing from service to service), not to make a picture livelier. `backend/01-request-response-fundamentals/00-system-overview-and-request-flow/images/request-journey.svg` is the reference: a dot travels the route and each latency label lights as it arrives.
+
+- **Put the styles in the file.** A `<style>` block with `@keyframes`, and classes on the shapes that move. No `<script>`, no JavaScript, no links to other files (the checker rejects scripts).
+- **Moves only what teaches.** One thing travels or changes at a time, slowly (a full loop of 8 to 12 seconds, at least half a second between steps), with a rest at the end so the reader can look at the finished picture.
+- **Honour reduced motion.** End the `<style>` with `@media (prefers-reduced-motion: reduce) { ... }` that hides the moving parts and stops the animations, so the picture is still complete and readable with nothing moving.
+- **No flashing**, and nothing that is only visible while it moves: the still picture must make sense on its own, because that is what a printout, a screen reader's description and a reader who has turned motion off all get.
+- **Animate `transform`, `opacity`, `fill` and `stroke`.** They are cheap; layout-changing properties are not.
+- The 200 KB limit and the rules above still apply. Look at it in the module, in light and dark, and with the system's "reduce motion" setting on.

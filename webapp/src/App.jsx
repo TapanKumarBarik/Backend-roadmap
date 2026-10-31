@@ -15,13 +15,14 @@ import { useToast } from './hooks/useToast.js';
 import { useBookmarks } from './hooks/useBookmarks.js';
 import { useStreak } from './hooks/useStreak.js';
 import { useSiteStats } from './hooks/useSiteStats.js';
-import { STORAGE } from './config/index.js';
+import { STORAGE, SITE } from './config/index.js';
 import { LEARNING_PATHS, PATH_COPY } from './config/paths.js';
 import { readStored, writeStored } from './lib/storage.js';
 import { useLanding } from './hooks/useLanding.js';
 import { useCommentActivity } from './hooks/useCommentActivity.js';
 import { useFeedActivity, useQuestionsActivity } from './hooks/useCommunityActivity.js';
 import { computeTreeVisibility } from './lib/curriculum/treeFilter.js';
+import { buildPageTitles } from './lib/curriculum/pageTitle.js';
 import { globalCounts } from './lib/curriculum/progressStats.js';
 import { dirsOnPath } from './lib/curriculum/treePath.js';
 import { trackPageView, deleteAccount } from './lib/api.js';
@@ -36,19 +37,35 @@ import MainColumn from './components/layout/MainColumn.jsx';
 import RightRail from './components/layout/RightRail.jsx';
 import CommandPalette from './components/palette/CommandPalette.jsx';
 import Toast from './components/common/Toast.jsx';
-import SavedView from './components/saved/SavedView.jsx';
-import ExploreView from './components/explore/ExploreView.jsx';
-import CommunityView from './components/community/CommunityView.jsx';
-import FeedView from './components/feed/FeedView.jsx';
-import PostDetailView from './components/feed/PostDetailView.jsx';
-import BooksView from './components/community/BooksView.jsx';
-import SuggestionsView from './components/community/SuggestionsView.jsx';
-import MessageOwnerModal from './components/account/MessageOwnerModal.jsx';
+import ScreenBoundary from './components/common/ScreenBoundary.jsx';
 
-// Lazy: the GitHub-commit content editor and its admin-only siblings are
-// dead weight for the ~all visitors who aren't the site admin — split them
-// into their own chunk instead of shipping them in the main bundle.
+// Lazy: everything that is not a module page. Someone who arrives on a module (which is how nearly everyone
+// arrives: from a search result or a video) never needs the feed, the community tabs, the saved list or the
+// admin screens, so none of them is in the first download. The GitHub-commit content editor and its admin-only
+// siblings are the extreme case: dead weight for everyone but the site admin.
+//
+// The small ones (a few KB each) are fetched once the page has settled, so by the time anyone opens one it is already
+// here and still opens if the connection drops; the two heavy ones (the admin screens, the workspace editor) are
+// fetched only when opened.
+const smallScreens = {
+  saved: () => import('./components/saved/SavedView.jsx'),
+  explore: () => import('./components/explore/ExploreView.jsx'),
+  community: () => import('./components/community/CommunityView.jsx'),
+  feed: () => import('./components/feed/FeedView.jsx'),
+  post: () => import('./components/feed/PostDetailView.jsx'),
+  books: () => import('./components/community/BooksView.jsx'),
+  suggestions: () => import('./components/community/SuggestionsView.jsx'),
+  message: () => import('./components/account/MessageOwnerModal.jsx')
+};
 const AdminDashboard = lazy(() => import('./components/admin/AdminDashboard.jsx'));
+const SavedView = lazy(smallScreens.saved);
+const ExploreView = lazy(smallScreens.explore);
+const CommunityView = lazy(smallScreens.community);
+const FeedView = lazy(smallScreens.feed);
+const PostDetailView = lazy(smallScreens.post);
+const BooksView = lazy(smallScreens.books);
+const SuggestionsView = lazy(smallScreens.suggestions);
+const MessageOwnerModal = lazy(smallScreens.message);
 // Lazy: Tiptap/ProseMirror alone added ~600KB to the main bundle for a
 // feature only a signed-in user who opens Workspace ever touches — same
 // reasoning as AdminDashboard above, just for a much heavier dependency.
@@ -137,6 +154,15 @@ export default function App() {
     document.body.classList.toggle('nav-open', navOpen);
   }, [navOpen]);
 
+  // Once the page has settled, fetch the small screens (see smallScreens). A failure here is not an error: the
+  // screen is simply fetched when someone opens it, and says so if that fails too (ScreenBoundary).
+  useEffect(() => {
+    const whenIdle = window.requestIdleCallback || ((run) => setTimeout(run, 2000));
+    const cancel = window.cancelIdleCallback || clearTimeout;
+    const handle = whenIdle(() => Object.values(smallScreens).forEach((load) => load().catch(() => {})));
+    return () => cancel(handle);
+  }, []);
+
   useEffect(() => {
     function onDocClick() { setMenuOpen(false); }
     document.addEventListener('click', onDocClick);
@@ -149,14 +175,15 @@ export default function App() {
     trackPageView(currentFile);
   }, [currentFile]);
 
-  // Each module page is served with its own <title> (scripts/prerender.mjs);
+  // Each module page is served with its own <title> (scripts/build/prerender.mjs), built by the same function;
   // keep it right as the reader moves between modules without a page load.
   // While the docs index is still loading, leave whatever the page shipped with.
+  const pageTitles = useMemo(() => buildPageTitles(treeData, SITE.name), [treeData]);
   useEffect(() => {
-    const node = currentFile && nodeByFile[currentFile];
-    if (node) document.title = `${node.title || node.name} · Backend Roadmap`;
-    else if (!path || isSpecialRoute) document.title = 'Backend Roadmap — Backend Engineering, System Design & GenAI Curriculum';
-  }, [currentFile, nodeByFile, path, isSpecialRoute]);
+    const title = currentFile && pageTitles[currentFile];
+    if (title) document.title = title.full;
+    else if (!path || isSpecialRoute) document.title = SITE.title;
+  }, [currentFile, pageTitles, path, isSpecialRoute]);
 
   const openFile = useCallback((filePath, headingId) => {
     navigate(filePath, headingId || null);
@@ -480,10 +507,10 @@ export default function App() {
           ? (
             <div id="mainCol">
               <div id="main" className="scroll" tabIndex={-1}>
+                <ScreenBoundary key={path}>
+                <Suspense fallback={<div id="empty"><p style={{ color: 'var(--fg-subtle)' }}>Loading…</p></div>}>
                 {isAdminRoute && (
-                  <Suspense fallback={<div id="empty"><p style={{ color: 'var(--fg-subtle)' }}>Loading…</p></div>}>
-                    <AdminDashboard isAdmin={!!user?.isAdmin} lastViewedFile={lastViewedFile} onOpenFile={openFile} currentUserEmail={user?.email} />
-                  </Suspense>
+                  <AdminDashboard isAdmin={!!user?.isAdmin} lastViewedFile={lastViewedFile} onOpenFile={openFile} currentUserEmail={user?.email} />
                 )}
                 {isSavedRoute && (
                   <SavedView
@@ -526,11 +553,9 @@ export default function App() {
                 )}
                 {isBooksRoute && <BooksView user={user} onLogin={login} onToast={toast.show} />}
                 {isSuggestionsRoute && <SuggestionsView user={user} onLogin={login} onToast={toast.show} />}
-                {isWorkspaceRoute && (
-                  <Suspense fallback={<div id="empty"><p style={{ color: 'var(--fg-subtle)' }}>Loading…</p></div>}>
-                    <WorkspaceView user={user} onLogin={login} />
-                  </Suspense>
-                )}
+                {isWorkspaceRoute && <WorkspaceView user={user} onLogin={login} />}
+                </Suspense>
+                </ScreenBoundary>
               </div>
             </div>
           )
@@ -610,7 +635,11 @@ export default function App() {
         onOpenFile={openFile}
         actions={paletteActions}
       />
-      {messageOpen && <MessageOwnerModal onClose={() => setMessageOpen(false)} onToast={toast.show} />}
+      {messageOpen && (
+        <Suspense fallback={null}>
+          <MessageOwnerModal onClose={() => setMessageOpen(false)} onToast={toast.show} />
+        </Suspense>
+      )}
       <Toast message={toast.message} />
     </>
   );

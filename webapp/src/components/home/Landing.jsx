@@ -1,10 +1,10 @@
-import { ArrowRightIcon, GithubIcon, SearchIcon } from '../common/icons.jsx';
+import { ArrowRightIcon, GithubIcon, SearchIcon, YoutubeIcon } from '../common/icons.jsx';
 import SignInButton from '../account/SignInButton.jsx';
 import SiteFooter from '../common/SiteFooter.jsx';
 import { routeUrl } from '../../lib/curriculum/moduleUrl.js';
 import { REPO_URL, CONTRIBUTE_URL } from '../../lib/curriculum/contribute.js';
-import { SITE } from '../../config/index.js';
-import { FALLBACK_START_FILE, HERO, ROUTE, PICK, LIBRARY, FRESH, INSIDE, ACCOUNT, OPEN_SOURCE } from '../../config/landing.js';
+import { SITE, YOUTUBE } from '../../config/index.js';
+import { FALLBACK_START_FILE, HERO, ROUTE, PICK, LIBRARY, FRESH, INSIDE, VIDEO, ACCOUNT, OPEN_SOURCE } from '../../config/landing.js';
 import '../../styles/landing.css';
 
 // The front door, shown to someone who has not started yet (see hooks/useLanding.js). This component only
@@ -63,8 +63,8 @@ export default function Landing({ stats, user, onLogin, onOpenFile, onStartPath,
         <figure className="lp-route">
           <figcaption>{HERO.routeCaption}</figcaption>
           <ol>
-            {ROUTE.map((s) => (
-              <li key={s.file}>
+            {ROUTE.map((s, i) => (
+              <li key={s.file} style={{ '--i': i }}>
                 <a {...link(s.file)}>
                   <span className="lp-stop" aria-hidden="true" />
                   <span className="lp-stop-t">{s.label}</span>
@@ -140,6 +140,16 @@ export default function Landing({ stats, user, onLogin, onOpenFile, onStartPath,
             <li key={t}><strong>{t}</strong><span>{d}</span></li>
           ))}
         </ul>
+      </section>
+
+      <section className="lp-account lp-video" aria-labelledby="lp-yt">
+        <div>
+          <h2 id="lp-yt">{VIDEO.heading}</h2>
+          <p>{VIDEO.body}</p>
+        </div>
+        <a className="lp-btn" href={YOUTUBE.channel} target="_blank" rel="noopener noreferrer">
+          <YoutubeIcon /> {VIDEO.label}
+        </a>
       </section>
 
       {!user && (

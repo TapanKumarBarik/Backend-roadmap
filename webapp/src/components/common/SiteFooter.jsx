@@ -1,4 +1,4 @@
-import { SITE, DEVELOPER, DEVELOPER_EMAIL_LINK, REPO_URL } from '../../config/index.js';
+import { SITE, DEVELOPER, DEVELOPER_EMAIL_LINK, REPO_URL, YOUTUBE } from '../../config/index.js';
 import BrandMark from './BrandMark.jsx';
 import { BUILD_TIME } from '../../lib/buildInfo.js';
 
@@ -22,6 +22,8 @@ export default function SiteFooter() {
         <a href="/terms.html">Terms</a>
         <span aria-hidden="true">·</span>
         <a href={REPO_URL} {...external}>GitHub</a>
+        <span aria-hidden="true">·</span>
+        <a href={YOUTUBE.channel} {...external}>YouTube</a>
         <span aria-hidden="true">·</span>
         <span>{SITE.license} licensed</span>
         {updated && (

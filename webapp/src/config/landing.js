@@ -105,6 +105,14 @@ export const ACCOUNT = {
   note: 'Until you sign in, your progress is kept on this device.'
 };
 
+// The channel is the other front door: people who find a video should end up in the module it covers, and people
+// who read a module should be able to find the video. The channel's address is in site.config.json.
+export const VIDEO = {
+  heading: 'Prefer to watch first?',
+  body: 'Video walkthroughs of the modules are on their way to YouTube. Subscribe to get each one as it lands; every video points back to its written module here.',
+  label: 'Subscribe on YouTube'
+};
+
 export const OPEN_SOURCE = {
   heading: 'Built in the open',
   body: (modules, license) => `Everything here is ${license} licensed.${modules && modules.planned > 0 ? ` ${fmt(modules.planned)} planned modules are waiting for an author.` : ''} Write one, fix a typo, or suggest a better way to organise it.`,

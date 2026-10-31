@@ -2,14 +2,14 @@ import { useRef } from 'react';
 import {
   HamburgerIcon, SearchIcon, SunIcon, MoonIcon, AutoIcon, MenuDotsIcon,
   ExportIcon, ImportIcon, ResetIcon, ExpandIcon, CollapseIcon, KeysIcon, SignOutIcon, TrashIcon,
-  MailIcon, ClockIcon, GithubIcon
+  MailIcon, ClockIcon, GithubIcon, YoutubeIcon
 } from '../common/icons.jsx';
 import SignInButton from '../account/SignInButton.jsx';
 import UserAvatar from '../account/UserAvatar.jsx';
 import BrandMark from '../common/BrandMark.jsx';
 import { BUILD_TIME } from '../../lib/buildInfo.js';
 import { CONTRIBUTE_URL } from '../../lib/curriculum/contribute.js';
-import { DEVELOPER, SITE } from '../../config/index.js';
+import { DEVELOPER, SITE, YOUTUBE } from '../../config/index.js';
 import { CONTACT } from '../../config/messages.js';
 
 const THEME_ICON = { auto: AutoIcon, light: SunIcon, dark: MoonIcon };
@@ -157,6 +157,9 @@ export default function TopBar({
         <div className="grp">Open source</div>
         <button onClick={() => { onCloseMenu(); window.open(CONTRIBUTE_URL, '_blank', 'noopener,noreferrer'); }}>
           <GithubIcon />Contribute on GitHub
+        </button>
+        <button onClick={() => { onCloseMenu(); window.open(YOUTUBE.channel, '_blank', 'noopener,noreferrer'); }}>
+          <YoutubeIcon />Watch on YouTube
         </button>
         <div className="div" />
         <button onClick={() => handleMenuAction('keys')}><KeysIcon />Keyboard shortcuts</button>

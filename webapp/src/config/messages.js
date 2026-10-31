@@ -72,6 +72,7 @@ export const LOAD_WHAT = {
   note: 'your note',
   workspace: 'your workspace',
   page: 'this page',
+  screen: 'this screen',
   module: 'this module',
   curriculum: 'the curriculum',
   people: 'the people list',

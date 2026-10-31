@@ -5,7 +5,8 @@ import { renderMermaidDiagrams } from '../../lib/markdown/mermaidRender.js';
 import { rewriteLinks } from '../../lib/markdown/rewriteLinks.js';
 import { routeUrl } from '../../lib/curriculum/moduleUrl.js';
 import { isPlaceholder, editUrl, reportUrl, claimUrl, WRITE_GUIDE_URL } from '../../lib/curriculum/contribute.js';
-import { readTimeStats, slugify, splitTitle } from '../../lib/markdown/markdown.js';
+import { inlineTitleHtml, readTimeStats, slugify, splitTitle } from '../../lib/markdown/markdown.js';
+import { playVideo } from '../../lib/markdown/video.js';
 import { ancestorsOf, buildPositions, placeName, siblingStats } from '../../lib/curriculum/curriculumPosition.js';
 import { getPosition, savePosition, clearPosition, describeWhen } from '../../lib/curriculum/readingPosition.js';
 import { enhanceSelfCheck, handleSelfCheckClick } from '../../lib/markdown/selfCheck.js';
@@ -21,6 +22,7 @@ import ProgressBar from '../common/ProgressBar.jsx';
 import CommentsSection from './CommentsSection.jsx';
 import NotesPanel from './NotesPanel.jsx';
 import ReactionsBar from './ReactionsBar.jsx';
+import '../../styles/video.css';
 // A "Published <date>" pill used to render here from the site's build time.
 // It read as a per-page fact and wasn't one — every module claimed the same
 // date, which was really just "when the site last deployed". Removed rather
@@ -183,6 +185,13 @@ export default function ArticleView({
       );
       return;
     }
+    // A video card is a link to the video until the reader presses play; a click meant for a new tab is left alone.
+    const video = e.target.closest('.video-link');
+    if (video && e.button === 0 && !e.metaKey && !e.ctrlKey && !e.shiftKey) {
+      e.preventDefault();
+      playVideo(video.closest('.video'));
+      return;
+    }
     const link = e.target.closest('[data-internal-link]');
     if (link) {
       e.preventDefault();
@@ -197,7 +206,10 @@ export default function ArticleView({
   // A track's or curriculum's own page is a signpost: it has no length worth quoting.
   const signpost = !!(node && node.children && node.children.length);
   const readTime = rawText && !placeholder && !signpost ? readTimeStats(rawText, CONTENT.wordsPerMinute) : null;
-  const { title: titleHtml, body: bodyHtml } = useMemo(() => splitTitle(html), [html]);
+  const { title: liftedTitle, body: bodyHtml } = useMemo(() => splitTitle(html), [html]);
+  // The heading is drawn from the index rather than from the module's own text: it is then on screen before the
+  // module has arrived, and the header does not move down when it does.
+  const titleHtml = useMemo(() => (node && node.title ? inlineTitleHtml(node.title) : liftedTitle), [node, liftedTitle]);
 
   // Walks the whole tree, so keep it off the per-render path — it only
   // changes when docs-index.json does.
@@ -323,7 +335,14 @@ export default function ArticleView({
         </aside>
       )}
 
-      {loading && <div id="content"><p style={{ color: 'var(--fg-subtle)' }}>Loading…</p></div>}
+      {/* Holds the space the module will fill, so what sits below it (the pager, the discussion) is not on screen
+          yet and cannot be pushed down when the text arrives. */}
+      {loading && (
+        <div id="content" className="content-skeleton" role="status">
+          <span className="sr-only">Loading…</span>
+          <i /><i /><i /><i /><i /><i />
+        </div>
+      )}
       {error && <LoadError error={error} what={LOAD_WHAT.module} onRetry={reloadDoc} devHint={false} />}
       {/* A planned module's file is a stub of build notes for the author, so only the panel above is shown. */}
       {!loading && !error && html != null && !placeholder && (
@@ -394,22 +413,24 @@ export default function ArticleView({
       {/* Only the very first and very last module of the curriculum have a
           single neighbour — those used to reserve a hidden half-width cell,
           leaving one card floating against a gap. */}
-      <nav id="pager" className={prevFile && nextFile ? '' : 'single'}>
-        {prevFile && (
-          <a className="pg prev" href={routeUrl(prevFile)}
-            onClick={(e) => { e.preventDefault(); onOpenFile(prevFile); }}>
-            <span className="lbl">← Previous</span>
-            <span className="ttl">{nodeByFile[prevFile]?.title || nodeByFile[prevFile]?.name}</span>
-          </a>
-        )}
-        {nextFile && (
-          <a className="pg next" href={routeUrl(nextFile)}
-            onClick={(e) => { e.preventDefault(); onOpenFile(nextFile); }}>
-            <span className="lbl">Next →</span>
-            <span className="ttl">{nodeByFile[nextFile]?.title || nodeByFile[nextFile]?.name}</span>
-          </a>
-        )}
-      </nav>
+      {!loading && (
+        <nav id="pager" className={prevFile && nextFile ? '' : 'single'}>
+          {prevFile && (
+            <a className="pg prev" href={routeUrl(prevFile)}
+              onClick={(e) => { e.preventDefault(); onOpenFile(prevFile); }}>
+              <span className="lbl">← Previous</span>
+              <span className="ttl">{nodeByFile[prevFile]?.title || nodeByFile[prevFile]?.name}</span>
+            </a>
+          )}
+          {nextFile && (
+            <a className="pg next" href={routeUrl(nextFile)}
+              onClick={(e) => { e.preventDefault(); onOpenFile(nextFile); }}>
+              <span className="lbl">Next →</span>
+              <span className="ttl">{nodeByFile[nextFile]?.title || nodeByFile[nextFile]?.name}</span>
+            </a>
+          )}
+        </nav>
+      )}
 
       {!placeholder && html != null && (
         <p className="edit-on-github">

@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import '../../styles/paths.css';
 import Tree from './Tree.jsx';
 import { CaretIcon } from '../common/icons.jsx';
@@ -17,7 +18,11 @@ const FILTERS = [
 //
 // With a path picked, the first filter is "My path": the tree becomes the path's own syllabus, and "All" is the
 // library. `pathCount` is null when no path is picked, which also hides the filter.
-export default function Sidebar({
+//
+// Memoised: the tree is about 800 rows, and the app above it re-renders for reasons that have nothing to do with
+// it (the heading the reader has scrolled to, a menu opening, the outline of a module that has just loaded).
+// Every prop is replaced rather than changed in place, so skipping the render when none has changed is safe.
+function Sidebar({
   treeData, statusMap, openDirs, onToggleDir, filter, onSetFilter, counts, pathCount, offPath,
   visibleFiles, currentFile, onOpenFile, onToggleStatus, onCollapse
 }) {
@@ -73,3 +78,5 @@ export default function Sidebar({
     </aside>
   );
 }
+
+export default memo(Sidebar);
