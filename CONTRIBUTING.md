@@ -136,7 +136,7 @@ Stuck on anything? [Open an issue](https://github.com/TapanKumarBarik/Backend-ro
 The search and navigation indexes are generated, not committed:
 
 ```bash
-npm run index   # writes dist/docs-index.json, search-index.json and site-stats.json  (needs python; python3 on macOS / Linux)
+npm run index   # writes dist/docs-index.json, search-index.json and site-stats.json
 ```
 
 Run them once after cloning, and again after you add or rename a module. CI does this on every deploy regardless.

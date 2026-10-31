@@ -27,10 +27,6 @@ jobs:
             package-lock.json
             webapp/package-lock.json
 
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-
       # Root deps = hono, which wrangler bundles into the Pages Function.
       - name: Install dependencies
         run: |
@@ -38,7 +34,7 @@ jobs:
           npm ci --prefix webapp
 
       # A missing await on isAdmin() silently grants admin to everyone;
-      # see scripts/check/check-admin-guards.js.
+      # see scripts/check/check-admin-guards.mjs.
       - name: Check admin guards
         run: npm run check
 

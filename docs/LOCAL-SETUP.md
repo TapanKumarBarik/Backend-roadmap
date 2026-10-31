@@ -47,7 +47,7 @@ cp .dev.vars.example .dev.vars
 
 > [!WARNING]
 > Never deploy the repo root, and never copy `.dev.vars` anywhere under
-> `dist/`. Deploys upload only `dist/`, and `scripts/build/copy-content.cjs` fails
+> `dist/`. Deploys upload only `dist/`, and `scripts/build/copy-content.mjs` fails
 > the build if anything secret-shaped is in it — `wrangler pages deploy` does
 > **not** honor `.assetsignore`, and deploying the root once published this file.
 

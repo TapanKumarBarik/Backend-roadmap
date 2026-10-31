@@ -26,7 +26,7 @@ In scope:
   progress sync, comments, the admin endpoints, the content editor)
 - `webapp/` — the React frontend
 - The deployment configuration (`webapp/public/_headers`, `webapp/public/_routes.json`, `wrangler.jsonc`,
-  `scripts/build/copy-content.cjs`, the GitHub Actions workflows)
+  `scripts/build/copy-content.mjs`, the GitHub Actions workflows)
 
 Out of scope:
 
@@ -60,8 +60,8 @@ time:
   revoked and cannot revoke themselves, specifically to prevent a lockout
   (`api/lib/admin.js`). Every admin check must be `await`ed — an
   un-awaited call would silently grant admin to everyone, which is why
-  `scripts/check/check-admin-guards.js` fails CI if one is missing.
+  `scripts/check/check-admin-guards.mjs` fails CI if one is missing.
 - OAuth `redirect_uri` is derived from the request URL and checked against an
   allowlist (`api/routes/auth.js`).
-- Deploys upload only `dist/`, and `scripts/build/copy-content.cjs` fails the build if
+- Deploys upload only `dist/`, and `scripts/build/copy-content.mjs` fails the build if
   anything secret-shaped is in it — never the repo root.

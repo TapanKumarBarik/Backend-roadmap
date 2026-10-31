@@ -3,13 +3,12 @@
 //
 // A step is a folder: a track (all its written modules, in order), a single module, or a whole flat curriculum
 // such as lld/. A module is a folder with a README.md and no module folders inside it, the same rule
-// scripts/build/gen-docs-index.py uses; one that still carries the placeholder sentence is "planned" and is left
+// scripts/lib/docsIndex.mjs uses; one that still carries the placeholder sentence is "planned" and is left
 // out of a path until someone writes it.
 import fs from 'node:fs';
 import path from 'node:path';
-import { ROOT, config, CURRICULA, isPlaceholderText } from './config.mjs';
-
-const SKIP_DIRS = new Set(['.git', 'node_modules', '__pycache__']);
+import { ROOT, CURRICULA, isPlaceholderText } from './config.mjs';
+import { SKIP_DIRS, readText, readingMinutes } from './content.mjs';
 
 export const loadCatalogue = () => JSON.parse(fs.readFileSync(path.join(ROOT, 'paths.json'), 'utf8')).paths || [];
 
@@ -20,12 +19,6 @@ function modulesUnder(dir) {
   const inside = subdirs(dir).flatMap((name) => modulesUnder(path.join(dir, name)));
   if (!inside.length && fs.existsSync(path.join(dir, 'README.md'))) return [dir];
   return inside;
-}
-
-// The reading time the module page shows: code blocks are not read, so they are not counted.
-function readingMinutes(raw) {
-  const words = raw.replace(/```[\s\S]*?```/g, ' ').split(/\s+/).filter(Boolean).length;
-  return Math.max(1, Math.round(words / config.content.wordsPerMinute));
 }
 
 // What one path comes to on disk: its written modules (each counted once, in reading order), how many planned
@@ -45,7 +38,7 @@ export function resolvePath(p) {
     if (!found.length) { problems.push(`step "${step}" has no modules in it`); continue; }
     let stepWritten = 0;
     for (const m of found) {
-      const raw = fs.readFileSync(path.join(m, 'README.md'), 'utf8');
+      const raw = readText(path.join(m, 'README.md'));
       if (isPlaceholderText(raw)) { planned++; continue; }
       stepWritten++;
       if (!seen.has(m)) { seen.add(m); written.push({ dir: m, minutes: readingMinutes(raw) }); }

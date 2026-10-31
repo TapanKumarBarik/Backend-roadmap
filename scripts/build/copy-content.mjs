@@ -8,13 +8,12 @@
 // honor .assetsignore — deploying the root once published them. So this copies
 // an explicit allowlist rather than excluding things.
 
-const fs = require('fs');
-const path = require('path');
+import fs from 'node:fs';
+import path from 'node:path';
+import { ROOT, CURRICULA as CONTENT_DIRS } from '../lib/config.mjs';
 
-const ROOT = path.join(__dirname, '..', '..');
 const DIST = path.join(ROOT, 'dist');
 
-const CONTENT_DIRS = require(path.join(ROOT, 'site.config.json')).content.curricula;
 // Shipped by Vite from webapp/public/. Deploying without them silently drops the security headers and the
 // /api routing, so a build that lost one must fail here rather than deploy.
 const REQUIRED_CONFIG = ['_headers', '_routes.json'];

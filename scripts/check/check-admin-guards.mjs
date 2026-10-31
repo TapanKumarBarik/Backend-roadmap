@@ -19,11 +19,12 @@
  *
  * CI runs this before deploy.
  */
-const fs = require('fs');
-const path = require('path');
-const { execFileSync } = require('child_process');
+import fs from 'node:fs';
+import path from 'node:path';
+import { execFileSync } from 'node:child_process';
+import { ROOT } from '../lib/config.mjs';
 
-const ROOTS = [path.join(__dirname, '..', '..', 'api')];
+const ROOTS = [path.join(ROOT, 'api')];
 const CALL = /(?<!\.)\bisAdmin\s*\(/g;
 const NL = String.fromCharCode(10);
 
@@ -72,7 +73,6 @@ for (const file of files) {
   const lines = stripComments(fs.readFileSync(file, 'utf8')).split(NL);
   lines.forEach((line, i) => {
     if (/function\s+isAdmin/.test(line)) return;          // the definition
-    if (/require\(|module\.exports/.test(line)) return;   // import / export
     for (const m of line.matchAll(CALL)) {
       checked++;
       if (!/await\s*$/.test(line.slice(0, m.index))) {

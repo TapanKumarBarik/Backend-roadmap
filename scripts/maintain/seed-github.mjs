@@ -272,7 +272,7 @@ A good first task: document one route file (e.g. \`feed.js\`) as a PR, and agree
   {
     title: 'Validate modules in CI (required sections, links, code-fence languages)',
     labels: ['tooling', 'content', 'help wanted'],
-    refs: ['scripts/check/check-admin-guards.js', '.github/workflows/pr-check.yml', 'CONTRIBUTING.md'],
+    refs: ['scripts/check/check-admin-guards.mjs', '.github/workflows/pr-check.yml', 'CONTRIBUTING.md'],
     body: `Every module should follow the [module recipe](https://github.com/${REPO}#what-a-great-module-looks-like). Today nothing checks that, so quality depends on reviewer attention.
 
 **Scope:** a script (e.g. \`scripts/check-content.js\`) that reports, for changed or all modules: a missing H1, a missing *Further reading & sources* or *Next* section, a *Next* link that doesn't resolve, broken relative links, code fences without a language tag, and placeholder text left in a finished module.
@@ -321,8 +321,8 @@ This is an open question, not a plan. If you have experience with it, please wei
   {
     title: 'RFC: a better search story (Pagefind or similar)?',
     labels: ['rfc', 'performance', 'help wanted'],
-    refs: ['webapp/src/lib/search/contentSearch.js', 'scripts/build/gen-search-index.py'],
-    body: `Full-text search works by downloading a ~1.6 MB inverted index (\`search-index.json\`, built by \`scripts/build/gen-search-index.py\`) on the first query and matching in the browser (\`webapp/src/lib/search/contentSearch.js\`).
+    refs: ['webapp/src/lib/search/contentSearch.js', 'scripts/lib/searchIndex.mjs'],
+    body: `Full-text search works by downloading a ~1.6 MB inverted index (\`search-index.json\`, built by \`scripts/lib/searchIndex.mjs\`) on the first query and matching in the browser (\`webapp/src/lib/search/contentSearch.js\`).
 
 Is there a better approach — e.g. [Pagefind](https://pagefind.app), which loads small index chunks on demand? Please share an RFC (see the [template](https://github.com/${REPO}/issues/new?template=rfc.yml)) with measurements: download size, time to first result, relevance on real queries, and how it fits the build.`
   },

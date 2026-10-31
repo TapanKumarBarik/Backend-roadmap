@@ -16,7 +16,7 @@ request to `app.js`. Nothing else in `functions/` is needed, which is why the co
 
 Rules worth knowing:
 
-- Every admin route must `await isAdmin(...)`. `npm run check` fails if one does not (`scripts/check/check-admin-guards.js`).
+- Every admin route must `await isAdmin(...)`. `npm run check` fails if one does not (`scripts/check/check-admin-guards.mjs`).
 - Repo and branch names come from [`../site.config.json`](../site.config.json), not from literals in a route.
 - Secrets (session key, Google OAuth, storage tokens) are Cloudflare environment secrets, locally `.dev.vars`;
   see [`../docs/LOCAL-SETUP.md`](../docs/LOCAL-SETUP.md).

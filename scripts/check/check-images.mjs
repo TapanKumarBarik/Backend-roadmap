@@ -7,23 +7,14 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { ROOT, config, CURRICULA } from '../lib/config.mjs';
+import { SKIP_DIRS, markdownFiles, readText } from '../lib/content.mjs';
 
 const { maxBytes, extensions } = config.content.images;
-const IGNORED = new Set(config.content.ignoredFiles);
-const SKIP_DIRS = new Set(['.git', 'node_modules', '__pycache__']);
 
 const problems = [];
 const warnings = [];
 const fail = (file, message) => problems.push(`${file}: ${message}`);
 const warn = (file, message) => warnings.push(`${file}: ${message}`);
-
-function markdownFiles(dir, out = []) {
-  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-    if (entry.isDirectory()) { if (!SKIP_DIRS.has(entry.name)) markdownFiles(path.join(dir, entry.name), out); }
-    else if (entry.name.endsWith('.md') && !IGNORED.has(entry.name)) out.push(path.join(dir, entry.name));
-  }
-  return out;
-}
 
 // Images mentioned inside code samples (an email template, an XSS example) are examples, not images the page shows.
 const withoutCode = (md) => md.replace(/^(```|~~~)[^\n]*\n[\s\S]*?^\1[ \t]*$/gm, '').replace(/`[^`\n]*`/g, '');
@@ -49,7 +40,7 @@ for (const curriculum of CURRICULA) {
   if (!fs.existsSync(dir)) continue;
   for (const file of markdownFiles(dir)) {
     const rel = path.relative(ROOT, file).split(path.sep).join('/');
-    const images = imagesIn(withoutCode(fs.readFileSync(file, 'utf8')));
+    const images = imagesIn(withoutCode(readText(file)));
     if (!images.length) continue;
     modules++;
     for (const { alt, src } of images) {

@@ -392,7 +392,7 @@ git clone https://github.com/<you>/Backend-roadmap.git
 cd Backend-roadmap
 
 npm install --prefix webapp
-npm run index                            # builds the module index; needs python (python3 on macOS / Linux)
+npm run index                            # builds the module index
 npm run dev --prefix webapp -- --port 4173
 ```
 

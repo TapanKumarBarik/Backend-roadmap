@@ -1,5 +1,5 @@
 // Lazy-loads search-index.json (a build-time inverted word index over every
-// module's raw markdown, see scripts/gen-search-index.py) only when a real
+// module's raw markdown, see scripts/lib/searchIndex.mjs) only when a real
 // content search is attempted — not on initial app load. Presence-only
 // index (no term frequency), so results are ranked by how many distinct
 // query words a file matches.
