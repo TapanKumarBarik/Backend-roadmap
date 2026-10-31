@@ -47,8 +47,15 @@ jobs:
             exit 1
           }
 
+      # A deploy that "succeeded" can still serve a broken site (a file missing, the security headers lost, the API
+      # failing to start). This opens the live site (home page, a lesson, the sitemap, the API, the headers) and fails
+      # the run if something is wrong. It retries for about two minutes while the new version reaches every edge.
+      - name: Check the live site
+        run: node scripts/maintain/smoke.mjs
+
       # Tell Bing and the other IndexNow engines which modules changed (Google learns from the sitemap). Best
-      # effort: the deploy has already succeeded, so a failure here must not turn it red.
+      # effort: the deploy has already succeeded, so a failure here must not turn it red. It only runs when the live
+      # site checked out, so search engines are never pointed at a broken site.
       - name: Notify IndexNow
         continue-on-error: true
         run: node scripts/maintain/indexnow.mjs "${{ github.event.before }}"
