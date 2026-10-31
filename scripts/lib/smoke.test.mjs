@@ -1,6 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
+
+/** The port a server listening on port 0 was given. */
+const portOf = (server) => /** @type {import('node:net').AddressInfo} */ (server.address()).port;
+const listen = (server) => new Promise((resolve) => server.listen(0, '127.0.0.1', () => resolve(undefined)));
 import { checkSite, waitForHealthy } from './smoke.mjs';
 
 const LESSON = 'backend/01-intro/01-first/README.md';
@@ -24,8 +28,8 @@ async function serve(broken = new Set()) {
     res.writeHead(status, headers);
     res.end(body);
   });
-  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
-  return { base: `http://127.0.0.1:${server.address().port}`, close: () => { server.close(); server.closeAllConnections(); }, broken };
+  await listen(server);
+  return { base: `http://127.0.0.1:${portOf(server)}`, close: () => { server.close(); server.closeAllConnections(); }, broken };
 }
 
 test('a healthy site has no problems', async () => {
@@ -35,6 +39,7 @@ test('a healthy site has no problems', async () => {
 });
 
 test('each way a deploy can go wrong is reported by name', async () => {
+  /** @type {[string, RegExp][]} */
   const cases = [
     ['csp', /Content-Security-Policy/],
     ['noindex', /noindex/],
@@ -52,8 +57,8 @@ test('each way a deploy can go wrong is reported by name', async () => {
 
 test('a site that cannot be reached is reported, not thrown', async () => {
   const probe = http.createServer();
-  await new Promise((resolve) => probe.listen(0, '127.0.0.1', resolve));
-  const port = probe.address().port;
+  await listen(probe);
+  const port = portOf(probe);
   await new Promise((resolve) => probe.close(resolve));
   const problems = await checkSite(`http://127.0.0.1:${port}`);
   assert.ok(problems.length > 0);

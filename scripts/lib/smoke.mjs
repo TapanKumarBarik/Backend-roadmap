@@ -91,7 +91,11 @@ export async function checkSite(base, { fetchImpl = fetch } = {}) {
   return problems;
 }
 
-/** Checks the site, trying again for a while if it is not healthy yet. Resolves with the problems of the last attempt. */
+/**
+ * Checks the site, trying again for a while if it is not healthy yet. Resolves with the problems of the last attempt.
+ * @param {string} base
+ * @param {{ attempts?: number, delayMs?: number, log?: (line: string) => void, fetchImpl?: typeof fetch }} [options]
+ */
 export async function waitForHealthy(base, { attempts = 8, delayMs = 15000, log = () => {}, ...options } = {}) {
   let problems = [];
   for (let attempt = 1; attempt <= attempts; attempt++) {
