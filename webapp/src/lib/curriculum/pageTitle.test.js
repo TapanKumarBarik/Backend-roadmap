@@ -32,6 +32,15 @@ test('a page opens with its topic, not its number', () => {
   assert.equal(t('learn/11-security/07-capstone-project').title.startsWith('Capstone Project'), true);
 });
 
+test('a lesson of a lecture course is named without its number too', () => {
+  const lectures = buildPageTitles([
+    page('system-design', 'System Design Interview Prep: From Requirements to Distributed Systems', [
+      page('system-design/01-core', 'Track 01: Core Fundamentals', [page('system-design/01-core/08-latency', 'Lesson 08: Latency')])
+    ])
+  ], 'Backend Roadmap');
+  assert.equal(lectures['system-design/01-core/08-latency/README.md'].title, 'Latency');
+});
+
 test('no two pages share a title', () => {
   const all = Object.values(titles).map((x) => x.title.toLowerCase());
   assert.equal(new Set(all).size, all.length);

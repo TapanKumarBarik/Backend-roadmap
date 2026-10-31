@@ -29,7 +29,7 @@
   },
   "content": {
     "dir": "content",
-    "curricula": ["backend", "learn", "genai", "lld"],
+    "curricula": ["backend", "system-design", "learn", "genai", "lld"],
     "placeholderMarker": "has not been written yet",
     "placeholderScanLines": 25,
     "wordsPerMinute": 210,

@@ -74,7 +74,7 @@ export function siblingStats(parentNode, statusMap) {
 // order, and it reads as noise inside a sentence like "1 / 14 in 01 - Request/Response Fundamentals" or when it
 // costs a sidebar row the part of the name that tells it from its neighbours. See ordinalOf for keeping the number.
 export function stripOrdinal(title) {
-  return (title || '').replace(/^(?:(?:track|module)\s+)?\d+\s*[-–—.):]\s*/i, '');
+  return (title || '').replace(/^(?:(?:track|module|lesson)\s+)?\d+\s*[-–—.):]\s*/i, '');
 }
 
 // The number a folder was given by its author ("08-content-negotiation" -> "08"): the one the text of the

@@ -3,7 +3,7 @@
 // lesson is tagged with, then run `npm run index` to see the result.
 //
 // Every indexed .md file gets tags from four independent sources, so no file can end up untagged:
-//   1. curriculum - the top-level folder (backend / learn / lld / genai)
+//   1. curriculum - the top-level folder (backend / learn / lld / genai / system-design)
 //   2. track      - the track folder's name, mapped to a short canonical tag
 //   3. content    - the keyword vocabulary below, scored by weighted frequency
 //   4. format     - structural signals (capstone, quiz, exercises, code fences)
@@ -14,6 +14,7 @@ export const CURRICULUM_TAGS = {
   'learn': 'infrastructure',
   'lld': 'low-level-design',
   'genai': 'genai',
+  'system-design': 'system-design',
 };
 
 // 2. track folder name -> canonical tag(s). Keyed by a substring of the track folder name; the matcher stops at
@@ -82,6 +83,8 @@ export const TRACK_TAGS = {
   'multi-tenancy-and-saas': ['multi-tenancy', 'saas'],
   'grpc-deep-dive': ['grpc', 'protobuf', 'api'],
   'kafka-and-streaming': ['kafka', 'streaming', 'event-driven'],
+  // system-design/
+  'core-fundamentals': ['fundamentals', 'system-design'],
   // lld/
   'programming-basics': ['fundamentals', 'python', 'csharp'],
   'classes-objects': ['oop'],
