@@ -16,6 +16,8 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # the build dates every page from git history (sitemap, structured data); a shallow clone has none
 
       - uses: actions/setup-node@v4
         with:
@@ -39,6 +41,9 @@ jobs:
       # see scripts/check/check-admin-guards.js.
       - name: Check admin guards
         run: npm run check
+
+      - name: Test
+        run: npm test
 
       # Assembles the whole site in dist/ — the only thing deployed. See the
       # "build" script in the root package.json for the steps.
@@ -68,3 +73,9 @@ jobs:
             echo "::error title=wrangler pages deploy failed::$(grep -v '^\s*$' deploy.log | tail -n 15 | tr '\n' ' ' | cut -c1-1500)"
             exit 1
           }
+
+      # Tell Bing and the other IndexNow engines which modules changed (Google learns from the sitemap). Best
+      # effort: the deploy has already succeeded, so a failure here must not turn it red.
+      - name: Notify IndexNow
+        continue-on-error: true
+        run: node scripts/maintain/indexnow.mjs "${{ github.event.before }}"

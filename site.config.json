@@ -2,7 +2,18 @@
   "site": {
     "name": "Backend Roadmap",
     "url": "https://backendroadmap.com",
-    "license": "MIT"
+    "license": "MIT",
+    "title": "Backend Roadmap — Backend Engineering, System Design & GenAI Curriculum",
+    "description": "Backend Roadmap is a free, hands-on curriculum for backend engineering, system design, Linux, low-level design and GenAI — 500+ modules with progress tracking, notes and discussion.",
+    "logo": "/icon-512.png",
+    "socialImage": "/og-image.png"
+  },
+  "youtube": {
+    "channel": "https://www.youtube.com/@tapankumarbarik9454"
+  },
+  "seo": {
+    "indexNowKey": "047af5f1b34b705c9ba48a5469d54a5d",
+    "indexNowEndpoint": "https://api.indexnow.org/indexnow"
   },
   "developer": {
     "name": "Tapan Kumar Barik",

@@ -19,6 +19,8 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # the build dates every page from git history; a shallow clone has none
 
       - uses: actions/setup-node@v4
         with:
@@ -41,6 +43,9 @@ jobs:
       # see scripts/check/check-admin-guards.js.
       - name: Check admin guards
         run: npm run check
+
+      - name: Test
+        run: npm test
 
       - name: Build the site
         run: npm run build

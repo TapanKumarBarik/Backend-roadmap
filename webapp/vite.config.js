@@ -41,11 +41,33 @@ function serveRepoContent() {
   };
 }
 
+// index.html names the site, its title and description once, as %SITE_*% placeholders filled from
+// site.config.json, so the page head, the app (which resets the title on the home page) and the pre-render step
+// all say the same thing. Runs before Vite's own %ENV% replacement, which would otherwise warn about them.
+function siteHead() {
+  const { site } = siteConfig;
+  const values = {
+    SITE_NAME: site.name,
+    SITE_TITLE: site.title,
+    SITE_DESCRIPTION: site.description,
+    SITE_URL: site.url,
+    SITE_SOCIAL_IMAGE: site.url + site.socialImage
+  };
+  const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  return {
+    name: 'site-head',
+    transformIndexHtml: {
+      order: 'pre',
+      handler: (html) => html.replace(/%(SITE_[A-Z_]+)%/g, (m, key) => (key in values ? esc(values[key]) : m))
+    }
+  };
+}
+
 // The whole deployable site is assembled in dist/ (see the root package.json
 // "build" script): this bundle first — it empties dist/ — then the indexes,
 // the content trees and a pre-rendered page per module are added to it.
 export default defineConfig({
-  plugins: [react(), serveRepoContent()],
+  plugins: [react(), serveRepoContent(), siteHead()],
   // Baked in at build time (CI runs a fresh build on every deploy, so this is
   // effectively "when was this deployed") — read via src/lib/buildInfo.js,
   // never referenced as a bare identifier elsewhere.

@@ -3,30 +3,33 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Backend Roadmap — Backend Engineering, System Design &amp; GenAI Curriculum</title>
-<meta name="description" content="Backend Roadmap is a free, hands-on curriculum for backend engineering, system design, Linux, low-level design and GenAI — 500+ modules with progress tracking, notes and discussion.">
-<meta property="og:site_name" content="Backend Roadmap">
+<title>%SITE_TITLE%</title>
+<meta name="description" content="%SITE_DESCRIPTION%">
+<meta property="og:site_name" content="%SITE_NAME%">
 <meta name="google-site-verification" content="oj_o8axkgWOALroEqdBd27ZWPQIiPUqMgmg6sbP062Q" />
-<link rel="canonical" href="https://backendroadmap.com/">
-<meta property="og:url" content="https://backendroadmap.com/">
+<link rel="canonical" href="%SITE_URL%/">
+<meta property="og:url" content="%SITE_URL%/">
 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
 <link rel="manifest" href="/manifest.webmanifest">
 <link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <meta name="theme-color" content="#111111">
+<!-- Every page needs the module index before it can draw anything, and the app only asks for it once its
+     script has run. Asking here starts the download alongside the script instead of after it. -->
+<link rel="preload" href="/docs-index.json" as="fetch" crossorigin>
 <!-- Every uploaded image (feed attachments, content images) is served
      straight off this blob storage origin, no CDN in front of it — this
      gets its DNS lookup + TLS handshake started before the first <img>
      tag referencing it even exists in the DOM. -->
 <link rel="preconnect" href="https://stroadmapprogress.blob.core.windows.net" crossorigin>
 <meta property="og:type" content="website">
-<meta property="og:title" content="Backend Roadmap">
-<meta property="og:description" content="Backend Roadmap is a free, hands-on curriculum for backend engineering, system design, Linux, low-level design and GenAI — 500+ modules with progress tracking, notes and discussion.">
-<meta property="og:image" content="https://backendroadmap.com/og-image.png">
+<meta property="og:title" content="%SITE_NAME%">
+<meta property="og:description" content="%SITE_DESCRIPTION%">
+<meta property="og:image" content="%SITE_SOCIAL_IMAGE%">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
-<meta property="og:image:alt" content="Backend Roadmap — learn backend engineering, in the open">
+<meta property="og:image:alt" content="%SITE_NAME% — learn backend engineering, in the open">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:image" content="https://backendroadmap.com/og-image.png">
+<meta name="twitter:image" content="%SITE_SOCIAL_IMAGE%">
 </head>
 <body>
 <div id="root"></div>
