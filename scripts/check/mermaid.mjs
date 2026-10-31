@@ -14,9 +14,12 @@ import { ROOT, config, CURRICULA } from '../lib/config.mjs';
 
 const args = process.argv.slice(2);
 const channel = args.includes('--channel') ? args[args.indexOf('--channel') + 1] : config.screenshots.browserChannel;
-const MERMAID_BUNDLE = path.join(ROOT, 'webapp', 'node_modules', 'mermaid', 'dist', 'mermaid.min.js');
-if (!fs.existsSync(MERMAID_BUNDLE)) {
-  console.error('mermaid is not installed: run `npm install --prefix webapp` first.');
+// npm hoists workspace packages to the root node_modules; an install made before the move may still have it under webapp/.
+const MERMAID_BUNDLE = ['node_modules', 'webapp/node_modules']
+  .map((dir) => path.join(ROOT, dir, 'mermaid', 'dist', 'mermaid.min.js'))
+  .find((candidate) => fs.existsSync(candidate));
+if (!MERMAID_BUNDLE) {
+  console.error('mermaid is not installed: run `npm install` first.');
   process.exit(2);
 }
 

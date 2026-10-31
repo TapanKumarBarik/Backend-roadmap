@@ -104,8 +104,11 @@ The app and API are a live codebase with real user accounts, so changes here are
 2. Keep the change small and focused.
 3. Run the checks before you push:
    ```bash
-   npm run check    # admin-guard check: every isAdmin() is awaited, every API file parses
-   npm run build    # the full site build, as deployed
+   npm run lint       # ESLint, no warnings allowed
+   npm run typecheck  # types for the API, the scripts and the app's non-component code
+   npm test           # unit tests
+   npm run check      # every isAdmin() awaited, every API file parses, paths.json and images are valid
+   npm run build      # the full site build, as deployed
    ```
 4. In the PR, say what you tested and how. Screenshots help for UI changes (light **and** dark).
 

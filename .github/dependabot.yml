@@ -1,16 +1,18 @@
+# Dependency updates. One npm entry covers the whole repo: the root and the webapp/ workspace share package-lock.json.
+#
+# Patch and minor updates arrive together in one pull request a week (they are low risk, and the lint, type, unit and
+# browser tests run on it), instead of ten small ones. A major version stays its own pull request so it can be judged
+# on its own.
 version: 2
 updates:
-  - package-ecosystem: "npm"
-    directory: "/webapp"
-    schedule:
-      interval: "weekly"
-    open-pull-requests-limit: 5
-
   - package-ecosystem: "npm"
     directory: "/"
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5
+    groups:
+      minor-and-patch:
+        update-types: ["minor", "patch"]
 
   - package-ecosystem: "github-actions"
     directory: "/"

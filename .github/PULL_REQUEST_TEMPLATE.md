@@ -20,7 +20,7 @@
 
 ## For app or API changes
 
-- [ ] `npm run check` and `npm run build` pass locally
+- [ ] `npm run lint`, `npm run typecheck`, `npm test`, `npm run check` and `npm run build` pass locally
 - [ ] I tested it (what and how): ______
 - [ ] UI changes include screenshots (light **and** dark)
 - [ ] No secrets or personal data are committed

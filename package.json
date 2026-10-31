@@ -3,8 +3,16 @@
   "private": true,
   "type": "module",
   "description": "Backend Roadmap — curriculum content, the React app (webapp/) and its API (api/, on Cloudflare Pages Functions)",
+  "engines": {
+    "node": ">=22"
+  },
+  "workspaces": [
+    "webapp"
+  ],
   "scripts": {
-    "build": "npm --prefix webapp run build && npm run index && node scripts/build/copy-content.mjs && node scripts/build/prerender.mjs",
+    "dev": "npm run dev --workspace webapp -- --port 4173 --strictPort",
+    "build": "npm run build --workspace webapp && npm run index && node scripts/build/copy-content.mjs && node scripts/build/prerender.mjs",
+    "preview": "npm exec --workspace webapp -- vite preview --outDir ../dist --port 4180 --strictPort",
     "index": "node scripts/build/gen-docs-index.mjs && node scripts/build/gen-search-index.mjs && node scripts/build/gen-site-stats.mjs",
     "test": "node --test \"webapp/src/**/*.test.js\" \"scripts/**/*.test.mjs\"",
     "test:e2e": "node --test \"tests/e2e/*.e2e.mjs\"",
@@ -14,7 +22,6 @@
     "check:paths": "node scripts/check/check-paths.mjs",
     "check:images": "node scripts/check/check-images.mjs",
     "check:diagrams": "node scripts/check/mermaid.mjs",
-    "preview": "npm --prefix webapp exec -- vite preview webapp --outDir ../dist --port 4180 --strictPort",
     "shots": "node scripts/dev/screenshots.mjs",
     "shots:live": "node scripts/dev/screenshots.mjs --live"
   },

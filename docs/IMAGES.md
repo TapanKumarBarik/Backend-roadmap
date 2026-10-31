@@ -25,7 +25,7 @@ Do not use stock photos or decoration. If removing the picture loses nothing, re
    *One request, end to end. The shaded part is setup and transit.*
    ```
 
-3. Run `npm run check:images`, then open the module with `npm run dev --prefix webapp` and look at it, on a narrow window too.
+3. Run `npm run check:images`, then open the module with `npm run dev` and look at it, on a narrow window too.
 
 Rules the checker enforces (limits are in `site.config.json` under `content.images`):
 

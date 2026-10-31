@@ -385,30 +385,30 @@ Not sure where to start? **[Open an issue](https://github.com/TapanKumarBarik/Ba
 
 ### Content or frontend work — no secrets needed
 
-You need **Node 20+** and **Python 3**.
+You need **Node 22+** (the repo has an `.nvmrc`).
 
 ```bash
 git clone https://github.com/<you>/Backend-roadmap.git
 cd Backend-roadmap
 
-npm install --prefix webapp
+npm install                              # one install for the whole repo
 npm run index                            # builds the module index
-npm run dev --prefix webapp -- --port 4173
+npm run dev                              # hot reload on http://localhost:4173
 ```
 
-Open **<http://localhost:4173>**. Edit any `.md` file under `backend/`, `learn/`, `genai/` or `lld/`, refresh, and see it rendered. Re-run the two generator scripts after you **add or rename** a module so it appears in the tree and in search.
+Open **<http://localhost:4173>**. Edit any `.md` file under `backend/`, `learn/`, `genai/` or `lld/`, refresh, and see it rendered. Run `npm run index` again after you **add or rename** a module so it appears in the tree and in search.
 
 ### The whole site, including the API
 
 The account features (sign-in, comments, notes, progress sync) need the API plus a local database. Because Google sign-in only redirects to registered addresses, you'll create your own free Google OAuth client for local use. Everything is in **[LOCAL-SETUP.md](docs/LOCAL-SETUP.md)**.
 
 ```bash
-npm install                  # repo root (the API's dependencies)
+npm install
 npm run build                # builds the complete site into dist/
 npx wrangler pages dev --port 8788
 ```
 
-Before opening a PR that touches `api/` or `webapp/`, run `npm run check` and `npm run build`.
+Before opening a PR, run `npm run lint`, `npm run typecheck`, `npm test`, `npm run check` and `npm run build`; CI runs the same.
 
 ## How it's built
 

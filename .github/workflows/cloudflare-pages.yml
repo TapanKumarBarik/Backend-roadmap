@@ -23,15 +23,11 @@ jobs:
         with:
           node-version: 22  # wrangler 4 requires Node >= 22
           cache: npm
-          cache-dependency-path: |
-            package-lock.json
-            webapp/package-lock.json
 
-      # Root deps = hono, which wrangler bundles into the Pages Function.
+      # One install for the whole repo (npm workspaces): the app, hono (which wrangler bundles into the Pages
+      # Function) and the tools.
       - name: Install dependencies
-        run: |
-          npm ci
-          npm ci --prefix webapp
+        run: npm ci
 
       # A missing await on isAdmin() silently grants admin to everyone;
       # see scripts/check/check-admin-guards.mjs.

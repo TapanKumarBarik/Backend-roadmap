@@ -14,8 +14,7 @@ of D1 (in `.wrangler/state/`), never the production database.
 ### 1. Dependencies
 
 ```bash
-npm install                    # repo root: hono (bundled into the Pages Function)
-npm install --prefix webapp
+npm install                    # the whole repo: the app, the API and the tools
 ```
 
 ### 2. Build the site
@@ -64,8 +63,7 @@ npx wrangler pages dev --port 8788
 **Frontend**:
 
 ```bash
-cd webapp
-npm run dev -- --port 4173        # hot reload, for working on the UI
+npm run dev                      # hot reload on port 4173, for working on the UI
 ```
 
 Then open **<http://localhost:4173>**, or **<http://localhost:4173/#__admin>**
@@ -94,7 +92,7 @@ table, managed from **Admin → People**.
 ## Working without the API
 
 ```bash
-npm run dev --prefix webapp -- --port 4173
+npm run dev
 ```
 
 The dev server serves the curriculum from the repo and the indexes from
@@ -114,8 +112,11 @@ visitors never see that line. If the module index is missing, the whole app show
 CI runs these:
 
 ```bash
-npm run check    # every isAdmin() awaited; every API file parses
-npm run build    # the full site build, as deployed
+npm run lint       # ESLint, no warnings allowed
+npm run typecheck  # type checks the API, the scripts and the app's non-component code
+npm test           # unit tests
+npm run check      # every isAdmin() awaited; every API file parses; paths.json and images are valid
+npm run build      # the full site build, as deployed
 ```
 
 Pushing to `main` deploys via `.github/workflows/cloudflare-pages.yml`.
