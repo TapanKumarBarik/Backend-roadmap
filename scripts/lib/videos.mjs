@@ -6,6 +6,7 @@ import path from 'node:path';
 import { CONTENT_ROOT } from './config.mjs';
 import { isVideoId } from '../../webapp/src/lib/markdown/video.js';
 import { moduleFile, parseChapterLine } from '../../webapp/src/lib/curriculum/videos.js';
+import { moduleUrl } from '../../webapp/src/lib/curriculum/moduleUrl.js';
 
 export const VIDEOS_FILE = path.join(CONTENT_ROOT, 'videos.json');
 
@@ -104,6 +105,27 @@ export function validateRegistry(registry, { hasModule }) {
 /** The checks against the real content folder. */
 export function validateAgainstContent(registry) {
   return validateRegistry(registry, { hasModule: (folder) => fs.existsSync(path.join(CONTENT_ROOT, folder, 'README.md')) });
+}
+
+/**
+ * Where each video's module is on the site, for the first line of the video's YouTube description (docs/VIDEOS.md), in
+ * the order of the registry's playlists. A video with no module has no address and is left out.
+ * @param {Registry} registry
+ * @param {string} siteUrl the site's address, with no trailing slash
+ */
+export function videoLinks(registry, siteUrl) {
+  const order = new Map(registry.playlists.map((p, i) => [p.id, i]));
+  return registry.videos
+    .filter((v) => v.module)
+    .sort((a, b) => (order.get(a.playlist) ?? 0) - (order.get(b.playlist) ?? 0) || a.number - b.number)
+    .map((v) => ({
+      id: v.id,
+      title: v.title,
+      playlist: registry.playlists.find((p) => p.id === v.playlist)?.title ?? v.playlist,
+      number: v.number,
+      url: siteUrl + moduleUrl(moduleFile(/** @type {string} */ (v.module))),
+      edit: `https://studio.youtube.com/video/${v.id}/edit`
+    }));
 }
 
 /** How many videos each module has, keyed by the module's README.md, for the module index. */

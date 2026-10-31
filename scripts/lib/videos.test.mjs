@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { validateRegistry, serializeRegistry, fileCounts } from './videos.mjs';
+import { validateRegistry, serializeRegistry, fileCounts, videoLinks } from './videos.mjs';
 import { parseFeed, toUtc, inferLesson } from './youtubeFeed.mjs';
 
 const folders = new Set(['backend/01-x/02-y', 'system-design/01-core/01-intro']);
@@ -68,6 +68,22 @@ test('the registry is written with videos in playlist order, then by number', ()
   }));
   assert.deepEqual(written.videos.map((v) => v.id), ['aaaaaaaaaaa', 'ccccccccccc', 'bbbbbbbbbbb']);
   assert.ok(serializeRegistry({ playlists, videos: [] }).endsWith('\n'));
+});
+
+test('each video with a module gets the address to paste into its description, in playlist order', () => {
+  const links = videoLinks({
+    playlists,
+    videos: [
+      video({ id: 'bbbbbbbbbbb', playlist: 'phase-2', number: 1, module: 'backend/01-x/02-y' }),
+      video({ id: 'aaaaaaaaaaa', number: 1 }),
+      video({ id: 'ccccccccccc', number: 2, module: undefined })
+    ]
+  }, 'https://example.org');
+  assert.deepEqual(links.map((l) => l.id), ['aaaaaaaaaaa', 'bbbbbbbbbbb'], 'a video with no module has no address');
+  assert.equal(links[0].url, 'https://example.org/system-design/01-core/01-intro/');
+  assert.equal(links[1].url, 'https://example.org/backend/01-x/02-y/');
+  assert.equal(links[1].playlist, 'Phase 2');
+  assert.equal(links[0].edit, 'https://studio.youtube.com/video/aaaaaaaaaaa/edit');
 });
 
 test('modules count their videos by the README the app knows them by', () => {

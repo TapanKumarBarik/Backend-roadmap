@@ -74,7 +74,7 @@ On GitHub it is an ordinary link, so the module reads the same there. On the sit
 
 The other direction is up to the video:
 
-- **Put the module's address in the description**, first line, and pin it as a comment: `https://backendroadmap.com/<curriculum>/<track>/<module>/`. Every module has a stable address like this; it is the URL in the browser's address bar.
+- **Put the module's address in the description**, first line, and pin it as a comment: `https://backendroadmap.com/<curriculum>/<track>/<module>/`. Every module has a stable address like this; it is the URL in the browser's address bar. `npm run videos:links` prints every video with its address and a link that opens it in YouTube Studio, so there is nothing to look up.
 - **Say the module's name** in the video, and its place ("track 05, module 03"), so people can find it by searching.
 - **The channel's own links** (its About page) should point at <https://backendroadmap.com>.
 
