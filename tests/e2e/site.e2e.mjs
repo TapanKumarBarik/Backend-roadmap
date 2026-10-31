@@ -14,42 +14,18 @@ import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { chromium } from 'playwright-core';
 import { ROOT, config } from '../../scripts/lib/config.mjs';
+import { BASE, launchBrowser, openPage } from './support.mjs';
 
-const BASE = process.env.BASE || 'http://localhost:4180';
 const LESSON = '/backend/03-authentication-and-authorization/01-sessions-and-cookies/';
 const NEXT_LESSON = '/backend/03-authentication-and-authorization/02-jwt-deep-dive/';
 const VIDEO_ID = 'jNQXAC9IVRw';
-const SEEN = config.storage.seenLanding;
-
-// The policy the site is served with (Cloudflare applies webapp/public/_headers); the local server does not, so the
-// tests apply it themselves to find out whether anything the page needs is blocked.
-const headersFile = fs.readFileSync(path.join(ROOT, 'webapp/public/_headers'), 'utf8');
-const CSP = /Content-Security-Policy:\s*(.+)/.exec(headersFile)[1].trim();
 
 let browser;
-before(async () => {
-  browser = await chromium.launch(process.env.E2E_EXECUTABLE ? { executablePath: process.env.E2E_EXECUTABLE } : { channel: config.screenshots.browserChannel });
-});
+before(async () => { browser = await launchBrowser(); });
 after(async () => { await browser.close(); });
 
-async function open(url, { motion = 'no-preference', seenLanding = true, withCsp = false, width = 1280, height = 900 } = {}) {
-  const context = await browser.newContext({ viewport: { width, height }, reducedMotion: motion });
-  if (seenLanding) await context.addInitScript(([k]) => { try { localStorage.setItem(k, '1'); } catch { /* blocked */ } }, [SEEN]);
-  if (withCsp) {
-    await context.route('**/*', async (route) => {
-      if (!route.request().url().startsWith(BASE)) return route.continue(); // the policy is ours; other sites send their own
-      const response = await route.fetch();
-      await route.fulfill({ response, headers: { ...response.headers(), 'content-security-policy': CSP } });
-    });
-  }
-  const page = await context.newPage();
-  const problems = [];
-  page.on('pageerror', (e) => problems.push('page error: ' + e.message));
-  page.on('console', (m) => { if (m.type() === 'error') problems.push('console: ' + m.text()); });
-  return { context, page, problems, goto: () => page.goto(BASE + url, { waitUntil: 'networkidle' }) };
-}
+const open = (url, options) => openPage(browser, url, options);
 
 test('a lesson opens with a topic-first title, its heading, its text and real links in the sidebar', async () => {
   const { context, page, problems, goto } = await open(LESSON);
@@ -173,5 +149,5 @@ test('the built pages carry what search engines read', () => {
   assert.ok((sitemap.match(/<lastmod>/g) || []).length > 500, 'the sitemap carries dates');
   const titles = [...sitemap.matchAll(/<loc>([^<]+)<\/loc>/g)].length;
   assert.ok(titles > 600);
-  assert.match(headersFile, /\/\*\.md\s+X-Robots-Tag: noindex/);
+  assert.match(fs.readFileSync(path.join(ROOT, 'webapp/public/_headers'), 'utf8'), /\/\*\.md\s+X-Robots-Tag: noindex/);
 });
