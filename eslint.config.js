@@ -14,7 +14,7 @@ export default [
   {
     // Built output, installed packages, local state, and the curricula (Markdown, plus a few code samples that are
     // teaching material, not part of this project).
-    ignores: ['dist/', '**/node_modules/', 'screenshots/', '.wrangler/', 'backend/', 'learn/', 'genai/', 'lld/']
+    ignores: ['dist/', '**/node_modules/', 'screenshots/', '.wrangler/', 'content/']
   },
 
   js.configs.recommended,

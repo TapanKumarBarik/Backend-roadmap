@@ -10,7 +10,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { ROOT, CURRICULA as CONTENT_DIRS } from '../lib/config.mjs';
+import { ROOT, CONTENT_ROOT, CURRICULA as CONTENT_DIRS } from '../lib/config.mjs';
 
 const DIST = path.join(ROOT, 'dist');
 
@@ -26,7 +26,7 @@ for (const name of REQUIRED_CONFIG) {
   if (!fs.existsSync(path.join(DIST, name))) throw new Error(`copy-content: dist/${name} missing (expected from webapp/public/)`);
 }
 for (const name of CONTENT_DIRS) {
-  fs.cpSync(path.join(ROOT, name), path.join(DIST, name), { recursive: true });
+  fs.cpSync(path.join(CONTENT_ROOT, name), path.join(DIST, name), { recursive: true });
 }
 
 const FORBIDDEN = /(^|[\\/])(\.env|\.dev\.vars|local\.settings\.json|.*\.sql)$/i;

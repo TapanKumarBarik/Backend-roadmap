@@ -1,7 +1,7 @@
 # Local working notes, not curriculum content.
-learn/CURRICULUM-BUILD-STATUS.md
+content/learn/CURRICULUM-BUILD-STATUS.md
 NEW-TOPICS-STATUS.md
-lld/STATUS.md
+content/lld/STATUS.md
 
 # Dependencies and caches.
 node_modules/

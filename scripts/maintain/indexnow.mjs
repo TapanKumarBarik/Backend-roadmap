@@ -16,7 +16,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
 import { moduleUrl } from '../../webapp/src/lib/curriculum/moduleUrl.js';
-import { ROOT, config, SITE_URL, CURRICULA, isPlaceholderText } from '../lib/config.mjs';
+import { ROOT, CONTENT_ROOT, CONTENT_DIR, config, SITE_URL, CURRICULA, isPlaceholderText } from '../lib/config.mjs';
 
 const BATCH = 1000; // the protocol allows 10,000 per request
 const [since, ...flags] = process.argv.slice(2);
@@ -27,10 +27,19 @@ if (!since || /^0+$/.test(since)) {
   process.exit(0);
 }
 
+// Files added, changed or renamed-with-changes since then, as paths from the content folder. A pure rename (R100) is
+// not a change: it is how moving the curricula into content/ shows up, and none of those pages changed.
 let changed;
 try {
-  changed = execFileSync('git', ['diff', '--name-only', '--diff-filter=AM', since, 'HEAD', '--', ...CURRICULA], { cwd: ROOT, encoding: 'utf8' })
-    .split('\n').filter(Boolean);
+  const prefix = CONTENT_DIR + '/';
+  changed = execFileSync('git', ['diff', '-M', '--name-status', '--diff-filter=AMR', since, 'HEAD'], { cwd: ROOT, encoding: 'utf8' })
+    .split('\n').filter(Boolean)
+    .map((line) => line.split('\t'))
+    .filter(([status]) => status !== 'R100')
+    .map((columns) => columns[columns.length - 1])
+    .filter((file) => file.startsWith(prefix))
+    .map((file) => file.slice(prefix.length))
+    .filter((file) => CURRICULA.includes(file.split('/')[0]));
 } catch {
   console.log(`indexnow: could not compare ${since.slice(0, 7)} with HEAD (not in this clone's history), nothing to send`);
   process.exit(0);
@@ -38,7 +47,7 @@ try {
 
 const urls = changed
   .filter((file) => file.endsWith('/README.md'))
-  .filter((file) => fs.existsSync(path.join(ROOT, file)) && !isPlaceholderText(fs.readFileSync(path.join(ROOT, file), 'utf8')))
+  .filter((file) => fs.existsSync(path.join(CONTENT_ROOT, file)) && !isPlaceholderText(fs.readFileSync(path.join(CONTENT_ROOT, file), 'utf8')))
   .map((file) => moduleUrl(file))
   .filter(Boolean)
   .map((url) => SITE_URL + url);

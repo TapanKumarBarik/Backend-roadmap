@@ -6,7 +6,7 @@
 // pre-render step uses to noindex it - so the count a visitor sees matches what they can actually read.
 import fs from 'node:fs';
 import path from 'node:path';
-import { ROOT, CURRICULA, isPlaceholderText } from '../lib/config.mjs';
+import { ROOT, CONTENT_ROOT, CURRICULA, isPlaceholderText } from '../lib/config.mjs';
 import { loadCatalogue, resolvePath } from '../lib/paths.mjs';
 import { readText } from '../lib/content.mjs';
 
@@ -19,17 +19,17 @@ const trackTitle = (p) => h1(p).replace(/^Track\s+\d+\s*[:\-–—]\s*/i, '');
 const out = { generated: new Date().toISOString(), modules: { total: 0, written: 0, planned: 0 }, curricula: {}, tracks: {} };
 
 for (const cur of CURRICULA) {
-  const entry = { tracks: 0, modules: 0, written: 0, start: null, overview: fs.existsSync(path.join(ROOT, cur, 'README.md')) ? `${cur}/README.md` : null };
+  const entry = { tracks: 0, modules: 0, written: 0, start: null, overview: fs.existsSync(path.join(CONTENT_ROOT, cur, 'README.md')) ? `${cur}/README.md` : null };
   const tracks = [];
-  for (const t of dirs(path.join(ROOT, cur))) {
-    const tdir = path.join(ROOT, cur, t);
+  for (const t of dirs(path.join(CONTENT_ROOT, cur))) {
+    const tdir = path.join(CONTENT_ROOT, cur, t);
     const subs = dirs(tdir);
     const mods = subs.length
       ? subs.map((m) => `${cur}/${t}/${m}/README.md`)
       : (fs.existsSync(path.join(tdir, 'README.md')) ? [`${cur}/${t}/README.md`] : []); // flat course (lld)
-    const present = mods.filter((f) => fs.existsSync(path.join(ROOT, f)));
+    const present = mods.filter((f) => fs.existsSync(path.join(CONTENT_ROOT, f)));
     if (!present.length) continue;
-    const written = present.filter((f) => !isPlaceholder(path.join(ROOT, f)));
+    const written = present.filter((f) => !isPlaceholder(path.join(CONTENT_ROOT, f)));
     entry.tracks += 1;
     entry.modules += present.length;
     entry.written += written.length;

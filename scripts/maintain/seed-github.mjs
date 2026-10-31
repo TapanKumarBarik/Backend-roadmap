@@ -19,7 +19,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { ROOT, config, REPO_SLUG, SITE_URL, isPlaceholderText } from '../lib/config.mjs';
+import { ROOT, CONTENT_ROOT, CONTENT_DIR, CURRICULA, config, REPO_SLUG, SITE_URL, isPlaceholderText } from '../lib/config.mjs';
 
 const REPO = process.env.GITHUB_REPOSITORY || REPO_SLUG;
 const BLOB = `https://github.com/${REPO}/blob/${config.repo.branch}`;
@@ -31,11 +31,15 @@ const SETTINGS = args.includes('--settings');
 const previewDir = args.includes('--preview') ? args[args.indexOf('--preview') + 1] : null;
 
 // ───────────────────────────── repo scanning ──────────────────────────────
-const read = (rel) => fs.readFileSync(path.join(ROOT, rel), 'utf8');
-const exists = (rel) => fs.existsSync(path.join(ROOT, rel));
-const dirs = (rel) => fs.readdirSync(path.join(ROOT, rel), { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => e.name).sort();
+// A path inside a curriculum (genai/..., learn/...) is read from the content folder; anything else (api/..., docs/...) from the repo root.
+const inContent = (rel) => CURRICULA.includes(rel.split('/')[0]);
+const place = (rel) => path.join(inContent(rel) ? CONTENT_ROOT : ROOT, rel);
+const repoPath = (rel) => (inContent(rel) ? CONTENT_DIR + '/' + rel : rel);
+const read = (rel) => fs.readFileSync(place(rel), 'utf8');
+const exists = (rel) => fs.existsSync(place(rel));
+const dirs = (rel) => fs.readdirSync(place(rel), { withFileTypes: true }).filter((e) => e.isDirectory()).map((e) => e.name).sort();
 const title = (md, fallback) => md.match(/^#\s+(.+?)\s*$/m)?.[1] ?? fallback;
-const link = (rel, text) => `[${text}](${BLOB}/${rel.split('/').map(encodeURIComponent).join('/')})`;
+const link = (rel, text) => `[${text}](${BLOB}/${repoPath(rel).split('/').map(encodeURIComponent).join('/')})`;
 
 function modulesOf(track) {
   return dirs(track).map((d) => {

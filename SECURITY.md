@@ -30,7 +30,7 @@ In scope:
 
 Out of scope:
 
-- The curriculum content itself (`backend/`, `learn/`, `lld/`, `genai/`) —
+- The curriculum content itself (`content/`) —
   factual or technical corrections there are a pull request, not a security
   report
 - Third parties this app depends on (Google, Cloudflare, Azure, GitHub) — report those

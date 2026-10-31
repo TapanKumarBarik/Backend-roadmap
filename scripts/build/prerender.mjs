@@ -17,7 +17,7 @@ import { moduleUrl, routeUrl } from '../../webapp/src/lib/curriculum/moduleUrl.j
 import { resolvePath } from '../../webapp/src/lib/markdown/rewriteLinks.js';
 import { buildPageTitles } from '../../webapp/src/lib/curriculum/pageTitle.js';
 import { neighbourModules } from '../../webapp/src/lib/curriculum/curriculumPosition.js';
-import { ROOT, config, SITE_URL, isPlaceholderText } from '../lib/config.mjs';
+import { ROOT, CONTENT_DIR, config, SITE_URL, isPlaceholderText } from '../lib/config.mjs';
 import { descriptionCandidates, pickDescription } from '../lib/describe.mjs';
 import { gitDates } from '../lib/gitDates.mjs';
 
@@ -28,7 +28,7 @@ const DIST = path.join(ROOT, 'dist');
 const template = fs.readFileSync(path.join(DIST, 'index.html'), 'utf8');
 const { tree } = JSON.parse(fs.readFileSync(path.join(DIST, 'docs-index.json'), 'utf8'));
 const titles = buildPageTitles(tree, SITE_NAME);
-const dates = gitDates(ROOT); // null without full history (a shallow clone): the dates are then left out
+const dates = gitDates(ROOT, CONTENT_DIR); // null without full history (a shallow clone): the dates are then left out
 
 const esc = (s) => String(s)
   .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')

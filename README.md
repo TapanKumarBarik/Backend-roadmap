@@ -53,7 +53,7 @@ It's also **a community project, not a product**. The curriculum is plain markdo
 
 HTTP and request lifecycle · APIs · authentication & authorization · databases · caching · queues, background jobs & realtime · Elasticsearch · observability · security · distributed-systems patterns · GraphQL/gRPC/advanced APIs · testing · DevOps for backend engineers · **system design interview practice** · multi-tenancy & SaaS · Kafka & streaming
 
-[`backend/`](backend/README.md)
+[`backend/`](content/backend/README.md)
 
 </td>
 <td width="50%" valign="top">
@@ -63,7 +63,7 @@ HTTP and request lifecycle · APIs · authentication & authorization · database
 
 Linux · Docker · Kubernetes · networking · Azure networking, Container Apps & **AKS** · Git · **Terraform** · CI/CD & GitOps · security · observability · service mesh · stateful workloads · messaging · identity · governance · supply-chain security · SRE · FinOps · DR & chaos engineering · load testing · platform engineering
 
-[`learn/`](learn/README.md)
+[`learn/`](content/learn/README.md)
 
 </td>
 </tr>
@@ -75,7 +75,7 @@ Linux · Docker · Kubernetes · networking · Azure networking, Container Apps 
 
 Foundations · tokens & language modeling · the transformer · BERT/GPT/MoE · training, fine-tuning & alignment · GPUs & hardware · the model landscape · prompt engineering · embeddings & vector DBs · **RAG** · **AI agents** · **LangChain / LangGraph** · multi-agent orchestration · **Model Context Protocol (MCP)** · **vLLM** inference & serving · evaluation, observability & safety · speech & multimodal
 
-[`genai/`](genai/README.md)
+[`genai/`](content/genai/README.md)
 
 </td>
 <td width="50%" valign="top">
@@ -85,7 +85,7 @@ Foundations · tokens & language modeling · the transformer · BERT/GPT/MoE · 
 
 Python **and** C# side by side · OOP & UML · SOLID · design principles · all the GoF patterns · concurrency-safe design · requirements → class diagrams · parking lot, elevator, library, vending machine, chess, Splitwise, movie booking, ride-sharing, LRU/LFU cache & rate limiter · anti-patterns · the LLD interview playbook
 
-[`lld/`](lld/README.md)
+[`lld/`](content/lld/README.md)
 
 </td>
 </tr>
@@ -100,7 +100,7 @@ Python **and** C# side by side · OOP & UML · SOLID · design principles · all
 
 **GenAI** — `00` Foundations · `01` Tokens · `02` Transformers · `03` BERT/GPT/MoE · `04` Training & alignment · `05` GPUs · `06` Model landscape · `07` Prompt engineering · `08` Embeddings & vector DBs · `09` RAG · `10` Agents · `11` LangChain/LangGraph · `12` Multi-agent · `13` MCP · `14` vLLM serving · `15` Eval, observability & safety · `16` Speech & multimodal
 
-**LLD** — see [`lld/README.md`](lld/README.md)
+**LLD** — see [`lld/README.md`](content/lld/README.md)
 
 </details>
 
@@ -153,18 +153,18 @@ This project is run on a simple idea:
 
 | Track | Unwritten | What it covers |
 |---|:---:|---|
-| [`07-prompt-engineering`](genai/07-prompt-engineering/) | 17 | Anatomy of a prompt, few-shot, chain-of-thought, structured outputs, prompt injection |
-| [`08-embeddings-and-vector-databases`](genai/08-embeddings-and-vector-databases/) | 7 | Chroma & local development, Pinecone/Weaviate/Qdrant, exact vs approximate search, HNSW, IVF & product quantization, metadata filtering & hybrid queries, capstone — modules 00–10 are done |
-| [`09-retrieval-augmented-generation`](genai/09-retrieval-augmented-generation/) | 18 | RAG architecture, hybrid search, reranking, evaluating RAG, failure modes |
-| [`10-ai-agents`](genai/10-ai-agents/) | 18 | What an agent is, the ReAct loop, tool calling, planning & memory — built by hand |
-| [`11-langchain-and-langgraph`](genai/11-langchain-and-langgraph/) | 19 | Core abstractions, chains & memory, tools & retrievers, LangGraph state/cycles/checkpointing |
-| [`12-agent-orchestration-and-multi-agent-systems`](genai/12-agent-orchestration-and-multi-agent-systems/) | 17 | Orchestrator-worker, supervisor/swarm patterns, inter-agent communication |
-| [`13-model-context-protocol-mcp`](genai/13-model-context-protocol-mcp/) | 18 | MCP architecture, building an MCP server, MCP vs function calling, the ecosystem |
-| [`14-inference-and-serving-vllm`](genai/14-inference-and-serving-vllm/) | 16 | KV cache, continuous batching, PagedAttention, vLLM, quantized & multi-GPU serving |
-| [`15-evaluation-observability-and-safety`](genai/15-evaluation-observability-and-safety/) | 18 | Evaluating LLM output, hallucination detection, guardrails, tracing, cost monitoring |
-| [`16-speech-and-multimodal-models`](genai/16-speech-and-multimodal-models/) | 16 | Speech-to-text, text-to-speech, realtime voice agents, vision/multimodal LLMs |
+| [`07-prompt-engineering`](content/genai/07-prompt-engineering/) | 17 | Anatomy of a prompt, few-shot, chain-of-thought, structured outputs, prompt injection |
+| [`08-embeddings-and-vector-databases`](content/genai/08-embeddings-and-vector-databases/) | 7 | Chroma & local development, Pinecone/Weaviate/Qdrant, exact vs approximate search, HNSW, IVF & product quantization, metadata filtering & hybrid queries, capstone — modules 00–10 are done |
+| [`09-retrieval-augmented-generation`](content/genai/09-retrieval-augmented-generation/) | 18 | RAG architecture, hybrid search, reranking, evaluating RAG, failure modes |
+| [`10-ai-agents`](content/genai/10-ai-agents/) | 18 | What an agent is, the ReAct loop, tool calling, planning & memory — built by hand |
+| [`11-langchain-and-langgraph`](content/genai/11-langchain-and-langgraph/) | 19 | Core abstractions, chains & memory, tools & retrievers, LangGraph state/cycles/checkpointing |
+| [`12-agent-orchestration-and-multi-agent-systems`](content/genai/12-agent-orchestration-and-multi-agent-systems/) | 17 | Orchestrator-worker, supervisor/swarm patterns, inter-agent communication |
+| [`13-model-context-protocol-mcp`](content/genai/13-model-context-protocol-mcp/) | 18 | MCP architecture, building an MCP server, MCP vs function calling, the ecosystem |
+| [`14-inference-and-serving-vllm`](content/genai/14-inference-and-serving-vllm/) | 16 | KV cache, continuous batching, PagedAttention, vLLM, quantized & multi-GPU serving |
+| [`15-evaluation-observability-and-safety`](content/genai/15-evaluation-observability-and-safety/) | 18 | Evaluating LLM output, hallucination detection, guardrails, tracing, cost monitoring |
+| [`16-speech-and-multimodal-models`](content/genai/16-speech-and-multimodal-models/) | 16 | Speech-to-text, text-to-speech, realtime voice agents, vision/multimodal LLMs |
 
-Each track's own `README.md` lists its modules in order, and the [GenAI overview](genai/README.md) explains how the tracks fit together. See them all at once:
+Each track's own `README.md` lists its modules in order, and the [GenAI overview](content/genai/README.md) explains how the tracks fit together. See them all at once:
 
 ```bash
 git grep -l "has not been written yet" -- genai
@@ -396,7 +396,7 @@ npm run index                            # builds the module index
 npm run dev                              # hot reload on http://localhost:4173
 ```
 
-Open **<http://localhost:4173>**. Edit any `.md` file under `backend/`, `learn/`, `genai/` or `lld/`, refresh, and see it rendered. Run `npm run index` again after you **add or rename** a module so it appears in the tree and in search.
+Open **<http://localhost:4173>**. Edit any `.md` file under `content/`, refresh, and see it rendered. Run `npm run index` again after you **add or rename** a module so it appears in the tree and in search.
 
 ### The whole site, including the API
 
@@ -414,7 +414,7 @@ Before opening a PR, run `npm run lint`, `npm run typecheck`, `npm test`, `npm r
 
 | Layer | What |
 |---|---|
-| **Content** | Plain markdown in `backend/`, `learn/`, `genai/`, `lld/` — one `README.md` per module |
+| **Content** | Plain markdown in `content/` (`backend/`, `learn/`, `genai/`, `lld/`) — one `README.md` per module |
 | **Frontend** | React 18 + Vite; `marked`, highlight.js, Mermaid, Tiptap (workspace editor) |
 | **API** | [Hono](https://hono.dev) on **Cloudflare Pages Functions** |
 | **Database** | **Cloudflare D1** (SQLite at the edge) |
@@ -424,7 +424,7 @@ Before opening a PR, run `npm run lint`, `npm run typecheck`, `npm test`, `npm r
 | **SEO** | Every module is pre-rendered to its own real page at build time, with a generated sitemap |
 
 ```text
-backend/ learn/ genai/ lld/   the curriculum — one markdown file per module
+content/                      the curriculum: backend/ learn/ genai/ lld/ (one markdown file per module) and paths.json
 webapp/                       the React app
   src/components/<feature>/     one folder per screen or area
   src/hooks/                    shared React hooks

@@ -2,7 +2,7 @@
 // GitHub (a non-collaborator is walked through forking automatically), report
 // a problem with the module prefilled, or claim an unwritten module.
 
-import { REPO, REPO_URL, isPlaceholderText } from '../../config/index.js';
+import { CONTENT_DIR, REPO, REPO_URL, isPlaceholderText } from '../../config/index.js';
 
 export { REPO_URL };
 export const WRITE_GUIDE_URL = `${REPO_URL}#what-a-great-module-looks-like`;
@@ -16,7 +16,7 @@ const encodePath = (file) => file.split('/').map(encodeURIComponent).join('/');
 const folderOf = (file) => file.replace(/\/?README\.md$/, '');
 
 export function editUrl(file) {
-  return `${REPO_URL}/edit/${REPO.branch}/${encodePath(file)}`;
+  return `${REPO_URL}/edit/${REPO.branch}/${encodePath(CONTENT_DIR + '/' + file)}`;
 }
 
 export function reportUrl(file) {

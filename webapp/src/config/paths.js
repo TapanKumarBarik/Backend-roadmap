@@ -1,6 +1,6 @@
-// Learning paths. What a path contains (titles, goals, steps) is in paths.json at the repo root, so adding or
+// Learning paths. What a path contains (titles, goals, steps) is in content/paths.json, so adding or
 // editing one is a data change, not a code change. The words on the screens that deal with paths are here.
-import catalogue from '../../../paths.json';
+import catalogue from '../../../content/paths.json';
 import { SITE } from './index.js';
 
 export const LEARNING_PATHS = catalogue.paths;

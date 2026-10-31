@@ -1,11 +1,12 @@
 // When each file was first written and last changed, from git history: { 'backend/01-x/README.md': { created, modified } },
-// as YYYY-MM-DD, keyed by the path the file has today (a rename carries its history along, and a pure rename is
-// not a change). Search engines use these dates to decide what is worth fetching again, and they are only worth
-// anything if they are true, so when there is no full history to read (a shallow clone, no git) this returns null
-// and callers leave the dates out instead of guessing.
+// as YYYY-MM-DD, keyed by the path the file has today, counted from the content folder (a rename carries its history
+// along, and a pure rename is not a change, which is why moving the curricula into content/ left every date alone).
+// Search engines use these dates to decide what is worth fetching again, and they are only worth anything if they are
+// true, so when there is no full history to read (a shallow clone, no git) this returns null and callers leave the
+// dates out instead of guessing.
 import { execFileSync } from 'node:child_process';
 
-export function gitDates(root) {
+export function gitDates(root, contentDir = '') {
   const git = (...args) => execFileSync('git', ['-c', 'core.quotepath=off', ...args], { cwd: root, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024, stdio: ['ignore', 'pipe', 'ignore'] });
   let log;
   try {
@@ -35,5 +36,7 @@ export function gitDates(root) {
       touch(today.get(from) || from, day);
     }
   }
-  return dates;
+  if (!contentDir) return dates;
+  const prefix = contentDir.endsWith('/') ? contentDir : contentDir + '/';
+  return Object.fromEntries(Object.entries(dates).filter(([file]) => file.startsWith(prefix)).map(([file, when]) => [file.slice(prefix.length), when]));
 }

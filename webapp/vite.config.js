@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 const repoRoot = join(fileURLToPath(new URL('.', import.meta.url)), '..');
 const distDir = join(repoRoot, 'dist');
 const siteConfig = JSON.parse(readFileSync(join(repoRoot, 'site.config.json'), 'utf8'));
+const contentDir = join(repoRoot, siteConfig.content.dir);
 
 const MIME_TYPES = {
   '.json': 'application/json', '.md': 'text/markdown; charset=utf-8',
@@ -15,7 +16,7 @@ const MIME_TYPES = {
 };
 
 // `vite dev` only serves webapp/, but the app also fetches the curriculum
-// markdown (the backend/genai/learn/lld trees at the repo root) and the two
+// markdown (the curricula, in the content folder) and the two
 // generated indexes (dist/docs-index.json, dist/search-index.json — run
 // `npm run index` once, from the repo root). Without this, those
 // requests fall through to the SPA's index.html with a 200 and the app renders
@@ -30,7 +31,7 @@ function serveRepoContent() {
       server.middlewares.use((req, res, next) => {
         const urlPath = decodeURIComponent(req.url.split('?')[0]);
         const first = urlPath.split('/')[1];
-        const base = generated.includes(first) ? distDir : contentRoots.includes(first) ? repoRoot : null;
+        const base = generated.includes(first) ? distDir : contentRoots.includes(first) ? contentDir : null;
         if (!base) return next();
         const filePath = normalize(join(base, urlPath));
         if (!filePath.startsWith(base) || !existsSync(filePath) || !statSync(filePath).isFile()) return next();

@@ -14,6 +14,8 @@ const content = createRouter();
 const GITHUB_REPO = `${site.repo.owner}/${site.repo.name}`;
 const GITHUB_BRANCH = site.repo.branch;
 const GITHUB_API = 'https://api.github.com';
+const CONTENT_DIR = site.content.dir;
+const CURRICULA = site.content.curricula;
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 const ALLOWED_IMAGE_TYPES = {
   'image/png': 'png',
@@ -22,6 +24,16 @@ const ALLOWED_IMAGE_TYPES = {
   'image/gif': 'gif',
   'image/svg+xml': 'svg'
 };
+
+// The editor works on lessons, so a path is a lesson's path from the content folder ("learn/01-linux/README.md") and
+// becomes content/learn/01-linux/README.md in the repository. Anything else (another folder of the repository, a
+// path that climbs out with "..") is refused: this endpoint commits with the site's GitHub token, and it should not
+// be a way to change workflows or code. Returns null for a path it will not touch.
+export function repoPathFor(path) {
+  const parts = String(path || '').split('/');
+  if (!CURRICULA.includes(parts[0]) || parts.some((part) => part === '' || part === '.' || part === '..')) return null;
+  return CONTENT_DIR + '/' + parts.map(encodeURIComponent).join('/');
+}
 
 function githubHeaders(env) {
   return {
@@ -37,8 +49,10 @@ content.get('/manage/content', async (c) => {
 
   const path = c.req.query('path');
   if (!path) return c.json({ error: 'path is required' }, 400);
+  const repoPath = repoPathFor(path);
+  if (!repoPath) return c.json({ error: 'path must be a lesson inside a curriculum folder' }, 400);
 
-  const res = await fetch(`${GITHUB_API}/repos/${GITHUB_REPO}/contents/${path}?ref=${GITHUB_BRANCH}`, {
+  const res = await fetch(`${GITHUB_API}/repos/${GITHUB_REPO}/contents/${repoPath}?ref=${GITHUB_BRANCH}`, {
     headers: githubHeaders(c.env)
   });
   if (!res.ok) return c.json({ error: 'GitHub fetch failed: ' + res.status }, upstreamStatus(res));
@@ -57,8 +71,10 @@ content.put('/manage/content', async (c) => {
   if (!path || typeof fileContent !== 'string' || !sha) {
     return c.json({ error: 'path, content, and sha are required' }, 400);
   }
+  const repoPath = repoPathFor(path);
+  if (!repoPath) return c.json({ error: 'path must be a lesson inside a curriculum folder' }, 400);
 
-  const res = await fetch(`${GITHUB_API}/repos/${GITHUB_REPO}/contents/${path}`, {
+  const res = await fetch(`${GITHUB_API}/repos/${GITHUB_REPO}/contents/${repoPath}`, {
     method: 'PUT',
     headers: { ...githubHeaders(c.env), 'Content-Type': 'application/json' },
     body: JSON.stringify({

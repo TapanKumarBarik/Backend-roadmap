@@ -7,10 +7,10 @@
 // out of a path until someone writes it.
 import fs from 'node:fs';
 import path from 'node:path';
-import { ROOT, CURRICULA, isPlaceholderText } from './config.mjs';
+import { CONTENT_ROOT, CURRICULA, isPlaceholderText } from './config.mjs';
 import { SKIP_DIRS, readText, readingMinutes } from './content.mjs';
 
-export const loadCatalogue = () => JSON.parse(fs.readFileSync(path.join(ROOT, 'paths.json'), 'utf8')).paths || [];
+export const loadCatalogue = () => JSON.parse(fs.readFileSync(path.join(CONTENT_ROOT, 'paths.json'), 'utf8')).paths || [];
 
 const subdirs = (dir) => fs.readdirSync(dir, { withFileTypes: true })
   .filter((d) => d.isDirectory() && !SKIP_DIRS.has(d.name)).map((d) => d.name).sort();
@@ -32,7 +32,7 @@ export function resolvePath(p) {
 
   for (const step of p.steps || []) {
     if (!CURRICULA.includes(step.split('/')[0])) { problems.push(`step "${step}" is not inside a curriculum (${CURRICULA.join(', ')})`); continue; }
-    const dir = path.join(ROOT, step);
+    const dir = path.join(CONTENT_ROOT, step);
     if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) { problems.push(`step "${step}" is not a folder`); continue; }
     const found = modulesUnder(dir);
     if (!found.length) { problems.push(`step "${step}" has no modules in it`); continue; }
@@ -52,7 +52,7 @@ export function resolvePath(p) {
     planned,
     steps,
     minutes: written.reduce((total, m) => total + m.minutes, 0),
-    start: written.length ? path.relative(ROOT, path.join(written[0].dir, 'README.md')).split(path.sep).join('/') : null,
+    start: written.length ? path.relative(CONTENT_ROOT, path.join(written[0].dir, 'README.md')).split(path.sep).join('/') : null,
     problems
   };
 }

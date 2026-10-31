@@ -6,7 +6,7 @@
 // Run it after adding or changing images:  npm run check:images   (how to make them: docs/IMAGES.md)
 import fs from 'node:fs';
 import path from 'node:path';
-import { ROOT, config, CURRICULA } from '../lib/config.mjs';
+import { CONTENT_ROOT, config, CURRICULA } from '../lib/config.mjs';
 import { SKIP_DIRS, markdownFiles, readText } from '../lib/content.mjs';
 
 const { maxBytes, extensions } = config.content.images;
@@ -36,10 +36,10 @@ let modules = 0;
 let references = 0;
 
 for (const curriculum of CURRICULA) {
-  const dir = path.join(ROOT, curriculum);
+  const dir = path.join(CONTENT_ROOT, curriculum);
   if (!fs.existsSync(dir)) continue;
   for (const file of markdownFiles(dir)) {
-    const rel = path.relative(ROOT, file).split(path.sep).join('/');
+    const rel = path.relative(CONTENT_ROOT, file).split(path.sep).join('/');
     const images = imagesIn(withoutCode(readText(file)));
     if (!images.length) continue;
     modules++;
@@ -49,7 +49,7 @@ for (const curriculum of CURRICULA) {
       if (/^(https?:)?\/\//i.test(src)) { fail(rel, `external image ${src}: save it in the module's images/ folder (the site's security policy blocks images from other hosts)`); continue; }
       if (/^data:/i.test(src)) { fail(rel, 'an inline data: image: save it as a file in the module\'s images/ folder'); continue; }
       const clean = src.split('#')[0].split('?')[0];
-      const abs = clean.startsWith('/') ? path.join(ROOT, clean) : path.resolve(path.dirname(file), decodeURI(clean));
+      const abs = clean.startsWith('/') ? path.join(CONTENT_ROOT, clean) : path.resolve(path.dirname(file), decodeURI(clean));
       referenced.add(abs);
       if (!alt) fail(rel, `${src}: alt text is missing (say what the image shows, for readers who cannot see it)`);
       const ext = path.extname(abs).toLowerCase();
@@ -74,12 +74,12 @@ function warnOrphans(dir) {
     const full = path.join(dir, entry.name);
     if (entry.isDirectory()) { if (!SKIP_DIRS.has(entry.name)) warnOrphans(full); }
     else if (path.basename(dir) === 'images' && extensions.includes(path.extname(entry.name).toLowerCase()) && !referenced.has(full)) {
-      warn(path.relative(ROOT, full).split(path.sep).join('/'), 'not used by any module');
+      warn(path.relative(CONTENT_ROOT, full).split(path.sep).join('/'), 'not used by any module');
     }
   }
 }
 for (const curriculum of CURRICULA) {
-  if (fs.existsSync(path.join(ROOT, curriculum))) warnOrphans(path.join(ROOT, curriculum));
+  if (fs.existsSync(path.join(CONTENT_ROOT, curriculum))) warnOrphans(path.join(CONTENT_ROOT, curriculum));
 }
 
 warnings.forEach((m) => console.warn('warning: ' + m));

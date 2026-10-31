@@ -10,7 +10,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { chromium } from 'playwright-core';
-import { ROOT, config, CURRICULA } from '../lib/config.mjs';
+import { ROOT, CONTENT_ROOT, config, CURRICULA } from '../lib/config.mjs';
 
 const args = process.argv.slice(2);
 const channel = args.includes('--channel') ? args[args.indexOf('--channel') + 1] : config.screenshots.browserChannel;
@@ -36,14 +36,14 @@ function readmes(dir) {
 // every fenced mermaid block, with where it came from
 const diagrams = [];
 for (const cur of CURRICULA) {
-  const dir = path.join(ROOT, cur);
+  const dir = path.join(CONTENT_ROOT, cur);
   if (!fs.existsSync(dir)) continue;
   for (const file of readmes(dir)) {
     const text = fs.readFileSync(file, 'utf8');
     let n = 0;
     for (const m of text.matchAll(/^```mermaid[ \t]*\r?\n([\s\S]*?)^```[ \t]*$/gm)) {
       n += 1;
-      diagrams.push({ where: `${path.relative(ROOT, file).split(path.sep).join('/')} (diagram ${n})`, source: m[1] });
+      diagrams.push({ where: `${path.relative(CONTENT_ROOT, file).split(path.sep).join('/')} (diagram ${n})`, source: m[1] });
     }
   }
 }

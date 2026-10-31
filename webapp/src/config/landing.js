@@ -1,7 +1,7 @@
 // Everything the landing page says and links to. components/home/Landing.jsx only lays it out, so changing
 // the wording, a path blurb or a route stop means editing this file and nothing else.
 // Numbers come from build-time stats (scripts/gen-site-stats.mjs) and are passed to the functions below.
-// The learning paths themselves (titles, goals, steps) are in paths.json at the repo root.
+// The learning paths themselves (titles, goals, steps) are in content/paths.json.
 import { PATH_COPY, formatDuration } from './paths.js';
 
 const fmt = (n) => (typeof n === 'number' ? n.toLocaleString('en-US') : '');

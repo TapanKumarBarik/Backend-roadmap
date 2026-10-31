@@ -28,6 +28,7 @@
     "branch": "main"
   },
   "content": {
+    "dir": "content",
     "curricula": ["backend", "learn", "genai", "lld"],
     "placeholderMarker": "has not been written yet",
     "placeholderScanLines": 25,

@@ -11,6 +11,10 @@ export const SITE_URL = config.site.url;
 export const REPO_SLUG = `${config.repo.owner}/${config.repo.name}`;
 export const REPO_URL = `https://github.com/${REPO_SLUG}`;
 export const CURRICULA = config.content.curricula;
+// The folder the curricula and paths.json sit in (site.config.json -> content.dir). A lesson's key everywhere on the
+// site (the index, progress, the URL) is its path from here, which is why moving the folder changes none of them.
+export const CONTENT_DIR = config.content.dir;
+export const CONTENT_ROOT = path.join(ROOT, CONTENT_DIR);
 export const PLACEHOLDER_MARKER = config.content.placeholderMarker;
 
 // A module is a placeholder when its opening lines carry the marker sentence.

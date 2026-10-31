@@ -16,7 +16,7 @@ Do not use stock photos or decoration. If removing the picture loses nothing, re
 ## Adding one
 
 1. Put the file in an `images/` folder **inside the module's folder**, next to its `README.md`:
-   `backend/01-request-response-fundamentals/00-system-overview-and-request-flow/images/request-journey.svg`
+   `content/backend/01-request-response-fundamentals/00-system-overview-and-request-flow/images/request-journey.svg`
 2. Use it with a path relative to the module (the same path works on GitHub and on the site), then a one-line caption in italics straight after it:
 
    ```markdown
@@ -39,7 +39,7 @@ Licensing: draw it yourself, or use something that is CC0 or CC-BY and give the 
 
 ## The look of an illustration
 
-Illustrations should look like one family. They are drawn in SVG, by hand or with a script; the two in `backend/01-request-response-fundamentals/` are the reference.
+Illustrations should look like one family. They are drawn in SVG, by hand or with a script; the two in `content/backend/01-request-response-fundamentals/` are the reference.
 
 - **Size.** About 560 px wide. The reading column is about 660 px and phones scale the picture down, so keep text at 13 px or more at that width, and prefer a tall layout to a wide one.
 - **Draw your own card.** A rounded rectangle (`#fbfbf9` fill, `#e4e4de` stroke, radius 16) as the first element, so the picture reads the same on the light and the dark theme.
@@ -53,7 +53,7 @@ The logo and these colours come from the site's own design tokens in `webapp/src
 
 ## Animated illustrations
 
-An SVG can move without any script: CSS animation inside the file runs even when the file is used as a normal image (`![...](images/x.svg)`), so there is nothing to wire up. Use it when motion *is* the explanation (a request travelling a route, a message passing from service to service), not to make a picture livelier. `backend/01-request-response-fundamentals/00-system-overview-and-request-flow/images/request-journey.svg` is the reference: a dot travels the route and each latency label lights as it arrives.
+An SVG can move without any script: CSS animation inside the file runs even when the file is used as a normal image (`![...](images/x.svg)`), so there is nothing to wire up. Use it when motion *is* the explanation (a request travelling a route, a message passing from service to service), not to make a picture livelier. `content/backend/01-request-response-fundamentals/00-system-overview-and-request-flow/images/request-journey.svg` is the reference: a dot travels the route and each latency label lights as it arrives.
 
 - **Put the styles in the file.** A `<style>` block with `@keyframes`, and classes on the shapes that move. No `<script>`, no JavaScript, no links to other files (the checker rejects scripts).
 - **Moves only what teaches.** One thing travels or changes at a time, slowly (a full loop of 8 to 12 seconds, at least half a second between steps), with a rest at the end so the reader can look at the finished picture.
