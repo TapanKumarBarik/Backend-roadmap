@@ -19,34 +19,9 @@ jobs:
         with:
           fetch-depth: 0  # the build dates every page from git history (sitemap, structured data); a shallow clone has none
 
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22  # wrangler 4 requires Node >= 22
-          cache: npm
-
-      # One install for the whole repo (npm workspaces): the app, hono (which wrangler bundles into the Pages
-      # Function) and the tools.
-      - name: Install dependencies
-        run: npm ci
-
-      # A missing await on isAdmin() silently grants admin to everyone;
-      # see scripts/check/check-admin-guards.mjs.
-      - name: Check admin guards
-        run: npm run check
-
-      - name: Lint
-        run: npm run lint
-
-      - name: Type check
-        run: npm run typecheck
-
-      - name: Test
-        run: npm test
-
-      # Assembles the whole site in dist/ — the only thing deployed. See the
-      # "build" script in the root package.json for the steps.
-      - name: Build
-        run: npm run build
+      # Install, every check, the build into dist/ (the only thing deployed) and the browser tests: the same steps a
+      # pull request runs, in .github/actions/verify. Nothing below runs unless they all pass.
+      - uses: ./.github/actions/verify
 
       # Failures surface as annotations (::error::), which — unlike step logs —
       # are readable on the public repo without signing in.

@@ -1,7 +1,8 @@
 name: PR checks
 
-# Builds the whole site on every pull request so contributors get feedback
-# before review. No deploy and no secrets — safe for pull requests from forks.
+# Runs every check and builds the whole site on every pull request, so contributors get feedback before review.
+# The steps are the shared action in .github/actions/verify, the same one the deploy runs. No deploy and no
+# secrets, so it is safe for pull requests from forks.
 on:
   pull_request:
     branches: [main]
@@ -14,7 +15,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build:
+  verify:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -22,27 +23,4 @@ jobs:
         with:
           fetch-depth: 0  # the build dates every page from git history; a shallow clone has none
 
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-
-      - name: Install dependencies
-        run: npm ci
-
-      # A missing await on isAdmin() silently grants admin to everyone;
-      # see scripts/check/check-admin-guards.mjs.
-      - name: Check admin guards
-        run: npm run check
-
-      - name: Lint
-        run: npm run lint
-
-      - name: Type check
-        run: npm run typecheck
-
-      - name: Test
-        run: npm test
-
-      - name: Build the site
-        run: npm run build
+      - uses: ./.github/actions/verify

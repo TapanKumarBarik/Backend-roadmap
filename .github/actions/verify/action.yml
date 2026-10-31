@@ -1,0 +1,54 @@
+name: Verify the project
+description: >
+  Installs the dependencies, runs every check, builds the site into dist/ and drives it in a real browser.
+  The pull request check and the deploy both use this, so what passes review is what is allowed to ship.
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@v4
+      with:
+        node-version: 22  # wrangler 4 requires Node >= 22
+        cache: npm
+
+    # One install for the whole repo (npm workspaces): the app, hono (which wrangler bundles into the Pages
+    # Function) and the tools.
+    - name: Install dependencies
+      shell: bash
+      run: npm ci
+
+    # A missing await on isAdmin() silently grants admin to everyone; see scripts/check/check-admin-guards.mjs.
+    # The same step checks that paths.json and every lesson image are valid.
+    - name: Check admin guards, learning paths and images
+      shell: bash
+      run: npm run check
+
+    - name: Lint
+      shell: bash
+      run: npm run lint
+
+    - name: Type check
+      shell: bash
+      run: npm run typecheck
+
+    - name: Unit tests
+      shell: bash
+      run: npm test
+
+    # Assembles the whole site in dist/, the only thing deployed. See the "build" script in the root package.json.
+    - name: Build the site
+      shell: bash
+      run: npm run build
+
+    # The pages as a reader gets them: a lesson opens, links work, videos play under the real security policy, the
+    # built pages carry what search engines read. Chrome is preinstalled on GitHub's Ubuntu runners.
+    - name: Browser tests
+      shell: bash
+      run: |
+        chrome="$(command -v google-chrome || command -v chromium || true)"
+        [ -n "$chrome" ] || { echo "::error::no Chrome or Chromium found on this runner"; exit 1; }
+        export E2E_EXECUTABLE="$chrome"
+        npm run preview > preview.log 2>&1 &
+        for _ in $(seq 1 30); do curl -sf -o /dev/null http://localhost:4180/ && break; sleep 1; done
+        curl -sf -o /dev/null http://localhost:4180/ || { cat preview.log; echo "::error::the preview server did not start"; exit 1; }
+        npm run test:e2e

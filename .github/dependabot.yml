@@ -15,7 +15,8 @@ updates:
         update-types: ["minor", "patch"]
 
   - package-ecosystem: "github-actions"
-    directory: "/"
+    # The workflows, and the shared action they call (Dependabot does not look inside .github/actions by itself).
+    directories: ["/", "/.github/actions/verify"]
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5
