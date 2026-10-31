@@ -13,6 +13,8 @@ export default function VideosView({ videoData, nodeByFile, onOpenFile }) {
   const [query, setQuery] = useState('');
   const [only, setOnly] = useState('all');
 
+  // undefined: still loading; null: none, or they could not be loaded (see hooks/useVideos.js).
+  const loading = videoData === undefined;
   const { videos, playlists } = videoData || { videos: [], playlists: [] };
   const all = useMemo(() => totals(videos), [videos]);
 
@@ -43,7 +45,7 @@ export default function VideosView({ videoData, nodeByFile, onOpenFile }) {
       </div>
 
       {videos.length === 0
-        ? <p>{VIDEOS_PAGE.empty}</p>
+        ? <p>{loading ? VIDEOS_PAGE.loading : VIDEOS_PAGE.empty}</p>
         : (
           <>
             <div className="vid-tools">

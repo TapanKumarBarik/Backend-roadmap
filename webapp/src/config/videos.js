@@ -32,7 +32,7 @@ export const VIDEOS_PAGE = {
   count: (shown, total) => (shown === total ? `${total} videos` : `${shown} of ${total} videos`),
   notes: 'Read the notes',
   notesSoon: 'Notes soon',
-  open: (title) => `Open: ${title}`,
   playlist: 'Open the playlist on YouTube',
+  loading: 'Loading…',
   empty: 'The videos could not be loaded. Try again in a moment.'
 };

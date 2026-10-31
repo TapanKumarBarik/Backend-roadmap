@@ -26,7 +26,6 @@ export default function VideoCard({ video, node, onOpenFile }) {
       href={href}
       onClick={open}
       {...(internal ? {} : { target: '_blank', rel: 'noopener noreferrer' })}
-      aria-label={VIDEOS_PAGE.open(video.title)}
     >
       <span className="vid-thumb">
         <img src={thumbnailUrl(video.id)} alt="" width="480" height="360" loading="lazy" decoding="async" />

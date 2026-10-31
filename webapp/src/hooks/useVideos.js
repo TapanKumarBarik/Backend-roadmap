@@ -16,19 +16,19 @@ function load() {
 }
 
 /**
- * `null` until the videos have loaded (or if they could not be), then
+ * `undefined` while the videos are loading; `null` if there are none or they could not be loaded; then
  * `{ videos, playlists, byFile }`: every video in the order the playlists list them, the playlists, and the videos of
  * each module keyed by the module's README.md.
  */
 export function useVideos() {
-  const [data, setData] = useState(null);
+  const [data, setData] = useState(undefined);
   useEffect(() => {
     let cancelled = false;
-    load().then((d) => { if (!cancelled && d && Array.isArray(d.videos) && d.videos.length) setData(d); });
+    load().then((d) => { if (!cancelled) setData(d && Array.isArray(d.videos) && d.videos.length ? d : null); });
     return () => { cancelled = true; };
   }, []);
   return useMemo(
-    () => (data ? { videos: data.videos, playlists: data.playlists || [], byFile: groupByModule(data.videos) } : null),
+    () => (data ? { videos: data.videos, playlists: data.playlists || [], byFile: groupByModule(data.videos) } : data),
     [data]
   );
 }
