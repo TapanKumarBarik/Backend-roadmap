@@ -2,7 +2,7 @@
 #
 # Patch and minor updates arrive together in one pull request a week (they are low risk, and the lint, type, unit and
 # browser tests run on it), instead of ten small ones. A major version stays its own pull request so it can be judged
-# on its own.
+# on its own, except the ones below that were judged and declined, each with its reason.
 version: 2
 updates:
   - package-ecosystem: "npm"
@@ -13,6 +13,21 @@ updates:
     groups:
       minor-and-patch:
         update-types: ["minor", "patch"]
+    ignore:
+      # React 19 makes the first download of every page about 22 KB (gzipped) larger, 102 KB to 125 KB measured, and
+      # this app uses nothing it adds. Revisit when that stops being true or a dependency requires it.
+      - dependency-name: "react"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "react-dom"
+        update-types: ["version-update:semver-major"]
+      # The ESLint plugin that understands JSX (eslint-plugin-react) does not support ESLint 10 yet.
+      - dependency-name: "eslint"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "@eslint/js"
+        update-types: ["version-update:semver-major"]
+      # Types for the Node the project runs on (.nvmrc, CI), not for the newest Node.
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: "github-actions"
     # The workflows, and the shared action they call (Dependabot does not look inside .github/actions by itself).
