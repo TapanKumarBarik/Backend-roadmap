@@ -1,22 +1,25 @@
--- D1 schema replacing Azure Table Storage's 17 tables (see the migration plan
--- for the full rationale). Table Storage's partition-key/row-key pairs become
--- real composite primary keys here — in a few places (FeedVotes,
--- SuggestionVotes, CommentVotes) the old row key was a manually-concatenated
--- "<id>_<voterId>" string the app had to split with lastIndexOf('_') at read
--- time; those become real columns with a real UNIQUE/PRIMARY KEY constraint
--- instead, which is strictly better, not just a mechanical translation.
+-- 0001: the schema the site launched with. Every later change to the database is a new numbered file beside this
+-- one, never an edit to a file that has already been applied (see api/README.md, "Changing the database").
 --
--- Column names are snake_case (SQL convention); the API layer maps them back
--- to the existing camelCase JSON shape the frontend already expects, so no
--- client-side changes are needed.
+-- Every statement is IF NOT EXISTS because the production database already holds this schema (it was set up
+-- before migrations existed): applying it there changes nothing and only records "0001 applied", while on a new
+-- database (local development, a contributor's own Cloudflare account, the tests) it builds everything.
+--
+-- History: this schema replaced Azure Table Storage's 17 tables. Table Storage's partition-key/row-key pairs became
+-- real composite primary keys here; in a few places (feed_votes, suggestion_votes, comment_votes) the old row key
+-- was a manually concatenated "<id>_<voterId>" string the app had to split at read time, and those became real
+-- columns with a real PRIMARY KEY, which is strictly better, not just a mechanical translation.
+--
+-- Column names are snake_case (SQL convention); the API layer maps them back to the camelCase JSON shape the
+-- frontend expects.
 
-CREATE TABLE admins (
+CREATE TABLE IF NOT EXISTS admins (
   email      TEXT PRIMARY KEY,
   granted_by TEXT,
   granted_at TEXT
 );
 
-CREATE TABLE users (
+CREATE TABLE IF NOT EXISTS users (
   user_id    TEXT PRIMARY KEY,   -- Google `sub` claim
   email      TEXT,
   name       TEXT,
@@ -25,14 +28,14 @@ CREATE TABLE users (
   last_seen  TEXT
 );
 
-CREATE TABLE bookmarks (
+CREATE TABLE IF NOT EXISTS bookmarks (
   user_id    TEXT NOT NULL,
   path       TEXT NOT NULL,
   created_at TEXT,
   PRIMARY KEY (user_id, path)
 );
 
-CREATE TABLE books (
+CREATE TABLE IF NOT EXISTS books (
   id             TEXT PRIMARY KEY,  -- was rowKey: <ms-timestamp>-<hex>, kept as TEXT so string sort order == chronological order
   user_id        TEXT,
   display_name   TEXT,
@@ -43,7 +46,7 @@ CREATE TABLE books (
   created_at     TEXT
 );
 
-CREATE TABLE feed_posts (
+CREATE TABLE IF NOT EXISTS feed_posts (
   id              TEXT PRIMARY KEY,
   user_id         TEXT,
   display_name    TEXT,
@@ -54,14 +57,14 @@ CREATE TABLE feed_posts (
   created_at      TEXT
 );
 
-CREATE TABLE feed_votes (
+CREATE TABLE IF NOT EXISTS feed_votes (
   post_id    TEXT NOT NULL,
   voter_id   TEXT NOT NULL,
   created_at TEXT,
   PRIMARY KEY (post_id, voter_id)
 );
 
-CREATE TABLE messages (
+CREATE TABLE IF NOT EXISTS messages (
   id           TEXT PRIMARY KEY,
   user_id      TEXT,
   display_name TEXT,
@@ -70,7 +73,7 @@ CREATE TABLE messages (
   created_at   TEXT
 );
 
-CREATE TABLE module_progress (
+CREATE TABLE IF NOT EXISTS module_progress (
   user_id    TEXT NOT NULL,
   path       TEXT NOT NULL,
   status     TEXT,
@@ -78,7 +81,7 @@ CREATE TABLE module_progress (
   PRIMARY KEY (user_id, path)
 );
 
-CREATE TABLE notes (
+CREATE TABLE IF NOT EXISTS notes (
   user_id    TEXT NOT NULL,
   path       TEXT NOT NULL,
   text       TEXT,
@@ -86,7 +89,7 @@ CREATE TABLE notes (
   PRIMARY KEY (user_id, path)
 );
 
-CREATE TABLE page_views (
+CREATE TABLE IF NOT EXISTS page_views (
   id        TEXT PRIMARY KEY,
   date      TEXT,   -- YYYY-MM-DD, was the Table Storage partition key
   path      TEXT,
@@ -94,9 +97,9 @@ CREATE TABLE page_views (
   referrer  TEXT,
   timestamp TEXT
 );
-CREATE INDEX idx_page_views_date ON page_views(date);
+CREATE INDEX IF NOT EXISTS idx_page_views_date ON page_views(date);
 
-CREATE TABLE rate_limits (
+CREATE TABLE IF NOT EXISTS rate_limits (
   user_id      TEXT NOT NULL,
   bucket       TEXT NOT NULL,  -- 'feed' | 'books' | 'messages' | 'suggestions' | 'comments'
   window_start TEXT,
@@ -104,7 +107,7 @@ CREATE TABLE rate_limits (
   PRIMARY KEY (user_id, bucket)
 );
 
-CREATE TABLE reactions (
+CREATE TABLE IF NOT EXISTS reactions (
   path       TEXT NOT NULL,
   user_id    TEXT NOT NULL,
   emoji      TEXT NOT NULL,
@@ -112,14 +115,14 @@ CREATE TABLE reactions (
   PRIMARY KEY (path, user_id, emoji)
 );
 
-CREATE TABLE streaks (
+CREATE TABLE IF NOT EXISTS streaks (
   user_id           TEXT PRIMARY KEY,
   current_streak    INTEGER,
   longest_streak    INTEGER,
   last_active_date  TEXT
 );
 
-CREATE TABLE suggestions (
+CREATE TABLE IF NOT EXISTS suggestions (
   id           TEXT PRIMARY KEY,
   user_id      TEXT,
   display_name TEXT,
@@ -127,14 +130,14 @@ CREATE TABLE suggestions (
   created_at   TEXT
 );
 
-CREATE TABLE suggestion_votes (
+CREATE TABLE IF NOT EXISTS suggestion_votes (
   suggestion_id TEXT NOT NULL,
   voter_id      TEXT NOT NULL,
   created_at    TEXT,
   PRIMARY KEY (suggestion_id, voter_id)
 );
 
-CREATE TABLE comments (
+CREATE TABLE IF NOT EXISTS comments (
   id           TEXT PRIMARY KEY,
   path         TEXT NOT NULL,   -- module path, or 'feed:<postId>' for feed-post comments
   user_id      TEXT,
@@ -147,16 +150,16 @@ CREATE TABLE comments (
   created_at   TEXT,
   mentions     TEXT  -- JSON array, stored as text, same as today
 );
-CREATE INDEX idx_comments_path ON comments(path);
+CREATE INDEX IF NOT EXISTS idx_comments_path ON comments(path);
 
-CREATE TABLE comment_votes (
+CREATE TABLE IF NOT EXISTS comment_votes (
   path      TEXT NOT NULL,
   comment_id TEXT NOT NULL,
   voter_id  TEXT NOT NULL,
   PRIMARY KEY (path, comment_id, voter_id)
 );
 
-CREATE TABLE workspace_pages (
+CREATE TABLE IF NOT EXISTS workspace_pages (
   id         TEXT PRIMARY KEY,
   user_id    TEXT NOT NULL,
   title      TEXT,
@@ -166,4 +169,4 @@ CREATE TABLE workspace_pages (
   created_at TEXT,
   updated_at TEXT
 );
-CREATE INDEX idx_workspace_pages_user ON workspace_pages(user_id);
+CREATE INDEX IF NOT EXISTS idx_workspace_pages_user ON workspace_pages(user_id);

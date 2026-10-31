@@ -32,7 +32,7 @@ Re-run it after adding or renaming a module.
 ### 3. Local database
 
 ```bash
-npx wrangler d1 execute backend-roadmap-db --local --file=api/schema.sql
+npm run db:migrate          # builds the schema from api/migrations/; run it again whenever a migration is added
 ```
 
 ### 4. `.dev.vars`
@@ -57,7 +57,7 @@ Two terminals, after `npm run build` (the API serves from `dist/`):
 **Backend** (repo root):
 
 ```bash
-npx wrangler pages dev --port 8788
+npm run api
 ```
 
 **Frontend**:

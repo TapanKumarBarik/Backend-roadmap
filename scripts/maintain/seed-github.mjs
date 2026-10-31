@@ -189,7 +189,7 @@ Later PRs can add tests for \`tabs.js\`, \`markdown.js\` and the tree helpers in
     refs: ['api/app.js', 'api/lib/d1.js', 'api/routes/study.js'],
     body: `The API (\`api/\`) is a Hono app, which makes it easy to test: \`app.request('/api/auth/me', {}, env)\` runs a request in-process with no server.
 
-The missing piece is a stand-in for D1 (\`env.DB\`) — a small fake over \`better-sqlite3\` or an in-memory SQLite that runs [\`api/schema.sql\`](${BLOB}/api/schema.sql) is enough.
+The missing piece is a stand-in for D1 (\`env.DB\`) — a small fake over \`better-sqlite3\` or an in-memory SQLite that runs [\`api/migrations\`](${BLOB}/api/migrations) is enough.
 
 **Scope**
 - A test harness (Vitest) with a fake \`env.DB\` and \`SESSION_SECRET\`
@@ -236,11 +236,11 @@ Goal: a faster first load on slow connections, with no change in behaviour.`
   {
     title: 'Suggestion status tracking (planned / in progress / done)',
     labels: ['enhancement', 'app', 'api', 'help wanted'],
-    refs: ['api/routes/community.js', 'api/schema.sql', 'webapp/src/components/community/SuggestionsView.jsx', 'docs/ROADMAP.md'],
+    refs: ['api/routes/community.js', 'api/migrations', 'webapp/src/components/community/SuggestionsView.jsx', 'docs/ROADMAP.md'],
     body: `The public suggestions board is a plain upvote-sorted list. [ROADMAP.md](${BLOB}/docs/ROADMAP.md) lists status tracking as not built yet.
 
 **Scope**
-- Add a \`status\` column to \`suggestions\` in [\`api/schema.sql\`](${BLOB}/api/schema.sql) (and a migration for the existing database)
+- Add a \`status\` column to \`suggestions\` in [\`api/migrations\`](${BLOB}/api/migrations) (and a migration for the existing database)
 - Let admins set it (planned / in progress / done / declined) — endpoint in \`api/routes/community.js\`, admin-guarded (every \`isAdmin\` call must be \`await\`ed; \`npm run check\` enforces it)
 - Show it as a badge in \`SuggestionsView.jsx\`, and let people filter by status
 
@@ -249,7 +249,7 @@ Open an issue comment with your approach before starting, since this touches the
   {
     title: 'Scheduled backups of the D1 database',
     labels: ['infra', 'api', 'help wanted'],
-    refs: ['api/schema.sql', 'wrangler.jsonc'],
+    refs: ['api/migrations', 'wrangler.jsonc'],
     body: `The database lives in Cloudflare D1. The previous (Azure) version had a nightly backup to blob storage with 14-day retention; that wasn't carried over, and today the only safety net is D1's built-in Time Travel.
 
 Cloudflare Pages Functions can't run on a cron schedule, so this needs a small separate **Worker with a Cron Trigger** that exports the tables (or calls D1's export API) to storage — Azure Blob with the existing backups SAS token, or R2 — and prunes old snapshots.

@@ -112,7 +112,7 @@ The app and API are a live codebase with real user accounts, so changes here are
    ```
 4. In the PR, say what you tested and how. Screenshots help for UI changes (light **and** dark).
 
-Layout: `webapp/src/components/<feature>/`, `webapp/src/lib/{markdown,curriculum,search}/`, `api/routes/`, `api/lib/`, and `api/schema.sql` for the database. There's no automated test suite yet — adding one is a very welcome contribution.
+Layout: `webapp/src/components/<feature>/`, `webapp/src/lib/{markdown,curriculum,search}/`, `api/routes/`, `api/lib/`, and `api/migrations/` for the database (see [api/README.md](api/README.md) before changing it). Unit tests sit beside the code they test (`*.test.js` / `*.test.mjs`) and run with `npm test`; the API's are in `api/tests/`. A change that comes with a test is a welcome one.
 
 > **Security:** never commit secrets, and don't report a vulnerability in a public issue — see [SECURITY.md](SECURITY.md).
 

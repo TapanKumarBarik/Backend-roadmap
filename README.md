@@ -405,7 +405,7 @@ The account features (sign-in, comments, notes, progress sync) need the API plus
 ```bash
 npm install
 npm run build                # builds the complete site into dist/
-npx wrangler pages dev --port 8788
+npm run api                  # the API on http://localhost:8788
 ```
 
 Before opening a PR, run `npm run lint`, `npm run typecheck`, `npm test`, `npm run check` and `npm run build`; CI runs the same.
@@ -430,7 +430,7 @@ webapp/                       the React app
   src/hooks/                    shared React hooks
   src/lib/{markdown,curriculum,search}/   rendering, tree/progress logic, search
 api/                          the Hono API
-  routes/  lib/  schema.sql     endpoints, shared helpers, the D1 schema
+  routes/  lib/  migrations/  tests/    endpoints, shared helpers, the D1 schema (numbered migrations), API tests
 functions/api/[[path]].js     the Cloudflare entry point that hands /api/* to api/
 scripts/                      build/ (index, stats, prerender), check/, dev/ (screenshots), maintain/, lib/
 docs/                         local setup and the roadmap

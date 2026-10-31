@@ -8,7 +8,8 @@
     {
       "binding": "DB",
       "database_name": "backend-roadmap-db",
-      "database_id": "700ede1c-3f5c-45c2-87b1-be5b4d2fa610"
+      "database_id": "700ede1c-3f5c-45c2-87b1-be5b4d2fa610",
+      "migrations_dir": "api/migrations"
     }
   ],
   "vars": {

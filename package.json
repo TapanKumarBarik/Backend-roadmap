@@ -4,7 +4,7 @@
   "type": "module",
   "description": "Backend Roadmap — curriculum content, the React app (webapp/) and its API (api/, on Cloudflare Pages Functions)",
   "engines": {
-    "node": ">=22"
+    "node": ">=22.13"
   },
   "workspaces": [
     "webapp"
@@ -13,8 +13,12 @@
     "dev": "npm run dev --workspace webapp -- --port 4173 --strictPort",
     "build": "npm run build --workspace webapp && npm run index && node scripts/build/copy-content.mjs && node scripts/build/prerender.mjs",
     "preview": "npm exec --workspace webapp -- vite preview --outDir ../dist --port 4180 --strictPort",
+    "api": "wrangler pages dev --port 8788",
+    "db:migrate": "wrangler d1 migrations apply DB --local",
+    "db:migrate:remote": "wrangler d1 migrations apply DB --remote",
+    "db:new": "wrangler d1 migrations create DB",
     "index": "node scripts/build/gen-docs-index.mjs && node scripts/build/gen-search-index.mjs && node scripts/build/gen-site-stats.mjs",
-    "test": "node --test \"webapp/src/**/*.test.js\" \"scripts/**/*.test.mjs\"",
+    "test": "node --test \"webapp/src/**/*.test.js\" \"scripts/**/*.test.mjs\" \"api/tests/*.test.js\"",
     "test:e2e": "node --test \"tests/e2e/*.e2e.mjs\"",
     "lint": "eslint . --max-warnings 0",
     "typecheck": "tsc -p api && tsc -p scripts && tsc -p webapp",
@@ -29,7 +33,7 @@
     "hono": "^4.6.14"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "^4.20260702.1",
+    "@cloudflare/workers-types": "^5.20260930.2",
     "@eslint/js": "^9.39.5",
     "@types/node": "^22.20.5",
     "eslint": "^9.39.5",
@@ -37,6 +41,7 @@
     "eslint-plugin-react-hooks": "^5.2.0",
     "globals": "^17.13.0",
     "playwright-core": "^1.64.1",
-    "typescript": "^7.0.2"
+    "typescript": "^7.0.2",
+    "wrangler": "4.145.0"
   }
 }

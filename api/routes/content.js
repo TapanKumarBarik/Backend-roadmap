@@ -4,7 +4,7 @@
 // bytes helpers.
 
 import { createRouter } from '../lib/router.js';
-import site from '../../site.config.json';
+import site from '../../site.config.json' with { type: 'json' };
 import { requireAdmin } from '../lib/admin.js';
 import { upstreamStatus } from '../lib/util.js';
 import { IMAGE_CONTAINER, blobBase, bytesFromBase64, putBlob } from '../lib/blob.js';

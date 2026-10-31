@@ -71,6 +71,12 @@ export default [
   },
 
   {
+    // The API's tests run in Node, against an in-memory SQLite database standing in for D1.
+    files: ['api/tests/**/*.js'],
+    languageOptions: { ecmaVersion: 'latest', sourceType: 'module', globals: globals.node }
+  },
+
+  {
     files: ['scripts/**/*.{js,mjs,cjs}', 'tests/**/*.{js,mjs}', 'webapp/vite.config.js', 'eslint.config.js'],
     languageOptions: { ecmaVersion: 'latest', sourceType: 'module', globals: globals.node }
   },

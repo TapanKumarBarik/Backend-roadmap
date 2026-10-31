@@ -42,7 +42,7 @@ jobs:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
           set -o pipefail
-          npx --yes wrangler@4.145.0 pages deploy dist --project-name=backend-roadmap --branch=main --commit-dirty=true 2>&1 | tee deploy.log || {
+          npx wrangler pages deploy dist --project-name=backend-roadmap --branch=main --commit-dirty=true 2>&1 | tee deploy.log || {
             echo "::error title=wrangler pages deploy failed::$(grep -v '^\s*$' deploy.log | tail -n 15 | tr '\n' ' ' | cut -c1-1500)"
             exit 1
           }
