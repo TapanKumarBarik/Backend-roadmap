@@ -3,6 +3,7 @@
 // Numbers come from build-time stats (scripts/gen-site-stats.mjs) and are passed to the functions below.
 // The learning paths themselves (titles, goals, steps) are in content/paths.json.
 import { PATH_COPY, formatDuration } from './paths.js';
+import { formatTotal } from '../lib/curriculum/videos.js';
 
 const fmt = (n) => (typeof n === 'number' ? n.toLocaleString('en-US') : '');
 
@@ -56,6 +57,11 @@ export const LIBRARY = {
       blurb: 'HTTP and APIs, authentication, databases, caching, queues, observability and distributed systems, ending in system-design interview practice.'
     },
     {
+      id: 'system-design',
+      title: 'System Design Interview Prep',
+      blurb: 'Short lectures on requirements, scaling, latency, availability, CAP and consistency. Each has a video on YouTube and the written version beside it.'
+    },
+    {
       id: 'genai',
       title: 'GenAI Engineering',
       blurb: 'Tokens, transformers and GPUs, then the OpenAI, Anthropic and Gemini APIs, embeddings and vector databases. RAG, agents and serving come next.'
@@ -71,11 +77,11 @@ export const LIBRARY = {
       blurb: 'OOP, SOLID and design patterns up to classic interview problems. Every example is written twice: in Python and in C#.'
     }
   ],
-  // The unit word for a curriculum's children (lld is a flat course of topics).
-  unitFor: (id) => (id === 'lld' ? 'topics' : 'tracks'),
-  meta: (id, c, unit) => (c.written < c.modules
-    ? `${fmt(c.written)} of ${fmt(c.modules)} modules written · ${c.tracks} ${unit}`
-    : `${fmt(c.modules)} modules · ${c.tracks} ${unit}`)
+  // What a curriculum's children are called (lld is a flat course of topics, with no tracks).
+  unit: (id, n) => (id === 'lld' ? (n === 1 ? 'topic' : 'topics') : (n === 1 ? 'track' : 'tracks')),
+  meta: (id, c) => (c.written < c.modules
+    ? `${fmt(c.written)} of ${fmt(c.modules)} modules written · ${c.tracks} ${LIBRARY.unit(id, c.tracks)}`
+    : `${fmt(c.modules)} modules · ${c.tracks} ${LIBRARY.unit(id, c.tracks)}`)
 };
 
 export const FRESH = {
@@ -106,11 +112,15 @@ export const ACCOUNT = {
 };
 
 // The channel is the other front door: people who find a video should end up in the module it covers, and people
-// who read a module should be able to find the video. The channel's address is in site.config.json.
+// who read a module should be able to find the video. The channel's address is in site.config.json; the videos are
+// content/videos.json. `sub` and the cards are used when the videos have loaded, `body` when they have not.
 export const VIDEO = {
   heading: 'Prefer to watch first?',
-  body: 'Video walkthroughs of the modules are on their way to YouTube. Subscribe to get each one as it lands; every video points back to its written module here.',
-  label: 'Subscribe on YouTube'
+  body: 'Short video lectures are on YouTube, and each one plays at the top of the module that covers it. Subscribe to get new ones as they land.',
+  sub: (count, seconds) => `${count} short lectures, ${formatTotal(seconds)} in all, are on YouTube already. Each one plays at the top of the module that covers it, so the video and the text are in one place.`,
+  all: (count) => `All ${count} videos`,
+  label: 'Subscribe on YouTube',
+  shown: 4 // how many of the newest videos the landing page shows
 };
 
 export const OPEN_SOURCE = {

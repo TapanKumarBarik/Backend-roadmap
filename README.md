@@ -89,6 +89,26 @@ Python **and** C# side by side · OOP & UML · SOLID · design principles · all
 
 </td>
 </tr>
+<tr>
+<td width="50%" valign="top">
+
+### System Design Interview Prep
+*Requirements → scaling → failure, in short lectures* — **19 lectures**
+
+What system design is (HLD vs LLD) · client-server & multi-tier · functional & non-functional requirements · trade-offs · vertical & horizontal scaling · latency · throughput & Little's Law · availability · reliability vs durability · scalability · CAP · PACELC · consistency models · fault tolerance · single points of failure · simplicity · stateless vs stateful. Every lecture has a video on the channel.
+
+[`system-design/`](content/system-design/README.md)
+
+</td>
+<td width="50%" valign="top">
+
+### Watch the course
+*Short video lectures on [YouTube](https://www.youtube.com/@tapankumarbarik9454)*
+
+The system design lectures and a second playlist on networking, APIs and databases. On the site each video plays at the top of the module that covers it, with its chapters, and the written version underneath. See [docs/VIDEOS.md](docs/VIDEOS.md) for how a video is attached to a module.
+
+</td>
+</tr>
 </table>
 
 <details>
@@ -99,6 +119,8 @@ Python **and** C# side by side · OOP & UML · SOLID · design principles · all
 **Learn** — `01` Linux · `02` Docker · `03` Kubernetes · `04` Networking · `05` Azure networking · `06` Azure Container Apps · `07` AKS · `08` Git · `09` Terraform on Azure · `10` CI/CD & GitOps · `11` Security · `12` Observability · `13` Service mesh · `14` Databases & stateful workloads · `15` Messaging & event-driven · `16` Identity · `17` Governance at scale · `18` Supply-chain security · `19` API Management · `20` SRE · `21` FinOps · `22` DR & chaos · `23` Performance & load testing · `24` Platform engineering
 
 **GenAI** — `00` Foundations · `01` Tokens · `02` Transformers · `03` BERT/GPT/MoE · `04` Training & alignment · `05` GPUs · `06` Model landscape · `07` Prompt engineering · `08` Embeddings & vector DBs · `09` RAG · `10` Agents · `11` LangChain/LangGraph · `12` Multi-agent · `13` MCP · `14` vLLM serving · `15` Eval, observability & safety · `16` Speech & multimodal
+
+**System Design** — see [`system-design/README.md`](content/system-design/README.md)
 
 **LLD** — see [`lld/README.md`](content/lld/README.md)
 
@@ -213,7 +235,7 @@ Every module teaches in the same order, so learners always know where they are:
 | **Concept** | The core idea in a sentence or two — a `> [!key]` block |
 | **Explanation** | The depth: mental models, how it actually works, common traps (*Concepts*, with `###` subheadings) |
 | **Code** | Real, runnable examples — not pseudo-code |
-| **Visual diagram** | A diagram that *teaches* (ASCII box-drawing in `backend/`, `genai/`, `lld/`; Mermaid is welcome in `learn/`), and now and then an illustration where a drawing explains it better: see [Images in modules](docs/IMAGES.md) |
+| **Visual diagram** | A diagram that *teaches* (ASCII box-drawing in `backend/`, `system-design/`, `genai/`, `lld/`; Mermaid is welcome in `learn/`), and now and then an illustration where a drawing explains it better: see [Images in modules](docs/IMAGES.md) |
 | **Practice** | Hands-on exercises with answers hidden in `<details>`, plus a short checkpoint quiz |
 | **Project** | A small build that uses the module (*Independent challenge*); each track ends with a capstone |
 | **Interview question** | What a strong answer sounds like — an `> [!interview]` block |
@@ -414,7 +436,7 @@ Before opening a PR, run `npm run lint`, `npm run typecheck`, `npm test`, `npm r
 
 | Layer | What |
 |---|---|
-| **Content** | Plain markdown in `content/` (`backend/`, `learn/`, `genai/`, `lld/`) — one `README.md` per module |
+| **Content** | Plain markdown in `content/` (`backend/`, `system-design/`, `learn/`, `genai/`, `lld/`) — one `README.md` per module; the channel's videos are listed in `content/videos.json` |
 | **Frontend** | React 18 + Vite; `marked`, highlight.js, Mermaid, Tiptap (workspace editor) |
 | **API** | [Hono](https://hono.dev) on **Cloudflare Pages Functions** |
 | **Database** | **Cloudflare D1** (SQLite at the edge) |
@@ -424,7 +446,7 @@ Before opening a PR, run `npm run lint`, `npm run typecheck`, `npm test`, `npm r
 | **SEO** | Every module is pre-rendered to its own real page at build time, with a generated sitemap |
 
 ```text
-content/                      the curriculum: backend/ learn/ genai/ lld/ (one markdown file per module) and paths.json
+content/                      the curriculum: backend/ system-design/ learn/ genai/ lld/ (one markdown file per module), paths.json and videos.json
 webapp/                       the React app
   src/components/<feature>/     one folder per screen or area
   src/hooks/                    shared React hooks

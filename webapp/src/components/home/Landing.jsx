@@ -1,8 +1,10 @@
 import { ArrowRightIcon, GithubIcon, SearchIcon, YoutubeIcon } from '../common/icons.jsx';
 import SignInButton from '../account/SignInButton.jsx';
 import SiteFooter from '../common/SiteFooter.jsx';
+import VideoCard from '../videos/VideoCard.jsx';
 import { routeUrl } from '../../lib/curriculum/moduleUrl.js';
 import { REPO_URL, CONTRIBUTE_URL } from '../../lib/curriculum/contribute.js';
+import { totals } from '../../lib/curriculum/videos.js';
 import { SITE, YOUTUBE } from '../../config/index.js';
 import { FALLBACK_START_FILE, HERO, ROUTE, PICK, LIBRARY, FRESH, INSIDE, VIDEO, ACCOUNT, OPEN_SOURCE } from '../../config/landing.js';
 import '../../styles/landing.css';
@@ -10,7 +12,7 @@ import '../../styles/landing.css';
 // The front door, shown to someone who has not started yet (see hooks/useLanding.js). This component only
 // lays things out: the words are in config/landing.js and the numbers come from build-time stats. If the
 // stats are missing the page still reads correctly, it just says less.
-export default function Landing({ stats, user, onLogin, onOpenFile, onStartPath, onDismiss, onOpenPalette }) {
+export default function Landing({ stats, videoData, nodeByFile, user, onLogin, onOpenFile, onStartPath, onDismiss, onOpenPalette, onOpenVideos }) {
   const link = (file) => ({
     href: routeUrl(file),
     onClick: (e) => {
@@ -40,6 +42,11 @@ export default function Landing({ stats, user, onLogin, onOpenFile, onStartPath,
   const finished = featured.filter((t) => t.modules && t.written === t.modules).slice(-FRESH.finishedShown);
   const inProgress = featured.filter((t) => t.written > 0 && t.written < t.modules);
   const fresh = [...finished, ...inProgress];
+
+  // The newest videos, and what they add up to. Without them (they could not be loaded) the page says less.
+  const videos = videoData?.videos || [];
+  const newest = [...videos].sort((a, b) => (a.published < b.published ? 1 : -1)).slice(0, VIDEO.shown);
+  const videoTotals = totals(videos);
 
   return (
     <div className="lp">
@@ -96,6 +103,24 @@ export default function Landing({ stats, user, onLogin, onOpenFile, onStartPath,
         </section>
       )}
 
+      {newest.length > 0 && (
+        <section className="lp-sec" aria-labelledby="lp-yt">
+          <h2 id="lp-yt">{VIDEO.heading}</h2>
+          <p className="lp-sec-sub">{VIDEO.sub(videoTotals.count, videoTotals.seconds)}</p>
+          <ul className="lp-video-strip">
+            {newest.map((v) => (
+              <li key={v.id}><VideoCard video={v} node={v.file ? nodeByFile?.[v.file] : null} onOpenFile={onOpenFile} /></li>
+            ))}
+          </ul>
+          <div className="lp-video-acts">
+            <button type="button" className="lp-btn" onClick={onOpenVideos}>{VIDEO.all(videoTotals.count)} <ArrowRightIcon /></button>
+            <a className="lp-btn" href={YOUTUBE.channel} target="_blank" rel="noopener noreferrer">
+              <YoutubeIcon /> {VIDEO.label}
+            </a>
+          </div>
+        </section>
+      )}
+
       <section className="lp-sec" aria-labelledby="lp-paths">
         <h2 id="lp-paths">{LIBRARY.heading}</h2>
         <p className="lp-sec-sub">{LIBRARY.sub}</p>
@@ -106,7 +131,7 @@ export default function Landing({ stats, user, onLogin, onOpenFile, onStartPath,
               <article key={p.id} className="lp-card">
                 <h3>{p.title}</h3>
                 <p>{p.blurb}</p>
-                {c && <div className="lp-meta">{LIBRARY.meta(p.id, c, LIBRARY.unitFor(p.id))}</div>}
+                {c && <div className="lp-meta">{LIBRARY.meta(p.id, c)}</div>}
                 <div className="lp-card-acts">
                   {c?.start && <a className="lp-link lp-link-strong" {...link(c.start)}>{LIBRARY.startLabel} <ArrowRightIcon /></a>}
                   {c?.overview && <a className="lp-link" {...link(c.overview)}>{LIBRARY.tracksLabel}</a>}
@@ -142,15 +167,17 @@ export default function Landing({ stats, user, onLogin, onOpenFile, onStartPath,
         </ul>
       </section>
 
-      <section className="lp-account lp-video" aria-labelledby="lp-yt">
-        <div>
-          <h2 id="lp-yt">{VIDEO.heading}</h2>
-          <p>{VIDEO.body}</p>
-        </div>
-        <a className="lp-btn" href={YOUTUBE.channel} target="_blank" rel="noopener noreferrer">
-          <YoutubeIcon /> {VIDEO.label}
-        </a>
-      </section>
+      {newest.length === 0 && (
+        <section className="lp-account lp-video" aria-labelledby="lp-yt">
+          <div>
+            <h2 id="lp-yt">{VIDEO.heading}</h2>
+            <p>{VIDEO.body}</p>
+          </div>
+          <a className="lp-btn" href={YOUTUBE.channel} target="_blank" rel="noopener noreferrer">
+            <YoutubeIcon /> {VIDEO.label}
+          </a>
+        </section>
+      )}
 
       {!user && (
         <section className="lp-account" aria-labelledby="lp-acct">

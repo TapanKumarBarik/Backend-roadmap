@@ -14,7 +14,8 @@ by one SQLite database. The lessons never touch the database, and the database n
 ## Where things are
 
 ```text
-content/        what the author writes: backend/ learn/ genai/ lld/ (one README.md per module) and paths.json
+content/        what the author writes: backend/ system-design/ learn/ genai/ lld/ (one README.md per module), paths.json
+                (the learning paths) and videos.json (the channel's videos, and which module each belongs to)
 webapp/         the React app (Vite). src/components/<screen>, src/hooks, src/lib/{markdown,curriculum,search}
 api/            the server: Hono routes, the D1 migrations, and the API's tests
 functions/      the one file Cloudflare Pages looks for; it hands /api/* to api/
@@ -41,14 +42,17 @@ a module folder is the one change that orphans a reader's saved progress.
 `npm run build` makes the site in `dist/`, in this order:
 
 1. **`vite build`** bundles the app.
-2. **`npm run index`** writes `docs-index.json` (the menu tree with titles, tags and reading times),
-   `search-index.json` (a word index over every lesson) and `site-stats.json` (honest module counts for the landing page).
-   The code is in `scripts/lib/` (`docsIndex`, `searchIndex`, `tags`, `content`) and is unit-tested.
-3. **`copy-content`** copies the four curricula to `dist/`, and refuses to continue if anything that looks like a secret
+2. **`npm run index`** writes `docs-index.json` (the menu tree with titles, tags, reading times and which modules have a
+   video), `search-index.json` (a word index over every lesson), `site-stats.json` (honest module counts for the landing
+   page) and `videos.json` (the channel's videos, resolved from `content/videos.json`; a mistake in that file stops the
+   build). The code is in `scripts/lib/` (`docsIndex`, `searchIndex`, `tags`, `content`, `videos`) and is unit-tested.
+3. **`copy-content`** copies the curricula to `dist/`, and refuses to continue if anything that looks like a secret
    is in there. `dist/` is an allow-list on purpose: deploying the repository root once published local secrets.
 4. **`prerender`** writes a static page for each lesson (title, description, canonical link, Open Graph, structured
    data, the lesson text itself, previous and next links) and `sitemap.xml`. A lesson that still carries the
    placeholder sentence is marked `noindex` and left out of the sitemap, so unwritten modules cannot thin out the site.
+   A module with a video also gets `VideoObject` data, a plain link with its chapters, and the video's thumbnail as its
+   link-preview image.
 
 Then Cloudflare Pages serves static files, with `webapp/public/_headers` (security headers, the Content-Security-Policy)
 and `_routes.json` (only `/api/*` runs code).
@@ -57,6 +61,12 @@ A reader opening a lesson gets its pre-rendered page immediately; the React app 
 Markdown and `docs-index.json` (both preloaded by the page), and renders the same lesson itself. The rendering code
 (`webapp/src/lib/markdown/`) is shared between the browser and the build, so the static page and the live page agree.
 It reads every kind of line ending the same way, which is why a Windows checkout builds the same pages as Linux.
+
+**Videos** are a second kind of content, beside the lessons. The channel's videos are listed in `content/videos.json`
+(kept up to date by `npm run videos:sync`), each with the module it belongs to. The module page shows its video under
+the title, with chapters that start the player at that point; the sidebar marks the module; the Videos screen and the
+landing page list them all. The text of a lesson never mentions its video, so writing a lesson and recording one stay
+separate jobs. [VIDEOS.md](VIDEOS.md) has the details.
 
 ## The account side
 
@@ -85,9 +95,9 @@ lives in `webapp/src/config/` too. Learning paths are data in `content/paths.jso
 | Lint | `npm run lint` | unused code, wrong globals for the runtime (browser, Workers, Node), React hook mistakes |
 | Types | `npm run typecheck` | the API, scripts and the app's non-component code, checked as JavaScript with `tsc` |
 | Unit tests | `npm test` | the build's logic, the markdown pipeline, and the API (real routes on in-memory SQLite) |
-| Checks | `npm run check` | an `isAdmin()` without `await`, a broken `paths.json`, a missing or oversized lesson image |
+| Checks | `npm run check` | an `isAdmin()` without `await`, a broken `paths.json`, a missing or oversized lesson image, a video that names a module that is not there |
 | Build | `npm run build` | the whole site assembles; internal links that point nowhere are listed |
-| Browser | `npm run test:e2e` | a lesson opens, links work, videos play under the real CSP, and the signed-in flows (progress, the workspace editor, the admin dashboard) against the real API |
+| Browser | `npm run test:e2e` | a lesson opens, links work, videos and their chapters play under the real CSP, the Videos screen lists them, and the signed-in flows (progress, the workspace editor, the admin dashboard) against the real API |
 
 CI runs all of them, from one shared definition (`.github/actions/verify`), on every pull request and before every
 deploy. The deploy workflow adds the Cloudflare steps, then tells Bing and other IndexNow engines which pages changed.
@@ -115,7 +125,9 @@ deploy. The deploy workflow adds the Cloudflare steps, then tells Bing and other
 | I want to... | Edit |
 |---|---|
 | write or fix a lesson | `content/<curriculum>/<track>/<module>/README.md`, then `npm run index` if the title or folder changed |
-| add an image or a video | [IMAGES.md](IMAGES.md), [VIDEOS.md](VIDEOS.md) |
+| add an image | [IMAGES.md](IMAGES.md) |
+| add a video | `npm run videos:sync`, then give it a `"module"` in `content/videos.json` and run `npm run check` ([VIDEOS.md](VIDEOS.md)) |
+| add a curriculum | a folder in `content/`, its name in `site.config.json` (`content.curricula`), a card in `webapp/src/config/landing.js` (`LIBRARY`) and a tag in `scripts/lib/tag-vocabulary.mjs` |
 | change a learning path | `content/paths.json`, then `npm run check:paths` |
 | change the site name, a link or a storage key | `site.config.json` |
 | change landing-page or error wording | `webapp/src/config/landing.js`, `webapp/src/config/messages.js` |

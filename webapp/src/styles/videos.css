@@ -1,0 +1,88 @@
+/* The Videos screen (components/videos/VideosView.jsx) and the strip of videos on the landing page. Class names are
+   prefixed vid- . Built from the app's own tokens, so it follows light, dark and auto themes. */
+
+#empty.vid-screen { max-width: 1060px; }
+
+.vid-head { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 14px 24px; margin-bottom: 8px; }
+.vid-head h2 { margin-bottom: 8px; }
+#empty.vid-screen .vid-head p { max-width: 62ch; margin-bottom: 0; }
+.vid-sub-btn {
+  display: inline-flex; align-items: center; gap: 8px; padding: 10px 16px; border: 1px solid var(--border); border-radius: var(--r-md);
+  background: var(--bg-raised); color: var(--fg); font-size: 14px; font-weight: 600; text-decoration: none; box-shadow: var(--shadow-sm);
+}
+.vid-sub-btn:hover { border-color: var(--fg-subtle); }
+.vid-sub-btn svg { width: 16px; height: 16px; color: var(--signal); }
+.vid-sub-btn:focus-visible { outline: 2px solid var(--link); outline-offset: 2px; }
+
+/* ── filter ─────────────────────────────────────────────────────────── */
+.vid-tools { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; margin: 22px 0 6px; }
+.vid-filter {
+  display: flex; align-items: center; gap: 8px; flex: 0 1 280px; padding: 8px 12px; border: 1px solid var(--border-subtle);
+  border-radius: var(--r-md); background: var(--bg-sunken); color: var(--fg-subtle);
+}
+.vid-filter:focus-within { border-color: var(--link); }
+.vid-filter svg { width: 14px; height: 14px; flex: none; }
+.vid-filter input { flex: 1; min-width: 0; border: 0; outline: 0; background: transparent; color: var(--fg); font: inherit; font-size: 14px; }
+.vid-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.vid-chip {
+  padding: 6px 12px; border: 1px solid var(--border-subtle); border-radius: 999px; background: transparent;
+  color: var(--fg-muted); font: inherit; font-size: 13px; cursor: pointer;
+}
+.vid-chip:hover { border-color: var(--border); color: var(--fg); }
+.vid-chip[aria-pressed="true"] { border-color: var(--fg); background: var(--fg); color: var(--bg); font-weight: 600; }
+.vid-chip:focus-visible { outline: 2px solid var(--link); outline-offset: 2px; }
+.vid-count { margin-left: auto; font-size: 12.5px; font-family: var(--mono); color: var(--fg-subtle); }
+
+/* ── a playlist and its videos ──────────────────────────────────────── */
+.vid-group { margin-top: 30px; }
+.vid-group-h { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 16px; margin-bottom: 14px; padding-bottom: 10px; border-bottom: 1px solid var(--border-subtle); }
+.vid-group-h h3 { margin: 0; font-size: 17px; letter-spacing: -.012em; }
+.vid-group-h span { font-size: 12.5px; font-family: var(--mono); color: var(--fg-subtle); }
+.vid-group-h a { margin-left: auto; font-size: 13px; color: var(--link); text-decoration: underline; text-underline-offset: 3px; }
+
+.vid-grid { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(236px, 1fr)); gap: 22px 16px; }
+.vid-card { display: flex; flex-direction: column; gap: 9px; height: 100%; color: var(--fg); text-decoration: none; border-radius: var(--r-md); }
+.vid-card:focus-visible { outline: 2px solid var(--link); outline-offset: 4px; }
+
+.vid-thumb { position: relative; display: block; aspect-ratio: 16 / 9; overflow: hidden; border-radius: var(--r-md); background: #0e1116; box-shadow: var(--shadow-sm); }
+.vid-thumb img { display: block; width: 100%; height: 100%; object-fit: cover; transition: transform var(--dur-slow) var(--ease-out); }
+.vid-card:hover .vid-thumb img { transform: scale(1.04); }
+.vid-card:hover .vid-thumb { box-shadow: var(--shadow-md); }
+.vid-dur {
+  position: absolute; right: 8px; bottom: 8px; padding: 2px 7px; border-radius: 6px; background: rgba(0, 0, 0, .78); color: #fff;
+  font: 600 11.5px/1.5 var(--mono); font-variant-numeric: tabular-nums;
+}
+.vid-play {
+  position: absolute; left: 50%; top: 50%; width: 48px; height: 34px; margin: -17px 0 0 -24px; border-radius: 10px;
+  background: rgba(14, 17, 22, .8); opacity: 0; transform: scale(.9);
+  transition: opacity var(--dur-base), transform var(--dur-base) var(--ease-out), background var(--dur-base);
+}
+.vid-play::after { content: ''; position: absolute; left: 19px; top: 9px; border-style: solid; border-width: 8px 0 8px 13px; border-color: transparent transparent transparent #fff; }
+.vid-card:hover .vid-play, .vid-card:focus-visible .vid-play { opacity: 1; transform: none; background: var(--signal); }
+
+.vid-title { font-size: 14.5px; font-weight: 600; line-height: 1.35; text-wrap: balance; }
+.vid-card:hover .vid-title { text-decoration: underline; text-underline-offset: 3px; }
+.vid-where { margin-top: auto; font-size: 12.5px; line-height: 1.4; color: var(--fg-subtle); }
+.vid-where.soon { font-style: italic; }
+
+/* ── the strip on the landing page: the newest videos and a way to all of them ── */
+.lp-video-strip { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; margin: 0 0 22px; padding: 0; list-style: none; }
+.lp-video-acts { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 20px; }
+.lp-video-strip .vid-card { gap: 8px; }
+.lp-video-strip .vid-title { font-size: 14px; }
+
+@media (max-width: 900px) {
+  .lp-video-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 600px) {
+  #empty.vid-screen { padding: 32px 18px 72px; }
+  .vid-filter { flex-basis: 100%; }
+  .vid-count { margin-left: 0; }
+  .vid-grid { grid-template-columns: minmax(0, 1fr); }
+  .vid-sub-btn { width: 100%; justify-content: center; }
+  .lp-video-strip { grid-template-columns: minmax(0, 1fr); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .vid-thumb img, .vid-play { transition: none; }
+  .vid-card:hover .vid-thumb img { transform: none; }
+}

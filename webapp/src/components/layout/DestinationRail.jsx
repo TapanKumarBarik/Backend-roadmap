@@ -1,4 +1,4 @@
-import { TreeIcon, StarIcon, CompassIcon, FeedIcon, QuestionIcon, BookIcon, LightbulbIcon, WorkspaceIcon, GearIcon } from '../common/icons.jsx';
+import { TreeIcon, StarIcon, CompassIcon, FeedIcon, QuestionIcon, BookIcon, LightbulbIcon, WorkspaceIcon, GearIcon, YoutubeIcon } from '../common/icons.jsx';
 
 // The permanent left edge: where you can go, not what's in the thing
 // you're looking at. Splitting this out is what lets the curriculum tree
@@ -11,12 +11,14 @@ import { TreeIcon, StarIcon, CompassIcon, FeedIcon, QuestionIcon, BookIcon, Ligh
 // third tab behind Questions/Unanswered.
 export default function DestinationRail({
   activeDest, user, isAdmin,
-  onOpenCurriculum, onOpenExplore, onOpenSaved, onOpenFeed, onOpenCommunity, onOpenBooks, onOpenSuggestions, onOpenWorkspace, onOpenAdmin,
-  feedBadge, communityBadge
+  onOpenCurriculum, onOpenExplore, onOpenVideos, onOpenSaved, onOpenFeed, onOpenCommunity, onOpenBooks, onOpenSuggestions, onOpenWorkspace, onOpenAdmin,
+  hasVideos, feedBadge, communityBadge
 }) {
   const items = [
     { key: null, label: 'Curriculum', Icon: TreeIcon, onClick: onOpenCurriculum, show: true },
     { key: '__explore', label: 'Explore', Icon: CompassIcon, onClick: onOpenExplore, show: true },
+    // The channel's videos; shown once there are some (content/videos.json).
+    { key: '__videos', label: 'Videos', Icon: YoutubeIcon, onClick: onOpenVideos, show: !!hasVideos },
     { key: '__saved', label: 'Saved', Icon: StarIcon, onClick: onOpenSaved, show: !!user },
     // Private to the signed-in user, like Saved — shown only once signed in,
     // unlike Feed/Books/Suggestions/Community which are public to browse.

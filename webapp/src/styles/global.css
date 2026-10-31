@@ -317,6 +317,9 @@ li.node.planned > .row.sel .name { color: var(--fg-muted); }
   flex-shrink: 0; font-size: 10px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase;
   color: var(--fg-subtle); border: 1px solid var(--border-subtle); border-radius: 999px; padding: 1px 7px;
 }
+/* A module that has a video (the registry: content/videos.json). Quiet, in the signal colour, a play triangle. */
+.vid-tag { flex-shrink: 0; display: inline-flex; align-items: center; color: var(--signal); }
+.vid-tag svg { width: 10px; height: 10px; }
 
 .row .name { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 7px; font-size: 13.5px; line-height: 1.35; color: inherit; text-decoration: none; }
 /* The author's number, quiet and the same width on every row so the names line up. */

@@ -15,6 +15,7 @@ import { useToast } from './hooks/useToast.js';
 import { useBookmarks } from './hooks/useBookmarks.js';
 import { useStreak } from './hooks/useStreak.js';
 import { useSiteStats } from './hooks/useSiteStats.js';
+import { useVideos } from './hooks/useVideos.js';
 import { STORAGE, SITE } from './config/index.js';
 import { LEARNING_PATHS, PATH_COPY } from './config/paths.js';
 import { readStored, writeStored } from './lib/storage.js';
@@ -55,6 +56,7 @@ const smallScreens = {
   post: () => import('./components/feed/PostDetailView.jsx'),
   books: () => import('./components/community/BooksView.jsx'),
   suggestions: () => import('./components/community/SuggestionsView.jsx'),
+  videos: () => import('./components/videos/VideosView.jsx'),
   message: () => import('./components/account/MessageOwnerModal.jsx')
 };
 const AdminDashboard = lazy(() => import('./components/admin/AdminDashboard.jsx'));
@@ -65,6 +67,7 @@ const FeedView = lazy(smallScreens.feed);
 const PostDetailView = lazy(smallScreens.post);
 const BooksView = lazy(smallScreens.books);
 const SuggestionsView = lazy(smallScreens.suggestions);
+const VideosView = lazy(smallScreens.videos);
 const MessageOwnerModal = lazy(smallScreens.message);
 // Lazy: Tiptap/ProseMirror alone added ~600KB to the main bundle for a
 // feature only a signed-in user who opens Workspace ever touches — same
@@ -88,6 +91,7 @@ const COMMUNITY_ROUTE = '__community';
 const BOOKS_ROUTE = '__books';
 const SUGGESTIONS_ROUTE = '__suggestions';
 const WORKSPACE_ROUTE = '__workspace';
+const VIDEOS_ROUTE = '__videos';
 
 function collectDirPaths(nodes) {
   const paths = [];
@@ -147,7 +151,8 @@ export default function App() {
   const isBooksRoute = path === BOOKS_ROUTE;
   const isSuggestionsRoute = path === SUGGESTIONS_ROUTE;
   const isWorkspaceRoute = path === WORKSPACE_ROUTE;
-  const isSpecialRoute = isAdminRoute || isSavedRoute || isExploreRoute || isCommunityRoute || isFeedRoute || isBooksRoute || isSuggestionsRoute || isWorkspaceRoute;
+  const isVideosRoute = path === VIDEOS_ROUTE;
+  const isSpecialRoute = isAdminRoute || isSavedRoute || isExploreRoute || isCommunityRoute || isFeedRoute || isBooksRoute || isSuggestionsRoute || isWorkspaceRoute || isVideosRoute;
   const currentFile = !isSpecialRoute && path && fileSet.has(path) ? path : null;
 
   useEffect(() => {
@@ -220,6 +225,8 @@ export default function App() {
   // The front door is only for the bare root URL. Keying on `path` rather than `currentFile` matters: on a
   // deep link currentFile is null until the module index has loaded, which would flash this page first.
   const siteStats = useSiteStats();
+  // The channel's videos (content/videos.json): null until loaded, or if there are none.
+  const videoData = useVideos();
   const { showLanding, dismiss: dismissLanding } = useLanding({
     started: counts.done + counts.wip > 0,
     hasOpenFile: !!path,
@@ -363,6 +370,7 @@ export default function App() {
   const openBooks = useCallback(() => navigate(BOOKS_ROUTE), [navigate]);
   const openSuggestions = useCallback(() => navigate(SUGGESTIONS_ROUTE), [navigate]);
   const openWorkspace = useCallback(() => navigate(WORKSPACE_ROUTE), [navigate]);
+  const openVideos = useCallback(() => navigate(VIDEOS_ROUTE), [navigate]);
 
   // Two of the three theme states render identically on any given OS, so a
   // press can legitimately change nothing on screen — say which mode it
@@ -385,6 +393,7 @@ export default function App() {
       { label: 'Continue learning', keywords: 'resume next module', hint: 'where you left off', run: () => (continueFile ? openFile(continueFile) : goHome()) },
       { label: activePath ? 'Switch learning path' : 'Pick a learning path', keywords: 'path route goal roadmap track plan', run: () => { setChoosingPath(true); goHome(); } },
       { label: 'Explore by tag', keywords: 'tags browse subject', run: () => navigate(EXPLORE_ROUTE) },
+      ...(videoData ? [{ label: 'Watch the videos', keywords: 'videos youtube lectures watch course channel', run: () => navigate(VIDEOS_ROUTE) }] : []),
       { label: 'Feed', keywords: 'posts feed share', run: () => navigate(FEED_ROUTE) },
       { label: 'Community', keywords: 'discussion questions', run: () => navigate(COMMUNITY_ROUTE) },
       { label: 'Books', keywords: 'books pdf library shelf resources', run: () => navigate(BOOKS_ROUTE) },
@@ -411,7 +420,7 @@ export default function App() {
       { label: 'Reset all progress', keywords: 'clear delete wipe', run: handleReset }
     );
     return list;
-  }, [learnFiles, activePath, statusMap, currentFile, user, openFile, goHome, navigate,
+  }, [learnFiles, activePath, statusMap, currentFile, user, videoData, openFile, goHome, navigate,
     setStatus, handleCycleTheme, expandAll, allDirPaths, collapseAll, handleExport, handleReset]);
 
   const lastViewedFile = readStored(STORAGE.lastFile) || '';
@@ -462,6 +471,8 @@ export default function App() {
           onOpenBooks={openBooks}
           onOpenSuggestions={openSuggestions}
           onOpenWorkspace={openWorkspace}
+          onOpenVideos={openVideos}
+          hasVideos={!!videoData}
           onOpenAdmin={openAdmin}
           feedBadge={feedActivity.badgeVisible}
           communityBadge={questionsActivity.badgeVisible}
@@ -555,6 +566,7 @@ export default function App() {
                 {isBooksRoute && <BooksView user={user} onLogin={login} onToast={toast.show} />}
                 {isSuggestionsRoute && <SuggestionsView user={user} onLogin={login} onToast={toast.show} />}
                 {isWorkspaceRoute && <WorkspaceView user={user} onLogin={login} />}
+                {isVideosRoute && <VideosView videoData={videoData} nodeByFile={nodeByFile} onOpenFile={openFile} />}
                 </Suspense>
                 </ScreenBoundary>
               </div>
@@ -602,6 +614,8 @@ export default function App() {
               indexLoading={indexLoading}
               indexError={indexError}
               onReloadIndex={reloadIndex}
+              videoData={videoData}
+              onOpenVideos={openVideos}
             />
           )}
         {!isSpecialRoute && rightRailCollapsed && railVisible && currentFile && (

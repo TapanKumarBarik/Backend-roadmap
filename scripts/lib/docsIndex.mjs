@@ -8,8 +8,10 @@ import { tagsFor } from './tags.mjs';
 /**
  * @param {string} root the folder the curricula sit in; every `file` and `path` in the result is relative to it
  * @param {string[]} curricula the curriculum folder names, in the order the site lists them
+ * @param {{ videoCounts?: Map<string, number> }} [options] videoCounts: how many videos each module has (its README.md
+ *   as the key), so the sidebar can mark the modules that can be watched
  */
-export function buildDocsIndex(root, curricula) {
+export function buildDocsIndex(root, curricula, { videoCounts = new Map() } = {}) {
   const rel = (p) => relativePosix(root, p);
 
   function buildNode(dir) {
@@ -51,6 +53,7 @@ export function buildDocsIndex(root, curricula) {
       if (planned) node.planned = true;
       else node.min = minutes;
     }
+    if (file && videoCounts.has(file)) node.videos = videoCounts.get(file);
     return node;
   }
 

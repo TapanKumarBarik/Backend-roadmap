@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
-import { CaretIcon, TickIcon } from '../common/icons.jsx';
+import { CaretIcon, PlayIcon, TickIcon } from '../common/icons.jsx';
+import { MARKER } from '../../config/videos.js';
 import { subtreeStats, derivedStatus } from '../../lib/curriculum/progressStats.js';
 import { ordinalOf, shortTitle, stripOrdinal } from '../../lib/curriculum/curriculumPosition.js';
 import { isModule } from '../../lib/curriculum/nodeKind.js';
@@ -94,6 +95,11 @@ export default function TreeNode({
         {url
           ? <a className="name" href={url} title={depth === 0 ? fullTitle : undefined}>{nameContent}</a>
           : <span className="name" title={depth === 0 ? fullTitle : undefined}>{nameContent}</span>}
+        {node.videos > 0 && (
+          <span className="vid-tag" title={node.videos > 1 ? MARKER.titleMany(node.videos) : MARKER.title} role="img" aria-label={MARKER.title}>
+            <PlayIcon />
+          </span>
+        )}
         {prog}
       </div>
       {hasKids && (

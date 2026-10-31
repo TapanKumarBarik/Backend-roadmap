@@ -5,8 +5,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { ROOT, CONTENT_ROOT, CURRICULA } from '../lib/config.mjs';
 import { buildDocsIndex } from '../lib/docsIndex.mjs';
+import { fileCounts, loadRegistry } from '../lib/videos.mjs';
 
-const { index, files, untagged } = buildDocsIndex(CONTENT_ROOT, CURRICULA);
+const { index, files, untagged } = buildDocsIndex(CONTENT_ROOT, CURRICULA, { videoCounts: fileCounts(loadRegistry()) });
 
 const out = path.join(ROOT, 'dist', 'docs-index.json');
 fs.mkdirSync(path.dirname(out), { recursive: true });

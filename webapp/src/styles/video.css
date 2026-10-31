@@ -1,35 +1,96 @@
-/* A video in a module (lib/markdown/video.js): its thumbnail and a play button, which become the player when
-   pressed. The selectors carry an extra class because global.css, which styles #content's links and images,
-   is loaded after this file. */
-#content .video {
+/* A video: its thumbnail and a play button, which become the player when pressed. Two places use it: a video written
+   into a module's text (lib/markdown/video.js, inside #content) and a module's own video from the channel's registry
+   (components/article/LectureVideos.jsx, inside .lecture). The selectors carry an id because global.css, which styles
+   #content's links and images, is loaded after this file. */
+:is(#content, #article .lecture) .video {
   position: relative; margin: 26px 0; aspect-ratio: 16 / 9; overflow: hidden;
   border-radius: var(--r-lg); background: #0e1116; box-shadow: var(--shadow-md);
 }
-#content .video .video-link, #content .video .video-link:visited, #content .video .video-link:hover {
+:is(#content, #article .lecture) .video .video-link,
+:is(#content, #article .lecture) .video .video-link:visited,
+:is(#content, #article .lecture) .video .video-link:hover {
   position: absolute; inset: 0; display: block; color: #fff; text-decoration: none;
 }
 /* The thumbnail has black bars above and below its 16:9 picture; covering the box crops exactly those. */
-#content .video .video-link img {
+:is(#content, #article .lecture) .video .video-link img {
   display: block; width: 100%; height: 100%; margin: 0; border: 0; border-radius: 0; object-fit: cover;
   transition: transform var(--dur-slow) var(--ease-out);
 }
-#content .video .video-link:hover img { transform: scale(1.03); }
-#content .video .video-play {
+:is(#content, #article .lecture) .video .video-link:hover img { transform: scale(1.03); }
+:is(#content, #article .lecture) .video .video-play {
   position: absolute; left: 50%; top: 50%; width: 68px; height: 48px; margin: -24px 0 0 -34px;
   border-radius: 14px; background: rgba(14, 17, 22, .82);
   transition: background var(--dur-base), transform var(--dur-base) var(--ease-out);
 }
-#content .video .video-play::after {
+:is(#content, #article .lecture) .video .video-play::after {
   content: ''; position: absolute; left: 27px; top: 14px;
   border-style: solid; border-width: 10px 0 10px 17px; border-color: transparent transparent transparent #fff;
 }
-#content .video .video-link:hover .video-play, #content .video .video-link:focus-visible .video-play {
+:is(#content, #article .lecture) .video .video-link:hover .video-play,
+:is(#content, #article .lecture) .video .video-link:focus-visible .video-play {
   background: var(--signal); transform: scale(1.07);
 }
-#content .video .video-link:focus-visible { outline: 3px solid var(--signal); outline-offset: -3px; }
-#content .video .video-label {
+:is(#content, #article .lecture) .video .video-link:focus-visible { outline: 3px solid var(--signal); outline-offset: -3px; }
+:is(#content, #article .lecture) .video .video-label {
   position: absolute; left: 0; right: 0; bottom: 0; padding: 30px 18px 13px;
   font-size: 14px; font-weight: 600; line-height: 1.3;
   background: linear-gradient(transparent, rgba(0, 0, 0, .74));
 }
-#content .video iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+:is(#content, #article .lecture) .video iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+
+/* ── a module's own video: the card above, then what it is, its chapters, and any other videos on the topic ── */
+#article .lecture { margin: 0 0 34px; }
+#article .lecture .video { margin: 0; }
+/* (the id and three classes: the card's own rule above is :is(#id, …) .video .video-label, which this must outrank) */
+#article .lecture .video .video-label { padding-right: 78px; }
+#article .lecture .video-time {
+  position: absolute; right: 12px; bottom: 12px; padding: 2px 7px; border-radius: 6px;
+  background: rgba(0, 0, 0, .8); color: #fff; font: 600 12px/1.5 var(--mono); font-variant-numeric: tabular-nums;
+}
+
+#article .lecture-meta {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px 16px; margin-top: 12px;
+  font-size: 13px; color: var(--fg-subtle);
+}
+#article .lecture-meta a { color: var(--fg-muted); text-decoration: none; }
+#article .lecture-meta a:hover { color: var(--fg); text-decoration: underline; text-underline-offset: 3px; }
+#article .lecture-kind { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; color: var(--signal); }
+#article .lecture-kind svg, #article .lecture-yt svg { width: 13px; height: 13px; flex: none; }
+#article .lecture-yt { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; }
+
+#article .lecture-h {
+  margin: 0 0 8px; font-size: 11.5px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--fg-subtle);
+}
+#article .lecture-chapters { margin-top: 18px; }
+#article .lecture-chapters ol {
+  list-style: none; margin: 0; padding: 0;
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 2px 12px;
+}
+#article .lecture-chapter {
+  display: flex; align-items: baseline; gap: 10px; width: 100%; padding: 7px 10px; border: 0; border-radius: var(--r-sm);
+  background: transparent; color: var(--fg); font: inherit; font-size: 13.5px; line-height: 1.35; text-align: left; cursor: pointer;
+}
+#article .lecture-chapter:hover { background: var(--hover); }
+#article .lecture-chapter:focus-visible { outline: 2px solid var(--link); outline-offset: -2px; }
+#article .lecture-chapter .ts { flex: none; min-width: 3.1ch; font-family: var(--mono); font-size: 12px; color: var(--signal); font-variant-numeric: tabular-nums; }
+#article .lecture-chapter[aria-current="true"] { background: var(--signal-bg); }
+
+#article .lecture-more { margin-top: 20px; }
+#article .lecture-more ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+#article .lecture-pick {
+  display: grid; grid-template-columns: 96px minmax(0, 1fr) auto; align-items: center; gap: 12px; width: 100%; padding: 6px 12px 6px 6px;
+  border: 1px solid var(--border-subtle); border-radius: var(--r-md); background: var(--bg-raised);
+  color: var(--fg); font: inherit; font-size: 13.5px; line-height: 1.35; text-align: left; cursor: pointer;
+}
+#article .lecture-pick:hover { border-color: var(--border); background: var(--hover); }
+#article .lecture-pick:focus-visible { outline: 2px solid var(--link); outline-offset: 2px; }
+#article .lecture-pick[aria-current="true"] { border-color: var(--signal-line); background: var(--signal-bg); }
+#article .lecture-pick img { display: block; width: 96px; height: 54px; object-fit: cover; border-radius: var(--r-sm); background: #0e1116; }
+#article .lecture-pick-d { font-family: var(--mono); font-size: 12px; color: var(--fg-subtle); font-variant-numeric: tabular-nums; }
+
+@media (max-width: 600px) {
+  #article .lecture-yt { margin-left: 0; }
+  #article .lecture-chapters ol { grid-template-columns: minmax(0, 1fr); }
+  #article .lecture-pick { grid-template-columns: 72px minmax(0, 1fr) auto; }
+  #article .lecture-pick img { width: 72px; height: 41px; }
+}

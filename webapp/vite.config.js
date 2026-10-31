@@ -16,15 +16,15 @@ const MIME_TYPES = {
 };
 
 // `vite dev` only serves webapp/, but the app also fetches the curriculum
-// markdown (the curricula, in the content folder) and the two
-// generated indexes (dist/docs-index.json, dist/search-index.json — run
+// markdown (the curricula, in the content folder) and the generated files
+// (dist/docs-index.json, search-index.json, site-stats.json, videos.json — run
 // `npm run index` once, from the repo root). Without this, those
 // requests fall through to the SPA's index.html with a 200 and the app renders
 // "0 modules" with no visible error. Dev only: configureServer never runs
 // during `vite build` or `vite preview`.
 function serveRepoContent() {
   const contentRoots = siteConfig.content.curricula;
-  const generated = ['docs-index.json', 'search-index.json', 'site-stats.json'];
+  const generated = ['docs-index.json', 'search-index.json', 'site-stats.json', 'videos.json'];
   return {
     name: 'serve-repo-content',
     configureServer(server) {

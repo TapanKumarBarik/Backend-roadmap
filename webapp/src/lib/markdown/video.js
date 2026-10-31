@@ -16,6 +16,9 @@ export const DEFAULT_VIDEO_LABEL = 'Watch the video on YouTube';
 
 const VIDEO_ID = /^[A-Za-z0-9_-]{11}$/;
 
+/** Whether `id` has the shape of a YouTube video id (the only kind that is ever put into markup or a URL). */
+export const isVideoId = (id) => VIDEO_ID.test(id || '');
+
 // The id of a single YouTube video from any of its usual links, or null for anything else (a channel, a playlist,
 // another site). Only ids of the right shape get through, since the id ends up in markup.
 export function youtubeId(href) {
@@ -33,9 +36,12 @@ export function youtubeId(href) {
 }
 
 export const watchUrl = (id) => `https://www.youtube.com/watch?v=${id}`;
-export const embedUrl = (id) => `https://www.youtube-nocookie.com/embed/${id}?autoplay=1&rel=0`;
+// `start` is the second to begin at (a chapter of a lecture), 0 for the beginning.
+export const embedUrl = (id, start = 0) => `https://www.youtube-nocookie.com/embed/${id}?autoplay=1&rel=0${start > 0 ? `&start=${Math.floor(start)}` : ''}`;
 // 480x360 with black bars above and below a 16:9 picture; the card crops them (object-fit: cover).
 export const thumbnailUrl = (id) => `https://i.ytimg.com/vi/${id}/hqdefault.jpg`;
+// What the player may do; the same for a card in the text and a module's own video (components/article/LectureVideos.jsx).
+export const PLAYER_ALLOW = 'accelerometer; autoplay; clipboard-write; encrypted-media; picture-in-picture; web-share';
 
 export function videoCardHtml(id, label) {
   const text = escapeHtml((label || '').trim() || DEFAULT_VIDEO_LABEL);
@@ -70,11 +76,11 @@ export function renderVideos(md, store) {
 // The reader pressed play: the thumbnail gives way to the player, in the same box so nothing around it moves.
 export function playVideo(card) {
   const id = card.dataset.video;
-  if (!VIDEO_ID.test(id || '')) return;
+  if (!isVideoId(id)) return;
   const frame = document.createElement('iframe');
   frame.src = embedUrl(id);
   frame.title = (card.querySelector('.video-label') || {}).textContent || DEFAULT_VIDEO_LABEL;
-  frame.allow = 'accelerometer; autoplay; clipboard-write; encrypted-media; picture-in-picture; web-share';
+  frame.allow = PLAYER_ALLOW;
   frame.allowFullscreen = true;
   frame.referrerPolicy = 'strict-origin-when-cross-origin';
   card.classList.add('playing');

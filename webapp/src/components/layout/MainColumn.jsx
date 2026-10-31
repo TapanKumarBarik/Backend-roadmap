@@ -11,7 +11,7 @@ export default function MainColumn({
   onTocChange, onActiveHeadingChange,
   counts, treeData, user, onLogin, isBookmarked, onToggleBookmark, bookmarks,
   showNotesInArticle, showLanding, siteStats, onDismissLanding,
-  indexLoading, indexError, onReloadIndex,
+  indexLoading, indexError, onReloadIndex, videoData, onOpenVideos,
   paths, activePath, onPickPath, choosingPath, onChoosingPath, neighbours, pathPlace, pathOffer, onFinishPath, onStartPath
 }) {
   const mainRef = useRef(null);
@@ -62,18 +62,23 @@ export default function MainColumn({
               isBookmarked={isBookmarked}
               onToggleBookmark={onToggleBookmark}
               showNotesInArticle={showNotesInArticle}
+              videos={videoData?.byFile[currentFile]}
+              playlists={videoData?.playlists}
             />
           )
           : showLanding
             ? (
               <Landing
                 stats={siteStats}
+                videoData={videoData}
+                nodeByFile={nodeByFile}
                 user={user}
                 onLogin={onLogin}
                 onOpenFile={onOpenFile}
                 onStartPath={onStartPath}
                 onDismiss={onDismissLanding}
                 onOpenPalette={onOpenPalette}
+                onOpenVideos={onOpenVideos}
               />
             )
             : indexError && !treeData.length

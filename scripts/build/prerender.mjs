@@ -17,6 +17,8 @@ import { moduleUrl, routeUrl } from '../../webapp/src/lib/curriculum/moduleUrl.j
 import { resolvePath } from '../../webapp/src/lib/markdown/rewriteLinks.js';
 import { buildPageTitles } from '../../webapp/src/lib/curriculum/pageTitle.js';
 import { neighbourModules } from '../../webapp/src/lib/curriculum/curriculumPosition.js';
+import { formatClock, groupByModule, isoDuration } from '../../webapp/src/lib/curriculum/videos.js';
+import { thumbnailUrl, watchUrl } from '../../webapp/src/lib/markdown/video.js';
 import { ROOT, CONTENT_DIR, config, SITE_URL, isPlaceholderText } from '../lib/config.mjs';
 import { descriptionCandidates, pickDescription } from '../lib/describe.mjs';
 import { gitDates } from '../lib/gitDates.mjs';
@@ -29,6 +31,9 @@ const template = fs.readFileSync(path.join(DIST, 'index.html'), 'utf8');
 const { tree } = JSON.parse(fs.readFileSync(path.join(DIST, 'docs-index.json'), 'utf8'));
 const titles = buildPageTitles(tree, SITE_NAME);
 const dates = gitDates(ROOT, CONTENT_DIR); // null without full history (a shallow clone): the dates are then left out
+// The channel's videos by module (dist/videos.json, written by gen-videos.mjs in `npm run index`).
+const videosFile = path.join(DIST, 'videos.json');
+const videosByFile = fs.existsSync(videosFile) ? groupByModule(JSON.parse(fs.readFileSync(videosFile, 'utf8')).videos) : {};
 
 const esc = (s) => String(s)
   .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
@@ -103,8 +108,16 @@ const publisher = {
   logo: { '@type': 'ImageObject', url: SITE + config.site.logo }
 };
 
-function page({ title, fullTitle, description, url, type, ld, body, preload = [], noindex = false }) {
+// image: a page's own picture for link previews (a module with a video shows the video's thumbnail), instead of the site's.
+function page({ title, fullTitle, description, url, type, ld, body, preload = [], noindex = false, image = null }) {
   let html = template;
+  if (image) {
+    html = replaceOnce(html, /<meta property="og:image" content="[^"]*">/, `<meta property="og:image" content="${esc(image.url)}">`);
+    html = replaceOnce(html, /<meta property="og:image:width" content="[^"]*">/, `<meta property="og:image:width" content="${image.width}">`);
+    html = replaceOnce(html, /<meta property="og:image:height" content="[^"]*">/, `<meta property="og:image:height" content="${image.height}">`);
+    html = replaceOnce(html, /<meta property="og:image:alt" content="[^"]*">/, `<meta property="og:image:alt" content="${esc(image.alt)}">`);
+    html = replaceOnce(html, /<meta name="twitter:image" content="[^"]*">/, `<meta name="twitter:image" content="${esc(image.url)}">`);
+  }
   html = replaceOnce(html, /<title>[^<]*<\/title>/, `<title>${esc(fullTitle)}</title>`);
   html = replaceOnce(html, /<meta name="description" content="[^"]*">/, `<meta name="description" content="${esc(description)}">`);
   html = replaceOnce(html, /<link rel="canonical" href="[^"]*">/, `<link rel="canonical" href="${SITE}${url}">`);
@@ -120,6 +133,24 @@ function page({ title, fullTitle, description, url, type, ld, body, preload = []
 }
 
 const link = (url, text) => `<a href="${url}">${esc(text)}</a>`;
+
+// A module's video as plain HTML (for crawlers and readers without JavaScript): a link to it with its thumbnail, and its
+// chapters. The app draws its own player in the page; this is what the page says without one.
+const videoHtml = (v) => `<section aria-label="Video"><p><a href="${watchUrl(v.id)}"><img src="${thumbnailUrl(v.id)}" alt="" width="480" height="360"> ${esc(v.title)}</a>${v.seconds ? ` (${formatClock(v.seconds)})` : ''}</p>`
+  + (v.chapters.length ? `<ol>${v.chapters.map(([t, name]) => `<li>${formatClock(t)} ${esc(name)}</li>`).join('')}</ol>` : '') + '</section>';
+
+// The same video as structured data, which is what lets a search result show it as a video.
+const videoObject = (v, fallbackDescription) => ({
+  '@type': 'VideoObject',
+  name: v.title,
+  description: v.summary || fallbackDescription,
+  thumbnailUrl: thumbnailUrl(v.id),
+  uploadDate: v.published,
+  ...(v.seconds && { duration: isoDuration(v.seconds) }),
+  embedUrl: `https://www.youtube-nocookie.com/embed/${v.id}`,
+  inLanguage: 'en',
+  author
+});
 
 // What a crawler or a reader without JavaScript needs to walk on from a page: the modules inside a track, and the
 // modules on either side of this one (the app shows the same two things as the sidebar and the pager).
@@ -159,6 +190,7 @@ for (const { node, ancestors } of modules) {
   const crumbs = [{ title: SITE_NAME, url: '/' }, ...ancestors.map((a) => ({ title: titles[a.file].title, url: moduleUrl(a.file) })).filter((c) => c.url), { title, url }];
   const nav = crumbs.slice(0, -1).map((c) => link(c.url, c.title)).join(' › ');
   const when = dates && dates[node.file];
+  const clips = videosByFile[node.file] || [];
 
   const out = page({
     title,
@@ -167,6 +199,7 @@ for (const { node, ancestors } of modules) {
     url,
     type: 'article',
     noindex: placeholder,
+    image: clips.length ? { url: thumbnailUrl(clips[0].id), width: 480, height: 360, alt: clips[0].title } : null,
     preload: ['/' + node.file],
     ld: {
       '@context': 'https://schema.org',
@@ -188,10 +221,11 @@ for (const { node, ancestors } of modules) {
         {
           '@type': 'BreadcrumbList',
           itemListElement: crumbs.map((c, i) => ({ '@type': 'ListItem', position: i + 1, name: c.title, item: SITE + c.url }))
-        }
+        },
+        ...clips.map((v) => videoObject(v, description))
       ]
     },
-    body: `<nav aria-label="Breadcrumb">${nav}</nav><article>${html}</article>${walkOn(node)}`
+    body: `<nav aria-label="Breadcrumb">${nav}</nav>${clips.map(videoHtml).join('')}<article>${html}</article>${walkOn(node)}`
   });
 
   const dir = path.join(DIST, ...decodeURIComponent(url).split('/').filter(Boolean));

@@ -17,6 +17,7 @@ import { ClockIcon, StarIcon, ArrowRightIcon } from '../common/icons.jsx';
 import LoadError from '../common/LoadError.jsx';
 import { LOAD_WHAT } from '../../config/messages.js';
 import PathStrip from './PathStrip.jsx';
+import LectureVideos from './LectureVideos.jsx';
 import SignpostSummary from './SignpostSummary.jsx';
 import ProgressBar from '../common/ProgressBar.jsx';
 import CommentsSection from './CommentsSection.jsx';
@@ -46,7 +47,7 @@ export default function ArticleView({
   path, node, statusMap, neighbours, pathPlace, pathOffer, onPickPath, onFinishPath, nodeByFile, dirIndex, fileSet, allTags, treeData,
   onOpenFile, onSetStatus, onOpenPalette, headingTarget, onToast,
   onTocChange, onActiveHeadingChange, mainRef, user, onLogin,
-  isBookmarked, onToggleBookmark, showNotesInArticle
+  isBookmarked, onToggleBookmark, showNotesInArticle, videos, playlists
 }) {
   const { html, rawText, loading, error, reload: reloadDoc } = useMarkdownDoc(path);
   const contentRef = useRef(null);
@@ -207,6 +208,11 @@ export default function ArticleView({
   const signpost = !!(node && node.children && node.children.length);
   const readTime = rawText && !placeholder && !signpost ? readTimeStats(rawText, CONTENT.wordsPerMinute) : null;
   const { title: liftedTitle, body: bodyHtml } = useMemo(() => splitTitle(html), [html]);
+  // The module's videos from the channel's registry, except one the module's own text already embeds.
+  const lectureVideos = useMemo(
+    () => (videos || []).filter((v) => !(html && html.includes(`data-video="${v.id}"`))),
+    [videos, html]
+  );
   // The heading is drawn from the index rather than from the module's own text: it is then on screen before the
   // module has arrived, and the header does not move down when it does.
   const titleHtml = useMemo(() => (node && node.title ? inlineTitleHtml(node.title) : liftedTitle), [node, liftedTitle]);
@@ -299,6 +305,9 @@ export default function ArticleView({
           </div>
         )}
       </header>
+
+      {/* Keyed by the module so a video that is playing is gone when the reader moves on. */}
+      {lectureVideos.length > 0 && <LectureVideos key={path} videos={lectureVideos} playlists={playlists || []} />}
 
       {resume && !loading && !error && html != null && (
         <div className="resume">

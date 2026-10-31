@@ -54,7 +54,7 @@ Every module teaches in the same order:
 | Concept | The core idea in a sentence or two, as a `> [!key]` block |
 | Explanation | *Concepts* with `###` subheadings; `> [!model]` for mental models, `> [!pitfall]` for traps |
 | Code | Real, runnable examples (`> [!example]` for worked cases) |
-| Visual diagram | A diagram that teaches — ASCII box-drawing in `backend/`, `genai/`, `lld/`; Mermaid is welcome in `learn/` |
+| Visual diagram | A diagram that teaches — ASCII box-drawing in `backend/`, `system-design/`, `genai/`, `lld/`; Mermaid is welcome in `learn/` |
 | Practice | *Hands-on exercises* with answers in `<details>`, and a *Checkpoint quiz* |
 | Project | *Independent challenge* — a small build that uses the module |
 | Interview question | An `> [!interview]` block: the question, and what a strong answer covers |
