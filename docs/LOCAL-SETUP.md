@@ -119,4 +119,13 @@ npm run check      # every isAdmin() awaited; every API file parses; paths.json 
 npm run build      # the full site build, as deployed
 ```
 
+CI also drives the built site in a real browser (`tests/e2e/`). To run those yourself, serve the build and point the tests at it:
+
+```bash
+npm run preview &  # serves dist/ on http://localhost:4180
+npm run test:e2e   # needs Chrome, Edge or Chromium; set E2E_EXECUTABLE to use a particular one
+```
+
+How the pieces fit together, and where to change what: [ARCHITECTURE.md](ARCHITECTURE.md).
+
 Pushing to `main` deploys via `.github/workflows/cloudflare-pages.yml`.

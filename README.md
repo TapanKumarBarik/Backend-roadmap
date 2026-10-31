@@ -432,11 +432,15 @@ webapp/                       the React app
 api/                          the Hono API
   routes/  lib/  migrations/  tests/    endpoints, shared helpers, the D1 schema (numbered migrations), API tests
 functions/api/[[path]].js     the Cloudflare entry point that hands /api/* to api/
-scripts/                      build/ (index, stats, prerender), check/, dev/ (screenshots), maintain/, lib/
-docs/                         local setup and the roadmap
+scripts/                      build/ (indexes, stats, prerender), check/, dev/, maintain/, lib/ (shared, unit-tested)
+tests/e2e/                    browser tests of the built site
+docs/                         architecture, local setup, images, videos, the roadmap
+.github/                      CI (one shared action), templates, Dependabot
 site.config.json              the one place for site name, developer, repo, storage keys and curricula
 dist/                         the built site (gitignored) — the only thing deployed
 ```
+
+How the pieces fit, and where to change what: **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**.
 
 ## Community
 

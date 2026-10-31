@@ -110,7 +110,10 @@ The app and API are a live codebase with real user accounts, so changes here are
    npm run check      # every isAdmin() awaited, every API file parses, paths.json and images are valid
    npm run build      # the full site build, as deployed
    ```
+   CI also runs the browser tests (`npm run preview`, then `npm run test:e2e`); [LOCAL-SETUP.md](docs/LOCAL-SETUP.md#before-you-push) says how to run them yourself.
 4. In the PR, say what you tested and how. Screenshots help for UI changes (light **and** dark).
+
+How the pieces fit together and where to change what: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 Layout: `webapp/src/components/<feature>/`, `webapp/src/lib/{markdown,curriculum,search}/`, `api/routes/`, `api/lib/`, and `api/migrations/` for the database (see [api/README.md](api/README.md) before changing it). Unit tests sit beside the code they test (`*.test.js` / `*.test.mjs`) and run with `npm test`; the API's are in `api/tests/`. A change that comes with a test is a welcome one.
 
