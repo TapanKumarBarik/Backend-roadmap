@@ -11,8 +11,10 @@ import { fileFromPathname, routeUrl } from '../lib/curriculum/moduleUrl.js';
 //                                      still accepted, then rewritten to the
 //                                      module's real URL.
 //
-// Like the original hash router, navigation uses replaceState and never adds a
-// browser-history entry.
+// Moving to another page adds a browser-history entry, so Back and Forward walk
+// the pages you have read (arriving from a video and pressing Back used to leave
+// the site). Rewriting the address of the page you are already on, to its
+// canonical form or to a heading's anchor, does not add one.
 function parseLocation() {
   let hash;
   try { hash = decodeURIComponent(location.hash.replace(/^#/, '')); } catch { hash = ''; }
@@ -40,6 +42,11 @@ function canonicalize(route) {
   if (url !== location.pathname + location.hash) history.replaceState(null, '', withSearch(url));
 }
 
+// A new place in the history, unless it is where the browser already is (a click on the link of the page you are on).
+function pushUrl(url) {
+  if (url !== location.pathname + location.search + location.hash) history.pushState(null, '', url);
+}
+
 export function useHashRoute() {
   const [route, setRoute] = useState(parseLocation);
 
@@ -60,12 +67,12 @@ export function useHashRoute() {
 
   const navigate = useCallback((path, heading = null, { updateUrl = true } = {}) => {
     setRoute({ path, heading: heading || null });
-    if (updateUrl) history.replaceState(null, '', routeUrl(path, heading));
+    if (updateUrl) pushUrl(routeUrl(path, heading));
   }, []);
 
   const goHome = useCallback(() => {
     setRoute({ path: null, heading: null });
-    history.replaceState(null, '', '/' + location.search);
+    pushUrl('/' + location.search);
   }, []);
 
   return { path: route.path, heading: route.heading, navigate, goHome };

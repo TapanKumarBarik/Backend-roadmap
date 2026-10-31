@@ -92,6 +92,31 @@ test('a sidebar link opens the module in place; a click meant for a new tab is l
   await context.close();
 });
 
+test("the browser's Back and Forward buttons walk the pages you have read, and the page you are on adds nothing", async () => {
+  const { context, page, goto } = await open(LESSON);
+  await goto();
+  await page.waitForSelector('#content p');
+  await page.evaluate(() => { window.__stillHere = true; });
+  await page.locator(`#sidebar a.name[href="${NEXT_LESSON}"]`).click();
+  await page.waitForURL('**' + NEXT_LESSON);
+  await page.waitForFunction(() => document.title === 'JWT Deep Dive · Backend Roadmap');
+
+  await page.goBack();
+  await page.waitForURL('**' + LESSON);
+  await page.waitForFunction(() => document.title === 'Sessions and Cookies · Backend Roadmap');
+  assert.match(await page.textContent('h1.doc-title'), /Sessions and Cookies/);
+  assert.equal(await page.evaluate(() => window.__stillHere), true, 'Back stayed on the site, without a reload');
+
+  await page.goForward();
+  await page.waitForURL('**' + NEXT_LESSON);
+  await page.waitForFunction(() => document.title === 'JWT Deep Dive · Backend Roadmap');
+
+  const entries = await page.evaluate(() => history.length);
+  await page.locator(`#sidebar a.name[href="${NEXT_LESSON}"]`).click();
+  assert.equal(await page.evaluate(() => history.length), entries, 'a click on the page you are already on adds no history entry');
+  await context.close();
+});
+
 test('a YouTube link on a line of its own becomes a player that works under the real CSP', async () => {
   const { context, page, problems } = await open(LESSON, { withCsp: true });
   await context.route('**/01-sessions-and-cookies/README.md', async (route) => {
