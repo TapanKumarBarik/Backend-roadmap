@@ -12,7 +12,7 @@ The list of videos is one file, [`content/videos.json`](../content/videos.json).
 | The sidebar | A small play mark beside every module that has a video. |
 | The **Videos** screen (left rail, or `/#__videos`) | Every video, in course order, grouped by playlist, with a filter. A card opens the module the video belongs to; a video with no module yet opens YouTube. |
 | The landing page | The newest videos, and a way to all of them. |
-| The module's page for search engines | `VideoObject` structured data (title, thumbnail, upload date, length), a plain link and the chapter list in the pre-rendered HTML, and the thumbnail as the link-preview image. |
+| The module's page for search engines | `VideoObject` structured data (title, thumbnail, upload date, length), a plain link and the chapter list in the pre-rendered HTML. The link-preview image is the page's own share card, which says "Video lesson". |
 
 Chapters come from the video's description: a list of lines like `0:23 Accept now, work later` that starts at `0:00`, has at least three entries and runs forward in time (YouTube's own rule for showing chapters).
 
@@ -42,7 +42,7 @@ Chapters come from the video's description: a list of lines like `0:23 Accept no
    }
    ```
 
-   Several videos can share a module, and a video can sit in a module that has not been written yet (it plays on the "coming soon" page).
+   Several videos can share a module, and a video can sit in a module that has not been written yet: it plays on the "coming soon" page, and that page is indexed by search engines (described by the video's own summary, linked from its track and from the lecture before it) until the text is written. A module without a video is kept out of search results while it is unwritten.
 4. Run `npm run check`. It confirms every video id is well formed and listed once, every module exists, and the chapters make sense, and says what is wrong in words if not.
 
 A video with no `"module"` still appears on the Videos screen, linking to YouTube.

@@ -4,9 +4,22 @@
     "url": "https://backendroadmap.com",
     "license": "MIT",
     "title": "Backend Roadmap — Backend Engineering, System Design & GenAI Curriculum",
-    "description": "Backend Roadmap is a free, hands-on curriculum for backend engineering, system design, Linux, low-level design and GenAI — 500+ modules with progress tracking, notes and discussion.",
+    "description": "Backend Roadmap is a free, hands-on curriculum for backend engineering, system design, Linux, low-level design and GenAI, with progress tracking, notes and discussion.",
     "logo": "/icon-512.png",
     "socialImage": "/og-image.png"
+  },
+  "shareImage": {
+    "dir": "og",
+    "width": 1200,
+    "height": 630,
+    "colors": {
+      "background": "#0e1116",
+      "text": "#e7eaee",
+      "muted": "#9aa2ae",
+      "accent": "#e9a053",
+      "onAccent": "#16181c",
+      "logoDot": "#b25a08"
+    }
   },
   "youtube": {
     "channel": "https://www.youtube.com/@tapankumarbarik9454"

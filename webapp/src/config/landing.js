@@ -7,6 +7,14 @@ import { formatTotal } from '../lib/curriculum/videos.js';
 
 const fmt = (n) => (typeof n === 'number' ? n.toLocaleString('en-US') : '');
 
+// What the home page says to search engines and to readers without JavaScript (scripts/lib/homePage.mjs, run by the
+// pre-render step): the description under the title in a search result, with the real count, and the line that names
+// who is behind the site.
+export const HOME_META = {
+  description: (modules) => `Free, hands-on curriculum for backend engineering, system design, cloud and GenAI: ${modules ? `${fmt(modules.written)} modules` : 'hundreds of modules'} with runnable code, progress tracking and notes.`,
+  credit: (name) => `Created and maintained by ${name}.`
+};
+
 // Used only when site-stats.json could not be loaded.
 export const FALLBACK_START_FILE = 'backend/01-request-response-fundamentals/00-system-overview-and-request-flow/README.md';
 

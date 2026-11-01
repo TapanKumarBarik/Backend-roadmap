@@ -33,14 +33,14 @@ It's also **a community project, not a product**. The curriculum is plain markdo
 
 | | |
 |---|---|
-| **Curricula** | 4 — Backend Engineering · Learn (Linux → Cloud) · GenAI Engineering · Low-Level Design |
-| **Modules** | **734** — 58 tracks across three curricula, plus the 24-module LLD course¹ |
-| **Written today** | **570** modules — over **255,000 lines** of content |
-| **Waiting for an author** | **164** modules — [claim one](#claim-a-module) |
+| **Curricula** | 5 — Backend Engineering · System Design Interview Prep · Learn (Linux → Cloud) · GenAI Engineering · Low-Level Design |
+| **Modules** | **753** — 58 tracks across three curricula, the 19-lecture System Design course, and the 24-module LLD course¹ |
+| **Written today** | **571** modules — over **260,000 lines** of content |
+| **Waiting for an author** | **182** modules — [claim one](#claim-a-module) |
 | **Cost / login to read** | Free, no account needed |
 | **License** | [MIT](LICENSE) — code **and** content |
 
-<sub>¹ The app's sidebar shows a slightly larger number (796) because it also counts each track's and curriculum's overview page.</sub>
+<sub>¹ The app's sidebar shows a slightly larger number (817) because it also counts each track's and curriculum's overview page.</sub>
 
 ## What you can learn
 
@@ -171,7 +171,7 @@ This project is run on a simple idea:
 
 ### Claim a module
 
-**164 modules are placeholders** — their `README.md` literally says *"Content for this module has not been written yet."* They're the clearest, most valuable thing you can pick up. All of them are in the GenAI curriculum:
+**182 modules are placeholders** — their `README.md` literally says *"Content for this module has not been written yet."* They're the clearest, most valuable thing you can pick up. 164 are in the GenAI curriculum, and 18 are System Design lectures whose videos are already on the channel (a lecture's page plays its video while the text is missing):
 
 | Track | Unwritten | What it covers |
 |---|:---:|---|
@@ -185,11 +185,12 @@ This project is run on a simple idea:
 | [`14-inference-and-serving-vllm`](content/genai/14-inference-and-serving-vllm/) | 16 | KV cache, continuous batching, PagedAttention, vLLM, quantized & multi-GPU serving |
 | [`15-evaluation-observability-and-safety`](content/genai/15-evaluation-observability-and-safety/) | 18 | Evaluating LLM output, hallucination detection, guardrails, tracing, cost monitoring |
 | [`16-speech-and-multimodal-models`](content/genai/16-speech-and-multimodal-models/) | 16 | Speech-to-text, text-to-speech, realtime voice agents, vision/multimodal LLMs |
+| [`01-core-fundamentals`](content/system-design/01-core-fundamentals/) (System Design) | 18 | Lectures 02–19: client-server and multi-tier, requirements, trade-offs, scaling, latency, throughput, availability, CAP and PACELC, consistency, fault tolerance, single points of failure, simplicity, stateless vs stateful. Lecture 01 is the model to follow |
 
 Each track's own `README.md` lists its modules in order, and the [GenAI overview](content/genai/README.md) explains how the tracks fit together. See them all at once:
 
 ```bash
-git grep -l "has not been written yet" -- genai
+git grep -l "has not been written yet" -- content/genai content/system-design
 ```
 
 **How to claim one (so two people don't write the same module):**
@@ -203,7 +204,7 @@ Claimed something and life got busy? No problem — just say so on the issue and
 
 ### Improve existing content
 
-**Making a module that exists better is just as valuable as writing a new one** — often more, because many people have already read it. The ~520 written modules aren't finished or sacred; if you know a better way to explain something, change it.
+**Making a module that exists better is just as valuable as writing a new one** — often more, because many people have already read it. The 570+ written modules aren't finished or sacred; if you know a better way to explain something, change it.
 
 What improvement looks like:
 
@@ -350,7 +351,7 @@ The errors people hit, what they mean, how to fix them.
 
 The app and API are a real, live codebase, so changes there are reviewed a little more carefully. Good areas to dig into:
 
-- **Tests** — there's no automated test suite yet. Adding one for the markdown pipeline (`webapp/src/lib/markdown/`) or the API (`api/`) would be a huge help to everyone after you
+- **Tests** — there are unit tests (`npm test`) and browser tests of the built site (`npm run test:e2e`); more coverage for the markdown pipeline (`webapp/src/lib/markdown/`) and the API (`api/`) is a huge help to everyone after you
 - **Accessibility & keyboard navigation** audit of the module page
 - **Performance** — code-splitting the heaviest bundles (the Mermaid and editor chunks)
 - **Suggestion status tracking** (planned / in progress / done) on the suggestions board
@@ -443,7 +444,7 @@ Before opening a PR, run `npm run lint`, `npm run typecheck`, `npm test`, `npm r
 | **File uploads** | Azure Blob Storage |
 | **Auth** | Google OAuth, signed `HttpOnly` session cookies |
 | **Hosting & CI** | Cloudflare Pages, deployed from GitHub Actions on every push to `main` |
-| **SEO** | Every module is pre-rendered to its own real page at build time, with a generated sitemap |
+| **SEO** | Every module is pre-rendered to its own real page at build time, with a generated sitemap, structured data and a share image of its own |
 
 ```text
 content/                      the curriculum: backend/ system-design/ learn/ genai/ lld/ (one markdown file per module), paths.json and videos.json

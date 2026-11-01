@@ -2,7 +2,7 @@
 
 A short-lecture course on the ideas that every system design interview is built on. Each lecture is a video of a few minutes on [the YouTube channel](https://www.youtube.com/@tapankumarbarik9454) and a written lecture here: the example in code, a diagram, exercises with answers, and the interview questions with what a strong answer covers. Watch first and read to keep it, or read first and watch to check yourself. On the site, the lecture's page plays the video at the top.
 
-This is a large course, being built out one lecture at a time. A lecture whose text has not been written yet still has its video; it is marked *Soon* in the sidebar.
+This is a large course, being built out one lecture at a time. A lecture whose text is still to come keeps its video: it is marked *Soon* in the sidebar and plays the video until the text arrives.
 
 ## How this course fits with the rest of the site
 

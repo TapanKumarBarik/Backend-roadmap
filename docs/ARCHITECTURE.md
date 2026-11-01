@@ -48,11 +48,19 @@ a module folder is the one change that orphans a reader's saved progress.
    build). The code is in `scripts/lib/` (`docsIndex`, `searchIndex`, `tags`, `content`, `videos`) and is unit-tested.
 3. **`copy-content`** copies the curricula to `dist/`, and refuses to continue if anything that looks like a secret
    is in there. `dist/` is an allow-list on purpose: deploying the repository root once published local secrets.
-4. **`prerender`** writes a static page for each lesson (title, description, canonical link, Open Graph, structured
-   data, the lesson text itself, previous and next links) and `sitemap.xml`. A lesson that still carries the
-   placeholder sentence is marked `noindex` and left out of the sitemap, so unwritten modules cannot thin out the site.
-   A module with a video also gets `VideoObject` data, a plain link with its chapters, and the video's thumbnail as its
-   link-preview image.
+4. **`gen-share-images`** draws a share card (a 1200×630 PNG with the page's own title) for every page into `dist/og/`,
+   which is what a link shows on LinkedIn, X or Slack. satori lays a card out and resvg turns it into a PNG, both in plain
+   Node; the size and colours are in `site.config.json` (`shareImage`). An unwritten module with no video gets no card
+   and keeps the site's picture.
+5. **`prerender`** writes a static page for each lesson (title, a description, canonical link, Open Graph with its
+   card, structured data, the lesson text itself, previous and next links), the home page and `sitemap.xml`. A lesson
+   that still carries the placeholder sentence is marked `noindex` and left out of the sitemap, so unwritten modules
+   cannot thin out the site, unless it has a video: then the page is the video, its chapters and what it covers, and it
+   is indexed until the text is written. A module with a video also gets `VideoObject` data and a plain link with its
+   chapters. The description is the module's key idea or its first sentences that say what the page is about, whole
+   sentences, never a look back at the last module (`scripts/lib/describe.mjs`). The home page is built from the
+   landing page's own wording, the learning paths and the real counts (`scripts/lib/homePage.mjs`), so a crawler gets
+   headed sections and links, not a list of names.
 
 Then Cloudflare Pages serves static files, with `webapp/public/_headers` (security headers, the Content-Security-Policy)
 and `_routes.json` (only `/api/*` runs code).
@@ -84,9 +92,11 @@ API is down, lessons still open and a notice says what could not load.
 
 `site.config.json` holds everything that would otherwise be a literal in code: the site's name and URL, the developer's
 contact details, the repository and branch, the content folder and curriculum list, the placeholder sentence, the reading
-speed, every browser-storage key, the screenshots. The app imports it through `webapp/src/config/`, the build and the
-checks through `scripts/lib/config.mjs`, the API directly. Copy that appears on screen (landing page, error messages)
-lives in `webapp/src/config/` too. Learning paths are data in `content/paths.json`.
+speed, every browser-storage key, the share cards' size and colours, the screenshots. The app imports it through
+`webapp/src/config/`, the build and the checks through `scripts/lib/config.mjs`, the API directly. Copy that appears on
+screen (landing page, error messages) lives in `webapp/src/config/` too; those modules import their JSON with
+`with { type: 'json' }`, which is what lets the build reuse the landing page's wording in plain Node. Learning paths are
+data in `content/paths.json`.
 
 ## How we know it works
 
@@ -95,9 +105,9 @@ lives in `webapp/src/config/` too. Learning paths are data in `content/paths.jso
 | Lint | `npm run lint` | unused code, wrong globals for the runtime (browser, Workers, Node), React hook mistakes |
 | Types | `npm run typecheck` | the API, scripts and the app's non-component code, checked as JavaScript with `tsc` |
 | Unit tests | `npm test` | the build's logic, the markdown pipeline, and the API (real routes on in-memory SQLite) |
-| Checks | `npm run check` | an `isAdmin()` without `await`, a broken `paths.json`, a missing or oversized lesson image, a video that names a module that is not there |
+| Checks | `npm run check` | an `isAdmin()` without `await`, a broken `paths.json`, a missing or oversized lesson image, a video that names a module that is not there, an overview page that says it is unwritten (which would hide it from search) |
 | Build | `npm run build` | the whole site assembles; internal links that point nowhere are listed |
-| Browser | `npm run test:e2e` | a lesson opens, links work, videos and their chapters play under the real CSP, the Videos screen lists them, and the signed-in flows (progress, the workspace editor, the admin dashboard) against the real API |
+| Browser | `npm run test:e2e` | a lesson opens, links work, videos and their chapters play under the real CSP, the Videos screen lists them, the built pages carry what search engines read (titles, descriptions, structured data, sitemap, share cards), and the signed-in flows (progress, the workspace editor, the admin dashboard) against the real API |
 
 CI runs all of them, from one shared definition (`.github/actions/verify`), on every pull request and before every
 deploy. The deploy workflow adds the Cloudflare steps, then tells Bing and other IndexNow engines which pages changed.
@@ -119,6 +129,13 @@ deploy. The deploy workflow adds the Cloudflare steps, then tells Bing and other
 - **Workspaces.** `webapp/` is an npm workspace: one install, one lockfile, one Dependabot entry.
 - **Raw `.md` files are `noindex`.** The site serves the lesson sources next to the pages (the app fetches them), and
   search engines should list the pages, not the sources.
+- **Share cards are drawn at build time, in Node.** Not by a headless browser (the build would need one) and not on request
+  (a function would pay for it on every share). About 650 cards take 15 seconds. Two things keep it that way: resvg is
+  told not to look through the system's fonts (the text is already outlines; that scan was nine tenths of the time), and
+  the cards are flat colours (a gradient made every PNG two and a half times the size, and there are hundreds).
+- **An overview is never a placeholder.** The site decides a page is unwritten by a sentence in its first lines. An overview
+  that said that sentence in passing was treated as an empty module: hidden from search and shown with a "claim this module"
+  box. `npm run check` now fails if a curriculum or track page carries it.
 
 ## Where to change what
 
@@ -131,6 +148,8 @@ deploy. The deploy workflow adds the Cloudflare steps, then tells Bing and other
 | change a learning path | `content/paths.json`, then `npm run check:paths` |
 | change the site name, a link or a storage key | `site.config.json` |
 | change landing-page or error wording | `webapp/src/config/landing.js`, `webapp/src/config/messages.js` |
+| change what a search result shows for a page | the title is built by `webapp/src/lib/curriculum/pageTitle.js`, the description by `scripts/lib/describe.mjs` (or write a clear `> [!key]` sentence at the top of the module); the home page's description is `HOME_META` in `webapp/src/config/landing.js` |
+| change how a share card looks or what it says | `site.config.json` (`shareImage`: size, colours), `scripts/lib/shareImage.mjs` (the words and the title size), `scripts/build/gen-share-images.mjs` (the layout) |
 | add an API route | `api/routes/<area>.js`; it must ask for a sign-in unless it is added to `PUBLIC` in `api/tests/access.test.js` |
 | change the database | a new numbered file in `api/migrations/` ([api/README.md](../api/README.md)) |
 | change what a lesson is tagged with | `scripts/lib/tag-vocabulary.mjs`; see the result with `node scripts/dev/tags.mjs <lesson>` |

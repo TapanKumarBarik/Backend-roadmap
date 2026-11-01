@@ -1,7 +1,8 @@
 // The webapp's view of site.config.json (repo root): the one place that knows the site's name, the
 // developer's contact details, the repository, and the storage keys. The build scripts and the API read
-// the same file, so changing a value here means editing site.config.json, nothing else.
-import site from '../../../site.config.json';
+// the same file, so changing a value here means editing site.config.json, nothing else. (The import attribute is
+// what lets plain Node load this module too: the pre-render step reuses the landing page's wording.)
+import site from '../../../site.config.json' with { type: 'json' };
 
 export const SITE = site.site;
 export const DEVELOPER = site.developer;

@@ -34,6 +34,16 @@ after(async () => { await browser.close(); });
 
 const open = (url, options) => openPage(browser, url, options);
 
+// The built pages are read straight off disk (dist/), the way a crawler gets them, with no browser involved.
+const builtPage = (url) => fs.readFileSync(path.join(ROOT, 'dist', ...url.split('/').filter(Boolean), 'index.html'), 'utf8');
+const ldOf = (html) => JSON.parse(/<script type="application\/ld\+json">(.*?)<\/script>/s.exec(html)[1]);
+// A PNG's size, read from its header (the 8-byte signature, then the IHDR chunk: width and height as 32-bit numbers).
+function pngSize(file) {
+  const png = fs.readFileSync(file);
+  assert.deepEqual([...png.subarray(0, 8)], [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a], `${file} is a PNG`);
+  return { width: png.readUInt32BE(16), height: png.readUInt32BE(20) };
+}
+
 test('a lesson opens with a topic-first title, its heading, its text and real links in the sidebar', async () => {
   const { context, page, problems, goto } = await open(LESSON);
   await goto();
@@ -252,22 +262,72 @@ test('the built pages carry what search engines read', () => {
   assert.ok(titles > 600);
   assert.match(fs.readFileSync(path.join(ROOT, 'webapp/public/_headers'), 'utf8'), /\/\*\.md\s+X-Robots-Tag: noindex/);
   assert.ok(!/VideoObject/.test(html), 'a module without a video has no video data');
-  assert.match(html, new RegExp(`<meta property="og:image" content="${config.site.url}${config.site.socialImage}">`), 'and shares the site picture');
+  const card = `${config.shareImage.dir}${LESSON.replace(/\/$/, '')}.png`;
+  assert.match(html, new RegExp(`<meta property="og:image" content="${config.site.url}/${card}">`), 'and shares a card of its own');
+  assert.match(html, new RegExp(`<meta property="og:image:width" content="${config.shareImage.width}">`));
+  assert.match(html, new RegExp(`<meta name="twitter:image" content="${config.site.url}/${card}">`));
+  assert.deepEqual(pngSize(path.join(dist, card)), { width: config.shareImage.width, height: config.shareImage.height }, 'and the card is a PNG of the size the page says');
+  assert.equal(article.image, `${config.site.url}/${card}`, 'which the structured data names too');
 });
 
-test('a module with a video carries it in its built page: structured data, a plain link and its thumbnail as the preview', () => {
-  const html = fs.readFileSync(path.join(ROOT, 'dist', ...VIDEO_LESSON.split('/').filter(Boolean), 'index.html'), 'utf8');
-  const ld = JSON.parse(/<script type="application\/ld\+json">(.*?)<\/script>/s.exec(html)[1]);
-  const video = ld['@graph'].find((x) => x['@type'] === 'VideoObject');
+test('a module with a video carries it in its built page: structured data, a plain link and a card for the preview', () => {
+  const html = builtPage(VIDEO_LESSON);
+  const video = ldOf(html)['@graph'].find((x) => x['@type'] === 'VideoObject');
   assert.equal(video.embedUrl, `https://www.youtube-nocookie.com/embed/${VIDEO_LESSON_ID}`);
   assert.equal(video.thumbnailUrl, `https://i.ytimg.com/vi/${VIDEO_LESSON_ID}/hqdefault.jpg`);
   assert.match(video.uploadDate, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/);
   assert.match(video.duration, /^PT\d+M\d+S$/);
   assert.ok(video.name && video.description);
-  assert.match(html, new RegExp(`<meta property="og:image" content="https://i\\.ytimg\\.com/vi/${VIDEO_LESSON_ID}/hqdefault\\.jpg">`));
+  assert.match(html, new RegExp(`<meta property="og:image" content="${config.site.url}/${config.shareImage.dir}${VIDEO_LESSON.replace(/\/$/, '')}\\.png">`));
   assert.match(html, new RegExp(`<section aria-label="Video"><p><a href="https://www\\.youtube\\.com/watch\\?v=${VIDEO_LESSON_ID}">`));
   const { tree } = JSON.parse(fs.readFileSync(path.join(ROOT, 'dist', 'docs-index.json'), 'utf8'));
   const marked = [];
   (function walk(nodes) { for (const n of nodes) { if (n.videos) marked.push(n.file); walk(n.children || []); } })(tree);
   assert.ok(marked.includes(`${VIDEO_LESSON.slice(1)}README.md`), 'the module index records which modules have a video');
+});
+
+test('a lecture whose text is not written yet is a page about its video: indexed, in the sitemap, described by the video', () => {
+  const html = builtPage(SOON_LECTURE);
+  assert.doesNotMatch(html, /<meta name="robots"/, 'it is not kept out of search results');
+  assert.match(fs.readFileSync(path.join(ROOT, 'dist', 'sitemap.xml'), 'utf8'), new RegExp(`<loc>${config.site.url}${SOON_LECTURE}</loc>`));
+  const graph = ldOf(html)['@graph'];
+  assert.ok(graph.some((x) => x['@type'] === 'WebPage') && !graph.some((x) => x['@type'] === 'TechArticle'), 'it is a page, not an article');
+  assert.ok(graph.some((x) => x['@type'] === 'VideoObject'));
+  const description = /<meta name="description" content="([^"]*)">/.exec(html)[1];
+  assert.match(description, /^Why is almost every app split into layers\?/, 'what the video says about itself');
+  assert.match(html, new RegExp(`<meta property="og:image" content="${config.site.url}/${config.shareImage.dir}${SOON_LECTURE.replace(/\/$/, '')}\\.png">`));
+  assert.match(builtPage('/system-design/01-core-fundamentals/'), new RegExp(`<a href="${SOON_LECTURE}">`), 'and its track links to it, so a crawler can find it');
+  assert.match(builtPage(LECTURE), new RegExp(`Next: <a href="${SOON_LECTURE}">`), 'as does the lecture before it');
+});
+
+test('an unwritten module with no video stays out of search results and keeps the site picture', () => {
+  const unwritten = '/genai/09-retrieval-augmented-generation/00-why-rag-exists/';
+  const html = builtPage(unwritten);
+  assert.match(html, /<meta name="robots" content="noindex, follow">/);
+  assert.doesNotMatch(fs.readFileSync(path.join(ROOT, 'dist', 'sitemap.xml'), 'utf8'), new RegExp(`<loc>${config.site.url}${unwritten}</loc>`));
+  assert.match(html, new RegExp(`<meta property="og:image" content="${config.site.url}${config.site.socialImage}">`));
+  assert.ok(!fs.existsSync(path.join(ROOT, 'dist', config.shareImage.dir, ...unwritten.split('/').filter(Boolean)) + '.png'));
+});
+
+test('every curriculum\'s own page is indexed and in the sitemap (an overview is not mistaken for an unwritten module)', () => {
+  const sitemap = fs.readFileSync(path.join(ROOT, 'dist', 'sitemap.xml'), 'utf8');
+  for (const curriculum of config.content.curricula) {
+    assert.doesNotMatch(builtPage(`/${curriculum}/`), /<meta name="robots"/, `/${curriculum}/ is not kept out of search results`);
+    assert.match(sitemap, new RegExp(`<loc>${config.site.url}/${curriculum}/</loc>`), `/${curriculum}/ is in the sitemap`);
+  }
+});
+
+test('the home page has something to read without JavaScript: a headline, sections, the real count and links in', () => {
+  const html = fs.readFileSync(path.join(ROOT, 'dist', 'index.html'), 'utf8');
+  const stats = JSON.parse(fs.readFileSync(path.join(ROOT, 'dist', 'site-stats.json'), 'utf8'));
+  assert.equal((html.match(/<h1>/g) || []).length, 1);
+  assert.ok((html.match(/<h2>/g) || []).length >= 4, 'it has sections');
+  const description = /<meta name="description" content="([^"]*)">/.exec(html)[1];
+  assert.ok(description.includes(`${stats.modules.written} modules`), 'the description carries the real number of modules');
+  assert.ok(description.length <= 160);
+  for (const curriculum of config.content.curricula) assert.match(html, new RegExp(`<a href="/${curriculum}/">`), `it links to ${curriculum}`);
+  assert.match(html, /<a href="\/backend\/[^"]+">[^<]+<\/a>: /, 'and to the first modules of the learning paths');
+  const site = ldOf(html)['@graph'].find((x) => x['@type'] === 'WebSite');
+  assert.equal(site.description, description);
+  assert.match(html, new RegExp(`<meta property="og:image" content="${config.site.url}${config.site.socialImage}">`), 'it keeps the site\'s own picture');
 });

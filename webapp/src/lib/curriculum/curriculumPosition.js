@@ -112,14 +112,15 @@ export function studyableFiles(flatFiles, nodeByFile) {
 
 // The modules on either side of a page, in reading order. The pager and the J/K keys step between modules: a
 // track's own README is a table of contents and a planned module is an empty page, and neither is somewhere to
-// send a reader who asked for "next".
-export function neighbourModules(flatFiles, nodeByFile, file) {
+// send a reader who asked for "next". `isStop` says what counts as somewhere to stop (a module, unless the caller
+// knows better: the pre-render step also stops at a planned lecture that has a video, which is a page worth indexing).
+export function neighbourModules(flatFiles, nodeByFile, file, isStop = isModule) {
   const at = flatFiles.indexOf(file);
   if (at < 0) return { prev: null, next: null };
   let prev = null;
   let next = null;
-  for (let i = at - 1; i >= 0 && !prev; i--) if (isModule(nodeByFile[flatFiles[i]])) prev = flatFiles[i];
-  for (let i = at + 1; i < flatFiles.length && !next; i++) if (isModule(nodeByFile[flatFiles[i]])) next = flatFiles[i];
+  for (let i = at - 1; i >= 0 && !prev; i--) if (isStop(nodeByFile[flatFiles[i]])) prev = flatFiles[i];
+  for (let i = at + 1; i < flatFiles.length && !next; i++) if (isStop(nodeByFile[flatFiles[i]])) next = flatFiles[i];
   return { prev, next };
 }
 
