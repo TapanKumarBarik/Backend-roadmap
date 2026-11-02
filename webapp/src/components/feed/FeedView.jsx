@@ -5,6 +5,7 @@ import FeedAttachment from './FeedAttachment.jsx';
 import { TrashIcon } from '../common/icons.jsx';
 import { useLoader } from '../../hooks/useLoader.js';
 import LoadError from '../common/LoadError.jsx';
+import Loading from '../common/Loading.jsx';
 import ErrorText from '../common/ErrorText.jsx';
 import { friendlyMessage } from '../../lib/errors.js';
 import { LOAD_WHAT } from '../../config/messages.js';
@@ -238,7 +239,7 @@ export default function FeedView({ user, onLogin, onToast, onOpenPost }) {
       <ErrorText>{error}</ErrorText>
       {loadError && <LoadError error={loadError} what={LOAD_WHAT.feed} onRetry={reload} />}
 
-      {!posts && !loadError && <p style={{ color: 'var(--fg-subtle)' }}>Loading…</p>}
+      {!posts && !loadError && <Loading />}
       {posts && posts.length === 0 && <p style={{ color: 'var(--fg-subtle)' }}>Nothing here yet — be the first to post.</p>}
 
       <div className="feed-list">

@@ -3,6 +3,7 @@ import { fetchSuggestions, postSuggestion, voteSuggestion, deleteSuggestion } fr
 import { TrashIcon } from '../common/icons.jsx';
 import { useLoader } from '../../hooks/useLoader.js';
 import LoadError from '../common/LoadError.jsx';
+import Loading from '../common/Loading.jsx';
 import ErrorText from '../common/ErrorText.jsx';
 import { friendlyMessage } from '../../lib/errors.js';
 import { LOAD_WHAT } from '../../config/messages.js';
@@ -97,7 +98,7 @@ export default function SuggestionsView({ user, onLogin, onToast }) {
 
       <ErrorText>{error}</ErrorText>
       {loadError && <LoadError error={loadError} what={LOAD_WHAT.suggestions} onRetry={reload} />}
-      {!suggestions && !loadError && <p style={{ color: 'var(--fg-subtle)' }}>Loading…</p>}
+      {!suggestions && !loadError && <Loading />}
       {suggestions && suggestions.length === 0 && <p style={{ color: 'var(--fg-subtle)' }}>No suggestions yet — be the first.</p>}
 
       <div className="feed-list">

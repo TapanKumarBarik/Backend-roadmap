@@ -20,8 +20,8 @@ const COVER_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 450"
 const real = (problems) => problems.filter((p) => !/Failed to load resource/.test(p));
 
 /** A page on a seeded blog, with the site's own content security policy applied, and the covers "uploaded". */
-async function openBlog(url, { email = 'reader@example.com', width = 1280, height = 900 } = {}) {
-  const opened = await openPage(browser, url, { width, height, withCsp: true });
+async function openBlog(url, { email = 'reader@example.com', width = 1280, height = 900, motion } = {}) {
+  const opened = await openPage(browser, url, { width, height, withCsp: true, motion });
   await opened.context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: BASE }).catch(() => { /* not every browser has the permission */ });
   await opened.context.route('**/stroadmapprogress.blob.core.windows.net/**', (route) => route.fulfill({ status: 200, contentType: 'image/svg+xml', body: COVER_SVG }));
   const env = await answerApiInProcess(opened.context, { email });
@@ -294,6 +294,48 @@ test('the command palette finds an article by its words or by its author, and "@
   assert.equal(await page.locator('.pal-sect', { hasText: 'Articles' }).count(), 0, 'actions only, in that mode');
   assert.deepEqual(real(problems), []);
   await page.waitForLoadState('networkidle'); // closing while the article's pictures are still on their way fails the run, not this test
+  await context.close();
+});
+
+test('the articles settle into place a beat at a time, and for someone who asked for less motion they are simply there', async () => {
+  const animation = (page) => cards(page).evaluateAll((els) => els.map((el) => { const s = getComputedStyle(el); return { name: s.animationName, delay: s.animationDelay, duration: s.animationDuration }; }));
+
+  const normal = await openBlog('/blog/');
+  await cards(normal.page).first().waitFor();
+  const arriving = await animation(normal.page);
+  assert.ok(arriving.every((a) => a.name === 'card-in'), 'each card arrives');
+  assert.deepEqual(arriving.slice(0, 3).map((a) => a.delay), ['0s', '0.04s', '0.08s'], 'a beat apart');
+  assert.ok(parseFloat(arriving[0].duration) > 0.1, 'for a moment');
+  await normal.context.close();
+
+  const still = await openBlog('/blog/', { motion: 'reduce' });
+  await cards(still.page).first().waitFor();
+  for (const a of await animation(still.page)) {
+    assert.ok(parseFloat(a.duration) < 0.001 && parseFloat(a.delay) === 0, `no motion and no waiting: ${a.duration} after ${a.delay}`);
+  }
+  await still.context.close();
+});
+
+test('a like pops its icon when it is given, and the icon is still when the page opens with it already there', async () => {
+  const motion = (page) => page.locator('.post-actions .ui-btn__icon svg').first().evaluate((el) => getComputedStyle(el).animationName);
+
+  // The seeded reader liked this article before the page opened.
+  const before = await openBlog(`/blog/${SLUG}`);
+  await before.page.locator('.post-actions .is-on').first().waitFor();
+  assert.equal(await motion(before.page), 'none', 'a like that was already there does not pop');
+  await before.context.close();
+
+  const { context, page } = await openBlog(`/blog/${SLUG}`, { email: 'newcomer@example.com' });
+  const like = page.getByRole('button', { name: /^Like this article/ });
+  await like.waitFor();
+  assert.equal(await like.getAttribute('aria-pressed'), 'false');
+  assert.equal(await motion(page), 'none', 'nothing is moving');
+  await like.click();
+  await page.locator('.post-actions .is-on.just-set').waitFor();
+  assert.equal(await motion(page), 'icon-pop', 'the answer to the click');
+  await page.locator('.post-actions .just-set').waitFor({ state: 'detached' });
+  assert.equal(await motion(page), 'none', 'and it is over');
+  assert.equal(await like.getAttribute('aria-pressed'), 'true');
   await context.close();
 });
 

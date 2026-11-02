@@ -1,9 +1,12 @@
 /* Motion, in one place: the timings every animation draws on, the rule that switches all of them off for anyone who
    has asked their system for less motion, and the loading skeleton.
 
-   Animation here is for orientation (where something came from, that it has loaded) and for one signature moment,
-   the landing page's route drawing itself, the same route as the logo. Nothing animates on a page being read, and
-   nothing that has to be read starts out hidden for longer than a moment.
+   Animation here is for orientation (where something came from, that it has loaded, that what you did has happened)
+   and for one signature moment, the landing page's route drawing itself, the same route as the logo. The recipes are
+   few: a screen fades up into place when you move to it, a list of articles settles in a beat at a time, a dialog or a
+   menu pops from where it was opened, a like or a save answers with a small pop, a cover leans toward the pointer, the
+   bars of a skeleton breathe while something loads, and a toast comes and goes. Nothing animates on a page being read,
+   and nothing that has to be read starts out hidden for longer than a moment.
 
    The timings themselves (--ease-out, --ease-in-out, --dur-quick, --dur-base, --dur-slow) are design tokens: tokens.css. */
 

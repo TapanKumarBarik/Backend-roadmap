@@ -61,8 +61,8 @@
 .post-card__author { display: inline-flex; align-items: center; gap: var(--space-2); color: var(--fg); font-weight: var(--weight-semibold); text-decoration: none; }
 a.post-card__author:hover span { text-decoration: underline; }
 .post-card__title { margin: var(--space-2) 0 var(--space-1); font-size: var(--text-xl); line-height: var(--leading-snug); font-weight: var(--weight-bold); letter-spacing: -.015em; text-wrap: balance; }
-.post-card__title a { color: inherit; text-decoration: none; }
-.post-card__title a:hover { text-decoration: underline; text-underline-offset: 3px; text-decoration-thickness: 1.5px; }
+.post-card__title a { color: inherit; text-decoration: underline; text-decoration-color: transparent; text-underline-offset: 3px; text-decoration-thickness: 1.5px; transition: text-decoration-color var(--dur-quick) var(--ease-out); }
+.post-card__title a:hover { text-decoration-color: currentColor; }
 .post-card__excerpt {
   margin: 0; color: var(--fg-muted); font-size: var(--text-base); line-height: var(--leading-normal);
   display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
@@ -72,7 +72,19 @@ a.post-card__author:hover span { text-decoration: underline; }
 .post-card__likes { margin-left: auto; display: inline-flex; align-items: center; gap: 5px; font-size: var(--text-sm); color: var(--fg-subtle); font-variant-numeric: tabular-nums; }
 .post-card__likes svg { width: 14px; height: 14px; }
 .post-card__cover { display: block; aspect-ratio: 4 / 3; border-radius: var(--r-md); overflow: hidden; border: 1px solid var(--border-subtle); background: var(--bg-sunken); }
-.post-card__cover img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.post-card__cover img { display: block; width: 100%; height: 100%; object-fit: cover; transition: transform var(--dur-slow) var(--ease-out); }
+.post-card:hover .post-card__cover img { transform: scale(1.03); }
+
+/* Arrival: a list of articles settles into place, the first few a beat apart, so the eye is led down the page rather than hit by
+   all of it at once. It runs once, when a card is drawn (a page of more articles, or a new search), and not at all for someone who
+   asked for less motion (motion.css). The cards are readable from the first frame: they only start a little low and faint. */
+@keyframes card-in { from { opacity: 0; transform: translateY(8px); } }
+.blog-list > .post-card { animation: card-in var(--dur-base) var(--ease-out) backwards; }
+.blog-list > .post-card:nth-child(2) { animation-delay: 40ms; }
+.blog-list > .post-card:nth-child(3) { animation-delay: 80ms; }
+.blog-list > .post-card:nth-child(4) { animation-delay: 120ms; }
+.blog-list > .post-card:nth-child(5) { animation-delay: 160ms; }
+.blog-list > .post-card:nth-child(6) { animation-delay: 200ms; }
 
 /* A topic on a card or an article: a small label that filters the list when pressed. */
 .post-tag {
@@ -114,6 +126,9 @@ a.post-byline__author:hover span { text-decoration: underline; }
 .post-actions > :first-child { margin-left: calc(var(--space-3) * -1); }
 /* A like you have given and an article you have saved: the page's one amber accent (a button's own colour is set with an id). */
 #root .post-actions .is-on { color: var(--signal); }
+/* The moment a like or a save is given, its icon answers (PostView sets .just-set for one run of it). */
+@keyframes icon-pop { 40% { transform: scale(1.3); } }
+.post-actions .just-set .ui-btn__icon svg { animation: icon-pop var(--dur-base) var(--ease-out); }
 
 .post-cover { margin: 0 0 var(--space-8); }
 .post-cover img { display: block; width: 100%; max-height: 460px; object-fit: cover; border-radius: var(--r-lg); border: 1px solid var(--border-subtle); background: var(--bg-sunken); }

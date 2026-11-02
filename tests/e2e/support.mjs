@@ -29,9 +29,14 @@ export async function openPage(browser, url, { motion = 'no-preference', seenLan
   if (seenLanding) await context.addInitScript(([k]) => { try { localStorage.setItem(k, '1'); } catch { /* blocked */ } }, [config.storage.seenLanding]);
   if (withCsp) {
     await context.route('**/*', async (route) => {
-      if (!route.request().url().startsWith(BASE)) return route.continue(); // the policy is ours; other sites send their own
-      const response = await route.fetch();
-      await route.fulfill({ response, headers: { ...response.headers(), 'content-security-policy': CSP } });
+      try {
+        if (!route.request().url().startsWith(BASE)) return await route.continue(); // the policy is ours; other sites send their own
+        const response = await route.fetch();
+        await route.fulfill({ response, headers: { ...response.headers(), 'content-security-policy': CSP } });
+      } catch {
+        // The test ended while a request (the favicon, a picture) was still on its way and the context was closed under it:
+        // there is nobody left to answer, and that is not a failure of the page.
+      }
     });
   }
   const page = await context.newPage();

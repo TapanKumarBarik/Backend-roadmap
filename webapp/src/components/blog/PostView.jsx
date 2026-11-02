@@ -34,6 +34,7 @@ export default function PostView({ slug, user, onLogin, onToast, onOpenPost, onO
   const [liked, setLiked] = useState(false);
   const [likes, setLikes] = useState(0);
   const [saved, setSaved] = useState(false);
+  const [justSet, setJustSet] = useState(''); // 'like' or 'save' for the moment after the reader gave one
   const [related, setRelated] = useState([]);
   const [reporting, setReporting] = useState(false);
   const [reason, setReason] = useState('');
@@ -105,13 +106,13 @@ export default function PostView({ slug, user, onLogin, onToast, onOpenPost, onO
   }, [user, onLogin, onToast]);
 
   const like = () => react(
-    () => { setLiked(!liked); setLikes(likes + (liked ? -1 : 1)); },
+    () => { setLiked(!liked); setLikes(likes + (liked ? -1 : 1)); setJustSet(liked ? '' : 'like'); },
     (answer) => { setLiked(answer.liked); setLikes(answer.likes); },
     () => { setLiked(liked); setLikes(likes); },
     () => toggleBlogLike(post.id)
   );
   const save = () => react(
-    () => setSaved(!saved),
+    () => { setSaved(!saved); setJustSet(saved ? '' : 'save'); },
     (answer) => setSaved(answer.bookmarked),
     () => setSaved(saved),
     () => toggleBlogBookmark(post.id)
@@ -174,10 +175,10 @@ export default function PostView({ slug, user, onLogin, onToast, onOpenPost, onO
                 </span>
               </div>
               <div className="post-actions" role="group" aria-label="Reactions">
-                <Button variant="ghost" icon={<HeartIcon filled={liked} />} aria-pressed={liked} aria-label={`Like this article, ${plural(likes, 'like')} so far`} onClick={like} className={liked ? 'is-on' : undefined}>
+                <Button variant="ghost" icon={<HeartIcon filled={liked} />} aria-pressed={liked} aria-label={`Like this article, ${plural(likes, 'like')} so far`} onClick={like} onAnimationEnd={() => setJustSet('')} className={(liked ? 'is-on' : '') + (justSet === 'like' ? ' just-set' : '') || undefined}>
                   {likes > 0 ? likes : 'Like'}
                 </Button>
-                <Button variant="ghost" icon={<BookmarkIcon filled={saved} />} aria-pressed={saved} onClick={save} className={saved ? 'is-on' : undefined}>
+                <Button variant="ghost" icon={<BookmarkIcon filled={saved} />} aria-pressed={saved} onClick={save} onAnimationEnd={() => setJustSet('')} className={(saved ? 'is-on' : '') + (justSet === 'save' ? ' just-set' : '') || undefined}>
                   {saved ? 'Saved' : 'Save'}
                 </Button>
                 <Menu trigger={<Button variant="ghost" icon={<ShareIcon />}>Share</Button>}>

@@ -7,6 +7,7 @@ import { formatDate } from '../../lib/blog/format.js';
 import { StarIcon } from '../common/icons.jsx';
 import { useLoader } from '../../hooks/useLoader.js';
 import LoadError from '../common/LoadError.jsx';
+import Loading from '../common/Loading.jsx';
 import { LOAD_WHAT } from '../../config/messages.js';
 
 // Bookmarks and notes were two separate destinations holding the same
@@ -92,7 +93,7 @@ export default function SavedView({ bookmarks, nodeByFile, onOpenFile, onOpenPos
       {tab === 'articles' && (
         <>
           {articlesError && <LoadError error={articlesError} what={LOAD_WHAT.articles} onRetry={reloadArticles} onSignIn={onLogin} />}
-          {!articles && !articlesError && <p style={{ color: 'var(--fg-subtle)' }}>Loading…</p>}
+          {!articles && !articlesError && <Loading />}
           {articles && articles.length === 0 && <p>No articles saved yet — press Save on an article to keep it here.</p>}
           {articles && articles.length > 0 && (
             <div className="list-rows">

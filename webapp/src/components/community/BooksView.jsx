@@ -3,6 +3,7 @@ import { fetchBooks, postBook, uploadFeedFile, deleteBook } from '../../lib/api.
 import { TrashIcon } from '../common/icons.jsx';
 import { useLoader } from '../../hooks/useLoader.js';
 import LoadError from '../common/LoadError.jsx';
+import Loading from '../common/Loading.jsx';
 import ErrorText from '../common/ErrorText.jsx';
 import { friendlyMessage } from '../../lib/errors.js';
 import { LOAD_WHAT } from '../../config/messages.js';
@@ -149,7 +150,7 @@ export default function BooksView({ user, onLogin, onToast }) {
 
       <ErrorText>{error}</ErrorText>
       {loadError && <LoadError error={loadError} what={LOAD_WHAT.books} onRetry={reload} />}
-      {!books && !loadError && <p style={{ color: 'var(--fg-subtle)' }}>Loading…</p>}
+      {!books && !loadError && <Loading />}
       {books && books.length === 0 && <p style={{ color: 'var(--fg-subtle)' }}>Nothing on the shelf yet — be the first to add something.</p>}
 
       <div className="feed-list">

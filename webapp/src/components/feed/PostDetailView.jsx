@@ -5,6 +5,7 @@ import FeedAttachment from './FeedAttachment.jsx';
 import CommentsSection from '../article/CommentsSection.jsx';
 import { useLoader } from '../../hooks/useLoader.js';
 import LoadError from '../common/LoadError.jsx';
+import Loading from '../common/Loading.jsx';
 import ErrorText from '../common/ErrorText.jsx';
 import { friendlyMessage } from '../../lib/errors.js';
 import { feedCommentPath } from '../../lib/blog/limits.js';
@@ -63,7 +64,7 @@ export default function PostDetailView({ postId, user, onLogin, onBack, onToast 
 
       <ErrorText>{error}</ErrorText>
       {loadError && <LoadError error={loadError} what={LOAD_WHAT.feed} onRetry={reload} />}
-      {!posts && !loadError && <p style={{ color: 'var(--fg-subtle)' }}>Loading…</p>}
+      {!posts && !loadError && <Loading />}
 
       {posts && !post && (
         <p className="discussion-empty">

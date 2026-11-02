@@ -3,6 +3,7 @@ import { fetchQuestions } from '../../lib/api.js';
 import { commentAnchor } from '../../lib/comments.js';
 import { useLoader } from '../../hooks/useLoader.js';
 import LoadError from '../common/LoadError.jsx';
+import Loading from '../common/Loading.jsx';
 import { ChoiceChip } from '../ui/Chip.jsx';
 import { LOAD_WHAT } from '../../config/messages.js';
 
@@ -40,7 +41,7 @@ export default function CommunityView({ nodeByFile, onOpenFile }) {
       </div>
 
       {error && <LoadError error={error} what={LOAD_WHAT.questions} onRetry={reload} />}
-      {!questions && !error && <p style={{ color: 'var(--fg-subtle)' }}>Loading…</p>}
+      {!questions && !error && <Loading />}
 
       {questions && shown.length === 0 && (
         <p className="discussion-empty">

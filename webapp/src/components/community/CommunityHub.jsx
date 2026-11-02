@@ -1,7 +1,7 @@
 import { Suspense, useEffect, useRef } from 'react';
 import { COMMUNITY } from '../../config/community.js';
 import { Tabs, TabPanel } from '../ui/Tabs.jsx';
-import { Skeleton } from '../ui/Skeleton.jsx';
+import Loading from '../common/Loading.jsx';
 
 // The community in one place: questions on the modules, posts, resources (books) and ideas, as four tabs. Each tab is a screen of its
 // own with an address of its own (config/community.js), and this is the frame they share; it stays on the page while the tab changes,
@@ -33,7 +33,7 @@ export default function CommunityHub({ active, onOpen, activity = {}, children }
       <p className="home-sub">{COMMUNITY.intro}</p>
       <Tabs label={COMMUNITY.title} value={active} onChange={onOpen} tabs={tabs} idPrefix="community" />
       <TabPanel id={active} value={active} idPrefix="community">
-        <Suspense fallback={<div role="status" aria-label="Loading"><Skeleton lines={4} /></div>}>{children}</Suspense>
+        <Suspense fallback={<Loading />}>{children}</Suspense>
       </TabPanel>
     </div>
   );
