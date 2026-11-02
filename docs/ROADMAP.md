@@ -52,6 +52,13 @@ Scoping notes for anyone picking this up later:
   fractional-indexing scheme — fine at personal scale, would need
   revisiting if this ever became multi-user/collaborative.
 
+## Planned: a design system, community blogs and a writing studio
+
+Readers get to write: a calm block editor, drafts and scheduled publishing, author pages, and likes, bookmarks and
+comments on articles, on top of a consistent design system and navigation. It is planned in phases, each shippable on
+its own, with the decisions, the data model and what "done" means written out in [MODERNIZATION.md](MODERNIZATION.md).
+Phase 1 (the audit and the plan) is done.
+
 ## Planned: opening up beyond curriculum-content contributions
 
 `CONTRIBUTING.md` already documents how to contribute curriculum content
