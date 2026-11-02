@@ -85,6 +85,11 @@
     "account": "stroadmapprogress",
     "containers": { "feed": "feed-uploads", "images": "images", "backups": "backups" }
   },
+  "budgets": {
+    "initialJsKb": 125,
+    "initialCssKb": 26,
+    "screensKb": { "StudioView": 240, "WorkspaceView": 210, "AdminDashboard": 16, "BlogsView": 12, "PostView": 14 }
+  },
   "screenshots": {
     "dir": "screenshots",
     "defaultBase": "http://localhost:4180",

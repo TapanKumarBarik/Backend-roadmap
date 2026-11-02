@@ -27,6 +27,7 @@
     "check:images": "node scripts/check/check-images.mjs",
     "check:videos": "node scripts/check/check-videos.mjs",
     "check:overviews": "node scripts/check/check-overviews.mjs",
+    "check:bundle": "node scripts/check/check-bundle-size.mjs",
     "videos:sync": "node scripts/maintain/sync-videos.mjs",
     "videos:links": "node scripts/maintain/video-links.mjs",
     "check:diagrams": "node scripts/check/mermaid.mjs",

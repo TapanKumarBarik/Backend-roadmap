@@ -121,6 +121,7 @@ npm run typecheck  # type checks the API, the scripts and the app's non-componen
 npm test           # unit tests
 npm run check      # every isAdmin() awaited; every API file parses; paths.json and images are valid
 npm run build      # the full site build, as deployed
+npm run check:bundle  # what a visitor downloads stays within the budgets in site.config.json (after the build)
 ```
 
 CI also drives the built site in a real browser (`tests/e2e/`). To run those yourself, serve the build and point the tests at it:

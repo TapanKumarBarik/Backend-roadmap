@@ -432,7 +432,7 @@ npm run build                # builds the complete site into dist/
 npm run api                  # the API on http://localhost:8788
 ```
 
-Before opening a PR, run `npm run lint`, `npm run typecheck`, `npm test`, `npm run check` and `npm run build`; CI runs the same.
+Before opening a PR, run `npm run lint`, `npm run typecheck`, `npm test`, `npm run check` and `npm run build` (then `npm run check:bundle`, which holds the download size to the budgets in `site.config.json`); CI runs the same.
 
 ## How it's built
 

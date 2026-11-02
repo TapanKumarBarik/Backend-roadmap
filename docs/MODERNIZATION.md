@@ -104,7 +104,8 @@ The Workspace moves onto the studio's editor core; the 780-line override layer i
 
 ### Phase 6: polish
 
-A motion pass; a responsive sweep from 360 to 1920 px; an accessibility audit; performance budgets for the main bundle and the studio chunk.
+- **Performance budgets. Done (committed locally, not pushed).** `npm run check:bundle` measures the built site in gzip and fails when the first page (JavaScript and CSS) or what opening the writing studio, the workspace, the admin dashboard, Explore Blogs or an article adds goes over the `budgets` in `site.config.json`; CI runs it after the build. Today the first page is 114 KB of JavaScript and 22 KB of CSS, and the studio adds 214 KB, of which 184 KB is the editor core the workspace shares.
+- **Still to do:** a motion pass; a responsive sweep from 360 to 1920 px; an accessibility audit.
 
 ## Risks
 
