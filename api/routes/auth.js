@@ -7,7 +7,7 @@ import { createRouter } from '../lib/router.js';
 import { run } from '../lib/d1.js';
 import { SESSION_COOKIE, parseCookies, sign, verify, cookieAttrs } from '../lib/session.js';
 import { isAdmin } from '../lib/admin.js';
-import { randomHex } from '../lib/util.js';
+import { randomHex, safeRedirect } from '../lib/util.js';
 
 const GOOGLE_AUTH_URL = 'https://accounts.google.com/o/oauth2/v2/auth';
 const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
@@ -62,7 +62,7 @@ async function recordUser(env, claims) {
 auth.get('/auth/login', (c) => {
   const origin = siteOrigin(c);
   const state = randomHex(16);
-  const redirect = c.req.query('redirect') || '/';
+  const redirect = safeRedirect(c.req.query('redirect'));
   const params = new URLSearchParams({
     client_id: clientId(c.env),
     redirect_uri: `${origin}/api/auth/callback`,
@@ -128,7 +128,7 @@ auth.get('/auth/callback', async (c) => {
   }, c.env.SESSION_SECRET);
 
   c.header('Set-Cookie', cookieAttrs(SESSION_COOKIE, session, SESSION_MAX_AGE));
-  return c.redirect(stateData.redirect || '/', 302);
+  return c.redirect(safeRedirect(stateData.redirect), 302);
 });
 
 auth.get('/auth/me', async (c) => {
@@ -147,7 +147,7 @@ auth.get('/auth/me', async (c) => {
 });
 
 auth.get('/auth/logout', (c) => {
-  const redirect = c.req.query('redirect') || '/';
+  const redirect = safeRedirect(c.req.query('redirect'));
   c.header('Set-Cookie', cookieAttrs(SESSION_COOKIE, '', 0));
   return c.redirect(redirect, 302);
 });

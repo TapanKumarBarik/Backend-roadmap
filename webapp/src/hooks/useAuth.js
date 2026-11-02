@@ -17,13 +17,14 @@ export function useAuth() {
   // Deliberately raw navigations, not fetch() — both endpoints are 302
   // redirects into Google's OAuth flow; a fetch() would follow the redirect
   // internally and never actually navigate the browser.
+  // The address includes the fragment: the app's screens live there, and signing in from the feed should come back to the feed.
   const login = useCallback(() => {
-    const redirect = encodeURIComponent(location.pathname + location.search);
+    const redirect = encodeURIComponent(location.pathname + location.search + location.hash);
     location.href = `/api/auth/login?redirect=${redirect}`;
   }, []);
 
   const logout = useCallback(() => {
-    const redirect = encodeURIComponent(location.pathname + location.search);
+    const redirect = encodeURIComponent(location.pathname + location.search + location.hash);
     location.href = `/api/auth/logout?redirect=${redirect}`;
   }, []);
 
