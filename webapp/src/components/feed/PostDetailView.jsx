@@ -58,7 +58,7 @@ export default function PostDetailView({ postId, user, onLogin, onBack, onToast 
 
   return (
     <div id="empty">
-      <button className="back-link" onClick={onBack}>← Back to Feed</button>
+      <button className="back-link" onClick={onBack}>← Back to Posts</button>
 
       <ErrorText>{error}</ErrorText>
       {loadError && <LoadError error={loadError} what={LOAD_WHAT.feed} onRetry={reload} />}

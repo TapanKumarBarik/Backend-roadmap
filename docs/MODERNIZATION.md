@@ -93,7 +93,9 @@ Each phase ends with the browser and unit tests green, screenshots reviewed in l
 
 ### Phase 4: community and profiles
 
-Handles and a profile page with editing; Community hub with tabs; replies and mentions on posts with a basic notification list; comment fixes (ordering, deep links from Questions, deleting a parent); own-post edit and delete in Posts, Resources and Ideas; Saved includes bookmarked blogs; the counts endpoint and pagination for the feed; account deletion covers every table.
+- **Done earlier (3b, 3c):** handles and an author page with editing, Saved includes bookmarked articles, account deletion covers every table.
+- **4a Community hub. Done (committed locally, not pushed).** One "Community" place in the rail instead of four (Feed, Community, Books, Suggestions). Its tabs are **Questions**, **Posts** (the feed), **Resources** (books) and **Ideas** (suggestions), each at the address it always had (`#__community`, `#__feed`, `#__books`, `#__suggestions`), so every old link opens the right tab; a post's own page (`#__feed@<id>`) is not a tab and goes back to Posts. The tab strip stays on the page while the tab changes (so the keyboard keeps its place and only the panel waits for a screen that is still loading), a tab with something new since the last visit says so, and so does the rail. "Unanswered" became a filter of Questions. The command palette finds each tab, also by its old name ("feed", "books"). The tabs are one table in `webapp/src/config/community.js`.
+- **Still to do:** replies and mentions with a basic notification list; comment fixes (ordering, deep links from Questions, deleting a parent); own-post edit and delete in Posts, Resources and Ideas; the counts endpoint and pagination for the feed.
 
 ### Phase 5: learning modules and workspace
 

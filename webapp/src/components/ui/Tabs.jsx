@@ -3,7 +3,7 @@ import { cx } from '../../lib/cx.js';
 import { Badge } from './Chip.jsx';
 
 // Tabs the way a keyboard and a screen reader expect: one tab is in the tab order, the arrow keys, Home and End move
-// between tabs (and select them), and each tab names the panel it controls. `tabs` is [{ id, label, badge? }].
+// between tabs (and select them), and each tab names the panel it controls. `tabs` is [{ id, label, badge?, badgeTone? }].
 // Render the panel with <TabPanel> (same idPrefix).
 export function Tabs({ label, value, onChange, tabs, idPrefix = 'tabs', className }) {
   const refs = useRef({});
@@ -39,7 +39,7 @@ export function Tabs({ label, value, onChange, tabs, idPrefix = 'tabs', classNam
           onClick={() => onChange(tab.id)}
         >
           {tab.label}
-          {tab.badge != null && <Badge>{tab.badge}</Badge>}
+          {tab.badge != null && <Badge tone={tab.badgeTone}>{tab.badge}</Badge>}
         </button>
       ))}
     </div>

@@ -5,8 +5,7 @@ import { readOrInitTimestamp, writeStored } from '../lib/storage.js';
 
 // Same "first visit starts caught up" reasoning as useCommentActivity —
 // nothing kills a new feature's credibility like "47 new" the first time
-// anyone opens the app. One baseline per destination, since Feed and
-// Community are now separate places with separate badges.
+// anyone opens the app. One baseline per tab of the community (Posts, Questions), each with its own dot.
 const getOrInitBaseline = readOrInitTimestamp;
 
 // Shared shape: "did anything new land in this public list since you last
@@ -39,12 +38,12 @@ function useActivity(lsKey, fetcher) {
   return { count, badgeVisible: count > 0 && !seen, markSeen };
 }
 
-// Feed's own destination badge — new posts since last visit.
+// The Posts tab's dot — new posts since last visit.
 export function useFeedActivity() {
   return useActivity(STORAGE.feedLastSeen, fetchFeed);
 }
 
-// Community's own destination badge — new questions since last visit.
+// The Questions tab's dot — new questions since last visit.
 export function useQuestionsActivity() {
   return useActivity(STORAGE.questionsLastSeen, fetchQuestions);
 }

@@ -58,12 +58,10 @@ function fileToBase64(file) {
   });
 }
 
-// `embedded` renders just the composer and the posts, without the page
-// heading — kept for any future spot that wants the composer inline
-// without the full standalone-page chrome. `onOpenPost` opens a post's
-// own detail page (PostDetailView) with its comment thread, the way
-// clicking a Facebook post opens its own page.
-export default function FeedView({ user, onLogin, onToast, onOpenPost, embedded }) {
+// The Posts tab of the community (CommunityHub draws the page heading and the tabs): the composer and the posts.
+// `onOpenPost` opens a post's own detail page (PostDetailView) with its comment thread, the way clicking a Facebook post
+// opens its own page.
+export default function FeedView({ user, onLogin, onToast, onOpenPost }) {
   const { data: posts, setData: setPosts, error: loadError, reload } = useLoader(fetchFeed);
   const [error, setError] = useState(null); // a post or delete that failed; the feed itself failing to load is loadError
   const [text, setText] = useState('');
@@ -164,15 +162,10 @@ export default function FeedView({ user, onLogin, onToast, onOpenPost, embedded 
   const canPost = posting || (!text.trim() && !pendingFile && !(linkMode && linkUrl.trim()));
 
   return (
-    <div id={embedded ? undefined : 'empty'}>
-      {!embedded && (
-        <>
-          <h2>Feed</h2>
-          <p style={{ color: 'var(--fg-subtle)', fontSize: 13.5 }}>
-            Public — anyone can read this. Sign in with Google to post text, a file, or a link.
-          </p>
-        </>
-      )}
+    <div>
+      <p style={{ color: 'var(--fg-subtle)', fontSize: 13.5 }}>
+        Public — anyone can read this. Sign in with Google to post text, a file, or a link.
+      </p>
 
       {user
         ? (

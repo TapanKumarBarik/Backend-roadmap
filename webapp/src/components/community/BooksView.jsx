@@ -93,8 +93,7 @@ export default function BooksView({ user, onLogin, onToast }) {
   const canAdd = posting || !title.trim() || (!linkUrl.trim() && !pendingFile);
 
   return (
-    <div id="empty">
-      <h2>Books</h2>
+    <div>
       <p style={{ color: 'var(--fg-subtle)', fontSize: 13.5 }}>
         A shared shelf — anyone can browse; sign in with Google to add a book.
       </p>

@@ -141,7 +141,7 @@ test('the rail names every place and groups them; keyboard focus is visible', as
   const { context, page } = await openPage(browser, '/#__feed', { width: 1440, height: 900 });
   await page.goto(`${BASE}/#__feed`, { waitUntil: 'networkidle' });
   const labels = await page.locator('#destRail .dest-label').allTextContents();
-  assert.ok(labels.length >= 6 && labels.every((l) => l.trim().length > 0), `every rail item has a visible name: ${labels.join(', ')}`);
+  assert.ok(labels.length >= 5 && labels.every((l) => l.trim().length > 0), `every rail item has a visible name: ${labels.join(', ')}`);
   assert.ok(await page.locator('#destRail .dest-group').count() >= 2, 'in groups');
   const cut = await page.locator('#destRail .dest-label').evaluateAll((els) => els.filter((el) => el.scrollWidth > el.clientWidth).map((el) => el.textContent));
   assert.deepEqual(cut, [], 'no name is cut short');
@@ -166,9 +166,9 @@ test('on a phone the bottom bar holds five places, and the rest are behind More'
   await more.click();
   const sheet = page.getByRole('dialog', { name: 'More places' });
   await sheet.waitFor();
-  await sheet.getByRole('button', { name: 'Books' }).click();
+  await sheet.getByRole('button', { name: 'Community' }).click();
   await sheet.waitFor({ state: 'detached' });
-  assert.equal(new URL(page.url()).hash, '#__books');
+  assert.equal(new URL(page.url()).hash, '#__community');
   await context.close();
 });
 

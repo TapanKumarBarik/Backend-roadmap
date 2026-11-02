@@ -2,22 +2,15 @@ import { useMemo, useState } from 'react';
 import { fetchQuestions } from '../../lib/api.js';
 import { useLoader } from '../../hooks/useLoader.js';
 import LoadError from '../common/LoadError.jsx';
+import { ChoiceChip } from '../ui/Chip.jsx';
 import { LOAD_WHAT } from '../../config/messages.js';
 
-// Community, restructured around the thing this site is for.
+// The Questions tab of the community (CommunityHub draws the page heading and the tabs), built around the thing this site is for.
 //
-// The standalone feed treated discussion as a generic social stream. But
-// what people actually leave here is a question about a specific module,
-// and per-module comments already existed and were the stronger primitive
-// — they attach to the thing they're about. So questions lead, and
-// "Unanswered" gets its own tab, because for the person maintaining the
-// curriculum that is the only view that asks anything of them.
-//
-// The free-form feed used to be a third tab here. It's now its own
-// destination (DestinationRail's Feed) — a general-purpose feed and a
-// per-module Q&A are different enough things that burying one inside the
-// other's tabs was the wrong shape once the feed grew its own detail
-// pages and comments.
+// A general-purpose feed treats discussion as a social stream. But what people actually leave here is a question about a
+// specific module, and per-module comments were the stronger primitive — they attach to the thing they're about. So questions
+// lead, and "Unanswered" is a filter of its own, because for the person maintaining the curriculum that is the only view that
+// asks anything of them. The free-form posts are the next tab, with their own detail pages and comments.
 export default function CommunityView({ nodeByFile, onOpenFile }) {
   const [tab, setTab] = useState('questions');
   const { data: questions, error, reload } = useLoader(fetchQuestions);
@@ -31,19 +24,18 @@ export default function CommunityView({ nodeByFile, onOpenFile }) {
   };
 
   return (
-    <div id="empty">
-      <h2>Community</h2>
-      <p className="home-sub">
+    <div>
+      <p style={{ color: 'var(--fg-subtle)', fontSize: 13.5 }}>
         Questions asked on the modules themselves. Public — anyone can read it.
       </p>
 
-      <div className="wf-tabs page-tabs">
-        <button className={tab === 'questions' ? 'on' : ''} onClick={() => setTab('questions')}>
-          Questions{questions ? ` ${questions.length}` : ''}
-        </button>
-        <button className={tab === 'unanswered' ? 'on' : ''} onClick={() => setTab('unanswered')}>
+      <div className="community-filter" role="group" aria-label="Which questions">
+        <ChoiceChip selected={tab === 'questions'} onClick={() => setTab('questions')}>
+          All{questions ? ` ${questions.length}` : ''}
+        </ChoiceChip>
+        <ChoiceChip selected={tab === 'unanswered'} onClick={() => setTab('unanswered')}>
           Unanswered{questions ? ` ${unanswered.length}` : ''}
-        </button>
+        </ChoiceChip>
       </div>
 
       {error && <LoadError error={error} what={LOAD_WHAT.questions} onRetry={reload} />}

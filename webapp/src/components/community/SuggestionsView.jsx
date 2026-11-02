@@ -69,8 +69,7 @@ export default function SuggestionsView({ user, onLogin, onToast }) {
   }
 
   return (
-    <div id="empty">
-      <h2>Suggestions</h2>
+    <div>
       <p style={{ color: 'var(--fg-subtle)', fontSize: 13.5 }}>
         Public — sorted by votes. Sign in with Google to post or vote.
       </p>

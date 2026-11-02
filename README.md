@@ -134,7 +134,8 @@ The curriculum is read through a purpose-built web app (React + Vite) at **[back
 - **Progress that follows you** — mark modules done or in-progress, resume where you left off, keep a streak. Works signed-out (stored locally); syncs across devices when you sign in with Google. Export/import as JSON
 - **Bookmarks and private notes** on any module
 - **Discussion on every module** — comments, replies, upvotes, @mentions, "mark as answer", emoji reactions
-- **Community** — a feed (posts, files, links), a shared books/resources shelf, and a suggestions board with voting
+- **Community** — one place with four tabs: the questions asked on the modules, a feed of posts (text, files, links), a shared shelf of books and resources, and a board of ideas with voting
+- **Articles** — anyone signed in can write and publish in a block-based writing studio (a "/" menu, markdown shortcuts, highlighted code, diagrams, tables, pictures, video, a live preview, autosave that says what it has saved, an optional AI assistant that only suggests), and everyone can read them in **Explore Blogs**, with author pages, likes, saved articles and comments
 - **A private workspace** — a Notion-style page tree with a block editor, to-dos and tables
 - **Real URLs for every module** — `backendroadmap.com/backend/04-databases-and-data-layer/…`, so you can link to and index individual modules
 - **Dark mode, mobile layout, and offline reading** of anything you've opened

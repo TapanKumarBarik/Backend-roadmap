@@ -18,6 +18,7 @@ import { useSiteStats } from './hooks/useSiteStats.js';
 import { useVideos } from './hooks/useVideos.js';
 import { STORAGE, SITE } from './config/index.js';
 import { LEARNING_PATHS, PATH_COPY } from './config/paths.js';
+import { COMMUNITY, COMMUNITY_HOME, communityTab, tabRoute } from './config/community.js';
 import { readStored, writeStored } from './lib/storage.js';
 import { useLanding } from './hooks/useLanding.js';
 import { useCommentActivity } from './hooks/useCommentActivity.js';
@@ -34,6 +35,7 @@ import { resolvePaths, pathProgress, pathNeighbours, pickPathNext, placeOnPath }
 import TopBar from './components/layout/TopBar.jsx';
 import Sidebar from './components/layout/Sidebar.jsx';
 import DestinationRail from './components/layout/DestinationRail.jsx';
+import CommunityHub from './components/community/CommunityHub.jsx';
 import { CaretIcon } from './components/common/icons.jsx';
 import MainColumn from './components/layout/MainColumn.jsx';
 import RightRail from './components/layout/RightRail.jsx';
@@ -93,14 +95,10 @@ const BOOKMARKS_ROUTE = '__bookmarks';
 const NOTES_ROUTE = '__notes';
 const SAVED_ROUTE = '__saved';
 const EXPLORE_ROUTE = '__explore';
-// Feed and Community used to be one destination (Feed was a tab inside
-// Community); split so the feed is its own place. FEED_ROUTE doubles the
-// hash's heading slot as a post id — '#__feed' is the list, '#__feed@id'
-// is that post's own detail page with its comment thread.
-const FEED_ROUTE = '__feed';
-const COMMUNITY_ROUTE = '__community';
-const BOOKS_ROUTE = '__books';
-const SUGGESTIONS_ROUTE = '__suggestions';
+// The community is one destination with four tabs, and each tab keeps the address it always had (config/community.js).
+// The Posts tab's address doubles the hash's heading slot as a post id — '#__feed' is the list, '#__feed@id' is that
+// post's own page, with its comment thread, which is not a tab.
+const FEED_ROUTE = tabRoute('posts');
 const WORKSPACE_ROUTE = '__workspace';
 const VIDEOS_ROUTE = '__videos';
 // The living style guide: every token and shared component, drawn. Not in the rail; open /#__design.
@@ -168,10 +166,10 @@ export default function App() {
   const isAdminRoute = path === ADMIN_ROUTE;
   const isSavedRoute = path === SAVED_ROUTE || path === BOOKMARKS_ROUTE || path === NOTES_ROUTE;
   const isExploreRoute = path === EXPLORE_ROUTE;
-  const isCommunityRoute = path === COMMUNITY_ROUTE;
-  const isFeedRoute = path === FEED_ROUTE;
-  const isBooksRoute = path === BOOKS_ROUTE;
-  const isSuggestionsRoute = path === SUGGESTIONS_ROUTE;
+  // The community's tabs, and a post's own page (the Posts address with a post id), which is not one of them.
+  const isPostRoute = path === FEED_ROUTE && !!heading;
+  const hubTab = isPostRoute ? null : communityTab(path);
+  const isCommunityRoute = !!hubTab || isPostRoute;
   const isWorkspaceRoute = path === WORKSPACE_ROUTE;
   const isVideosRoute = path === VIDEOS_ROUTE;
   const isDesignRoute = path === DESIGN_ROUTE;
@@ -180,7 +178,7 @@ export default function App() {
   const isAuthorRoute = path === AUTHOR_ROUTE;
   const isWriteRoute = path === WRITE_ROUTE;
   const isPageRoute = isBlogRoute || isAuthorRoute || isWriteRoute;
-  const isSpecialRoute = isAdminRoute || isSavedRoute || isExploreRoute || isCommunityRoute || isFeedRoute || isBooksRoute || isSuggestionsRoute || isWorkspaceRoute || isVideosRoute || isDesignRoute || isPageRoute;
+  const isSpecialRoute = isAdminRoute || isSavedRoute || isExploreRoute || isCommunityRoute || isWorkspaceRoute || isVideosRoute || isDesignRoute || isPageRoute;
   const currentFile = !isSpecialRoute && path && fileSet.has(path) ? path : null;
 
   useEffect(() => {
@@ -386,19 +384,9 @@ export default function App() {
   const openAdmin = useCallback(() => navigate(ADMIN_ROUTE), [navigate]);
   const openSaved = useCallback(() => navigate(SAVED_ROUTE), [navigate]);
   const openExplore = useCallback(() => navigate(EXPLORE_ROUTE), [navigate]);
-  const markQuestionsSeen = questionsActivity.markSeen;
-  const markFeedSeen = feedActivity.markSeen;
-  const openCommunity = useCallback(() => {
-    markQuestionsSeen();
-    navigate(COMMUNITY_ROUTE);
-  }, [navigate, markQuestionsSeen]);
-  const openFeed = useCallback(() => {
-    markFeedSeen();
-    navigate(FEED_ROUTE);
-  }, [navigate, markFeedSeen]);
+  const openCommunity = useCallback(() => navigate(COMMUNITY_HOME), [navigate]);
+  const openCommunityTab = useCallback((id) => navigate(tabRoute(id)), [navigate]);
   const openFeedPost = useCallback((postId) => navigate(FEED_ROUTE, postId), [navigate]);
-  const openBooks = useCallback(() => navigate(BOOKS_ROUTE), [navigate]);
-  const openSuggestions = useCallback(() => navigate(SUGGESTIONS_ROUTE), [navigate]);
   const openWorkspace = useCallback(() => navigate(WORKSPACE_ROUTE), [navigate]);
   const openVideos = useCallback(() => navigate(VIDEOS_ROUTE), [navigate]);
   const openBlogs = useCallback(() => navigate(BLOG_ROUTE), [navigate]);
@@ -431,10 +419,7 @@ export default function App() {
       { label: 'Explore by tag', keywords: 'tags browse subject', run: () => navigate(EXPLORE_ROUTE) },
       ...(videoData ? [{ label: 'Watch the videos', keywords: 'videos youtube lectures watch course channel', run: () => navigate(VIDEOS_ROUTE) }] : []),
       { label: 'Blogs', keywords: 'articles posts community writing read', run: () => navigate(BLOG_ROUTE) },
-      { label: 'Feed', keywords: 'posts feed share', run: () => navigate(FEED_ROUTE) },
-      { label: 'Community', keywords: 'discussion questions', run: () => navigate(COMMUNITY_ROUTE) },
-      { label: 'Books', keywords: 'books pdf library shelf resources', run: () => navigate(BOOKS_ROUTE) },
-      { label: 'Suggestions', keywords: 'feedback ideas vote feature request', run: () => navigate(SUGGESTIONS_ROUTE) },
+      ...COMMUNITY.tabs.map((tab) => ({ label: `${COMMUNITY.title} — ${tab.label.toLowerCase()}`, keywords: tab.words, run: () => navigate(tab.route) })),
       { label: 'Your curriculum', keywords: 'home progress paths', run: goHome }
     ];
     if (currentFile) {
@@ -494,23 +479,19 @@ export default function App() {
       />
       <div id="shell">
         <DestinationRail
-          activeDest={isSavedRoute ? SAVED_ROUTE : isFeedRoute ? FEED_ROUTE : isCommunityRoute ? COMMUNITY_ROUTE : isPageRoute ? BLOG_ROUTE : (isSpecialRoute ? path : null)}
+          activeDest={isSavedRoute ? SAVED_ROUTE : isCommunityRoute ? COMMUNITY_HOME : isPageRoute ? BLOG_ROUTE : (isSpecialRoute ? path : null)}
           user={user}
           isAdmin={!!user?.isAdmin}
           onOpenCurriculum={handleGoHome}
           onOpenExplore={openExplore}
           onOpenSaved={openSaved}
           onOpenBlogs={openBlogs}
-          onOpenFeed={openFeed}
           onOpenCommunity={openCommunity}
-          onOpenBooks={openBooks}
-          onOpenSuggestions={openSuggestions}
           onOpenWorkspace={openWorkspace}
           onOpenVideos={openVideos}
           hasVideos={!!videoData}
           onOpenAdmin={openAdmin}
-          feedBadge={feedActivity.badgeVisible}
-          communityBadge={questionsActivity.badgeVisible}
+          communityBadge={questionsActivity.badgeVisible || feedActivity.badgeVisible}
         />
         {/* The tree is context for the curriculum, so it renders only
             there. On a destination — feed, saved, notes, admin — it was
@@ -553,7 +534,7 @@ export default function App() {
         {isSpecialRoute
           ? (
             <div id="mainCol">
-              <main id="main" className="scroll screen-enter" tabIndex={-1} key={`${path}@${heading || ''}`}>
+              <main id="main" className="scroll screen-enter" tabIndex={-1} key={hubTab ? 'community' : `${path}@${heading || ''}`}>
                 <ScreenBoundary>
                 <Suspense fallback={<ScreenLoading />}>
                 {authLoading ? <ScreenLoading /> : (<>
@@ -574,31 +555,24 @@ export default function App() {
                   />
                 )}
                 {isExploreRoute && <ExploreView allTags={tags} onOpenPalette={openPalette} />}
-                {isCommunityRoute && (
-                  <CommunityView
-                    nodeByFile={nodeByFile}
-                    onOpenFile={openFile}
-                  />
+                {hubTab && (
+                  <CommunityHub active={hubTab.id} onOpen={openCommunityTab} activity={{ questions: questionsActivity, posts: feedActivity }}>
+                    {{
+                      questions: <CommunityView nodeByFile={nodeByFile} onOpenFile={openFile} />,
+                      posts: <FeedView user={user} onLogin={login} onToast={toast.show} onOpenPost={openFeedPost} />,
+                      resources: <BooksView user={user} onLogin={login} onToast={toast.show} />,
+                      ideas: <SuggestionsView user={user} onLogin={login} onToast={toast.show} />
+                    }[hubTab.id]}
+                  </CommunityHub>
                 )}
-                {isFeedRoute && (
-                  heading
-                    ? (
-                      <PostDetailView
-                        postId={heading}
-                        user={user}
-                        onLogin={login}
-                        onBack={openFeed}
-                        onToast={toast.show}
-                      />
-                    )
-                    : (
-                      <FeedView
-                        user={user}
-                        onLogin={login}
-                        onToast={toast.show}
-                        onOpenPost={openFeedPost}
-                      />
-                    )
+                {isPostRoute && (
+                  <PostDetailView
+                    postId={heading}
+                    user={user}
+                    onLogin={login}
+                    onBack={() => openCommunityTab('posts')}
+                    onToast={toast.show}
+                  />
                 )}
                 {isBlogRoute && (
                   heading
@@ -623,8 +597,6 @@ export default function App() {
                     onOpenList={openBlogs}
                   />
                 )}
-                {isBooksRoute && <BooksView user={user} onLogin={login} onToast={toast.show} />}
-                {isSuggestionsRoute && <SuggestionsView user={user} onLogin={login} onToast={toast.show} />}
                 {isWorkspaceRoute && <WorkspaceView user={user} onLogin={login} />}
                 {isVideosRoute && <VideosView videoData={videoData} nodeByFile={nodeByFile} onOpenFile={openFile} />}
                 {isDesignRoute && <DesignView />}

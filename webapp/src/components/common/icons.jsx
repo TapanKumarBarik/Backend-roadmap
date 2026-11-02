@@ -88,6 +88,18 @@ export function QuestionIcon(props) {
   );
 }
 
+// Two people, for the Community destination: its tabs (questions, posts, books, ideas) are all things people give each other.
+export function CommunityIcon(props) {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <circle cx="5.6" cy="5.3" r="2.2" />
+      <path d="M1.6 13.2c.25-2.3 1.9-3.7 4-3.7s3.75 1.4 4 3.7" />
+      <circle cx="11.5" cy="6" r="1.8" />
+      <path d="M10.7 9.7c2 .05 3.4 1.2 3.7 3.3" />
+    </svg>
+  );
+}
+
 export function MailIcon(props) {
   return (
     <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" {...props}>
