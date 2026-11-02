@@ -5,6 +5,7 @@ import LoadError from '../common/LoadError.jsx';
 import ErrorText from '../common/ErrorText.jsx';
 import { friendlyMessage } from '../../lib/errors.js';
 import { LOAD_WHAT } from '../../config/messages.js';
+import { useConfirm } from '../ui/Dialog.jsx';
 
 function CommentRow({ comment, isReply, user, onLogin, onReply, onEdit, onDelete, onToggleAnswer, onVote, participants }) {
   const [editing, setEditing] = useState(false);
@@ -135,8 +136,10 @@ export default function CommentsSection({
     }
   }
 
+  const confirm = useConfirm();
+
   async function handleDelete(id) {
-    if (!window.confirm('Delete this comment?')) return;
+    if (!(await confirm({ title: 'Delete this comment?', body: 'This cannot be undone.', confirmLabel: 'Delete', tone: 'danger' }))) return;
     try {
       await deleteOwnComment(path, id);
       setComments((prev) => prev.filter((c) => c.id !== id));

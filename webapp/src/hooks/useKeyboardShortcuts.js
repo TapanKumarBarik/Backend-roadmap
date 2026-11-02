@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 
-// Ctrl/K=palette, Escape=close overlays, /=palette (not while typing),
+// Ctrl/K=palette, Escape=close overlays (menus and dialogs close themselves), /=palette (not while typing),
 // T=theme cycle, B=toggle sidebar (mobile drawer + desktop collapse — both
 // fire together; each only has a visual effect within its own breakpoint's
 // CSS, so this doesn't need to branch on viewport width), J/K=next/prev
@@ -9,7 +9,6 @@ import { useEffect } from 'react';
 export function useKeyboardShortcuts({
   onOpenPalette,
   onClosePalette,
-  onCloseMenu,
   onCycleTheme,
   onToggleNav,
   onToggleSidebarCollapse,
@@ -28,7 +27,6 @@ export function useKeyboardShortcuts({
       }
       if (e.key === 'Escape') {
         onClosePalette();
-        onCloseMenu();
         onToggleNav(false);
         return;
       }
@@ -46,5 +44,5 @@ export function useKeyboardShortcuts({
     }
     document.addEventListener('keydown', onKeyDown);
     return () => document.removeEventListener('keydown', onKeyDown);
-  }, [onOpenPalette, onClosePalette, onCloseMenu, onCycleTheme, onToggleNav, onToggleSidebarCollapse, onNavigateRelative, onToggleDone, onToggleWip]);
+  }, [onOpenPalette, onClosePalette, onCycleTheme, onToggleNav, onToggleSidebarCollapse, onNavigateRelative, onToggleDone, onToggleWip]);
 }

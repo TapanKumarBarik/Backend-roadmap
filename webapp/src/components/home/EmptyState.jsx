@@ -26,7 +26,7 @@ import SiteFooter from '../common/SiteFooter.jsx';
 // rather browse.
 export default function EmptyState({
   counts, treeData, statusMap, timeMap, nodeByFile, flatFiles,
-  bookmarks, onOpenFile, paths, activePath, onPickPath, choosing, onChoosing, onToast
+  bookmarks, onOpenFile, paths, activePath, onPickPath, choosing, onChoosing, onToast, user
 }) {
   const lastFile = readStored(STORAGE.lastFile);
   const positions = buildPositions(treeData);
@@ -61,7 +61,7 @@ export default function EmptyState({
       {mode === 'finished' && (
         <PathComplete path={activePath} nextPath={nextPath} onPick={pickPath} onChoose={() => onChoosing(true)} onToast={onToast} />
       )}
-      {mode === 'library' && <h2>Your curriculum</h2>}
+      {mode === 'library' && <h2>{user?.name ? `Welcome back, ${user.name.split(' ')[0]}` : 'Your curriculum'}</h2>}
 
       {continueNode && (
         <>

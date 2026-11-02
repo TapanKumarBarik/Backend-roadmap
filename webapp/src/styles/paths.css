@@ -8,6 +8,8 @@
 /* ---------- picker ---------- */
 #root .lpath-picker-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0 0 8px; }
 #root .lpath-picker-head h2 { margin: 0; font-size: 26px; letter-spacing: -.022em; }
+/* A picker that follows something (the next-up list, the continue card) is not pressed against it. */
+#root #empty > * + .lpath-picker { margin-top: 40px; }
 #root .lpath-lead { margin: 0 0 22px; max-width: 62ch; font-size: 14.5px; line-height: 1.6; color: var(--fg-muted); }
 #root .lpath-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(270px, 1fr)); gap: 12px; }
 #root .lpath-card {

@@ -2,13 +2,21 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App.jsx';
 import ErrorBoundary from './components/common/ErrorBoundary.jsx';
+import { ToastProvider } from './components/ui/Toast.jsx';
+import { ConfirmProvider } from './components/ui/Dialog.jsx';
+import './styles/tokens.css';
 import './styles/global.css';
+import './styles/ui.css';
 import './styles/motion.css';
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>
     <ErrorBoundary>
-      <App />
+      <ToastProvider>
+        <ConfirmProvider>
+          <App />
+        </ConfirmProvider>
+      </ToastProvider>
     </ErrorBoundary>
   </StrictMode>
 );

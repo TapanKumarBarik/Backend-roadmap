@@ -6,6 +6,7 @@ import LoadError from '../common/LoadError.jsx';
 import ErrorText from '../common/ErrorText.jsx';
 import { friendlyMessage } from '../../lib/errors.js';
 import { LOAD_WHAT } from '../../config/messages.js';
+import { useConfirm } from '../ui/Dialog.jsx';
 
 function initialsOf(name) {
   return (name || '?').trim()[0]?.toUpperCase() || '?';
@@ -76,8 +77,10 @@ export default function BooksView({ user, onLogin, onToast }) {
     }
   }
 
+  const confirm = useConfirm();
+
   async function handleDelete(id) {
-    if (!window.confirm('Remove this entry from the shelf?')) return;
+    if (!(await confirm({ title: 'Remove this entry from the shelf?', body: 'This cannot be undone.', confirmLabel: 'Remove', tone: 'danger' }))) return;
     try {
       await deleteBook(id);
       setBooks((prev) => prev.filter((b) => b.id !== id));

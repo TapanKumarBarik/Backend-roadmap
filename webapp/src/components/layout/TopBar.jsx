@@ -1,4 +1,4 @@
-import { useRef } from 'react';
+import { useRef, useState } from 'react';
 import {
   HamburgerIcon, SearchIcon, SunIcon, MoonIcon, AutoIcon, MenuDotsIcon,
   ExportIcon, ImportIcon, ResetIcon, ExpandIcon, CollapseIcon, KeysIcon, SignOutIcon, TrashIcon,
@@ -7,21 +7,26 @@ import {
 import SignInButton from '../account/SignInButton.jsx';
 import UserAvatar from '../account/UserAvatar.jsx';
 import BrandMark from '../common/BrandMark.jsx';
+import { IconButton } from '../ui/Button.jsx';
+import { Menu, MenuHeader, MenuItem, MenuLabel, MenuSeparator } from '../ui/Menu.jsx';
+import ShortcutsDialog from './ShortcutsDialog.jsx';
 import { BUILD_TIME } from '../../lib/buildInfo.js';
 import { CONTRIBUTE_URL } from '../../lib/curriculum/contribute.js';
 import { DEVELOPER, SITE, YOUTUBE } from '../../config/index.js';
 import { CONTACT } from '../../config/messages.js';
 
 const THEME_ICON = { auto: AutoIcon, light: SunIcon, dark: MoonIcon };
+const openOutside = (url) => window.open(url, '_blank', 'noopener,noreferrer');
 
 export default function TopBar({
-  counts, pathProgress, theme, onCycleTheme, user, onLogin, onLogout,
-  menuOpen, onToggleMenu, onCloseMenu, onOpenPalette, onGoHome,
+  counts, pathProgress, theme, onCycleTheme, user, authLoading, onLogin, onLogout,
+  onOpenPalette, onGoHome,
   onExport, onImportFile, onReset, onExpandAll, onCollapseAll, onMobileToggle,
   onDeleteAccount, onOpenMessage, onToast, streak,
   activity, onOpenFile, nodeByFile
 }) {
   const importInputRef = useRef(null);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const ThemeIcon = THEME_ICON[theme] || AutoIcon;
   // With a path picked the bar measures that path (it has a finish line); otherwise the whole library.
   const scope = pathProgress || counts;
@@ -30,31 +35,9 @@ export default function TopBar({
     ? `${scope.done} of ${scope.total} modules done on your path, ${pathProgress.title}`
     : `${scope.done} of ${scope.total} modules complete`;
 
-  function handleMenuAction(act) {
-    onCloseMenu();
-    if (act === 'export') onExport();
-    else if (act === 'import') importInputRef.current?.click();
-    else if (act === 'reset') onReset();
-    else if (act === 'expand') onExpandAll();
-    else if (act === 'collapse') onCollapseAll();
-    else if (act === 'keys') {
-      alert(
-        'Keyboard shortcuts\n\n' +
-        'Ctrl/⌘ K   Search modules\n' +
-        '/          Search modules\n' +
-        'J / K      Next / previous module\n' +
-        'D          Mark current module done\n' +
-        'W          Mark current module in progress\n' +
-        'T          Cycle theme (auto / light / dark)\n' +
-        'B          Toggle sidebar\n' +
-        'Esc        Close search\n'
-      );
-    } else if (act === 'deployed') {
-      onToast(BUILD_TIME
-        ? `Last deployed ${new Date(BUILD_TIME).toLocaleString()}`
-        : "Last deployed: unknown (dev build)");
-    }
-  }
+  const showDeployed = () => onToast(BUILD_TIME
+    ? `Last deployed ${new Date(BUILD_TIME).toLocaleString()}`
+    : 'Last deployed: unknown (dev build)');
 
   return (
     <header id="topbar">
@@ -100,71 +83,70 @@ export default function TopBar({
           </span>
         )}
       </button>
-      {user
-        ? (
-          <>
-            <button className="icon-btn" id="authBtn" onClick={(e) => { e.stopPropagation(); onToggleMenu(); }} title={`Signed in as ${user.email}`} aria-label={`Account menu — signed in as ${user.email}${activity?.badgeVisible ? `, ${activity.label}` : ''}`} aria-haspopup="true" aria-expanded={menuOpen}>
+
+      {/* Until the server has said who is signed in there is no button at all: showing "Sign in with Google" for a
+          moment to someone who is signed in looked like being signed out. */}
+      {authLoading && <span className="ui-avatar-skeleton" aria-hidden="true" />}
+      {!authLoading && !user && <SignInButton onClick={onLogin} />}
+      {!authLoading && user && (
+        <Menu
+          onOpenChange={(open) => { if (open) activity?.markSeen(); }}
+          trigger={(
+            <IconButton
+              id="authBtn"
+              label={`Account menu — signed in as ${user.email}${activity?.badgeVisible ? `, ${activity.label}` : ''}`}
+              title={`Signed in as ${user.email}`}
+            >
               <UserAvatar user={user} />
               {activity?.badgeVisible && <span className="activity-dot">{activity.count > 9 ? '9+' : activity.count}</span>}
-            </button>
-          </>
-        )
-        : <SignInButton onClick={onLogin} />}
-      <button className="icon-btn" id="themeBtn" title={`Theme: ${theme} (press T)`} aria-label={`Change theme (currently ${theme})`} onClick={onCycleTheme}>
-        <ThemeIcon />
-      </button>
-      <button className="icon-btn" id="menuBtn" title="More" aria-label="More options" aria-haspopup="true" aria-expanded={menuOpen} onClick={(e) => { e.stopPropagation(); onToggleMenu(); }}>
-        <MenuDotsIcon />
-      </button>
+            </IconButton>
+          )}
+        >
+          <MenuHeader>
+            <strong>{user.name || user.email}</strong>
+            {user.name && <span>{user.email}</span>}
+            {streak && streak.currentStreak > 1 && <span>🔥 {streak.currentStreak}-day streak</span>}
+          </MenuHeader>
+          {activity && activity.paths.length > 0 && (
+            <>
+              <MenuLabel>{activity.label || 'New activity'}</MenuLabel>
+              {activity.paths.map((p) => (
+                <MenuItem key={p} icon={<MailIcon />} onSelect={() => onOpenFile(p)}>
+                  {nodeByFile?.[p]?.title || nodeByFile?.[p]?.name || p}
+                </MenuItem>
+              ))}
+              <MenuSeparator />
+            </>
+          )}
+          {onOpenMessage && <MenuItem icon={<MailIcon />} onSelect={onOpenMessage}>{CONTACT.messageDeveloper(DEVELOPER.shortName)}</MenuItem>}
+          <MenuItem icon={<SignOutIcon />} onSelect={onLogout}>Sign out</MenuItem>
+          {onDeleteAccount && <MenuItem tone="danger" icon={<TrashIcon />} onSelect={onDeleteAccount}>Delete account &amp; data</MenuItem>}
+        </Menu>
+      )}
 
-      <div id="menu" className={menuOpen ? 'show' : ''} onClick={(e) => e.stopPropagation()}>
-        {user && (
-          <>
-            <div className="grp">
-              {user.email}
-              {streak && streak.currentStreak > 1 && ` · 🔥 ${streak.currentStreak}-day streak`}
-            </div>
-            {activity && activity.paths.length > 0 && (
-              <>
-                <div className="grp">{activity.label || 'New activity'}</div>
-                {activity.paths.map((p) => (
-                  <button key={p} onClick={() => { onCloseMenu(); onOpenFile(p); }}>
-                    <MailIcon />{(nodeByFile?.[p]?.title || nodeByFile?.[p]?.name || p)}
-                  </button>
-                ))}
-                <div className="div" />
-              </>
-            )}
-            {onOpenMessage && <button onClick={() => { onCloseMenu(); onOpenMessage(); }}><MailIcon />{CONTACT.messageDeveloper(DEVELOPER.shortName)}</button>}
-            <button onClick={() => { onCloseMenu(); onLogout(); }}><SignOutIcon />Sign out</button>
-            {onDeleteAccount && (
-              <button className="danger" onClick={() => { onCloseMenu(); onDeleteAccount(); }}>
-                <TrashIcon />Delete account &amp; data
-              </button>
-            )}
-            <div className="div" />
-          </>
-        )}
-        <div className="grp">Progress</div>
-        <button onClick={() => handleMenuAction('export')}><ExportIcon />Export progress (.json)</button>
-        <button onClick={() => handleMenuAction('import')}><ImportIcon />Import progress…</button>
-        <button onClick={() => handleMenuAction('reset')}><ResetIcon />Reset all progress</button>
-        <div className="div" />
-        <div className="grp">View</div>
-        <button onClick={() => handleMenuAction('expand')}><ExpandIcon />Expand all</button>
-        <button onClick={() => handleMenuAction('collapse')}><CollapseIcon />Collapse all</button>
-        <div className="div" />
-        <div className="grp">Open source</div>
-        <button onClick={() => { onCloseMenu(); window.open(CONTRIBUTE_URL, '_blank', 'noopener,noreferrer'); }}>
-          <GithubIcon />Contribute on GitHub
-        </button>
-        <button onClick={() => { onCloseMenu(); window.open(YOUTUBE.channel, '_blank', 'noopener,noreferrer'); }}>
-          <YoutubeIcon />Watch on YouTube
-        </button>
-        <div className="div" />
-        <button onClick={() => handleMenuAction('keys')}><KeysIcon />Keyboard shortcuts</button>
-        <button onClick={() => handleMenuAction('deployed')}><ClockIcon />Last deployed</button>
-      </div>
+      <IconButton id="themeBtn" label={`Theme: ${theme}. Change theme`} title={`Theme: ${theme} (press T)`} onClick={onCycleTheme}>
+        <ThemeIcon />
+      </IconButton>
+
+      <Menu trigger={<IconButton id="menuBtn" label="More options"><MenuDotsIcon /></IconButton>}>
+        <MenuLabel>Progress</MenuLabel>
+        <MenuItem icon={<ExportIcon />} onSelect={onExport}>Export progress (.json)</MenuItem>
+        <MenuItem icon={<ImportIcon />} onSelect={() => importInputRef.current?.click()}>Import progress…</MenuItem>
+        <MenuItem icon={<ResetIcon />} onSelect={onReset}>Reset all progress</MenuItem>
+        <MenuSeparator />
+        <MenuLabel>View</MenuLabel>
+        <MenuItem icon={<ExpandIcon />} onSelect={onExpandAll}>Expand all</MenuItem>
+        <MenuItem icon={<CollapseIcon />} onSelect={onCollapseAll}>Collapse all</MenuItem>
+        <MenuSeparator />
+        <MenuLabel>Open source</MenuLabel>
+        <MenuItem icon={<GithubIcon />} onSelect={() => openOutside(CONTRIBUTE_URL)}>Contribute on GitHub</MenuItem>
+        <MenuItem icon={<YoutubeIcon />} onSelect={() => openOutside(YOUTUBE.channel)}>Watch on YouTube</MenuItem>
+        <MenuSeparator />
+        <MenuItem icon={<KeysIcon />} onSelect={() => setShortcutsOpen(true)}>Keyboard shortcuts</MenuItem>
+        <MenuItem icon={<ClockIcon />} onSelect={showDeployed}>Last deployed</MenuItem>
+      </Menu>
+
+      <ShortcutsDialog open={shortcutsOpen} onClose={() => setShortcutsOpen(false)} />
 
       <input
         type="file" id="importFile" accept="application/json" style={{ display: 'none' }}

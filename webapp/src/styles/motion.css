@@ -3,13 +3,9 @@
 
    Animation here is for orientation (where something came from, that it has loaded) and for one signature moment,
    the landing page's route drawing itself, the same route as the logo. Nothing animates on a page being read, and
-   nothing that has to be read starts out hidden for longer than a moment. */
-:root {
-  --ease-out: cubic-bezier(.2, .7, .2, 1);
-  --dur-quick: 120ms;
-  --dur-base: 240ms;
-  --dur-slow: 600ms;
-}
+   nothing that has to be read starts out hidden for longer than a moment.
+
+   The timings themselves (--ease-out, --ease-in-out, --dur-quick, --dur-base, --dur-slow) are design tokens: tokens.css. */
 
 /* Less motion means none: no animation, no transitions, no smooth scrolling. Animations that start from a hidden
    state have their delay removed too, so what they reveal is on screen straight away. */

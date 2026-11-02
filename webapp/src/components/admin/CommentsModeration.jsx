@@ -5,14 +5,17 @@ import LoadError from '../common/LoadError.jsx';
 import ErrorText from '../common/ErrorText.jsx';
 import { friendlyMessage } from '../../lib/errors.js';
 import { LOAD_WHAT } from '../../config/messages.js';
+import { useConfirm } from '../ui/Dialog.jsx';
 
 export default function CommentsModeration({ onOpenFile }) {
   const { data: comments, setData: setComments, error: loadError, reload } = useLoader(fetchAllComments);
   // A delete that failed. It used to share the load error's state, so one failed delete replaced the whole list.
   const [error, setError] = useState(null);
 
+  const confirm = useConfirm();
+
   async function handleDelete(c) {
-    if (!window.confirm('Delete this comment? This cannot be undone.')) return;
+    if (!(await confirm({ title: 'Delete this comment?', body: 'This cannot be undone.', confirmLabel: 'Delete', tone: 'danger' }))) return;
     try {
       await deleteComment(c.path, c.id);
       setComments((prev) => prev.filter((x) => x.id !== c.id));

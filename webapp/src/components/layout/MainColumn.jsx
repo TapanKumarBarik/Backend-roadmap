@@ -3,6 +3,7 @@ import ArticleView from '../article/ArticleView.jsx';
 import EmptyState from '../home/EmptyState.jsx';
 import Landing from '../home/Landing.jsx';
 import LoadError from '../common/LoadError.jsx';
+import { Skeleton } from '../ui/Skeleton.jsx';
 import { LOAD_WHAT } from '../../config/messages.js';
 
 export default function MainColumn({
@@ -32,7 +33,7 @@ export default function MainColumn({
   return (
     <div id="mainCol">
       <div id="readProg" style={{ width: readProgress + '%' }} />
-      <div id="main" className="scroll" ref={mainRef} onScroll={handleScroll} tabIndex={-1}>
+      <main id="main" className="scroll" ref={mainRef} onScroll={handleScroll} tabIndex={-1}>
         {currentFile
           ? (
             <ArticleView
@@ -88,7 +89,7 @@ export default function MainColumn({
                 </div>
               )
               : indexLoading
-                ? <div id="empty"><p style={{ color: 'var(--fg-subtle)' }}>Loading…</p></div>
+                ? <div id="empty" role="status" aria-label="Loading"><Skeleton lines={5} /></div>
                 : (
                   <EmptyState
                     timeMap={timeMap}
@@ -96,6 +97,7 @@ export default function MainColumn({
                     treeData={treeData}
                     statusMap={statusMap}
                     nodeByFile={nodeByFile}
+                    user={user}
                     allTags={allTags}
                     flatFiles={flatFiles}
                     bookmarks={bookmarks}
@@ -109,7 +111,7 @@ export default function MainColumn({
                     onToast={onToast}
                   />
                 )}
-      </div>
+      </main>
     </div>
   );
 }

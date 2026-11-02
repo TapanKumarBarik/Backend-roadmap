@@ -8,6 +8,7 @@ import LoadError from '../common/LoadError.jsx';
 import ErrorText from '../common/ErrorText.jsx';
 import { friendlyMessage } from '../../lib/errors.js';
 import { LOAD_WHAT } from '../../config/messages.js';
+import { useConfirm } from '../ui/Dialog.jsx';
 
 function initialsOf(name) {
   return (name || '?').trim()[0]?.toUpperCase() || '?';
@@ -26,8 +27,10 @@ export default function PostDetailView({ postId, user, onLogin, onBack, onToast 
   const { data: posts, setData: setPosts, error: loadError, reload } = useLoader(fetchFeed);
   const [error, setError] = useState(null); // a delete that failed; the post failing to load is loadError
 
+  const confirm = useConfirm();
+
   async function handleDelete() {
-    if (!window.confirm('Delete this post?')) return;
+    if (!(await confirm({ title: 'Delete this post?', body: 'This cannot be undone.', confirmLabel: 'Delete', tone: 'danger' }))) return;
     try {
       await deleteFeedPost(postId);
       onToast?.('Post deleted');

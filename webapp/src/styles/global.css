@@ -1,101 +1,3 @@
-/* ---------- design tokens: "Blueprint" ---------- */
-/* Hairlines on drafting paper. Prose stays monochrome — hierarchy from
-   weight, size and value — but progress is a drawing metaphor rather than a
-   grey ramp: not started = hairline outline, doing = signal amber, done =
-   solid ink. One accent, spent entirely on state.
-
-   Two properties this block has to keep, because the whole system leans on
-   them: --bg-raised must never equal --bg (otherwise nothing can be lifted
-   off the page — that was the single biggest reason the UI read as
-   unfinished), and the three radii must stay visibly distinct so "control",
-   "card" and "modal" are different shapes rather than three names for 3px. */
-:root {
-  --bg: #fbfbf9;          /* paper */
-  --bg-sunken: #f3f3ef;   /* inputs, code, wells */
-  --bg-raised: #ffffff;   /* cards, menus, modals — distinct from --bg */
-  --fg: #16181c;          /* ink */
-  --fg-muted: #575c65;
-  --fg-subtle: #8a9099;
-  --border: #cdcdc5;
-  --border-subtle: #e4e4de;
-  --hover: #f1f1ec;
-  --active: #e7e7e0;
-  --accent: #16181c;
-  --accent-fg: #ffffff;
-  --accent-subtle: #edede6;
-  --done: #16181c;        /* solid ink */
-  --wip: #b25a08;         /* signal amber */
-  --signal: #b25a08;
-  --signal-bg: #fbf1e2;
-  --signal-line: #e5c398;
-  /* The logo's destination dot sits on the ink-filled mark, so it takes the
-     bright amber in light mode and the deep one on the light dark-mode mark. */
-  --mark-dot: #e9a053;
-  --danger: #a3301c;
-  /* The one deliberate exception to the monochrome palette: hyperlinks.
-     Blue + underline is the universal affordance — the UI chrome stays B&W. */
-  --link: #1256b8;
-  --link-visited: #6b3fa0;
-  --shadow-sm: 0 1px 2px rgba(20,22,26,.06);
-  --shadow-md: 0 2px 4px rgba(20,22,26,.05), 0 8px 20px rgba(20,22,26,.07);
-  --shadow-lg: 0 12px 32px rgba(20,22,26,.14);
-  /* controls / cards / modals — three shapes, not three names for one */
-  --r-sm: 5px; --r-md: 8px; --r-lg: 12px;
-  --sidebar-w: 340px;
-  --toc-w: 232px;
-  --topbar-h: 52px;
-  /* Chart marks. The "emphasis" form: one accent for the series that matters,
-     a deliberate neutral for context. Both steps validated against the card
-     surface (--bg-raised) in this theme — CVD dE 12.6, normal-vision 15.3,
-     contrast >= 3:1. Do not swap these for --signal/--border without
-     re-validating: those are chosen for text and hairlines, not for fills. */
-  --chart-accent: #b25a08;
-  --chart-muted: #8e8e84;
-  --chart-grid: #e4e4de;
-  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
-  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif;
-}
-html[data-theme="auto"] { color-scheme: light; }
-@media (prefers-color-scheme: dark) {
-  html[data-theme="auto"] {
-    color-scheme: dark;
-    --bg: #0e1116; --bg-sunken: #0a0d11; --bg-raised: #161a21;
-    --fg: #e7eaee; --fg-muted: #9aa2ae; --fg-subtle: #69717e;
-    --border: #39414e; --border-subtle: #252b35;
-    --hover: #1a1f27; --active: #232935;
-    --accent: #e7eaee; --accent-fg: #0e1116; --accent-subtle: #232935;
-    --done: #e7eaee; --wip: #e9a053;
-    --signal: #e9a053; --signal-bg: #2a1e11; --signal-line: #6a4a22;
-    --mark-dot: #b25a08;
-    /* Re-validated against the dark card surface, not flipped from light:
-       #e9a053 sits outside the dark lightness band, so the fill steps down. */
-    --chart-accent: #cd8133; --chart-muted: #6e7887; --chart-grid: #252b35;
-    --danger: #e08a76;
-    --link: #79acff; --link-visited: #c9a3f5;
-    --shadow-sm: 0 1px 2px rgba(0,0,0,.5);
-    --shadow-md: 0 2px 4px rgba(0,0,0,.4), 0 8px 20px rgba(0,0,0,.55);
-    --shadow-lg: 0 12px 32px rgba(0,0,0,.7);
-  }
-}
-html[data-theme="dark"] {
-  color-scheme: dark;
-  --bg: #0e1116; --bg-sunken: #0a0d11; --bg-raised: #161a21;
-  --fg: #e7eaee; --fg-muted: #9aa2ae; --fg-subtle: #69717e;
-  --border: #39414e; --border-subtle: #252b35;
-  --hover: #1a1f27; --active: #232935;
-  --accent: #e7eaee; --accent-fg: #0e1116; --accent-subtle: #232935;
-  --done: #e7eaee; --wip: #e9a053;
-  --signal: #e9a053; --signal-bg: #2a1e11; --signal-line: #6a4a22;
-  --mark-dot: #b25a08;
-  /* Same re-validated dark steps as the prefers-color-scheme block above;
-     an explicit dark toggle must not fall through to the light fills. */
-  --chart-accent: #cd8133; --chart-muted: #6e7887; --chart-grid: #252b35;
-  --danger: #e08a76;
-  --link: #79acff; --link-visited: #c9a3f5;
-  --shadow-sm: 0 1px 2px rgba(0,0,0,.5);
-  --shadow-md: 0 2px 4px rgba(0,0,0,.4), 0 8px 20px rgba(0,0,0,.55);
-  --shadow-lg: 0 12px 32px rgba(0,0,0,.7);
-}
 
 * { box-sizing: border-box; }
 html, body, #root { height: 100%; }
@@ -214,36 +116,38 @@ kbd {
 #shell { flex: 1; display: flex; min-height: 0; position: relative; }
 
 /* ---------- destination rail ----------
-   The permanent left edge: where you can go. Narrow and quiet, so that
-   losing the 340px tree on destination screens is a gain rather than a
-   hole. Labels are always rendered for screen readers and revealed on
-   hover/focus for everyone else. */
+   The permanent left edge: where you can go. Every destination wears its name (an icon on its own said nothing to
+   anyone who had not memorised it), in groups: learn, community, you. Narrow, so that losing the 340px tree on
+   destination screens is a gain rather than a hole. On a phone it is the bottom bar (further down). */
 #destRail {
-  width: 52px; flex-shrink: 0; display: flex; flex-direction: column; gap: 3px;
-  padding: 8px 0; border-right: 1px solid var(--border-subtle); background: var(--bg-sunken);
-  align-items: center; z-index: 20;
+  width: 84px; flex-shrink: 0; display: flex; flex-direction: column; gap: 0;
+  padding: var(--space-2) 6px; border-right: 1px solid var(--border-subtle); background: var(--bg-sunken);
+  align-items: stretch; overflow-y: auto; scrollbar-width: none; z-index: var(--z-rail);
 }
+#destRail::-webkit-scrollbar { display: none; }
+.dest-group { display: flex; flex-direction: column; gap: 2px; padding-bottom: var(--space-2); margin-bottom: var(--space-2); border-bottom: 1px solid var(--border-subtle); }
+.dest-group:last-child { margin-bottom: 0; padding-bottom: 0; border-bottom: 0; }
 .dest-btn {
-  position: relative; width: 38px; height: 38px; display: grid; place-items: center;
-  border: 1px solid transparent; border-radius: var(--r-sm);
-  background: transparent; color: var(--fg-subtle);
+  position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
+  width: 100%; min-height: 52px; padding: 6px 2px; border: 1px solid transparent; border-radius: var(--r-md);
+  background: transparent; color: var(--fg-muted);
+  transition: background var(--dur-quick) var(--ease-out), color var(--dur-quick) var(--ease-out);
 }
-.dest-btn svg { width: 17px; height: 17px; }
+.dest-btn svg { width: 18px; height: 18px; }
 .dest-btn:hover { background: var(--hover); color: var(--fg); }
 .dest-btn.on { background: var(--signal-bg); border-color: var(--signal-line); color: var(--signal); }
+/* The place you are, marked on the edge as well as in colour. */
+.dest-btn.on::before { content: ''; position: absolute; left: -7px; top: 10px; bottom: 10px; width: 3px; border-radius: 0 3px 3px 0; background: var(--signal); }
 .dest-label {
-  position: absolute; left: calc(100% + 8px); top: 50%; transform: translateY(-50%);
-  background: var(--fg); color: var(--bg); font-size: 11.5px; font-weight: 550;
-  padding: 4px 9px; border-radius: var(--r-sm); white-space: nowrap;
-  opacity: 0; pointer-events: none; transition: opacity .12s; z-index: 60;
+  max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: center;
+  font-size: 10.5px; font-weight: var(--weight-semibold); line-height: 1.1; letter-spacing: .01em;
 }
-.dest-btn:hover .dest-label, .dest-btn:focus-visible .dest-label { opacity: 1; }
 /* A plain dot, not the numbered .activity-dot used on the account avatar —
    "something's new in Community" doesn't need a precise count the way
    "3 replies to you" does, and a bare number here would invite reading it
    as more exact than it is (posts + questions combined, since last visit). */
 .dest-btn .activity-dot {
-  position: absolute; top: 4px; right: 4px; width: 8px; height: 8px; min-width: 0;
+  position: absolute; top: 6px; right: 14px; width: 8px; height: 8px; min-width: 0;
   padding: 0; border-radius: 50%; background: var(--signal); border: 1.5px solid var(--bg-sunken);
 }
 
@@ -669,7 +573,7 @@ h1:hover .anchor, h2:hover .anchor, h3:hover .anchor, h4:hover .anchor { opacity
 }
 .btn-ghost:hover { background: var(--hover); color: var(--fg); }
 .btn-ghost[aria-pressed="true"] {
-  background: var(--signal); border-color: var(--signal); color: #fff; font-weight: 600;
+  background: var(--signal); border-color: var(--signal); color: var(--on-signal); font-weight: 600;
 }
 
 /* ---------- contribute links ----------
@@ -863,7 +767,7 @@ h1:hover .anchor, h2:hover .anchor, h3:hover .anchor, h4:hover .anchor { opacity
 .page-tabs button.on { color: var(--signal); border-bottom-color: var(--signal); }
 .tab-badge {
   display: inline-block; margin-left: 6px; padding: 1px 6px; border-radius: 99px;
-  background: var(--signal); color: #fff; font-size: 10.5px; font-weight: 700;
+  background: var(--signal); color: var(--on-signal); font-size: 10.5px; font-weight: 700;
   font-variant-numeric: tabular-nums;
 }
 
@@ -936,31 +840,6 @@ html[data-theme="dark"] .pal-item.cur, html[data-theme="auto"] .pal-item.cur { b
 }
 .pal-empty { padding: 26px; text-align: center; color: var(--fg-subtle); font-size: 14px; }
 
-/* ---------- menu ---------- */
-#menu {
-  position: absolute; top: calc(var(--topbar-h) - 6px); right: 12px; z-index: 40;
-  background: var(--bg-raised); border: 1px solid var(--border); border-radius: var(--r-md);
-  box-shadow: var(--shadow-lg); padding: 5px; min-width: 210px; display: none;
-}
-#menu.show { display: block; }
-#menu button {
-  display: flex; align-items: center; gap: 9px; width: 100%; text-align: left;
-  padding: 7px 10px; border: 0; background: transparent; color: var(--fg); border-radius: var(--r-sm); font-size: 13.5px;
-}
-#menu button:hover { background: var(--hover); }
-#menu button svg { width: 14px; height: 14px; color: var(--fg-muted); flex-shrink: 0; }
-#menu .div { height: 1px; background: var(--border-subtle); margin: 5px 0; }
-#menu button.hidden { display: none; }
-#menu button.danger svg { color: var(--danger); }
-#menu .grp { font-size: 10.5px; text-transform: uppercase; letter-spacing: .06em; color: var(--fg-subtle); padding: 6px 10px 3px; font-weight: 700; }
-
-#toast {
-  position: fixed; bottom: 22px; left: 50%; transform: translateX(-50%) translateY(20px);
-  background: var(--fg); color: var(--bg); padding: 9px 17px; border-radius: 99px; font-size: 13.5px;
-  box-shadow: var(--shadow-lg); opacity: 0; pointer-events: none; transition: .22s; z-index: 200; font-weight: 550;
-}
-#toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
-
 #mobileToggle { display: none; }
 #scrim { display: none; }
 
@@ -1011,18 +890,14 @@ body.right-rail-collapsed #toc { display: none; }
     position: fixed; left: 0; right: 0; bottom: 0; width: auto; height: 56px;
     flex-direction: row; justify-content: space-around; align-items: stretch;
     gap: 0; padding: 0; border-right: 0; border-top: 1px solid var(--border);
-    background: var(--bg); z-index: 60;
+    background: var(--bg); z-index: 60; overflow: visible;
   }
-  .dest-btn { width: auto; flex: 1; height: 100%; flex-direction: column; gap: 3px; border-radius: 0; border: 0; }
+  .dest-btn { width: auto; flex: 1; min-height: 0; height: 100%; gap: 3px; border-radius: 0; border: 0; padding: 0 2px; }
   .dest-btn.on { background: transparent; border: 0; }
+  .dest-btn.on::before { left: 22%; right: 22%; top: 0; bottom: auto; width: auto; height: 3px; border-radius: 0 0 3px 3px; }
   .dest-btn svg { width: 19px; height: 19px; }
-  /* The hover tooltip becomes a permanent caption — there is no hover on
-     a touch screen, so an icon with no label is an icon with no meaning. */
-  .dest-label {
-    position: static; opacity: 1; transform: none; pointer-events: auto;
-    background: none; color: inherit; font-size: 10px; font-weight: 600;
-    padding: 0; letter-spacing: .01em;
-  }
+  .dest-btn .activity-dot { top: 7px; right: calc(50% - 16px); }
+  .dest-label { font-size: 10px; }
   /* Clear the bar so it never covers the end of the content. */
   #main { padding-bottom: 56px; }
   body.nav-open #sidebar { bottom: 56px; }

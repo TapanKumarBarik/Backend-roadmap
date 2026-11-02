@@ -11,7 +11,7 @@ import { useSidebarCollapse } from './hooks/useSidebarCollapse.js';
 import { useRightRailCollapse } from './hooks/useRightRailCollapse.js';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts.js';
 import { useMediaQuery } from './hooks/useMediaQuery.js';
-import { useToast } from './hooks/useToast.js';
+import { useToast } from './components/ui/Toast.jsx';
 import { useBookmarks } from './hooks/useBookmarks.js';
 import { useStreak } from './hooks/useStreak.js';
 import { useSiteStats } from './hooks/useSiteStats.js';
@@ -37,8 +37,9 @@ import { CaretIcon } from './components/common/icons.jsx';
 import MainColumn from './components/layout/MainColumn.jsx';
 import RightRail from './components/layout/RightRail.jsx';
 import CommandPalette from './components/palette/CommandPalette.jsx';
-import Toast from './components/common/Toast.jsx';
 import ScreenBoundary from './components/common/ScreenBoundary.jsx';
+import { useConfirm } from './components/ui/Dialog.jsx';
+import { Skeleton } from './components/ui/Skeleton.jsx';
 
 // Lazy: everything that is not a module page. Someone who arrives on a module (which is how nearly everyone
 // arrives: from a search result or a video) never needs the feed, the community tabs, the saved list or the
@@ -68,6 +69,7 @@ const PostDetailView = lazy(smallScreens.post);
 const BooksView = lazy(smallScreens.books);
 const SuggestionsView = lazy(smallScreens.suggestions);
 const VideosView = lazy(smallScreens.videos);
+const DesignView = lazy(() => import('./components/design/DesignView.jsx'));
 const MessageOwnerModal = lazy(smallScreens.message);
 // Lazy: Tiptap/ProseMirror alone added ~600KB to the main bundle for a
 // feature only a signed-in user who opens Workspace ever touches — same
@@ -92,6 +94,8 @@ const BOOKS_ROUTE = '__books';
 const SUGGESTIONS_ROUTE = '__suggestions';
 const WORKSPACE_ROUTE = '__workspace';
 const VIDEOS_ROUTE = '__videos';
+// The living style guide: every token and shared component, drawn. Not in the rail; open /#__design.
+const DESIGN_ROUTE = '__design';
 
 function collectDirPaths(nodes) {
   const paths = [];
@@ -101,6 +105,15 @@ function collectDirPaths(nodes) {
     });
   })(nodes);
   return paths;
+}
+
+// What a screen shows while its code or the sign-in state is on the way.
+function ScreenLoading() {
+  return (
+    <div id="empty" role="status" aria-label="Loading">
+      <Skeleton lines={5} />
+    </div>
+  );
 }
 
 export default function App() {
@@ -113,7 +126,7 @@ export default function App() {
   const { active: activePath, pick: pickPathId } = useActivePath(paths);
   const { path, heading, navigate, goHome } = useHashRoute();
   const { theme, cycleTheme } = useTheme();
-  const { user, login, logout } = useAuth();
+  const { user, loading: authLoading, login, logout } = useAuth();
   const { statusMap, timeMap, setStatus, reset, importStatuses } = useProgressStore(user);
   const { bookmarks, toggle: toggleBookmark } = useBookmarks(user);
   const streak = useStreak(user);
@@ -121,6 +134,7 @@ export default function App() {
   const feedActivity = useFeedActivity();
   const questionsActivity = useQuestionsActivity();
   const toast = useToast();
+  const confirm = useConfirm();
   useSidebarResize();
   // The right rail is display:none below 1180px, so notes have to fall back
   // into the article there. Deciding here — rather than rendering both and
@@ -137,7 +151,6 @@ export default function App() {
   const [choosingPath, setChoosingPath] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [paletteQuery, setPaletteQuery] = useState('');
-  const [menuOpen, setMenuOpen] = useState(false);
   const [navOpen, setNavOpen] = useState(false);
   const [tocHeadings, setTocHeadings] = useState([]);
   const [activeHeadingId, setActiveHeadingId] = useState(null);
@@ -152,7 +165,8 @@ export default function App() {
   const isSuggestionsRoute = path === SUGGESTIONS_ROUTE;
   const isWorkspaceRoute = path === WORKSPACE_ROUTE;
   const isVideosRoute = path === VIDEOS_ROUTE;
-  const isSpecialRoute = isAdminRoute || isSavedRoute || isExploreRoute || isCommunityRoute || isFeedRoute || isBooksRoute || isSuggestionsRoute || isWorkspaceRoute || isVideosRoute;
+  const isDesignRoute = path === DESIGN_ROUTE;
+  const isSpecialRoute = isAdminRoute || isSavedRoute || isExploreRoute || isCommunityRoute || isFeedRoute || isBooksRoute || isSuggestionsRoute || isWorkspaceRoute || isVideosRoute || isDesignRoute;
   const currentFile = !isSpecialRoute && path && fileSet.has(path) ? path : null;
 
   useEffect(() => {
@@ -166,12 +180,6 @@ export default function App() {
     const cancel = window.cancelIdleCallback || clearTimeout;
     const handle = whenIdle(() => Object.values(smallScreens).forEach((load) => load().catch(() => {})));
     return () => cancel(handle);
-  }, []);
-
-  useEffect(() => {
-    function onDocClick() { setMenuOpen(false); }
-    document.addEventListener('click', onDocClick);
-    return () => document.removeEventListener('click', onDocClick);
   }, []);
 
   useEffect(() => {
@@ -290,7 +298,6 @@ export default function App() {
   useKeyboardShortcuts({
     onOpenPalette: () => openPalette(),
     onClosePalette: closePalette,
-    onCloseMenu: () => setMenuOpen(false),
     onCycleTheme: cycleTheme,
     onToggleNav: (force) => setNavOpen((v) => (force === undefined ? !v : force)),
     onToggleSidebarCollapse: toggleSidebarCollapsed,
@@ -324,17 +331,26 @@ export default function App() {
   }, [importStatuses, toast]);
 
   const handleReset = useCallback(async () => {
-    if (!window.confirm(`Reset progress on all ${learnFiles.length} modules? This cannot be undone.`)) return;
+    const sure = await confirm({
+      title: 'Reset all progress?',
+      body: `This clears your progress on all ${learnFiles.length} modules. It cannot be undone.`,
+      confirmLabel: 'Reset progress',
+      tone: 'danger'
+    });
+    if (!sure) return;
     await reset();
     toast.show('All progress reset');
-  }, [reset, learnFiles.length, toast]);
+  }, [confirm, reset, learnFiles.length, toast]);
 
   const handleDeleteAccount = useCallback(async () => {
-    if (!window.confirm(
-      'Delete your account and all your data?\n\n' +
-      'This permanently removes your progress, notes, bookmarks, streak, and reactions, ' +
-      'and anonymizes any comments you’ve posted. This cannot be undone.'
-    )) return;
+    const sure = await confirm({
+      title: 'Delete your account and all your data?',
+      body: 'This permanently removes your progress, notes, bookmarks, streak, and reactions, ' +
+        'and anonymizes any comments you’ve posted. This cannot be undone.',
+      confirmLabel: 'Delete my account',
+      tone: 'danger'
+    });
+    if (!sure) return;
     try {
       await deleteAccount();
     } catch {
@@ -343,7 +359,7 @@ export default function App() {
     }
     await reset(); // clears local IndexedDB progress too
     logout(); // full-page redirect; also clears the (already-cleared) session cookie
-  }, [reset, logout, toast]);
+  }, [confirm, reset, logout, toast]);
 
   const allDirPaths = useMemo(() => collectDirPaths(treeData), [treeData]);
 
@@ -427,7 +443,8 @@ export default function App() {
 
   return (
     <>
-      <a href="#main" className="skip-link">Skip to content</a>
+      {/* Focuses the page instead of following "#main": in this app a hash is a route, and "#main" would leave the screen. */}
+      <a href="#main" className="skip-link" onClick={(e) => { e.preventDefault(); document.getElementById('main')?.focus(); }}>Skip to content</a>
       <TopBar
         counts={counts}
         pathProgress={pathStats && { ...pathStats, title: activePath.title }}
@@ -436,12 +453,7 @@ export default function App() {
         user={user}
         onLogin={login}
         onLogout={logout}
-        menuOpen={menuOpen}
-        onToggleMenu={() => setMenuOpen((v) => {
-          if (!v) activity.markSeen();
-          return !v;
-        })}
-        onCloseMenu={() => setMenuOpen(false)}
+        authLoading={authLoading}
         onOpenPalette={() => openPalette()}
         onGoHome={handleGoHome}
         onExport={handleExport}
@@ -518,9 +530,10 @@ export default function App() {
         {isSpecialRoute
           ? (
             <div id="mainCol">
-              <div id="main" className="scroll" tabIndex={-1}>
-                <ScreenBoundary key={path}>
-                <Suspense fallback={<div id="empty"><p style={{ color: 'var(--fg-subtle)' }}>Loading…</p></div>}>
+              <main id="main" className="scroll screen-enter" tabIndex={-1} key={`${path}@${heading || ''}`}>
+                <ScreenBoundary>
+                <Suspense fallback={<ScreenLoading />}>
+                {authLoading ? <ScreenLoading /> : (<>
                 {isAdminRoute && (
                   <AdminDashboard isAdmin={!!user?.isAdmin} lastViewedFile={lastViewedFile} onOpenFile={openFile} currentUserEmail={user?.email} />
                 )}
@@ -567,9 +580,11 @@ export default function App() {
                 {isSuggestionsRoute && <SuggestionsView user={user} onLogin={login} onToast={toast.show} />}
                 {isWorkspaceRoute && <WorkspaceView user={user} onLogin={login} />}
                 {isVideosRoute && <VideosView videoData={videoData} nodeByFile={nodeByFile} onOpenFile={openFile} />}
+                {isDesignRoute && <DesignView />}
+                </>)}
                 </Suspense>
                 </ScreenBoundary>
-              </div>
+              </main>
             </div>
           )
           : (
@@ -655,7 +670,6 @@ export default function App() {
           <MessageOwnerModal onClose={() => setMessageOpen(false)} onToast={toast.show} />
         </Suspense>
       )}
-      <Toast message={toast.message} />
     </>
   );
 }

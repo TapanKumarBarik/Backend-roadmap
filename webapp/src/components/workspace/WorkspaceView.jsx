@@ -6,6 +6,7 @@ import BlockEditor from './BlockEditor.jsx';
 import LoadError from '../common/LoadError.jsx';
 import ErrorText from '../common/ErrorText.jsx';
 import { LOAD_WHAT } from '../../config/messages.js';
+import { useConfirm } from '../ui/Dialog.jsx';
 
 // A private, per-user Notion-style workspace: a nested tree of pages (left),
 // each holding a real block-editor document (right) — text, to-dos, tables,
@@ -44,8 +45,10 @@ export default function WorkspaceView({ user, onLogin }) {
     setSelectedId(created.id);
   }
 
+  const confirm = useConfirm();
+
   async function handleDelete(id) {
-    if (!window.confirm('Delete this page and everything nested under it?')) return;
+    if (!(await confirm({ title: 'Delete this page?', body: 'Everything nested under it is deleted too. This cannot be undone.', confirmLabel: 'Delete', tone: 'danger' }))) return;
     await removePage(id);
     if (selectedId === id) { setSelectedId(null); setActivePage(null); }
   }

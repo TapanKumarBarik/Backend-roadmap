@@ -148,6 +148,7 @@ deploy. The deploy workflow adds the Cloudflare steps, then tells Bing and other
 | change a learning path | `content/paths.json`, then `npm run check:paths` |
 | change the site name, a link or a storage key | `site.config.json` |
 | change landing-page or error wording | `webapp/src/config/landing.js`, `webapp/src/config/messages.js` |
+| change a colour, a size or a layer, or add a shared component | `webapp/src/styles/tokens.css` and `components/ui/` (see [DESIGN.md](DESIGN.md); `npm test` keeps the dark theme in step and the text readable) |
 | change what a search result shows for a page | the title is built by `webapp/src/lib/curriculum/pageTitle.js`, the description by `scripts/lib/describe.mjs` (or write a clear `> [!key]` sentence at the top of the module); the home page's description is `HOME_META` in `webapp/src/config/landing.js` |
 | change how a share card looks or what it says | `site.config.json` (`shareImage`: size, colours), `scripts/lib/shareImage.mjs` (the words and the title size), `scripts/build/gen-share-images.mjs` (the layout) |
 | add an API route | `api/routes/<area>.js`; it must ask for a sign-in unless it is added to `PUBLIC` in `api/tests/access.test.js` |

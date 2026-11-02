@@ -1,0 +1,131 @@
+/* ---------- design tokens: "Blueprint" ---------- */
+/* Every colour, size, space, radius, shadow, layer and timing the interface is drawn with, in one file, so a screen
+   never invents one. docs/DESIGN.md says how they are used; `/#__design` shows them; webapp/src/styles/tokens.test.js
+   keeps the two dark blocks identical and every text colour readable (4.5:1 on each surface it sits on).
+
+   Hairlines on drafting paper. Prose stays monochrome — hierarchy from
+   weight, size and value — but progress is a drawing metaphor rather than a
+   grey ramp: not started = hairline outline, doing = signal amber, done =
+   solid ink. One accent, spent entirely on state.
+
+   Two properties this block has to keep, because the whole system leans on
+   them: --bg-raised must never equal --bg (otherwise nothing can be lifted
+   off the page — that was the single biggest reason the UI read as
+   unfinished), and the three radii must stay visibly distinct so "control",
+   "card" and "modal" are different shapes rather than three names for 3px. */
+:root {
+  --bg: #fbfbf9;          /* paper */
+  --bg-sunken: #f3f3ef;   /* inputs, code, wells */
+  --bg-raised: #ffffff;   /* cards, menus, modals — distinct from --bg */
+  --fg: #16181c;          /* ink */
+  --fg-muted: #575c65;
+  --fg-subtle: #676d77;   /* 4.7:1 or better on every surface (it was 3.1:1, and carries 158 uses of small text) */
+  --border: #cdcdc5;      /* a hairline: decoration, not the edge of a control */
+  --border-strong: #8a8a82; /* the edge of a field or a control: 3:1 against its surface */
+  --border-subtle: #e4e4de;
+  --hover: #f1f1ec;
+  --active: #e7e7e0;
+  --accent: #16181c;
+  --accent-fg: #ffffff;
+  --accent-subtle: #edede6;
+  --done: #16181c;        /* solid ink */
+  --wip: #a85500;         /* signal amber, deep enough to read as text (5:1) */
+  --signal: #a85500;
+  --signal-bg: #fbf1e2;
+  --signal-line: #e5c398;
+  --on-signal: #ffffff;   /* text on a solid signal fill */
+  --scrim: rgba(20, 22, 26, .5); /* what dims the page behind a dialog or a drawer */
+  /* The logo's destination dot sits on the ink-filled mark, so it takes the
+     bright amber in light mode and the deep one on the light dark-mode mark. */
+  --mark-dot: #e9a053;
+  --danger: #a3301c;
+  /* The one deliberate exception to the monochrome palette: hyperlinks.
+     Blue + underline is the universal affordance — the UI chrome stays B&W. */
+  --link: #1256b8;
+  --link-visited: #6b3fa0;
+  --shadow-sm: 0 1px 2px rgba(20,22,26,.06);
+  --shadow-md: 0 2px 4px rgba(20,22,26,.05), 0 8px 20px rgba(20,22,26,.07);
+  --shadow-lg: 0 12px 32px rgba(20,22,26,.14);
+  /* controls / cards / modals — three shapes, not three names for one */
+  --r-sm: 5px; --r-md: 8px; --r-lg: 12px; --r-pill: 999px;
+  --sidebar-w: 340px;
+  --toc-w: 232px;
+  --topbar-h: 52px;
+  /* Chart marks. The "emphasis" form: one accent for the series that matters,
+     a deliberate neutral for context. Both steps validated against the card
+     surface (--bg-raised) in this theme — CVD dE 12.6, normal-vision 15.3,
+     contrast >= 3:1. Do not swap these for --signal/--border without
+     re-validating: those are chosen for text and hairlines, not for fills. */
+  --chart-accent: #b25a08;
+  --chart-muted: #8e8e84;
+  --chart-grid: #e4e4de;
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif;
+  /* Long-form reading (articles people write) is set in a serif that every system already has. No web font is loaded;
+     the policy allows one (font-src 'self') if the reading ever deserves it. */
+  --serif: "Iowan Old Style", "Charter", "Source Serif 4", Georgia, Cambria, "Times New Roman", serif;
+
+  /* Type scale. Interface text sits on --text-sm..--text-md, headings on --text-lg and up. */
+  --text-2xs: 11px; --text-xs: 12px; --text-sm: 13px; --text-base: 15px; --text-md: 16.5px;
+  --text-lg: 18px; --text-xl: 21px; --text-2xl: 26px; --text-3xl: 32px; --text-4xl: 40px;
+  --leading-tight: 1.2; --leading-snug: 1.4; --leading-normal: 1.55; --leading-relaxed: 1.7;
+  --weight-regular: 400; --weight-medium: 500; --weight-semibold: 600; --weight-bold: 700;
+
+  /* Space, on a 4px grid. */
+  --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px; --space-5: 20px; --space-6: 24px;
+  --space-8: 32px; --space-10: 40px; --space-12: 48px; --space-16: 64px;
+
+  /* Layers, from the bottom of the page to the top. A new overlay takes a place in this list, not a number. */
+  --z-rail: 20; --z-topbar: 30; --z-drawer: 40; --z-menu: 50; --z-dialog: 60; --z-toast: 70; --z-palette: 80;
+
+  /* Keyboard focus: a ring that sits on any surface, drawn with the signal colour. */
+  --focus-ring: 0 0 0 2px var(--bg), 0 0 0 4px var(--signal);
+
+  /* Timings: what motion is for is in motion.css. */
+  --ease-out: cubic-bezier(.2, .7, .2, 1);
+  --ease-in-out: cubic-bezier(.4, 0, .2, 1);
+  --dur-quick: 120ms;
+  --dur-base: 240ms;
+  --dur-slow: 600ms;
+}
+html[data-theme="auto"] { color-scheme: light; }
+@media (prefers-color-scheme: dark) {
+  html[data-theme="auto"] {
+    color-scheme: dark;
+    --bg: #0e1116; --bg-sunken: #0a0d11; --bg-raised: #161a21;
+    --fg: #e7eaee; --fg-muted: #9aa2ae; --fg-subtle: #838c9a;
+    --border: #39414e; --border-strong: #646e7e; --border-subtle: #252b35;
+    --hover: #1a1f27; --active: #232935;
+    --accent: #e7eaee; --accent-fg: #0e1116; --accent-subtle: #232935;
+    --done: #e7eaee; --wip: #e9a053;
+    --signal: #e9a053; --signal-bg: #2a1e11; --signal-line: #6a4a22; --on-signal: #0e1116; --scrim: rgba(0, 0, 0, .62);
+    --mark-dot: #b25a08;
+    /* Re-validated against the dark card surface, not flipped from light:
+       #e9a053 sits outside the dark lightness band, so the fill steps down. */
+    --chart-accent: #cd8133; --chart-muted: #6e7887; --chart-grid: #252b35;
+    --danger: #e08a76;
+    --link: #79acff; --link-visited: #c9a3f5;
+    --shadow-sm: 0 1px 2px rgba(0,0,0,.5);
+    --shadow-md: 0 2px 4px rgba(0,0,0,.4), 0 8px 20px rgba(0,0,0,.55);
+    --shadow-lg: 0 12px 32px rgba(0,0,0,.7);
+  }
+}
+html[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0e1116; --bg-sunken: #0a0d11; --bg-raised: #161a21;
+  --fg: #e7eaee; --fg-muted: #9aa2ae; --fg-subtle: #838c9a;
+  --border: #39414e; --border-strong: #646e7e; --border-subtle: #252b35;
+  --hover: #1a1f27; --active: #232935;
+  --accent: #e7eaee; --accent-fg: #0e1116; --accent-subtle: #232935;
+  --done: #e7eaee; --wip: #e9a053;
+  --signal: #e9a053; --signal-bg: #2a1e11; --signal-line: #6a4a22; --on-signal: #0e1116; --scrim: rgba(0, 0, 0, .62);
+  --mark-dot: #b25a08;
+  /* Same re-validated dark steps as the prefers-color-scheme block above;
+     an explicit dark toggle must not fall through to the light fills. */
+  --chart-accent: #cd8133; --chart-muted: #6e7887; --chart-grid: #252b35;
+  --danger: #e08a76;
+  --link: #79acff; --link-visited: #c9a3f5;
+  --shadow-sm: 0 1px 2px rgba(0,0,0,.5);
+  --shadow-md: 0 2px 4px rgba(0,0,0,.4), 0 8px 20px rgba(0,0,0,.55);
+  --shadow-lg: 0 12px 32px rgba(0,0,0,.7);
+}

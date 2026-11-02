@@ -8,6 +8,7 @@ import LoadError from '../common/LoadError.jsx';
 import ErrorText from '../common/ErrorText.jsx';
 import { friendlyMessage } from '../../lib/errors.js';
 import { LOAD_WHAT } from '../../config/messages.js';
+import { useConfirm } from '../ui/Dialog.jsx';
 
 function initialsOf(name) {
   return (name || '?').trim()[0]?.toUpperCase() || '?';
@@ -131,8 +132,10 @@ export default function FeedView({ user, onLogin, onToast, onOpenPost, embedded 
     }
   }
 
+  const confirm = useConfirm();
+
   async function handleDelete(id) {
-    if (!window.confirm('Delete this post?')) return;
+    if (!(await confirm({ title: 'Delete this post?', body: 'This cannot be undone.', confirmLabel: 'Delete', tone: 'danger' }))) return;
     try {
       await deleteFeedPost(id);
       setPosts((prev) => prev.filter((p) => p.id !== id));
