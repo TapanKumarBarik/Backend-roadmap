@@ -164,5 +164,7 @@ deploy. The deploy workflow adds the Cloudflare steps, then tells Bing and other
 | change how a share card looks or what it says | `site.config.json` (`shareImage`: size, colours), `scripts/lib/shareImage.mjs` (the words and the title size), `scripts/build/gen-share-images.mjs` (the layout) |
 | add an API route | `api/routes/<area>.js`; it must ask for a sign-in unless it is added to `PUBLIC` in `api/tests/access.test.js` |
 | change the database | a new numbered file in `api/migrations/` ([api/README.md](../api/README.md)) |
+| change what an article can contain, or how the writing studio saves and publishes | `webapp/src/lib/blog/` (what a document may hold), `webapp/src/components/studio/` and `webapp/src/lib/studio/` ([STUDIO.md](STUDIO.md)) |
+| change where uploads are stored | `site.config.json` (`uploads`), and the same host in `webapp/public/_headers` and `webapp/index.html` (a test checks the three agree) |
 | change what a lesson is tagged with | `scripts/lib/tag-vocabulary.mjs`; see the result with `node scripts/dev/tags.mjs <lesson>` |
 | change the security headers | `webapp/public/_headers` (the browser tests apply them) |

@@ -12,6 +12,8 @@ export const CONTENT = site.content;
 export const CONTENT_DIR = site.content.dir;
 export const STORAGE = site.storage;
 export const YOUTUBE = site.youtube;
+// The writing studio's numbers (how long typing pauses before a save, and so on); its words are in config/studio.js.
+export const STUDIO = site.studio;
 
 export const REPO_URL = `https://github.com/${REPO.owner}/${REPO.name}`;
 export const DEVELOPER_EMAIL_LINK = `mailto:${DEVELOPER.email}`;

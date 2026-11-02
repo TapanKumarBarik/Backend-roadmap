@@ -76,7 +76,7 @@ const BlogsView = lazy(smallScreens.blogs);
 const PostView = lazy(smallScreens.article);
 const AuthorView = lazy(smallScreens.author);
 // The studio is a heavier screen (an editor), opened on purpose and by few, so it is fetched only when opened.
-const StudioView = lazy(() => import('./components/blog/StudioView.jsx'));
+const StudioView = lazy(() => import('./components/studio/StudioView.jsx'));
 const VideosView = lazy(smallScreens.videos);
 const DesignView = lazy(() => import('./components/design/DesignView.jsx'));
 const MessageOwnerModal = lazy(smallScreens.message);
@@ -405,6 +405,7 @@ export default function App() {
   const openPost = useCallback((slug) => navigate(BLOG_ROUTE, slug), [navigate]);
   const openAuthor = useCallback((handle) => navigate(AUTHOR_ROUTE, handle), [navigate]);
   const openBlogTopic = useCallback((tag) => navigate(BLOG_ROUTE, null, { search: `?tag=${encodeURIComponent(tag)}` }), [navigate]);
+  // /write is the list of your articles, /write/<id> the editor on one (a click handler's event is not an id).
   const openWrite = useCallback((id) => navigate(WRITE_ROUTE, typeof id === 'string' ? id : null), [navigate]);
 
   // Two of the three theme states render identically on any given OS, so a
@@ -557,7 +558,7 @@ export default function App() {
                 <Suspense fallback={<ScreenLoading />}>
                 {authLoading ? <ScreenLoading /> : (<>
                 {isAdminRoute && (
-                  <AdminDashboard isAdmin={!!user?.isAdmin} lastViewedFile={lastViewedFile} onOpenFile={openFile} currentUserEmail={user?.email} />
+                  <AdminDashboard isAdmin={!!user?.isAdmin} lastViewedFile={lastViewedFile} onOpenFile={openFile} onOpenPost={openPost} currentUserEmail={user?.email} />
                 )}
                 {isSavedRoute && (
                   <SavedView
@@ -609,7 +610,19 @@ export default function App() {
                     ? <AuthorView handle={heading} onOpenPost={openPost} onOpenAuthor={openAuthor} onOpenList={openBlogs} onPickTag={openBlogTopic} />
                     : <BlogsView onOpenPost={openPost} onOpenAuthor={openAuthor} onOpenWrite={openWrite} />
                 )}
-                {isWriteRoute && <StudioView user={user} onLogin={login} onOpenList={openBlogs} />}
+                {isWriteRoute && (
+                  <StudioView
+                    user={user}
+                    onLogin={login}
+                    id={heading}
+                    onToast={toast.show}
+                    onOpenDashboard={openWrite}
+                    onOpenEditor={openWrite}
+                    onOpenPost={openPost}
+                    onOpenAuthor={openAuthor}
+                    onOpenList={openBlogs}
+                  />
+                )}
                 {isBooksRoute && <BooksView user={user} onLogin={login} onToast={toast.show} />}
                 {isSuggestionsRoute && <SuggestionsView user={user} onLogin={login} onToast={toast.show} />}
                 {isWorkspaceRoute && <WorkspaceView user={user} onLogin={login} />}

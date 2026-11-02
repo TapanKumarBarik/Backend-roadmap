@@ -241,10 +241,10 @@ study.post('/reactions/:path{.+}', async (c) => {
 
 /* ------------------------------------------------------------------ account */
 
-// Delete-my-data: hard-delete the private per-user tables, anonymize
-// identity on content other people's threads depend on (comments, feed
-// posts, messages, page views), then clear the session cookie. Mirrors
-// the retired Azure API's account deletion exactly.
+// Delete-my-data: hard-delete everything private to the account (progress, notes, bookmarks, the workspace's pages, the
+// directory row with the e-mail address, name and picture, votes), take the articles and the author page with it
+// (lib/blogData.js), and anonymize the identity on public contributions other people's threads depend on (comments, feed
+// posts, books, suggestions, messages, page views), then clear the session cookie.
 study.delete('/account', async (c) => {
   const { session, res } = await requireSession(c);
   if (res) return res;
@@ -259,8 +259,14 @@ study.delete('/account', async (c) => {
     ['DELETE FROM rate_limits WHERE user_id = ?1', uid],
     ['DELETE FROM reactions WHERE user_id = ?1', uid],
     ['DELETE FROM comment_votes WHERE voter_id = ?1', uid],
+    ['DELETE FROM feed_votes WHERE voter_id = ?1', uid],
+    ['DELETE FROM suggestion_votes WHERE voter_id = ?1', uid],
+    ['DELETE FROM workspace_pages WHERE user_id = ?1', uid],
+    ['DELETE FROM users WHERE user_id = ?1', uid],
     [`UPDATE comments SET display_name = '[deleted user]', text = '[deleted]', user_id = 'deleted' WHERE user_id = ?1`, uid],
     [`UPDATE feed_posts SET display_name = '[deleted user]', user_id = 'deleted' WHERE user_id = ?1`, uid],
+    [`UPDATE books SET display_name = '[deleted user]', user_id = 'deleted' WHERE user_id = ?1`, uid],
+    [`UPDATE suggestions SET display_name = '[deleted user]', user_id = 'deleted' WHERE user_id = ?1`, uid],
     [`UPDATE messages SET display_name = '[deleted user]', email = 'deleted', user_id = 'deleted' WHERE user_id = ?1`, uid],
     [`UPDATE page_views SET user = 'deleted' WHERE user = ?1`, email],
     ...authorRemoval(uid)

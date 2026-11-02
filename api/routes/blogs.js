@@ -17,19 +17,18 @@ import { getSession, isAdmin, requireAdmin } from '../lib/admin.js';
 import { checkRateLimit } from '../lib/rateLimit.js';
 import { timeId } from '../lib/util.js';
 import { postRemoval } from '../lib/blogData.js';
-import { FEED_CONTAINER, IMAGE_CONTAINER, blobBase } from '../lib/blob.js';
 import { BLOG, TAG_PATTERN } from '../../webapp/src/lib/blog/limits.js';
 import { DocError, isEmptyDoc, safeHref, safeImageSrc, sanitizeDoc } from '../../webapp/src/lib/blog/sanitizeDoc.js';
 import { renderDoc } from '../../webapp/src/lib/blog/renderDoc.js';
 import { plainText, readingStats, tocOf } from '../../webapp/src/lib/blog/docText.js';
 import { handleProblem, uniqueSlug } from '../../webapp/src/lib/blog/slug.js';
+import { UPLOAD_ORIGINS } from '../../webapp/src/lib/blog/uploads.js';
 import site from '../../site.config.json' with { type: 'json' };
 
 const blogs = createRouter();
 
-// Images in a post are our own uploads, and only those.
-const IMAGE_ORIGINS = [`${blobBase(FEED_CONTAINER)}/`, `${blobBase(IMAGE_CONTAINER)}/`];
-const DOC_OPTIONS = { imageOrigins: IMAGE_ORIGINS };
+// Images in a post are our own uploads, and only those (the studio's preview draws by the same rule).
+const DOC_OPTIONS = { imageOrigins: UPLOAD_ORIGINS };
 const WORDS_PER_MINUTE = site.content.wordsPerMinute;
 
 // An autosave is a write every second or two while someone types, so saving is generous; making posts, reacting and reporting are not.
@@ -255,7 +254,7 @@ blogs.put('/blogs/:id', async (c) => {
 
   let coverUrl = post.cover_url;
   if (has('coverUrl')) {
-    coverUrl = body.coverUrl ? safeImageSrc(body.coverUrl, IMAGE_ORIGINS) : null;
+    coverUrl = body.coverUrl ? safeImageSrc(body.coverUrl, UPLOAD_ORIGINS) : null;
     if (body.coverUrl && !coverUrl) return c.json({ error: 'The cover image must be one you uploaded here.' }, 400);
   }
 

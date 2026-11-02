@@ -6,7 +6,7 @@
 
 import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { BASE, answerApiInProcess, launchBrowser, openPage } from './support.mjs';
+import { BASE, OWNER_EMAIL, answerApiInProcess, launchBrowser, openPage } from './support.mjs';
 import { coverUrl, seedBlog } from './blogSeed.mjs';
 import app from '../../api/app.js';
 
@@ -251,5 +251,39 @@ test('the covers are only ever the site\'s own uploads (the seed uses them, and 
   await page.reload({ waitUntil: 'networkidle' });
   await cards(page).first().waitFor();
   assert.ok([...hosts].every((h) => h === new URL(BASE).host || h === new URL(coverUrl(1)).host), `requests went to ${[...hosts].join(', ')}`);
+  await context.close();
+});
+
+test('an admin approves, takes down, puts back and trusts from the Articles section, and the number on its tab follows', async () => {
+  const { context, page, env, seeded } = await openBlog('/#__admin', { email: OWNER_EMAIL });
+  await page.getByRole('button', { name: /^Articles 5$/ }).click();
+  const rows = page.locator('.admin-row');
+  await rows.first().waitFor();
+  assert.equal(await rows.count(), 5, 'every article is waiting: nobody is trusted yet');
+  const read = await rows.first().getByRole('button', { name: 'Read' }).boundingBox();
+  const approve = await rows.first().getByRole('button', { name: 'Approve' }).boundingBox();
+  assert.ok(approve.x - (read.x + read.width) >= 4, 'the buttons are apart from each other');
+
+  await rows.first().getByRole('button', { name: 'Approve' }).click();
+  await page.waitForFunction(() => document.querySelectorAll('.admin-row').length === 4);
+  await page.getByRole('button', { name: /^Articles 4$/ }).waitFor();
+  assert.equal(env.DB.raw.prepare('SELECT COUNT(*) AS n FROM blog_posts WHERE approved = 1').get().n, 1);
+
+  await rows.first().getByRole('button', { name: /^Trust / }).click();
+  await rows.first().getByText('Trusted author').waitFor();
+  assert.equal(env.DB.raw.prepare('SELECT COUNT(*) AS n FROM author_profiles WHERE trusted = 1').get().n, 1);
+
+  const takenDown = await rows.first().locator('strong').textContent();
+  await rows.first().getByRole('button', { name: 'Take down' }).click();
+  await page.waitForFunction(() => document.querySelectorAll('.admin-row').length === 3);
+  assert.equal(env.DB.raw.prepare('SELECT COUNT(*) AS n FROM blog_posts WHERE hidden = 1').get().n, 1);
+  assert.equal(await page.evaluate(async () => (await (await fetch('/api/blogs')).json()).posts.length), 4, 'it is off the site at once');
+
+  await page.getByRole('tab', { name: 'Taken down' }).click();
+  await rows.first().getByText(takenDown).waitFor();
+  await rows.first().getByRole('button', { name: 'Put back' }).click();
+  await page.getByText('No article is taken down.').waitFor();
+  assert.equal(env.DB.raw.prepare('SELECT COUNT(*) AS n FROM blog_posts WHERE hidden = 1').get().n, 0);
+  assert.ok(seeded.posts.length === 5);
   await context.close();
 });

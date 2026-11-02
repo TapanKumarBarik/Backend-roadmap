@@ -5,9 +5,11 @@ import ContentEditor from './ContentEditor.jsx';
 import MessagesInbox from './MessagesInbox.jsx';
 import UsageStats from './UsageStats.jsx';
 import PeoplePanel from './PeoplePanel.jsx';
+import BlogsModeration from './BlogsModeration.jsx';
 import { fetchQuestions } from '../../lib/api.js';
+import { fetchManagedBlogs } from '../../lib/blogApi.js';
 
-// Five sections instead of five sibling tabs. The old row put moderation,
+// Sections instead of sibling tabs. The old row put moderation,
 // analytics, the inbox and the content editor at the same level, so
 // "answer a question" and "commit to main" were one click apart and looked
 // like the same kind of thing.
@@ -15,18 +17,23 @@ const SECTIONS = [
   { key: 'overview', label: 'Overview' },
   { key: 'content', label: 'Content' },
   { key: 'community', label: 'Community' },
+  { key: 'articles', label: 'Articles' },
   { key: 'people', label: 'People' },
   { key: 'analytics', label: 'Analytics' },
   { key: 'system', label: 'System' }
 ];
 
-export default function AdminDashboard({ isAdmin, lastViewedFile, onOpenFile, currentUserEmail }) {
+export default function AdminDashboard({ isAdmin, lastViewedFile, onOpenFile, onOpenPost, currentUserEmail }) {
   const [section, setSection] = useState('overview');
   const [questions, setQuestions] = useState(null);
+  // Articles that are live but not yet approved for search engines: the number on the Articles tab.
+  const [pending, setPending] = useState(null);
+  const countPending = () => fetchManagedBlogs('pending').then((list) => setPending(list.length)).catch(() => setPending(0));
 
   useEffect(() => {
     if (!isAdmin) return;
     fetchQuestions().then(setQuestions).catch(() => setQuestions([]));
+    countPending();
   }, [isAdmin]);
 
   if (!isAdmin) {
@@ -50,6 +57,9 @@ export default function AdminDashboard({ isAdmin, lastViewedFile, onOpenFile, cu
             {s.key === 'community' && unanswered.length > 0 && (
               <span className="tab-badge">{unanswered.length}</span>
             )}
+            {s.key === 'articles' && pending > 0 && (
+              <span className="tab-badge">{pending}</span>
+            )}
           </button>
         ))}
       </div>
@@ -69,6 +79,10 @@ export default function AdminDashboard({ isAdmin, lastViewedFile, onOpenFile, cu
             <button className="admin-stat as-btn" onClick={() => setSection('community')}>
               <div className="admin-stat-n">{questions ? questions.length : '—'}</div>
               <div className="admin-stat-l">Questions total</div>
+            </button>
+            <button className={'admin-stat as-btn' + (pending > 0 ? ' urgent' : '')} onClick={() => setSection('articles')}>
+              <div className="admin-stat-n">{pending == null ? '—' : pending}</div>
+              <div className="admin-stat-l">Articles waiting for approval</div>
             </button>
             <button className="admin-stat as-btn" onClick={() => setSection('content')}>
               <div className="admin-stat-n">Edit</div>
@@ -104,6 +118,12 @@ export default function AdminDashboard({ isAdmin, lastViewedFile, onOpenFile, cu
           <CommentsModeration onOpenFile={onOpenFile} />
           <div className="home-h">Messages</div>
           <MessagesInbox />
+        </>
+      )}
+      {section === 'articles' && (
+        <>
+          <div className="home-h">Articles</div>
+          <BlogsModeration onOpenPost={onOpenPost} onChanged={countPending} />
         </>
       )}
       {section === 'people' && <PeoplePanel currentUserEmail={currentUserEmail} />}

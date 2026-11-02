@@ -13,9 +13,11 @@
 }
 
 /* ---------- screens arriving ---------- */
-/* A screen fades up into place when you move to it (set on the scroller of a screen, keyed to the screen). */
+/* A screen fades up into place when you move to it (set on the scroller of a screen, keyed to the screen). It does not fill
+   forwards: a finished animation that holds a transform makes the screen the containing block of every position: fixed element
+   inside it, which then sits relative to the screen instead of the window. */
 @keyframes screen-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
-:is(#root, #overlays) .screen-enter { animation: screen-in var(--dur-base) var(--ease-out) both; }
+:is(#root, #overlays) .screen-enter { animation: screen-in var(--dur-base) var(--ease-out) backwards; }
 
 /* ---------- buttons ---------- */
 :is(#root, #overlays) .ui-btn {

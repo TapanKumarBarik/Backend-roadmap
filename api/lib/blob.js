@@ -4,10 +4,14 @@
 // module just gathers the shared constants and the base64→bytes helper the
 // upload handlers need.
 
-export const STORAGE_ACCOUNT = 'stroadmapprogress';
-export const FEED_CONTAINER = 'feed-uploads';
-export const IMAGE_CONTAINER = 'images';
-export const BACKUPS_CONTAINER = 'backups';
+import site from '../../site.config.json' with { type: 'json' };
+
+// Which storage account and containers hold the uploads is site.config.json -> uploads (the content security policy in
+// webapp/public/_headers and the preconnect in webapp/index.html name the same host: a test keeps the three in step).
+export const STORAGE_ACCOUNT = site.uploads.account;
+export const FEED_CONTAINER = site.uploads.containers.feed;
+export const IMAGE_CONTAINER = site.uploads.containers.images;
+export const BACKUPS_CONTAINER = site.uploads.containers.backups;
 
 export function blobBase(container) {
   return `https://${STORAGE_ACCOUNT}.blob.core.windows.net/${container}`;

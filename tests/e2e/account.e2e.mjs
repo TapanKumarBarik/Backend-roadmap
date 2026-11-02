@@ -67,14 +67,14 @@ test('the workspace: a page is created, typed into, saved, and its text is there
   await context.close();
 });
 
-test('the admin dashboard opens for the owner with its six sections, and tells a reader it is not for them', async () => {
+test('the admin dashboard opens for the owner with its seven sections, and tells a reader it is not for them', async () => {
   const owner = await openPage(browser, '/#__admin');
   await answerApiInProcess(owner.context, { email: OWNER_EMAIL });
   await owner.goto();
   await owner.page.waitForSelector('.admin-dashboard');
   assert.deepEqual(
     await owner.page.locator('.admin-dashboard .page-tabs button').allTextContents().then((labels) => labels.map((l) => l.trim().replace(/\d+$/, ''))),
-    ['Overview', 'Content', 'Community', 'People', 'Analytics', 'System']
+    ['Overview', 'Content', 'Community', 'Articles', 'People', 'Analytics', 'System']
   );
   await owner.page.getByRole('button', { name: 'People' }).click();
   await owner.page.locator('.admin-chip.is-root', { hasText: OWNER_EMAIL }).waitFor();

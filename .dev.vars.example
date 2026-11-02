@@ -7,3 +7,7 @@ BACKUPS_CONTAINER_SAS=""
 GITHUB_PAT=""
 ADMIN_EMAIL="tapankumarbarik7@gmail.com"
 SITE_ORIGINS="http://localhost:4173,http://localhost:8788"
+
+# Optional: the writing assistant (api/lib/assistant/provider.js). With neither this nor the "ai" binding in wrangler.jsonc, it is not offered.
+# ANTHROPIC_API_KEY=""
+# ASSISTANT_PROVIDER="anthropic"

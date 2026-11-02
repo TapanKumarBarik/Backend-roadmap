@@ -6,7 +6,7 @@ books, suggestions, the workspace and the admin tools. It runs as a Cloudflare P
 
 ```text
 app.js               mounts every router under /api  (the entry the Pages Function calls)
-routes/<area>.js     one router per area: auth, study, feed, comments, blogs, community, workspace, admin, content
+routes/<area>.js     one router per area: auth, study, feed, comments, blogs, assistant, community, workspace, admin, content
 pages/               the community's pages as the server draws them (/blog/<slug> ...): see docs/ARCHITECTURE.md
 lib/                 shared helpers: d1 access, session cookies, rate limiting, admin check, blob uploads,
                      comment paths (feed: / blog: prefixes), the statements that delete blog data

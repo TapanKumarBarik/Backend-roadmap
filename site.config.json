@@ -65,7 +65,25 @@
     "activityLastSeen": "docs.activityLastSeen",
     "feedLastSeen": "docs.feedLastSeen",
     "questionsLastSeen": "docs.questionsLastSeen",
-    "languagePreference": "docLangPref"
+    "languagePreference": "docLangPref",
+    "studioDraft": "docs.studioDraft."
+  },
+  "assistant": {
+    "maxInputChars": 12000,
+    "burstPerMinute": 6,
+    "dailyLimit": 30,
+    "workersAiModel": "@cf/meta/llama-3.1-8b-instruct",
+    "anthropicModel": "claude-haiku-5-5"
+  },
+  "studio": {
+    "autosaveWaitMs": 1200,
+    "autosaveRetryMs": [2000, 5000, 15000, 30000],
+    "recoveryCopyWaitMs": 400,
+    "statsWaitMs": 300
+  },
+  "uploads": {
+    "account": "stroadmapprogress",
+    "containers": { "feed": "feed-uploads", "images": "images", "backups": "backups" }
   },
   "screenshots": {
     "dir": "screenshots",

@@ -1,0 +1,230 @@
+/* The writing studio. The page is the paper: a bar across the top, then a comfortable column with the title as large as it will
+   be on the page, and the text drawn by the same styles an article has (#content, the curriculum's) so what is written looks
+   like what is read. Controls are quiet until they are needed: a toolbar appears over selected text, a handle beside the block
+   the pointer is on, a list when "/" is typed. Colours, type and spacing are the design tokens (tokens.css). */
+
+/* --studio-bar-h is how tall the bar is; StudioBar.jsx keeps it true (it is taller when the bar wraps), this is what it is until then. */
+.studio { min-height: 100%; --studio-bar-h: 53px; }
+
+/* ----------------------------------------------------------------------------------------------------- the bar */
+
+.studio-bar {
+  position: sticky; top: 0; z-index: var(--z-rail);
+  display: flex; align-items: center; justify-content: space-between; gap: var(--space-3) var(--space-6); flex-wrap: wrap;
+  padding: var(--space-2) var(--space-6); background: color-mix(in srgb, var(--bg) 92%, transparent); backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--border-subtle);
+}
+.studio-bar__left, .studio-bar__right { display: flex; align-items: center; gap: var(--space-2) var(--space-3); flex-wrap: wrap; min-width: 0; }
+.studio-bar__back { font-size: var(--text-sm); color: var(--fg-muted); text-decoration: none; white-space: nowrap; }
+.studio-bar__back:hover { color: var(--fg); text-decoration: underline; }
+.studio-counts { font-size: var(--text-sm); color: var(--fg-subtle); font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+/* What is happening to the writing. The dot says it before the words do: still, moving, or in trouble. */
+.studio-status { display: inline-flex; align-items: center; gap: 7px; font-size: var(--text-sm); color: var(--fg-muted); }
+.studio-status__dot { width: 8px; height: 8px; border-radius: 50%; background: var(--fg-subtle); flex: none; }
+.studio-status.is-saved .studio-status__dot { background: var(--fg); opacity: .55; }
+.studio-status.is-unsaved .studio-status__dot { background: var(--signal); }
+.studio-status.is-saving .studio-status__dot { background: var(--signal); animation: studio-pulse 1s ease-in-out infinite; }
+.studio-status.is-error, .studio-status.is-offline, .studio-status.is-conflict { color: var(--danger); }
+.studio-status.is-error .studio-status__dot, .studio-status.is-offline .studio-status__dot, .studio-status.is-conflict .studio-status__dot { background: var(--danger); }
+@keyframes studio-pulse { 50% { opacity: .35; } }
+@media (prefers-reduced-motion: reduce) { .studio-status.is-saving .studio-status__dot { animation: none; } }
+
+.studio-chip {
+  display: inline-block; padding: 2px 8px; border-radius: var(--r-pill); border: 1px solid var(--border);
+  font-size: var(--text-2xs); font-weight: var(--weight-semibold); letter-spacing: .06em; text-transform: uppercase; color: var(--fg-muted);
+}
+.studio-chip.is-published { color: var(--fg); border-color: var(--fg); }
+.studio-chip.is-scheduled { color: var(--signal); border-color: var(--signal-line); background: var(--signal-bg); }
+.studio-chip.is-hidden { color: var(--danger); border-color: var(--danger); }
+
+.studio-note { margin: 0 0 var(--space-4); padding: var(--space-3) var(--space-4); border: 1px solid var(--signal-line); border-radius: var(--r-md); background: var(--signal-bg); color: var(--fg); font-size: var(--text-sm); line-height: var(--leading-normal); }
+.studio-note--wide { margin: var(--space-4) var(--space-6) 0; }
+.studio-uploading { position: fixed; left: 50%; bottom: 76px; transform: translateX(-50%); z-index: var(--z-toast); margin: 0; padding: 8px 14px; border-radius: var(--r-pill); background: var(--accent); color: var(--accent-fg); font-size: var(--text-sm); box-shadow: var(--shadow-md); }
+
+/* ----------------------------------------------------------------------------------------------- the writing page */
+
+.studio-page { max-width: 740px; margin: 0 auto; padding: var(--space-12) var(--space-8) 160px; }
+
+.studio-title, .studio-subtitle {
+  display: block; width: 100%; box-sizing: border-box; resize: none; overflow: hidden; border: 0; outline: 0; background: transparent;
+  color: var(--fg); padding: 0; margin: 0; field-sizing: content;
+}
+.studio-title { font: 760 var(--text-4xl)/1.12 var(--sans); letter-spacing: -.028em; text-wrap: balance; }
+.studio-subtitle { margin: var(--space-3) 0 var(--space-8); font: 400 21px/1.45 var(--serif); color: var(--fg-muted); }
+.studio-title::placeholder, .studio-subtitle::placeholder { color: var(--fg-subtle); opacity: 1; }
+.studio-title:focus-visible, .studio-subtitle:focus-visible { box-shadow: none; }
+
+/* The editor is drawn inside #content (the curriculum's article styles) and .post-body (the reading face), so the headings,
+   lists, quotes, tables and content blocks are the ones a reader gets. What is added is what editing needs. */
+.studio-doc { min-height: 50vh; }
+.studio-doc .ProseMirror { outline: none; min-height: 50vh; caret-color: var(--signal); }
+/* The writing area is not ringed when it has focus (the global ring is for controls): the caret and the placeholder say where
+   you are, and a box around the whole page of text is noise while writing. The title and subtitle are the same. */
+:is(#root, #overlays) .studio-doc .ProseMirror.studio-prose:focus-visible { outline: none; }
+.studio-doc .ProseMirror > *:first-child { margin-top: 0; }
+.studio-doc .ProseMirror p.is-empty::before,
+.studio-doc .ProseMirror h2.is-empty::before,
+.studio-doc .ProseMirror h3.is-empty::before,
+.studio-doc .ProseMirror h4.is-empty::before { content: attr(data-placeholder); float: left; height: 0; pointer-events: none; color: var(--fg-subtle); font-style: normal; }
+.studio-doc .ProseMirror ::selection { background: color-mix(in srgb, var(--signal) 28%, transparent); }
+.studio-doc .ProseMirror-selectednode { outline: 2px solid var(--signal); outline-offset: 3px; border-radius: var(--r-sm); }
+.studio-doc .ProseMirror a { cursor: text; }
+.studio-doc img { cursor: default; }
+.studio-doc .ProseMirror-gapcursor::after { border-top-color: var(--fg); }
+.studio-doc .ProseMirror .tableWrapper { overflow-x: auto; margin: 0 0 18px; }
+.studio-doc .ProseMirror table { margin: 0; }
+.studio-doc .ProseMirror th, .studio-doc .ProseMirror td { min-width: 80px; position: relative; }
+.studio-doc .ProseMirror .selectedCell::after { content: ""; position: absolute; inset: 0; background: color-mix(in srgb, var(--signal) 18%, transparent); pointer-events: none; }
+.studio-doc ul[data-type="taskList"] { list-style: none; padding-left: 4px; }
+.studio-doc ul[data-type="taskList"] li { display: flex; align-items: baseline; gap: var(--space-3); }
+.studio-doc ul[data-type="taskList"] li > label { flex: none; }
+.studio-doc ul[data-type="taskList"] li > div { flex: 1; min-width: 0; }
+.studio-doc ul[data-type="taskList"] input[type="checkbox"] { accent-color: var(--accent); width: 16px; height: 16px; }
+
+/* A code block: the page's own code block, with its language in the corner and always in view (a reader's is for copying). */
+.studio-code .cb-bar { opacity: 1; }
+.studio-code pre { cursor: text; }
+.studio-code__language, .studio-callout__tone {
+  font: inherit; font-size: var(--text-xs); color: var(--fg-muted); background: var(--bg); border: 1px solid var(--border); border-radius: var(--r-sm); padding: 2px 6px;
+}
+.studio-callout .cblock-h { padding: 5px 12px; }
+.studio-callout__tone { text-transform: uppercase; letter-spacing: .06em; font-weight: var(--weight-bold); background: transparent; border-color: transparent; color: inherit; }
+.studio-callout__tone:hover { border-color: var(--border); }
+
+.studio-video { position: relative; margin: 20px 0; }
+.studio-video__card { pointer-events: none; }
+.studio-video__remove { position: absolute; top: 8px; right: 8px; opacity: 0; font: inherit; font-size: var(--text-xs); padding: 3px 9px; border-radius: var(--r-sm); border: 1px solid var(--border); background: var(--bg-raised); color: var(--fg); cursor: pointer; }
+.studio-video:hover .studio-video__remove, .studio-video:focus-within .studio-video__remove, .studio-video.ProseMirror-selectednode .studio-video__remove { opacity: 1; }
+
+/* ------------------------------------------------------------------------------------------------ floating controls */
+
+.studio-bubble {
+  z-index: var(--z-menu); display: flex; align-items: center; gap: 2px; padding: 4px; flex-wrap: wrap; max-width: min(92vw, 460px);
+  background: var(--bg-raised); border: 1px solid var(--border); border-radius: var(--r-md); box-shadow: var(--shadow-lg);
+}
+.studio-bubble__btn {
+  font: inherit; font-size: var(--text-sm); min-width: 30px; height: 30px; padding: 0 8px; display: inline-flex; align-items: center; justify-content: center;
+  border: 0; border-radius: var(--r-sm); background: transparent; color: var(--fg-muted); cursor: pointer; white-space: nowrap;
+}
+.studio-bubble__btn:hover { background: var(--hover); color: var(--fg); }
+.studio-bubble__btn.is-on { background: var(--accent); color: var(--accent-fg); }
+.studio-bubble__btn code { font-family: var(--mono); font-size: 12px; }
+.studio-bubble__rule { width: 1px; height: 18px; background: var(--border); margin: 0 4px; }
+.studio-bubble__link { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.studio-bubble__link input, .studio-field input {
+  font: inherit; font-size: var(--text-sm); height: 30px; padding: 0 8px; min-width: 220px; border: 1px solid var(--border-strong); border-radius: var(--r-sm); background: var(--bg); color: var(--fg);
+}
+.studio-bubble__problem { flex-basis: 100%; margin: 4px 4px 2px; font-size: var(--text-xs); color: var(--danger); line-height: var(--leading-snug); }
+.studio-bubble--panel { display: grid; gap: var(--space-2); padding: var(--space-3); width: min(92vw, 340px); }
+.studio-field { display: grid; gap: 4px; font-size: var(--text-xs); color: var(--fg-muted); }
+.studio-field input { width: 100%; box-sizing: border-box; }
+
+/* The "/" list. */
+.studio-slash {
+  position: fixed; z-index: var(--z-menu); width: 280px; overflow-y: auto; padding: 4px;
+  background: var(--bg-raised); border: 1px solid var(--border); border-radius: var(--r-md); box-shadow: var(--shadow-lg);
+}
+.studio-slash__row { display: flex; flex-direction: column; gap: 1px; padding: 7px 10px; border-radius: var(--r-sm); cursor: pointer; }
+.studio-slash__row.is-on { background: var(--hover); }
+.studio-slash__label { font-size: var(--text-base); color: var(--fg); font-weight: var(--weight-medium); }
+.studio-slash__hint { font-size: var(--text-xs); color: var(--fg-subtle); }
+.studio-slash__empty { padding: 10px; font-size: var(--text-sm); color: var(--fg-subtle); }
+
+/* The handle in the margin beside a block. */
+.studio-handle { display: flex; align-items: center; gap: 2px; z-index: var(--z-rail); }
+.studio-handle__add, .studio-handle__grip {
+  display: grid; place-items: center; width: 24px; height: 24px; padding: 0; border: 0; border-radius: var(--r-sm); background: transparent; color: var(--fg-subtle); cursor: pointer; font: inherit; font-size: 18px; line-height: 1;
+}
+.studio-handle__grip { cursor: grab; }
+.studio-handle__add:hover, .studio-handle__grip:hover { background: var(--hover); color: var(--fg); }
+
+/* ----------------------------------------------------------------------------------------------------- preview */
+
+.studio-preview { max-width: 740px; margin: 0 auto; }
+.studio-preview__banner { margin: 0 0 var(--space-8); padding: var(--space-2) var(--space-3); border: 1px dashed var(--border-strong); border-radius: var(--r-md); font-size: var(--text-sm); color: var(--fg-muted); }
+
+/* --------------------------------------------------------------------------------------- dialogs and the list page */
+
+.studio-form { display: grid; gap: var(--space-4); }
+.studio-form__error { margin: 0; color: var(--danger); font-size: var(--text-sm); }
+.studio-problems { margin: 0; padding: var(--space-3) var(--space-4) var(--space-3) var(--space-6); border: 1px solid var(--signal-line); border-radius: var(--r-md); background: var(--signal-bg); font-size: var(--text-sm); display: grid; gap: 4px; }
+.studio-check { display: flex; align-items: flex-start; gap: var(--space-3); font-size: var(--text-base); cursor: pointer; }
+.studio-check input { margin-top: 4px; accent-color: var(--accent); }
+.studio-check small { display: block; color: var(--fg-subtle); font-size: var(--text-xs); margin-top: 2px; }
+.studio-fieldset { margin: 0; padding: 0; border: 0; display: grid; gap: var(--space-3); min-width: 0; }
+.studio-fieldset legend { padding: 0; margin-bottom: var(--space-2); font-size: var(--text-sm); font-weight: var(--weight-semibold); }
+.studio-row { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
+.studio-chips { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+.studio-cover { display: block; max-width: 100%; max-height: 180px; object-fit: cover; border-radius: var(--r-md); border: 1px solid var(--border-subtle); }
+.studio-file { cursor: pointer; position: relative; }
+.studio-file input { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; }
+.studio-shortcuts__group { margin: var(--space-4) 0 var(--space-1); font-size: var(--text-xs); letter-spacing: .08em; text-transform: uppercase; color: var(--fg-subtle); }
+
+.studio-profile {
+  display: flex; align-items: center; gap: var(--space-3); flex-wrap: wrap; margin-bottom: var(--space-6); padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--border-subtle); border-radius: var(--r-lg); background: var(--bg-raised);
+}
+.studio-profile__text { flex: 1; min-width: 160px; display: grid; gap: 1px; }
+.studio-profile__text span { font-size: var(--text-sm); color: var(--fg-subtle); }
+
+.studio-list { list-style: none; margin: 0; padding: 0; }
+.studio-list__row { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-4) 0; border-bottom: 1px solid var(--border-subtle); }
+.studio-list__row:first-child { border-top: 1px solid var(--border-subtle); }
+.studio-list__main { flex: 1; min-width: 0; }
+.studio-list__title { display: block; font-size: var(--text-lg); font-weight: var(--weight-bold); color: var(--fg); text-decoration: none; letter-spacing: -.01em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.studio-list__title:hover { text-decoration: underline; }
+.studio-list__meta { display: flex; align-items: center; flex-wrap: wrap; gap: var(--space-1) var(--space-3); margin: var(--space-1) 0 0; font-size: var(--text-sm); color: var(--fg-subtle); }
+
+/* ------------------------------------------------------------------------------------------- the writing assistant */
+
+/* A panel beside the text, not over it: the author keeps writing while it is open. On a narrow screen it is a sheet at the bottom. */
+.studio-assistant {
+  position: fixed; z-index: var(--z-drawer); top: calc(var(--topbar-h) + var(--studio-bar-h)); right: 0; bottom: 0; width: 340px; overflow-y: auto; box-sizing: border-box;
+  padding: var(--space-4); background: var(--bg-raised); border-left: 1px solid var(--border-subtle); display: grid; align-content: start; gap: var(--space-4);
+}
+body.studio-focus .studio-assistant { top: var(--studio-bar-h); }
+.studio.has-assistant .studio-page { margin-right: 340px; margin-left: auto; max-width: min(740px, calc(100vw - 340px - 120px)); }
+.studio-assistant__head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); }
+.studio-assistant__head h2 { margin: 0; font-size: var(--text-lg); outline: none; }
+.studio-assistant__note { margin: 0; font-size: var(--text-sm); color: var(--fg-muted); line-height: var(--leading-normal); }
+.studio-assistant section { display: grid; gap: var(--space-2); }
+.studio-assistant h3 { margin: 0; font-size: var(--text-2xs); letter-spacing: .1em; text-transform: uppercase; color: var(--fg-subtle); }
+.studio-assistant__selection { margin: 0; font-size: var(--text-sm); color: var(--fg-muted); line-height: var(--leading-snug); overflow-wrap: anywhere; }
+.studio-assistant__row { display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
+.studio-assistant__tone select { font: inherit; font-size: var(--text-sm); height: 30px; border: 1px solid var(--border-strong); border-radius: var(--r-sm); background: var(--bg); color: var(--fg); padding: 0 6px; }
+.studio-assistant__live { min-height: 1.4em; font-size: var(--text-sm); color: var(--fg-subtle); }
+.studio-assistant__cards { display: grid; gap: var(--space-3); }
+.studio-suggestion { display: grid; gap: var(--space-2); padding: var(--space-3); border: 1px solid var(--border); border-radius: var(--r-md); background: var(--bg); }
+.studio-suggestion h4 { margin: 0; font-size: var(--text-sm); }
+.studio-suggestion p { margin: 0; font-size: var(--text-sm); line-height: var(--leading-normal); overflow-wrap: anywhere; }
+.studio-suggestion__was span, .studio-suggestion__new span { display: block; font-size: var(--text-2xs); letter-spacing: .08em; text-transform: uppercase; color: var(--fg-subtle); }
+.studio-suggestion__was { color: var(--fg-muted); }
+.studio-suggestion__new { border-left: 3px solid var(--signal); padding-left: var(--space-3); }
+.studio-suggestion__list { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-2); font-size: var(--text-sm); }
+.studio-suggestion__list li { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); }
+.studio-suggestion__outline { margin: 0; font: inherit; font-size: var(--text-sm); white-space: pre-wrap; color: var(--fg-muted); }
+
+@media (max-width: 1180px) {
+  .studio.has-assistant .studio-page { margin-right: auto; max-width: 740px; }
+}
+@media (max-width: 860px) {
+  .studio-assistant { top: auto; height: 60vh; width: auto; left: 0; border-left: 0; border-top: 1px solid var(--border); box-shadow: var(--shadow-lg); border-radius: var(--r-lg) var(--r-lg) 0 0; bottom: 64px; }
+  body.studio-focus .studio-assistant { bottom: 0; top: auto; }
+}
+
+/* ------------------------------------------------------------------------------------------------------ focus mode */
+
+/* Only the writing: the app's own bars and rail go, and the studio's bar thins out. */
+body.studio-focus #topbar, body.studio-focus #destRail { display: none; }
+body.studio-focus .studio-bar { opacity: .35; transition: opacity var(--dur-base) var(--ease-out); }
+body.studio-focus .studio-bar:hover, body.studio-focus .studio-bar:focus-within { opacity: 1; }
+
+@media (max-width: 860px) {
+  .studio-bar { padding: var(--space-2) var(--space-4); }
+  .studio-page { padding: var(--space-8) var(--space-4) 140px; }
+  .studio-title { font-size: 30px; }
+  .studio-counts { display: none; }
+  .studio-uploading { bottom: 96px; }
+  .studio-list__row { flex-wrap: wrap; }
+}

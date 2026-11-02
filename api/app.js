@@ -14,6 +14,7 @@ import workspace from './routes/workspace.js';
 import admin from './routes/admin.js';
 import content from './routes/content.js';
 import blogs from './routes/blogs.js';
+import assistant from './routes/assistant.js';
 
 const app = createRouter();
 
@@ -26,6 +27,7 @@ app.route('/api', workspace);
 app.route('/api', admin);
 app.route('/api', content);
 app.route('/api', blogs);
+app.route('/api', assistant);
 
 app.notFound((c) => c.json({ error: 'not found' }, 404));
 app.onError((err, c) => {

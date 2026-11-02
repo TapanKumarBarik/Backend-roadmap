@@ -1025,6 +1025,7 @@ body.right-rail-collapsed #toc { display: none; }
   border-bottom: 1px solid var(--border-subtle); font-size: 13.5px;
 }
 .admin-row-main { flex: 1; min-width: 0; }
+.admin-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 8px; }
 .admin-link {
   background: none; border: 0; padding: 0; color: var(--link); text-decoration: underline;
   font-family: var(--mono); font-size: 12px; cursor: pointer;

@@ -14,6 +14,11 @@ export interface Bindings {
   FEED_CONTAINER_SAS: string;
   BACKUPS_CONTAINER_SAS: string;
   GITHUB_PAT: string;
+  /** The writing assistant's two possible sources (api/lib/assistant/provider.js): neither is needed. */
+  AI?: { run(model: string, input: unknown): Promise<any> };
+  ANTHROPIC_API_KEY?: string;
+  /** "anthropic" to prefer it when both sources are set up. */
+  ASSISTANT_PROVIDER?: string;
 }
 
 export type AppEnv = { Bindings: Bindings };
