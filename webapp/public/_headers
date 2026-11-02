@@ -15,6 +15,11 @@
 /assets/*
   Cache-Control: public, max-age=31536000, immutable
 
+# The app's shell, kept as a file for the pages the server draws when they are asked for (api/pages/blogPages.js). It is a
+# plain copy of the site's page, not a page of its own.
+/app-shell
+  X-Robots-Tag: noindex
+
 # Every module is also served as its raw markdown (the app fetches it). It is the
 # same text as the module's page, so keep it out of search results and let the
 # page, which is the one with a title, a description and the site around it, rank.

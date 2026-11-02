@@ -32,14 +32,25 @@ export function anchorOf(text) {
   return String(text).normalize('NFKD').replace(/\p{M}/gu, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'section';
 }
 
-// Hands out heading ids in document order, "intro", "intro-2", "intro-3": the page and its table of contents must agree.
+/**
+ * A heading's id, by exactly the rule the curriculum's pages use (slugify in lib/markdown/markdown.js, applied by
+ * enhanceContent): the id in the HTML a crawler gets is then the id the reader's own copy ends up with, so a link to
+ * "#caching" works before and after the app has started. (A page's address is made differently: see anchorOf.)
+ */
+export function headingAnchor(text) {
+  return String(text).toLowerCase().trim().replace(/[^\w\s-]/g, '').replace(/\s+/g, '-').slice(0, 60) || 'section';
+}
+
+// Hands out heading ids in document order, "intro", "intro-1", "intro-2" (the numbering enhanceContent uses): the page
+// and its table of contents must agree.
 export function headingIds() {
   const used = new Map();
   return (text) => {
-    const base = anchorOf(text);
-    const n = (used.get(base) || 0) + 1;
+    const base = headingAnchor(text);
+    if (!used.has(base)) { used.set(base, 0); return base; }
+    const n = used.get(base) + 1;
     used.set(base, n);
-    return n === 1 ? base : `${base}-${n}`;
+    return `${base}-${n}`;
   };
 }
 

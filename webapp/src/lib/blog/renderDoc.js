@@ -1,19 +1,21 @@
 import { headingIds, plainText } from './docText.js';
-import { LANGUAGE_PATTERN, VIDEO_ID_PATTERN, CALLOUT_TONES } from './limits.js';
+import { LANGUAGE_PATTERN, VIDEO_ID_PATTERN, CALLOUTS } from './limits.js';
 import { safeHref, safeImageSrc } from './sanitizeDoc.js';
+import { videoCardHtml } from '../markdown/videoCard.js';
 
 // Draws a document as HTML, for the page a reader opens and for crawlers and link previews. It writes out only the
 // node types and marks sanitizeDoc.js keeps, escapes every piece of text and every attribute, and checks the addresses
 // it is about to write once more (a document that skipped the sanitiser must still not be able to inject anything).
+//
+// The markup is the curriculum's own (the same code blocks, video cards, content blocks and tables as a module), so an
+// article is styled by the CSS and brought to life by the code a module already has: highlighting, the copy button,
+// the video player, diagrams. Nothing here is specific to a screen.
 //
 // Free of the DOM, so it runs in the API, in the Pages Function and in tests: the same HTML everywhere.
 
 const escape = (value) => String(value)
   .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
   .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
-
-const youtubeWatch = (id) => `https://www.youtube.com/watch?v=${id}`;
-const youtubeThumb = (id) => `https://i.ytimg.com/vi/${id}/hqdefault.jpg`;
 
 /**
  * @param {any} doc  a sanitised document
@@ -70,7 +72,7 @@ export function renderDoc(doc, options = {}) {
       }
       case 'codeBlock': {
         const language = node.attrs && typeof node.attrs.language === 'string' && LANGUAGE_PATTERN.test(node.attrs.language) ? node.attrs.language : null;
-        return `<pre class="codeblock"><code${language ? ` class="language-${escape(language)}"` : ''}>${(node.content || []).map((n) => escape(n.text)).join('')}</code></pre>`;
+        return `<pre><code${language ? ` class="language-${escape(language)}"` : ''}>${(node.content || []).map((n) => escape(n.text)).join('')}</code></pre>`;
       }
       case 'horizontalRule': return '<hr>';
       case 'image': {
@@ -78,18 +80,23 @@ export function renderDoc(doc, options = {}) {
         if (!src) return '';
         const alt = (node.attrs && node.attrs.alt) || '';
         const caption = (node.attrs && node.attrs.title) || '';
-        return `<figure class="post-figure"><img src="${escape(src)}" alt="${escape(alt)}" loading="lazy" decoding="async">${caption ? `<figcaption>${escape(caption)}</figcaption>` : ''}</figure>`;
+        return `<figure><img src="${escape(src)}" alt="${escape(alt)}" loading="lazy" decoding="async">${caption ? `<figcaption>${escape(caption)}</figcaption>` : ''}</figure>`;
       }
       case 'callout': {
-        const tone = node.attrs && CALLOUT_TONES.includes(node.attrs.tone) ? node.attrs.tone : 'note';
-        return `<aside class="callout callout-${tone}" role="note"><div class="callout-body">${children(node)}</div></aside>`;
+        const { label, cls } = CALLOUTS[node.attrs && Object.hasOwn(CALLOUTS, node.attrs.tone) ? node.attrs.tone : 'note'];
+        return `<div class="cblock cblock-${cls}"><div class="cblock-h">${label}</div><div class="cblock-b">${children(node)}</div></div>`;
       }
       case 'video': {
         const id = node.attrs && node.attrs.id;
         if (!VIDEO_ID_PATTERN.test(String(id))) return '';
-        return `<div class="post-video" data-video="${id}"><a href="${youtubeWatch(id)}" rel="noopener noreferrer" target="_blank"><img src="${youtubeThumb(id)}" alt="Watch the video on YouTube" width="480" height="360" loading="lazy"></a></div>`;
+        return videoCardHtml(id, '');
       }
-      case 'table': return `<div class="table-wrap"><table>${children(node)}</table></div>`;
+      case 'table': {
+        // A first row of header cells is the table's head, as in a module's tables (and its CSS).
+        const rows = node.content || [];
+        const headed = rows.length > 0 && (rows[0].content || []).length > 0 && rows[0].content.every((cell) => cell.type === 'tableHeader');
+        return `<table>${headed ? `<thead>${render(rows[0])}</thead>` : ''}<tbody>${(headed ? rows.slice(1) : rows).map(render).join('')}</tbody></table>`;
+      }
       case 'tableRow': return `<tr>${children(node)}</tr>`;
       case 'tableHeader':
       case 'tableCell': {

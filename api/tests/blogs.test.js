@@ -235,6 +235,33 @@ test('starting drafts is limited, so one account cannot fill the table', async (
   assert.equal((await call(grace, 'POST', '/blogs', {})).status, 201, 'the limit is per account');
 });
 
+test('pictures for an article are only pictures, and have an upload limit of their own', async () => {
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response('', { status: 201 }); // the storage accepts whatever it is sent
+  try {
+    env.FEED_CONTAINER_SAS = 'a-test-token';
+    const png = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 0]).toString('base64');
+    const upload = (cookie, query = '', file = { contentType: 'image/png', dataBase64: png }) => call(cookie, 'POST', `/feed/upload${query}`, { filename: 'figure.png', ...file });
+
+    const pdf = await upload(ada, '?for=article', { contentType: 'application/pdf', dataBase64: Buffer.from('%PDF-1.4 x').toString('base64') });
+    assert.equal(pdf.status, 400, 'a document is not a picture');
+    assert.match(pdf.json.error, /Only pictures/);
+    assert.equal((await upload(ada, '', { contentType: 'application/pdf', dataBase64: Buffer.from('%PDF-1.4 x').toString('base64') })).status, 200, 'the feed still takes one');
+
+    for (let i = 0; i < 60; i++) assert.equal((await upload(ada, '?for=article')).status, 200, `picture ${i + 1}`);
+    const refused = await upload(ada, '?for=article');
+    assert.equal(refused.status, 429);
+    assert.match(refused.json.error, /uploaded a lot of pictures/);
+
+    // The two limits do not share a count: sixty figures have not used up what may be posted to the feed.
+    for (let i = 0; i < 9; i++) assert.equal((await upload(ada)).status, 200, `feed upload ${i + 2}`);
+    assert.equal((await upload(ada)).status, 429, 'the feed\'s own limit still holds');
+    assert.equal((await upload(grace, '?for=article')).status, 200, 'and it is per account');
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
 // --------------------------------------------------------------------------------------------------- publishing
 
 test('publishing needs an author name, a title and something worth reading', async () => {
@@ -438,6 +465,26 @@ test('a like toggles, counts a reader once, and needs a post that is out', async
   const hidden = await draft(ada);
   assert.equal((await call(grace, 'POST', `/blogs/${hidden}/like`)).status, 404, 'a draft');
   assert.equal((await call(grace, 'POST', '/blogs/no-such-post/like')).status, 404);
+});
+
+test('the saved list holds a reader\'s own bookmarks that are still out, newest first', async () => {
+  await startAuthor(ada, 'ada-l');
+  const one = await published(ada, { title: 'First article' });
+  const two = await published(ada, { title: 'Second article' });
+  const three = await published(ada, { title: 'Third article' });
+  for (const post of [one, two, three]) await call(grace, 'POST', `/blogs/${post.id}/bookmark`);
+  sql('UPDATE blog_bookmarks SET created_at = ? WHERE post_id = ?', longAgo(1), one.id);
+  sql('UPDATE blog_bookmarks SET created_at = ? WHERE post_id = ?', longAgo(2), two.id);
+  sql('UPDATE blog_bookmarks SET created_at = ? WHERE post_id = ?', longAgo(3), three.id);
+
+  const saved = async (cookie) => (await call(cookie, 'GET', '/blogs/saved')).json.posts.map((p) => p.slug);
+  assert.deepEqual(await saved(grace), ['third-article', 'second-article', 'first-article']);
+  assert.deepEqual(await saved(reader), [], 'nobody else\'s');
+  assert.equal((await call(grace, 'GET', '/blogs/saved')).json.posts[0].author.handle, 'ada-l');
+
+  await call(owner, 'POST', `/manage/blogs/${three.id}/hide`);
+  await call(ada, 'POST', `/blogs/${one.id}/unpublish`);
+  assert.deepEqual(await saved(grace), ['second-article'], 'a post that is down is in no one\'s list');
 });
 
 test('a bookmark toggles and is the reader\'s own', async () => {

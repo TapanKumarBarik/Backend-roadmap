@@ -2,7 +2,10 @@
 // so backend/01-x/02-y/README.md lives at /backend/01-x/02-y/. The deploy build
 // (scripts/prerender.mjs) writes a static page at each of these so search
 // engines can index modules individually. App screens (__feed, __admin, ...)
-// stay in the hash, as does the rare module that isn't a README.
+// stay in the hash, as does the rare module that isn't a README. The community's
+// articles have real addresses too, but not as modules: see lib/appPages.js.
+
+import { pageUrl } from '../appPages.js';
 
 const README = /(^|\/)README\.md$/;
 
@@ -24,6 +27,9 @@ export function fileFromPathname(pathname) {
 
 export function routeUrl(path, heading) {
   if (!path) return '/';
+  // For a page of the community the "heading" is which one (the article's slug), not a section: it is part of the path.
+  const page = pageUrl(path, heading);
+  if (page) return page;
   const url = !path.startsWith('__') && moduleUrl(path);
   if (url) return url + (heading ? '#' + heading : '');
   return '/#' + encodeURIComponent(path) + (heading ? '@' + heading : '');

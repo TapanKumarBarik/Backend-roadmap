@@ -36,5 +36,18 @@ export const RESERVED_HANDLES = new Set([
 ]);
 export const RESERVED_SLUGS = new Set(['new', 'edit', 'tag', 'tags', 'mine', 'authors', 'author', 'write', 'feed', 'search', 'rss', 'sitemap']);
 
-/** Callout tones, the same set the curriculum's callouts use for the ones people reach for in an article. */
-export const CALLOUT_TONES = ['note', 'tip', 'warning', 'danger', 'key'];
+/**
+ * The callouts an article can have. The key is what is stored in the document; `cls` is the curriculum's own content
+ * block (lib/markdown/contentBlocks.js), so a callout in an article is drawn by the same CSS as one in a module.
+ */
+export const CALLOUTS = {
+  note: { label: 'Note', cls: 'note' },
+  tip: { label: 'Tip', cls: 'tip' },
+  key: { label: 'Key idea', cls: 'key' },
+  warning: { label: 'Warning', cls: 'pitfall' }
+};
+export const CALLOUT_TONES = Object.keys(CALLOUTS);
+
+/** A post's comments are rows of the comments table under this path (the feed's are 'feed:<id>'): the API and the app agree here. */
+export const COMMENT_PATH_PREFIX = 'blog:';
+export const commentPath = (postId) => COMMENT_PATH_PREFIX + postId;

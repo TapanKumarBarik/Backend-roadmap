@@ -65,6 +65,9 @@ export const ERROR_UI = {
 export const LOAD_WHAT = {
   questions: 'the questions',
   feed: 'the feed',
+  articles: 'the articles',
+  article: 'this article',
+  author: 'this author',
   books: 'the shelf',
   suggestions: 'the suggestions',
   comments: 'the discussion',

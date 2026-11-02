@@ -84,6 +84,17 @@ area (`routes/study.js` for bookmarks, notes and progress; `comments`, `feed`, `
 table. Every route is checked by `api/tests/access.test.js`: it calls all of them without signing in and fails for any that
 answers, unless the route is on a written-out public list.
 
+The community's articles have real addresses (`/blog/`, `/blog/<slug>`, `/authors/<handle>`, `/write`; the app's
+own table of them is `webapp/src/lib/appPages.js`), and a file cannot be behind an address that is made when someone
+writes. Three small Pages Functions under `functions/` (listed in `webapp/public/_routes.json`) answer them with
+`api/pages/blogPages.js`: it takes the app's shell (`dist/app-shell.html`, a copy the build keeps of the page before the
+home page is written into it) and writes the article's own title, description, canonical address, social tags,
+structured data and a copy of its text into it, through the same function the build uses for every module
+(`webapp/src/lib/seo/shellPage.js`). The data comes from the API's own routes, so who may see what is decided once. An
+article is live as soon as it is published but is kept out of search results (`noindex`, and out of
+`/sitemap-blogs.xml`) until its author is trusted or an admin approves it. `scripts/lib/smoke.mjs` checks after every deploy
+that `/blog/` and the sitemap are answered by these Functions.
+
 The database is Cloudflare D1 (SQLite). Its schema is `api/migrations/`, numbered files applied once each; see
 [api/README.md](../api/README.md) for how to change it safely. Nothing a reader writes is needed to *read* the site: if the
 API is down, lessons still open and a notice says what could not load.

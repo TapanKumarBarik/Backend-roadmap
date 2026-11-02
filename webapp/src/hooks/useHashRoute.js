@@ -1,34 +1,16 @@
 import { useCallback, useEffect, useState } from 'react';
-import { fileFromPathname, routeUrl } from '../lib/curriculum/moduleUrl.js';
+import { routeFromLocation } from '../lib/route.js';
+import { pageUrl } from '../lib/appPages.js';
+import { routeUrl } from '../lib/curriculum/moduleUrl.js';
 
-// Where the app is, as { path, heading }:
+// Where the app is, as { path, heading }; lib/route.js says how an address is read (a module's own page, a page of the
+// community such as /blog/<slug>, a screen in the hash, or one of the original all-hash links).
 //
-//   /backend/01-x/02-y/#some-heading   a curriculum module — its own page, see
-//                                      lib/curriculum/moduleUrl.js; the hash is a heading
-//   /#__feed   /#__feed@postId         app screens, which live in the hash
-//   /#backend%2F...%2FREADME.md@h      the original all-hash links. They're in
-//                                      bookmarks and shared links, so they are
-//                                      still accepted, then rewritten to the
-//                                      module's real URL.
-//
-// Moving to another page adds a browser-history entry, so Back and Forward walk
-// the pages you have read (arriving from a video and pressing Back used to leave
-// the site). Rewriting the address of the page you are already on, to its
+// Moving to another page adds a browser-history entry, so Back and Forward walk the pages you have read (arriving from
+// a video and pressing Back used to leave the site). Rewriting the address of the page you are already on, to its
 // canonical form or to a heading's anchor, does not add one.
 function parseLocation() {
-  let hash;
-  try { hash = decodeURIComponent(location.hash.replace(/^#/, '')); } catch { hash = ''; }
-
-  const legacyModule = hash.includes('/') || hash.endsWith('.md');
-  const file = fileFromPathname(location.pathname);
-
-  if (legacyModule || (!file && hash.startsWith('__'))) {
-    const [path, heading] = hash.split('@');
-    return { path: path || null, heading: heading || null };
-  }
-  // On a module page the hash is only ever a heading — including ids like
-  // "__init__" from a Python heading, which must not read as an app screen.
-  return { path: file, heading: file ? hash || null : null };
+  return routeFromLocation(location.pathname, location.hash);
 }
 
 function withSearch(url) {
@@ -38,6 +20,13 @@ function withSearch(url) {
 // Rewrites old-style and stray URLs to the one canonical form for this route.
 function canonicalize(route) {
   if (!route.path) return;
+  const page = pageUrl(route.path, route.heading);
+  if (page) {
+    // A page keeps its own hash (the section of an article being read). An old-style screen address (/#__blog@slug)
+    // is replaced by the page's, hash and all: there the hash was the route itself.
+    if (route.fromHash || location.pathname !== page) history.replaceState(null, '', page + location.search + (route.fromHash ? '' : location.hash));
+    return;
+  }
   const url = routeUrl(route.path, route.heading);
   if (url !== location.pathname + location.hash) history.replaceState(null, '', withSearch(url));
 }
@@ -48,13 +37,16 @@ function pushUrl(url) {
 }
 
 export function useHashRoute() {
-  const [route, setRoute] = useState(parseLocation);
+  const [route, setRoute] = useState(() => {
+    const { path, heading } = parseLocation();
+    return { path, heading };
+  });
 
   useEffect(() => {
     function sync() {
       const next = parseLocation();
       canonicalize(next);
-      setRoute((prev) => (next.path === prev.path && next.heading === prev.heading ? prev : next));
+      setRoute((prev) => (next.path === prev.path && next.heading === prev.heading ? prev : { path: next.path, heading: next.heading }));
     }
     sync();
     window.addEventListener('hashchange', sync);
@@ -65,9 +57,10 @@ export function useHashRoute() {
     };
   }, []);
 
-  const navigate = useCallback((path, heading = null, { updateUrl = true } = {}) => {
+  // `search` is a query string for the new address ("?tag=reliability"); the screen reads it.
+  const navigate = useCallback((path, heading = null, { updateUrl = true, search = '' } = {}) => {
     setRoute({ path, heading: heading || null });
-    if (updateUrl) pushUrl(routeUrl(path, heading));
+    if (updateUrl) pushUrl(search ? routeUrl(path, heading).replace(/#|$/, (m) => search + m) : routeUrl(path, heading));
   }, []);
 
   const goHome = useCallback(() => {

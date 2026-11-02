@@ -2,7 +2,7 @@
 // by design (a concurrent double-post in the same instant can slip through) —
 // an acceptable trade for a personal-scale site. One row per (user, bucket)
 // in the rate_limits table; bucket is 'feed' | 'books' | 'messages' |
-// 'suggestions' | 'comments' | 'blogs' | 'blogs-new' | 'blog-react' | 'blog-report'.
+// 'suggestions' | 'comments' | 'blogs' | 'blogs-new' | 'blog-react' | 'blog-report' | 'blog-upload'.
 
 import { first, run } from './d1.js';
 

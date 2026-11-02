@@ -1,5 +1,14 @@
 {
   "version": 1,
-  "include": ["/api/*"],
+  "include": [
+    "/api/*",
+    "/blog",
+    "/blog/*",
+    "/authors",
+    "/authors/*",
+    "/write",
+    "/write/*",
+    "/sitemap-blogs.xml"
+  ],
   "exclude": []
 }

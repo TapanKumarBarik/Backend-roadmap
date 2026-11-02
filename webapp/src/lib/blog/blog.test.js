@@ -2,9 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { DocError, isEmptyDoc, safeHref, safeImageSrc, sanitizeDoc } from './sanitizeDoc.js';
 import { renderDoc } from './renderDoc.js';
-import { anchorOf, plainText, readingStats, tocOf } from './docText.js';
+import { anchorOf, headingAnchor, plainText, readingStats, tocOf } from './docText.js';
 import { handleProblem, slugify, uniqueSlug } from './slug.js';
-import { BLOG } from './limits.js';
+import { BLOG, CALLOUTS } from './limits.js';
+import { slugify as moduleSlugify } from '../markdown/markdown.js';
 
 const IMAGES = ['https://uploads.example.net/feed-uploads/', 'https://uploads.example.net/images/'];
 const OPTIONS = { imageOrigins: IMAGES };
@@ -48,11 +49,11 @@ test('it is drawn as the HTML a reader and a crawler get', () => {
   assert.match(out, /<strong><em>change nothing<\/em><\/strong>|<em><strong>change nothing<\/strong><\/em>/);
   assert.match(out, /<a href="https:\/\/www\.rfc-editor\.org\/rfc\/rfc9110" rel="nofollow ugc noopener noreferrer" target="_blank">the RFC<\/a>/);
   assert.match(out, /<ol start="3"><li><p>third<\/p><\/li><\/ol>/);
-  assert.match(out, /<pre class="codeblock"><code class="language-python">def charge\(key\):\n {4}return store\.get\(key\)<\/code><\/pre>/);
-  assert.match(out, new RegExp(`<figure class="post-figure"><img src="${GOOD_IMAGE}" alt="A diagram" loading="lazy" decoding="async"><figcaption>Figure 1</figcaption></figure>`));
-  assert.match(out, /<div class="post-video" data-video="aNVDz45U-cM"><a href="https:\/\/www\.youtube\.com\/watch\?v=aNVDz45U-cM"/);
-  assert.match(out, /<aside class="callout callout-warning" role="note">/);
-  assert.match(out, /<div class="table-wrap"><table><tr><th><p>Method<\/p><\/th><th><p>Safe<\/p><\/th><\/tr><tr><td><p>GET<\/p><\/td><td><p>yes<\/p><\/td><\/tr><\/table><\/div>/);
+  assert.match(out, /<pre><code class="language-python">def charge\(key\):\n {4}return store\.get\(key\)<\/code><\/pre>/);
+  assert.match(out, new RegExp(`<figure><img src="${GOOD_IMAGE}" alt="A diagram" loading="lazy" decoding="async"><figcaption>Figure 1</figcaption></figure>`));
+  assert.match(out, /<figure class="video" data-video="aNVDz45U-cM"><a class="video-link" href="https:\/\/www\.youtube\.com\/watch\?v=aNVDz45U-cM" target="_blank" rel="noopener noreferrer"><img src="https:\/\/i\.ytimg\.com\/vi\/aNVDz45U-cM\/hqdefault\.jpg"/);
+  assert.match(out, /<div class="cblock cblock-pitfall"><div class="cblock-h">Warning<\/div><div class="cblock-b"><p>Careful\.<\/p><\/div><\/div>/);
+  assert.match(out, /<table><thead><tr><th><p>Method<\/p><\/th><th><p>Safe<\/p><\/th><\/tr><\/thead><tbody><tr><td><p>GET<\/p><\/td><td><p>yes<\/p><\/td><\/tr><\/tbody><\/table>/);
 });
 
 // ------------------------------------------------------------------------------------------------- hostile documents
@@ -115,7 +116,7 @@ test('quotes in alt text, a caption or a language cannot break out of an attribu
   ));
   assert.doesNotMatch(markupOnly(out), /<script|onerror|onmouseover/, 'no injected attribute, and no tag');
   assert.match(out, /alt="&quot; onerror=&quot;alert\(1\)"/);
-  assert.doesNotMatch(out, /post-video/, 'a video with a bad id is not drawn');
+  assert.doesNotMatch(out, /class="video"/, 'a video with a bad id is not drawn');
   assert.match(out, /<code>x<\/code>/, 'a language that is not a language name is not used');
 });
 
@@ -194,7 +195,7 @@ test('drawing a document that skipped the sanitiser still writes nothing dangero
   );
   const out = renderDoc(raw, OPTIONS);
   assert.doesNotMatch(out, /javascript:|<script|\/api\/auth|onmouseover|<img|<b>/);
-  assert.match(out, /callout-note/);
+  assert.match(out, /cblock-note/);
 });
 
 // ------------------------------------------------------------------------------------------- what is read off a document
@@ -208,10 +209,25 @@ test('plain text, reading time (code is not read) and the table of contents', ()
   assert.match(plainText(d), /^Intro\n\none two three\n\nIntro\n\nfour five\n\na b c d e f g h i j$/);
   assert.deepEqual(readingStats(d), { words: 7, minutes: 1 });
   assert.deepEqual(readingStats(clean(doc(p(t('word '.repeat(2100))))).doc, 210), { words: 2100, minutes: 10 });
-  assert.deepEqual(tocOf(d), [{ id: 'intro', text: 'Intro', level: 2 }, { id: 'intro-2', text: 'Intro', level: 3 }]);
-  assert.match(renderDoc(d, OPTIONS), /<h2 id="intro">Intro<\/h2>.*<h3 id="intro-2">Intro<\/h3>/s, 'the page uses the same ids as the contents');
+  assert.deepEqual(tocOf(d), [{ id: 'intro', text: 'Intro', level: 2 }, { id: 'intro-1', text: 'Intro', level: 3 }]);
+  assert.match(renderDoc(d, OPTIONS), /<h2 id="intro">Intro<\/h2>.*<h3 id="intro-1">Intro<\/h3>/s, 'the page uses the same ids as the contents');
   assert.equal(anchorOf('Caching & TTLs: what to expect'), 'caching-ttls-what-to-expect');
   assert.equal(anchorOf('Résumé naïve café'), 'resume-naive-cafe');
+});
+
+test('a heading gets the id the curriculum pages would give it, so a link works before and after the app starts', () => {
+  for (const heading of ['Caching & TTLs: what to expect', 'snake_case names', "What's new?", 'C++ basics', 'Résumé café', '  padded  ', '日本語', 'a'.repeat(100), 'HTTP/2 and 3']) {
+    assert.equal(headingAnchor(heading), moduleSlugify(heading) || 'section', JSON.stringify(heading));
+  }
+});
+
+test('every callout an author can pick is a content block of the curriculum, and a table without a header row has no head', () => {
+  for (const [tone, { label, cls }] of Object.entries(CALLOUTS)) {
+    assert.match(html(doc({ type: 'callout', attrs: { tone }, content: [p(t('x'))] })), new RegExp(`<div class="cblock cblock-${cls}"><div class="cblock-h">${label}</div>`), tone);
+  }
+  const cell = (text) => ({ type: 'tableCell', attrs: { colspan: 1, rowspan: 1 }, content: [p(t(text))] });
+  const table = html(doc({ type: 'table', content: [{ type: 'tableRow', content: [cell('a'), cell('b')] }] }));
+  assert.equal(table, '<table><tbody><tr><td><p>a</p></td><td><p>b</p></td></tr></tbody></table>');
 });
 
 // ----------------------------------------------------------------------------------------------------- slugs and handles

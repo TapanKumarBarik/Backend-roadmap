@@ -70,6 +70,10 @@ Then open **<http://localhost:4173>**, or **<http://localhost:4173/#__admin>**
 for the admin dashboard. Vite proxies `/api` to `http://localhost:8788`
 ([`webapp/vite.config.js`](../webapp/vite.config.js)).
 
+The community's articles open there too (`/blog/`, `/blog/<slug>`: the dev server hands the app any address). What a search
+engine or a link preview gets for them is made by Pages Functions, which run only under `npm run api`: after
+`npm run build`, open <http://localhost:8788/blog/> to see the pages as the server draws them.
+
 ## Why the port matters
 
 Use **4173** for the frontend. Google only redirects OAuth back to a URI

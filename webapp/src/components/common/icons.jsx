@@ -131,3 +131,55 @@ export function GoogleGIcon(props) {
     </svg>
   );
 }
+
+// Articles: a page with its lines. The community's writing, in the rail and on the "write" button.
+export function ArticleIcon(props) {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" {...props}>
+      <rect x="2.5" y="2" width="11" height="12" rx="1.6" />
+      <path d="M5.2 5.6h5.6M5.2 8h5.6M5.2 10.4h3" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+// A like. Outline until it is the reader's, then filled.
+export function HeartIcon({ filled = false, ...props }) {
+  return (
+    <svg viewBox="0 0 16 16" fill={filled ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" {...props}>
+      <path d="M8 14.2 2.6 8.9A3.6 3.6 0 0 1 8 4.3a3.6 3.6 0 0 1 5.4 4.6Z" />
+    </svg>
+  );
+}
+
+// A bookmark ribbon. Outline until it is saved, then filled.
+export function BookmarkIcon({ filled = false, ...props }) {
+  return (
+    <svg viewBox="0 0 16 16" fill={filled ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" {...props}>
+      <path d="M4 2.2h8a.6.6 0 0 1 .6.6v10.9L8 10.8l-4.6 2.9V2.8a.6.6 0 0 1 .6-.6Z" />
+    </svg>
+  );
+}
+
+export function ShareIcon(props) {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <path d="M8 10V1.8M5 4.5 8 1.5l3 3M3 8.5v4.2a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V8.5" />
+    </svg>
+  );
+}
+
+export function FlagIcon(props) {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <path d="M3.5 14V2.5M3.5 3h8l-1.7 2.8 1.7 2.7h-8" />
+    </svg>
+  );
+}
+
+export function PenIcon(props) {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" {...props}>
+      <path d="m2.5 13.5.7-3L11 2.7a1.2 1.2 0 0 1 1.7 0l.6.6a1.2 1.2 0 0 1 0 1.7L5.5 12.8l-3 .7Z" />
+    </svg>
+  );
+}

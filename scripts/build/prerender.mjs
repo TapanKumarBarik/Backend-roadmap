@@ -25,13 +25,19 @@ import { descriptionCandidates, pickDescription, videoCandidates } from '../lib/
 import { gitDates } from '../lib/gitDates.mjs';
 import { homePage } from '../lib/homePage.mjs';
 import { shareImagePath, shareImageUrl } from '../lib/shareImage.mjs';
+import { escapeHtml as esc, shellPage } from '../../webapp/src/lib/seo/shellPage.js';
 
 const SITE = SITE_URL;
 const SITE_NAME = config.site.name;
 const SHARE_CARD = config.shareImage;
 const DIST = path.join(ROOT, 'dist');
 
-const template = fs.readFileSync(path.join(DIST, 'index.html'), 'utf8');
+// The app shell, before any page is written into it. dist/app-shell.html is a copy of it kept for the pages that are
+// drawn when they are asked for (edge/blogPages.js); a second run of this step starts from that copy, because by then
+// index.html is the home page.
+const SHELL_COPY = path.join(DIST, 'app-shell.html');
+const template = fs.readFileSync(fs.existsSync(SHELL_COPY) ? SHELL_COPY : path.join(DIST, 'index.html'), 'utf8');
+if (!fs.existsSync(SHELL_COPY)) fs.writeFileSync(SHELL_COPY, template);
 const { tree } = JSON.parse(fs.readFileSync(path.join(DIST, 'docs-index.json'), 'utf8'));
 const titles = buildPageTitles(tree, SITE_NAME);
 const dates = gitDates(ROOT, CONTENT_DIR); // null without full history (a shallow clone): the dates are then left out
@@ -39,10 +45,6 @@ const dates = gitDates(ROOT, CONTENT_DIR); // null without full history (a shall
 const videosFile = path.join(DIST, 'videos.json');
 const videoList = fs.existsSync(videosFile) ? JSON.parse(fs.readFileSync(videosFile, 'utf8')).videos : [];
 const videosByFile = groupByModule(videoList);
-
-const esc = (s) => String(s)
-  .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-  .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 
 // Same lookups the app builds in useDocsIndex, for resolving internal links.
 const fileSet = new Set();
@@ -87,18 +89,6 @@ function rewriteLinks(html, file) {
     });
 }
 
-function replaceOnce(html, pattern, replacement) {
-  if (!pattern.test(html)) throw new Error(`prerender: template no longer contains ${pattern}`);
-  return html.replace(pattern, () => replacement);
-}
-
-const HIDE_UNTIL_NO_JS =
-  '<style>.prerender{display:none}</style>' +
-  '<noscript><style>.prerender{display:block;max-width:760px;margin:0 auto;padding:24px 20px;line-height:1.6}</style></noscript>';
-
-const jsonLd = (data) =>
-  `<script type="application/ld+json">${JSON.stringify(data).replace(/</g, '\\u003c')}</script>`;
-
 // Who is behind the site, for search engines to connect the pages, the repository and the channel.
 const author = {
   '@type': 'Person',
@@ -114,28 +104,7 @@ const publisher = {
 };
 
 // image: a page's own picture for link previews (its share card, scripts/build/gen-share-images.mjs), instead of the site's.
-function page({ title, fullTitle, description, url, type, ld, body, preload = [], noindex = false, image = null }) {
-  let html = template;
-  if (image) {
-    html = replaceOnce(html, /<meta property="og:image" content="[^"]*">/, `<meta property="og:image" content="${esc(image.url)}">`);
-    html = replaceOnce(html, /<meta property="og:image:width" content="[^"]*">/, `<meta property="og:image:width" content="${image.width}">`);
-    html = replaceOnce(html, /<meta property="og:image:height" content="[^"]*">/, `<meta property="og:image:height" content="${image.height}">`);
-    html = replaceOnce(html, /<meta property="og:image:alt" content="[^"]*">/, `<meta property="og:image:alt" content="${esc(image.alt)}">`);
-    html = replaceOnce(html, /<meta name="twitter:image" content="[^"]*">/, `<meta name="twitter:image" content="${esc(image.url)}">`);
-  }
-  html = replaceOnce(html, /<title>[^<]*<\/title>/, `<title>${esc(fullTitle)}</title>`);
-  html = replaceOnce(html, /<meta name="description" content="[^"]*">/, `<meta name="description" content="${esc(description)}">`);
-  html = replaceOnce(html, /<link rel="canonical" href="[^"]*">/, `<link rel="canonical" href="${SITE}${url}">`);
-  html = replaceOnce(html, /<meta property="og:url" content="[^"]*">/, `<meta property="og:url" content="${SITE}${url}">`);
-  html = replaceOnce(html, /<meta property="og:type" content="[^"]*">/, `<meta property="og:type" content="${type}">`);
-  html = replaceOnce(html, /<meta property="og:title" content="[^"]*">/, `<meta property="og:title" content="${esc(title)}">`);
-  html = replaceOnce(html, /<meta property="og:description" content="[^"]*">/, `<meta property="og:description" content="${esc(description)}">`);
-  const robots = noindex ? '<meta name="robots" content="noindex, follow">' : '';
-  const preloads = preload.map((href) => `<link rel="preload" href="${esc(href)}" as="fetch" crossorigin>`).join('');
-  html = replaceOnce(html, /<\/head>/, `${robots}${preloads}${HIDE_UNTIL_NO_JS}${jsonLd(ld)}</head>`);
-  html = replaceOnce(html, /<div id="root"><\/div>/, `<div id="root"><div class="prerender">${body}</div></div>`);
-  return html;
-}
+const page = (options) => shellPage(template, SITE, options);
 
 const link = (url, text) => `<a href="${url}">${esc(text)}</a>`;
 

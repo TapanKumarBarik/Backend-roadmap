@@ -27,6 +27,7 @@ import { buildPageTitles } from './lib/curriculum/pageTitle.js';
 import { globalCounts } from './lib/curriculum/progressStats.js';
 import { dirsOnPath } from './lib/curriculum/treePath.js';
 import { trackPageView, deleteAccount } from './lib/api.js';
+import { BLOG_ROUTE, AUTHOR_ROUTE, WRITE_ROUTE } from './lib/appPages.js';
 import { pickContinue, neighbourModules } from './lib/curriculum/curriculumPosition.js';
 import { resolvePaths, pathProgress, pathNeighbours, pickPathNext, placeOnPath } from './lib/curriculum/learningPaths.js';
 
@@ -57,6 +58,9 @@ const smallScreens = {
   post: () => import('./components/feed/PostDetailView.jsx'),
   books: () => import('./components/community/BooksView.jsx'),
   suggestions: () => import('./components/community/SuggestionsView.jsx'),
+  blogs: () => import('./components/blog/BlogsView.jsx'),
+  article: () => import('./components/blog/PostView.jsx'),
+  author: () => import('./components/blog/AuthorView.jsx'),
   videos: () => import('./components/videos/VideosView.jsx'),
   message: () => import('./components/account/MessageOwnerModal.jsx')
 };
@@ -68,6 +72,11 @@ const FeedView = lazy(smallScreens.feed);
 const PostDetailView = lazy(smallScreens.post);
 const BooksView = lazy(smallScreens.books);
 const SuggestionsView = lazy(smallScreens.suggestions);
+const BlogsView = lazy(smallScreens.blogs);
+const PostView = lazy(smallScreens.article);
+const AuthorView = lazy(smallScreens.author);
+// The studio is a heavier screen (an editor), opened on purpose and by few, so it is fetched only when opened.
+const StudioView = lazy(() => import('./components/blog/StudioView.jsx'));
 const VideosView = lazy(smallScreens.videos);
 const DesignView = lazy(() => import('./components/design/DesignView.jsx'));
 const MessageOwnerModal = lazy(smallScreens.message);
@@ -166,7 +175,12 @@ export default function App() {
   const isWorkspaceRoute = path === WORKSPACE_ROUTE;
   const isVideosRoute = path === VIDEOS_ROUTE;
   const isDesignRoute = path === DESIGN_ROUTE;
-  const isSpecialRoute = isAdminRoute || isSavedRoute || isExploreRoute || isCommunityRoute || isFeedRoute || isBooksRoute || isSuggestionsRoute || isWorkspaceRoute || isVideosRoute || isDesignRoute;
+  // The community's articles have addresses of their own (/blog/<slug>, lib/appPages.js) and set their own page title.
+  const isBlogRoute = path === BLOG_ROUTE;
+  const isAuthorRoute = path === AUTHOR_ROUTE;
+  const isWriteRoute = path === WRITE_ROUTE;
+  const isPageRoute = isBlogRoute || isAuthorRoute || isWriteRoute;
+  const isSpecialRoute = isAdminRoute || isSavedRoute || isExploreRoute || isCommunityRoute || isFeedRoute || isBooksRoute || isSuggestionsRoute || isWorkspaceRoute || isVideosRoute || isDesignRoute || isPageRoute;
   const currentFile = !isSpecialRoute && path && fileSet.has(path) ? path : null;
 
   useEffect(() => {
@@ -195,8 +209,8 @@ export default function App() {
   useEffect(() => {
     const title = currentFile && pageTitles[currentFile];
     if (title) document.title = title.full;
-    else if (!path || isSpecialRoute) document.title = SITE.title;
-  }, [currentFile, pageTitles, path, isSpecialRoute]);
+    else if (!path || (isSpecialRoute && !isPageRoute)) document.title = SITE.title;
+  }, [currentFile, pageTitles, path, isSpecialRoute, isPageRoute]);
 
   const openFile = useCallback((filePath, headingId) => {
     navigate(filePath, headingId || null);
@@ -387,6 +401,11 @@ export default function App() {
   const openSuggestions = useCallback(() => navigate(SUGGESTIONS_ROUTE), [navigate]);
   const openWorkspace = useCallback(() => navigate(WORKSPACE_ROUTE), [navigate]);
   const openVideos = useCallback(() => navigate(VIDEOS_ROUTE), [navigate]);
+  const openBlogs = useCallback(() => navigate(BLOG_ROUTE), [navigate]);
+  const openPost = useCallback((slug) => navigate(BLOG_ROUTE, slug), [navigate]);
+  const openAuthor = useCallback((handle) => navigate(AUTHOR_ROUTE, handle), [navigate]);
+  const openBlogTopic = useCallback((tag) => navigate(BLOG_ROUTE, null, { search: `?tag=${encodeURIComponent(tag)}` }), [navigate]);
+  const openWrite = useCallback((id) => navigate(WRITE_ROUTE, typeof id === 'string' ? id : null), [navigate]);
 
   // Two of the three theme states render identically on any given OS, so a
   // press can legitimately change nothing on screen — say which mode it
@@ -410,6 +429,7 @@ export default function App() {
       { label: activePath ? 'Switch learning path' : 'Pick a learning path', keywords: 'path route goal roadmap track plan', run: () => { setChoosingPath(true); goHome(); } },
       { label: 'Explore by tag', keywords: 'tags browse subject', run: () => navigate(EXPLORE_ROUTE) },
       ...(videoData ? [{ label: 'Watch the videos', keywords: 'videos youtube lectures watch course channel', run: () => navigate(VIDEOS_ROUTE) }] : []),
+      { label: 'Blogs', keywords: 'articles posts community writing read', run: () => navigate(BLOG_ROUTE) },
       { label: 'Feed', keywords: 'posts feed share', run: () => navigate(FEED_ROUTE) },
       { label: 'Community', keywords: 'discussion questions', run: () => navigate(COMMUNITY_ROUTE) },
       { label: 'Books', keywords: 'books pdf library shelf resources', run: () => navigate(BOOKS_ROUTE) },
@@ -426,6 +446,7 @@ export default function App() {
       });
     }
     if (user) list.push({ label: 'Saved — bookmarks and notes', keywords: 'bookmark star note', run: () => navigate(SAVED_ROUTE) });
+    if (user) list.push({ label: 'Write an article', keywords: 'blog post publish draft studio', run: () => navigate(WRITE_ROUTE) });
     if (user) list.push({ label: 'Workspace — your pages, to-dos, notes', keywords: 'notion pages todo table notes workspace', run: () => navigate(WORKSPACE_ROUTE) });
     if (user?.isAdmin) list.push({ label: 'Admin dashboard', keywords: 'manage moderate content', run: () => navigate(ADMIN_ROUTE) });
     list.push(
@@ -472,12 +493,13 @@ export default function App() {
       />
       <div id="shell">
         <DestinationRail
-          activeDest={isSavedRoute ? SAVED_ROUTE : isFeedRoute ? FEED_ROUTE : isCommunityRoute ? COMMUNITY_ROUTE : (isSpecialRoute ? path : null)}
+          activeDest={isSavedRoute ? SAVED_ROUTE : isFeedRoute ? FEED_ROUTE : isCommunityRoute ? COMMUNITY_ROUTE : isPageRoute ? BLOG_ROUTE : (isSpecialRoute ? path : null)}
           user={user}
           isAdmin={!!user?.isAdmin}
           onOpenCurriculum={handleGoHome}
           onOpenExplore={openExplore}
           onOpenSaved={openSaved}
+          onOpenBlogs={openBlogs}
           onOpenFeed={openFeed}
           onOpenCommunity={openCommunity}
           onOpenBooks={openBooks}
@@ -543,6 +565,7 @@ export default function App() {
                     bookmarks={bookmarks}
                     nodeByFile={nodeByFile}
                     onOpenFile={openFile}
+                    onOpenPost={openPost}
                     onToggleBookmark={toggleBookmark}
                     user={user}
                     onLogin={login}
@@ -576,6 +599,17 @@ export default function App() {
                       />
                     )
                 )}
+                {isBlogRoute && (
+                  heading
+                    ? <PostView slug={heading} user={user} onLogin={login} onToast={toast.show} onOpenPost={openPost} onOpenAuthor={openAuthor} onOpenList={openBlogs} onPickTag={openBlogTopic} />
+                    : <BlogsView onOpenPost={openPost} onOpenAuthor={openAuthor} onOpenWrite={openWrite} />
+                )}
+                {isAuthorRoute && (
+                  heading
+                    ? <AuthorView handle={heading} onOpenPost={openPost} onOpenAuthor={openAuthor} onOpenList={openBlogs} onPickTag={openBlogTopic} />
+                    : <BlogsView onOpenPost={openPost} onOpenAuthor={openAuthor} onOpenWrite={openWrite} />
+                )}
+                {isWriteRoute && <StudioView user={user} onLogin={login} onOpenList={openBlogs} />}
                 {isBooksRoute && <BooksView user={user} onLogin={login} onToast={toast.show} />}
                 {isSuggestionsRoute && <SuggestionsView user={user} onLogin={login} onToast={toast.show} />}
                 {isWorkspaceRoute && <WorkspaceView user={user} onLogin={login} />}

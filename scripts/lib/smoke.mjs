@@ -102,6 +102,21 @@ export async function checkSite(base, { fetchImpl = fetch } = {}) {
     }
   }
 
+  // The community's pages are drawn by Functions when they are asked for (api/pages/blogPages.js), not served from files.
+  // A deploy that lost the Functions, the routes file (_routes.json) or the shell copy (app-shell.html) would answer these
+  // with the home page or a 404.
+  const articles = await get('/blog/');
+  if (articles) {
+    const html = await articles.text();
+    expect(articles.status === 200, `/blog/ answered ${articles.status} (are the Functions, _routes.json and app-shell.html deployed?)`);
+    expect(/<link rel="canonical" href="[^"]*\/blog\/">/.test(html), '/blog/ is not drawn by the server (it has no canonical address of its own)');
+    expect(articles.headers.get('content-security-policy'), '/blog/ has no Content-Security-Policy header');
+  }
+  const blogSitemap = await get('/sitemap-blogs.xml');
+  if (blogSitemap) {
+    expect(blogSitemap.status === 200 && /<urlset/.test(await blogSitemap.text()), `/sitemap-blogs.xml answered ${blogSitemap.status} or is not a sitemap`);
+  }
+
   return problems;
 }
 

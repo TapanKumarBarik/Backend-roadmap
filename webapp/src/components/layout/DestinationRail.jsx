@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { TreeIcon, StarIcon, CompassIcon, FeedIcon, QuestionIcon, BookIcon, LightbulbIcon, WorkspaceIcon, GearIcon, YoutubeIcon, MenuDotsIcon } from '../common/icons.jsx';
+import { TreeIcon, StarIcon, CompassIcon, FeedIcon, QuestionIcon, BookIcon, LightbulbIcon, WorkspaceIcon, GearIcon, YoutubeIcon, MenuDotsIcon, ArticleIcon } from '../common/icons.jsx';
 import { useMediaQuery } from '../../hooks/useMediaQuery.js';
 import { Dialog } from '../ui/Dialog.jsx';
 
@@ -25,7 +25,7 @@ const GROUPS = [
 
 export default function DestinationRail({
   activeDest, user, isAdmin,
-  onOpenCurriculum, onOpenExplore, onOpenVideos, onOpenSaved, onOpenFeed, onOpenCommunity, onOpenBooks, onOpenSuggestions, onOpenWorkspace, onOpenAdmin,
+  onOpenCurriculum, onOpenExplore, onOpenVideos, onOpenSaved, onOpenBlogs, onOpenFeed, onOpenCommunity, onOpenBooks, onOpenSuggestions, onOpenWorkspace, onOpenAdmin,
   hasVideos, feedBadge, communityBadge
 }) {
   const phone = useMediaQuery('(max-width: 860px)');
@@ -42,7 +42,9 @@ export default function DestinationRail({
     // (same pattern as the account menu's reply badge, see
     // useCommunityActivity). The other destinations are just views onto
     // your own state; there's nothing there to be notified of.
-    { key: '__feed', label: 'Feed', Icon: FeedIcon, onClick: onOpenFeed, group: 'community', primary: true, badge: feedBadge },
+    // The community's articles; the feed's quick posts sit beside them.
+    { key: '__blog', label: 'Blogs', Icon: ArticleIcon, onClick: onOpenBlogs, group: 'community', primary: true },
+    { key: '__feed', label: 'Feed', Icon: FeedIcon, onClick: onOpenFeed, group: 'community', badge: feedBadge },
     { key: '__community', label: 'Community', Icon: QuestionIcon, onClick: onOpenCommunity, group: 'community', badge: communityBadge },
     { key: '__books', label: 'Books', Icon: BookIcon, onClick: onOpenBooks, group: 'community' },
     { key: '__suggestions', label: 'Suggestions', Icon: LightbulbIcon, onClick: onOpenSuggestions, group: 'community' },

@@ -16,6 +16,9 @@ const feed = createRouter();
 const MAX_TEXT_LENGTH = 20000;
 const RATE_LIMIT_WINDOW_MS = 10 * 60 * 1000;
 const RATE_LIMIT_MAX = 10;
+// The pictures in an article (POST /feed/upload?for=article) are many and small, and are not posts: they have a bucket and
+// a limit of their own, so an author with a dozen figures does not use up what they may post to the feed, and the other way round.
+const ARTICLE_UPLOADS = { bucket: 'blog-upload', windowMs: 60 * 60 * 1000, max: 60 };
 const MAX_LIST = 200;
 
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
@@ -184,10 +187,12 @@ feed.post('/feed/upload', async (c) => {
   let body;
   try { body = await c.req.json(); } catch { return c.json({ error: 'invalid body' }, 400); }
   const { filename, contentType, dataBase64 } = body;
+  const forArticle = c.req.query('for') === 'article';
   const spec = ALLOWED_TYPES[contentType];
   if (!spec) {
     return c.json({ error: 'unsupported file type (images, PDF, Word/PowerPoint/Excel, or markdown/text)' }, 400);
   }
+  if (forArticle && spec.kind !== 'image') return c.json({ error: 'Only pictures can go in an article.' }, 400);
   if (!dataBase64) return c.json({ error: 'dataBase64 is required' }, 400);
 
   const buffer = bytesFromBase64(dataBase64);
@@ -199,8 +204,9 @@ feed.post('/feed/upload', async (c) => {
   }
 
   try {
-    if (!(await checkRateLimit(c.env, session.sub, 'feed', RATE_LIMIT_WINDOW_MS, RATE_LIMIT_MAX))) {
-      return c.json({ error: 'Too many posts — please wait a bit before posting again.' }, 429);
+    const limit = forArticle ? ARTICLE_UPLOADS : { bucket: 'feed', windowMs: RATE_LIMIT_WINDOW_MS, max: RATE_LIMIT_MAX };
+    if (!(await checkRateLimit(c.env, session.sub, limit.bucket, limit.windowMs, limit.max))) {
+      return c.json({ error: forArticle ? 'You have uploaded a lot of pictures. Try again in a while.' : 'Too many posts — please wait a bit before posting again.' }, 429);
     }
   } catch { /* best-effort */ }
 

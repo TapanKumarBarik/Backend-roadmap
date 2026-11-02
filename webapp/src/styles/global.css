@@ -722,6 +722,7 @@ h1:hover .anchor, h2:hover .anchor, h3:hover .anchor, h4:hover .anchor { opacity
   font-size: 14.5px; font-weight: 570; color: var(--fg); background: none; border: 0; padding: 0;
   text-align: left; display: block; width: 100%; cursor: pointer;
 }
+a.list-row-title { text-decoration: none; }
 .list-row-title:hover { text-decoration: underline; text-underline-offset: 2px; }
 .list-row-path {
   font-size: 11.5px; font-family: var(--mono); color: var(--fg-subtle);

@@ -20,6 +20,9 @@ async function serve(broken = new Set()) {
     '/backend/01-intro/01-first/README.md': () => ['# First', { 'content-type': 'text/markdown', ...(broken.has('noindex') ? {} : { 'x-robots-tag': 'noindex' }) }],
     '/sitemap.xml': () => [broken.has('sitemap') ? '<urlset></urlset>' : `<urlset>${loc}</urlset>`, { 'content-type': 'application/xml' }],
     '/api/auth/me': () => (broken.has('api') ? ['boom', { 'content-type': 'text/plain' }, 500] : [JSON.stringify({ user: null }), { 'content-type': 'application/json' }]),
+    // Broken: the app's plain shell, as an address with no Function behind it would answer (it has the policy, nothing else).
+    '/blog/': () => [broken.has('pages') ? '<div id="root"></div>' : '<link rel="canonical" href="https://example.com/blog/"><div id="root"></div>', { 'content-type': 'text/html', 'content-security-policy': "default-src 'self'" }],
+    '/sitemap-blogs.xml': () => (broken.has('blogSitemap') ? ['not found', { 'content-type': 'text/plain' }, 404] : ['<urlset></urlset>', { 'content-type': 'application/xml' }]),
     '/api/blogs?limit=1': () => (broken.has('blogs') ? ['no such table: blog_posts', { 'content-type': 'text/plain' }, 500] : [JSON.stringify({ posts: [], next: null }), { 'content-type': 'application/json' }])
   };
   const server = http.createServer((req, res) => {
@@ -46,14 +49,19 @@ test('each way a deploy can go wrong is reported by name', async () => {
     ['noindex', /noindex/],
     ['sitemap', /sitemap\.xml/],
     ['api', /\/api\/auth\/me answered 500/],
+    ['pages', /\/blog\/ is not drawn by the server/],
+    ['blogSitemap', /sitemap-blogs\.xml answered 404/],
     ['blogs', /\/api\/blogs answered 500 \(was the database migration applied\?/]
   ];
   for (const [what, expected] of cases) {
     const site = await serve(new Set([what]));
-    const problems = await checkSite(site.base);
-    assert.equal(problems.length, 1, `${what}: ${problems.join('; ')}`);
-    assert.match(problems[0], expected);
-    site.close();
+    try {
+      const problems = await checkSite(site.base);
+      assert.equal(problems.length, 1, `${what}: ${problems.join('; ')}`);
+      assert.match(problems[0], expected);
+    } finally {
+      site.close(); // a failed check must not leave the server open: the run would never end
+    }
   }
 });
 

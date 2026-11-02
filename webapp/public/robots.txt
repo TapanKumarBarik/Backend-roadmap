@@ -2,3 +2,4 @@ User-agent: *
 Allow: /
 
 Sitemap: https://backendroadmap.com/sitemap.xml
+Sitemap: https://backendroadmap.com/sitemap-blogs.xml

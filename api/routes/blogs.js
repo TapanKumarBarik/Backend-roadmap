@@ -37,7 +37,7 @@ const SAVE = { window: 10 * 60 * 1000, max: 600 };
 const CREATE = { window: 60 * 60 * 1000, max: 20 };
 const REACT = { window: 60 * 1000, max: 60 };
 const REPORT = { window: 60 * 60 * 1000, max: 10 };
-const PAGE = { default: 12, max: 30 };
+const PAGE = { default: 12, max: 30, saved: 100 };
 const MAX_SCHEDULE_AHEAD_MS = 366 * 24 * 60 * 60 * 1000;
 const EMPTY_DOC = JSON.stringify({ type: 'doc', content: [{ type: 'paragraph' }] });
 
@@ -104,6 +104,7 @@ function summary(row, tags) {
     words: row.words,
     minutes: row.minutes,
     publishedAt: row.publish_at,
+    updatedAt: row.updated_at,
     likes: row.likes,
     approved: !!row.approved,
     author: author(row)
@@ -135,6 +136,16 @@ blogs.get('/blogs/mine', async (c) => {
       likes: r.likes, approved: !!r.approved, hidden: !!r.hidden, updatedAt: r.updated_at
     }))
   });
+});
+
+// The articles I have bookmarked that are still out, the newest bookmark first.
+blogs.get('/blogs/saved', async (c) => {
+  const session = await getSession(c);
+  if (!session) return unauthenticated(c);
+  const rows = await all(c.env, `${WITH_AUTHOR} JOIN blog_bookmarks b ON b.post_id = p.id AND b.user_id = ?2
+    WHERE ${VISIBLE} ORDER BY b.created_at DESC, p.id DESC LIMIT ${PAGE.saved}`, nowIso(), session.sub);
+  const tags = await tagsFor(c.env, rows.map((r) => r.id));
+  return c.json({ posts: rows.map((r) => summary(r, tags)) });
 });
 
 // One of my posts with its document, to edit.

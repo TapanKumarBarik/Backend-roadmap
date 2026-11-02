@@ -1,16 +1,27 @@
 import { useMemo, useState } from 'react';
 import { fetchAllNotes } from '../../lib/api.js';
+import { fetchSavedBlogs, toggleBlogBookmark } from '../../lib/blogApi.js';
+import { postUrl } from '../../lib/appPages.js';
+import { followInApp } from '../../lib/linkClick.js';
+import { formatDate } from '../../lib/blog/format.js';
 import { StarIcon } from '../common/icons.jsx';
 import { useLoader } from '../../hooks/useLoader.js';
 import LoadError from '../common/LoadError.jsx';
 import { LOAD_WHAT } from '../../config/messages.js';
 
 // Bookmarks and notes were two separate destinations holding the same
-// kind of thing — a module you set aside. One destination, two tabs.
-export default function SavedView({ bookmarks, nodeByFile, onOpenFile, onToggleBookmark, user, onLogin, initialTab }) {
-  const [tab, setTab] = useState(initialTab === 'notes' ? 'notes' : 'bookmarks');
+// kind of thing — a module you set aside. One destination, three tabs: modules, articles, notes.
+export default function SavedView({ bookmarks, nodeByFile, onOpenFile, onOpenPost, onToggleBookmark, user, onLogin, initialTab }) {
+  const [tab, setTab] = useState(['notes', 'articles'].includes(initialTab) ? initialTab : 'bookmarks');
   const [query, setQuery] = useState('');
   const { data: notes, error, reload } = useLoader(fetchAllNotes, [], { enabled: !!user && tab === 'notes' });
+  const { data: articles, setData: setArticles, error: articlesError, reload: reloadArticles } = useLoader(fetchSavedBlogs, [], { enabled: !!user && tab === 'articles' });
+
+  // Taking an article off the list answers at once; if the server says no, the list is read again.
+  async function removeArticle(post) {
+    setArticles((list) => list.filter((p) => p.id !== post.id));
+    try { await toggleBlogBookmark(post.id); } catch { reloadArticles(); }
+  }
 
   const bookmarkPaths = [...bookmarks];
 
@@ -46,6 +57,9 @@ export default function SavedView({ bookmarks, nodeByFile, onOpenFile, onToggleB
         <button className={tab === 'bookmarks' ? 'on' : ''} onClick={() => setTab('bookmarks')}>
           Bookmarks{bookmarkPaths.length ? ` ${bookmarkPaths.length}` : ''}
         </button>
+        <button className={tab === 'articles' ? 'on' : ''} onClick={() => setTab('articles')}>
+          Articles{articles ? ` ${articles.length}` : ''}
+        </button>
         <button className={tab === 'notes' ? 'on' : ''} onClick={() => setTab('notes')}>
           Notes{notes ? ` ${notes.length}` : ''}
         </button>
@@ -72,6 +86,29 @@ export default function SavedView({ bookmarks, nodeByFile, onOpenFile, onToggleB
               </div>
             ))}
           </div>
+        </>
+      )}
+
+      {tab === 'articles' && (
+        <>
+          {articlesError && <LoadError error={articlesError} what={LOAD_WHAT.articles} onRetry={reloadArticles} onSignIn={onLogin} />}
+          {!articles && !articlesError && <p style={{ color: 'var(--fg-subtle)' }}>Loading…</p>}
+          {articles && articles.length === 0 && <p>No articles saved yet — press Save on an article to keep it here.</p>}
+          {articles && articles.length > 0 && (
+            <div className="list-rows">
+              {articles.map((post) => (
+                <div key={post.id} className="list-row">
+                  <div className="list-row-main">
+                    <a className="list-row-title" href={postUrl(post.slug)} onClick={followInApp(() => onOpenPost(post.slug))}>{post.title}</a>
+                    <div className="list-row-path">{post.author ? `${post.author.name} · ` : ''}{formatDate(post.publishedAt)}</div>
+                  </div>
+                  <button className="list-row-act on" title="Remove from saved" aria-label={`Remove from saved: ${post.title}`} onClick={() => removeArticle(post)}>
+                    <StarIcon />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
         </>
       )}
 

@@ -6,7 +6,7 @@ import { rewriteLinks } from '../../lib/markdown/rewriteLinks.js';
 import { routeUrl } from '../../lib/curriculum/moduleUrl.js';
 import { isPlaceholder, editUrl, reportUrl, claimUrl, WRITE_GUIDE_URL } from '../../lib/curriculum/contribute.js';
 import { inlineTitleHtml, readTimeStats, slugify, splitTitle } from '../../lib/markdown/markdown.js';
-import { playVideo } from '../../lib/markdown/video.js';
+import { handleCopyClick, handleVideoClick } from '../../lib/markdown/contentClicks.js';
 import { ancestorsOf, buildPositions, placeName, siblingStats } from '../../lib/curriculum/curriculumPosition.js';
 import { getPosition, savePosition, clearPosition, describeWhen } from '../../lib/curriculum/readingPosition.js';
 import { enhanceSelfCheck, handleSelfCheckClick } from '../../lib/markdown/selfCheck.js';
@@ -173,26 +173,8 @@ export default function ArticleView({
       history.replaceState(null, '', routeUrl(path, id));
       return;
     }
-    const copyBtn = e.target.closest('.cb-copy');
-    if (copyBtn) {
-      const code = copyBtn.closest('.codeblock').querySelector('code');
-      navigator.clipboard.writeText(code.textContent).then(
-        () => {
-          copyBtn.textContent = 'Copied';
-          copyBtn.classList.add('ok');
-          setTimeout(() => { copyBtn.textContent = 'Copy'; copyBtn.classList.remove('ok'); }, 1400);
-        },
-        () => onToast('Copy failed — select manually')
-      );
-      return;
-    }
-    // A video card is a link to the video until the reader presses play; a click meant for a new tab is left alone.
-    const video = e.target.closest('.video-link');
-    if (video && e.button === 0 && !e.metaKey && !e.ctrlKey && !e.shiftKey) {
-      e.preventDefault();
-      playVideo(video.closest('.video'));
-      return;
-    }
+    if (handleCopyClick(e, () => onToast('Copy failed — select manually'))) return;
+    if (handleVideoClick(e)) return;
     const link = e.target.closest('[data-internal-link]');
     if (link) {
       e.preventDefault();
