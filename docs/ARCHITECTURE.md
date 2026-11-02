@@ -119,7 +119,7 @@ data in `content/paths.json`.
 | Checks | `npm run check` | an `isAdmin()` without `await`, a broken `paths.json`, a missing or oversized lesson image, a video that names a module that is not there, an overview page that says it is unwritten (which would hide it from search) |
 | Build | `npm run build` | the whole site assembles; internal links that point nowhere are listed |
 | Size | `npm run check:bundle` | what a first visit downloads (JavaScript and CSS, gzip) and what each heavy screen adds (the writing studio, the workspace, the admin) staying within the `budgets` in `site.config.json`; run it after the build |
-| Browser | `npm run test:e2e` | a lesson opens, links work, videos and their chapters play under the real CSP, the Videos screen lists them, the built pages carry what search engines read (titles, descriptions, structured data, sitemap, share cards), and the signed-in flows (progress, the workspace editor, the admin dashboard) against the real API |
+| Browser | `npm run test:e2e` | a lesson opens, links work, videos and their chapters play under the real CSP, the Videos screen lists them, the built pages carry what search engines read (titles, descriptions, structured data, sitemap, share cards), and the signed-in flows (progress, the workspace editor, the admin dashboard) against the real API; every screen is audited for names, labels, ids and landmarks, and for sideways scrolling from 360 to 1920 px |
 
 CI runs all of them, from one shared definition (`.github/actions/verify`), on every pull request and before every
 deploy. The deploy workflow adds the Cloudflare steps, then tells Bing and other IndexNow engines which pages changed.

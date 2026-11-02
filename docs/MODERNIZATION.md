@@ -107,7 +107,8 @@ Each phase ends with the browser and unit tests green, screenshots reviewed in l
 ### Phase 6: polish
 
 - **Performance budgets. Done (committed locally, not pushed).** `npm run check:bundle` measures the built site in gzip and fails when the first page (JavaScript and CSS) or what opening the writing studio, the workspace, the admin dashboard, Explore Blogs or an article adds goes over the `budgets` in `site.config.json`; CI runs it after the build. Today the first page is 114 KB of JavaScript and 22 KB of CSS, and the studio adds 214 KB, of which 184 KB is the editor core the workspace shares.
-- **Still to do:** a motion pass; a responsive sweep from 360 to 1920 px; an accessibility audit.
+- **Accessibility audit and responsive sweep. Done (committed locally, not pushed).** `tests/e2e/audit.e2e.mjs` opens 18 screens (the landing page, the dashboard, a module, Explore, Videos, the four community tabs, Blogs, an article, an author, Saved, the workspace, your articles, the editor, the admin and the style guide) and holds each to the rules a machine can check: no shared id, every button, link and field has a name, every picture has an alt attribute, one main landmark and a page language, no positive tabindex, nothing hidden from a screen reader that the keyboard can still reach, and no sideways scroll at 360, 600, 768, 1024, 1440 and 1920 px. A self-test proves the audit reports each fault it looks for. Every screen passed it; the colour contrast of every text token and the visible keyboard focus were already tests. Whether a name is a good one is still a person's judgement.
+- **Still to do:** a motion pass.
 
 ## Risks
 
