@@ -103,7 +103,8 @@ Each phase ends with the browser and unit tests green, screenshots reviewed in l
 
 - **5a Search. Done (committed locally, not pushed).** The command palette (Ctrl+K) lists the community's articles under the modules: type a word from a title or the text, or the name or handle of an author, and the articles come after a short pause (three letters; the server searches `/api/blogs?q=`, which now also matches the author). Enter still opens the best module; an article is opened by arrow keys or a click. The match on modules is loose enough to fill the list and push the articles out of sight, so `@` asks for articles alone: `@` lists the newest, `@retries` searches the words, `@grace` or `@grace-h` an author. Explore Blogs' own search finds an author's articles the same way.
 - **Not done, on purpose:** the Workspace does not move onto the studio's editor core. A workspace page allows a level 1 heading and the studio's articles do not (the article's title is the one), so one schema for both would change what a saved page may contain; the two editors share their libraries, which is where the weight is.
-- **Still to do:** the 780-line override layer in `global.css`; module pages get the reading-route progress line and better code blocks; the module tree is keyboard-operable.
+- **5b Reading progress. Done (committed locally, not pushed).** A module and an article now share one thin amber line along the top that fills as the page is read (`common/ReadingProgress.jsx`). A module had its own, a 2px width set from React state on every scroll event, which re-rendered the whole page frame while the reader scrolled; the shared one is drawn with a transform on an animation frame, and is the amber the identity spends on progress.
+- **Still to do:** the 780-line override layer in `global.css`; better code blocks in modules; the module tree operable by keyboard.
 
 ### Phase 6: polish
 

@@ -59,6 +59,21 @@ test('a lesson opens with a topic-first title, its heading, its text and real li
   await context.close();
 });
 
+test('a line along the top fills as a lesson is read, and is empty at its start', async () => {
+  const { context, page, goto } = await open(LESSON);
+  await goto();
+  await page.waitForSelector('#content p');
+  const filled = () => page.locator('.read-progress i').evaluate((el) => new DOMMatrix(getComputedStyle(el).transform).a);
+  assert.equal(await page.locator('.read-progress').count(), 1, 'one line, not two');
+  assert.equal(await filled(), 0);
+  await page.evaluate(() => { const m = document.querySelector('#main'); m.scrollTop = (m.scrollHeight - m.clientHeight) / 2; });
+  await page.waitForFunction(() => Math.abs(new DOMMatrix(getComputedStyle(document.querySelector('.read-progress i')).transform).a - 0.5) < 0.05);
+  await page.evaluate(() => { const m = document.querySelector('#main'); m.scrollTop = m.scrollHeight; });
+  await page.waitForFunction(() => new DOMMatrix(getComputedStyle(document.querySelector('.read-progress i')).transform).a > 0.98);
+  assert.equal(await page.locator('.read-progress').getAttribute('aria-hidden'), 'true', 'it says nothing a scrollbar does not');
+  await context.close();
+});
+
 test('code is highlighted after the text, from its own chunk', async () => {
   const { context, page, goto } = await open(LESSON);
   await goto();

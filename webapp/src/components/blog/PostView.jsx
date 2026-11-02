@@ -16,6 +16,7 @@ import { Menu, MenuItem } from '../ui/Menu.jsx';
 import { Skeleton } from '../ui/Skeleton.jsx';
 import LoadError from '../common/LoadError.jsx';
 import CommentsSection from '../article/CommentsSection.jsx';
+import ReadingProgress from '../common/ReadingProgress.jsx';
 import { BookmarkIcon, FlagIcon, HeartIcon, MenuDotsIcon, ShareIcon } from '../common/icons.jsx';
 import PostBody from './PostBody.jsx';
 import PostCard from './PostCard.jsx';
@@ -29,7 +30,6 @@ const REPORT_REASON_MAX = 300;
 // more to read, and the discussion under it.
 export default function PostView({ slug, user, onLogin, onToast, onOpenPost, onOpenAuthor, onOpenList, onPickTag }) {
   const { data: post, error, reload } = useLoader(() => fetchBlogPost(slug), [slug]);
-  const barRef = useRef(null);
   const [headings, setHeadings] = useState([]);
   const [liked, setLiked] = useState(false);
   const [likes, setLikes] = useState(0);
@@ -56,22 +56,6 @@ export default function PostView({ slug, user, onLogin, onToast, onOpenPost, onO
     try { section = decodeURIComponent(location.hash.slice(1)); } catch { /* a hash that does not decode names no section */ }
     const target = section && document.getElementById(section);
     if (target) setTimeout(() => target.scrollIntoView({ block: 'start' }), 30);
-  }, [post]);
-
-  // The line along the top that fills as the article is read.
-  useEffect(() => {
-    const scroller = document.getElementById('main');
-    if (!post || !scroller) return undefined;
-    let frame = 0;
-    const draw = () => {
-      frame = 0;
-      const max = scroller.scrollHeight - scroller.clientHeight;
-      if (barRef.current) barRef.current.style.transform = `scaleX(${max > 0 ? Math.min(1, scroller.scrollTop / max) : 0})`;
-    };
-    const onScroll = () => { if (!frame) frame = requestAnimationFrame(draw); };
-    scroller.addEventListener('scroll', onScroll, { passive: true });
-    draw();
-    return () => { scroller.removeEventListener('scroll', onScroll); cancelAnimationFrame(frame); };
   }, [post]);
 
   // More to read: the same topic first, then the same author, then whatever is newest.
@@ -142,7 +126,7 @@ export default function PostView({ slug, user, onLogin, onToast, onOpenPost, onO
 
   return (
     <>
-      <div className="read-progress" aria-hidden="true"><i ref={barRef} /></div>
+      <ReadingProgress text={post} />
       <div className="blog-screen blog-screen--post">
         <a className="blog-back" href={pageUrl(BLOG_ROUTE)} onClick={followInApp(onOpenList)}>← All articles</a>
 

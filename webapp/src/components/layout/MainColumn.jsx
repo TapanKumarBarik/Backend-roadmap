@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef } from 'react';
 import ArticleView from '../article/ArticleView.jsx';
 import EmptyState from '../home/EmptyState.jsx';
 import Landing from '../home/Landing.jsx';
 import LoadError from '../common/LoadError.jsx';
+import ReadingProgress from '../common/ReadingProgress.jsx';
 import { Skeleton } from '../ui/Skeleton.jsx';
 import { LOAD_WHAT } from '../../config/messages.js';
 
@@ -16,7 +17,6 @@ export default function MainColumn({
   paths, activePath, onPickPath, choosingPath, onChoosingPath, neighbours, pathPlace, pathOffer, onFinishPath, onStartPath
 }) {
   const mainRef = useRef(null);
-  const [readProgress, setReadProgress] = useState(0);
 
   // The dashboard is a different page from a module but shares its scroll container, so arriving from the foot of
   // a module (finishing a path does) used to leave it scrolled to the foot too, with its heading out of sight.
@@ -24,16 +24,10 @@ export default function MainColumn({
     if (!currentFile && mainRef.current) mainRef.current.scrollTop = 0;
   }, [currentFile, choosingPath]);
 
-  function handleScroll(e) {
-    const el = e.currentTarget;
-    const max = el.scrollHeight - el.clientHeight;
-    setReadProgress(max > 0 ? (el.scrollTop / max) * 100 : 0);
-  }
-
   return (
     <div id="mainCol">
-      <div id="readProg" style={{ width: readProgress + '%' }} />
-      <main id="main" className="scroll" ref={mainRef} onScroll={handleScroll} tabIndex={-1}>
+      <main id="main" className="scroll" ref={mainRef} tabIndex={-1}>
+        {currentFile && <ReadingProgress text={currentFile} />}
         {currentFile
           ? (
             <ArticleView

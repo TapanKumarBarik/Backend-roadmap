@@ -108,10 +108,6 @@ a.post-card__author:hover span { text-decoration: underline; }
 .blog-back { display: inline-block; margin-bottom: var(--space-8); font-size: var(--text-sm); color: var(--fg-muted); text-decoration: none; }
 .blog-back:hover { color: var(--fg); text-decoration: underline; }
 
-/* The line along the top that fills as the article is read. It is the first thing in the scrolling page, so it sticks to
-   the top and spans it; it has no height in the flow, and is drawn only once there is something to show. */
-.read-progress { position: sticky; top: 0; z-index: 2; height: 3px; margin-bottom: -3px; pointer-events: none; }
-.read-progress i { display: block; height: 100%; background: var(--signal); transform: scaleX(0); transform-origin: 0 50%; }
 
 .post-head { margin-bottom: var(--space-8); }
 .post-title { margin: var(--space-4) 0 0; font-size: var(--text-4xl); line-height: 1.12; font-weight: 760; letter-spacing: -.028em; text-wrap: balance; }
