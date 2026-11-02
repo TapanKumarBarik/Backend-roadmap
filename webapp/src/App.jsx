@@ -22,7 +22,7 @@ import { COMMUNITY, COMMUNITY_HOME, communityTab, tabRoute } from './config/comm
 import { readStored, writeStored } from './lib/storage.js';
 import { useLanding } from './hooks/useLanding.js';
 import { useCommentActivity } from './hooks/useCommentActivity.js';
-import { useFeedActivity, useQuestionsActivity } from './hooks/useCommunityActivity.js';
+import { useCommunityActivity } from './hooks/useCommunityActivity.js';
 import { computeTreeVisibility } from './lib/curriculum/treeFilter.js';
 import { buildPageTitles } from './lib/curriculum/pageTitle.js';
 import { globalCounts } from './lib/curriculum/progressStats.js';
@@ -139,8 +139,7 @@ export default function App() {
   const { bookmarks, toggle: toggleBookmark } = useBookmarks(user);
   const streak = useStreak(user);
   const activity = useCommentActivity(user);
-  const feedActivity = useFeedActivity();
-  const questionsActivity = useQuestionsActivity();
+  const communityActivity = useCommunityActivity(); // { posts, questions }: what is new in each tab
   const toast = useToast();
   const confirm = useConfirm();
   useSidebarResize();
@@ -500,7 +499,7 @@ export default function App() {
           onOpenVideos={openVideos}
           hasVideos={!!videoData}
           onOpenAdmin={openAdmin}
-          communityBadge={questionsActivity.badgeVisible || feedActivity.badgeVisible}
+          communityBadge={communityActivity.questions.badgeVisible || communityActivity.posts.badgeVisible}
         />
         {/* The tree is context for the curriculum, so it renders only
             there. On a destination — feed, saved, notes, admin — it was
@@ -565,7 +564,7 @@ export default function App() {
                 )}
                 {isExploreRoute && <ExploreView allTags={tags} onOpenPalette={openPalette} />}
                 {hubTab && (
-                  <CommunityHub active={hubTab.id} onOpen={openCommunityTab} activity={{ questions: questionsActivity, posts: feedActivity }}>
+                  <CommunityHub active={hubTab.id} onOpen={openCommunityTab} activity={communityActivity}>
                     {{
                       questions: <CommunityView nodeByFile={nodeByFile} onOpenFile={openFile} />,
                       posts: <FeedView user={user} onLogin={login} onToast={toast.show} onOpenPost={openFeedPost} />,

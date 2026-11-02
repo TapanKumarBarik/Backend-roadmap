@@ -1,49 +1,36 @@
-import { useCallback, useEffect, useState } from 'react';
-import { fetchFeed, fetchQuestions } from '../lib/api.js';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { fetchCommunityCounts } from '../lib/api.js';
 import { STORAGE } from '../config/index.js';
 import { readOrInitTimestamp, writeStored } from '../lib/storage.js';
 
-// Same "first visit starts caught up" reasoning as useCommentActivity —
-// nothing kills a new feature's credibility like "47 new" the first time
-// anyone opens the app. One baseline per tab of the community (Posts, Questions), each with its own dot.
-const getOrInitBaseline = readOrInitTimestamp;
+// "Did anything new land in the community since you last looked," for the dots on its tabs: new posts, and new questions on the
+// modules. It works signed out too (both are public), and it is one request for two numbers (api/routes/community.js, counts).
+// Deliberately independent of useCommentActivity: that hook is scoped to activity ABOUT the signed-in user (someone replied to
+// you); this is just "is there something new here for anyone".
+//
+// Same "first visit starts caught up" reasoning as useCommentActivity — nothing kills a new feature's credibility like "47 new"
+// the first time anyone opens the app. One baseline per tab, each moved forward when that tab is opened.
+const TABS = { posts: STORAGE.feedLastSeen, questions: STORAGE.questionsLastSeen };
 
-// Shared shape: "did anything new land in this public list since you last
-// looked," working signed OUT too (both the feed and questions are public
-// reads). Deliberately independent of useCommentActivity: that hook is
-// scoped to activity ABOUT the signed-in user (someone replied to you);
-// this is just "is there something new here for anyone."
-function useActivity(lsKey, fetcher) {
-  const [count, setCount] = useState(0);
-  const [seen, setSeen] = useState(false);
+/** { posts, questions }, each { badgeVisible, markSeen }: whether the tab has news, and "the reader has looked at it". */
+export function useCommunityActivity() {
+  const [counts, setCounts] = useState({ posts: 0, questions: 0 });
+  const [seen, setSeen] = useState({ posts: false, questions: false });
 
   useEffect(() => {
     let cancelled = false;
-    const since = new Date(getOrInitBaseline(lsKey)).getTime();
-
-    fetcher().catch(() => []).then((items) => {
-      if (cancelled) return;
-      setCount(items.filter((item) => new Date(item.createdAt).getTime() > since).length);
-    });
-
+    const since = Object.fromEntries(Object.entries(TABS).map(([tab, key]) => [tab, readOrInitTimestamp(key)]));
+    fetchCommunityCounts(since)
+      .then((news) => { if (!cancelled) setCounts({ posts: news.posts || 0, questions: news.questions || 0 }); })
+      .catch(() => { /* no dot: the lists themselves say what is new when they are opened */ });
     return () => { cancelled = true; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [lsKey]);
+  }, []);
 
-  const markSeen = useCallback(() => {
-    writeStored(lsKey, new Date().toISOString());
-    setSeen(true);
-  }, [lsKey]);
+  const markPostsSeen = useCallback(() => { writeStored(TABS.posts, new Date().toISOString()); setSeen((s) => ({ ...s, posts: true })); }, []);
+  const markQuestionsSeen = useCallback(() => { writeStored(TABS.questions, new Date().toISOString()); setSeen((s) => ({ ...s, questions: true })); }, []);
 
-  return { count, badgeVisible: count > 0 && !seen, markSeen };
-}
-
-// The Posts tab's dot — new posts since last visit.
-export function useFeedActivity() {
-  return useActivity(STORAGE.feedLastSeen, fetchFeed);
-}
-
-// The Questions tab's dot — new questions since last visit.
-export function useQuestionsActivity() {
-  return useActivity(STORAGE.questionsLastSeen, fetchQuestions);
+  return useMemo(() => ({
+    posts: { badgeVisible: counts.posts > 0 && !seen.posts, markSeen: markPostsSeen },
+    questions: { badgeVisible: counts.questions > 0 && !seen.questions, markSeen: markQuestionsSeen }
+  }), [counts, seen, markPostsSeen, markQuestionsSeen]);
 }

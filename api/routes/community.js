@@ -9,10 +9,40 @@ import { getSession, requireAdmin } from '../lib/admin.js';
 import { checkRateLimit } from '../lib/rateLimit.js';
 import { timeId } from '../lib/util.js';
 import { FEED_CONTAINER, blobBase } from '../lib/blob.js';
+import { ON_A_MODULE } from '../lib/commentPaths.js';
+import { DELETED } from '../lib/deleted.js';
 
 const community = createRouter();
 
 const LIST_LIMIT = 500;
+const EPOCH = '1970-01-01T00:00:00.000Z';
+
+/* ------------------------------------------------------------------- counts */
+
+// How much is new since the reader last looked, for the dots on the tabs of the community: two numbers, where the app used to
+// download the whole feed and every question on every page load just to count what was newer. Public, like the lists they count.
+// `posts` and `questions` are the times the reader last looked at each (a missing one counts everything).
+community.get('/community/counts', async (c) => {
+  const since = (name) => {
+    const raw = (c.req.query(name) || '').trim();
+    if (!raw) return EPOCH;
+    const time = new Date(raw);
+    return Number.isNaN(time.getTime()) ? null : time.toISOString();
+  };
+  const posts = since('posts');
+  const questions = since('questions');
+  if (posts === null || questions === null) return c.json({ error: 'not a time' }, 400);
+
+  const [newPosts, newQuestions] = await Promise.all([
+    first(c.env, 'SELECT COUNT(*) AS n FROM feed_posts WHERE created_at > ?1', posts),
+    first(
+      c.env,
+      `SELECT COUNT(*) AS n FROM comments WHERE hidden = 0 AND (parent_id IS NULL OR parent_id = '') AND ${ON_A_MODULE} AND user_id != ?2 AND created_at > ?1`,
+      questions, DELETED.userId
+    )
+  ]);
+  return c.json({ posts: newPosts.n, questions: newQuestions.n });
+});
 
 async function requireSession(c) {
   const session = await getSession(c);

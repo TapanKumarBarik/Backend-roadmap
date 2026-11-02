@@ -75,6 +75,14 @@ export async function fetchQuestions() {
   return res.json();
 }
 
+/** What is new in the community since the reader last looked: { posts, questions }, the number of each. `since` = { posts, questions } as times. */
+export async function fetchCommunityCounts(since) {
+  const query = new URLSearchParams({ posts: since.posts, questions: since.questions });
+  const res = await fetch(`/api/community/counts?${query}`);
+  if (!res.ok) throw await apiError(res, 'failed to load what is new');
+  return res.json();
+}
+
 export async function fetchAllComments() {
   const res = await fetch('/api/manage/comments');
   if (!res.ok) throw await apiError(res, 'failed to load comments');
@@ -86,11 +94,11 @@ export async function deleteComment(path, id) {
   if (!res.ok) throw await apiError(res, 'failed to delete comment');
 }
 
-// A short-lived, shared cache: the feed is fetched from three independent
-// call sites (FeedView, PostDetailView, useFeedActivity's badge check) that
-// often mount within the same page load, and none of them needs data any
-// fresher than a few seconds old. One in-flight request is shared instead of
-// three, and a repeat call inside the TTL window skips the network entirely.
+// A short-lived, shared cache: the feed is fetched from independent call
+// sites (FeedView, PostDetailView) that can mount within the same page load,
+// and none of them needs data any fresher than a few seconds old. One
+// in-flight request is shared instead of several, and a repeat call inside
+// the TTL window skips the network entirely.
 const FEED_CACHE_MS = 15000;
 let feedCache = null; // { data, ts }
 let feedInflight = null;

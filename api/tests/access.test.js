@@ -18,6 +18,7 @@ const PUBLIC = [
   'GET /api/comments/questions',
   'GET /api/comments/:path{.+}',
   'GET /api/books',
+  'GET /api/community/counts',
   'GET /api/blogs',
   'GET /api/blogs/tags',
   'GET /api/blogs/:slug',
