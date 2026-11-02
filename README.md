@@ -130,7 +130,7 @@ The system design lectures and a second playlist on networking, APIs and databas
 
 The curriculum is read through a purpose-built web app (React + Vite) at **[backendroadmap.com](https://backendroadmap.com/)** — also in this repo, also open source:
 
-- **Search everything** — a command palette (<kbd>Ctrl</kbd>+<kbd>K</kbd>) over titles, tags and the *full text* of every module
+- **Search everything** — a command palette (<kbd>Ctrl</kbd>+<kbd>K</kbd>) over titles, tags and the *full text* of every module, and over the community's articles and their authors (type `@`)
 - **Progress that follows you** — mark modules done or in-progress, resume where you left off, keep a streak. Works signed-out (stored locally); syncs across devices when you sign in with Google. Export/import as JSON
 - **Bookmarks and private notes** on any module
 - **Discussion on every module** — comments, replies, upvotes, @mentions, "mark as answer", emoji reactions

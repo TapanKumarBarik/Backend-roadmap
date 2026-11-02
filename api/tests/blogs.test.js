@@ -519,6 +519,8 @@ test('the listing filters by tag, author and words, and a wildcard is only a cha
   assert.deepEqual(await slugs('q=%25'), ['queues-in-practice'], 'not "anything"');
   assert.deepEqual(await slugs('q=_'), [], 'nor is an underscore');
   assert.deepEqual(await slugs('q=nothing-like-this'), []);
+  assert.deepEqual(await slugs('q=NAME OF GRACE'), ['queues-in-practice'], 'the name of the author, whatever the case');
+  assert.deepEqual(await slugs('q=ada-l'), ['caching-strategies', 'retries-and-backoff'], 'the handle of the author');
 
   assert.deepEqual((await call(null, 'GET', '/blogs/tags')).json.tags, [
     { tag: 'reliability', posts: 2 }, { tag: 'performance', posts: 1 }, { tag: 'queues', posts: 1 }

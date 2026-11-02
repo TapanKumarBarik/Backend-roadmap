@@ -181,7 +181,8 @@ blogs.get('/blogs', async (c) => {
     // "!" escapes the wildcards of LIKE, so a search for 100% is a search for 100%.
     const like = `%${q.toLowerCase().replace(/[!%_]/g, (ch) => `!${ch}`)}%`;
     const ref = next(like);
-    where.push(`(LOWER(p.title) LIKE ${ref} ESCAPE '!' OR LOWER(p.subtitle) LIKE ${ref} ESCAPE '!' OR LOWER(p.excerpt) LIKE ${ref} ESCAPE '!' OR LOWER(p.body_text) LIKE ${ref} ESCAPE '!')`);
+    // The words of a post, and who wrote it: a search for a name finds the articles of the person.
+    where.push(`(LOWER(p.title) LIKE ${ref} ESCAPE '!' OR LOWER(p.subtitle) LIKE ${ref} ESCAPE '!' OR LOWER(p.excerpt) LIKE ${ref} ESCAPE '!' OR LOWER(p.body_text) LIKE ${ref} ESCAPE '!' OR LOWER(a.name) LIKE ${ref} ESCAPE '!' OR a.handle LIKE ${ref} ESCAPE '!')`);
   }
   if (popular && cursor.length === 3) where.push(`(p.likes, p.publish_at, p.id) < (${next(Number(cursor[0]) || 0)}, ${next(cursor[1])}, ${next(cursor[2])})`);
   else if (!popular && cursor.length === 2) where.push(`(p.publish_at, p.id) < (${next(cursor[0])}, ${next(cursor[1])})`);

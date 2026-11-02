@@ -831,7 +831,7 @@ html[data-theme="dark"] .pal-item.cur, html[data-theme="auto"] .pal-item.cur { b
 .pal-item .dot[data-s="done"] { background: var(--done); }
 .pal-item .txt { min-width: 0; flex: 1; }
 .pal-item .t { font-size: 14px; color: var(--fg); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.pal-item .p { font-size: 11.5px; color: var(--fg-subtle); font-family: var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pal-item .p { margin-left: 8px; font-size: 11.5px; color: var(--fg-subtle); font-family: var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pal-item mark { background: transparent; color: var(--accent); font-weight: 700; }
 .pal-act-ic {
   width: 7px; flex-shrink: 0; color: var(--signal); font-weight: 700;

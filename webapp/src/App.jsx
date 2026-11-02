@@ -691,6 +691,7 @@ export default function App() {
         allTags={tags}
         statusMap={statusMap}
         onOpenFile={openFile}
+        onOpenPost={openPost}
         actions={paletteActions}
       />
       {messageOpen && (

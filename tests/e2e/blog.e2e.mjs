@@ -66,6 +66,7 @@ test('opening an article draws it as a module is drawn, under its own address, a
 
   assert.equal(await page.locator('#content .codeblock').count(), 1, 'the code block is wrapped as in a module');
   assert.equal(await page.locator('#content .codeblock .cb-copy').count(), 1, 'with a copy button');
+  await page.locator('#content .codeblock .hljs-keyword').first().waitFor({ timeout: 10000 }); // the colours load after the text
   assert.ok(await page.locator('#content .codeblock .hljs-keyword').count() > 0, 'and highlighted');
   assert.equal(await page.locator('#content .cblock-key').count(), 1, 'a callout is a content block');
   assert.equal(await page.locator('#content table thead th').count(), 2, 'a table has its head');
@@ -251,6 +252,48 @@ test('the covers are only ever the site\'s own uploads (the seed uses them, and 
   await page.reload({ waitUntil: 'networkidle' });
   await cards(page).first().waitFor();
   assert.ok([...hosts].every((h) => h === new URL(BASE).host || h === new URL(coverUrl(1)).host), `requests went to ${[...hosts].join(', ')}`);
+  await context.close();
+});
+
+test('the command palette finds an article by its words or by its author, and "@" asks for articles alone', async () => {
+  const { context, page, problems } = await openBlog('/blog/');
+  await page.keyboard.press('Control+k');
+  const search = page.getByPlaceholder(/Search modules/);
+  const found = page.locator('.pal-item');
+
+  // Among the modules, after them: the words of an article.
+  await search.fill('idempotency');
+  const retries = page.locator('.pal-item', { hasText: 'Why retries need idempotency' });
+  await retries.waitFor();
+  assert.match(await page.locator('.pal-sect', { hasText: 'Articles' }).textContent(), /Articles · 1/);
+  assert.match(await retries.textContent(), /by Ada Lovelace/);
+
+  // Alone, with "@": the newest, then the words, then an author by name or handle, and nothing but articles in the list.
+  const listed = async (count) => {
+    await page.waitForFunction((n) => document.querySelectorAll('.pal-item').length === n, count);
+    return found.locator('.t').allTextContents();
+  };
+  await search.fill('@');
+  const newest = await listed(5);
+  assert.equal(newest[0], 'Why retries need idempotency', 'every article, newest first');
+  await search.fill('@grace');
+  assert.deepEqual((await listed(2)).sort(), ['A postmortem on a Tuesday outage', 'Designing a cache you can trust']);
+  await search.fill('@ada-l');
+  assert.equal((await listed(3)).length, 3, "an author's articles, by handle");
+  await search.fill('@nothing-like-this');
+  await page.getByText('No article or author matches that.').waitFor();
+
+  await search.fill('@postmortem');
+  await found.first().waitFor();
+  await page.keyboard.press('Enter');
+  await page.getByRole('heading', { level: 1, name: 'A postmortem on a Tuesday outage' }).waitFor();
+  assert.match(new URL(page.url()).pathname, /^\/blog\/a-postmortem-on-a-tuesday-outage/);
+
+  await page.keyboard.press('Control+k');
+  await search.fill('>blogs');
+  assert.equal(await page.locator('.pal-sect', { hasText: 'Articles' }).count(), 0, 'actions only, in that mode');
+  assert.deepEqual(real(problems), []);
+  await page.waitForLoadState('networkidle'); // closing while the article's pictures are still on their way fails the run, not this test
   await context.close();
 });
 
