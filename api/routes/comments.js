@@ -1,4 +1,4 @@
-// Comments on modules and feed posts (ported from the retired Azure API). Indexed on
+// Comments on modules, feed posts and blog articles (ported from the retired Azure API). Indexed on
 // `path` (idx_comments_path), so the per-page reads are a real index lookup
 // now instead of a partition scan; the cross-curriculum "questions" and
 // "activity" views become GROUP BY / JOIN queries instead of bounded
@@ -10,6 +10,7 @@ import { all, first, run } from '../lib/d1.js';
 import { getSession, isAdmin, requireAdmin } from '../lib/admin.js';
 import { checkRateLimit } from '../lib/rateLimit.js';
 import { timeId } from '../lib/util.js';
+import { ON_A_MODULE } from '../lib/commentPaths.js';
 
 const comments = createRouter();
 
@@ -60,7 +61,7 @@ comments.get('/comments/questions', async (c) => {
     c.env,
     `SELECT id, path, display_name, text, created_at, is_answer
        FROM comments
-      WHERE hidden = 0 AND (parent_id IS NULL OR parent_id = '') AND path NOT LIKE 'feed:%'
+      WHERE hidden = 0 AND (parent_id IS NULL OR parent_id = '') AND ${ON_A_MODULE}
       ORDER BY created_at DESC LIMIT ?1`,
     LIST_LIMIT
   );
@@ -68,7 +69,7 @@ comments.get('/comments/questions', async (c) => {
     c.env,
     `SELECT parent_id, COUNT(*) AS n
        FROM comments
-      WHERE hidden = 0 AND parent_id IS NOT NULL AND parent_id != '' AND path NOT LIKE 'feed:%'
+      WHERE hidden = 0 AND parent_id IS NOT NULL AND parent_id != '' AND ${ON_A_MODULE}
       GROUP BY parent_id`
   );
   const repliesByParent = {};

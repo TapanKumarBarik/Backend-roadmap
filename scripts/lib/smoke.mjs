@@ -88,6 +88,20 @@ export async function checkSite(base, { fetchImpl = fetch } = {}) {
     }
   }
 
+  // The blogs have tables of their own (api/migrations). A deploy whose migration was never applied starts fine and
+  // answers /api/auth/me, yet every blog request fails: only a request that reads the tables notices.
+  const blogs = await get('/api/blogs?limit=1');
+  if (blogs) {
+    expect(blogs.status === 200, `/api/blogs answered ${blogs.status} (was the database migration applied? npm run db:migrate:remote)`);
+    if (blogs.status === 200) {
+      try {
+        expect(Array.isArray((await blogs.json()).posts), '/api/blogs did not return a list of posts');
+      } catch {
+        problems.push('/api/blogs is not JSON');
+      }
+    }
+  }
+
   return problems;
 }
 

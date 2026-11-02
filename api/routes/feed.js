@@ -8,6 +8,7 @@ import { all, first, run } from '../lib/d1.js';
 import { getSession, requireAdmin } from '../lib/admin.js';
 import { checkRateLimit } from '../lib/rateLimit.js';
 import { timeId } from '../lib/util.js';
+import { FEED_PREFIX } from '../lib/commentPaths.js';
 import { FEED_CONTAINER, blobBase, bytesFromBase64, bytesMatch, putBlob } from '../lib/blob.js';
 
 const feed = createRouter();
@@ -84,11 +85,11 @@ async function loadFeedVotes(env, userId) {
 }
 
 // Feed-post comments share the comments table with module discussions
-// (path = 'feed:<postId>'). One indexed prefix scan for every post's count.
+// (path = 'feed:<postId>', lib/commentPaths.js). One indexed prefix scan for every post's count.
 async function loadCommentCounts(env) {
   const counts = {};
-  for (const r of await all(env, `SELECT path FROM comments WHERE path LIKE 'feed:%' AND hidden = 0`)) {
-    const postId = r.path.slice('feed:'.length);
+  for (const r of await all(env, `SELECT path FROM comments WHERE path LIKE '${FEED_PREFIX}%' AND hidden = 0`)) {
+    const postId = r.path.slice(FEED_PREFIX.length);
     counts[postId] = (counts[postId] || 0) + 1;
   }
   return counts;

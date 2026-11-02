@@ -54,15 +54,15 @@ Each has a default, so work does not wait; each can be overridden before its pha
 
 | Table | Holds |
 |---|---|
-| `author_profiles` | `user_id`, unique `handle`, `name`, `bio`, `avatar_url`, `links`, `trusted`, timestamps |
-| `blog_posts` | `id`, `author_id`, unique `slug`, `title`, `subtitle`, `excerpt`, `cover_url`, `content` (JSON), `text` (plain, for search), `words`, `minutes`, `status` (`draft` or `published`), `publish_at`, `approved`, `hidden`, `likes`, timestamps |
+| `author_profiles` | `user_id`, unique `handle`, `name`, `bio`, `website`, `avatar_url`, `trusted`, timestamps |
+| `blog_posts` | `id`, `author_id`, unique `slug`, `title`, `subtitle`, `excerpt`, `cover_url`, `content` (JSON), `body_text` (plain, for search), `words`, `minutes`, `status` (`draft` or `published`), `publish_at`, `approved`, `hidden`, `likes`, timestamps |
 | `blog_tags` | `post_id`, `tag` |
 | `blog_likes`, `blog_bookmarks` | `post_id`, `user_id`, `created_at` |
 | `blog_reports` | `id`, target, `user_id`, `reason`, `created_at` |
 
 A post shows as **Draft** (status `draft`), **Scheduled** (published with a future `publish_at`) or **Published**. Upload files reuse `/api/feed/upload` with its own rate bucket.
 
-**API** (`api/routes/blogs.js`, mounted in `api/app.js`): public reads (`GET /blogs`, `/blogs/tags`, `/blogs/authors`, `/blogs/:slug`, `/authors/:handle`), signed-in writes (create, save with an `updated_at` check so a second tab cannot overwrite silently, publish, unpublish, delete own, like, bookmark, report, profile), the assistant, and admin routes under `/api/manage/blogs`. Every list is cursor-paginated. Each new route follows the access-test conventions (signed in unless on the `PUBLIC` list).
+**API** (`api/routes/blogs.js`, mounted in `api/app.js`): public reads (`GET /blogs` with `q`, `tag`, `author`, `sort=popular` and a `cursor`; `/blogs/tags`; `/blogs/:slug`; `/authors/:handle`), signed-in writes (`POST /blogs` for a draft, `PUT /blogs/:id` with a `baseUpdatedAt` check so a second tab cannot overwrite silently, `/publish` with an optional `publishAt`, `/unpublish`, delete own, `/like`, `/bookmark`, `/report`, `GET` and `PUT /me/profile`, `GET /blogs/mine[/:id]`), the assistant (3d), and admin routes under `/api/manage/` (`blogs` with `filter=pending|reported|hidden`, `approve`, `hide`, `unhide`, and `authors/:handle/trust`). An author-only route answers "not found" to anyone else. Each new route follows the access-test conventions (signed in unless on the `PUBLIC` list). What removes a post, or an account's blog data, is one list in `api/lib/blogData.js` used by both the delete route and account deletion.
 
 **Client:** screens `BlogsView`, `PostView`, `AuthorView`, `StudioView` (its own full-screen layout, lazy-loaded with its editor), reusing `CommentsSection`, `useBookmarks`'s pattern and the upload endpoint. The router gets a small table of real-path pages with reserved prefixes (`blog`, `authors`, `write`), so they are never mistaken for curriculum modules.
 
@@ -84,7 +84,7 @@ Each phase ends with the browser and unit tests green, screenshots reviewed in l
 
 ### Phase 3: blogging platform and studio
 
-- **3a Data, API, renderer.** Migration, routes, `webapp/src/lib/blog/` (validate, render, plain text, reading time), tests including hostile documents (script, event handlers, `javascript:` links, same-origin images, oversized and deeply nested input) and the ownership matrix (an author can edit only their own posts; admin can hide).
+- **3a Data, API, renderer. Done (committed locally, not pushed).** Migration `0002_blogs.sql`, `api/routes/blogs.js`, and `webapp/src/lib/blog/` (validate, render, plain text, reading time). Tests include hostile documents (script, event handlers, `javascript:` links, same-origin images, oversized and deeply nested input) and the ownership matrix (an author can edit only their own posts; an admin can hide): 19 library tests and 34 API tests, and the same routes were run once on the real Workers runtime against a local D1 (48 checks). **Before the code is pushed, apply the migration with `npm run db:migrate:remote`:** the deploy smoke test now calls `/api/blogs` and fails the run without it.
 - **3b Reading.** Explore Blogs (editorial layout, filters by topic, author and popularity, search), post page (cover, author card, reading time, progress, like, bookmark, share, related, comments), author page, tags, the Pages Functions, sitemap, share cards.
 - **3c Studio.** Full-screen layout; large title; comfortable width; floating formatting toolbar; slash menu; block handle with "turn into", duplicate, delete; headings, lists, quotes, callouts, dividers, tables; code blocks with language and highlighting; images by drop, paste or button with alt text; YouTube and diagram blocks; word count and reading time; live preview; autosave with honest status, flush on exit and a local recovery copy; undo and redo; shortcuts and a help dialog; focus mode; a publish dialog (draft, schedule, publish; cover, tags, description).
 - **3d Assistant.** Improve, outline, rewrite selection, titles and descriptions, summary, tag suggestions; the table of contents is generated locally from headings. Preview and confirm on every suggestion.

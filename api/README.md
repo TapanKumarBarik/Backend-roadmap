@@ -1,13 +1,14 @@
 # api/
 
-The Hono application behind every `/api/*` request: sign-in, progress, notes, comments, the feed, books,
-suggestions, the workspace and the admin tools. It runs as a Cloudflare Pages Function on top of a D1
+The Hono application behind every `/api/*` request: sign-in, progress, notes, comments, the feed, community blogs,
+books, suggestions, the workspace and the admin tools. It runs as a Cloudflare Pages Function on top of a D1
 (SQLite) database. This folder is **not** the backend curriculum; that lives in [`../backend/`](../backend/).
 
 ```text
 app.js               mounts every router under /api  (the entry the Pages Function calls)
-routes/<area>.js     one router per area: auth, study, feed, comments, community, workspace, admin, content
-lib/                 shared helpers: d1 access, session cookies, rate limiting, admin check, blob uploads
+routes/<area>.js     one router per area: auth, study, feed, comments, blogs, community, workspace, admin, content
+lib/                 shared helpers: d1 access, session cookies, rate limiting, admin check, blob uploads,
+                     comment paths (feed: / blog: prefixes), the statements that delete blog data
 migrations/          the D1 schema, as numbered SQL files applied in order
 tests/               API tests: the real app, on an in-memory SQLite database standing in for D1
 types.d.ts           the bindings (the database, the secrets) a handler's `c.env` carries
@@ -34,7 +35,7 @@ The schema is the numbered files in `migrations/`, applied in order and each app
 `d1_migrations` table to remember which ones have run.
 
 ```bash
-npm run db:new -- add_status_to_suggestions   # creates migrations/0002_add_status_to_suggestions.sql
+npm run db:new -- add_status_to_suggestions   # creates migrations/0003_add_status_to_suggestions.sql (the next free number)
 npm run db:migrate                            # applies what is missing to your local database
 npm run db:migrate:remote                     # applies what is missing to the real database (needs your Cloudflare login)
 ```
@@ -46,7 +47,8 @@ npm run db:migrate:remote                     # applies what is missing to the r
 - `0001_initial.sql` is written with `IF NOT EXISTS` because the production database already held this schema before
   migrations existed.
 - The tests catch a forgotten migration: they apply every file to an empty database and fail if the SQL in `routes/`
-  or `lib/` names a table that no migration creates.
+  or `lib/` names a table that no migration creates. A migration that was written but never applied to production
+  is caught after the deploy instead: the smoke test calls `/api/blogs`, which reads the tables `0002` created.
 
 ## Tests
 

@@ -19,7 +19,8 @@ async function serve(broken = new Set()) {
     '/backend/01-intro/01-first/': () => ['<link rel="canonical" href="x"><h1>First</h1>', { 'content-type': 'text/html' }],
     '/backend/01-intro/01-first/README.md': () => ['# First', { 'content-type': 'text/markdown', ...(broken.has('noindex') ? {} : { 'x-robots-tag': 'noindex' }) }],
     '/sitemap.xml': () => [broken.has('sitemap') ? '<urlset></urlset>' : `<urlset>${loc}</urlset>`, { 'content-type': 'application/xml' }],
-    '/api/auth/me': () => (broken.has('api') ? ['boom', { 'content-type': 'text/plain' }, 500] : [JSON.stringify({ user: null }), { 'content-type': 'application/json' }])
+    '/api/auth/me': () => (broken.has('api') ? ['boom', { 'content-type': 'text/plain' }, 500] : [JSON.stringify({ user: null }), { 'content-type': 'application/json' }]),
+    '/api/blogs?limit=1': () => (broken.has('blogs') ? ['no such table: blog_posts', { 'content-type': 'text/plain' }, 500] : [JSON.stringify({ posts: [], next: null }), { 'content-type': 'application/json' }])
   };
   const server = http.createServer((req, res) => {
     const route = routes[req.url];
@@ -44,7 +45,8 @@ test('each way a deploy can go wrong is reported by name', async () => {
     ['csp', /Content-Security-Policy/],
     ['noindex', /noindex/],
     ['sitemap', /sitemap\.xml/],
-    ['api', /\/api\/auth\/me answered 500/]
+    ['api', /\/api\/auth\/me answered 500/],
+    ['blogs', /\/api\/blogs answered 500 \(was the database migration applied\?/]
   ];
   for (const [what, expected] of cases) {
     const site = await serve(new Set([what]));

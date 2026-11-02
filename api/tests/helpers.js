@@ -82,7 +82,7 @@ export function createEnv(overrides = {}) {
 }
 
 /** A `cookie` header for a signed-in visitor, signed with the test secret. */
-export async function signedInAs(email, { name = 'Test User', sub = `user-${email}`, secret = SESSION_SECRET, ttlMs = 60 * 60 * 1000 } = {}) {
-  const token = await sign({ sub, email, name, exp: Date.now() + ttlMs }, secret);
+export async function signedInAs(email, { name = 'Test User', sub = `user-${email}`, picture = null, secret = SESSION_SECRET, ttlMs = 60 * 60 * 1000 } = {}) {
+  const token = await sign({ sub, email, name, picture, exp: Date.now() + ttlMs }, secret);
   return `${SESSION_COOKIE}=${encodeURIComponent(token)}`;
 }

@@ -79,8 +79,8 @@ separate jobs. [VIDEOS.md](VIDEOS.md) has the details.
 ## The account side
 
 `/api/*` is a Cloudflare Pages Function: `functions/api/[[path]].js` calls `api/app.js`, a Hono app made of one router per
-area (`routes/study.js` for bookmarks, notes and progress; `comments`, `feed`, `community`, `workspace`, `admin`,
-`content`, `auth`). Sign-in is Google OAuth; the session is an HMAC-signed `HttpOnly` cookie, so there is no session
+area (`routes/study.js` for bookmarks, notes and progress; `comments`, `feed`, `blogs`, `community`, `workspace`,
+`admin`, `content`, `auth`). Sign-in is Google OAuth; the session is an HMAC-signed `HttpOnly` cookie, so there is no session
 table. Every route is checked by `api/tests/access.test.js`: it calls all of them without signing in and fails for any that
 answers, unless the route is on a written-out public list.
 
