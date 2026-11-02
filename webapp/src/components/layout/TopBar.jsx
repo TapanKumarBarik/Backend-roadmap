@@ -11,6 +11,7 @@ import { IconButton } from '../ui/Button.jsx';
 import { Menu, MenuHeader, MenuItem, MenuLabel, MenuSeparator } from '../ui/Menu.jsx';
 import ShortcutsDialog from './ShortcutsDialog.jsx';
 import { BUILD_TIME } from '../../lib/buildInfo.js';
+import { describeActivity } from '../../lib/comments.js';
 import { CONTRIBUTE_URL } from '../../lib/curriculum/contribute.js';
 import { DEVELOPER, SITE, YOUTUBE } from '../../config/index.js';
 import { CONTACT } from '../../config/messages.js';
@@ -23,7 +24,7 @@ export default function TopBar({
   onOpenPalette, onGoHome,
   onExport, onImportFile, onReset, onExpandAll, onCollapseAll, onMobileToggle,
   onDeleteAccount, onOpenMessage, onToast, streak,
-  activity, onOpenFile, nodeByFile
+  activity, onOpenActivity, nodeByFile
 }) {
   const importInputRef = useRef(null);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
@@ -107,14 +108,18 @@ export default function TopBar({
             {user.name && <span>{user.email}</span>}
             {streak && streak.currentStreak > 1 && <span>🔥 {streak.currentStreak}-day streak</span>}
           </MenuHeader>
-          {activity && activity.paths.length > 0 && (
+          {activity && activity.items.length > 0 && (
             <>
               <MenuLabel>{activity.label || 'New activity'}</MenuLabel>
-              {activity.paths.map((p) => (
-                <MenuItem key={p} icon={<MailIcon />} onSelect={() => onOpenFile(p)}>
-                  {nodeByFile?.[p]?.title || nodeByFile?.[p]?.name || p}
-                </MenuItem>
-              ))}
+              {activity.items.map((item) => {
+                const { what, where } = describeActivity(item, (path) => nodeByFile?.[path]?.title || nodeByFile?.[path]?.name || path);
+                return (
+                  <MenuItem key={item.id} icon={<MailIcon />} onSelect={() => onOpenActivity(item)}>
+                    {what}
+                    <small className="ui-menu__sub">{where}</small>
+                  </MenuItem>
+                );
+              })}
               <MenuSeparator />
             </>
           )}

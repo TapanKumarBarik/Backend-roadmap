@@ -1,9 +1,12 @@
 // The writes that take blog data away, as lists of [sql, ...params] for `batch()`: one post (the author deleting it, or
 // an admin) and everything an account holds (study.js, delete-my-data). One place, so a table added to the blogs is
 // added to both. Each list runs in order inside one transaction, which is why a count is corrected before the rows
-// that justify it are deleted.
+// that justify it are deleted. And the one rule that says which posts a reader may see.
 
 import { BLOG_PREFIX, blogPath } from './commentPaths.js';
+
+/** A post a reader may see: published, its time has come, and not taken down. Written on a table aliased `p`, with the time as ?1. */
+export const VISIBLE = "p.status = 'published' AND p.publish_at IS NOT NULL AND p.publish_at <= ?1 AND p.hidden = 0";
 
 /** A post, with its tags, likes, bookmarks, reports and the discussion under it. */
 export function postRemoval(postId) {

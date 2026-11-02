@@ -7,6 +7,8 @@ import { all, first, run, batch } from '../lib/d1.js';
 import { getSession } from '../lib/admin.js';
 import { SESSION_COOKIE, cookieAttrs } from '../lib/session.js';
 import { authorRemoval } from '../lib/blogData.js';
+import { commentsOfAccount } from '../lib/commentData.js';
+import { DELETED } from '../lib/deleted.js';
 
 const study = createRouter();
 
@@ -243,8 +245,9 @@ study.post('/reactions/:path{.+}', async (c) => {
 
 // Delete-my-data: hard-delete everything private to the account (progress, notes, bookmarks, the workspace's pages, the
 // directory row with the e-mail address, name and picture, votes), take the articles and the author page with it
-// (lib/blogData.js), and anonymize the identity on public contributions other people's threads depend on (comments, feed
-// posts, books, suggestions, messages, page views), then clear the session cookie.
+// (lib/blogData.js), delete the comments nobody replied to (lib/commentData.js), and anonymize the identity on what other
+// people's threads depend on (comments with replies, feed posts, books, suggestions, messages, page views), then clear the
+// session cookie.
 study.delete('/account', async (c) => {
   const { session, res } = await requireSession(c);
   if (res) return res;
@@ -263,12 +266,12 @@ study.delete('/account', async (c) => {
     ['DELETE FROM suggestion_votes WHERE voter_id = ?1', uid],
     ['DELETE FROM workspace_pages WHERE user_id = ?1', uid],
     ['DELETE FROM users WHERE user_id = ?1', uid],
-    [`UPDATE comments SET display_name = '[deleted user]', text = '[deleted]', user_id = 'deleted' WHERE user_id = ?1`, uid],
-    [`UPDATE feed_posts SET display_name = '[deleted user]', user_id = 'deleted' WHERE user_id = ?1`, uid],
-    [`UPDATE books SET display_name = '[deleted user]', user_id = 'deleted' WHERE user_id = ?1`, uid],
-    [`UPDATE suggestions SET display_name = '[deleted user]', user_id = 'deleted' WHERE user_id = ?1`, uid],
-    [`UPDATE messages SET display_name = '[deleted user]', email = 'deleted', user_id = 'deleted' WHERE user_id = ?1`, uid],
-    [`UPDATE page_views SET user = 'deleted' WHERE user = ?1`, email],
+    ...commentsOfAccount(uid),
+    ['UPDATE feed_posts SET display_name = ?2, user_id = ?3 WHERE user_id = ?1', uid, DELETED.name, DELETED.userId],
+    ['UPDATE books SET display_name = ?2, user_id = ?3 WHERE user_id = ?1', uid, DELETED.name, DELETED.userId],
+    ['UPDATE suggestions SET display_name = ?2, user_id = ?3 WHERE user_id = ?1', uid, DELETED.name, DELETED.userId],
+    ['UPDATE messages SET display_name = ?2, email = ?3, user_id = ?3 WHERE user_id = ?1', uid, DELETED.name, DELETED.userId],
+    ['UPDATE page_views SET user = ?2 WHERE user = ?1', email, DELETED.userId],
     ...authorRemoval(uid)
   ]);
 

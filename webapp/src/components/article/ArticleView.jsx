@@ -13,6 +13,7 @@ import { enhanceSelfCheck, handleSelfCheckClick } from '../../lib/markdown/selfC
 import { STORAGE, CONTENT } from '../../config/index.js';
 import { PATH_COPY } from '../../config/paths.js';
 import { readStored, writeStored } from '../../lib/storage.js';
+import { commentIdFromAnchor } from '../../lib/comments.js';
 import { ClockIcon, StarIcon, ArrowRightIcon } from '../common/icons.jsx';
 import LoadError from '../common/LoadError.jsx';
 import { LOAD_WHAT } from '../../config/messages.js';
@@ -397,7 +398,7 @@ export default function ArticleView({
         {/* Notes normally live in the right rail; below 1180px that rail is
             hidden, so they fall back into the article rather than vanishing. */}
         {showNotesInArticle && <NotesPanel path={path} user={user} onLogin={onLogin} />}
-        <CommentsSection path={path} user={user} onLogin={onLogin} />
+        <CommentsSection path={path} user={user} onLogin={onLogin} focusId={commentIdFromAnchor(headingTarget)} />
         </>
       )}
 

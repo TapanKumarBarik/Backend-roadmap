@@ -6,11 +6,13 @@
 // real comment_id / voter_id columns.
 
 import { createRouter } from '../lib/router.js';
-import { all, first, run } from '../lib/d1.js';
+import { all, batch, first, run } from '../lib/d1.js';
 import { getSession, isAdmin, requireAdmin } from '../lib/admin.js';
 import { checkRateLimit } from '../lib/rateLimit.js';
 import { timeId } from '../lib/util.js';
-import { ON_A_MODULE } from '../lib/commentPaths.js';
+import { BLOG_PREFIX, FEED_PREFIX, ON_A_MODULE } from '../lib/commentPaths.js';
+import { VISIBLE } from '../lib/blogData.js';
+import { DELETED } from '../lib/deleted.js';
 
 const comments = createRouter();
 
@@ -19,6 +21,8 @@ const RATE_LIMIT_WINDOW_MS = 5 * 60 * 1000;
 const RATE_LIMIT_MAX = 5;
 const LIST_LIMIT = 200;
 const ADMIN_LIMIT = 500;
+const ACTIVITY_ITEMS = 10;
+const SNIPPET_CHARS = 80;
 
 function toClientShape(e, votes) {
   return {
@@ -30,9 +34,34 @@ function toClientShape(e, votes) {
     createdAt: e.created_at,
     editedAt: e.edited_at || null,
     isAnswer: !!e.is_answer,
+    // Deleted, with replies still under it: the app draws it as gone and offers nothing to do with it.
+    deleted: e.user_id === DELETED.userId,
     upvotes: votes ? (votes.counts[e.id] || 0) : 0,
     votedByMe: votes ? votes.mine.has(e.id) : false
   };
+}
+
+/**
+ * Takes a comment away. One with replies stays as a stand-in (no name, no text) so the replies keep their place; one without
+ * is deleted, and so is a stand-in whose last reply that was. Its votes go either way.
+ */
+async function removeComment(env, path, id) {
+  const hasReplies = (parentId) => first(env, 'SELECT 1 AS n FROM comments WHERE path = ?1 AND parent_id = ?2 LIMIT 1', path, parentId);
+  const dropVotes = ['DELETE FROM comment_votes WHERE path = ?1 AND comment_id = ?2', path, id];
+
+  if (await hasReplies(id)) {
+    await batch(env, [
+      ['UPDATE comments SET text = ?3, display_name = ?4, user_id = ?5, is_answer = 0, mentions = ?6 WHERE path = ?1 AND id = ?2', path, id, DELETED.text, DELETED.name, DELETED.userId, DELETED.mentions],
+      dropVotes
+    ]);
+    return;
+  }
+  const row = await first(env, 'SELECT parent_id FROM comments WHERE path = ?1 AND id = ?2', path, id);
+  await batch(env, [['DELETE FROM comments WHERE path = ?1 AND id = ?2', path, id], dropVotes]);
+  const parentId = row && row.parent_id;
+  if (!parentId) return;
+  const parent = await first(env, 'SELECT user_id FROM comments WHERE path = ?1 AND id = ?2', path, parentId);
+  if (parent && parent.user_id === DELETED.userId && !(await hasReplies(parentId))) await removeComment(env, path, parentId);
 }
 
 function parseMentions(text, participants) {
@@ -61,9 +90,9 @@ comments.get('/comments/questions', async (c) => {
     c.env,
     `SELECT id, path, display_name, text, created_at, is_answer
        FROM comments
-      WHERE hidden = 0 AND (parent_id IS NULL OR parent_id = '') AND ${ON_A_MODULE}
+      WHERE hidden = 0 AND (parent_id IS NULL OR parent_id = '') AND ${ON_A_MODULE} AND user_id != ?2
       ORDER BY created_at DESC LIMIT ?1`,
-    LIST_LIMIT
+    LIST_LIMIT, DELETED.userId
   );
   const replyRows = await all(
     c.env,
@@ -102,16 +131,17 @@ comments.get('/comments/activity', async (c) => {
 
   const cands = await all(
     c.env,
-    `SELECT parent_id, mentions, path
+    `SELECT id, parent_id, mentions, path, display_name, created_at
        FROM comments
       WHERE user_id != ?1 AND created_at > ?2
-        AND ((parent_id IS NOT NULL AND parent_id != '') OR mentions LIKE ?3)`,
+        AND ((parent_id IS NOT NULL AND parent_id != '') OR mentions LIKE ?3)
+      ORDER BY created_at DESC`,
     session.sub, sinceIso, `%"${session.sub}"%`
   );
 
   let replies = 0;
   let mentions = 0;
-  const paths = new Set();
+  const found = [];
   for (const cand of cands) {
     let mentionList = [];
     try { mentionList = JSON.parse(cand.mentions || '[]'); } catch { /* older rows */ }
@@ -120,11 +150,41 @@ comments.get('/comments/activity', async (c) => {
     if (!isReplyToMe && !mentionsMe) continue;
     if (isReplyToMe) replies++;
     else mentions++;
-    paths.add(cand.path);
+    found.push({ id: cand.id, path: cand.path, kind: isReplyToMe ? 'reply' : 'mention', by: cand.display_name, at: cand.created_at });
   }
 
-  return c.json({ count: replies + mentions, replies, mentions, paths: [...paths].slice(0, 10) });
+  const paths = [...new Set(found.map((f) => f.path))].slice(0, ACTIVITY_ITEMS);
+  return c.json({ count: replies + mentions, replies, mentions, paths, items: await withTitles(c.env, found.slice(0, ACTIVITY_ITEMS)) });
 });
+
+/**
+ * What the app needs to link to each item of activity: on a module, its path is enough; on a feed post, the start of the post;
+ * on an article, its title and address. An item on a post that is gone, or an article nobody may read, is left out.
+ */
+async function withTitles(env, items) {
+  const idsOn = (prefix) => [...new Set(items.filter((i) => i.path.startsWith(prefix)).map((i) => i.path.slice(prefix.length)))];
+  const marks = (list, from) => list.map((_, i) => `?${i + from}`).join(', ');
+  const feedIds = idsOn(FEED_PREFIX);
+  const blogIds = idsOn(BLOG_PREFIX);
+  const feed = feedIds.length ? await all(env, `SELECT id, text FROM feed_posts WHERE id IN (${marks(feedIds, 1)})`, ...feedIds) : [];
+  const posts = blogIds.length
+    ? await all(env, `SELECT p.id, p.slug, p.title FROM blog_posts p WHERE ${VISIBLE} AND p.id IN (${marks(blogIds, 2)})`, new Date().toISOString(), ...blogIds)
+    : [];
+  const feedText = new Map(feed.map((p) => [p.id, p.text]));
+  const post = new Map(posts.map((p) => [p.id, p]));
+
+  return items.flatMap((item) => {
+    if (item.path.startsWith(FEED_PREFIX)) {
+      const text = feedText.get(item.path.slice(FEED_PREFIX.length));
+      return text == null ? [] : [{ ...item, title: String(text).replace(/\s+/g, ' ').trim().slice(0, SNIPPET_CHARS) }];
+    }
+    if (item.path.startsWith(BLOG_PREFIX)) {
+      const found = post.get(item.path.slice(BLOG_PREFIX.length));
+      return found ? [{ ...item, title: found.title, slug: found.slug }] : [];
+    }
+    return [item];
+  });
+}
 
 comments.post('/comments/vote', async (c) => {
   const session = await getSession(c);
@@ -134,6 +194,8 @@ comments.post('/comments/vote', async (c) => {
   try { body = await c.req.json(); } catch { return c.json({ error: 'invalid body' }, 400); }
   const { path, id } = body;
   if (!path || !id) return c.json({ error: 'path and id are required' }, 400);
+  const target = await first(c.env, 'SELECT user_id FROM comments WHERE path = ?1 AND id = ?2', path, id);
+  if (!target || target.user_id === DELETED.userId) return c.json({ error: 'comment not found' }, 404);
 
   const existing = await first(
     c.env, 'SELECT 1 FROM comment_votes WHERE path = ?1 AND comment_id = ?2 AND voter_id = ?3',
@@ -166,7 +228,7 @@ comments.put('/comments/edit', async (c) => {
   if (text.length > MAX_LENGTH) return c.json({ error: `comment too long (max ${MAX_LENGTH} chars)` }, 400);
 
   const entity = await first(c.env, 'SELECT * FROM comments WHERE path = ?1 AND id = ?2', path, id);
-  if (!entity) return c.json({ error: 'comment not found' }, 404);
+  if (!entity || entity.user_id === DELETED.userId) return c.json({ error: 'comment not found' }, 404);
   if (entity.user_id !== session.sub && !(await isAdmin(c.env, session))) {
     return c.json({ error: 'forbidden' }, 403);
   }
@@ -189,7 +251,7 @@ comments.delete('/comments/own', async (c) => {
   if (entity.user_id !== session.sub && !(await isAdmin(c.env, session))) {
     return c.json({ error: 'forbidden' }, 403);
   }
-  await run(c.env, 'DELETE FROM comments WHERE path = ?1 AND id = ?2', path, id);
+  await removeComment(c.env, path, id);
   return c.body(null, 204);
 });
 
@@ -203,8 +265,8 @@ comments.put('/manage/comments/answer', async (c) => {
   if (!path || !id) return c.json({ error: 'path and id are required' }, 400);
 
   await run(
-    c.env, 'UPDATE comments SET is_answer = ?1 WHERE path = ?2 AND id = ?3',
-    body.isAnswer ? 1 : 0, path, id
+    c.env, 'UPDATE comments SET is_answer = ?1 WHERE path = ?2 AND id = ?3 AND user_id != ?4',
+    body.isAnswer ? 1 : 0, path, id, DELETED.userId
   );
   return c.body(null, 204);
 });
@@ -224,7 +286,7 @@ comments.delete('/manage/comments', async (c) => {
   const path = c.req.query('path');
   const id = c.req.query('id');
   if (!path || !id) return c.json({ error: 'path and id are required' }, 400);
-  await run(c.env, 'DELETE FROM comments WHERE path = ?1 AND id = ?2', path, id);
+  await removeComment(c.env, path, id);
   return c.body(null, 204);
 });
 

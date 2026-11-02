@@ -785,6 +785,8 @@ a.list-row-title { text-decoration: none; }
   font-size: 14.5px; line-height: 1.55; color: var(--fg); margin: 5px 0 7px;
   display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
 }
+.q-open { display: block; width: 100%; background: none; border: 0; padding: 0; font: inherit; color: inherit; text-align: left; cursor: pointer; }
+.q-open:hover .q-text { text-decoration: underline; text-underline-offset: 2px; }
 .q-meta { display: flex; align-items: center; gap: 9px; font-size: 11.5px; color: var(--fg-subtle); flex-wrap: wrap; }
 .q-meta strong { color: var(--fg-muted); font-weight: 600; }
 .q-badge {
@@ -1117,6 +1119,10 @@ body.right-rail-collapsed #toc { display: none; }
 }
 .comment-vote-btn:hover { background: var(--hover); color: var(--fg); }
 .comment-vote-btn.on { background: var(--accent-subtle); border-color: var(--accent); color: var(--accent); }
+/* The comment a link named (lib/comments.js), and one that was deleted while replies hang off it. */
+.comment.is-linked { background: var(--signal-bg); box-shadow: inset 3px 0 0 var(--signal); padding-left: 13px; border-radius: var(--r-sm); }
+.comment:focus { outline: none; }
+.comment.is-deleted .comment-text { color: var(--fg-subtle); font-style: italic; }
 
 /* ---------- comments header / sort ---------- */
 .comments-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }

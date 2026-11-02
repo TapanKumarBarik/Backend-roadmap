@@ -16,7 +16,7 @@ import { all, batch, first, run } from '../lib/d1.js';
 import { getSession, isAdmin, requireAdmin } from '../lib/admin.js';
 import { checkRateLimit } from '../lib/rateLimit.js';
 import { timeId } from '../lib/util.js';
-import { postRemoval } from '../lib/blogData.js';
+import { VISIBLE, postRemoval } from '../lib/blogData.js';
 import { BLOG, TAG_PATTERN } from '../../webapp/src/lib/blog/limits.js';
 import { DocError, isEmptyDoc, safeHref, safeImageSrc, sanitizeDoc } from '../../webapp/src/lib/blog/sanitizeDoc.js';
 import { renderDoc } from '../../webapp/src/lib/blog/renderDoc.js';
@@ -41,8 +41,6 @@ const MAX_SCHEDULE_AHEAD_MS = 366 * 24 * 60 * 60 * 1000;
 const EMPTY_DOC = JSON.stringify({ type: 'doc', content: [{ type: 'paragraph' }] });
 
 const nowIso = () => new Date().toISOString();
-// A post a reader may see: published, its time has come, and not taken down. Always written with the time as ?1.
-const VISIBLE = "p.status = 'published' AND p.publish_at IS NOT NULL AND p.publish_at <= ?1 AND p.hidden = 0";
 const unauthenticated = (c) => c.json({ error: 'unauthenticated' }, 401);
 const notFound = (c) => c.json({ error: 'not found' }, 404);
 

@@ -48,6 +48,8 @@ export const CALLOUTS = {
 };
 export const CALLOUT_TONES = Object.keys(CALLOUTS);
 
-/** A post's comments are rows of the comments table under this path (the feed's are 'feed:<id>'): the API and the app agree here. */
+/** An article's comments are rows of the comments table under this path, and a feed post's under 'feed:<id>': the API and the app agree here. */
 export const COMMENT_PATH_PREFIX = 'blog:';
 export const commentPath = (postId) => COMMENT_PATH_PREFIX + postId;
+export const FEED_PATH_PREFIX = 'feed:';
+export const feedCommentPath = (postId) => FEED_PATH_PREFIX + postId;

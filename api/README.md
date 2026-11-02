@@ -9,7 +9,8 @@ app.js               mounts every router under /api  (the entry the Pages Functi
 routes/<area>.js     one router per area: auth, study, feed, comments, blogs, assistant, community, workspace, admin, content
 pages/               the community's pages as the server draws them (/blog/<slug> ...): see docs/ARCHITECTURE.md
 lib/                 shared helpers: d1 access, session cookies, rate limiting, admin check, blob uploads,
-                     comment paths (feed: / blog: prefixes), the statements that delete blog data
+                     comment paths (feed: / blog: prefixes), the statements that delete blog data and an account's
+                     comments, and what stands in for someone who is gone (deleted.js)
 migrations/          the D1 schema, as numbered SQL files applied in order
 tests/               API tests: the real app, on an in-memory SQLite database standing in for D1
 types.d.ts           the bindings (the database, the secrets) a handler's `c.env` carries

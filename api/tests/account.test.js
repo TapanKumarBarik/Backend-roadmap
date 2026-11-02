@@ -3,6 +3,7 @@
 import { test, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import app from '../app.js';
+import { DELETED } from '../lib/deleted.js';
 import { createEnv, signedInAs } from './helpers.js';
 
 let env;
@@ -40,7 +41,7 @@ test('deleting an account removes the directory row, the workspace and the votes
   assert.equal(count('suggestion_votes', 'voter_id = ?', 'user-ada@example.com'), 0);
 
   for (const table of ['books', 'suggestions', 'feed_posts']) {
-    assert.deepEqual(raw(`SELECT user_id, display_name FROM ${table} WHERE id LIKE '%ada@example.com'`)[0], { user_id: 'deleted', display_name: '[deleted user]' }, `${table}: the contribution stays, without her name`);
+    assert.deepEqual(raw(`SELECT user_id, display_name FROM ${table} WHERE id LIKE '%ada@example.com'`)[0], { user_id: DELETED.userId, display_name: DELETED.name }, `${table}: the contribution stays, without her name`);
   }
   assert.equal(count('books', "title = 'A book by Ada Lovelace'"), 1, 'the title of what she added is public content and stays');
 
@@ -49,4 +50,30 @@ test('deleting an account removes the directory row, the workspace and the votes
   assert.equal(count('workspace_pages', 'user_id = ?', 'user-grace@example.com'), 1);
   assert.deepEqual(raw("SELECT display_name FROM books WHERE id LIKE '%grace@example.com'")[0], { display_name: 'Grace Hopper' });
   assert.equal(count('feed_votes', 'post_id = ?', 'post-user-grace@example.com'), 0, 'only her vote was removed from Grace\'s post');
+});
+
+test('deleting an account deletes the comments nobody replied to, and keeps the start of a thread others took part in', async () => {
+  const comment = (id, userId, name, parent = '', path = 'a/module.md') => env.DB.raw.prepare(
+    'INSERT INTO comments (id, path, user_id, display_name, text, parent_id, is_answer, hidden, created_at, mentions) VALUES (?, ?, ?, ?, ?, ?, 1, 0, ?, ?)'
+  ).run(id, path, userId, name, `text of ${id}`, parent, new Date().toISOString(), '["someone"]');
+  const adaId = 'user-ada@example.com';
+  const graceId = 'user-grace@example.com';
+  comment('ada-asked', adaId, 'Ada Lovelace');               // Grace replied: the thread keeps its start
+  comment('grace-replied', graceId, 'Grace Hopper', 'ada-asked');
+  comment('ada-alone', adaId, 'Ada Lovelace', '', 'b/other.md'); // nobody replied
+  comment('grace-asked', graceId, 'Grace Hopper');           // Ada replied to Grace's question
+  comment('ada-replied', adaId, 'Ada Lovelace', 'grace-asked');
+  comment('stand-in', DELETED.userId, DELETED.name, '', 'c/third.md'); // from an earlier deletion; its only reply is Ada's
+  comment('ada-last-reply', adaId, 'Ada Lovelace', 'stand-in', 'c/third.md');
+  env.DB.raw.prepare('INSERT INTO comment_votes (path, comment_id, voter_id) VALUES (?, ?, ?)').run('a/module.md', 'ada-asked', graceId);
+  env.DB.raw.prepare('INSERT INTO comment_votes (path, comment_id, voter_id) VALUES (?, ?, ?)').run('b/other.md', 'ada-alone', graceId);
+
+  assert.equal((await call(ada, 'DELETE', '/account')).status, 204);
+
+  assert.deepEqual(raw('SELECT id, user_id, display_name, text, is_answer, mentions FROM comments ORDER BY id'), [
+    { id: 'ada-asked', user_id: DELETED.userId, display_name: DELETED.name, text: DELETED.text, is_answer: 0, mentions: DELETED.mentions },
+    { id: 'grace-asked', user_id: graceId, display_name: 'Grace Hopper', text: 'text of grace-asked', is_answer: 1, mentions: '["someone"]' },
+    { id: 'grace-replied', user_id: graceId, display_name: 'Grace Hopper', text: 'text of grace-replied', is_answer: 1, mentions: '["someone"]' }
+  ], 'her replies and her unanswered comments are gone, and so is the stand-in that only her reply held up');
+  assert.equal(count('comment_votes'), 0, 'and the votes on what was removed');
 });

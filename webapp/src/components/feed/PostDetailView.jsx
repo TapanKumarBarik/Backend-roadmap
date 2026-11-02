@@ -7,6 +7,7 @@ import { useLoader } from '../../hooks/useLoader.js';
 import LoadError from '../common/LoadError.jsx';
 import ErrorText from '../common/ErrorText.jsx';
 import { friendlyMessage } from '../../lib/errors.js';
+import { feedCommentPath } from '../../lib/blog/limits.js';
 import { LOAD_WHAT } from '../../config/messages.js';
 import { useConfirm } from '../ui/Dialog.jsx';
 
@@ -105,7 +106,7 @@ export default function PostDetailView({ postId, user, onLogin, onBack, onToast 
           </div>
 
           <CommentsSection
-            path={'feed:' + post.id}
+            path={feedCommentPath(post.id)}
             user={user}
             onLogin={onLogin}
             heading="Comments"

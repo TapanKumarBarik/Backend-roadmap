@@ -12,6 +12,8 @@ const getOrInitBaseline = () => readOrInitTimestamp(STORAGE.activityLastSeen);
 export function useCommentActivity(user) {
   const [count, setCount] = useState(0);
   const [paths, setPaths] = useState([]);
+  // What happened, newest first, each with where it is (lib/comments.js says how to link to it).
+  const [items, setItems] = useState([]);
   // Split so the menu can say what actually happened. Someone answering your
   // question and someone name-dropping you are different events, and
   // "mentions" was the wrong word for both.
@@ -20,7 +22,7 @@ export function useCommentActivity(user) {
   const [seen, setSeen] = useState(false);
 
   useEffect(() => {
-    if (!user) { setCount(0); setPaths([]); setReplies(0); setMentions(0); return; }
+    if (!user) { setCount(0); setPaths([]); setItems([]); setReplies(0); setMentions(0); return; }
     let cancelled = false;
     setSeen(false);
     const since = getOrInitBaseline();
@@ -29,6 +31,7 @@ export function useCommentActivity(user) {
         if (cancelled) return;
         setCount(d.count || 0);
         setPaths(d.paths || []);
+        setItems(d.items || []);
         // An older API returns neither; fall back to counting it all as
         // mentions, which is what it used to mean.
         setReplies(d.replies || 0);
@@ -53,5 +56,5 @@ export function useCommentActivity(user) {
     mentions && `${mentions} ${mentions === 1 ? 'mention' : 'mentions'}`
   ].filter(Boolean).join(' · ');
 
-  return { count, paths, replies, mentions, label, badgeVisible: count > 0 && !seen, markSeen };
+  return { count, paths, items, replies, mentions, label, badgeVisible: count > 0 && !seen, markSeen };
 }

@@ -29,6 +29,7 @@ import { globalCounts } from './lib/curriculum/progressStats.js';
 import { dirsOnPath } from './lib/curriculum/treePath.js';
 import { trackPageView, deleteAccount } from './lib/api.js';
 import { BLOG_ROUTE, AUTHOR_ROUTE, WRITE_ROUTE } from './lib/appPages.js';
+import { activityTarget } from './lib/comments.js';
 import { pickContinue, neighbourModules } from './lib/curriculum/curriculumPosition.js';
 import { resolvePaths, pathProgress, pathNeighbours, pickPathNext, placeOnPath } from './lib/curriculum/learningPaths.js';
 
@@ -396,6 +397,14 @@ export default function App() {
   // /write is the list of your articles, /write/<id> the editor on one (a click handler's event is not an id).
   const openWrite = useCallback((id) => navigate(WRITE_ROUTE, typeof id === 'string' ? id : null), [navigate]);
 
+  // A reply or a mention in the account menu leads to where it was said: the module (scrolled to the comment), the article, or the post.
+  const openActivity = useCallback((item) => {
+    const target = activityTarget(item);
+    if (target.type === 'article') openPost(target.slug);
+    else if (target.type === 'post') openFeedPost(target.id);
+    else openFile(target.path, target.anchor);
+  }, [openPost, openFeedPost, openFile]);
+
   // Two of the three theme states render identically on any given OS, so a
   // press can legitimately change nothing on screen — say which mode it
   // landed on instead of leaving the button looking broken.
@@ -474,7 +483,7 @@ export default function App() {
         onToast={toast.show}
         streak={streak}
         activity={activity}
-        onOpenFile={openFile}
+        onOpenActivity={openActivity}
         nodeByFile={nodeByFile}
       />
       <div id="shell">

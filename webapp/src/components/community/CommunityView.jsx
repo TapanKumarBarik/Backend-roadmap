@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { fetchQuestions } from '../../lib/api.js';
+import { commentAnchor } from '../../lib/comments.js';
 import { useLoader } from '../../hooks/useLoader.js';
 import LoadError from '../common/LoadError.jsx';
 import { ChoiceChip } from '../ui/Chip.jsx';
@@ -56,7 +57,10 @@ export default function CommunityView({ nodeByFile, onOpenFile }) {
               <button className="q-module" onClick={() => onOpenFile(q.path)}>
                 {moduleTitle(q.path)}
               </button>
-              <div className="q-text">{q.text}</div>
+              {/* The question itself leads to the question: the module, scrolled to it. */}
+              <button className="q-open" onClick={() => onOpenFile(q.path, commentAnchor(q.id))}>
+                <span className="q-text">{q.text}</span>
+              </button>
               <div className="q-meta">
                 <strong>{q.displayName}</strong>
                 <span>{new Date(q.createdAt).toLocaleDateString()}</span>

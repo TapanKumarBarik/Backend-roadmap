@@ -4,18 +4,45 @@ import MentionTextarea from './MentionTextarea.jsx';
 import LoadError from '../common/LoadError.jsx';
 import ErrorText from '../common/ErrorText.jsx';
 import { friendlyMessage } from '../../lib/errors.js';
+import { commentAnchor } from '../../lib/comments.js';
 import { LOAD_WHAT } from '../../config/messages.js';
 import { useConfirm } from '../ui/Dialog.jsx';
 
-function CommentRow({ comment, isReply, user, onLogin, onReply, onEdit, onDelete, onToggleAnswer, onVote, participants }) {
+// How a discussion can be ordered. Whatever the order, an answer comes first (that is a moderator's signal, not a preference),
+// and the replies under a comment are in the order they were written unless the choice is the most helpful.
+const SORTS = [
+  { id: 'oldest', label: 'Oldest' },
+  { id: 'newest', label: 'Newest' },
+  { id: 'top', label: 'Most helpful' }
+];
+const chronological = (a, b) => (a.createdAt < b.createdAt ? -1 : a.createdAt > b.createdAt ? 1 : 0); // ISO times sort as text
+const helpful = (a, b) => (b.upvotes || 0) - (a.upvotes || 0) || chronological(a, b);
+const ORDER = { oldest: chronological, newest: (a, b) => chronological(b, a), top: helpful };
+const answerFirst = (order) => (a, b) => (Number(!!b.isAnswer) - Number(!!a.isAnswer)) || order(a, b);
+// How long a comment that a link named is held in view while the page above it settles.
+const SETTLE_MS = 4000;
+
+function CommentRow({ comment, isReply, linked, user, onLogin, onReply, onEdit, onDelete, onToggleAnswer, onVote, participants }) {
   const [editing, setEditing] = useState(false);
   const [editText, setEditText] = useState(comment.text);
   const isMine = user && user.userId === comment.userId;
   const canModerate = user && (isMine || user.isAdmin);
+  const id = commentAnchor(comment.id);
+  const where = (isReply ? ' reply' : '') + (linked ? ' is-linked' : '');
+
+  // A comment that was deleted while replies hang off it: nothing but its place in the thread is left.
+  if (comment.deleted) {
+    return (
+      <div id={id} className={'comment is-deleted' + where}>
+        <div className="comment-text">{comment.text}</div>
+        {user && onReply && <div className="comment-actions"><button className="comment-reply-btn" onClick={onReply}>Reply</button></div>}
+      </div>
+    );
+  }
 
   if (editing) {
     return (
-      <div className={'comment' + (isReply ? ' reply' : '')}>
+      <div id={id} className={'comment' + where}>
         <MentionTextarea value={editText} onChange={setEditText} participants={participants} autoFocus />
         <div className="comment-form-actions">
           <button onClick={() => { onEdit(comment.id, editText); setEditing(false); }}>Save</button>
@@ -26,7 +53,7 @@ function CommentRow({ comment, isReply, user, onLogin, onReply, onEdit, onDelete
   }
 
   return (
-    <div className={'comment' + (isReply ? ' reply' : '') + (comment.isAnswer ? ' is-answer' : '')}>
+    <div id={id} tabIndex={-1} className={'comment' + where + (comment.isAnswer ? ' is-answer' : '')}>
       {comment.isAnswer && <div className="answer-badge">✓ Answer</div>}
       <div className="comment-meta">
         <strong>{comment.displayName}</strong>
@@ -56,8 +83,9 @@ function CommentRow({ comment, isReply, user, onLogin, onReply, onEdit, onDelete
   );
 }
 
+// `focusId` is the comment a link names (lib/comments.js): once the discussion is in, it is scrolled to, marked and given focus.
 export default function CommentsSection({
-  path, user, onLogin,
+  path, user, onLogin, focusId = null,
   heading = 'Discussion',
   emptyText = 'No questions on this module yet. If something here didn’t land, ask — it’s the fastest way to find out whether the module or your understanding needs work.',
   composerPlaceholder = 'Ask a question about this module…',
@@ -140,9 +168,12 @@ export default function CommentsSection({
 
   async function handleDelete(id) {
     if (!(await confirm({ title: 'Delete this comment?', body: 'This cannot be undone.', confirmLabel: 'Delete', tone: 'danger' }))) return;
+    const forPath = path;
     try {
       await deleteOwnComment(path, id);
-      setComments((prev) => prev.filter((c) => c.id !== id));
+      // What is left depends on the replies under it (a comment with replies stays, as a stand-in), so ask rather than guess.
+      const now = await fetchComments(path);
+      if (pathRef.current === forPath) setComments(now);
     } catch (e) {
       setError(friendlyMessage(e));
     }
@@ -157,17 +188,35 @@ export default function CommentsSection({
     }
   }
 
-  // Answer-first always wins (a moderation signal, not a sort preference);
-  // within that, "top" ranks by upvotes, "discussion" leaves the array's
-  // existing chronological order alone (relies on Array#sort's stability).
-  const [sortMode, setSortMode] = useState('discussion');
-  const sorter = (a, b) => {
-    const answerDiff = (b.isAnswer ? 1 : 0) - (a.isAnswer ? 1 : 0);
-    if (answerDiff !== 0) return answerDiff;
-    return sortMode === 'top' ? (b.upvotes || 0) - (a.upvotes || 0) : 0;
-  };
-  const topLevel = comments.filter((c) => !c.parentId).sort(sorter);
-  const repliesOf = (id) => comments.filter((c) => c.parentId === id).sort(sorter);
+  const [sortMode, setSortMode] = useState(SORTS[0].id);
+  const topLevel = comments.filter((c) => !c.parentId).sort(answerFirst(ORDER[sortMode]));
+  const repliesOf = (id) => comments.filter((c) => c.parentId === id).sort(answerFirst(sortMode === 'top' ? helpful : chronological));
+
+  // Once the discussion is in, go to the comment a link named: scroll to it, and give it the focus so a screen reader reads it.
+  // The page above it is still settling (diagrams and pictures change its height), so the comment is kept in view until the
+  // reader scrolls for themselves or the page has had a moment to be still.
+  useEffect(() => {
+    if (!focusId || loading) return undefined;
+    const el = document.getElementById(commentAnchor(focusId));
+    if (!el) return undefined;
+    const scroller = el.closest('.scroll') || document;
+    const settling = el.closest('section.comments')?.parentElement;
+    const align = () => el.scrollIntoView({ block: 'center', behavior: 'instant' });
+    align();
+    el.focus({ preventScroll: true });
+
+    const resize = typeof ResizeObserver === 'undefined' || !settling ? null : new ResizeObserver(align);
+    if (resize) resize.observe(settling);
+    const stop = () => { if (resize) resize.disconnect(); };
+    const timer = setTimeout(stop, SETTLE_MS);
+    const READER_INPUT = ['wheel', 'touchstart', 'keydown', 'pointerdown'];
+    READER_INPUT.forEach((type) => scroller.addEventListener(type, stop, { once: true, passive: true }));
+    return () => {
+      clearTimeout(timer);
+      stop();
+      READER_INPUT.forEach((type) => scroller.removeEventListener(type, stop));
+    };
+  }, [focusId, loading]);
 
   // Autocomplete/mention-matching only ever offers people who've already
   // commented on this page — matches parseMentions' server-side logic,
@@ -189,9 +238,10 @@ export default function CommentsSection({
           {heading}{topLevel.length ? ` · ${topLevel.length}` : ''}
         </div>
         {comments.length > 1 && (
-          <div className="seg comments-sort">
-            <button className={sortMode === 'discussion' ? 'on' : ''} onClick={() => setSortMode('discussion')}>Newest</button>
-            <button className={sortMode === 'top' ? 'on' : ''} onClick={() => setSortMode('top')}>Most helpful</button>
+          <div className="seg comments-sort" role="group" aria-label="Order of the discussion">
+            {SORTS.map((sort) => (
+              <button key={sort.id} className={sortMode === sort.id ? 'on' : ''} aria-pressed={sortMode === sort.id} onClick={() => setSortMode(sort.id)}>{sort.label}</button>
+            ))}
           </div>
         )}
       </div>
@@ -205,13 +255,13 @@ export default function CommentsSection({
       {topLevel.map((c) => (
         <div key={c.id}>
           <CommentRow
-            comment={c} user={user} onLogin={onLogin} participants={participants}
+            comment={c} linked={c.id === focusId} user={user} onLogin={onLogin} participants={participants}
             onReply={() => { setReplyTo(c.id); setReplyText(''); }}
             onEdit={handleEdit} onDelete={handleDelete} onToggleAnswer={handleToggleAnswer} onVote={handleVote}
           />
           {repliesOf(c.id).map((r) => (
             <CommentRow
-              key={r.id} comment={r} isReply user={user} onLogin={onLogin} participants={participants}
+              key={r.id} comment={r} isReply linked={r.id === focusId} user={user} onLogin={onLogin} participants={participants}
               onEdit={handleEdit} onDelete={handleDelete} onToggleAnswer={handleToggleAnswer} onVote={handleVote}
             />
           ))}

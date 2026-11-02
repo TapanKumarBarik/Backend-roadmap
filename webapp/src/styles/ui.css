@@ -156,6 +156,7 @@
 }
 :is(#root, #overlays) .ui-menu__item:hover, :is(#root, #overlays) .ui-menu__item:focus { background: var(--hover); outline: none; }
 :is(#root, #overlays) .ui-menu__item:focus-visible { outline: 2px solid var(--signal); outline-offset: -2px; }
+:is(#root, #overlays) .ui-menu__sub { display: block; max-width: 240px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--text-xs); color: var(--fg-muted); }
 :is(#root, #overlays) .ui-menu__icon { display: inline-grid; place-items: center; color: var(--fg-muted); }
 :is(#root, #overlays) .ui-menu__icon svg { width: 14px; height: 14px; }
 :is(#root, #overlays) .ui-menu__item.is-danger, :is(#root, #overlays) .ui-menu__item.is-danger .ui-menu__icon { color: var(--danger); }
