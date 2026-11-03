@@ -220,7 +220,9 @@ test('the admin sees practice figures and submissions waiting for review, and a 
 });
 
 test('the paths and the videos are real pages: a crawler gets their content without running the app, and the sitemap lists them', async () => {
-  const get = async (url) => { const res = await fetch(BASE + url); return { status: res.status, html: await res.text() }; };
+  // The browser's own requests, not Node's fetch (which can fail to reach "localhost" where only one of its two addresses is served).
+  const requests = await browser.newContext();
+  const get = async (url) => { const res = await requests.request.get(BASE + url); return { status: res.status(), html: await res.text() }; };
 
   const index = await get('/paths/');
   assert.equal(index.status, 200);
@@ -259,6 +261,7 @@ test('the paths and the videos are real pages: a crawler gets their content with
   await page.goto(`${BASE}/#__videos`);
   await page.waitForFunction(() => location.pathname === '/videos/');
   await context.close();
+  await requests.close();
 });
 
 test('a lesson shows the practice that goes with it, and the dashboard and the palette lead to practice too', async () => {
@@ -305,7 +308,8 @@ test('reading options change the text size and width of a lesson, and are kept',
   assert.equal(await page.getByRole('button', { name: 'Large' }).count(), 0, 'Escape closes the options');
 
   await page.reload();
-  await page.locator('#content').waitFor();
+  await page.locator('#article #content').waitFor();
+  await page.waitForFunction((was) => parseFloat(getComputedStyle(document.querySelector('#article #content')).fontSize) > was, before);
   assert.ok(await size() > before, 'and the choice is kept after a reload');
   await page.getByRole('button', { name: 'Reading options' }).click();
   await page.getByRole('button', { name: 'Back to default' }).click();

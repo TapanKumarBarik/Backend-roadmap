@@ -8,6 +8,9 @@ import './styles/tokens.css';
 import './styles/global.css';
 import './styles/ui.css';
 import './styles/motion.css';
+import { applyReadingPrefs } from './hooks/useReadingPrefs.js';
+
+applyReadingPrefs();
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>

@@ -632,8 +632,11 @@ test('an outline is inserted as headings, a table of contents lists them as link
   await panel.getByRole('button', { name: 'Improve' }).click();
   const card = panel.getByRole('article', { name: 'Improved' });
   await card.waitFor();
+  // The change goes at the start of the heading, inside the text the suggestion was asked for, whatever the width of the fonts
+  // (a click in the middle of the heading's box lands past the end of a short line).
   await editor(page).locator('h2').first().click();
-  await write(page, ' changed meanwhile');
+  await page.keyboard.press('Home');
+  await write(page, 'changed meanwhile: ');
   await card.getByRole('button', { name: 'Replace the selection' }).click();
   await panel.getByRole('alert').getByText('has changed since').waitFor();
   assert.match(await editor(page).locator('h2').first().textContent(), /changed meanwhile/, 'it was not overwritten');
