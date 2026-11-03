@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import { listingPages } from './listingPages.mjs';
+import { escapeHtml } from '../../webapp/src/lib/markdown/escapeHtml.js';
 
 const practice = JSON.parse(fs.readFileSync(new URL('../../api/generated/practice-content.json', import.meta.url), 'utf8'));
 const author = { '@type': 'Person', name: 'A. Author' };
@@ -11,11 +12,11 @@ const build = (extra = {}) => listingPages({
 
 test('every quiz, exercise, interview set and design challenge has a page, and so do the two lists', () => {
   const urls = build().map((p) => p.url);
-  assert.ok(urls.includes('/practice/') && urls.includes('/lab/'));
+  assert.ok(urls.includes('/practice/') && urls.includes('/design-lab/'));
   for (const slug of Object.keys(practice.quizzes)) assert.ok(urls.includes(`/practice/quiz/${slug}/`), slug);
   for (const slug of Object.keys(practice.exercises)) assert.ok(urls.includes(`/practice/exercise/${slug}/`), slug);
   for (const slug of Object.keys(practice.interview)) assert.ok(urls.includes(`/practice/interview/${slug}/`), slug);
-  for (const key of Object.keys(practice.challenges)) assert.ok(urls.includes(`/lab/${key}/`), key);
+  for (const key of Object.keys(practice.challenges)) assert.ok(urls.includes(`/design-lab/${key}/`), key);
   assert.equal(new Set(urls).size, urls.length, 'no two pages share an address');
 });
 
@@ -25,12 +26,12 @@ test('a public quiz page carries its questions but never an answer or an explana
     const page = pages.get(`/practice/quiz/${slug}/`);
     const everything = page.body + JSON.stringify(page.ld) + page.description;
     for (const q of quiz.questions) {
-      assert.ok(page.body.includes(q.text.replace(/&/g, '&amp;')) || page.body.includes(q.text), `${slug}: the question is on the page`);
+      assert.ok(page.body.includes(escapeHtml(q.text)), `${slug}: the question is on the page`);
       assert.ok(!everything.includes(q.explanation), `${slug}: the explanation is not on the page`);
     }
   }
   for (const [key, challenge] of Object.entries(practice.challenges)) {
-    const page = pages.get(`/lab/${key}/`);
+    const page = pages.get(`/design-lab/${key}/`);
     const everything = page.body + JSON.stringify(page.ld);
     const probe = challenge.reference.split('\n').map((l) => l.trim()).filter((l) => l.length > 40)[0];
     assert.ok(!everything.includes(probe), `${key}: the reference solution is not on the page`);

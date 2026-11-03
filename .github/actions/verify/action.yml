@@ -17,6 +17,13 @@ runs:
       shell: bash
       run: npm ci
 
+    # The quizzes and design challenges are files in content/, and the admin editor can commit one without regenerating the file the API
+    # is bundled with (api/generated/practice-content.json). Build it here, so the deploy always carries what is in the content folder;
+    # the check below then validates the content itself. (Locally, `npm run check` still says when the committed copy is stale.)
+    - name: Build the practice content
+      shell: bash
+      run: npm run practice:build
+
     # A missing await on isAdmin() silently grants admin to everyone; see scripts/check/check-admin-guards.mjs.
     # The same step checks that paths.json and every lesson image are valid.
     - name: Check admin guards, learning paths and images

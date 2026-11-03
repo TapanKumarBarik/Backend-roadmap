@@ -1,12 +1,12 @@
 import { useMemo } from 'react';
 import { pathUrl } from '../../lib/appPages.js';
 import { fetchAllNotes } from '../../lib/api.js';
-import { fetchMySubmissions, fetchPracticeCatalog, fetchQuizAttempts } from '../../lib/practiceApi.js';
+import { fetchMySubmissions, fetchPracticeCatalog, fetchQuizAttempts, fetchWeakAreas } from '../../lib/practiceApi.js';
 import { pathProgress, pickPathNext } from '../../lib/curriculum/learningPaths.js';
 import { routeUrl } from '../../lib/curriculum/moduleUrl.js';
 import { describeActivity } from '../../lib/comments.js';
 import { useLoader } from '../../hooks/useLoader.js';
-import { ME } from '../../config/practice.js';
+import { ME, WEAK } from '../../config/practice.js';
 import { Card } from '../ui/Card.jsx';
 import { Button } from '../ui/Button.jsx';
 import ProgressBar from '../common/ProgressBar.jsx';
@@ -35,6 +35,7 @@ export default function MyLearningView({
   const { data: attempts } = useLoader(fetchQuizAttempts, [user?.userId], { enabled: !!user });
   const { data: submissions } = useLoader(fetchMySubmissions, [user?.userId], { enabled: !!user });
   const { data: catalog } = useLoader(fetchPracticeCatalog);
+  const { data: weak } = useLoader(fetchWeakAreas, [user?.userId], { enabled: !!user });
 
   const progress = activePath ? pathProgress(activePath.files, statusMap, nodeByFile) : null;
   const continueFile = activePath ? pickPathNext(activePath.files, statusMap) : (flatFiles || []).find((f) => statusMap[f] === 'wip') || null;
@@ -117,6 +118,30 @@ export default function MyLearningView({
                 <li key={a.id}><button type="button" className="link" onClick={() => onOpenPractice(`quiz/${a.quiz}`)}>{a.title}</button><small>{a.score}/{a.max} · {new Date(a.at).toLocaleDateString()}</small></li>
               ))}
             </ul>
+          </Section>
+
+          <Section title={WEAK.heading} items={weak ? weak.topics.length : 0} empty={WEAK.empty}>
+            {weak && weak.topics.length > 0 && (() => {
+              const low = weak.topics.filter((t) => t.percent < WEAK.threshold);
+              return (
+                <>
+                  {low.length === 0 && <p className="pr-note">{WEAK.allGood}</p>}
+                  <ul className="me-list">
+                    {(low.length ? low : weak.topics).slice(0, SHOWN).map((t) => <li key={t.topic}>{WEAK.topic(t)}</li>)}
+                  </ul>
+                  {weak.missed.length > 0 && (
+                    <>
+                      <h4 className="me-sub">{WEAK.missedHeading}</h4>
+                      <ul className="me-list">
+                        {weak.missed.slice(0, SHOWN).map((m) => (
+                          <li key={`${m.quiz}/${m.question}`}><button type="button" className="link" onClick={() => onOpenPractice(`quiz/${m.quiz}`)}>{m.text}</button><small>{m.title}</small></li>
+                        ))}
+                      </ul>
+                    </>
+                  )}
+                </>
+              );
+            })()}
           </Section>
 
           <Section title="Design and exercise submissions" items={submissions ? submissions.length : 0} empty="No submissions yet. The Design Lab and the exercises have places to work.">

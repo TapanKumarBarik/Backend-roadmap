@@ -2744,3 +2744,15 @@ li[data-checked="true"] > div {
 .reading-group { display: grid; gap: var(--space-2); }
 .reading-group__label { font-size: var(--text-xs); color: var(--fg-muted); text-transform: uppercase; letter-spacing: .06em; }
 .reading-group__choices { display: flex; flex-wrap: wrap; gap: var(--space-2); }
+
+.admin-reject { margin-top: var(--space-3); }
+
+/* An author's own post, book or idea: the Edit and Delete beside it, and the box a text is changed in. */
+.owner-actions { display: inline-flex; gap: var(--space-3); margin-left: auto; font-size: var(--text-sm); }
+.inline-edit textarea { width: 100%; box-sizing: border-box; }
+.inline-edit__actions { display: flex; gap: var(--space-2); margin-top: var(--space-2); }
+.feed-load-more { display: flex; justify-content: center; margin: var(--space-4) 0; }
+
+/* The tree's caret and progress tick are buttons now (the keyboard and a screen reader reach them); they look as the spans did. */
+.tree button.caret, .tree button.check { background: none; border-color: transparent; padding: 0; margin: 0; font: inherit; color: inherit; cursor: pointer; }
+.tree .name:focus-visible { outline: 2px solid var(--focus, var(--accent)); outline-offset: 1px; border-radius: var(--r-sm); }

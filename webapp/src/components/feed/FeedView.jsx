@@ -1,5 +1,8 @@
 import { useRef, useState } from 'react';
-import { fetchFeed, postFeedItem, uploadFeedFile, deleteFeedPost, voteFeedPost } from '../../lib/api.js';
+import { OwnerActions, InlineEdit } from '../community/OwnItem.jsx';
+import { OWN } from '../../config/community.js';
+import { Button } from '../ui/Button.jsx';
+import { fetchFeedPage, updateFeedPost, removeOwnFeedPost, postFeedItem, uploadFeedFile, deleteFeedPost, voteFeedPost } from '../../lib/api.js';
 import { renderUserMarkdown } from '../../lib/markdown/renderUserMarkdown.js';
 import FeedAttachment from './FeedAttachment.jsx';
 import { TrashIcon } from '../common/icons.jsx';
@@ -63,7 +66,10 @@ function fileToBase64(file) {
 // `onOpenPost` opens a post's own detail page (PostDetailView) with its comment thread, the way clicking a Facebook post
 // opens its own page.
 export default function FeedView({ user, onLogin, onToast, onOpenPost }) {
-  const { data: posts, setData: setPosts, error: loadError, reload } = useLoader(fetchFeed);
+  const { data: posts, setData: setPosts, error: loadError, reload } = useLoader(() => fetchFeedPage({ limit: OWN.feedPage }));
+  const [editing, setEditing] = useState(null); // the id of the post whose text is being changed
+  const [exhausted, setExhausted] = useState(false); // the last page came back short: there are no older posts
+  const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState(null); // a post or delete that failed; the feed itself failing to load is loadError
   const [text, setText] = useState('');
   const [pendingFile, setPendingFile] = useState(null);
@@ -160,6 +166,38 @@ export default function FeedView({ user, onLogin, onToast, onOpenPost }) {
     }
   }
 
+  async function loadMore() {
+    if (!posts || !posts.length || loadingMore) return;
+    setLoadingMore(true);
+    try {
+      const older = await fetchFeedPage({ limit: OWN.feedPage, before: posts[posts.length - 1].id });
+      setPosts((prev) => [...prev, ...older.filter((o) => !prev.some((p) => p.id === o.id))]);
+      if (older.length < OWN.feedPage) setExhausted(true);
+    } catch (e) {
+      setError(friendlyMessage(e));
+    } finally {
+      setLoadingMore(false);
+    }
+  }
+
+  async function saveEdit(id, text) {
+    const updated = await updateFeedPost(id, text);
+    setPosts((prev) => prev.map((p) => (p.id === id ? { ...p, text: updated.text } : p)));
+    setEditing(null);
+    onToast?.(OWN.saved);
+  }
+
+  async function removeOwn(id) {
+    if (!(await confirm({ title: OWN.confirmTitle('post'), body: OWN.confirmBody, confirmLabel: OWN.delete, tone: 'danger' }))) return;
+    try {
+      await removeOwnFeedPost(id);
+      setPosts((prev) => prev.filter((p) => p.id !== id));
+      onToast?.(OWN.deleted);
+    } catch (e) {
+      setError(friendlyMessage(e));
+    }
+  }
+
   const canPost = posting || (!text.trim() && !pendingFile && !(linkMode && linkUrl.trim()));
 
   return (
@@ -251,6 +289,7 @@ export default function FeedView({ user, onLogin, onToast, onOpenPost }) {
                 <strong>{p.displayName}</strong>
                 <span>{new Date(p.createdAt).toLocaleString()}</span>
               </div>
+              {user && p.userId === user.userId && <OwnerActions onEdit={() => setEditing(p.id)} onDelete={() => removeOwn(p.id)} />}
               {user?.isAdmin && (
                 <button className="feed-delete-btn" onClick={() => handleDelete(p.id)} aria-label="Delete post" title="Delete post">
                   <TrashIcon />
@@ -258,7 +297,8 @@ export default function FeedView({ user, onLogin, onToast, onOpenPost }) {
               )}
             </div>
 
-            {p.text && (
+            {editing === p.id && <InlineEdit value={p.text} label="Your post" maxLength={20000} rows={6} onSave={(text) => saveEdit(p.id, text)} onCancel={() => setEditing(null)} />}
+            {p.text && editing !== p.id && (
               <div
                 className={'comment-text feed-md' + (p.text.length > CLAMP_THRESHOLD ? ' feed-text-clamped' : '')}
                 dangerouslySetInnerHTML={{ __html: renderUserMarkdown(p.text) }}
@@ -292,6 +332,9 @@ export default function FeedView({ user, onLogin, onToast, onOpenPost }) {
           </div>
         ))}
       </div>
+      {posts && posts.length >= OWN.feedPage && !exhausted && (
+        <div className="feed-load-more"><Button variant="secondary" loading={loadingMore} onClick={loadMore}>{OWN.loadMore}</Button></div>
+      )}
     </div>
   );
 }

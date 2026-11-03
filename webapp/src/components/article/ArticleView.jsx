@@ -51,7 +51,7 @@ export default function ArticleView({
   path, node, statusMap, neighbours, pathPlace, pathOffer, onPickPath, onFinishPath, nodeByFile, dirIndex, fileSet, allTags, treeData,
   onOpenFile, onSetStatus, onOpenPalette, headingTarget, onToast,
   onTocChange, onActiveHeadingChange, mainRef, user, onLogin,
-  isBookmarked, onToggleBookmark, showNotesInArticle, videos, playlists, practice
+  isBookmarked, onToggleBookmark, showNotesInArticle, videos, playlists, allVideos, practice
 }) {
   const { html, rawText, loading, error, reload: reloadDoc } = useMarkdownDoc(path);
   const contentRef = useRef(null);
@@ -298,7 +298,7 @@ export default function ArticleView({
       </header>
 
       {/* Keyed by the module so a video that is playing is gone when the reader moves on. */}
-      {lectureVideos.length > 0 && <LectureVideos key={path} videos={lectureVideos} playlists={playlists || []} />}
+      {lectureVideos.length > 0 && <LectureVideos key={path} videos={lectureVideos} playlists={playlists || []} allVideos={allVideos} onOpenFile={onOpenFile} />}
 
       {resume && !loading && !error && html != null && (
         <div className="resume">

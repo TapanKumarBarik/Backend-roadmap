@@ -6,6 +6,7 @@ import { DIFFICULTY } from '../../config/practice.js';
 import { ChoiceChip } from '../ui/Chip.jsx';
 import { Card } from '../ui/Card.jsx';
 import { EmptyState } from '../ui/EmptyState.jsx';
+import ProgressBar from '../common/ProgressBar.jsx';
 import '../../styles/practice.css';
 
 // Learning paths, searchable and filterable by domain and difficulty: what each is for, how long it is (from the real reading time
@@ -42,10 +43,11 @@ export default function PathExplorer({ paths, statusMap, nodeByFile, activeId, o
           return (
             <li key={p.id}>
               <Card as="article" className="pr-card">
-                <div className="pr-card__meta"><span className="pr-badge">{DIFFICULTY[p.difficulty]}</span><span>{p.topic}</span>{p.id === activeId && <span className="pr-best">Your path</span>}</div>
+                <div className="pr-card__meta"><span className="pr-badge">{DIFFICULTY[p.difficulty]}</span><span>{p.topic}</span>{p.id === activeId && <span className="pr-best">Your path</span>}{progress.total > 0 && progress.done === progress.total && <span className="pr-best">Completed</span>}</div>
                 <h3 className="pr-card__title"><a href={pathUrl(p.id)} onClick={(e) => { e.preventDefault(); onOpenPath(p.id); }}>{p.title}</a></h3>
                 <p className="pr-card__text">{p.goal}</p>
                 <p className="pr-card__meta">{p.files.length} modules · {formatDuration(p.minutes)}{progress.done > 0 ? ` · ${progress.done} done` : ''}</p>
+                {progress.done + progress.wip > 0 && <ProgressBar done={progress.done} wip={progress.wip} total={progress.total} />}
               </Card>
             </li>
           );

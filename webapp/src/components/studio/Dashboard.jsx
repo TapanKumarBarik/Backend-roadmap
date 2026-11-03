@@ -8,7 +8,8 @@ import { describeWhen } from '../../lib/curriculum/readingPosition.js';
 import { friendlyMessage } from '../../lib/errors.js';
 import { SITE } from '../../config/index.js';
 import { LOAD_WHAT } from '../../config/messages.js';
-import { POST_STATUS } from '../../config/studio.js';
+import { POST_STATUS, POST_STATE, POST_STATE_HELP } from '../../config/studio.js';
+import { kindLabel } from '../../lib/blog/kinds.js';
 import { Avatar } from '../ui/Avatar.jsx';
 import { Button } from '../ui/Button.jsx';
 import { useConfirm } from '../ui/Dialog.jsx';
@@ -117,11 +118,15 @@ export default function Dashboard({ user, onToast, onOpenEditor, onOpenPost, onO
                 <a className="studio-list__title" href={writeUrl(post.id)} onClick={followInApp(() => onOpenEditor(post.id))}>{post.title || 'Untitled'}</a>
                 <p className="studio-list__meta">
                   <span className={`studio-chip is-${post.status}`}>{POST_STATUS[post.status]}</span>
-                  {post.hidden && <span className="studio-chip is-hidden">Taken down</span>}
+                  {post.hidden && <span className="studio-chip is-hidden">{POST_STATE.rejected}</span>}
+                  {post.state === 'pending' && <span className="studio-chip is-pending" title={POST_STATE_HELP.pending}>{POST_STATE.pending}</span>}
+                  {post.state === 'approved' && <span className="studio-chip is-approved" title={POST_STATE_HELP.approved}>{POST_STATE.approved}</span>}
+                  {post.kind && post.kind !== 'article' && <span className="studio-chip">{kindLabel(post.kind)}</span>}
                   <span>{plural(post.words, 'word')}</span>
                   {post.status === 'published' && <span>{plural(post.likes, 'like')}</span>}
                   <span>Edited {describeWhen(Date.parse(post.updatedAt))}</span>
                 </p>
+                {post.hidden && post.moderationNote && <p className="studio-list__note" role="note"><strong>{POST_STATE.rejected}:</strong> {post.moderationNote}</p>}
               </div>
               <Button as="a" href={writeUrl(post.id)} onClick={followInApp(() => onOpenEditor(post.id))}>Edit</Button>
               <Menu trigger={<Button variant="ghost" icon={<MenuDotsIcon />} aria-label={`More for ${post.title || 'Untitled'}`} />}>

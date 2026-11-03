@@ -134,3 +134,9 @@ npm run test:e2e   # needs Chrome, Edge or Chromium; set E2E_EXECUTABLE to use a
 How the pieces fit together, and where to change what: [ARCHITECTURE.md](ARCHITECTURE.md).
 
 Pushing to `main` deploys via `.github/workflows/cloudflare-pages.yml`.
+
+## Running the checks the way CI does (Linux, Node 22)
+
+`npm run ci:linux` runs the deploy workflow's verify steps in a throw-away Docker container (Node 22, Chromium): the same checks, build and browser tests, on
+Linux. It is where a test that depends on fonts, on how `localhost` resolves or on speed shows itself before CI does (it clones the repository, so commit
+first). See [`TESTING_REPORT.md`](TESTING_REPORT.md).

@@ -211,3 +211,5 @@ a.post-byline__author:hover span { text-decoration: underline; }
 .community-strip__all { display: inline-flex; align-items: center; gap: 6px; font-size: var(--text-sm); font-weight: var(--weight-semibold); color: var(--fg); text-decoration: none; }
 .community-strip__all:hover { text-decoration: underline; }
 .community-strip__all svg { width: 14px; height: 14px; }
+
+.post-kind { font-weight: var(--weight-semibold); color: var(--fg-muted); }

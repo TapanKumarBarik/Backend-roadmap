@@ -21,7 +21,8 @@ export function checkAddresses({ registry, pages, files, sitemap, redirects, sit
     if (![301, 308].includes(status)) problems.push(`${from}: redirects with ${status}, not permanently (301 or 308)`);
     if (to === '/' && from !== '/') problems.push(`${from}: redirects to the home page; an old address goes to its own replacement`);
     const seen = new Set([from]);
-    let at = to;
+    // A pattern ("/lab/* /design-lab/:splat") is held to its fixed part: the place everything under it goes to must answer.
+    let at = to.replace(/:splat$/, '');
     while (moved.has(at) && !seen.has(at)) { seen.add(at); at = moved.get(at).to; }
     if (seen.has(at) && moved.has(at)) problems.push(`${from}: redirects in a circle`);
     else if (!/^https?:/.test(at) && !answers(at)) problems.push(`${from}: redirects to ${at}, which nothing answers`);

@@ -12,7 +12,7 @@ import LoadError from '../common/LoadError.jsx';
 import ChallengeView from './ChallengeView.jsx';
 import '../../styles/practice.css';
 
-// The Design Lab: low-level and high-level design challenges. A challenge opens in place (/lab/lld/<slug>/).
+// The Design Lab: low-level and high-level design challenges. A challenge opens in place (/design-lab/lld/<slug>/).
 export default function LabView({ item, onOpenItem, onOpenFile, user, onLogin, onToast, nodeByFile }) {
   const [tab, setTab] = useState('lld');
   const { data: catalog, error, reload } = useLoader(fetchPracticeCatalog);

@@ -4,15 +4,18 @@ import SignInButton from '../account/SignInButton.jsx';
 import SiteFooter from '../common/SiteFooter.jsx';
 import VideoCard from '../videos/VideoCard.jsx';
 import { routeUrl } from '../../lib/curriculum/moduleUrl.js';
+import { followInApp } from '../../lib/linkClick.js';
 import { REPO_URL, CONTRIBUTE_URL } from '../../lib/curriculum/contribute.js';
 import { totals } from '../../lib/curriculum/videos.js';
 import { SITE, YOUTUBE } from '../../config/index.js';
+import { PATH_ROUTE, pageUrl } from '../../lib/appPages.js';
 import { FALLBACK_START_FILE, HERO, ROUTE, PICK, LIBRARY, FRESH, INSIDE, VIDEO, ACCOUNT, OPEN_SOURCE } from '../../config/landing.js';
 import '../../styles/landing.css';
 
 // Its own chunk: the front door does not wait for the community's articles.
 const CommunityStrip = lazy(() => import('./CommunityStrip.jsx'));
 const PracticeStrip = lazy(() => import('./PracticeStrip.jsx'));
+const PopularLessons = lazy(() => import('./PopularLessons.jsx'));
 
 // The front door, shown to someone who has not started yet (see hooks/useLanding.js). This component only
 // lays things out: the words are in config/landing.js and the numbers come from build-time stats. If the
@@ -61,9 +64,10 @@ export default function Landing({ stats, videoData, nodeByFile, user, onLogin, o
           <h1 id="lp-h1">{HERO.headline}</h1>
           <p className="lp-lead">{HERO.lead(modules)}</p>
           <div className="lp-cta">
+            <a className="lp-btn lp-btn-primary" href={pageUrl(PATH_ROUTE)} onClick={followInApp(practice.onOpenPaths)}>{HERO.exploreLabel} <ArrowRightIcon /></a>
             {heroPath
-              ? <a className="lp-btn lp-btn-primary" {...startLink(heroPath)}>{HERO.startLabel(heroPath.title)} <ArrowRightIcon /></a>
-              : <a className="lp-btn lp-btn-primary" {...link(startFile)}>{HERO.fallbackStartLabel} <ArrowRightIcon /></a>}
+              ? <a className="lp-btn" {...startLink(heroPath)}>{HERO.startLabel}</a>
+              : <a className="lp-btn" {...link(startFile)}>{HERO.startLabel}</a>}
             <button type="button" className="lp-btn" onClick={onDismiss}>{HERO.browseLabel}</button>
           </div>
           <button type="button" className="lp-search" onClick={onOpenPalette}>
@@ -107,6 +111,8 @@ export default function Landing({ stats, videoData, nodeByFile, user, onLogin, o
           </div>
         </section>
       )}
+
+      <Suspense fallback={null}><PopularLessons nodeByFile={nodeByFile || {}} onOpenFile={onOpenFile} /></Suspense>
 
       {newest.length > 0 && (
         <section className="lp-sec" aria-labelledby="lp-yt">

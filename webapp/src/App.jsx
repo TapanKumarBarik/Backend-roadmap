@@ -413,6 +413,7 @@ export default function App() {
   const openLab = useCallback((item) => navigate(LAB_ROUTE, typeof item === 'string' ? item : null), [navigate]);
   const openMe = useCallback(() => navigate(ME_ROUTE), [navigate]);
   const openPathPage = useCallback((id) => navigate(PATH_ROUTE, id), [navigate]);
+  const openPathsPage = useCallback(() => navigate(PATH_ROUTE), [navigate]);
   const choosePath = useCallback(() => { setChoosingPath(true); goHome(); }, [goHome]);
   const openBlogs = useCallback(() => navigate(BLOG_ROUTE), [navigate]);
   const openPost = useCallback((slug) => navigate(BLOG_ROUTE, slug), [navigate]);
@@ -422,7 +423,7 @@ export default function App() {
   const openWrite = useCallback((id) => navigate(WRITE_ROUTE, typeof id === 'string' ? id : null), [navigate]);
 
   // Where the practice links on the landing page, the dashboard and a lesson go.
-  const practiceNav = useMemo(() => ({ onOpenPractice: openPractice, onOpenLab: openLab }), [openPractice, openLab]);
+  const practiceNav = useMemo(() => ({ onOpenPractice: openPractice, onOpenLab: openLab, onOpenPaths: openPathsPage }), [openPractice, openLab, openPathsPage]);
 
   // Where the community's links on the landing page and the dashboard go.
   const community = useMemo(() => ({ onOpenPost: openPost, onOpenAuthor: openAuthor, onOpenBlogs: openBlogs, onOpenWrite: openWrite }), [openPost, openAuthor, openBlogs, openWrite]);

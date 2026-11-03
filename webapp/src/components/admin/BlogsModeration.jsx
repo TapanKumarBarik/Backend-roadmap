@@ -6,6 +6,7 @@ import { formatDate, plural } from '../../lib/blog/format.js';
 import { LOAD_WHAT } from '../../config/messages.js';
 import { Button } from '../ui/Button.jsx';
 import { Chip } from '../ui/Chip.jsx';
+import { kindLabel } from '../../lib/blog/kinds.js';
 import { Tabs } from '../ui/Tabs.jsx';
 import LoadError from '../common/LoadError.jsx';
 import ErrorText from '../common/ErrorText.jsx';
@@ -30,11 +31,15 @@ export default function BlogsModeration({ onOpenPost, onChanged }) {
   const [filter, setFilter] = useState('pending');
   const { data: posts, setData: setPosts, error: loadError, reload } = useLoader(() => fetchManagedBlogs(filter === 'live' ? undefined : filter), [filter]);
   const [error, setError] = useState('');
+  const [rejecting, setRejecting] = useState(null); // the article being taken down, while the moderator writes the reason
+  const [reason, setReason] = useState('');
 
-  async function act(post, action) {
+  async function act(post, action, note) {
     setError('');
     try {
-      await moderateBlog(post.id, action);
+      await moderateBlog(post.id, action, note);
+      setRejecting(null);
+      setReason('');
       // What the change does to this list: an approved or taken-down article leaves "waiting", an un-hidden one leaves "taken down".
       const leaves = (action === 'approve' && filter === 'pending') || (action === 'hide' && (filter === 'pending' || filter === 'reported')) || (action === 'unhide' && filter === 'hidden');
       setPosts((list) => (leaves ? list.filter((p) => p.id !== post.id) : list.map((p) => (p.id === post.id ? { ...p, approved: action === 'approve' ? true : p.approved, hidden: action === 'hide' ? true : action === 'unhide' ? false : p.hidden } : p))));
@@ -72,6 +77,7 @@ export default function BlogsModeration({ onOpenPost, onChanged }) {
                   <span>{formatDate(post.publishAt)}</span>
                   <span>{plural(post.likes, 'like')}</span>
                   {post.reports > 0 && <Chip tone="danger">{plural(post.reports, 'report')}</Chip>}
+                  {post.kind && post.kind !== 'article' && <Chip>{kindLabel(post.kind)}</Chip>}
                   {post.hidden && <Chip tone="danger">Taken down</Chip>}
                   {!post.approved && !post.hidden && <Chip tone="signal">Not approved</Chip>}
                   {post.author && post.author.trusted && <Chip>Trusted author</Chip>}
@@ -79,11 +85,24 @@ export default function BlogsModeration({ onOpenPost, onChanged }) {
                 <div className="admin-actions">
                   {post.slug && !post.hidden && <Button size="sm" onClick={() => onOpenPost(post.slug)}>Read</Button>}
                   {!post.approved && !post.hidden && <Button size="sm" variant="primary" onClick={() => act(post, 'approve')}>Approve</Button>}
-                  {post.hidden ? <Button size="sm" onClick={() => act(post, 'unhide')}>Put back</Button> : <Button size="sm" variant="danger" onClick={() => act(post, 'hide')}>Take down</Button>}
+                  {post.hidden ? <Button size="sm" onClick={() => act(post, 'unhide')}>Put back</Button> : <Button size="sm" variant="danger" onClick={() => { setRejecting(post.id); setReason(''); }}>Take down</Button>}
                   {post.author && (post.author.trusted
                     ? <Button size="sm" variant="ghost" onClick={() => trust(post, false)}>Stop trusting {post.author.name}</Button>
                     : <Button size="sm" variant="ghost" onClick={() => trust(post, true)}>Trust {post.author.name}</Button>)}
                 </div>
+                {post.hidden && post.note && <p className="pr-note">Reason given to the author: {post.note}</p>}
+                {rejecting === post.id && (
+                  <div className="admin-reject">
+                    <label className="pr-field">
+                      <span className="pr-field__label">Reason (the author is shown it)</span>
+                      <textarea rows={2} value={reason} maxLength={500} onChange={(e) => setReason(e.target.value)} placeholder="Why it is being taken down, and what would fix it" />
+                    </label>
+                    <div className="admin-actions">
+                      <Button size="sm" variant="danger" onClick={() => act(post, 'hide', reason.trim())}>Take down</Button>
+                      <Button size="sm" variant="ghost" onClick={() => setRejecting(null)}>Cancel</Button>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           ))}

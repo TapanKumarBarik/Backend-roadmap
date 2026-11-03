@@ -8,7 +8,8 @@ import { formatDate } from '../../lib/blog/format.js';
 import { Button } from '../ui/Button.jsx';
 import { Chip } from '../ui/Chip.jsx';
 import { Dialog } from '../ui/Dialog.jsx';
-import { TextField } from '../ui/Field.jsx';
+import { SelectField, TextField } from '../ui/Field.jsx';
+import { POST_CATEGORIES, POST_KINDS } from '../../lib/blog/kinds.js';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const SCHEDULE_AHEAD_DAYS = 365;
@@ -193,6 +194,16 @@ export default function PublishDialog({ open, onClose, id, title, words, post, m
           hint={`Shown on cards, in search results and when the link is shared. Leave it empty to use the first lines. ${meta.excerpt.length} of ${BLOG.excerptMax}.`}
           onChange={(e) => onMeta({ excerpt: e.target.value })}
         />
+
+        <fieldset className="studio-fieldset">
+          <legend>What it is</legend>
+          <SelectField label="Kind of contribution" hint={(POST_KINDS.find((k) => k.id === meta.kind) || POST_KINDS[0]).help} value={meta.kind} onChange={(e) => onMeta({ kind: e.target.value })}>
+            {POST_KINDS.map((k) => <option key={k.id} value={k.id}>{k.label}</option>)}
+          </SelectField>
+          <SelectField label="Where it belongs" value={meta.category} onChange={(e) => onMeta({ category: e.target.value })}>
+            {POST_CATEGORIES.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
+          </SelectField>
+        </fieldset>
 
         <fieldset className="studio-fieldset">
           <legend>Topics</legend>

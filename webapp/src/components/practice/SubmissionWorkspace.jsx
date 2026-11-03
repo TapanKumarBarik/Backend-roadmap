@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { deleteSubmission, fetchMySubmission, saveSubmission, submitSubmission } from '../../lib/practiceApi.js';
 import { uploadArticleImage } from '../../lib/blogApi.js';
 import { friendlyMessage } from '../../lib/errors.js';
-import { WORKSPACE } from '../../config/practice.js';
+import { PEER, WORKSPACE } from '../../config/practice.js';
 import { useLoader } from '../../hooks/useLoader.js';
 import { Button } from '../ui/Button.jsx';
 import { useConfirm } from '../ui/Dialog.jsx';
@@ -161,6 +161,13 @@ export default function SubmissionWorkspace({ kind, slug, user, onLogin, onToast
         <section className="pr-reviews" aria-label="Reviews of your work">
           <h3>Review</h3>
           {saved.reviews.map((r) => <blockquote key={r.id}><p>{r.text}</p><footer>{new Date(r.at).toLocaleDateString()}</footer></blockquote>)}
+        </section>
+      )}
+
+      {saved && saved.peerReviews && saved.peerReviews.length > 0 && (
+        <section className="pr-reviews" aria-label={PEER.fromOthers}>
+          <h3>{PEER.fromOthers}</h3>
+          {saved.peerReviews.map((r) => <blockquote key={r.id}><p className="pr-pre">{r.text}</p><footer>{r.by} · {new Date(r.at).toLocaleDateString()}</footer></blockquote>)}
         </section>
       )}
 

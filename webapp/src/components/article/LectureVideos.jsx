@@ -1,7 +1,9 @@
 import { useState } from 'react';
 import { PlayIcon, YoutubeIcon } from '../common/icons.jsx';
 import { PLAYER_ALLOW, embedUrl, thumbnailUrl, watchUrl } from '../../lib/markdown/video.js';
-import { formatClock } from '../../lib/curriculum/videos.js';
+import { formatClock, nextVideo } from '../../lib/curriculum/videos.js';
+import { routeUrl } from '../../lib/curriculum/moduleUrl.js';
+import { followInApp } from '../../lib/linkClick.js';
 import { LECTURE } from '../../config/videos.js';
 import '../../styles/video.css';
 
@@ -9,13 +11,15 @@ import '../../styles/video.css';
 // the module. It is the same card as a video written into a module's text: the thumbnail and a play button, and nothing
 // is fetched from YouTube until the reader presses play. Beneath it are the video's chapters, each of which starts the
 // player at that point. A module with several videos shows one at a time and lists the others.
-export default function LectureVideos({ videos, playlists }) {
+export default function LectureVideos({ videos, playlists, allVideos = [], onOpenFile }) {
   const [picked, setPicked] = useState(0);
   // null: the thumbnail is showing; a number: the player is open and started at that second.
   const [start, setStart] = useState(null);
   const video = videos[picked] || videos[0];
   const playlist = playlists.find((p) => p.id === video.playlist);
   const playing = start !== null;
+  // The video after this one in its playlist: its lesson when it has one (so the text comes with it), else the video itself.
+  const next = nextVideo(allVideos, video);
   const current = playing ? video.chapters.reduce((at, [t], i) => (t <= start ? i : at), -1) : -1;
 
   function choose(i) {
@@ -62,6 +66,15 @@ export default function LectureVideos({ videos, playlists }) {
           <YoutubeIcon aria-hidden="true" />{LECTURE.watchOnYouTube}
         </a>
       </div>
+
+      {next && (
+        <p className="lecture-next">
+          <span className="lecture-h">{LECTURE.next}</span>{' '}
+          {next.file
+            ? <a href={routeUrl(next.file)} onClick={followInApp(() => onOpenFile(next.file))}>{next.title}</a>
+            : <a href={watchUrl(next.id)} target="_blank" rel="noopener noreferrer">{next.title}</a>}
+        </p>
+      )}
 
       {video.chapters.length > 0 && (
         <div className="lecture-chapters">

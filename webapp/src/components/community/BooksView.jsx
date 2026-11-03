@@ -1,5 +1,7 @@
 import { useRef, useState } from 'react';
-import { fetchBooks, postBook, uploadFeedFile, deleteBook } from '../../lib/api.js';
+import { OwnerActions } from './OwnItem.jsx';
+import { OWN } from '../../config/community.js';
+import { fetchBooks, postBook, uploadFeedFile, deleteBook, updateBook, removeOwnBook } from '../../lib/api.js';
 import { TrashIcon } from '../common/icons.jsx';
 import { useLoader } from '../../hooks/useLoader.js';
 import LoadError from '../common/LoadError.jsx';
@@ -78,7 +80,39 @@ export default function BooksView({ user, onLogin, onToast }) {
     }
   }
 
+  const [editing, setEditing] = useState(null);
+  const [draft, setDraft] = useState({ title: '', tag: '', linkUrl: '' });
+  const [editProblem, setEditProblem] = useState('');
   const confirm = useConfirm();
+
+  function startEdit(b) {
+    setDraft({ title: b.title, tag: b.tag || '', linkUrl: b.linkUrl || '' });
+    setEditProblem('');
+    setEditing(b.id);
+  }
+
+  async function saveEdit(id) {
+    setEditProblem('');
+    try {
+      const updated = await updateBook(id, { title: draft.title, tag: draft.tag, linkUrl: draft.linkUrl });
+      setBooks((prev) => prev.map((b) => (b.id === id ? { ...b, ...updated } : b)));
+      setEditing(null);
+      onToast?.(OWN.saved);
+    } catch (e) {
+      setEditProblem(friendlyMessage(e));
+    }
+  }
+
+  async function removeOwn(id) {
+    if (!(await confirm({ title: OWN.confirmTitle('entry'), body: OWN.confirmBody, confirmLabel: OWN.delete, tone: 'danger' }))) return;
+    try {
+      await removeOwnBook(id);
+      setBooks((prev) => prev.filter((b) => b.id !== id));
+      onToast?.(OWN.deleted);
+    } catch (e) {
+      setError(friendlyMessage(e));
+    }
+  }
 
   async function handleDelete(id) {
     if (!(await confirm({ title: 'Remove this entry from the shelf?', body: 'This cannot be undone.', confirmLabel: 'Remove', tone: 'danger' }))) return;
@@ -163,6 +197,7 @@ export default function BooksView({ user, onLogin, onToast }) {
                 <span>added by {b.displayName}</span>
               </div>
               {b.tag && <span className="books-tag">{b.tag}</span>}
+              {user && b.userId === user.userId && <OwnerActions onEdit={() => startEdit(b)} onDelete={() => removeOwn(b.id)} />}
               {user?.isAdmin && (
                 <button className="feed-delete-btn" onClick={() => handleDelete(b.id)} aria-label="Remove" title="Remove">
                   <TrashIcon />
@@ -170,6 +205,18 @@ export default function BooksView({ user, onLogin, onToast }) {
               )}
             </div>
 
+            {editing === b.id && (
+              <form className="inline-edit" onSubmit={(e) => { e.preventDefault(); saveEdit(b.id); }}>
+                <input className="books-title-input" aria-label="Title" value={draft.title} maxLength={200} onChange={(e) => setDraft({ ...draft, title: e.target.value })} />
+                <input className="books-title-input" aria-label="Tag" value={draft.tag} maxLength={40} style={{ marginTop: 6 }} onChange={(e) => setDraft({ ...draft, tag: e.target.value })} />
+                <input className="books-title-input" aria-label="Link" type="url" value={draft.linkUrl} style={{ marginTop: 6 }} onChange={(e) => setDraft({ ...draft, linkUrl: e.target.value })} />
+                <ErrorText>{editProblem}</ErrorText>
+                <div className="inline-edit__actions">
+                  <button type="submit" className="feed-post-btn" disabled={!draft.title.trim()}>{OWN.save}</button>
+                  <button type="button" className="feed-tool-btn" onClick={() => setEditing(null)}>{OWN.cancel}</button>
+                </div>
+              </form>
+            )}
             {b.attachmentUrl && (
               <div className="feed-attachment">
                 <span className="feed-attachment-ic">📄</span>

@@ -8,13 +8,14 @@ import { Tabs } from '../ui/Tabs.jsx';
 import LoadError from '../common/LoadError.jsx';
 import ErrorText from '../common/ErrorText.jsx';
 import MermaidPreview from '../practice/MermaidPreview.jsx';
+import PracticeContentEditor from './PracticeContentEditor.jsx';
 
 const FILTERS = [{ id: 'submitted', label: 'Waiting for review' }, { id: 'reviewed', label: 'Reviewed' }];
 
 // The Practice Center and the Design Lab from the admin's side: how the quizzes are doing (real tries and averages), and the submissions
 // waiting for a review. The quizzes, exercises and challenges themselves are content in git (content/practice, content/design-lab), so
 // they are edited there and reviewed like a lesson.
-export default function PracticeAdmin() {
+export default function PracticeAdmin({ onToast = () => {} }) {
   const [status, setStatus] = useState('submitted');
   const { data: stats, error: statsError, reload: reloadStats } = useLoader(fetchPracticeStats);
   const { data: work, setData: setWork, error, reload } = useLoader(() => fetchSubmissionsToReview(status), [status]);
@@ -69,6 +70,8 @@ export default function PracticeAdmin() {
           </div>
         </article>
       ))}
+
+      <PracticeContentEditor onToast={onToast} />
     </>
   );
 }

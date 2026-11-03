@@ -72,19 +72,32 @@ export default function TreeNode({
         onClick={handleRowClick}
         ref={node.file ? (el) => registerRow(node.file, el) : undefined}
       >
-        <span className={'caret' + (hasKids ? '' : ' leaf')}>{hasKids && <CaretIcon />}</span>
+        {hasKids
+          ? <button type="button" className="caret" tabIndex={-1} aria-expanded={isOpen} aria-label={`${isOpen ? 'Close' : 'Open'} ${label}`}><CaretIcon /></button>
+          : <span className="caret leaf" />}
         {/* Three kinds of row, one column: a module you can tick, a track whose tick follows its modules, and
             anything else (a planned module, a loose page) with nothing to tick: an empty slot keeps the names lined up. */}
         {hasKids || isModule(node)
           ? (
-            <span
-              className={'check' + (hasKids ? ' derived' : '')}
-              data-s={status}
-              title={hasKids ? 'Done when every module inside is done' : 'Cycle progress: not started → in progress → done'}
-              onClick={hasKids ? undefined : handleCheckClick}
-            >
-              <TickIcon />
-            </span>
+            hasKids
+              ? (
+                <span className="check derived" data-s={status} title="Done when every module inside is done" aria-hidden="true">
+                  <TickIcon />
+                </span>
+              )
+              : (
+                <button
+                  type="button"
+                  className="check"
+                  tabIndex={-1}
+                  data-s={status}
+                  title="Cycle progress: not started → in progress → done"
+                  aria-label={`Progress: ${{ todo: 'not started', wip: 'in progress', done: 'done' }[status]}. Press to change.`}
+                  onClick={handleCheckClick}
+                >
+                  <TickIcon />
+                </button>
+              )
           )
           : <span className="check ph" aria-hidden="true" />}
         {/* Curriculum roots carry their full positioning statement as a
@@ -93,8 +106,8 @@ export default function TreeNode({
             a 340px panel. The part before the colon is the name people
             actually use; the full text stays as the row's tooltip. */}
         {url
-          ? <a className="name" href={url} title={depth === 0 ? fullTitle : undefined}>{nameContent}</a>
-          : <span className="name" title={depth === 0 ? fullTitle : undefined}>{nameContent}</span>}
+          ? <a className="name" href={url} title={depth === 0 ? fullTitle : undefined} aria-current={node.file === currentFile ? 'page' : undefined}>{nameContent}</a>
+          : <span className="name" tabIndex={-1} title={depth === 0 ? fullTitle : undefined}>{nameContent}</span>}
         {node.videos > 0 && (
           <span className="vid-tag" title={node.videos > 1 ? MARKER.titleMany(node.videos) : MARKER.title} role="img" aria-label={MARKER.title}>
             <PlayIcon />

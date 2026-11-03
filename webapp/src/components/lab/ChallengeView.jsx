@@ -9,6 +9,7 @@ import Loading from '../common/Loading.jsx';
 import LoadError from '../common/LoadError.jsx';
 import CommentsSection from '../article/CommentsSection.jsx';
 import SubmissionWorkspace from '../practice/SubmissionWorkspace.jsx';
+import PeerReviews from './PeerReviews.jsx';
 import MermaidPreview from '../practice/MermaidPreview.jsx';
 import ContentMarkdown from '../practice/ContentMarkdown.jsx';
 import '../../styles/practice.css';
@@ -26,7 +27,8 @@ export default function ChallengeView({ kind, slug, onBack, onOpenFile, user, on
   const [submissions, setSubmissions] = useState(0); // counts submissions made here: the reference solution is asked for again after one
   const { data: current, error, reload } = useLoader(() => fetchChallenge(kind, slug), [kind, slug, user?.userId, submissions]);
   usePageTitle(current && current.title);
-  const { data: shared } = useLoader(() => fetchSharedSubmissions(kind, slug), [kind, slug, submissions]);
+  const [feedback, setFeedback] = useState(0); // counts feedback given or taken back here: the shared list is asked for again after one
+  const { data: shared } = useLoader(() => fetchSharedSubmissions(kind, slug), [kind, slug, submissions, feedback, user?.userId]);
   const lesson = current && current.module && nodeByFile ? nodeByFile[current.module] : null;
 
   return (
@@ -71,6 +73,7 @@ export default function ChallengeView({ kind, slug, onBack, onOpenFile, user, on
                       {s.diagram && <MermaidPreview source={s.diagram} label="Their diagram" />}
                       {s.diagramUrl && <img className="pr-upload__img" src={s.diagramUrl} alt="Their uploaded diagram" loading="lazy" />}
                       {s.code && <pre className="pr-code"><code>{s.code}</code></pre>}
+                      <PeerReviews solution={s} user={user} onLogin={onLogin} onToast={onToast} onChanged={() => setFeedback((n) => n + 1)} />
                     </Card>
                   </li>
                 ))}

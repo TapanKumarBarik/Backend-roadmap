@@ -20,13 +20,13 @@ export const FALLBACK_START_FILE = 'backend/01-request-response-fundamentals/00-
 
 export const HERO = {
   eyebrow: 'Free · Open source · No sign-up to read',
-  headline: 'Backend engineering, system design and GenAI, taught by running real code.',
-  lead: (modules) => `${modules ? `${fmt(modules.written)} hands-on modules` : 'Hands-on modules'} that go from HTTP and databases to Kubernetes and LLM APIs. Every module is a markdown file in a public repository: read it here, run the code, and fix it if it is wrong.`,
+  headline: 'Build the engineering skills that matter.',
+  lead: (modules) => `Learn backend development, cloud engineering, GenAI and system design through structured roadmaps, hands-on practice and real-world challenges.${modules ? ` ${fmt(modules.written)} written modules, every one a markdown file in a public repository: read it here, run the code, and fix it if it is wrong.` : ''}`,
   // The primary button starts this learning path (an id from paths.json). If it is missing, it opens
   // FALLBACK_START_FILE instead.
   startPath: 'backend-foundations',
-  startLabel: (title) => `Start ${title}`,
-  fallbackStartLabel: 'Start with Backend',
+  exploreLabel: 'Explore Learning Paths',
+  startLabel: 'Start Learning',
   browseLabel: 'Browse the curriculum',
   searchLabel: (modules) => (modules ? `Search ${fmt(modules.written)} modules and topics` : 'Search modules and topics'),
   routeCaption: 'A route through it'
@@ -42,6 +42,15 @@ export const ROUTE = [
   { label: 'Kubernetes', sub: 'Pods to production', file: 'learn/03-kubernetes/README.md' },
   { label: 'LLM APIs', sub: 'Streaming, tools, structured output', file: 'genai/06-openai-and-the-model-landscape/README.md' }
 ];
+
+// The lessons read most this month (api/routes/popular.js): shown only when there are enough of them to be a real list.
+export const POPULAR = {
+  heading: 'Popular this month',
+  sub: 'What other learners are reading right now.',
+  shown: 6,
+  minimum: 3,
+  meta: (views) => `read ${views} times this month`
+};
 
 // The learning paths, as cards. The numbers come from the stats (`stats.paths`).
 export const PICK = {

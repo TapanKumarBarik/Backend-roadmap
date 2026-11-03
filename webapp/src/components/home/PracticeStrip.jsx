@@ -15,6 +15,10 @@ import '../../styles/practice.css';
 export default function PracticeStrip({ variant = 'dashboard', practice }) {
   const { data: catalog } = useLoader(fetchPracticeCatalog);
   if (!catalog || !catalog.quizzes.length) return null;
+  // A mix of the two kinds: the first low-level and the first high-level design, then the next of each.
+  const lld = catalog.challenges.filter((c) => c.kind === 'lld');
+  const hld = catalog.challenges.filter((c) => c.kind === 'hld');
+  const featured = [lld[0], hld[0], lld[1], hld[1]].filter(Boolean).slice(0, STRIP.challengesShown);
   const heading = variant === 'landing'
     ? <h2 id="practice-strip">{STRIP.heading}</h2>
     : <div className="home-h" id="practice-strip">{STRIP.heading}</div>;
@@ -22,6 +26,7 @@ export default function PracticeStrip({ variant = 'dashboard', practice }) {
     <section className={cx('practice-strip', variant === 'landing' && 'lp-sec')} aria-labelledby="practice-strip">
       {heading}
       <p className="home-sub">{STRIP.lead}</p>
+      <h3 className="practice-strip__sub">{STRIP.quizzes}</h3>
       <ul className="pr-cards">
         {catalog.quizzes.slice(0, STRIP.items).map((q) => (
           <li key={q.slug}>
@@ -32,6 +37,22 @@ export default function PracticeStrip({ variant = 'dashboard', practice }) {
           </li>
         ))}
       </ul>
+      {featured.length > 0 && (
+        <>
+          <h3 className="practice-strip__sub">{STRIP.challenges}</h3>
+          <ul className="pr-cards">
+            {featured.map((c) => (
+              <li key={c.key}>
+                <Card as="article" className="pr-card">
+                  <div className="pr-card__meta"><span className="pr-badge">{STRIP.kind[c.kind]}</span></div>
+                  <h3 className="pr-card__title"><a href={pageUrl(LAB_ROUTE, c.key)} onClick={followInApp(() => practice.onOpenLab(c.key))}>{c.title}</a></h3>
+                  <p className="pr-card__text">{c.summary}</p>
+                </Card>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
       <p className="community-strip__links">
         <a className="community-strip__all" href={pageUrl(PRACTICE_ROUTE)} onClick={followInApp(() => practice.onOpenPractice(null))}>{STRIP.all} <ArrowRightIcon aria-hidden="true" /></a>
         <a className="community-strip__all" href={pageUrl(LAB_ROUTE)} onClick={followInApp(() => practice.onOpenLab(null))}>{STRIP.lab} <ArrowRightIcon aria-hidden="true" /></a>

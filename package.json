@@ -30,6 +30,7 @@
     "practice:build": "node scripts/build/gen-practice.mjs",
     "check:practice": "node scripts/check/check-practice.mjs",
     "check:bundle": "node scripts/check/check-bundle-size.mjs",
+    "ci:linux": "bash scripts/dev/ci-linux.sh",
     "check:urls": "node scripts/check/check-urls.mjs",
     "check:urls:live": "node scripts/maintain/check-urls-live.mjs",
     "urls:register": "node scripts/maintain/register-urls.mjs",

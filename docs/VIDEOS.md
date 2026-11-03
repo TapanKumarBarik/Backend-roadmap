@@ -8,9 +8,9 @@ The list of videos is one file, [`content/videos.json`](../content/videos.json).
 
 | Where | What the reader sees |
 |---|---|
-| The module the video belongs to | The video at the top, under the title: its thumbnail and a play button (nothing is fetched from YouTube until play is pressed; the player is YouTube's no-cookie one), its length, its playlist and its **chapters**. Pressing a chapter starts the player at that point. A module with several videos shows one and lists the others. |
+| The module the video belongs to | The video at the top, under the title: its thumbnail and a play button (nothing is fetched from YouTube until play is pressed; the player is YouTube's no-cookie one), its length, its playlist and its **chapters**. Pressing a chapter starts the player at that point. A module with several videos shows one and lists the others. Under the video, **Next video** leads to the next one in its playlist (its lesson when it has one). |
 | The sidebar | A small play mark beside every module that has a video. |
-| The **Videos** screen (left rail, or `/#__videos`) | Every video, in course order, grouped by playlist, with a filter. A card opens the module the video belongs to; a video with no module yet opens YouTube. |
+| The **Videos** page (left rail, or `/videos/`, which is also a plain-HTML page for search engines) | Every video, in course order, grouped by playlist, with a filter. A card opens the module the video belongs to; a video with no module yet opens YouTube. |
 | The landing page | The newest videos, and a way to all of them. |
 | The module's page for search engines | `VideoObject` structured data (title, thumbnail, upload date, length), a plain link and the chapter list in the pre-rendered HTML. The link-preview image is the page's own share card, which says "Video lesson". |
 

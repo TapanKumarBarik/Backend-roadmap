@@ -44,10 +44,10 @@ function queryString(params) {
 
 /**
  * One page of the listing: { posts, next }. `next` is the cursor for the page after it, or null.
- * @param {{ q?: string, tag?: string, author?: string, sort?: string, cursor?: string | null, limit?: number }} [filters]
+ * @param {{ q?: string, tag?: string, author?: string, kind?: string, category?: string, sort?: string, cursor?: string | null, limit?: number }} [filters]
  */
-export async function fetchBlogs({ q, tag, author, sort, cursor, limit } = {}) {
-  return answer(await fetch(`/api/blogs${queryString({ q, tag, author, sort, cursor, limit })}`), 'failed to load articles');
+export async function fetchBlogs({ q, tag, author, kind, category, sort, cursor, limit } = {}) {
+  return answer(await fetch(`/api/blogs${queryString({ q, tag, author, kind, category, sort, cursor, limit })}`), 'failed to load articles');
 }
 
 /** The topics in use, most written about first: { tags: [{ tag, posts }] }. */
@@ -108,6 +108,16 @@ export async function fetchMyBlog(id) {
   return (await answer(await fetch(`/api/blogs/mine/${encodeURIComponent(id)}`), 'failed to load the article')).post;
 }
 
+/** The earlier versions of one of my articles, newest first: [{ id, title, words, savedAt, reason }]. */
+export async function fetchPostVersions(id) {
+  return (await answer(await fetch(`/api/blogs/mine/${encodeURIComponent(id)}/versions`), 'failed to load the history')).versions;
+}
+
+/** Puts one of those versions back as the article's text (what it replaces is kept as a version too). Resolves { updatedAt }. */
+export async function restorePostVersion(id, versionId) {
+  return answer(await send('POST', `/api/blogs/${encodeURIComponent(id)}/restore/${encodeURIComponent(versionId)}`), 'failed to restore that version');
+}
+
 /** Starts a draft: { id, updatedAt }. */
 export async function createBlog(title = '') {
   return answer(await send('POST', '/api/blogs', { title }), 'failed to start the article');
@@ -164,9 +174,9 @@ export async function fetchManagedBlogs(filter) {
   return (await answer(await fetch(`/api/manage/blogs${queryString({ filter })}`), 'failed to load the articles')).posts;
 }
 
-/** `action` is "approve", "hide" or "unhide". */
-export async function moderateBlog(id, action) {
-  return answer(await send('POST', `/api/manage/blogs/${encodeURIComponent(id)}/${action}`), 'failed to update the article');
+/** `action` is "approve", "hide" or "unhide". Hiding takes a `note`: the reason, which the author is shown. */
+export async function moderateBlog(id, action, note) {
+  return answer(await send('POST', `/api/manage/blogs/${encodeURIComponent(id)}/${action}`, note ? { note } : undefined), 'failed to update the article');
 }
 
 /** A trusted author's articles are approved for search engines as they are published. */

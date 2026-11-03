@@ -10,6 +10,33 @@ export const SAVE_STATUS = {
   conflict: 'Changed somewhere else'
 };
 
+// Where a contribution is in its life, as its author and the moderators see it (lib/blog/kinds.js postState).
+export const POST_STATE = {
+  draft: 'Draft',
+  scheduled: 'Scheduled',
+  pending: 'Live, waiting for approval',
+  approved: 'Approved',
+  rejected: 'Taken down'
+};
+
+export const POST_STATE_HELP = {
+  pending: 'Anyone with the link can read it. Search engines list it once a moderator approves it.',
+  approved: 'Live, and listed by search engines.',
+  rejected: 'A moderator took it down. Your writing is safe.'
+};
+
+// The version history of an article.
+export const HISTORY = {
+  button: 'Version history',
+  title: 'Version history',
+  lead: 'Earlier versions of this article, kept as you wrote. Going back keeps what is there now as a version too, so nothing is lost.',
+  empty: 'No earlier versions yet. One is kept when the text changes, at most every few minutes, and whenever you publish.',
+  reasons: { edit: 'Before an edit', publish: 'When published', restore: 'Before a restore' },
+  restore: 'Go back to this',
+  restored: 'Went back to that version',
+  words: (n) => `${n} words`
+};
+
 // What each state of an article is called.
 export const POST_STATUS = {
   draft: 'Draft',

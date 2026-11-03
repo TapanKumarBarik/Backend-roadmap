@@ -407,7 +407,10 @@ test('an admin approves, takes down, puts back and trusts from the Articles sect
 
   const takenDown = await rows.first().locator('strong').textContent();
   await rows.first().getByRole('button', { name: 'Take down' }).click();
+  await rows.first().getByLabel('Reason (the author is shown it)').fill('Not a lesson: it is an advert.');
+  await rows.first().locator('.admin-reject').getByRole('button', { name: 'Take down' }).click();
   await page.waitForFunction(() => document.querySelectorAll('.admin-row').length === 3);
+  assert.equal(env.DB.raw.prepare('SELECT note FROM post_moderation').get().note, 'Not a lesson: it is an advert.', 'the reason is kept for the author');
   assert.equal(env.DB.raw.prepare('SELECT COUNT(*) AS n FROM blog_posts WHERE hidden = 1').get().n, 1);
   assert.equal(await page.evaluate(async () => (await (await fetch('/api/blogs')).json()).posts.length), 4, 'it is off the site at once');
 

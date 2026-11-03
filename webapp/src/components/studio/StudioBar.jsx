@@ -7,7 +7,7 @@ import { MenuDotsIcon } from '../common/icons.jsx';
 
 // The bar across the top of the studio: the way back, what is happening to the writing (saved or not, said honestly), how
 // long it is, and the few things done with the article as a whole: preview it, write without distractions, publish it.
-export default function StudioBar({ status, postStatus, counts, preview, focus, assistant, assistantOpen, onBack, onRetry, onPreview, onFocus, onAssistant, onHelp, onPublish, onView, onDelete, canPublish }) {
+export default function StudioBar({ status, postStatus, counts, preview, focus, assistant, assistantOpen, onBack, onRetry, onPreview, onFocus, onAssistant, onHelp, onHistory, onPublish, onView, onDelete, canPublish }) {
   const trouble = status === 'error' || status === 'offline';
   const publishLabel = postStatus === 'published' ? 'Settings' : postStatus === 'scheduled' ? 'Scheduled' : 'Publish';
 
@@ -42,6 +42,7 @@ export default function StudioBar({ status, postStatus, counts, preview, focus, 
         {assistant && !preview && <Button variant="ghost" aria-pressed={assistantOpen} onClick={onAssistant}>Assistant</Button>}
         <Button variant="ghost" aria-pressed={focus} onClick={onFocus} title="Focus mode (Ctrl/⌘ Shift F)">Focus</Button>
         <Menu trigger={<Button variant="ghost" icon={<MenuDotsIcon />} aria-label="More" />}>
+          <MenuItem onSelect={onHistory}>Version history</MenuItem>
           <MenuItem onSelect={onHelp}>Keyboard shortcuts</MenuItem>
           {postStatus === 'published' && <MenuItem onSelect={onView}>View the article</MenuItem>}
           <MenuSeparator />

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react';
+import HistoryDialog from './HistoryDialog.jsx';
 import { EditorContent, useEditor } from '@tiptap/react';
 import { Selection } from '@tiptap/pm/state';
 import { ConflictError, deleteBlog, fetchAssistantStatus, saveBlog, uploadArticleImage } from '../../lib/blogApi.js';
@@ -44,7 +45,7 @@ export default function Writer({ post, restored, onToast, onBack, onOpenPost, on
 
   const [title, setTitle] = useState(initial.title);
   const [subtitle, setSubtitle] = useState(initial.subtitle);
-  const [meta, setMeta] = useState({ excerpt: post.excerpt, coverUrl: post.coverUrl, tags: post.tags });
+  const [meta, setMeta] = useState({ excerpt: post.excerpt, coverUrl: post.coverUrl, tags: post.tags, kind: post.kind, category: post.category });
   const [info, setInfo] = useState({ status: post.status, slug: post.slug, publishAt: post.publishAt });
   const [status, setStatus] = useState('saved');
   const [counts, setCounts] = useState(() => readingStats(initial.content, CONTENT.wordsPerMinute));
@@ -56,6 +57,7 @@ export default function Writer({ post, restored, onToast, onBack, onOpenPost, on
   const [linkRequest, setLinkRequest] = useState(0);
   const [publishOpen, setPublishOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const [videoOpen, setVideoOpen] = useState(false);
   const [videoAddress, setVideoAddress] = useState('');
   const [videoProblem, setVideoProblem] = useState('');
@@ -103,7 +105,7 @@ export default function Writer({ post, restored, onToast, onBack, onOpenPost, on
   const snapshot = useCallback(() => {
     const { title: t, subtitle: s, meta: m } = latest.current;
     const editor = editorRef.current;
-    return { title: t, subtitle: s, excerpt: m.excerpt, coverUrl: m.coverUrl, tags: m.tags, content: editor ? editor.getJSON() : initial.content };
+    return { title: t, subtitle: s, excerpt: m.excerpt, coverUrl: m.coverUrl, tags: m.tags, kind: m.kind, category: m.category, content: editor ? editor.getJSON() : initial.content };
   }, [initial.content]);
 
   // Something was written: hand it to the saver, keep a copy on this device a moment after the last keystroke, and refresh the count.
@@ -344,6 +346,7 @@ export default function Writer({ post, restored, onToast, onBack, onOpenPost, on
         onPreview={togglePreview}
         onFocus={toggleFocus}
         onHelp={() => setHelpOpen(true)}
+        onHistory={() => setHistoryOpen(true)}
         onPublish={() => setPublishOpen(true)}
         onView={() => info.slug && leave(() => onOpenPost(info.slug))}
         onDelete={remove}
@@ -426,6 +429,7 @@ export default function Writer({ post, restored, onToast, onBack, onOpenPost, on
         onOpenPost={(slug) => leave(() => onOpenPost(slug))}
         onToast={onToast}
       />
+      <HistoryDialog open={historyOpen} onClose={() => setHistoryOpen(false)} id={post.id} flush={() => autosave.flush()} onRestored={onReload} onToast={onToast} />
       <StudioShortcuts open={helpOpen} onClose={() => setHelpOpen(false)} />
 
       <Dialog

@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   parseClock, formatClock, formatTotal, isoDuration, parseChapterLine, chapterLine, parseChapters, firstParagraph,
-  cleanTitle, moduleFile, resolveVideos, groupByModule, totals
+  cleanTitle, moduleFile, resolveVideos, groupByModule, totals, nextVideo
 } from './videos.js';
 
 test('clock times read and print both ways', () => {
@@ -124,4 +124,14 @@ test('modules collect their videos, and a video with no module belongs to none',
   assert.deepEqual(Object.keys(byFile), ['x/a/README.md']);
   assert.deepEqual(byFile['x/a/README.md'].map((v) => v.id), ['ccccccccccc', 'bbbbbbbbbbb']);
   assert.deepEqual(totals(videos), { count: 3, seconds: 100 });
+});
+
+test('the next video is the next number in the same playlist, and there is none at the end', () => {
+  const list = [
+    { id: 'a', playlist: 'p1', number: 1 }, { id: 'b', playlist: 'p1', number: 2 }, { id: 'c', playlist: 'p2', number: 3 }, { id: 'd', playlist: 'p1', number: 4 }
+  ];
+  assert.equal(nextVideo(list, list[0]).id, 'b');
+  assert.equal(nextVideo(list, list[1]).id, 'd', 'a number that is missing is skipped');
+  assert.equal(nextVideo(list, list[3]), null);
+  assert.equal(nextVideo(list, list[2]), null, 'another playlist is another series');
 });

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useToast } from '../ui/Toast.jsx';
 import CommentsModeration from './CommentsModeration.jsx';
 import VisitorStats from './VisitorStats.jsx';
 import ContentEditor from './ContentEditor.jsx';
@@ -30,6 +31,7 @@ const SECTIONS = [
 ];
 
 export default function AdminDashboard({ isAdmin, lastViewedFile, onOpenFile, onOpenPost, currentUserEmail }) {
+  const toast = useToast();
   const [section, setSection] = useState('overview');
   const [questions, setQuestions] = useState(null);
   // Articles that are live but not yet approved for search engines: the number on the Articles tab.
@@ -134,7 +136,7 @@ export default function AdminDashboard({ isAdmin, lastViewedFile, onOpenFile, on
       )}
       {section === 'people' && <PeoplePanel currentUserEmail={currentUserEmail} />}
       {section === 'analytics' && <VisitorStats onOpenFile={onOpenFile} />}
-      {section === 'practice' && <PracticeAdmin />}
+      {section === 'practice' && <PracticeAdmin onToast={toast.show} />}
       {section === 'notices' && <NoticesAdmin />}
       {section === 'system' && <UsageStats />}
       {section === 'audit' && <AuditLog />}

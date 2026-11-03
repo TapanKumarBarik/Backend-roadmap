@@ -87,3 +87,11 @@ test('the report names the verdict and what is new', () => {
   assert.match(text, /- \/a\/: gone/);
   assert.match(text, /- \/blog\//);
 });
+
+test('a redirect with a pattern is held to the place it goes to, which must answer', () => {
+  const base = { registry: {}, pages: { '/design-lab/': { canonical: `${SITE}/design-lab/`, indexable: true, textLength: 10 } }, files: {}, sitemap: [], siteUrl: SITE };
+  const ok = checkAddresses({ ...base, redirects: [{ from: '/lab/*', to: '/design-lab/:splat', status: 301 }] });
+  assert.deepEqual(ok.problems, []);
+  const broken = checkAddresses({ ...base, redirects: [{ from: '/lab/*', to: '/nowhere/:splat', status: 301 }] });
+  assert.match(broken.problems[0], /nothing answers/);
+});

@@ -1,5 +1,7 @@
 import { useState } from 'react';
-import { fetchSuggestions, postSuggestion, voteSuggestion, deleteSuggestion } from '../../lib/api.js';
+import { OwnerActions, InlineEdit } from './OwnItem.jsx';
+import { OWN } from '../../config/community.js';
+import { fetchSuggestions, postSuggestion, voteSuggestion, deleteSuggestion, updateSuggestion, removeOwnSuggestion } from '../../lib/api.js';
 import { TrashIcon } from '../common/icons.jsx';
 import { useLoader } from '../../hooks/useLoader.js';
 import LoadError from '../common/LoadError.jsx';
@@ -56,7 +58,26 @@ export default function SuggestionsView({ user, onLogin, onToast }) {
     }
   }
 
+  const [editing, setEditing] = useState(null);
   const confirm = useConfirm();
+
+  async function saveEdit(id, text) {
+    const updated = await updateSuggestion(id, text);
+    setSuggestions((prev) => prev.map((s) => (s.id === id ? { ...s, text: updated.text } : s)));
+    setEditing(null);
+    onToast?.(OWN.saved);
+  }
+
+  async function removeOwn(id) {
+    if (!(await confirm({ title: OWN.confirmTitle('idea'), body: OWN.confirmBody, confirmLabel: OWN.delete, tone: 'danger' }))) return;
+    try {
+      await removeOwnSuggestion(id);
+      setSuggestions((prev) => prev.filter((s) => s.id !== id));
+      onToast?.(OWN.deleted);
+    } catch (e) {
+      setError(friendlyMessage(e));
+    }
+  }
 
   async function handleDelete(id) {
     if (!(await confirm({ title: 'Delete this suggestion?', body: 'This cannot be undone.', confirmLabel: 'Delete', tone: 'danger' }))) return;
@@ -110,6 +131,7 @@ export default function SuggestionsView({ user, onLogin, onToast }) {
                 <strong>{s.displayName}</strong>
                 <span>{new Date(s.createdAt).toLocaleString()}</span>
               </div>
+              {user && s.userId === user.userId && <OwnerActions onEdit={() => setEditing(s.id)} onDelete={() => removeOwn(s.id)} />}
               {user?.isAdmin && (
                 <button className="feed-delete-btn" onClick={() => handleDelete(s.id)} aria-label="Delete" title="Delete">
                   <TrashIcon />
@@ -117,7 +139,9 @@ export default function SuggestionsView({ user, onLogin, onToast }) {
               )}
             </div>
 
-            <div className="comment-text">{s.text}</div>
+            {editing === s.id
+              ? <InlineEdit value={s.text} label="Your idea" maxLength={1000} onSave={(text) => saveEdit(s.id, text)} onCancel={() => setEditing(null)} />
+              : <div className="comment-text">{s.text}</div>}
 
             <div className="feed-card-actions">
               <button

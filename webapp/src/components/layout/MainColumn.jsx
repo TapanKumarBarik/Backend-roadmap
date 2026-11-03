@@ -60,6 +60,7 @@ export default function MainColumn({
               showNotesInArticle={showNotesInArticle}
               videos={videoData?.byFile[currentFile]}
               playlists={videoData?.playlists}
+              allVideos={videoData?.videos}
             />
           )
           : showLanding

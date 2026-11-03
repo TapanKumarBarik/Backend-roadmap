@@ -17,6 +17,8 @@ export class ApiError extends Error {
     this.status = status;           // 0 when the request never got an answer
     this.serverMessage = serverMessage; // text the API wrote for people, if any
     this.url = url;
+    /** @type {string[]} what the API found wrong with what was sent, when it said (the content editor's checks) */
+    this.problems = [];
   }
 }
 
@@ -24,11 +26,15 @@ export class ApiError extends Error {
 // `message` for anything that still reads it, but the UI no longer shows it.
 export async function apiError(res, fallback) {
   let serverMessage = '';
+  let problems = [];
   try {
     const body = await res.clone().json();
     if (body && typeof body.error === 'string') serverMessage = body.error;
+    if (body && Array.isArray(body.problems)) problems = body.problems.filter((p) => typeof p === 'string');
   } catch { /* not JSON: a proxy or edge error page */ }
-  return new ApiError(serverMessage || fallback, { status: res.status, serverMessage, url: res.url });
+  const error = new ApiError(serverMessage || fallback, { status: res.status, serverMessage, url: res.url });
+  error.problems = problems;
+  return error;
 }
 
 export function errorKind(err) {

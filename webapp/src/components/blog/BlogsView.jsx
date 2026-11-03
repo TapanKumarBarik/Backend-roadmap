@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { POST_CATEGORIES, POST_KINDS, isPostCategory, isPostKind } from '../../lib/blog/kinds.js';
 import { fetchBlogTags } from '../../lib/blogApi.js';
 import { useBlogList } from '../../hooks/useBlogList.js';
 import { useLoader } from '../../hooks/useLoader.js';
@@ -26,13 +27,17 @@ const SEARCH_PAUSE_MS = 300;
 
 function filtersFromAddress() {
   const query = new URLSearchParams(location.search);
-  return { q: query.get('q') || '', tag: query.get('tag') || '', sort: query.get('sort') === 'popular' ? 'popular' : 'new' };
+  const kind = query.get('kind') || '';
+  const category = query.get('category') || '';
+  return { q: query.get('q') || '', tag: query.get('tag') || '', kind: isPostKind(kind) ? kind : '', category: isPostCategory(category) ? category : '', sort: query.get('sort') === 'popular' ? 'popular' : 'new' };
 }
 
-function writeFiltersToAddress({ q, tag, sort }) {
+function writeFiltersToAddress({ q, tag, kind, category, sort }) {
   const query = new URLSearchParams();
   if (q) query.set('q', q);
   if (tag) query.set('tag', tag);
+  if (kind) query.set('kind', kind);
+  if (category) query.set('category', category);
   if (sort === 'popular') query.set('sort', sort);
   const search = query.toString() ? `?${query}` : '';
   if (search !== location.search) history.replaceState(null, '', location.pathname + search + location.hash);
@@ -43,8 +48,10 @@ export default function BlogsView({ onOpenPost, onOpenAuthor, onOpenWrite }) {
   const [typed, setTyped] = useState(initial.q);
   const [q, setQ] = useState(initial.q);
   const [tag, setTag] = useState(initial.tag);
+  const [kind, setKind] = useState(initial.kind);
+  const [category, setCategory] = useState(initial.category);
   const [sort, setSort] = useState(initial.sort);
-  const list = useBlogList({ q, tag, sort });
+  const list = useBlogList({ q, tag, kind, category, sort });
   const { data: topicData } = useLoader(fetchBlogTags);
 
   useEffect(() => { document.title = `Blogs · ${SITE.name}`; }, []);
@@ -53,7 +60,7 @@ export default function BlogsView({ onOpenPost, onOpenAuthor, onOpenWrite }) {
     const timer = setTimeout(() => setQ(typed.trim()), SEARCH_PAUSE_MS);
     return () => clearTimeout(timer);
   }, [typed]);
-  useEffect(() => writeFiltersToAddress({ q, tag, sort }), [q, tag, sort]);
+  useEffect(() => writeFiltersToAddress({ q, tag, kind, category, sort }), [q, tag, kind, category, sort]);
 
   // The most written-about topics, and the one being looked at even when it is not among them.
   const topics = useMemo(() => {
@@ -61,8 +68,8 @@ export default function BlogsView({ onOpenPost, onOpenAuthor, onOpenWrite }) {
     return tag && !known.some((t) => t.tag === tag) ? [{ tag, posts: null }, ...known] : known;
   }, [topicData, tag]);
 
-  const filtered = !!(q || tag);
-  const clearFilters = () => { setTyped(''); setQ(''); setTag(''); };
+  const filtered = !!(q || tag || kind || category);
+  const clearFilters = () => { setTyped(''); setQ(''); setTag(''); setKind(''); setCategory(''); };
   const pickTag = (t) => { setTag(t); window.scrollTo?.(0, 0); };
   const writeLink = { href: writeUrl(), onClick: followInApp(onOpenWrite) };
 
@@ -87,6 +94,15 @@ export default function BlogsView({ onOpenPost, onOpenAuthor, onOpenWrite }) {
             <ChoiceChip key={option.id} selected={sort === option.id} onClick={() => setSort(option.id)}>{option.label}</ChoiceChip>
           ))}
         </div>
+      </div>
+
+      <div className="blog-topics" role="group" aria-label="Kind of contribution">
+        <ChoiceChip selected={!kind} onClick={() => setKind('')}>All kinds</ChoiceChip>
+        {POST_KINDS.map((k) => <ChoiceChip key={k.id} selected={kind === k.id} onClick={() => setKind(kind === k.id ? '' : k.id)}>{k.label}</ChoiceChip>)}
+      </div>
+      <div className="blog-topics" role="group" aria-label="Category">
+        <ChoiceChip selected={!category} onClick={() => setCategory('')}>All categories</ChoiceChip>
+        {POST_CATEGORIES.map((c) => <ChoiceChip key={c.id} selected={category === c.id} onClick={() => setCategory(category === c.id ? '' : c.id)}>{c.label}</ChoiceChip>)}
       </div>
 
       {topics.length > 0 && (

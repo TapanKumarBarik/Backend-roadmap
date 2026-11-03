@@ -124,6 +124,33 @@ export async function fetchFeed() {
   return feedInflight;
 }
 
+/**
+ * One page of the feed: the newest `limit`, or the `limit` before the post with id `before`. Not cached (the first page is the one read most).
+ * @param {{ limit?: number, before?: string }} [options]
+ */
+export async function fetchFeedPage({ limit, before } = {}) {
+  const query = new URLSearchParams();
+  if (limit) query.set('limit', String(limit));
+  if (before) query.set('before', before);
+  const res = await fetch(`/api/feed?${query}`);
+  if (!res.ok) throw await apiError(res, 'failed to load feed');
+  return res.json();
+}
+
+/** The author's own post: change its text, or take it back (and its upvotes and comments). */
+export async function updateFeedPost(id, text) {
+  const res = await fetch(`/api/feed/${encodeURIComponent(id)}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text }) });
+  if (!res.ok) throw await apiError(res, 'failed to save the post');
+  invalidateFeedCache();
+  return res.json();
+}
+
+export async function removeOwnFeedPost(id) {
+  const res = await fetch(`/api/feed/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  if (!res.ok) throw await apiError(res, 'failed to delete the post');
+  invalidateFeedCache();
+}
+
 // Called after any write that makes the cached list stale (post, delete,
 // vote) — cheaper than re-fetching immediately, since the caller usually
 // already knows the one row that changed and can patch its own local state.
@@ -375,6 +402,18 @@ export async function postBook(title, tag, linkUrl, attachmentUrl) {
   return res.json();
 }
 
+/** The author's own entry: change `fields` (title, tag, linkUrl), or take it back. */
+export async function updateBook(id, fields) {
+  const res = await fetch(`/api/books/${encodeURIComponent(id)}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(fields) });
+  if (!res.ok) throw await apiError(res, 'failed to save the entry');
+  return res.json();
+}
+
+export async function removeOwnBook(id) {
+  const res = await fetch(`/api/books/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  if (!res.ok) throw await apiError(res, 'failed to delete the entry');
+}
+
 export async function deleteBook(id) {
   const res = await fetch('/api/manage/books?id=' + encodeURIComponent(id), { method: 'DELETE' });
   if (!res.ok) throw await apiError(res, 'failed to delete book');
@@ -406,6 +445,18 @@ export async function voteSuggestion(id) {
   });
   if (!res.ok) throw await apiError(res, 'failed to vote');
   return res.json();
+}
+
+/** The author's own idea: change its text, or take it back (and its votes). */
+export async function updateSuggestion(id, text) {
+  const res = await fetch(`/api/suggestions/${encodeURIComponent(id)}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text }) });
+  if (!res.ok) throw await apiError(res, 'failed to save the idea');
+  return res.json();
+}
+
+export async function removeOwnSuggestion(id) {
+  const res = await fetch(`/api/suggestions/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  if (!res.ok) throw await apiError(res, 'failed to delete the idea');
 }
 
 export async function deleteSuggestion(id) {

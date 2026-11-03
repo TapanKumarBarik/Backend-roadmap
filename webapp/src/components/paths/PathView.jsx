@@ -54,9 +54,12 @@ export default function PathView({ id, paths, statusMap, nodeByFile, activeId, o
 
       <h3>The curriculum</h3>
       <ol className="path-steps">
-        {path.steps.map((step) => (
+        {path.steps.map((step) => {
+          const stepDone = step.files.filter((f) => statusMap[f] === 'done').length;
+          return (
           <li key={step.dir}>
-            <h3>{step.title}</h3>
+            <details className="path-step" open={stepDone < step.files.length || path.steps.length === 1}>
+            <summary><h3>{step.title}</h3><span className="pr-note">{stepDone} of {step.files.length} done</span></summary>
             <ul className="path-modules">
               {step.files.map((f) => (
                 <li key={f}>
@@ -65,8 +68,10 @@ export default function PathView({ id, paths, statusMap, nodeByFile, activeId, o
                 </li>
               ))}
             </ul>
+            </details>
           </li>
-        ))}
+          );
+        })}
       </ol>
 
       {(quizzes.length > 0 || challenges.length > 0) && (

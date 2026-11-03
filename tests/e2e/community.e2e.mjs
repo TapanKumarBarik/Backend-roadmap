@@ -175,3 +175,32 @@ test('on a phone Community is behind More, and its four tabs fit the screen', as
   }
   await context.close();
 });
+
+test('you can change and delete your own post, and the feed shows a page at a time', async () => {
+  const { context, page, env, goto } = await openCommunity('/#__feed');
+  const now = Date.now();
+  const insert = env.DB.raw.prepare('INSERT INTO feed_posts (id, user_id, display_name, text, created_at) VALUES (?, ?, ?, ?, ?)');
+  for (let i = 0; i < 25; i++) insert.run(`p${String(i).padStart(3, '0')}`, 'someone-else', 'Grace Hopper', `an older post number ${i}`, new Date(now - (100 - i) * 1000).toISOString());
+  insert.run('zmine', 'user-reader@example.com', 'Test User', 'my own post about retries', new Date(now).toISOString());
+  await goto();
+  await page.getByText('my own post about retries').waitFor();
+
+  assert.equal(await page.locator('.feed-card').count(), 20, 'a page of twenty');
+  await page.getByRole('button', { name: 'Load more' }).click();
+  await page.waitForFunction(() => document.querySelectorAll('.feed-card').length === 26);
+  assert.equal(await page.getByRole('button', { name: 'Load more' }).count(), 0, 'and none is offered once the older posts are all here');
+
+  const mine = page.locator('.feed-card', { hasText: 'my own post about retries' });
+  assert.equal(await page.locator('.feed-card').filter({ has: page.getByRole('button', { name: 'Edit' }) }).count(), 1, 'Edit is on your own post only');
+  await mine.getByRole('button', { name: 'Edit' }).click();
+  await mine.getByLabel('Your post').fill('my own post about retries, edited');
+  await mine.getByRole('button', { name: 'Save' }).click();
+  await mine.getByText('my own post about retries, edited').waitFor();
+  assert.equal(env.DB.raw.prepare("SELECT text FROM feed_posts WHERE id = 'zmine'").get().text, 'my own post about retries, edited');
+
+  await mine.getByRole('button', { name: 'Delete' }).click();
+  await page.getByRole('dialog', { name: 'Delete this post?' }).getByRole('button', { name: 'Delete' }).click();
+  await page.waitForFunction(() => !document.body.textContent.includes('my own post about retries'));
+  assert.equal(env.DB.raw.prepare("SELECT COUNT(*) AS n FROM feed_posts WHERE id = 'zmine'").get().n, 0);
+  await context.close();
+});

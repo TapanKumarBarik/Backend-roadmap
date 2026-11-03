@@ -94,3 +94,5 @@
   #article .lecture-pick { grid-template-columns: 72px minmax(0, 1fr) auto; }
   #article .lecture-pick img { width: 72px; height: 41px; }
 }
+
+.lecture-next { margin: var(--space-3) 0 0; font-size: var(--text-sm); }

@@ -13,8 +13,10 @@
 //   /videos/            the video lectures               route "__videos"
 //   /practice/          the Practice Center              route "__practice"
 //   /practice/quiz/<slug>/   a quiz (also exercise/, interview/)   heading = "quiz/<slug>"
-//   /lab/               the Design Lab                   route "__lab"
-//   /lab/lld/<slug>/    a design challenge (also hld/)   heading = "lld/<slug>"
+//   /design-lab/        the Design Lab                   route "__lab"
+//   /design-lab/lld/<slug>/   a design challenge (also hld/)   heading = "lld/<slug>"
+//                       (/lab/ was its first address, for a short while: it still opens the same screen, and the server
+//                       redirects it to /design-lab/, webapp/public/_redirects)
 //
 // The first segment of each is reserved: a curriculum cannot have a folder of that name (a test checks it), so an
 // address is never both a page and a module.
@@ -37,10 +39,11 @@ export const PAGES = [
   { prefix: 'paths', route: PATH_ROUTE, index: true, built: true },
   { prefix: 'videos', route: VIDEOS_ROUTE, index: true, built: true },
   { prefix: 'practice', route: PRACTICE_ROUTE, index: true, built: true },
-  { prefix: 'lab', route: LAB_ROUTE, index: true, built: true }
+  { prefix: 'design-lab', aliases: ['lab'], route: LAB_ROUTE, index: true, built: true }
 ];
 
-const byPrefix = new Map(PAGES.map((page) => [page.prefix, page]));
+// An old prefix (an alias) opens the same screen; the address the app writes is always the page's own prefix.
+const byPrefix = new Map(PAGES.flatMap((page) => [page.prefix, ...(page.aliases || [])].map((prefix) => [prefix, page])));
 const byRoute = new Map(PAGES.map((page) => [page.route, page]));
 
 /**

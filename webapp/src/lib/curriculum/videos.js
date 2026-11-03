@@ -158,6 +158,19 @@ export function groupByModule(videos) {
   return byFile;
 }
 
+/**
+ * The video that follows `video` in its playlist (the next number), or null at the end. `videos` are the resolved videos
+ * (dist/videos.json), each with its playlist and number.
+ */
+export function nextVideo(videos, video) {
+  let next = null;
+  for (const v of videos) {
+    if (v.playlist !== video.playlist || v.number <= video.number) continue;
+    if (!next || v.number < next.number) next = v;
+  }
+  return next;
+}
+
 /** What a list of videos adds up to. */
 export function totals(videos) {
   return { count: videos.length, seconds: videos.reduce((sum, v) => sum + (v.seconds || 0), 0) };

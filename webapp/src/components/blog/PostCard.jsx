@@ -1,4 +1,5 @@
 import { Avatar } from '../ui/Avatar.jsx';
+import { kindLabel } from '../../lib/blog/kinds.js';
 import { cx } from '../../lib/cx.js';
 import { followInApp } from '../../lib/linkClick.js';
 import { authorUrl, postUrl } from '../../lib/appPages.js';
@@ -26,6 +27,7 @@ export default function PostCard({ post, onOpenPost, onOpenAuthor, onPickTag, le
             )
             : <span className="post-card__author">A former author</span>)}
           {showAuthor && <span aria-hidden="true">·</span>}
+          {post.kind && post.kind !== 'article' && <><span className="post-kind">{kindLabel(post.kind)}</span><span aria-hidden="true">·</span></>}
           <time dateTime={post.publishedAt}>{formatDate(post.publishedAt)}</time>
           <span aria-hidden="true">·</span>
           <span>{readingTime(post.minutes)}</span>

@@ -656,3 +656,39 @@ test('when the assistant cannot answer the author is told, and the article is un
   await panel.getByRole('alert').getByText('could not answer just now').waitFor();
   assert.match(await editor(page).textContent(), /Some words that make a sentence/);
 });
+
+test('an article says what kind it is and where it belongs, and the version history takes the text back to an earlier one', async (t) => {
+  const { page, env } = await openStudio(t);
+  const id = await startArticle(page);
+  await title(page).fill('Notes on B-trees');
+  await title(page).press('Enter');
+  const words = (word) => Array.from({ length: 40 }, () => word).join(' ');
+  await write(page, words('alpha'));
+  await until(() => row(env, id).words >= 40, 'the first text is saved');
+
+  // Kind and category are settings of the article, saved with it.
+  await page.getByRole('button', { name: 'Publish', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Ready to publish?' });
+  await dialog.getByLabel('Kind of contribution').selectOption('study-note');
+  await dialog.getByLabel('Where it belongs').selectOption('backend');
+  await dialog.getByRole('button', { name: 'Cancel' }).click();
+  await until(() => env.DB.raw.prepare('SELECT kind, category FROM post_classification WHERE post_id = ?').get(id)?.kind === 'study-note', 'the kind is saved');
+  assert.equal(env.DB.raw.prepare('SELECT category FROM post_classification WHERE post_id = ?').get(id).category, 'backend');
+
+  // Changing the text keeps the earlier one as a version.
+  await editor(page).click();
+  await page.keyboard.press('Control+A');
+  await write(page, words('omega'));
+  await until(() => JSON.stringify(docOf(env, id)).includes('omega'), 'the second text is saved');
+  assert.equal(env.DB.raw.prepare('SELECT COUNT(*) AS n FROM post_versions WHERE post_id = ?').get(id).n, 1);
+
+  await page.locator('.studio-bar button[aria-label="More"]').click();
+  await page.getByRole('menuitem', { name: 'Version history' }).click();
+  const history = page.getByRole('dialog', { name: 'Version history' });
+  await history.getByText(/Before an edit/).waitFor();
+  await history.getByRole('button', { name: 'Go back to this' }).click();
+  await page.getByRole('dialog', { name: 'Go back to this version?' }).getByRole('button', { name: 'Go back to this' }).click();
+  await page.getByText('Went back to that version').waitFor();
+  await until(() => JSON.stringify(docOf(env, id)).includes('alpha') && !JSON.stringify(docOf(env, id)).includes('omega'), 'the earlier text is back');
+  await editor(page).getByText(/alpha alpha/).first().waitFor();
+});

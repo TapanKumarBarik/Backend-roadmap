@@ -7,6 +7,7 @@ export const LECTURE = {
   one: 'Video for this module',
   many: 'Videos for this module',
   kind: 'Video lecture',
+  next: 'Next video',
   watchOnYouTube: 'Watch on YouTube',
   chapters: 'Chapters',
   play: (title) => `Play: ${title}`,

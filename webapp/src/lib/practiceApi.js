@@ -28,7 +28,11 @@ export const fetchPracticeCatalog = () => {
 export const fetchQuiz = async (slug) => answer(await fetch(`/api/practice/quizzes/${encodeURIComponent(slug)}`), 'failed to load the quiz');
 
 /** Scores a try: { score, max, saved, results: [{ id, chosen, correct, answer, explanation }] }. `answers` is { questionId: [optionId] }. */
-export const submitQuizAttempt = async (slug, answers) => answer(await send('POST', `/api/practice/quizzes/${encodeURIComponent(slug)}/attempts`, { answers }), 'failed to score the quiz');
+/** Scores a try. `only` (question ids) scores just those, as a retry of the ones missed: it is not kept. */
+export const submitQuizAttempt = async (slug, answers, only) => answer(await send('POST', `/api/practice/quizzes/${encodeURIComponent(slug)}/attempts`, only ? { answers, only } : { answers }), 'failed to score the quiz');
+
+/** Where the signed-in reader is weak: { topics: [{ topic, correct, total, percent }], missed: [{ quiz, title, question, text }] }. */
+export const fetchWeakAreas = async () => answer(await fetch('/api/practice/weak-areas'), 'failed to load your weak areas');
 
 /** The signed-in reader's tries, newest first: [{ id, quiz, title, score, max, at }]. */
 export const fetchQuizAttempts = async () => answer(await fetch('/api/practice/attempts'), 'failed to load your attempts');
@@ -46,6 +50,10 @@ export const saveSubmission = async (kind, slug, fields) => (await answer(await 
 export const submitSubmission = async (kind, slug) => (await answer(await send('POST', `/api/practice/submissions/${kind}/${encodeURIComponent(slug)}/submit`), 'failed to submit')).submission;
 export const deleteSubmission = async (kind, slug) => answer(await send('DELETE', `/api/practice/submissions/${kind}/${encodeURIComponent(slug)}`), 'failed to delete');
 /** What others chose to share: [{ id, text, diagram, diagramUrl, code, at, author }]. */
+/** Feedback on someone else's shared solution (it must be at least a sentence). Resolves with the review. */
+export const addPeerReview = async (submissionId, text) => answer(await send('POST', `/api/practice/submissions/${encodeURIComponent(submissionId)}/peer-reviews`, { text }), 'failed to send the feedback');
+export const deletePeerReview = async (id) => answer(await send('DELETE', `/api/practice/peer-reviews/${encodeURIComponent(id)}`), 'failed to remove the feedback');
+
 export const fetchSharedSubmissions = async (kind, slug) => answer(await fetch(`/api/practice/submissions/${kind}/${encodeURIComponent(slug)}/shared`), 'failed to load shared solutions');
 
 /** The notices that are on now: [{ id, title, body }]. */
@@ -60,3 +68,14 @@ export const fetchAllAnnouncements = async () => answer(await fetch('/api/manage
 export const addAnnouncement = async (notice) => answer(await send('POST', '/api/manage/announcements', notice), 'failed to add the notice');
 export const removeAnnouncement = async (id) => answer(await send('DELETE', `/api/manage/announcements/${id}`), 'failed to remove the notice');
 export const fetchAuditLog = async () => answer(await fetch('/api/manage/audit'), 'failed to load the audit log');
+
+// ---------------------------------------------------------------------------------- the content editor (admins)
+
+/** A practice file as it is in the repository: { path, content, sha }. `path` is relative to content/ ("practice/quizzes/x.json"). */
+export const readContentFile = async (path) => answer(await fetch(`/api/manage/content?path=${encodeURIComponent(path)}`), 'failed to read the file');
+
+/** What is wrong with a practice file's text (an empty list when it is good). The server also checks the lesson it names exists. */
+export const checkContentFile = async (path, content) => (await answer(await send('POST', '/api/manage/content/check', { path, content }), 'failed to check the file')).problems;
+
+/** Commits a practice file (a new one when `create`). A file with problems is refused: the error's `problems` says what. Resolves { path, sha, commit }. */
+export const saveContentFile = async ({ path, content, sha, create }) => answer(await send('PUT', '/api/manage/content', { path, content, ...(sha ? { sha } : {}), ...(create ? { create: true } : {}) }), 'failed to save the file');

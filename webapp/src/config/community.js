@@ -34,3 +34,17 @@ export const STRIP = {
   write: 'Write an article',
   invitation: 'No one has written here yet. The first article is yours to write.'
 };
+
+// What the author of a post, a book or an idea can do with it, and how many posts the feed shows at a time.
+export const OWN = {
+  edit: 'Edit',
+  delete: 'Delete',
+  save: 'Save',
+  cancel: 'Cancel',
+  saved: 'Changes saved',
+  deleted: 'Deleted',
+  confirmTitle: (what) => `Delete this ${what}?`,
+  confirmBody: 'It is removed for everyone, with the discussion under it. This cannot be undone.',
+  loadMore: 'Load more',
+  feedPage: 20
+};

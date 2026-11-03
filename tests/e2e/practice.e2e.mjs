@@ -4,6 +4,7 @@
 // Same setup as site.e2e.mjs: a built site being served (`npm run build && npm run preview`) and a browser.
 
 import test, { before, after } from 'node:test';
+import fs from 'node:fs';
 import assert from 'node:assert/strict';
 import { BASE, OWNER_EMAIL, answerApiInProcess, launchBrowser, openPage } from './support.mjs';
 import { moduleUrl } from '../../webapp/src/lib/curriculum/moduleUrl.js';
@@ -249,13 +250,13 @@ test('the paths and the videos are real pages: a crawler gets their content with
   assert.match(quiz.html, /<h1>HTTP caching<\/h1>/);
   assert.match(quiz.html, /<ol><li><p>/, 'the questions are on the page');
   assert.doesNotMatch(quiz.html, /"explanation"|Right answer/, 'the answers are not');
-  const challenge = await get('/lab/lld/parking-lot/');
+  const challenge = await get('/design-lab/lld/parking-lot/');
   assert.equal(challenge.status, 200);
   assert.match(challenge.html, /Functional requirements/);
   assert.match((await get('/practice/')).html, /href="\/practice\/quiz\/http-caching\/"/);
 
   const sitemap = (await get('/sitemap.xml')).html;
-  for (const url of ['/paths/', '/paths/backend-foundations/', '/videos/', '/practice/', '/practice/quiz/http-caching/', '/lab/', '/lab/lld/parking-lot/']) assert.ok(sitemap.includes(`${url}</loc>`), `${url} is in the sitemap`);
+  for (const url of ['/paths/', '/paths/backend-foundations/', '/videos/', '/practice/', '/practice/quiz/http-caching/', '/design-lab/', '/design-lab/lld/parking-lot/']) assert.ok(sitemap.includes(`${url}</loc>`), `${url} is in the sitemap`);
 
   const { context, page } = await open('/#__videos', { email: null });
   await page.goto(`${BASE}/#__videos`);
@@ -283,14 +284,14 @@ test('a lesson shows the practice that goes with it, and the dashboard and the p
   assert.ok(await strip.locator('.pr-card').count() > 0, 'the dashboard offers quizzes');
   await strip.getByRole('link', { name: /^Design Lab/ }).click();
   await home.page.getByRole('heading', { level: 2, name: 'Design Lab' }).waitFor();
-  assert.equal(new URL(home.page.url()).pathname, '/lab/');
+  assert.equal(new URL(home.page.url()).pathname, '/design-lab/');
 
   await home.page.keyboard.press('Control+k');
   await home.page.getByPlaceholder(/Search modules/).fill('> parking');
   await home.page.getByText('Design challenge — ', { exact: false }).first().waitFor();
   await home.page.keyboard.press('Enter');
   await home.page.getByRole('heading', { level: 2, name: /parking/i }).waitFor();
-  assert.equal(new URL(home.page.url()).pathname, '/lab/lld/parking-lot/');
+  assert.equal(new URL(home.page.url()).pathname, '/design-lab/lld/parking-lot/');
   await home.context.close();
 });
 
@@ -338,5 +339,187 @@ test('a diagram a little wider than the column fits, and a much wider one scroll
 
   await diagram.evaluate((el) => { el.scrollLeft = el.scrollWidth; });
   await page.waitForFunction(() => { const w = document.querySelector('#content .codeblock.is-scrollable'); return w.classList.contains('more-left') && !w.classList.contains('more-right'); });
+  await context.close();
+});
+
+test('the module tree is one Tab stop and works from the keyboard: arrows move, Right and Left open and close a track, Space changes progress', async () => {
+  const lesson = practiceContent.quizzes['http-caching'].module;
+  const { context, page, goto } = await open(moduleUrl(lesson), { email: null, width: 1400, height: 900 });
+  await goto();
+  const current = page.locator('#tree a.name[aria-current="page"]');
+  await current.waitFor();
+  await page.waitForFunction(() => document.querySelectorAll('#tree .name[tabindex="0"]').length === 1);
+  assert.equal(await page.locator('#tree .name[tabindex="0"]').count(), 1, 'one stop in the tree, not hundreds');
+
+  await current.focus();
+  const where = () => page.evaluate(() => { const row = document.activeElement.closest('.row'); return row && row.dataset.file; });
+  assert.equal(await where(), lesson);
+  await page.keyboard.press('ArrowDown');
+  const next = await where();
+  assert.ok(next && next !== lesson, 'Down moves to the next row');
+  await page.keyboard.press('ArrowUp');
+  assert.equal(await where(), lesson, 'and Up comes back');
+
+  const check = (file) => page.locator(`#tree .row[data-file="${file}"] button.check`);
+  const before = await check(next).getAttribute('data-s');
+  await page.keyboard.press('ArrowDown');
+  await page.keyboard.press('Space');
+  await page.waitForFunction(({ file, was }) => document.querySelector(`#tree .row[data-file="${file}"] button.check`).dataset.s !== was, { file: next, was: before });
+  assert.notEqual(await check(next).getAttribute('data-s'), before, 'Space changes the progress of the module the focus is on');
+
+  // A track: Right opens it, Left closes it.
+  const track = page.locator('#tree li.node:not(.open) > .row.dir').first();
+  const item = await track.locator('xpath=..').elementHandle();
+  await track.locator('.name').focus();
+  await page.keyboard.press('ArrowRight');
+  await page.waitForFunction((li) => li.classList.contains('open'), item);
+  await page.keyboard.press('ArrowLeft');
+  await page.waitForFunction((li) => !li.classList.contains('open'), item);
+  await context.close();
+});
+
+// ---------------------------------------------------------------------------------------------------- the 2.0 additions
+
+const insertShared = (env, { id = 'shared-1', userId = 'user-someone@example.com', text = 'My design: a key generator service hands out ids, and a cache sits in front of the store.' } = {}) => {
+  const at = new Date().toISOString();
+  env.DB.raw.prepare("INSERT INTO submissions (id, user_id, kind, challenge_id, text, status, shared, created_at, updated_at, submitted_at) VALUES (?, ?, 'hld', 'url-shortener', ?, 'submitted', 1, ?, ?, ?)").run(id, userId, text, at, at, at);
+};
+
+test('a timed quiz shows its clock, and the questions that were missed can be tried again without adding to the history', async () => {
+  const { context, page, env, goto } = await open('/practice/quiz/http-caching/');
+  await goto();
+  await page.waitForFunction(() => document.querySelectorAll('.pr-questions > li').length > 0);
+  const total = await page.locator('.pr-questions > li').count();
+
+  await page.getByLabel(/^Timed: \d+ min/).check();
+  await page.locator('.pr-timer').waitFor();
+  assert.match(await page.locator('.pr-timer').innerText(), /^\d+:\d\d$/, 'the time left is counting down');
+  await page.getByLabel(/^Timed: \d+ min/).uncheck();
+  assert.equal(await page.locator('.pr-timer').count(), 0);
+
+  await page.getByRole('radio', { name: 'ETag and If-None-Match' }).check(); // the right answer to the first question, so the others are the ones missed
+  await page.getByRole('button', { name: 'Check my answers' }).click();
+  await page.locator('.pr-score').waitFor();
+  const retry = page.getByRole('button', { name: /^Retry the \d+ I missed/ });
+  await retry.waitFor();
+  await retry.click();
+  await page.waitForFunction((n) => document.querySelectorAll('.pr-questions > li').length < n, total);
+  assert.ok(await page.locator('.pr-questions > li').count() < total, 'only the questions that were missed');
+
+  await page.locator('.pr-questions > li').first().locator('input').first().check();
+  await page.getByRole('button', { name: 'Check my answers' }).click();
+  await page.getByText(/of the missed questions right/).waitFor();
+  await page.getByText('A retry is practice').waitFor();
+  assert.equal(env.DB.raw.prepare('SELECT COUNT(*) AS n FROM quiz_attempts').get().n, 1, 'the retry is not in the history');
+  await page.getByRole('button', { name: 'Try the whole quiz again' }).click();
+  assert.equal(await page.locator('.pr-questions > li').count(), total);
+  await context.close();
+});
+
+test('My Learning says where to practise, from the quizzes that were taken', async () => {
+  const { context, page, goto } = await open('/practice/quiz/http-caching/');
+  await goto();
+  await page.waitForFunction(() => document.querySelectorAll('.pr-questions > li').length > 0);
+  await page.locator('.pr-questions > li').first().locator('input').first().check();
+  await page.getByRole('button', { name: 'Check my answers' }).click();
+  await page.locator('.pr-score').waitFor();
+  await railButton(page, 'My Learning').click();
+  await page.getByRole('heading', { level: 3, name: 'Where to practise' }).waitFor();
+  await page.getByText(/right \(\d+%\)/).first().waitFor();
+  await page.getByRole('heading', { name: 'Questions you missed' }).waitFor();
+  await context.close();
+});
+
+test('the home page leads with the new promise, sends you to the learning paths, and lists what people read most only when there is enough to list', async () => {
+  const quiet = await open('/', { email: null, seenLanding: false });
+  await quiet.goto();
+  await quiet.page.getByRole('heading', { level: 1, name: 'Build the engineering skills that matter.' }).waitFor();
+  assert.equal(await quiet.page.getByRole('heading', { name: 'Popular this month' }).count(), 0, 'nothing is ranked on no readers');
+  await quiet.page.getByRole('link', { name: /^Explore Learning Paths/ }).click();
+  await quiet.page.getByRole('heading', { level: 2, name: 'Explore' }).waitFor();
+  assert.equal(new URL(quiet.page.url()).pathname, '/paths/');
+  await quiet.context.close();
+
+  const busy = await open('/', { email: null, seenLanding: false });
+  const today = new Date().toISOString().slice(0, 10);
+  const modules = ['backend/01-request-response-fundamentals/06-http-caching/README.md', 'backend/04-databases-and-data-layer/03-schema-design-and-indexing/README.md', 'backend/01-request-response-fundamentals/01-http-protocol-basics/README.md'];
+  let n = 0;
+  for (const m of modules) for (let i = 0; i < 4; i++) busy.env.DB.raw.prepare('INSERT INTO page_views (id, date, path, user, referrer, timestamp) VALUES (?, ?, ?, ?, ?, ?)').run(`pv${n++}`, today, m, 'anonymous', '', `${today}T00:00:00.000Z`);
+  await busy.goto();
+  await busy.page.getByRole('heading', { name: 'Popular this month' }).waitFor();
+  assert.equal(await busy.page.locator('#lp-popular ~ .lp-fresh .lp-fresh-item').count(), 3);
+  await busy.page.getByRole('link', { name: 'Start Learning' }).waitFor();
+  await busy.context.close();
+});
+
+test('feedback on a shared design: others can give it, you read it with your own work, and you are not offered it on your own', async () => {
+  const { context, page, env, goto } = await open('/design-lab/hld/url-shortener/');
+  insertShared(env);
+  await goto();
+  const solution = page.locator('.pr-shared__item').first();
+  await solution.waitFor();
+  await solution.getByRole('heading', { name: 'Feedback' }).waitFor();
+  await solution.getByText('No feedback yet.').waitFor();
+  const send = solution.getByRole('button', { name: 'Send feedback' });
+  assert.equal(await send.isDisabled(), true, 'a few words are not feedback');
+  await solution.getByLabel('Your feedback').fill('Good start. Who owns the key generator, and what happens when it is down?');
+  await send.click();
+  await solution.getByText(/Good start\. Who owns the key generator/).waitFor();
+  assert.equal(env.DB.raw.prepare('SELECT COUNT(*) AS n FROM peer_reviews').get().n, 1);
+  await solution.getByRole('button', { name: 'Remove' }).click();
+  await solution.getByText('No feedback yet.').waitFor();
+  assert.equal(env.DB.raw.prepare('SELECT COUNT(*) AS n FROM peer_reviews').get().n, 0, 'the writer takes it back');
+  await context.close();
+
+  const own = await open('/design-lab/hld/url-shortener/');
+  insertShared(own.env, { userId: 'user-reader@example.com' });
+  await own.goto();
+  await own.page.locator('.pr-shared__item').first().waitFor();
+  assert.equal(await own.page.locator('.pr-shared__item').getByLabel('Your feedback').count(), 0, 'no form on your own solution');
+  await own.context.close();
+});
+
+test('the admin edits a quiz in the browser: it is checked, a problem is named, and a good one is committed to the repository', async () => {
+  const { context, page, goto } = await open('/#__admin', { email: OWNER_EMAIL });
+  const quiz = fs.readFileSync(new URL('../../content/practice/quizzes/http-caching.json', import.meta.url), 'utf8');
+  const realFetch = globalThis.fetch;
+  const github = [];
+  globalThis.fetch = async (input, init = {}) => {
+    const url = String(input);
+    if (!url.startsWith('https://api.github.com/')) return realFetch(input, init);
+    github.push({ method: init.method || 'GET', url });
+    if (init.method === 'PUT') return Response.json({ content: { sha: 'sha-2' }, commit: { sha: 'commit-1' } });
+    return Response.json({ content: Buffer.from(quiz).toString('base64'), sha: 'sha-1' });
+  };
+  try {
+    await goto();
+    await page.waitForSelector('.admin-dashboard');
+    await page.locator('.admin-dashboard .page-tabs button', { hasText: /^Practice/ }).click();
+    await page.getByText('Edit the content', { exact: true }).waitFor();
+    await page.getByLabel('Open one').selectOption('practice/quizzes/http-caching.json');
+    const box = page.getByLabel('The file (JSON)');
+    await box.waitFor();
+    await page.waitForFunction(() => /HTTP caching/.test(document.querySelector('textarea.pr-mono[rows="24"]').value));
+
+    await page.getByRole('button', { name: 'Check it' }).click();
+    await page.getByText('No problems found').waitFor();
+
+    const original = await box.inputValue();
+    await box.fill(original.replace('"difficulty": "beginner"', '"difficulty": "hard"'));
+    await page.getByRole('button', { name: 'Check it' }).click();
+    await page.getByRole('alert').getByText(/difficulty must be one of/).waitFor();
+
+    await box.fill(original.replace('The headers that decide', 'The headers that decide, in short,'));
+    await page.getByRole('button', { name: 'Save to the repository' }).click();
+    await page.getByText(/Saved\. The site will be rebuilt/).waitFor();
+    const put = github.find((call) => call.method === 'PUT');
+    assert.ok(put && put.url.endsWith('/contents/content/practice/quizzes/http-caching.json'), 'it was committed to the quiz\'s own file');
+
+    await page.getByLabel('A new quiz: its address name').fill('My New Quiz!');
+    await page.getByRole('button', { name: 'Start from a template' }).click();
+    await page.getByText('Use lower case letters, numbers and hyphens').waitFor();
+  } finally {
+    globalThis.fetch = realFetch;
+  }
   await context.close();
 });
