@@ -27,6 +27,8 @@ test('a signed-in reader bookmarks a lesson and marks it complete, and both are 
   assert.equal(await bookmark.getAttribute('aria-pressed'), 'false');
   await bookmark.click();
   await page.waitForSelector('button.bookmark-btn[aria-pressed="true"]');
+  // The star turns at once; the row follows when the server has answered.
+  for (let i = 0; i < 50 && rows(env, 'SELECT path FROM bookmarks').length === 0; i++) await new Promise((resolve) => setTimeout(resolve, 100));
   assert.deepEqual(rows(env, 'SELECT path FROM bookmarks').map((r) => r.path), [LESSON_FILE]);
 
   await page.getByRole('button', { name: /Mark complete/ }).click();
