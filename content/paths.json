@@ -7,6 +7,15 @@
       "topic": "Backend",
       "goal": "Follow a request from the browser to the database and back, and learn to build APIs that are correct and secure.",
       "audience": "New to backend work, or self-taught with gaps to fill.",
+      "difficulty": "beginner",
+      "prerequisites": [
+        "Basic programming in any language"
+      ],
+      "skills": [
+        "HTTP and REST APIs",
+        "Authentication and sessions",
+        "Relational databases and SQL"
+      ],
       "steps": [
         "backend/01-request-response-fundamentals",
         "backend/02-api-layer-and-request-handling",
@@ -21,6 +30,17 @@
       "topic": "Backend",
       "goal": "Take a working service and make it hold up: caching, background jobs and realtime, monitoring, and the patterns distributed systems rely on.",
       "audience": "You can build an API and now need it to survive real traffic.",
+      "difficulty": "intermediate",
+      "prerequisites": [
+        "You can build and deploy a basic API",
+        "Backend foundations, or the equivalent"
+      ],
+      "skills": [
+        "Caching strategies",
+        "Queues and background jobs",
+        "Observability",
+        "Distributed systems patterns"
+      ],
       "steps": [
         "backend/05-caching-and-performance",
         "backend/06-background-processing-and-realtime",
@@ -35,6 +55,15 @@
       "topic": "Interviews",
       "goal": "Learn the building blocks interviews lean on, then practise the structure of a system design answer.",
       "audience": "Preparing for backend interviews.",
+      "difficulty": "intermediate",
+      "prerequisites": [
+        "Comfortable with databases, caching and queues at a basic level"
+      ],
+      "skills": [
+        "Capacity estimation",
+        "Trade-offs and consistency",
+        "Designing common systems"
+      ],
       "steps": [
         "backend/05-caching-and-performance",
         "backend/10-distributed-systems-patterns",
@@ -48,6 +77,15 @@
       "topic": "Cloud & DevOps",
       "goal": "Get comfortable in a Linux shell and keep your work safe and reviewable in Git.",
       "audience": "Developers who still avoid the terminal.",
+      "difficulty": "beginner",
+      "prerequisites": [
+        "None: a computer and curiosity"
+      ],
+      "skills": [
+        "The Linux shell",
+        "Files and permissions",
+        "Git branching and review"
+      ],
       "steps": [
         "learn/01-linux",
         "learn/08-git-and-version-control"
@@ -60,6 +98,16 @@
       "topic": "Cloud & DevOps",
       "goal": "Package a service in a container, then run and scale it on Kubernetes.",
       "audience": "You can build an app and now need to ship it.",
+      "difficulty": "intermediate",
+      "prerequisites": [
+        "Linux shell basics",
+        "You have an app to package"
+      ],
+      "skills": [
+        "Containers and images",
+        "Kubernetes workloads and services",
+        "Scaling and rollout"
+      ],
       "steps": [
         "learn/02-docker",
         "learn/03-kubernetes"
@@ -72,6 +120,16 @@
       "topic": "GenAI",
       "goal": "Understand what a token is, how a language model predicts text, and how the transformer architecture works.",
       "audience": "Developers who use LLMs and want to know what is inside.",
+      "difficulty": "beginner",
+      "prerequisites": [
+        "Basic programming",
+        "High-school maths is enough"
+      ],
+      "skills": [
+        "Tokens and embeddings",
+        "The transformer architecture",
+        "How models are trained"
+      ],
       "steps": [
         "genai/00-genai-foundations",
         "genai/01-tokens-and-language-modeling",
@@ -85,6 +143,15 @@
       "topic": "GenAI",
       "goal": "Call a hosted model from your own code, then compare the providers and route between them.",
       "audience": "You can code and want to add an LLM to a product.",
+      "difficulty": "intermediate",
+      "prerequisites": [
+        "You can call an HTTP API from code"
+      ],
+      "skills": [
+        "Calling hosted models",
+        "Streaming and tools",
+        "Choosing and routing between providers"
+      ],
       "steps": [
         "genai/06-openai-and-the-model-landscape"
       ]
@@ -95,6 +162,16 @@
       "topic": "Code design",
       "goal": "Learn object-oriented design, SOLID and the classic design patterns, then practise the standard interview problems.",
       "audience": "Preparing for LLD rounds, or tired of tangled code.",
+      "difficulty": "intermediate",
+      "prerequisites": [
+        "One object-oriented language (Python or C#)"
+      ],
+      "skills": [
+        "Object-oriented design",
+        "SOLID principles",
+        "Design patterns",
+        "Class diagrams"
+      ],
       "steps": [
         "lld"
       ],

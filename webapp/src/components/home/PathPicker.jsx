@@ -1,5 +1,6 @@
 import '../../styles/paths.css';
 import { PATH_COPY, formatDuration } from '../../config/paths.js';
+import { DIFFICULTY } from '../../config/practice.js';
 
 // The cards a reader chooses from. Each one answers the four questions that decide it: what will I be able to
 // do, is it for me, what is in it, and how much of my time does it take.
@@ -16,7 +17,7 @@ export default function PathPicker({ paths, activeId, title, lead, onPick, onKee
           const current = p.id === activeId;
           return (
             <article key={p.id} className={'lpath-card' + (current ? ' current' : '')}>
-              <div className="lpath-topic">{p.topic}</div>
+              <div className="lpath-topic">{p.topic}{p.difficulty ? ` · ${DIFFICULTY[p.difficulty]}` : ''}</div>
               <h3 className="lpath-title">{p.title}</h3>
               <p className="lpath-goal">{p.goal}</p>
               <p className="lpath-for">{p.audience}</p>

@@ -1,12 +1,13 @@
 import { useMemo, useState } from 'react';
 import { groupTags } from '../../lib/curriculum/tagDomains.js';
+import PathExplorer from '../paths/PathExplorer.jsx';
 
 // The home screen used to open with 26 monospace tag chips ordered by
 // frequency — the loudest thing on the page, above the curriculum itself,
 // and useful only if you already knew which tag you wanted. This is where
 // that belongs: a place to browse by subject when you don't yet know what
 // you're looking for. Search stays the exhaustive path.
-export default function ExploreView({ allTags, onOpenPalette }) {
+export default function ExploreView({ allTags, onOpenPalette, paths = [], statusMap = {}, nodeByFile = {}, activeId, onOpenPath }) {
   const [showAll, setShowAll] = useState(false);
   const groups = useMemo(() => groupTags(allTags), [allTags]);
   const total = Object.keys(allTags).length;
@@ -14,6 +15,8 @@ export default function ExploreView({ allTags, onOpenPalette }) {
   return (
     <div id="empty">
       <h2>Explore</h2>
+      {paths.length > 0 && <PathExplorer paths={paths} statusMap={statusMap} nodeByFile={nodeByFile} activeId={activeId} onOpenPath={onOpenPath} />}
+      <h2 className="pr-subhead">Topics</h2>
       <p className="home-sub">
         {total} tags across the curriculum, grouped by subject. Pick one to see every module
         that covers it.

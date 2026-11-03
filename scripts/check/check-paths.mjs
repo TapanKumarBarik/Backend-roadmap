@@ -17,6 +17,10 @@ for (const p of paths) {
   for (const field of ['id', 'title', 'topic', 'goal', 'audience']) {
     if (!p[field] || typeof p[field] !== 'string') fail(`${who}: "${field}" is missing`);
   }
+  if (!['beginner', 'intermediate', 'advanced'].includes(p.difficulty)) fail(`${who}: "difficulty" must be beginner, intermediate or advanced`);
+  for (const field of ['prerequisites', 'skills']) {
+    if (!Array.isArray(p[field]) || !p[field].length || !p[field].every((t) => typeof t === 'string' && t.trim())) fail(`${who}: "${field}" must be a list of texts`);
+  }
   if (!Array.isArray(p.steps) || !p.steps.length) { fail(`${who}: "steps" is empty`); continue; }
   if (p.next && (!ids.has(p.next) || p.next === p.id)) fail(`${who}: next "${p.next}" is not another path in this file`);
 
