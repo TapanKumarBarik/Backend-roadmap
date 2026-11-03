@@ -1,0 +1,12 @@
+{
+  "title": "Plan the indexes of an orders table",
+  "topic": "databases",
+  "difficulty": "beginner",
+  "module": "backend/04-databases-and-data-layer/03-schema-design-and-indexing/README.md",
+  "brief": "The `orders` table (id, customer_id, status, total, created_at) has 50 million rows. The three hot queries are: a customer's recent orders, all orders in status \"pending\" older than an hour, and one order by id.",
+  "deliverables": [
+    "The CREATE INDEX statements you would add, with the column order justified",
+    "Which query each index serves and how you would confirm it with EXPLAIN",
+    "What the indexes cost on writes, and one index you chose not to create and why"
+  ]
+}

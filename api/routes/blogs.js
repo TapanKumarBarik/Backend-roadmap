@@ -17,6 +17,7 @@ import { getSession, isAdmin, requireAdmin } from '../lib/admin.js';
 import { checkRateLimit } from '../lib/rateLimit.js';
 import { timeId } from '../lib/util.js';
 import { VISIBLE, postRemoval } from '../lib/blogData.js';
+import { audit } from '../lib/audit.js';
 import { BLOG, TAG_PATTERN } from '../../webapp/src/lib/blog/limits.js';
 import { DocError, isEmptyDoc, safeHref, safeImageSrc, sanitizeDoc } from '../../webapp/src/lib/blog/sanitizeDoc.js';
 import { renderDoc } from '../../webapp/src/lib/blog/renderDoc.js';
@@ -451,7 +452,9 @@ for (const [action, column, value] of [['approve', 'approved', 1], ['hide', 'hid
     const denied = await requireAdmin(c);
     if (denied) return denied;
     const result = await run(c.env, `UPDATE blog_posts SET ${column} = ?1 WHERE id = ?2`, value, c.req.param('id'));
-    return result.meta && result.meta.changes ? c.json({ ok: true }) : notFound(c);
+    if (!(result.meta && result.meta.changes)) return notFound(c);
+    await audit(c.env, await getSession(c), { approve: 'article approved', hide: 'article taken down', unhide: 'article put back' }[action], c.req.param('id'));
+    return c.json({ ok: true });
   });
 }
 
@@ -462,8 +465,11 @@ blogs.post('/manage/authors/:handle/trust', async (c) => {
   if (denied) return denied;
   const parsed = await readJson(c, 500);
   if (parsed.error) return parsed.error;
-  const result = await run(c.env, 'UPDATE author_profiles SET trusted = ?1 WHERE handle = ?2', parsed.body.trusted === false ? 0 : 1, c.req.param('handle').toLowerCase());
-  return result.meta && result.meta.changes ? c.json({ ok: true }) : notFound(c);
+  const trusted = parsed.body.trusted === false ? 0 : 1;
+  const result = await run(c.env, 'UPDATE author_profiles SET trusted = ?1 WHERE handle = ?2', trusted, c.req.param('handle').toLowerCase());
+  if (!(result.meta && result.meta.changes)) return notFound(c);
+  await audit(c.env, await getSession(c), trusted ? 'author trusted' : 'author trust withdrawn', c.req.param('handle').toLowerCase());
+  return c.json({ ok: true });
 });
 
 export default blogs;

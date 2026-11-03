@@ -1,0 +1,137 @@
+{
+  "title": "Database indexes",
+  "topic": "databases",
+  "difficulty": "intermediate",
+  "module": "backend/04-databases-and-data-layer/03-schema-design-and-indexing/README.md",
+  "description": "What an index buys, what it costs, and how to tell whether a query is using one.",
+  "questions": [
+    {
+      "id": "q1",
+      "type": "single",
+      "text": "What does an index mainly speed up?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Inserts"
+        },
+        {
+          "id": "b",
+          "text": "Reads that filter or sort on the indexed columns"
+        },
+        {
+          "id": "c",
+          "text": "Table creation"
+        },
+        {
+          "id": "d",
+          "text": "Backups"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "An index is an ordered structure the database can search instead of scanning the whole table."
+    },
+    {
+      "id": "q2",
+      "type": "truefalse",
+      "text": "Every additional index makes writes to the table slower.",
+      "options": [
+        {
+          "id": "true",
+          "text": "True"
+        },
+        {
+          "id": "false",
+          "text": "False"
+        }
+      ],
+      "answer": [
+        "true"
+      ],
+      "explanation": "Each insert, update or delete must also maintain every index on the table, and each index takes space."
+    },
+    {
+      "id": "q3",
+      "type": "single",
+      "text": "A composite index on (last_name, first_name) can efficiently serve which query?",
+      "options": [
+        {
+          "id": "a",
+          "text": "WHERE first_name = 'Ada'"
+        },
+        {
+          "id": "b",
+          "text": "WHERE last_name = 'Lovelace'"
+        },
+        {
+          "id": "c",
+          "text": "WHERE first_name LIKE '%da'"
+        },
+        {
+          "id": "d",
+          "text": "None of them"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "A composite index is ordered by its first column, then the second. A query must use a leftmost prefix of the columns to benefit."
+    },
+    {
+      "id": "q4",
+      "type": "multiple",
+      "text": "Which columns usually deserve an index? Select all that apply.",
+      "options": [
+        {
+          "id": "a",
+          "text": "A foreign key used in frequent joins"
+        },
+        {
+          "id": "b",
+          "text": "A column in the WHERE clause of a hot query"
+        },
+        {
+          "id": "c",
+          "text": "A boolean column with a 50/50 split, filtered alone on a huge table"
+        },
+        {
+          "id": "d",
+          "text": "Every column, to be safe"
+        }
+      ],
+      "answer": [
+        "a",
+        "b"
+      ],
+      "explanation": "Index what queries actually filter and join on. Low-selectivity columns rarely help on their own, and indexing everything slows writes."
+    },
+    {
+      "id": "q5",
+      "type": "single",
+      "text": "EXPLAIN shows a sequential scan on a large table even though an index exists. What is a likely cause?",
+      "options": [
+        {
+          "id": "a",
+          "text": "The table is too small"
+        },
+        {
+          "id": "b",
+          "text": "The query wraps the indexed column in a function, so the index cannot be used"
+        },
+        {
+          "id": "c",
+          "text": "Indexes only work for integers"
+        },
+        {
+          "id": "d",
+          "text": "The database is offline"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "WHERE lower(email) = ... cannot use a plain index on email. Rewrite the predicate or create an index on the expression. Stale statistics are the other usual suspect."
+    }
+  ]
+}

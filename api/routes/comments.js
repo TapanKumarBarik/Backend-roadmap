@@ -10,7 +10,8 @@ import { all, batch, first, run } from '../lib/d1.js';
 import { getSession, isAdmin, requireAdmin } from '../lib/admin.js';
 import { checkRateLimit } from '../lib/rateLimit.js';
 import { timeId } from '../lib/util.js';
-import { BLOG_PREFIX, FEED_PREFIX, ON_A_MODULE } from '../lib/commentPaths.js';
+import { BLOG_PREFIX, CHALLENGE_PREFIX, FEED_PREFIX, ON_A_MODULE } from '../lib/commentPaths.js';
+import practice from '../generated/practice-content.json' with { type: 'json' };
 import { VISIBLE } from '../lib/blogData.js';
 import { DELETED } from '../lib/deleted.js';
 
@@ -177,6 +178,11 @@ async function withTitles(env, items) {
     if (item.path.startsWith(FEED_PREFIX)) {
       const text = feedText.get(item.path.slice(FEED_PREFIX.length));
       return text == null ? [] : [{ ...item, title: String(text).replace(/\s+/g, ' ').trim().slice(0, SNIPPET_CHARS) }];
+    }
+    if (item.path.startsWith(CHALLENGE_PREFIX)) {
+      const key = item.path.slice(CHALLENGE_PREFIX.length);
+      const challenge = practice.challenges[key];
+      return challenge ? [{ ...item, title: challenge.title, slug: key }] : [];
     }
     if (item.path.startsWith(BLOG_PREFIX)) {
       const found = post.get(item.path.slice(BLOG_PREFIX.length));

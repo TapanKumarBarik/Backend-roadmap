@@ -1,0 +1,14 @@
+{
+  "title": "Make a payment endpoint idempotent",
+  "topic": "distributed-systems",
+  "difficulty": "intermediate",
+  "module": "backend/10-distributed-systems-patterns/01-idempotency-in-practice/README.md",
+  "brief": "Your service has `POST /payments`. Mobile clients on poor networks retry when a request times out, and some customers have been charged twice. Design the change that makes the endpoint safe to retry.",
+  "deliverables": [
+    "How the client names an operation (the header, who generates the key, how long it stays valid)",
+    "The table or record that stores keys and results, with its constraints",
+    "What the server does when the same key arrives twice in sequence, and twice at the same moment",
+    "What it does when the key is reused with a different body",
+    "The tests you would write to prove it"
+  ]
+}

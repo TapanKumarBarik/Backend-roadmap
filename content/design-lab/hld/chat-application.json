@@ -1,0 +1,34 @@
+{
+  "title": "Chat Application",
+  "kind": "hld",
+  "summary": "One-to-one and group messaging with presence and history.",
+  "module": "backend/14-system-design-interview-practice/06-designing-a-chat-and-notification-system/README.md",
+  "problem": "Design a chat service like WhatsApp or Slack: one-to-one and group conversations, delivery receipts, online presence, and message history.",
+  "functional": [
+    "Send and receive messages in real time in 1:1 and group chats (up to 500 members)",
+    "Show sent, delivered and read states",
+    "Show who is online",
+    "Keep history and sync it across a user's devices"
+  ],
+  "nonFunctional": [
+    "Messages in a conversation arrive in order and are never lost",
+    "Message delivery under 200 ms for online users",
+    "Handle 50 million daily active users"
+  ],
+  "constraints": [
+    "Mobile clients disconnect and reconnect constantly"
+  ],
+  "deliverables": [
+    "Requirements and the assumptions you made",
+    "A capacity estimate (requests per second, storage, bandwidth)",
+    "A high-level architecture diagram (Mermaid or an uploaded image)",
+    "The API (endpoints and payloads) and the data model",
+    "How it scales, how it fails, and what you would monitor",
+    "The main trade-offs and what you chose not to build"
+  ],
+  "hints": [
+    "What protocol keeps a connection open to the client?",
+    "How do you order messages within a conversation across servers?"
+  ],
+  "reference": "```mermaid\nflowchart LR\n  C1[Client A] <-->|WebSocket| G1[Gateway 1]\n  C2[Client B] <-->|WebSocket| G2[Gateway 2]\n  G1 --> CS[Chat service]\n  G2 --> CS\n  CS --> MQ[[Message log per conversation]]\n  MQ --> G2\n  CS --> DB[(Message store, partitioned by conversation)]\n  CS --> R[(Presence + routing: user to gateway)]\n  CS --> PUSH[Push for offline users]\n```\n\n- Clients hold a **WebSocket** to a gateway; a routing table says which gateway a user is on, so the chat service can deliver to the right one.\n- Each conversation is a **partition** with a sequence number, which gives the ordering guarantee; the message is persisted before it is acknowledged.\n- Offline users get a **push** notification and fetch history by sequence number on reconnect, which is also how multi-device sync works.\n- Presence uses heartbeats with a short TTL in a fast store; do not fan out presence to every contact, only to open chats.\n- Large groups use fan-out on read for the message list and fan-out on write only for notifications."
+}

@@ -1,0 +1,35 @@
+{
+  "title": "Video Streaming Platform",
+  "kind": "hld",
+  "summary": "Upload, process and stream video to millions of viewers.",
+  "module": "backend/14-system-design-interview-practice/07-designing-a-video-streaming-or-large-scale-search-system/README.md",
+  "problem": "Design a platform where creators upload videos and viewers stream them on any device and connection, like YouTube.",
+  "functional": [
+    "Upload large videos reliably",
+    "Process each video into several resolutions and formats",
+    "Stream with adaptive quality",
+    "Search and recommend videos (at a high level)",
+    "Count views"
+  ],
+  "nonFunctional": [
+    "Playback should start in under 2 seconds",
+    "Storage and bandwidth cost dominate the design",
+    "Uploads must resume after a failure"
+  ],
+  "constraints": [
+    "1 million uploads a day, 100 million hours watched a day"
+  ],
+  "deliverables": [
+    "Requirements and the assumptions you made",
+    "A capacity estimate (requests per second, storage, bandwidth)",
+    "A high-level architecture diagram (Mermaid or an uploaded image)",
+    "The API (endpoints and payloads) and the data model",
+    "How it scales, how it fails, and what you would monitor",
+    "The main trade-offs and what you chose not to build"
+  ],
+  "hints": [
+    "Where does the transcoding work happen, and how does it scale?",
+    "Why must most video bytes never touch your application servers?"
+  ],
+  "reference": "```mermaid\nflowchart LR\n  Cr[Creator] -->|chunked upload| OS[(Object storage: originals)]\n  OS --> Q[[Transcode jobs]]\n  Q --> T[Transcoding workers] --> OS2[(Object storage: HLS/DASH renditions)]\n  T --> M[(Metadata DB)]\n  V[Viewer] --> API[API: metadata, manifest]\n  V -->|segments| CDN[CDN]\n  CDN --> OS2\n  API --> M\n  V -. view events .-> K[[Event stream]] --> Cnt[(View counts)]\n```\n\n- **Chunked, resumable upload** straight to object storage with pre-signed URLs; the API only records metadata.\n- A transcoding **job per rendition** runs on a pool of workers fed by a queue, so a 4K upload fans out in parallel.\n- Streaming uses **adaptive bitrate** (HLS/DASH): short segments and a manifest; the player switches quality with the viewer's bandwidth.\n- A **CDN** serves nearly all bytes; popular videos stay at the edge, the long tail comes from origin.\n- View counts are aggregated from an event stream, not updated per request."
+}

@@ -8,6 +8,7 @@ import { getSession } from '../lib/admin.js';
 import { SESSION_COOKIE, cookieAttrs } from '../lib/session.js';
 import { authorRemoval } from '../lib/blogData.js';
 import { commentsOfAccount } from '../lib/commentData.js';
+import { practiceRemoval } from '../lib/practiceData.js';
 import { DELETED } from '../lib/deleted.js';
 
 const study = createRouter();
@@ -272,7 +273,8 @@ study.delete('/account', async (c) => {
     ['UPDATE suggestions SET display_name = ?2, user_id = ?3 WHERE user_id = ?1', uid, DELETED.name, DELETED.userId],
     ['UPDATE messages SET display_name = ?2, email = ?3, user_id = ?3 WHERE user_id = ?1', uid, DELETED.name, DELETED.userId],
     ['UPDATE page_views SET user = ?2 WHERE user = ?1', email, DELETED.userId],
-    ...authorRemoval(uid)
+    ...authorRemoval(uid),
+    ...practiceRemoval(uid)
   ]);
 
   c.header('Set-Cookie', cookieAttrs(SESSION_COOKIE, '', 0));

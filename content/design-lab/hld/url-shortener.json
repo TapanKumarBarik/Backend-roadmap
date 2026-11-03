@@ -1,0 +1,34 @@
+{
+  "title": "URL Shortener",
+  "kind": "hld",
+  "summary": "Turn long links into short ones and redirect fast, at scale.",
+  "module": "backend/14-system-design-interview-practice/02-designing-a-url-shortener/README.md",
+  "problem": "Design a service that creates short links for long URLs and redirects visitors who open them. Think of bit.ly.",
+  "functional": [
+    "Create a short link for a URL, optionally with a custom alias and an expiry",
+    "Redirect a short link to the long URL",
+    "Basic click counts per link"
+  ],
+  "nonFunctional": [
+    "Redirects must be very fast (p99 under 50 ms) and highly available",
+    "Reads outnumber writes about 100 to 1",
+    "Short codes must not be guessable in order, and never collide"
+  ],
+  "constraints": [
+    "100 million new links a month, 10 billion redirects a month",
+    "Links are kept for 5 years by default"
+  ],
+  "deliverables": [
+    "Requirements and the assumptions you made",
+    "A capacity estimate (requests per second, storage, bandwidth)",
+    "A high-level architecture diagram (Mermaid or an uploaded image)",
+    "The API (endpoints and payloads) and the data model",
+    "How it scales, how it fails, and what you would monitor",
+    "The main trade-offs and what you chose not to build"
+  ],
+  "hints": [
+    "Estimate first: how many bytes per record, how many redirects per second?",
+    "How do you generate a unique short code without a single bottleneck?"
+  ],
+  "reference": "### Sketch\n```mermaid\nflowchart LR\n  U[Client] --> CDN[CDN / edge cache]\n  CDN --> LB[Load balancer]\n  LB --> API[Stateless API servers]\n  API --> C[(Cache: code to URL)]\n  API --> DB[(Key-value store: code, url, expiry)]\n  API --> Q[[Click events queue]]\n  Q --> A[Analytics workers] --> OLAP[(Counts store)]\n```\n\n### Numbers\nAbout 40 writes/s and 4,000 redirects/s on average, with peaks of 10x. 100 M x 12 months x 5 years x ~500 B is about 3 TB: a key-value store partitioned by code is enough.\n\n### Decisions\n- **Code generation**: a counter handed out in ranges to each API server (no coordination per request), encoded in base62 and shuffled with a keyed permutation so codes are not sequential. 7 characters give 3.5 trillion codes.\n- **Redirect path**: edge cache, then an in-memory cache, then the store. Use **302** if you need every click counted at the server, **301** if you accept browsers caching the redirect.\n- **Availability**: the store is replicated; redirects work from replicas, creating a link needs the primary.\n- **Analytics** is asynchronous through a queue, so a failing analytics system never slows a redirect.\n- **Abuse**: rate limit creation, scan target URLs, allow takedown."
+}

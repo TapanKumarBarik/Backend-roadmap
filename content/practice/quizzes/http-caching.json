@@ -1,0 +1,137 @@
+{
+  "title": "HTTP caching",
+  "topic": "http",
+  "difficulty": "beginner",
+  "module": "backend/01-request-response-fundamentals/06-http-caching/README.md",
+  "description": "The headers that decide whether a browser or a CDN may reuse a response.",
+  "questions": [
+    {
+      "id": "q1",
+      "type": "single",
+      "text": "Which pair of headers lets a client check cheaply whether its cached copy is still current?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Content-Length and Host"
+        },
+        {
+          "id": "b",
+          "text": "ETag and If-None-Match"
+        },
+        {
+          "id": "c",
+          "text": "Accept and Vary"
+        },
+        {
+          "id": "d",
+          "text": "Cookie and Set-Cookie"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "The client sends the ETag it holds in If-None-Match. If it still matches, the server answers 304 Not Modified with no body."
+    },
+    {
+      "id": "q2",
+      "type": "truefalse",
+      "text": "Cache-Control: no-store means the response may be cached but must be revalidated before reuse.",
+      "options": [
+        {
+          "id": "true",
+          "text": "True"
+        },
+        {
+          "id": "false",
+          "text": "False"
+        }
+      ],
+      "answer": [
+        "false"
+      ],
+      "explanation": "That describes no-cache. no-store tells caches not to keep the response at all."
+    },
+    {
+      "id": "q3",
+      "type": "single",
+      "text": "Which header lets a shared cache such as a CDN keep a response for an hour?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Cache-Control: private, max-age=3600"
+        },
+        {
+          "id": "b",
+          "text": "Cache-Control: public, max-age=3600"
+        },
+        {
+          "id": "c",
+          "text": "Cache-Control: no-store"
+        },
+        {
+          "id": "d",
+          "text": "Pragma: no-cache"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "public allows shared caches to store it, and max-age gives its lifetime in seconds. private would keep it to the user's own browser."
+    },
+    {
+      "id": "q4",
+      "type": "multiple",
+      "text": "Which responses should usually NOT be stored in a shared cache? Select all that apply.",
+      "options": [
+        {
+          "id": "a",
+          "text": "A logged-in user's account page"
+        },
+        {
+          "id": "b",
+          "text": "A fingerprinted JavaScript bundle"
+        },
+        {
+          "id": "c",
+          "text": "A response with a Set-Cookie for a session"
+        },
+        {
+          "id": "d",
+          "text": "A public product image"
+        }
+      ],
+      "answer": [
+        "a",
+        "c"
+      ],
+      "explanation": "Personalised responses and anything that sets a session must not be served to another user. Static, versioned assets are the ideal thing to cache."
+    },
+    {
+      "id": "q5",
+      "type": "single",
+      "text": "A file is named app.3f9a1c.js, where the hash changes whenever the content does. Which caching fits?",
+      "options": [
+        {
+          "id": "a",
+          "text": "no-store"
+        },
+        {
+          "id": "b",
+          "text": "A very long max-age with immutable"
+        },
+        {
+          "id": "c",
+          "text": "max-age=0"
+        },
+        {
+          "id": "d",
+          "text": "A short max-age of 5 seconds"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "A new version gets a new name, so the old name can be cached for a year. That is the standard way to combine long caching with instant deploys."
+    }
+  ]
+}

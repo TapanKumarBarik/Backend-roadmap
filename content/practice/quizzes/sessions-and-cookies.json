@@ -1,0 +1,138 @@
+{
+  "title": "Sessions and cookies",
+  "topic": "authentication",
+  "difficulty": "beginner",
+  "module": "backend/03-authentication-and-authorization/01-sessions-and-cookies/README.md",
+  "description": "How a server remembers who you are between requests, and the cookie settings that keep that safe.",
+  "questions": [
+    {
+      "id": "q1",
+      "type": "single",
+      "text": "Which cookie attribute stops JavaScript on the page from reading the cookie?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Secure"
+        },
+        {
+          "id": "b",
+          "text": "HttpOnly"
+        },
+        {
+          "id": "c",
+          "text": "SameSite"
+        },
+        {
+          "id": "d",
+          "text": "Path"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "HttpOnly hides the cookie from document.cookie, so a cross-site scripting bug cannot simply read the session id."
+    },
+    {
+      "id": "q2",
+      "type": "multiple",
+      "text": "Which attributes should a session cookie normally set? Select all that apply.",
+      "options": [
+        {
+          "id": "a",
+          "text": "HttpOnly"
+        },
+        {
+          "id": "b",
+          "text": "Secure"
+        },
+        {
+          "id": "c",
+          "text": "SameSite"
+        },
+        {
+          "id": "d",
+          "text": "An expiry far in the future so users never log in again"
+        }
+      ],
+      "answer": [
+        "a",
+        "b",
+        "c"
+      ],
+      "explanation": "HttpOnly limits script access, Secure keeps the cookie off plain HTTP, SameSite limits cross-site sending. A session that never expires is a risk, not a feature."
+    },
+    {
+      "id": "q3",
+      "type": "truefalse",
+      "text": "Issuing a new session id when a user logs in helps prevent session fixation.",
+      "options": [
+        {
+          "id": "true",
+          "text": "True"
+        },
+        {
+          "id": "false",
+          "text": "False"
+        }
+      ],
+      "answer": [
+        "true"
+      ],
+      "explanation": "If an attacker planted a known session id before login, replacing it at login makes that id worthless."
+    },
+    {
+      "id": "q4",
+      "type": "single",
+      "text": "In a server-side session design, where is the user's state kept?",
+      "options": [
+        {
+          "id": "a",
+          "text": "In the cookie itself"
+        },
+        {
+          "id": "b",
+          "text": "On the server, found by the session id in the cookie"
+        },
+        {
+          "id": "c",
+          "text": "In the URL"
+        },
+        {
+          "id": "d",
+          "text": "In the browser's localStorage"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "The cookie holds only an opaque id. The state lives in memory, Redis or a database on the server, which is also why a session can be revoked instantly."
+    },
+    {
+      "id": "q5",
+      "type": "single",
+      "text": "Why must a session id be long and random?",
+      "options": [
+        {
+          "id": "a",
+          "text": "So the cookie is easy to read"
+        },
+        {
+          "id": "b",
+          "text": "So it cannot be guessed or enumerated by an attacker"
+        },
+        {
+          "id": "c",
+          "text": "To make the cookie smaller"
+        },
+        {
+          "id": "d",
+          "text": "So it sorts well in the database"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "Anyone who guesses a valid id becomes that user. Use a cryptographically secure random generator and enough bits that guessing is hopeless."
+    }
+  ]
+}

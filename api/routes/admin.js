@@ -8,6 +8,7 @@ import {
   getSession, isAdmin, requireAdmin, listAdmins, grantAdmin, revokeAdmin, normalize, adminEmail
 } from '../lib/admin.js';
 import { timeId } from '../lib/util.js';
+import { audit } from '../lib/audit.js';
 import { STORAGE_ACCOUNT } from '../lib/blob.js';
 
 const admin = createRouter();
@@ -147,6 +148,7 @@ admin.put('/manage/admins', async (c) => {
     return c.json({ error: 'That address is already the owner.' }, 400);
   }
   await grantAdmin(c.env, email, session.email);
+  await audit(c.env, session, 'admin added', email);
   return c.json({ email, granted: true });
 });
 
@@ -162,6 +164,7 @@ admin.delete('/manage/admins', async (c) => {
     return c.json({ error: 'You cannot remove your own admin access.' }, 400);
   }
   await revokeAdmin(c.env, email);
+  await audit(c.env, session, 'admin removed', email);
   return c.body(null, 204);
 });
 

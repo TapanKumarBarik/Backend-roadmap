@@ -1,0 +1,130 @@
+{
+  "title": "Idempotency and retries",
+  "topic": "distributed-systems",
+  "difficulty": "intermediate",
+  "module": "backend/10-distributed-systems-patterns/01-idempotency-in-practice/README.md",
+  "description": "What makes a request safe to send twice, and how a server remembers that it already did the work.",
+  "questions": [
+    {
+      "id": "q1",
+      "type": "single",
+      "text": "A client times out on a payment request and sends it again. What makes the retry safe?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Sending it again faster"
+        },
+        {
+          "id": "b",
+          "text": "An idempotency key the server uses to return the first result instead of charging twice"
+        },
+        {
+          "id": "c",
+          "text": "Switching from POST to GET"
+        },
+        {
+          "id": "d",
+          "text": "Closing the connection before retrying"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "The client cannot know whether the first request reached the server. A key that identifies the operation lets the server detect the repeat and answer with the stored result."
+    },
+    {
+      "id": "q2",
+      "type": "truefalse",
+      "text": "PUT and DELETE are idempotent by the definition of HTTP semantics.",
+      "options": [
+        {
+          "id": "true",
+          "text": "True"
+        },
+        {
+          "id": "false",
+          "text": "False"
+        }
+      ],
+      "answer": [
+        "true"
+      ],
+      "explanation": "Repeating a PUT leaves the resource in the same state, and repeating a DELETE leaves it deleted. (The response may differ: a second DELETE can answer 404.)"
+    },
+    {
+      "id": "q3",
+      "type": "multiple",
+      "text": "Which of these can be retried without any extra protection? Select all that apply.",
+      "options": [
+        {
+          "id": "a",
+          "text": "GET /users/42"
+        },
+        {
+          "id": "b",
+          "text": "POST /payments with no idempotency key"
+        },
+        {
+          "id": "c",
+          "text": "PUT /users/42 with the full document"
+        },
+        {
+          "id": "d",
+          "text": "DELETE /orders/7"
+        }
+      ],
+      "answer": [
+        "a",
+        "c",
+        "d"
+      ],
+      "explanation": "GET, PUT and DELETE are idempotent. A POST that creates something is not, unless the server is given a key to deduplicate on."
+    },
+    {
+      "id": "q4",
+      "type": "single",
+      "text": "Where should an idempotency key and the result of its first request be stored?",
+      "options": [
+        {
+          "id": "a",
+          "text": "In the client only"
+        },
+        {
+          "id": "b",
+          "text": "In durable storage shared by every server, with the key under a unique constraint"
+        },
+        {
+          "id": "c",
+          "text": "In each server's memory"
+        },
+        {
+          "id": "d",
+          "text": "In the URL"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "A retry may reach a different server, or the same one after a restart. Shared durable storage and a unique constraint also settle two retries arriving at once."
+    },
+    {
+      "id": "q5",
+      "type": "truefalse",
+      "text": "It is fine to reuse the same idempotency key for a request with a different body.",
+      "options": [
+        {
+          "id": "true",
+          "text": "True"
+        },
+        {
+          "id": "false",
+          "text": "False"
+        }
+      ],
+      "answer": [
+        "false"
+      ],
+      "explanation": "A key names one operation. The server should reject a reused key whose request differs, rather than return the first answer to an unrelated request."
+    }
+  ]
+}

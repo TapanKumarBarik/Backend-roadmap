@@ -1,0 +1,993 @@
+{
+ "quizzes": {
+  "database-indexes": {
+   "title": "Database indexes",
+   "topic": "databases",
+   "difficulty": "intermediate",
+   "module": "backend/04-databases-and-data-layer/03-schema-design-and-indexing/README.md",
+   "description": "What an index buys, what it costs, and how to tell whether a query is using one.",
+   "questions": [
+    {
+     "id": "q1",
+     "type": "single",
+     "text": "What does an index mainly speed up?",
+     "options": [
+      {
+       "id": "a",
+       "text": "Inserts"
+      },
+      {
+       "id": "b",
+       "text": "Reads that filter or sort on the indexed columns"
+      },
+      {
+       "id": "c",
+       "text": "Table creation"
+      },
+      {
+       "id": "d",
+       "text": "Backups"
+      }
+     ],
+     "answer": [
+      "b"
+     ],
+     "explanation": "An index is an ordered structure the database can search instead of scanning the whole table."
+    },
+    {
+     "id": "q2",
+     "type": "truefalse",
+     "text": "Every additional index makes writes to the table slower.",
+     "options": [
+      {
+       "id": "true",
+       "text": "True"
+      },
+      {
+       "id": "false",
+       "text": "False"
+      }
+     ],
+     "answer": [
+      "true"
+     ],
+     "explanation": "Each insert, update or delete must also maintain every index on the table, and each index takes space."
+    },
+    {
+     "id": "q3",
+     "type": "single",
+     "text": "A composite index on (last_name, first_name) can efficiently serve which query?",
+     "options": [
+      {
+       "id": "a",
+       "text": "WHERE first_name = 'Ada'"
+      },
+      {
+       "id": "b",
+       "text": "WHERE last_name = 'Lovelace'"
+      },
+      {
+       "id": "c",
+       "text": "WHERE first_name LIKE '%da'"
+      },
+      {
+       "id": "d",
+       "text": "None of them"
+      }
+     ],
+     "answer": [
+      "b"
+     ],
+     "explanation": "A composite index is ordered by its first column, then the second. A query must use a leftmost prefix of the columns to benefit."
+    },
+    {
+     "id": "q4",
+     "type": "multiple",
+     "text": "Which columns usually deserve an index? Select all that apply.",
+     "options": [
+      {
+       "id": "a",
+       "text": "A foreign key used in frequent joins"
+      },
+      {
+       "id": "b",
+       "text": "A column in the WHERE clause of a hot query"
+      },
+      {
+       "id": "c",
+       "text": "A boolean column with a 50/50 split, filtered alone on a huge table"
+      },
+      {
+       "id": "d",
+       "text": "Every column, to be safe"
+      }
+     ],
+     "answer": [
+      "a",
+      "b"
+     ],
+     "explanation": "Index what queries actually filter and join on. Low-selectivity columns rarely help on their own, and indexing everything slows writes."
+    },
+    {
+     "id": "q5",
+     "type": "single",
+     "text": "EXPLAIN shows a sequential scan on a large table even though an index exists. What is a likely cause?",
+     "options": [
+      {
+       "id": "a",
+       "text": "The table is too small"
+      },
+      {
+       "id": "b",
+       "text": "The query wraps the indexed column in a function, so the index cannot be used"
+      },
+      {
+       "id": "c",
+       "text": "Indexes only work for integers"
+      },
+      {
+       "id": "d",
+       "text": "The database is offline"
+      }
+     ],
+     "answer": [
+      "b"
+     ],
+     "explanation": "WHERE lower(email) = ... cannot use a plain index on email. Rewrite the predicate or create an index on the expression. Stale statistics are the other usual suspect."
+    }
+   ]
+  },
+  "http-caching": {
+   "title": "HTTP caching",
+   "topic": "http",
+   "difficulty": "beginner",
+   "module": "backend/01-request-response-fundamentals/06-http-caching/README.md",
+   "description": "The headers that decide whether a browser or a CDN may reuse a response.",
+   "questions": [
+    {
+     "id": "q1",
+     "type": "single",
+     "text": "Which pair of headers lets a client check cheaply whether its cached copy is still current?",
+     "options": [
+      {
+       "id": "a",
+       "text": "Content-Length and Host"
+      },
+      {
+       "id": "b",
+       "text": "ETag and If-None-Match"
+      },
+      {
+       "id": "c",
+       "text": "Accept and Vary"
+      },
+      {
+       "id": "d",
+       "text": "Cookie and Set-Cookie"
+      }
+     ],
+     "answer": [
+      "b"
+     ],
+     "explanation": "The client sends the ETag it holds in If-None-Match. If it still matches, the server answers 304 Not Modified with no body."
+    },
+    {
+     "id": "q2",
+     "type": "truefalse",
+     "text": "Cache-Control: no-store means the response may be cached but must be revalidated before reuse.",
+     "options": [
+      {
+       "id": "true",
+       "text": "True"
+      },
+      {
+       "id": "false",
+       "text": "False"
+      }
+     ],
+     "answer": [
+      "false"
+     ],
+     "explanation": "That describes no-cache. no-store tells caches not to keep the response at all."
+    },
+    {
+     "id": "q3",
+     "type": "single",
+     "text": "Which header lets a shared cache such as a CDN keep a response for an hour?",
+     "options": [
+      {
+       "id": "a",
+       "text": "Cache-Control: private, max-age=3600"
+      },
+      {
+       "id": "b",
+       "text": "Cache-Control: public, max-age=3600"
+      },
+      {
+       "id": "c",
+       "text": "Cache-Control: no-store"
+      },
+      {
+       "id": "d",
+       "text": "Pragma: no-cache"
+      }
+     ],
+     "answer": [
+      "b"
+     ],
+     "explanation": "public allows shared caches to store it, and max-age gives its lifetime in seconds. private would keep it to the user's own browser."
+    },
+    {
+     "id": "q4",
+     "type": "multiple",
+     "text": "Which responses should usually NOT be stored in a shared cache? Select all that apply.",
+     "options": [
+      {
+       "id": "a",
+       "text": "A logged-in user's account page"
+      },
+      {
+       "id": "b",
+       "text": "A fingerprinted JavaScript bundle"
+      },
+      {
+       "id": "c",
+       "text": "A response with a Set-Cookie for a session"
+      },
+      {
+       "id": "d",
+       "text": "A public product image"
+      }
+     ],
+     "answer": [
+      "a",
+      "c"
+     ],
+     "explanation": "Personalised responses and anything that sets a session must not be served to another user. Static, versioned assets are the ideal thing to cache."
+    },
+    {
+     "id": "q5",
+     "type": "single",
+     "text": "A file is named app.3f9a1c.js, where the hash changes whenever the content does. Which caching fits?",
+     "options": [
+      {
+       "id": "a",
+       "text": "no-store"
+      },
+      {
+       "id": "b",
+       "text": "A very long max-age with immutable"
+      },
+      {
+       "id": "c",
+       "text": "max-age=0"
+      },
+      {
+       "id": "d",
+       "text": "A short max-age of 5 seconds"
+      }
+     ],
+     "answer": [
+      "b"
+     ],
+     "explanation": "A new version gets a new name, so the old name can be cached for a year. That is the standard way to combine long caching with instant deploys."
+    }
+   ]
+  },
+  "idempotency-and-retries": {
+   "title": "Idempotency and retries",
+   "topic": "distributed-systems",
+   "difficulty": "intermediate",
+   "module": "backend/10-distributed-systems-patterns/01-idempotency-in-practice/README.md",
+   "description": "What makes a request safe to send twice, and how a server remembers that it already did the work.",
+   "questions": [
+    {
+     "id": "q1",
+     "type": "single",
+     "text": "A client times out on a payment request and sends it again. What makes the retry safe?",
+     "options": [
+      {
+       "id": "a",
+       "text": "Sending it again faster"
+      },
+      {
+       "id": "b",
+       "text": "An idempotency key the server uses to return the first result instead of charging twice"
+      },
+      {
+       "id": "c",
+       "text": "Switching from POST to GET"
+      },
+      {
+       "id": "d",
+       "text": "Closing the connection before retrying"
+      }
+     ],
+     "answer": [
+      "b"
+     ],
+     "explanation": "The client cannot know whether the first request reached the server. A key that identifies the operation lets the server detect the repeat and answer with the stored result."
+    },
+    {
+     "id": "q2",
+     "type": "truefalse",
+     "text": "PUT and DELETE are idempotent by the definition of HTTP semantics.",
+     "options": [
+      {
+       "id": "true",
+       "text": "True"
+      },
+      {
+       "id": "false",
+       "text": "False"
+      }
+     ],
+     "answer": [
+      "true"
+     ],
+     "explanation": "Repeating a PUT leaves the resource in the same state, and repeating a DELETE leaves it deleted. (The response may differ: a second DELETE can answer 404.)"
+    },
+    {
+     "id": "q3",
+     "type": "multiple",
+     "text": "Which of these can be retried without any extra protection? Select all that apply.",
+     "options": [
+      {
+       "id": "a",
+       "text": "GET /users/42"
+      },
+      {
+       "id": "b",
+       "text": "POST /payments with no idempotency key"
+      },
+      {
+       "id": "c",
+       "text": "PUT /users/42 with the full document"
+      },
+      {
+       "id": "d",
+       "text": "DELETE /orders/7"
+      }
+     ],
+     "answer": [
+      "a",
+      "c",
+      "d"
+     ],
+     "explanation": "GET, PUT and DELETE are idempotent. A POST that creates something is not, unless the server is given a key to deduplicate on."
+    },
+    {
+     "id": "q4",
+     "type": "single",
+     "text": "Where should an idempotency key and the result of its first request be stored?",
+     "options": [
+      {
+       "id": "a",
+       "text": "In the client only"
+      },
+      {
+       "id": "b",
+       "text": "In durable storage shared by every server, with the key under a unique constraint"
+      },
+      {
+       "id": "c",
+       "text": "In each server's memory"
+      },
+      {
+       "id": "d",
+       "text": "In the URL"
+      }
+     ],
+     "answer": [
+      "b"
+     ],
+     "explanation": "A retry may reach a different server, or the same one after a restart. Shared durable storage and a unique constraint also settle two retries arriving at once."
+    },
+    {
+     "id": "q5",
+     "type": "truefalse",
+     "text": "It is fine to reuse the same idempotency key for a request with a different body.",
+     "options": [
+      {
+       "id": "true",
+       "text": "True"
+      },
+      {
+       "id": "false",
+       "text": "False"
+      }
+     ],
+     "answer": [
+      "false"
+     ],
+     "explanation": "A key names one operation. The server should reject a reused key whose request differs, rather than return the first answer to an unrelated request."
+    }
+   ]
+  },
+  "sessions-and-cookies": {
+   "title": "Sessions and cookies",
+   "topic": "authentication",
+   "difficulty": "beginner",
+   "module": "backend/03-authentication-and-authorization/01-sessions-and-cookies/README.md",
+   "description": "How a server remembers who you are between requests, and the cookie settings that keep that safe.",
+   "questions": [
+    {
+     "id": "q1",
+     "type": "single",
+     "text": "Which cookie attribute stops JavaScript on the page from reading the cookie?",
+     "options": [
+      {
+       "id": "a",
+       "text": "Secure"
+      },
+      {
+       "id": "b",
+       "text": "HttpOnly"
+      },
+      {
+       "id": "c",
+       "text": "SameSite"
+      },
+      {
+       "id": "d",
+       "text": "Path"
+      }
+     ],
+     "answer": [
+      "b"
+     ],
+     "explanation": "HttpOnly hides the cookie from document.cookie, so a cross-site scripting bug cannot simply read the session id."
+    },
+    {
+     "id": "q2",
+     "type": "multiple",
+     "text": "Which attributes should a session cookie normally set? Select all that apply.",
+     "options": [
+      {
+       "id": "a",
+       "text": "HttpOnly"
+      },
+      {
+       "id": "b",
+       "text": "Secure"
+      },
+      {
+       "id": "c",
+       "text": "SameSite"
+      },
+      {
+       "id": "d",
+       "text": "An expiry far in the future so users never log in again"
+      }
+     ],
+     "answer": [
+      "a",
+      "b",
+      "c"
+     ],
+     "explanation": "HttpOnly limits script access, Secure keeps the cookie off plain HTTP, SameSite limits cross-site sending. A session that never expires is a risk, not a feature."
+    },
+    {
+     "id": "q3",
+     "type": "truefalse",
+     "text": "Issuing a new session id when a user logs in helps prevent session fixation.",
+     "options": [
+      {
+       "id": "true",
+       "text": "True"
+      },
+      {
+       "id": "false",
+       "text": "False"
+      }
+     ],
+     "answer": [
+      "true"
+     ],
+     "explanation": "If an attacker planted a known session id before login, replacing it at login makes that id worthless."
+    },
+    {
+     "id": "q4",
+     "type": "single",
+     "text": "In a server-side session design, where is the user's state kept?",
+     "options": [
+      {
+       "id": "a",
+       "text": "In the cookie itself"
+      },
+      {
+       "id": "b",
+       "text": "On the server, found by the session id in the cookie"
+      },
+      {
+       "id": "c",
+       "text": "In the URL"
+      },
+      {
+       "id": "d",
+       "text": "In the browser's localStorage"
+      }
+     ],
+     "answer": [
+      "b"
+     ],
+     "explanation": "The cookie holds only an opaque id. The state lives in memory, Redis or a database on the server, which is also why a session can be revoked instantly."
+    },
+    {
+     "id": "q5",
+     "type": "single",
+     "text": "Why must a session id be long and random?",
+     "options": [
+      {
+       "id": "a",
+       "text": "So the cookie is easy to read"
+      },
+      {
+       "id": "b",
+       "text": "So it cannot be guessed or enumerated by an attacker"
+      },
+      {
+       "id": "c",
+       "text": "To make the cookie smaller"
+      },
+      {
+       "id": "d",
+       "text": "So it sorts well in the database"
+      }
+     ],
+     "answer": [
+      "b"
+     ],
+     "explanation": "Anyone who guesses a valid id becomes that user. Use a cryptographically secure random generator and enough bits that guessing is hopeless."
+    }
+   ]
+  }
+ },
+ "exercises": {
+  "idempotent-payment-endpoint": {
+   "title": "Make a payment endpoint idempotent",
+   "topic": "distributed-systems",
+   "difficulty": "intermediate",
+   "module": "backend/10-distributed-systems-patterns/01-idempotency-in-practice/README.md",
+   "brief": "Your service has `POST /payments`. Mobile clients on poor networks retry when a request times out, and some customers have been charged twice. Design the change that makes the endpoint safe to retry.",
+   "deliverables": [
+    "How the client names an operation (the header, who generates the key, how long it stays valid)",
+    "The table or record that stores keys and results, with its constraints",
+    "What the server does when the same key arrives twice in sequence, and twice at the same moment",
+    "What it does when the key is reused with a different body",
+    "The tests you would write to prove it"
+   ]
+  },
+  "orders-index-strategy": {
+   "title": "Plan the indexes of an orders table",
+   "topic": "databases",
+   "difficulty": "beginner",
+   "module": "backend/04-databases-and-data-layer/03-schema-design-and-indexing/README.md",
+   "brief": "The `orders` table (id, customer_id, status, total, created_at) has 50 million rows. The three hot queries are: a customer's recent orders, all orders in status \"pending\" older than an hour, and one order by id.",
+   "deliverables": [
+    "The CREATE INDEX statements you would add, with the column order justified",
+    "Which query each index serves and how you would confirm it with EXPLAIN",
+    "What the indexes cost on writes, and one index you chose not to create and why"
+   ]
+  },
+  "rate-limit-login": {
+   "title": "Rate limit a login endpoint",
+   "topic": "security",
+   "difficulty": "intermediate",
+   "module": "backend/09-security-deep-dive/04-rate-limiting-and-abuse-prevention/README.md",
+   "brief": "Attackers are trying thousands of passwords against `POST /login`. Add rate limiting without locking out the legitimate user who mistypes twice.",
+   "deliverables": [
+    "What you count and by which key (IP address, account, both) and why",
+    "The algorithm (fixed window, sliding window or token bucket) and its numbers",
+    "The response when the limit is hit, including the headers a client can use",
+    "How a shared store keeps the count right across several servers",
+    "How you avoid letting an attacker lock a victim out on purpose"
+   ]
+  }
+ },
+ "interview": {
+  "caching": {
+   "title": "Caching",
+   "topic": "performance",
+   "difficulty": "intermediate",
+   "module": "backend/05-caching-and-performance/01-caching-strategies/README.md",
+   "questions": [
+    {
+     "q": "Explain cache-aside and when you would use it.",
+     "a": "The application checks the cache first, and on a miss reads the database and fills the cache. It is simple, tolerates cache failure, and suits read-heavy data that can be briefly stale."
+    },
+    {
+     "q": "What is a cache stampede and how do you prevent it?",
+     "a": "When a popular entry expires, many requests miss at once and all hit the database. Prevent it with request coalescing (one rebuild, the rest wait), jittered expiry times, or refreshing early in the background."
+    },
+    {
+     "q": "How do you invalidate a cache correctly?",
+     "a": "Prefer short TTLs plus explicit invalidation on write. Delete the key after the database write commits. Accept that some staleness is unavoidable and decide how much the data can tolerate."
+    },
+    {
+     "q": "When is caching the wrong answer?",
+     "a": "When the data must always be current, when the hit rate would be low, or when the slow query should be fixed instead (an index, a better query). A cache hides a problem and adds a consistency problem."
+    }
+   ]
+  },
+  "databases-and-indexes": {
+   "title": "Databases and indexes",
+   "topic": "databases",
+   "difficulty": "beginner",
+   "module": "backend/04-databases-and-data-layer/03-schema-design-and-indexing/README.md",
+   "questions": [
+    {
+     "q": "How does a B-tree index speed up a query?",
+     "a": "It keeps keys in sorted order in a balanced tree, so the database finds a value or a range in logarithmic steps instead of reading every row."
+    },
+    {
+     "q": "What is a covering index?",
+     "a": "An index that contains every column a query needs, so the database can answer from the index without reading the table rows."
+    },
+    {
+     "q": "Why might a query ignore an index?",
+     "a": "The predicate cannot use it (a function on the column, a leading wildcard), the table is small enough that a scan is cheaper, the planner expects most rows to match, or statistics are stale."
+    },
+    {
+     "q": "What is the cost of too many indexes?",
+     "a": "Every write maintains each index, so inserts and updates slow down, and indexes take memory and disk. Index for the queries you actually run."
+    }
+   ]
+  },
+  "idempotency-and-retries": {
+   "title": "Idempotency and retries",
+   "topic": "distributed-systems",
+   "difficulty": "intermediate",
+   "module": "backend/10-distributed-systems-patterns/01-idempotency-in-practice/README.md",
+   "questions": [
+    {
+     "q": "What does idempotent mean, and why does it matter for APIs?",
+     "a": "An operation is idempotent when doing it many times has the same effect as doing it once. Networks fail in the middle of a request, so a client often cannot tell whether the server acted. If the operation is idempotent the client can simply retry."
+    },
+    {
+     "q": "How would you make a POST that charges a card safe to retry?",
+     "a": "The client sends a unique idempotency key per intended operation. The server stores the key with the result under a unique constraint, in the same transaction as the charge. A repeat with the same key returns the stored result; a concurrent repeat waits or gets a conflict."
+    },
+    {
+     "q": "How long do you keep idempotency keys?",
+     "a": "Long enough to cover any realistic retry window, commonly 24 hours, then expire them to bound storage. State the window in the API documentation."
+    },
+    {
+     "q": "A retry arrives while the first request is still running. What happens?",
+     "a": "The unique key makes the second insert fail or block. Either respond 409 so the client retries shortly, or wait for the first to finish and return its result. Never run the work twice."
+    }
+   ]
+  }
+ },
+ "challenges": {
+  "hld/chat-application": {
+   "title": "Chat Application",
+   "kind": "hld",
+   "summary": "One-to-one and group messaging with presence and history.",
+   "module": "backend/14-system-design-interview-practice/06-designing-a-chat-and-notification-system/README.md",
+   "problem": "Design a chat service like WhatsApp or Slack: one-to-one and group conversations, delivery receipts, online presence, and message history.",
+   "functional": [
+    "Send and receive messages in real time in 1:1 and group chats (up to 500 members)",
+    "Show sent, delivered and read states",
+    "Show who is online",
+    "Keep history and sync it across a user's devices"
+   ],
+   "nonFunctional": [
+    "Messages in a conversation arrive in order and are never lost",
+    "Message delivery under 200 ms for online users",
+    "Handle 50 million daily active users"
+   ],
+   "constraints": [
+    "Mobile clients disconnect and reconnect constantly"
+   ],
+   "deliverables": [
+    "Requirements and the assumptions you made",
+    "A capacity estimate (requests per second, storage, bandwidth)",
+    "A high-level architecture diagram (Mermaid or an uploaded image)",
+    "The API (endpoints and payloads) and the data model",
+    "How it scales, how it fails, and what you would monitor",
+    "The main trade-offs and what you chose not to build"
+   ],
+   "hints": [
+    "What protocol keeps a connection open to the client?",
+    "How do you order messages within a conversation across servers?"
+   ],
+   "reference": "```mermaid\nflowchart LR\n  C1[Client A] <-->|WebSocket| G1[Gateway 1]\n  C2[Client B] <-->|WebSocket| G2[Gateway 2]\n  G1 --> CS[Chat service]\n  G2 --> CS\n  CS --> MQ[[Message log per conversation]]\n  MQ --> G2\n  CS --> DB[(Message store, partitioned by conversation)]\n  CS --> R[(Presence + routing: user to gateway)]\n  CS --> PUSH[Push for offline users]\n```\n\n- Clients hold a **WebSocket** to a gateway; a routing table says which gateway a user is on, so the chat service can deliver to the right one.\n- Each conversation is a **partition** with a sequence number, which gives the ordering guarantee; the message is persisted before it is acknowledged.\n- Offline users get a **push** notification and fetch history by sequence number on reconnect, which is also how multi-device sync works.\n- Presence uses heartbeats with a short TTL in a fast store; do not fan out presence to every contact, only to open chats.\n- Large groups use fan-out on read for the message list and fan-out on write only for notifications."
+  },
+  "hld/notification-service": {
+   "title": "Notification Service",
+   "kind": "hld",
+   "summary": "Send e-mail, SMS and push messages reliably to millions of users.",
+   "module": "backend/14-system-design-interview-practice/06-designing-a-chat-and-notification-system/README.md",
+   "problem": "Design a service other teams call to notify users by e-mail, SMS and push. It must respect user preferences and not lose or duplicate messages.",
+   "functional": [
+    "Accept a notification request from internal services",
+    "Deliver through e-mail, SMS and push providers",
+    "Respect user preferences, quiet hours and unsubscribes",
+    "Track delivery status",
+    "Schedule a notification for later"
+   ],
+   "nonFunctional": [
+    "At-least-once delivery, with deduplication so users do not get a message twice",
+    "Absorb spikes (a marketing blast of 10 million) without delaying urgent messages such as one-time passwords",
+    "Provider outages must not lose messages"
+   ],
+   "constraints": [
+    "Third-party providers rate limit and fail",
+    "50 million users"
+   ],
+   "deliverables": [
+    "Requirements and the assumptions you made",
+    "A capacity estimate (requests per second, storage, bandwidth)",
+    "A high-level architecture diagram (Mermaid or an uploaded image)",
+    "The API (endpoints and payloads) and the data model",
+    "How it scales, how it fails, and what you would monitor",
+    "The main trade-offs and what you chose not to build"
+   ],
+   "hints": [
+    "Separate urgent from bulk traffic with different queues.",
+    "What do you store so a retry does not send twice?"
+   ],
+   "reference": "```mermaid\nflowchart LR\n  S[Calling services] --> API[Notification API]\n  API --> V[Validate + check preferences]\n  V --> Q1[[Urgent queue]]\n  V --> Q2[[Bulk queue]]\n  Q1 --> W1[Channel workers]\n  Q2 --> W2[Channel workers, rate limited]\n  W1 --> P[Providers: e-mail, SMS, push]\n  W2 --> P\n  W1 --> DB[(Status + dedupe store)]\n  W2 --> DB\n  P -. webhooks .-> API\n```\n\n- Each request carries an **idempotency key**; the dedupe store ensures a retried send is not delivered twice.\n- **Two priority lanes** keep a bulk campaign from delaying a login code; bulk workers are rate limited to each provider's quota.\n- Workers retry with exponential backoff and jitter, then dead-letter; a second provider is the fallback.\n- Preferences and unsubscribes are checked before queuing and again at send time.\n- Delivery receipts come back by webhook and update the status store; scheduling uses a delayed queue."
+  },
+  "hld/rate-limiter": {
+   "title": "Rate Limiter",
+   "kind": "hld",
+   "summary": "Limit how often a client may call an API, across many servers.",
+   "module": "backend/14-system-design-interview-practice/03-designing-a-rate-limiter/README.md",
+   "problem": "Design a rate limiting service that protects APIs from abuse: for example, 100 requests per minute per API key.",
+   "functional": [
+    "Limit by user, API key or IP, with different rules per endpoint",
+    "Tell the client when it is limited and when to retry",
+    "Rules can be changed without a deploy"
+   ],
+   "nonFunctional": [
+    "Adds under 5 ms to a request",
+    "Works correctly across many API servers",
+    "If the limiter fails the API keeps working (fail open) or is protected (fail closed): decide and justify"
+   ],
+   "constraints": [
+    "A million requests per second at peak"
+   ],
+   "deliverables": [
+    "Requirements and the assumptions you made",
+    "A capacity estimate (requests per second, storage, bandwidth)",
+    "A high-level architecture diagram (Mermaid or an uploaded image)",
+    "The API (endpoints and payloads) and the data model",
+    "How it scales, how it fails, and what you would monitor",
+    "The main trade-offs and what you chose not to build"
+   ],
+   "hints": [
+    "Compare fixed window, sliding window and token bucket.",
+    "Where does the shared counter live, and what happens to concurrent updates?"
+   ],
+   "reference": "```mermaid\nflowchart LR\n  C[Client] --> GW[API gateway with limiter middleware]\n  GW -->|check and decrement| R[(Redis: counters / token buckets)]\n  GW -->|allowed| S[Service]\n  GW -->|limited| X[429 + Retry-After]\n  Cfg[(Rules store)] --> GW\n```\n\n- A **token bucket** per key allows bursts up to the bucket size while holding the average rate; it stores two numbers (tokens, last refill time).\n- The check-and-update must be **atomic**: a Lua script or a single Redis command per request, so concurrent servers do not both spend the last token.\n- Respond **429** with `Retry-After` and `X-RateLimit-Remaining` headers.\n- Rules are cached at the gateway and refreshed from the rules store, so changes need no deploy.\n- Shard counters by key across Redis nodes; for the limiter failing, **fail open** for general APIs and **fail closed** for sensitive ones such as login."
+  },
+  "hld/url-shortener": {
+   "title": "URL Shortener",
+   "kind": "hld",
+   "summary": "Turn long links into short ones and redirect fast, at scale.",
+   "module": "backend/14-system-design-interview-practice/02-designing-a-url-shortener/README.md",
+   "problem": "Design a service that creates short links for long URLs and redirects visitors who open them. Think of bit.ly.",
+   "functional": [
+    "Create a short link for a URL, optionally with a custom alias and an expiry",
+    "Redirect a short link to the long URL",
+    "Basic click counts per link"
+   ],
+   "nonFunctional": [
+    "Redirects must be very fast (p99 under 50 ms) and highly available",
+    "Reads outnumber writes about 100 to 1",
+    "Short codes must not be guessable in order, and never collide"
+   ],
+   "constraints": [
+    "100 million new links a month, 10 billion redirects a month",
+    "Links are kept for 5 years by default"
+   ],
+   "deliverables": [
+    "Requirements and the assumptions you made",
+    "A capacity estimate (requests per second, storage, bandwidth)",
+    "A high-level architecture diagram (Mermaid or an uploaded image)",
+    "The API (endpoints and payloads) and the data model",
+    "How it scales, how it fails, and what you would monitor",
+    "The main trade-offs and what you chose not to build"
+   ],
+   "hints": [
+    "Estimate first: how many bytes per record, how many redirects per second?",
+    "How do you generate a unique short code without a single bottleneck?"
+   ],
+   "reference": "### Sketch\n```mermaid\nflowchart LR\n  U[Client] --> CDN[CDN / edge cache]\n  CDN --> LB[Load balancer]\n  LB --> API[Stateless API servers]\n  API --> C[(Cache: code to URL)]\n  API --> DB[(Key-value store: code, url, expiry)]\n  API --> Q[[Click events queue]]\n  Q --> A[Analytics workers] --> OLAP[(Counts store)]\n```\n\n### Numbers\nAbout 40 writes/s and 4,000 redirects/s on average, with peaks of 10x. 100 M x 12 months x 5 years x ~500 B is about 3 TB: a key-value store partitioned by code is enough.\n\n### Decisions\n- **Code generation**: a counter handed out in ranges to each API server (no coordination per request), encoded in base62 and shuffled with a keyed permutation so codes are not sequential. 7 characters give 3.5 trillion codes.\n- **Redirect path**: edge cache, then an in-memory cache, then the store. Use **302** if you need every click counted at the server, **301** if you accept browsers caching the redirect.\n- **Availability**: the store is replicated; redirects work from replicas, creating a link needs the primary.\n- **Analytics** is asynchronous through a queue, so a failing analytics system never slows a redirect.\n- **Abuse**: rate limit creation, scan target URLs, allow takedown."
+  },
+  "hld/video-streaming-platform": {
+   "title": "Video Streaming Platform",
+   "kind": "hld",
+   "summary": "Upload, process and stream video to millions of viewers.",
+   "module": "backend/14-system-design-interview-practice/07-designing-a-video-streaming-or-large-scale-search-system/README.md",
+   "problem": "Design a platform where creators upload videos and viewers stream them on any device and connection, like YouTube.",
+   "functional": [
+    "Upload large videos reliably",
+    "Process each video into several resolutions and formats",
+    "Stream with adaptive quality",
+    "Search and recommend videos (at a high level)",
+    "Count views"
+   ],
+   "nonFunctional": [
+    "Playback should start in under 2 seconds",
+    "Storage and bandwidth cost dominate the design",
+    "Uploads must resume after a failure"
+   ],
+   "constraints": [
+    "1 million uploads a day, 100 million hours watched a day"
+   ],
+   "deliverables": [
+    "Requirements and the assumptions you made",
+    "A capacity estimate (requests per second, storage, bandwidth)",
+    "A high-level architecture diagram (Mermaid or an uploaded image)",
+    "The API (endpoints and payloads) and the data model",
+    "How it scales, how it fails, and what you would monitor",
+    "The main trade-offs and what you chose not to build"
+   ],
+   "hints": [
+    "Where does the transcoding work happen, and how does it scale?",
+    "Why must most video bytes never touch your application servers?"
+   ],
+   "reference": "```mermaid\nflowchart LR\n  Cr[Creator] -->|chunked upload| OS[(Object storage: originals)]\n  OS --> Q[[Transcode jobs]]\n  Q --> T[Transcoding workers] --> OS2[(Object storage: HLS/DASH renditions)]\n  T --> M[(Metadata DB)]\n  V[Viewer] --> API[API: metadata, manifest]\n  V -->|segments| CDN[CDN]\n  CDN --> OS2\n  API --> M\n  V -. view events .-> K[[Event stream]] --> Cnt[(View counts)]\n```\n\n- **Chunked, resumable upload** straight to object storage with pre-signed URLs; the API only records metadata.\n- A transcoding **job per rendition** runs on a pool of workers fed by a queue, so a 4K upload fans out in parallel.\n- Streaming uses **adaptive bitrate** (HLS/DASH): short segments and a manifest; the player switches quality with the viewer's bandwidth.\n- A **CDN** serves nearly all bytes; popular videos stay at the edge, the long tail comes from origin.\n- View counts are aggregated from an event stream, not updated per request."
+  },
+  "lld/atm": {
+   "title": "ATM",
+   "kind": "lld",
+   "summary": "Insert a card, enter a PIN, withdraw cash, and check a balance.",
+   "module": "lld/04-solid-principles/README.md",
+   "problem": "Design the software of an ATM: authenticate a card holder, let them check a balance, withdraw and deposit, and dispense notes from the cash it holds.",
+   "functional": [
+    "Authenticate with card and PIN; lock the card after three wrong PINs",
+    "Show balance, withdraw, deposit",
+    "Dispense the requested amount using the notes available",
+    "Print or show a receipt"
+   ],
+   "nonFunctional": [
+    "Operations must be atomic: never dispense cash without recording the debit",
+    "Adding a new transaction type must not modify existing ones"
+   ],
+   "constraints": [
+    "One machine talks to a bank service through an interface"
+   ],
+   "deliverables": [
+    "A class diagram (Mermaid or an uploaded image) with the relationships between classes",
+    "The responsibility of each class in a sentence",
+    "The design patterns you used and where, or why you used none",
+    "Optional: code for the central class and one method of each"
+   ],
+   "hints": [
+    "The ATM itself is a state machine: idle, card inserted, authenticated, transaction, ejecting.",
+    "Note dispensing is a classic chain-of-responsibility: try the largest note first."
+   ],
+   "reference": "```mermaid\nstateDiagram-v2\n  [*] --> Idle\n  Idle --> CardInserted: insert card\n  CardInserted --> Authenticated: correct PIN\n  CardInserted --> Idle: 3 wrong PINs, card kept\n  Authenticated --> Transaction: choose operation\n  Transaction --> Authenticated: done\n  Authenticated --> Idle: eject card\n```\n\n- `ATM` holds the state and a `CashDispenser` chain (`Dispense500` -> `Dispense100` -> `Dispense20`), each handler dispensing what it can and passing on the rest.\n- `Transaction` is an interface (`Withdraw`, `Deposit`, `BalanceInquiry`): a new operation is a new class (open/closed).\n- The `BankService` interface hides the real bank; the ATM debits first, dispenses second, and reverses the debit if dispensing fails."
+  },
+  "lld/ecommerce-cart": {
+   "title": "E-commerce Cart",
+   "kind": "lld",
+   "summary": "Add items, apply discounts, and turn a cart into an order.",
+   "module": "lld/06-creational-patterns/README.md",
+   "problem": "Design a shopping cart: customers add and remove products, apply coupons, see a total with tax and shipping, and check out into an order.",
+   "functional": [
+    "Add, remove and change the quantity of an item",
+    "Apply at most one coupon, with different rule types (percentage, fixed amount, free shipping)",
+    "Compute subtotal, discount, tax, shipping and total",
+    "Checkout creates an order and reserves stock"
+   ],
+   "nonFunctional": [
+    "New discount rules must be addable without editing the cart",
+    "Prices at checkout must equal prices shown in the cart"
+   ],
+   "constraints": [
+    "One currency; payment is out of scope"
+   ],
+   "deliverables": [
+    "A class diagram (Mermaid or an uploaded image) with the relationships between classes",
+    "The responsibility of each class in a sentence",
+    "The design patterns you used and where, or why you used none",
+    "Optional: code for the central class and one method of each"
+   ],
+   "hints": [
+    "The cart should not know how a discount is calculated: give that to a rule.",
+    "An order is a snapshot: copy the prices at checkout, do not point at live products."
+   ],
+   "reference": "```mermaid\nclassDiagram\n  class Cart { items +add(product, qty) +remove(product) +total() Money +checkout() Order }\n  class CartItem { product quantity }\n  class DiscountRule { <<interface>> +apply(cart) Money }\n  class PercentageOff\n  class FixedAmountOff\n  class FreeShipping\n  class PricingService { +price(cart) PriceBreakdown }\n  class Order { lines total placedAt }\n  Cart o-- CartItem\n  DiscountRule <|-- PercentageOff\n  DiscountRule <|-- FixedAmountOff\n  DiscountRule <|-- FreeShipping\n  PricingService --> DiscountRule\n  Cart --> PricingService\n  Cart ..> Order\n```\n\n- `PricingService` composes tax, shipping and the coupon's `DiscountRule` (strategy); the cart only asks for a breakdown.\n- Checkout builds an `Order` from a snapshot of line prices and reserves stock in the same transaction.\n- Quantities and money are value objects that cannot be negative."
+  },
+  "lld/elevator-system": {
+   "title": "Elevator System",
+   "kind": "lld",
+   "summary": "Several lifts serve requests from floors and from inside the cars.",
+   "module": "lld/12-parking-lot-and-elevator/README.md",
+   "problem": "Design the control software of a building with several elevators. People press up or down on a floor, then choose a destination inside the car.",
+   "functional": [
+    "Handle a hall call (floor, direction) and a car call (destination floor)",
+    "Choose which elevator answers a hall call",
+    "Each elevator moves, stops at requested floors and opens its doors",
+    "Support an out-of-service elevator"
+   ],
+   "nonFunctional": [
+    "Requests should be served with low waiting time and without starving a floor",
+    "A scheduling change must not require changing the elevator class"
+   ],
+   "constraints": [
+    "10 elevators, 40 floors",
+    "A single controller process"
+   ],
+   "deliverables": [
+    "A class diagram (Mermaid or an uploaded image) with the relationships between classes",
+    "The responsibility of each class in a sentence",
+    "The design patterns you used and where, or why you used none",
+    "Optional: code for the central class and one method of each"
+   ],
+   "hints": [
+    "An elevator is a small state machine: idle, moving up, moving down, doors open.",
+    "The scheduler that picks an elevator is the part most likely to change: make it replaceable."
+   ],
+   "reference": "### Classes\n`ElevatorController` (receives hall calls), `Elevator` (state, current floor, a sorted set of stops), `Request`, `Direction`, `Door`, `DispatchStrategy`.\n\n```mermaid\nstateDiagram-v2\n  [*] --> Idle\n  Idle --> MovingUp: stop above\n  Idle --> MovingDown: stop below\n  MovingUp --> DoorsOpen: reached a stop\n  MovingDown --> DoorsOpen: reached a stop\n  DoorsOpen --> Idle: no more stops\n  DoorsOpen --> MovingUp: stops above\n  DoorsOpen --> MovingDown: stops below\n```\n\n### Why it works\n- `DispatchStrategy` (nearest car, least loaded, SCAN-style) is a strategy chosen by the controller, so scheduling changes are isolated.\n- Each elevator keeps up-stops and down-stops and serves the current direction first (the \"elevator algorithm\"), which avoids starvation.\n- State is explicit, so out-of-service is a state that dispatch skips.\n- Hall calls go to the controller; car calls go straight to the elevator."
+  },
+  "lld/library-management": {
+   "title": "Library Management",
+   "kind": "lld",
+   "summary": "Members borrow and return books; copies, reservations and fines.",
+   "module": "lld/13-library-and-vending-machine/README.md",
+   "problem": "Design a library system where members borrow copies of books, return them, reserve titles that are out, and pay fines for late returns.",
+   "functional": [
+    "Search books by title, author or subject",
+    "Borrow and return a copy; a member has a loan limit",
+    "Reserve a title that has no free copy; notify when one returns",
+    "Charge a fine for a late return"
+   ],
+   "nonFunctional": [
+    "Separate a book (the title) from a copy (the physical item)",
+    "Fine rules and notification channels must be replaceable"
+   ],
+   "constraints": [
+    "In-memory design; no UI"
+   ],
+   "deliverables": [
+    "A class diagram (Mermaid or an uploaded image) with the relationships between classes",
+    "The responsibility of each class in a sentence",
+    "The design patterns you used and where, or why you used none",
+    "Optional: code for the central class and one method of each"
+   ],
+   "hints": [
+    "A \"Book\" and a \"BookCopy\" are different things: reservations attach to the title, loans to the copy.",
+    "Notifications are a natural fit for the observer pattern."
+   ],
+   "reference": "```mermaid\nclassDiagram\n  class Book { isbn title authors }\n  class BookCopy { id status }\n  class Member { id name loans }\n  class Loan { copy member dueDate returnedAt }\n  class Reservation { book member }\n  class Library { +borrow(member, copy) Loan +return(loan) Fine +reserve(member, book) }\n  class FinePolicy { <<interface>> +fine(loan, returnDate) Money }\n  class Notifier { <<interface>> +notify(member, message) }\n  Book \"1\" o-- \"*\" BookCopy\n  Member \"1\" o-- \"*\" Loan\n  Loan --> BookCopy\n  Library --> FinePolicy\n  Library --> Notifier\n  Library ..> Reservation\n```\n\n- `Library` coordinates; `Loan` holds the dates; a returned copy checks the title's reservation queue and tells the first member through `Notifier` (observer).\n- `FinePolicy` is a strategy (per-day rate, capped fine, free for staff).\n- A member's loan limit is checked in `borrow`, not scattered through callers."
+  },
+  "lld/parking-lot": {
+   "title": "Parking Lot",
+   "kind": "lld",
+   "summary": "Vehicles enter, get a spot and a ticket, and pay on exit.",
+   "module": "lld/12-parking-lot-and-elevator/README.md",
+   "problem": "Design the object model of a multi-level parking lot. A car, a motorbike and a truck each need a spot of the right size. A driver gets a ticket on entry and pays on exit according to the time parked.",
+   "functional": [
+    "Park and unpark a vehicle; issue a ticket on entry",
+    "Spots come in sizes (motorbike, compact, large) and levels",
+    "Calculate the fee from entry and exit time with a per-hour rate that depends on vehicle type",
+    "Report free spots per level"
+   ],
+   "nonFunctional": [
+    "Adding a new vehicle type or pricing rule must not change existing classes",
+    "Two entry gates must not assign the same spot"
+   ],
+   "constraints": [
+    "One building, 4 levels, up to 1,000 spots",
+    "In-memory design is enough; persistence is out of scope"
+   ],
+   "deliverables": [
+    "A class diagram (Mermaid or an uploaded image) with the relationships between classes",
+    "The responsibility of each class in a sentence",
+    "The design patterns you used and where, or why you used none",
+    "Optional: code for the central class and one method of each"
+   ],
+   "hints": [
+    "Separate the thing that finds a spot (an allocation strategy) from the thing that prices a stay (a pricing strategy).",
+    "A ticket is the record that links a vehicle, a spot and an entry time."
+   ],
+   "reference": "### Classes\n`Vehicle` (abstract, with `Car`, `Motorbike`, `Truck`), `ParkingSpot` (size, level, occupied), `Level`, `ParkingLot` (facade), `Ticket`, `SpotAllocator` (strategy), `PricingStrategy` (strategy), `Payment`.\n\n```mermaid\nclassDiagram\n  class ParkingLot { +park(Vehicle) Ticket +exit(Ticket) Payment }\n  class Level { +findSpot(size) ParkingSpot }\n  class ParkingSpot { size occupied +assign() +release() }\n  class Ticket { vehicle spot entryTime }\n  class SpotAllocator { <<interface>> +allocate(levels, vehicle) ParkingSpot }\n  class PricingStrategy { <<interface>> +fee(ticket, exitTime) Money }\n  class Vehicle { <<abstract>> plate size() }\n  Vehicle <|-- Car\n  Vehicle <|-- Motorbike\n  Vehicle <|-- Truck\n  ParkingLot o-- Level\n  Level o-- ParkingSpot\n  ParkingLot --> SpotAllocator\n  ParkingLot --> PricingStrategy\n  ParkingLot ..> Ticket\n```\n\n### Why it works\n- `ParkingLot` is the single entry point (a facade); gates call `park` and `exit`.\n- Allocation and pricing are **strategies**, so a new pricing rule or a \"closest to the exit\" allocator is a new class, not an edit (open/closed).\n- Allocation takes a lock per spot (or per level) so two gates cannot assign the same spot.\n- A vehicle reports its required size; spots do not know about vehicle types."
+  }
+ }
+}

@@ -1,0 +1,214 @@
+// The Practice Center and the Design Lab on the real app and an in-memory database: quizzes are scored on the server and their answers
+// stay there until a try, attempts and submissions belong to their author, work is shared only on purpose, the reference solution
+// of a challenge is for someone who has tried it, and what admins do is guarded and written down.
+import { test, beforeEach } from 'node:test';
+import assert from 'node:assert/strict';
+import app from '../app.js';
+import { invalidateAdminCache } from '../lib/admin.js';
+import { UPLOAD_ORIGINS } from '../../webapp/src/lib/blog/uploads.js';
+import { OWNER_EMAIL, createEnv, signedInAs } from './helpers.js';
+
+let env;
+let ada;
+let grace;
+let owner;
+beforeEach(async () => {
+  env = createEnv();
+  invalidateAdminCache();
+  ada = await signedInAs('ada@example.com', { name: 'Ada Lovelace' });
+  grace = await signedInAs('grace@example.com', { name: 'Grace Hopper' });
+  owner = await signedInAs(OWNER_EMAIL);
+});
+
+async function call(cookie, method, path, body) {
+  const res = await app.request(`/api${path}`, {
+    method,
+    headers: { ...(cookie ? { cookie } : {}), ...(body === undefined ? {} : { 'content-type': 'application/json' }) },
+    body: body === undefined ? undefined : JSON.stringify(body)
+  }, env);
+  const raw = await res.text();
+  return { status: res.status, json: raw ? JSON.parse(raw) : null, raw };
+}
+const rows = (sql, ...params) => env.DB.raw.prepare(sql).all(...params).map((row) => ({ ...row }));
+
+const QUIZ = 'idempotency-and-retries'; // q1 single (b), q2 true/false (true), q3 multiple (a, c, d), q4 single (b), q5 true/false (false)
+const RIGHT = { q1: ['b'], q2: ['true'], q3: ['a', 'c', 'd'], q4: ['b'], q5: ['false'] };
+
+test('the catalog lists everything, and nothing in it or in a quiz gives an answer away', async () => {
+  const { json, raw } = await call(null, 'GET', '/practice/catalog');
+  assert.ok(json.quizzes.length >= 4 && json.exercises.length >= 3 && json.interview.length >= 3 && json.challenges.length === 10);
+  assert.deepEqual(json.challenges.map((c) => c.kind).sort(), ['hld', 'hld', 'hld', 'hld', 'hld', 'lld', 'lld', 'lld', 'lld', 'lld']);
+  assert.doesNotMatch(raw, /"answer"|explanation|reference/);
+
+  const quiz = await call(null, 'GET', `/practice/quizzes/${QUIZ}`);
+  assert.equal(quiz.json.questions.length, 5);
+  assert.doesNotMatch(quiz.raw, /"answer"|"explanation"/, 'the answers are not sent with the questions');
+  assert.equal(quiz.json.questions.find((q) => q.id === 'q3').choose, 'any');
+  assert.equal((await call(null, 'GET', '/practice/quizzes/nope')).status, 404);
+});
+
+test('a try is scored on the server for single, multiple and true/false questions, and the answers come back with it', async () => {
+  const all = await call(null, 'POST', `/practice/quizzes/${QUIZ}/attempts`, { answers: RIGHT });
+  assert.equal(all.status, 200);
+  assert.equal(all.json.score, 5);
+  assert.equal(all.json.max, 5);
+  assert.ok(all.json.results.every((r) => r.correct && r.explanation));
+  assert.equal(all.json.saved, false, 'a visitor can take a quiz; nothing is kept');
+
+  const some = await call(null, 'POST', `/practice/quizzes/${QUIZ}/attempts`, { answers: { ...RIGHT, q3: ['a', 'c'], q1: ['a'], q5: [] } });
+  assert.equal(some.json.score, 2);
+  assert.deepEqual(some.json.results.filter((r) => !r.correct).map((r) => r.id), ['q1', 'q3', 'q5'], 'a multiple-choice question needs exactly the right set');
+  assert.equal((await call(null, 'POST', `/practice/quizzes/${QUIZ}/attempts`, { answers: { q1: ['not-an-option', 7], q2: 'true' } })).json.score, 0, 'nonsense is wrong, not an error');
+  assert.equal((await call(null, 'POST', `/practice/quizzes/${QUIZ}/attempts`, {})).status, 400);
+});
+
+test("a signed-in reader's attempts are kept, are theirs alone, and go with the account", async () => {
+  assert.equal((await call(null, 'GET', '/practice/attempts')).status, 401);
+  assert.equal((await call(ada, 'POST', `/practice/quizzes/${QUIZ}/attempts`, { answers: RIGHT })).json.saved, true);
+  await call(ada, 'POST', `/practice/quizzes/${QUIZ}/attempts`, { answers: { ...RIGHT, q1: ['a'] } });
+  const history = (await call(ada, 'GET', '/practice/attempts')).json;
+  assert.deepEqual(history.map((a) => [a.quiz, a.score, a.max]).sort(), [[QUIZ, 4, 5], [QUIZ, 5, 5]]);
+  assert.equal(history[0].title, 'Idempotency and retries');
+  assert.deepEqual((await call(grace, 'GET', '/practice/attempts')).json, []);
+  assert.equal(rows('SELECT COUNT(*) AS n FROM quiz_answers')[0].n, 10);
+
+  assert.equal((await call(ada, 'DELETE', '/account')).status, 204);
+  assert.equal(rows('SELECT COUNT(*) AS n FROM quiz_attempts')[0].n, 0);
+  assert.equal(rows('SELECT COUNT(*) AS n FROM quiz_answers')[0].n, 0);
+});
+
+const WORK = { text: 'A cache is a promise that old data is acceptable. Here is my design, in some detail.', diagram: 'flowchart LR\n  A --> B', code: 'class ParkingLot {}' };
+
+test('a submission is a draft until it is submitted, belongs to its author, and needs something to say', async () => {
+  assert.equal((await call(null, 'PUT', '/practice/submissions/lld/parking-lot', WORK)).status, 401);
+  assert.equal((await call(ada, 'PUT', '/practice/submissions/lld/not-a-challenge', WORK)).status, 404);
+  assert.equal((await call(ada, 'PUT', '/practice/submissions/nope/parking-lot', WORK)).status, 404);
+
+  const saved = (await call(ada, 'PUT', '/practice/submissions/lld/parking-lot', { ...WORK, shared: true })).json.submission;
+  assert.equal(saved.status, 'draft');
+  assert.equal(saved.shared, false, 'a draft cannot be shared');
+  assert.equal((await call(ada, 'GET', '/practice/submissions/lld/parking-lot')).json.submission.text, WORK.text);
+  assert.equal((await call(grace, 'GET', '/practice/submissions/lld/parking-lot')).json.submission, null, 'nobody else sees it');
+  assert.equal((await call(grace, 'POST', '/practice/submissions/lld/parking-lot/submit')).status, 400, 'she has nothing to submit');
+
+  await call(ada, 'PUT', '/practice/submissions/lld/parking-lot', { text: 'short' });
+  assert.equal((await call(ada, 'POST', '/practice/submissions/lld/parking-lot/submit')).status, 400);
+  await call(ada, 'PUT', '/practice/submissions/lld/parking-lot', WORK);
+  const submitted = (await call(ada, 'POST', '/practice/submissions/lld/parking-lot/submit')).json.submission;
+  assert.equal(submitted.status, 'submitted');
+  assert.ok(submitted.submittedAt);
+  assert.equal(rows('SELECT COUNT(*) AS n FROM submissions')[0].n, 1, 'one submission per person and challenge, edited in place');
+});
+
+test("only submitted work can be shared, and only shared work is read by others, under the author's public name", async () => {
+  await call(ada, 'PUT', '/practice/submissions/hld/url-shortener', WORK);
+  assert.deepEqual((await call(null, 'GET', '/practice/submissions/hld/url-shortener/shared')).json, []);
+  await call(ada, 'POST', '/practice/submissions/hld/url-shortener/submit');
+  assert.deepEqual((await call(null, 'GET', '/practice/submissions/hld/url-shortener/shared')).json, [], 'submitted is still private');
+
+  await call(ada, 'PUT', '/practice/submissions/hld/url-shortener', { ...WORK, shared: true });
+  await call(ada, 'PUT', '/me/profile', { handle: 'ada-l', name: 'Ada L.' });
+  const shared = (await call(null, 'GET', '/practice/submissions/hld/url-shortener/shared')).json;
+  assert.equal(shared.length, 1);
+  assert.deepEqual(shared[0].author, { handle: 'ada-l', name: 'Ada L.' });
+  assert.doesNotMatch(JSON.stringify(shared), /ada@example|user-ada/, 'no account id or e-mail');
+
+  await call(ada, 'PUT', '/practice/submissions/hld/url-shortener', { ...WORK, shared: false });
+  assert.deepEqual((await call(null, 'GET', '/practice/submissions/hld/url-shortener/shared')).json, [], 'and it can be taken back');
+});
+
+test('a diagram can only be a picture uploaded to this site', async () => {
+  const base = UPLOAD_ORIGINS[0];
+  assert.equal((await call(ada, 'PUT', '/practice/submissions/lld/atm', { ...WORK, diagramUrl: 'https://evil.example/x.png' })).status, 400);
+  assert.equal((await call(ada, 'PUT', '/practice/submissions/lld/atm', { ...WORK, diagramUrl: `${base}/diagram.png` })).json.submission.diagramUrl, `${base}/diagram.png`);
+});
+
+test('the reference solution is for someone who has submitted their own, and for an admin', async () => {
+  const locked = (await call(ada, 'GET', '/practice/challenges/lld/parking-lot')).json;
+  assert.equal(locked.referenceLocked, true);
+  assert.equal(locked.reference, undefined);
+  assert.ok(locked.problem && locked.functional.length && locked.deliverables.length);
+  assert.equal((await call(null, 'GET', '/practice/challenges/lld/parking-lot')).json.reference, undefined);
+
+  await call(ada, 'PUT', '/practice/submissions/lld/parking-lot', WORK);
+  assert.equal((await call(ada, 'GET', '/practice/challenges/lld/parking-lot')).json.reference, undefined, 'a draft does not unlock it');
+  await call(ada, 'POST', '/practice/submissions/lld/parking-lot/submit');
+  assert.match((await call(ada, 'GET', '/practice/challenges/lld/parking-lot')).json.reference, /classDiagram/);
+  assert.match((await call(owner, 'GET', '/practice/challenges/lld/parking-lot')).json.reference, /classDiagram/);
+  assert.equal((await call(grace, 'GET', '/practice/challenges/lld/parking-lot')).json.reference, undefined);
+  assert.equal((await call(null, 'GET', '/practice/challenges/lld/nope')).status, 404);
+});
+
+test('an admin reviews a submission, the author reads the review, and the action is in the audit log', async () => {
+  await call(ada, 'PUT', '/practice/submissions/exercise/idempotent-payment-endpoint', WORK);
+  const id = (await call(ada, 'GET', '/practice/submissions/exercise/idempotent-payment-endpoint')).json.submission.id;
+  assert.deepEqual((await call(owner, 'GET', '/manage/submissions')).json, [], 'a draft is not waiting for review');
+  await call(ada, 'POST', '/practice/submissions/exercise/idempotent-payment-endpoint/submit');
+
+  const waiting = (await call(owner, 'GET', '/manage/submissions')).json;
+  assert.equal(waiting.length, 1);
+  assert.equal(waiting[0].title, 'Make a payment endpoint idempotent');
+  assert.equal((await call(grace, 'POST', `/manage/submissions/${id}/review`, { text: 'Nice' })).status, 403);
+  assert.equal((await call(owner, 'POST', `/manage/submissions/${id}/review`, { text: ' ' })).status, 400);
+  assert.equal((await call(owner, 'POST', '/manage/submissions/nope/review', { text: 'x' })).status, 404);
+  assert.equal((await call(owner, 'POST', `/manage/submissions/${id}/review`, { text: 'Good start. What if two retries arrive together?' })).status, 200);
+
+  const mine = (await call(ada, 'GET', '/practice/submissions/exercise/idempotent-payment-endpoint')).json.submission;
+  assert.equal(mine.status, 'reviewed');
+  assert.match(mine.reviews[0].text, /two retries/);
+  assert.deepEqual((await call(owner, 'GET', '/manage/submissions')).json, [], 'reviewed work leaves the queue');
+  const log = (await call(owner, 'GET', '/manage/audit')).json;
+  assert.deepEqual(log.map((l) => [l.actor, l.action, l.target]), [[OWNER_EMAIL, 'submission reviewed', id]]);
+});
+
+test('moderation and admin changes elsewhere are written to the audit log too', async () => {
+  const made = (await call(ada, 'POST', '/blogs', {})).json;
+  await call(ada, 'PUT', '/me/profile', { handle: 'ada-l', name: 'Ada' });
+  await call(owner, 'POST', `/manage/blogs/${made.id}/approve`);
+  await call(owner, 'POST', `/manage/blogs/${made.id}/hide`);
+  await call(owner, 'POST', '/manage/authors/ada-l/trust', { trusted: true });
+  await call(owner, 'PUT', '/manage/admins', { email: 'grace@example.com' });
+  await call(owner, 'DELETE', '/manage/admins?email=grace%40example.com');
+  assert.deepEqual((await call(owner, 'GET', '/manage/audit')).json.map((l) => l.action).sort(), ['admin added', 'admin removed', 'article approved', 'article taken down', 'author trusted']);
+  assert.equal((await call(grace, 'GET', '/manage/audit')).status, 403);
+});
+
+test('an announcement shows between its start and its end, an admin manages them, and a bad one is refused', async () => {
+  const day = 24 * 3600 * 1000;
+  const at = (offset) => new Date(Date.now() + offset).toISOString();
+  assert.equal((await call(grace, 'POST', '/manage/announcements', { title: 'x', endsAt: at(day) })).status, 403);
+  assert.equal((await call(owner, 'POST', '/manage/announcements', { title: '', endsAt: at(day) })).status, 400);
+  assert.equal((await call(owner, 'POST', '/manage/announcements', { title: 'Backwards', startsAt: at(day), endsAt: at(-day) })).status, 400);
+  const now = (await call(owner, 'POST', '/manage/announcements', { title: 'Quizzes are here', body: 'Try one.', endsAt: at(day) })).json.id;
+  await call(owner, 'POST', '/manage/announcements', { title: 'Later', startsAt: at(day), endsAt: at(2 * day) });
+  await call(owner, 'POST', '/manage/announcements', { title: 'Over', startsAt: at(-3 * day), endsAt: at(-day) });
+
+  assert.deepEqual((await call(null, 'GET', '/announcements')).json.map((n) => n.title), ['Quizzes are here'], 'only what is on now, and to anyone');
+  assert.equal((await call(owner, 'GET', '/manage/announcements')).json.length, 3);
+  assert.equal((await call(owner, 'DELETE', `/manage/announcements/${now}`)).status, 204);
+  assert.deepEqual((await call(null, 'GET', '/announcements')).json, []);
+});
+
+test('the admin sees real counts of what people did with the practice content', async () => {
+  await call(ada, 'POST', `/practice/quizzes/${QUIZ}/attempts`, { answers: RIGHT });
+  await call(grace, 'POST', `/practice/quizzes/${QUIZ}/attempts`, { answers: { ...RIGHT, q1: ['a'], q2: ['false'] } });
+  await call(ada, 'PUT', '/practice/submissions/lld/atm', WORK);
+  const stats = (await call(owner, 'GET', '/manage/practice/stats')).json;
+  const quiz = stats.quizzes.find((q) => q.slug === QUIZ);
+  assert.deepEqual([quiz.tries, quiz.people, quiz.average], [2, 2, 80]);
+  assert.equal(stats.quizzes.find((q) => q.slug === 'http-caching').average, null, 'no tries, no average');
+  assert.deepEqual(stats.submissions, { draft: 1 });
+  assert.equal(stats.content.challenges, 10);
+  assert.equal((await call(grace, 'GET', '/manage/practice/stats')).status, 403);
+});
+
+test("a discussion under a challenge is not among the curriculum's questions, and a reply to it leads to the challenge", async () => {
+  const now = new Date().toISOString();
+  const row = (id, user, name, parent, at) => env.DB.raw.prepare('INSERT INTO comments (id, path, user_id, display_name, text, parent_id, is_answer, hidden, created_at, mentions) VALUES (?, ?, ?, ?, ?, ?, 0, 0, ?, ?)')
+    .run(id, 'challenge:lld/parking-lot', user, name, `text of ${id}`, parent, at, '[]');
+  row('c1', 'user-ada@example.com', 'Ada Lovelace', '', now);
+  row('c2', 'user-grace@example.com', 'Grace Hopper', 'c1', new Date(Date.now() + 1000).toISOString());
+  assert.deepEqual((await call(null, 'GET', '/comments/questions')).json, []);
+  const item = (await call(ada, 'GET', '/comments/activity')).json.items[0];
+  assert.deepEqual([item.kind, item.title, item.slug], ['reply', 'Parking Lot', 'lld/parking-lot']);
+});

@@ -1,0 +1,24 @@
+{
+  "title": "Databases and indexes",
+  "topic": "databases",
+  "difficulty": "beginner",
+  "module": "backend/04-databases-and-data-layer/03-schema-design-and-indexing/README.md",
+  "questions": [
+    {
+      "q": "How does a B-tree index speed up a query?",
+      "a": "It keeps keys in sorted order in a balanced tree, so the database finds a value or a range in logarithmic steps instead of reading every row."
+    },
+    {
+      "q": "What is a covering index?",
+      "a": "An index that contains every column a query needs, so the database can answer from the index without reading the table rows."
+    },
+    {
+      "q": "Why might a query ignore an index?",
+      "a": "The predicate cannot use it (a function on the column, a leading wildcard), the table is small enough that a scan is cheaper, the planner expects most rows to match, or statistics are stale."
+    },
+    {
+      "q": "What is the cost of too many indexes?",
+      "a": "Every write maintains each index, so inserts and updates slow down, and indexes take memory and disk. Index for the queries you actually run."
+    }
+  ]
+}

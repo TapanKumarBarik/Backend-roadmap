@@ -1,0 +1,14 @@
+{
+  "title": "Rate limit a login endpoint",
+  "topic": "security",
+  "difficulty": "intermediate",
+  "module": "backend/09-security-deep-dive/04-rate-limiting-and-abuse-prevention/README.md",
+  "brief": "Attackers are trying thousands of passwords against `POST /login`. Add rate limiting without locking out the legitimate user who mistypes twice.",
+  "deliverables": [
+    "What you count and by which key (IP address, account, both) and why",
+    "The algorithm (fixed window, sliding window or token bucket) and its numbers",
+    "The response when the limit is hit, including the headers a client can use",
+    "How a shared store keeps the count right across several servers",
+    "How you avoid letting an attacker lock a victim out on purpose"
+  ]
+}

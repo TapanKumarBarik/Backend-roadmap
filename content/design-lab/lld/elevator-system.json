@@ -1,0 +1,32 @@
+{
+  "title": "Elevator System",
+  "kind": "lld",
+  "summary": "Several lifts serve requests from floors and from inside the cars.",
+  "module": "lld/12-parking-lot-and-elevator/README.md",
+  "problem": "Design the control software of a building with several elevators. People press up or down on a floor, then choose a destination inside the car.",
+  "functional": [
+    "Handle a hall call (floor, direction) and a car call (destination floor)",
+    "Choose which elevator answers a hall call",
+    "Each elevator moves, stops at requested floors and opens its doors",
+    "Support an out-of-service elevator"
+  ],
+  "nonFunctional": [
+    "Requests should be served with low waiting time and without starving a floor",
+    "A scheduling change must not require changing the elevator class"
+  ],
+  "constraints": [
+    "10 elevators, 40 floors",
+    "A single controller process"
+  ],
+  "deliverables": [
+    "A class diagram (Mermaid or an uploaded image) with the relationships between classes",
+    "The responsibility of each class in a sentence",
+    "The design patterns you used and where, or why you used none",
+    "Optional: code for the central class and one method of each"
+  ],
+  "hints": [
+    "An elevator is a small state machine: idle, moving up, moving down, doors open.",
+    "The scheduler that picks an elevator is the part most likely to change: make it replaceable."
+  ],
+  "reference": "### Classes\n`ElevatorController` (receives hall calls), `Elevator` (state, current floor, a sorted set of stops), `Request`, `Direction`, `Door`, `DispatchStrategy`.\n\n```mermaid\nstateDiagram-v2\n  [*] --> Idle\n  Idle --> MovingUp: stop above\n  Idle --> MovingDown: stop below\n  MovingUp --> DoorsOpen: reached a stop\n  MovingDown --> DoorsOpen: reached a stop\n  DoorsOpen --> Idle: no more stops\n  DoorsOpen --> MovingUp: stops above\n  DoorsOpen --> MovingDown: stops below\n```\n\n### Why it works\n- `DispatchStrategy` (nearest car, least loaded, SCAN-style) is a strategy chosen by the controller, so scheduling changes are isolated.\n- Each elevator keeps up-stops and down-stops and serves the current direction first (the \"elevator algorithm\"), which avoids starvation.\n- State is explicit, so out-of-service is a state that dispatch skips.\n- Hall calls go to the controller; car calls go straight to the elevator."
+}

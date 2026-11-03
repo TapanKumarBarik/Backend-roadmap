@@ -15,6 +15,7 @@ import admin from './routes/admin.js';
 import content from './routes/content.js';
 import blogs from './routes/blogs.js';
 import assistant from './routes/assistant.js';
+import practice from './routes/practice.js';
 
 const app = createRouter();
 
@@ -28,6 +29,7 @@ app.route('/api', admin);
 app.route('/api', content);
 app.route('/api', blogs);
 app.route('/api', assistant);
+app.route('/api', practice);
 
 app.notFound((c) => c.json({ error: 'not found' }, 404));
 app.onError((err, c) => {

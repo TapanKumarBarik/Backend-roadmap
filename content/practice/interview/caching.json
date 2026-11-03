@@ -1,0 +1,24 @@
+{
+  "title": "Caching",
+  "topic": "performance",
+  "difficulty": "intermediate",
+  "module": "backend/05-caching-and-performance/01-caching-strategies/README.md",
+  "questions": [
+    {
+      "q": "Explain cache-aside and when you would use it.",
+      "a": "The application checks the cache first, and on a miss reads the database and fills the cache. It is simple, tolerates cache failure, and suits read-heavy data that can be briefly stale."
+    },
+    {
+      "q": "What is a cache stampede and how do you prevent it?",
+      "a": "When a popular entry expires, many requests miss at once and all hit the database. Prevent it with request coalescing (one rebuild, the rest wait), jittered expiry times, or refreshing early in the background."
+    },
+    {
+      "q": "How do you invalidate a cache correctly?",
+      "a": "Prefer short TTLs plus explicit invalidation on write. Delete the key after the database write commits. Accept that some staleness is unavoidable and decide how much the data can tolerate."
+    },
+    {
+      "q": "When is caching the wrong answer?",
+      "a": "When the data must always be current, when the hit rate would be low, or when the slow query should be fixed instead (an index, a better query). A cache hides a problem and adds a consistency problem."
+    }
+  ]
+}
