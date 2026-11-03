@@ -29,7 +29,7 @@
 <main>
   <a class="back" href="/">&larr; Back to the curriculum</a>
   <h1>Privacy</h1>
-  <p class="updated">Last updated September 2026. This is a small, one-person project — this page says plainly what
+  <p class="updated">Last updated November 2026. This is a small, one-person project — this page says plainly what
   is actually collected and why, not a template.</p>
 
   <h2>If you never sign in</h2>
@@ -51,6 +51,23 @@
       who reacted</li>
     <li>Comments you post — these are <strong>public</strong>: your name and comment text are visible
       to every visitor, the same as any comment section</li>
+    <li><strong>Articles you write</strong> in the writing studio. A draft is visible only to you. A published
+      article is <strong>public</strong>: its text, pictures, topics and date, and the author name you chose, are
+      visible to every visitor and, once the site owner has approved it (or trusts you as an author), to search
+      engines. Readers see only how many people liked an article, never who</li>
+    <li><strong>Your author name and page.</strong> When you first publish you choose a display name and a handle
+      (the address of your page, <code>/authors/your-handle</code>), and may add a short bio and a website, and
+      choose to show your Google profile picture (off by default). Your e-mail address and Google account are
+      never shown</li>
+    <li><strong>Saved articles and reports.</strong> What you save is private. A report about an article goes
+      only to the admin</li>
+    <li><strong>Posts, book recommendations, ideas and questions</strong> you add in the community area, under
+      your name, and the votes you cast on them: public, like comments</li>
+    <li><strong>Workspace pages:</strong> private, visible only to you</li>
+    <li><strong>Quiz tries and design work.</strong> Your quiz answers and scores, and the exercises and design
+      challenges you write up (text, diagrams, code), are private to you and to the site's admin, who may read a
+      submission to review it. The review is shown to you. A solution is public only if you choose to share it,
+      and is then shown with your author name; you can take it back at any time</li>
     <li>Messages you send the site owner ("Message Tapan" in the account menu) — these are
       <strong>private</strong>, visible only to the admin, and include your name/email so a reply
       is possible</li>
@@ -62,12 +79,29 @@
   files you upload are stored in Azure Blob Storage (East US region). Nothing here is sold or shared with anyone outside this project, and there's
   no payment or billing data anywhere because nothing on this site costs money.</p>
 
+  <p>Pictures you add to an article, a post, a design submission or a workspace page are stored in Azure Blob
+  Storage and have a public address: anyone who has the link can open the picture. They are <strong>not
+  removed when you delete your account</strong> (they are no longer linked to you, and the file names are
+  random); write to the address below and I will remove one.</p>
+
+  <h2>The writing assistant</h2>
+  <p>When the site has it switched on, the writing studio shows an <strong>Assistant</strong> button. Only when
+  you press a button there, the text you selected, or the article's text, is sent to an AI service
+  (Cloudflare Workers AI or Anthropic, depending on how the site is set up) to get a suggestion back. Nothing
+  is sent otherwise, nothing it suggests is put in your article until you press the button under the
+  suggestion, and this site does not keep what was sent or what came back. The service handles it under its
+  own terms.</p>
+
   <h2>Deleting your data</h2>
   <p>Sign in, open the account menu (top right), and choose <strong>Delete account &amp; data</strong>.
-  That immediately and permanently deletes your progress, notes, bookmarks, streak, and reactions,
-  and scrubs your name from any comments you've posted (the comment text itself is replaced with
-  <code>[deleted]</code> rather than removed outright, so it doesn't break a reply thread someone
-  else is part of). You can also just email the address below and ask.</p>
+  That immediately and permanently deletes your progress, notes, bookmarks, streak, reactions, workspace
+  pages, votes, quiz tries, design submissions and the reviews of them, the record of your e-mail address,
+  name and picture, <strong>and the articles you wrote (drafts and published), your author page, and your
+  likes and saves</strong>. Comments you posted keep their place in the thread but lose your name, and their
+  text is replaced with <code>[deleted]</code>, so a reply thread someone else is part of doesn't break. Posts,
+  book recommendations and ideas stay, under &ldquo;[deleted user]&rdquo;. Messages you sent the owner and the
+  page-view log are anonymized. Pictures you uploaded are not removed (see above). You can also just email
+  the address below and ask.</p>
 
   <h2>Contact</h2>
   <p>Questions, requests, or anything else about your data:
