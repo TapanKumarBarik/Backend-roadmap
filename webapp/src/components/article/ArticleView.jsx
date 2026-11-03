@@ -10,6 +10,7 @@ import { handleCopyClick, handleVideoClick } from '../../lib/markdown/contentCli
 import { ancestorsOf, buildPositions, placeName, siblingStats } from '../../lib/curriculum/curriculumPosition.js';
 import { getPosition, savePosition, clearPosition, describeWhen } from '../../lib/curriculum/readingPosition.js';
 import { enhanceSelfCheck, handleSelfCheckClick } from '../../lib/markdown/selfCheck.js';
+import { watchCodeOverflow } from '../../lib/markdown/codeOverflow.js';
 import { STORAGE, CONTENT } from '../../config/index.js';
 import { PATH_COPY } from '../../config/paths.js';
 import { readStored, writeStored } from '../../lib/storage.js';
@@ -73,6 +74,7 @@ export default function ArticleView({
     if (!root) { onTocChange([]); return; }
 
     enhanceContent(root);
+    const stopWatchingCode = watchCodeOverflow(root);
     rewriteLinks(root, path, fileSet, dirIndex);
     applyTabPreference(root);
     enhanceSelfCheck(root, path);
@@ -107,7 +109,10 @@ export default function ArticleView({
       if (el) setTimeout(() => el.scrollIntoView({ block: 'start' }), 30);
     }
 
-    return () => { if (observerRef.current) observerRef.current.disconnect(); };
+    return () => {
+      stopWatchingCode();
+      if (observerRef.current) observerRef.current.disconnect();
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [html, path]);
 

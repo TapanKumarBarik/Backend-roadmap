@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import { watchCodeOverflow } from '../../lib/markdown/codeOverflow.js';
 import { enhanceContent } from '../../lib/markdown/enhanceContent.js';
 import { renderMermaidDiagrams } from '../../lib/markdown/mermaidRender.js';
 import { handleCopyClick, handleVideoClick } from '../../lib/markdown/contentClicks.js';
@@ -21,10 +22,12 @@ export default function PostBody({ html, onHeadings, permalink, onToast }) {
     const root = ref.current;
     if (!root) return;
     enhanceContent(root);
+    const stopWatchingCode = watchCodeOverflow(root);
     renderMermaidDiagrams(root);
     if (onHeadings) {
       onHeadings([...root.querySelectorAll('h2, h3')].map((h) => ({ id: h.id, level: h.tagName, text: h.textContent.replace(/^#/, '').trim() })));
     }
+    return stopWatchingCode;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [html]);
 

@@ -316,3 +316,27 @@ test('reading options change the text size and width of a lesson, and are kept',
   assert.equal(await size(), before);
   await context.close();
 });
+
+test('a diagram a little wider than the column fits, and a much wider one scrolls and says so', async () => {
+  const lesson = 'backend/01-request-response-fundamentals/00-system-overview-and-request-flow/README.md';
+  const { context, page, goto } = await open(moduleUrl(lesson), { email: null, width: 1732, height: 900 });
+  await goto();
+  const diagram = page.locator('#content .codeblock pre', { hasText: 'handshake' }).first();
+  await diagram.waitFor();
+  const wrap = diagram.locator('xpath=..');
+  const wider = () => diagram.evaluate((el) => el.scrollWidth - el.clientWidth);
+
+  await page.waitForFunction(() => { const pre = [...document.querySelectorAll('#content .codeblock pre')].find((p) => p.textContent.includes('handshake')); return pre.scrollWidth <= pre.clientWidth + 1; });
+  assert.equal(await wrap.evaluate((el) => el.classList.contains('is-scrollable')), false, 'on a wide page the diagram is whole');
+
+  await page.setViewportSize({ width: 1000, height: 900 });
+  await page.waitForFunction(() => document.querySelector('#content .codeblock.is-scrollable'));
+  assert.ok(await wider() > 1, 'on a narrow page it is wider than its box');
+  assert.equal(await wrap.evaluate((el) => el.classList.contains('more-right') && !el.classList.contains('more-left')), true, 'the fade is on the right, where there is more');
+  assert.equal(await diagram.getAttribute('tabindex'), '0', 'and the keyboard can scroll it');
+  assert.equal(await diagram.getAttribute('role'), 'region');
+
+  await diagram.evaluate((el) => { el.scrollLeft = el.scrollWidth; });
+  await page.waitForFunction(() => { const w = document.querySelector('#content .codeblock.is-scrollable'); return w.classList.contains('more-left') && !w.classList.contains('more-right'); });
+  await context.close();
+});
