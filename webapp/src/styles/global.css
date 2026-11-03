@@ -2708,3 +2708,9 @@ li[data-checked="true"] > div {
 }
 /* Shown above a mermaid block whose source failed to parse (see lib/markdown/mermaidRender.js). */
 .mermaid-failed-note { margin: 18px 0 6px; font-size: 13px; color: var(--danger); }
+
+/* A notice from the admins, above every page (components/common/AnnouncementBar.jsx). */
+.notice-bar { display: flex; align-items: center; justify-content: center; gap: var(--space-3); padding: var(--space-2) var(--space-4); background: var(--accent-subtle); border-bottom: 1px solid var(--border); font-size: var(--text-sm); color: var(--fg); }
+.notice-bar p { margin: 0; text-align: center; }
+.notice-bar__close { flex: none; border: 0; background: transparent; color: var(--fg-muted); font-size: 20px; line-height: 1; padding: 0 var(--space-2); cursor: pointer; border-radius: var(--r-sm); }
+.notice-bar__close:hover { color: var(--fg); }

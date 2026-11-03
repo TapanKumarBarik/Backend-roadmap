@@ -1,0 +1,103 @@
+/* The Practice Center, the Design Lab, My Learning and learning paths (components/practice, lab, me, paths). One stylesheet, loaded with
+   those screens. Colours, type and spacing are the design tokens (tokens.css); the screens sit in #empty, so the few rules that
+   need to beat its ID selectors say #root. */
+
+.pr-screen { max-width: 860px; }
+#root .pr-screen h3 { font-size: var(--text-lg); margin: var(--space-8) 0 var(--space-3); }
+#root .pr-screen .pr-card__title, #root .pr-screen .pr-qa h3 { margin: var(--space-2) 0 var(--space-1); font-size: var(--text-lg); }
+.pr-lead { font-size: var(--text-md); line-height: var(--leading-normal); color: var(--fg); max-width: 62ch; }
+.pr-note { color: var(--fg-muted); font-size: var(--text-sm); margin: var(--space-2) 0; }
+.pr-list { margin: 0; padding-left: 1.2em; display: grid; gap: var(--space-2); line-height: var(--leading-normal); }
+
+.pr-filters { display: flex; flex-wrap: wrap; gap: var(--space-2); margin: var(--space-3) 0; }
+.pr-cards { list-style: none; margin: var(--space-4) 0 0; padding: 0; display: grid; gap: var(--space-3); grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr)); }
+.pr-card { padding: var(--space-4) var(--space-5); height: 100%; box-sizing: border-box; }
+.pr-card__meta { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); font-size: var(--text-sm); color: var(--fg-subtle); margin: 0; }
+.pr-card__title a { color: var(--fg); text-decoration: none; }
+.pr-card__title a:hover { text-decoration: underline; text-underline-offset: 3px; }
+#root .pr-card__text { margin: 0; font-size: var(--text-sm); color: var(--fg-muted); line-height: var(--leading-normal); }
+.pr-badge { display: inline-block; padding: 1px 8px; border: 1px solid var(--border); border-radius: var(--r-pill); font-size: var(--text-2xs); font-weight: var(--weight-semibold); letter-spacing: .05em; text-transform: uppercase; color: var(--fg-muted); }
+.pr-best { color: var(--signal); font-weight: var(--weight-semibold); }
+
+/* A quiz */
+.pr-questions { list-style: none; margin: var(--space-6) 0; padding: 0; display: grid; gap: var(--space-6); }
+.pr-questions fieldset { border: 0; margin: 0; padding: 0; min-width: 0; }
+.pr-questions legend { padding: 0; font-weight: var(--weight-semibold); font-size: var(--text-md); line-height: var(--leading-snug); margin-bottom: var(--space-3); }
+.pr-questions legend em { font-weight: 400; font-style: normal; color: var(--fg-muted); font-size: var(--text-sm); }
+.pr-qn { color: var(--fg-subtle); }
+.pr-option { display: flex; align-items: flex-start; gap: var(--space-3); padding: var(--space-3) var(--space-4); margin-bottom: var(--space-2); border: 1px solid var(--border); border-radius: var(--r-md); cursor: pointer; background: var(--bg); }
+.pr-option:hover { border-color: var(--fg-subtle); }
+.pr-option input { margin-top: 4px; flex: none; }
+.pr-option:has(input:checked) { border-color: var(--fg); background: var(--hover); }
+.pr-option.is-answer { border-color: var(--done); background: color-mix(in srgb, var(--done) 12%, var(--bg)); }
+.pr-option.is-miss { border-color: var(--danger); background: color-mix(in srgb, var(--danger) 10%, var(--bg)); }
+.pr-mark { margin-left: auto; font-size: var(--text-xs); font-weight: var(--weight-semibold); color: var(--done); white-space: nowrap; }
+.pr-explain { margin: var(--space-3) 0 0; padding: var(--space-3) var(--space-4); border-left: 3px solid var(--signal); background: var(--signal-bg); border-radius: 0 var(--r-sm) var(--r-sm) 0; font-size: var(--text-sm); line-height: var(--leading-normal); }
+.pr-score { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-2) var(--space-4); margin: var(--space-5) 0; padding: var(--space-4) var(--space-5); border: 1px solid var(--border); border-radius: var(--r-md); background: var(--bg-raised); font-size: var(--text-lg); }
+.pr-score span { font-size: var(--text-sm); color: var(--fg-muted); }
+.pr-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); margin-top: var(--space-5); }
+.pr-qa { list-style: none; padding: 0; margin: var(--space-4) 0; display: grid; gap: var(--space-5); }
+
+/* The workspace for an exercise or a design challenge */
+.pr-workspace { display: grid; gap: var(--space-5); padding: var(--space-5); border: 1px solid var(--border); border-radius: var(--r-lg); background: var(--bg-raised); }
+.pr-workspace__bar { display: flex; align-items: center; gap: var(--space-3); }
+.pr-status { font-size: var(--text-sm); color: var(--fg-muted); }
+.pr-status.is-unsaved, .pr-status.is-saving { color: var(--signal); }
+.pr-status.is-error { color: var(--danger); }
+.pr-field { display: grid; gap: var(--space-1); }
+.pr-field__label { font-weight: var(--weight-semibold); font-size: var(--text-sm); }
+.pr-field__help { font-size: var(--text-xs); color: var(--fg-subtle); }
+.pr-field textarea { width: 100%; box-sizing: border-box; padding: var(--space-3); border: 1px solid var(--border-strong); border-radius: var(--r-md); background: var(--bg); color: var(--fg); font: inherit; font-size: var(--text-sm); line-height: var(--leading-normal); resize: vertical; }
+.pr-mono, .pr-field textarea.pr-mono { font-family: var(--mono); font-size: 13px; }
+.pr-diagram { min-height: 0; overflow-x: auto; }
+.pr-diagram:not(:empty) { padding: var(--space-3); border: 1px dashed var(--border); border-radius: var(--r-md); background: var(--bg); }
+.pr-upload { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); }
+.pr-file input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+.pr-file:focus-within { outline: 2px solid var(--signal); outline-offset: 2px; }
+.pr-upload__img { max-width: 100%; max-height: 320px; border: 1px solid var(--border); border-radius: var(--r-md); background: #fff; }
+.pr-check { display: flex; gap: var(--space-3); align-items: flex-start; }
+.pr-check small { display: block; color: var(--fg-muted); }
+.pr-reviews blockquote { margin: var(--space-2) 0; padding: var(--space-3) var(--space-4); border-left: 3px solid var(--signal); background: var(--signal-bg); border-radius: 0 var(--r-sm) var(--r-sm) 0; }
+.pr-reviews blockquote p { margin: 0 0 var(--space-1); }
+.pr-reviews footer { font-size: var(--text-xs); color: var(--fg-subtle); }
+
+/* A challenge */
+.pr-spec h3 { margin-top: var(--space-6); }
+.pr-hints { margin: var(--space-5) 0; }
+.pr-hints summary { cursor: pointer; font-weight: var(--weight-semibold); }
+.pr-reference { margin-top: var(--space-8); }
+.pr-shared { list-style: none; padding: 0; margin: 0; display: grid; gap: var(--space-3); }
+.pr-shared__item { padding: var(--space-4) var(--space-5); }
+.pr-pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: var(--text-sm); line-height: var(--leading-normal); }
+.pr-code { overflow-x: auto; padding: var(--space-3); background: var(--bg-sunken); border-radius: var(--r-md); font-size: 13px; }
+
+/* My learning */
+.me-grid { display: grid; gap: var(--space-4); grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr)); margin: var(--space-5) 0; }
+.me-stat { padding: var(--space-4) var(--space-5); }
+.me-stat strong { display: block; font-size: var(--text-3xl); font-variant-numeric: tabular-nums; line-height: 1; }
+.me-stat span { font-size: var(--text-sm); color: var(--fg-muted); }
+.me-list { list-style: none; margin: 0; padding: 0; }
+.me-list li { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-1) var(--space-3); padding: var(--space-2) 0; border-bottom: 1px solid var(--border-subtle); }
+.me-list a, .me-list button.link { color: var(--fg); text-decoration: none; background: none; border: 0; padding: 0; font: inherit; cursor: pointer; text-align: left; }
+.me-list a:hover, .me-list button.link:hover { text-decoration: underline; }
+.me-list small { color: var(--fg-subtle); margin-left: auto; font-variant-numeric: tabular-nums; }
+
+/* Learning paths */
+.path-meta { display: flex; flex-wrap: wrap; gap: var(--space-2) var(--space-4); color: var(--fg-muted); font-size: var(--text-sm); margin: var(--space-2) 0 var(--space-4); }
+.path-steps { list-style: none; padding: 0; margin: var(--space-4) 0; display: grid; gap: var(--space-4); }
+.path-steps > li { padding: var(--space-4) var(--space-5); border: 1px solid var(--border); border-radius: var(--r-md); background: var(--bg-raised); }
+.path-steps h3 { margin: 0 0 var(--space-2); }
+.path-modules { list-style: none; padding: 0; margin: 0; display: grid; gap: 2px; }
+.path-modules li { display: flex; gap: var(--space-3); align-items: baseline; font-size: var(--text-sm); }
+.path-modules a { color: var(--fg); text-decoration: none; }
+.path-modules a:hover { text-decoration: underline; }
+.path-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--border-strong); flex: none; align-self: center; }
+.path-dot[data-s="done"] { background: var(--done); }
+.path-dot[data-s="wip"] { background: var(--wip); }
+
+/* The notice bar */
+.notice-bar { display: flex; align-items: flex-start; gap: var(--space-3); padding: var(--space-2) var(--space-4); background: var(--signal-bg); border-bottom: 1px solid var(--signal-line); font-size: var(--text-sm); }
+.notice-bar p { margin: 0; flex: 1; }
+
+/* The second heading on Explore (Topics, under the learning paths). */
+#root .pr-subhead { margin-top: var(--space-10); }

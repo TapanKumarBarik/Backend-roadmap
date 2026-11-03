@@ -102,6 +102,24 @@ export async function checkSite(base, { fetchImpl = fetch } = {}) {
     }
   }
 
+  // So do the Practice Center and the admins' notices (migration 0003): the notices are read on every page, and a forgotten migration
+  // would otherwise only show as a silent gap.
+  const notices = await get('/api/announcements');
+  if (notices) {
+    expect(notices.status === 200, `/api/announcements answered ${notices.status} (was the database migration applied? npm run db:migrate:remote)`);
+    if (notices.status === 200) {
+      try {
+        expect(Array.isArray(await notices.json()), '/api/announcements did not return a list');
+      } catch {
+        problems.push('/api/announcements is not JSON');
+      }
+    }
+  }
+  const practice = await get('/api/practice/catalog');
+  if (practice) {
+    expect(practice.status === 200, `/api/practice/catalog answered ${practice.status} (is api/generated/practice-content.json deployed?)`);
+  }
+
   // The community's pages are drawn by Functions when they are asked for (api/pages/blogPages.js), not served from files.
   // A deploy that lost the Functions, the routes file (_routes.json) or the shell copy (app-shell.html) would answer these
   // with the home page or a 404.

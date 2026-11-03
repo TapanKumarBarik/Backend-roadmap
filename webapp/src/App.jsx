@@ -19,6 +19,7 @@ import { useVideos } from './hooks/useVideos.js';
 import { STORAGE, SITE } from './config/index.js';
 import { LEARNING_PATHS, PATH_COPY } from './config/paths.js';
 import { COMMUNITY, COMMUNITY_HOME, communityTab, tabRoute } from './config/community.js';
+import { PRACTICE_ROUTE, LAB_ROUTE, ME_ROUTE, PATH_ROUTE } from './config/practice.js';
 import { readStored, writeStored } from './lib/storage.js';
 import { useLanding } from './hooks/useLanding.js';
 import { useCommentActivity } from './hooks/useCommentActivity.js';
@@ -37,6 +38,7 @@ import TopBar from './components/layout/TopBar.jsx';
 import Sidebar from './components/layout/Sidebar.jsx';
 import DestinationRail from './components/layout/DestinationRail.jsx';
 import CommunityHub from './components/community/CommunityHub.jsx';
+import AnnouncementBar from './components/common/AnnouncementBar.jsx';
 import { CaretIcon } from './components/common/icons.jsx';
 import MainColumn from './components/layout/MainColumn.jsx';
 import RightRail from './components/layout/RightRail.jsx';
@@ -65,6 +67,10 @@ const smallScreens = {
   article: () => import('./components/blog/PostView.jsx'),
   author: () => import('./components/blog/AuthorView.jsx'),
   videos: () => import('./components/videos/VideosView.jsx'),
+  practice: () => import('./components/practice/PracticeView.jsx'),
+  lab: () => import('./components/lab/LabView.jsx'),
+  me: () => import('./components/me/MyLearningView.jsx'),
+  path: () => import('./components/paths/PathView.jsx'),
   message: () => import('./components/account/MessageOwnerModal.jsx')
 };
 const AdminDashboard = lazy(() => import('./components/admin/AdminDashboard.jsx'));
@@ -81,6 +87,10 @@ const AuthorView = lazy(smallScreens.author);
 // The studio is a heavier screen (an editor), opened on purpose and by few, so it is fetched only when opened.
 const StudioView = lazy(() => import('./components/studio/StudioView.jsx'));
 const VideosView = lazy(smallScreens.videos);
+const PracticeView = lazy(smallScreens.practice);
+const LabView = lazy(smallScreens.lab);
+const MyLearningView = lazy(smallScreens.me);
+const PathView = lazy(smallScreens.path);
 const DesignView = lazy(() => import('./components/design/DesignView.jsx'));
 const MessageOwnerModal = lazy(smallScreens.message);
 // Lazy: Tiptap/ProseMirror alone added ~600KB to the main bundle for a
@@ -173,12 +183,16 @@ export default function App() {
   const isWorkspaceRoute = path === WORKSPACE_ROUTE;
   const isVideosRoute = path === VIDEOS_ROUTE;
   const isDesignRoute = path === DESIGN_ROUTE;
+  const isPracticeRoute = path === PRACTICE_ROUTE;
+  const isLabRoute = path === LAB_ROUTE;
+  const isMeRoute = path === ME_ROUTE;
+  const isPathRoute = path === PATH_ROUTE;
   // The community's articles have addresses of their own (/blog/<slug>, lib/appPages.js) and set their own page title.
   const isBlogRoute = path === BLOG_ROUTE;
   const isAuthorRoute = path === AUTHOR_ROUTE;
   const isWriteRoute = path === WRITE_ROUTE;
   const isPageRoute = isBlogRoute || isAuthorRoute || isWriteRoute;
-  const isSpecialRoute = isAdminRoute || isSavedRoute || isExploreRoute || isCommunityRoute || isWorkspaceRoute || isVideosRoute || isDesignRoute || isPageRoute;
+  const isSpecialRoute = isAdminRoute || isSavedRoute || isExploreRoute || isCommunityRoute || isWorkspaceRoute || isVideosRoute || isDesignRoute || isPracticeRoute || isLabRoute || isMeRoute || isPathRoute || isPageRoute;
   const currentFile = !isSpecialRoute && path && fileSet.has(path) ? path : null;
 
   useEffect(() => {
@@ -389,6 +403,11 @@ export default function App() {
   const openFeedPost = useCallback((postId) => navigate(FEED_ROUTE, postId), [navigate]);
   const openWorkspace = useCallback(() => navigate(WORKSPACE_ROUTE), [navigate]);
   const openVideos = useCallback(() => navigate(VIDEOS_ROUTE), [navigate]);
+  const openPractice = useCallback((item) => navigate(PRACTICE_ROUTE, typeof item === 'string' ? item : null), [navigate]);
+  const openLab = useCallback((item) => navigate(LAB_ROUTE, typeof item === 'string' ? item : null), [navigate]);
+  const openMe = useCallback(() => navigate(ME_ROUTE), [navigate]);
+  const openPathPage = useCallback((id) => navigate(PATH_ROUTE, id), [navigate]);
+  const choosePath = useCallback(() => { setChoosingPath(true); goHome(); }, [goHome]);
   const openBlogs = useCallback(() => navigate(BLOG_ROUTE), [navigate]);
   const openPost = useCallback((slug) => navigate(BLOG_ROUTE, slug), [navigate]);
   const openAuthor = useCallback((handle) => navigate(AUTHOR_ROUTE, handle), [navigate]);
@@ -404,8 +423,9 @@ export default function App() {
     const target = activityTarget(item);
     if (target.type === 'article') openPost(target.slug);
     else if (target.type === 'post') openFeedPost(target.id);
+    else if (target.type === 'challenge') openLab(target.key);
     else openFile(target.path, target.anchor);
-  }, [openPost, openFeedPost, openFile]);
+  }, [openPost, openFeedPost, openLab, openFile]);
 
   // Two of the three theme states render identically on any given OS, so a
   // press can legitimately change nothing on screen — say which mode it
@@ -427,7 +447,10 @@ export default function App() {
     const list = [
       { label: 'Continue learning', keywords: 'resume next module', hint: 'where you left off', run: () => (continueFile ? openFile(continueFile) : goHome()) },
       { label: activePath ? 'Switch learning path' : 'Pick a learning path', keywords: 'path route goal roadmap track plan', run: () => { setChoosingPath(true); goHome(); } },
-      { label: 'Explore by tag', keywords: 'tags browse subject', run: () => navigate(EXPLORE_ROUTE) },
+      { label: 'Explore paths and tags', keywords: 'tags browse subject paths roadmap', run: () => navigate(EXPLORE_ROUTE) },
+      { label: 'Practice — quizzes, exercises, interview prep', keywords: 'quiz test exercise interview questions practise', run: () => navigate(PRACTICE_ROUTE) },
+      { label: 'Design Lab — low-level and high-level design', keywords: 'lld hld system design architecture challenge', run: () => navigate(LAB_ROUTE) },
+      { label: 'My Learning', keywords: 'progress dashboard attempts submissions activity', run: () => navigate(ME_ROUTE) },
       ...(videoData ? [{ label: 'Watch the videos', keywords: 'videos youtube lectures watch course channel', run: () => navigate(VIDEOS_ROUTE) }] : []),
       { label: 'Blogs', keywords: 'articles posts community writing read', run: () => navigate(BLOG_ROUTE) },
       ...COMMUNITY.tabs.map((tab) => ({ label: `${COMMUNITY.title} — ${tab.label.toLowerCase()}`, keywords: tab.words, run: () => navigate(tab.route) })),
@@ -463,6 +486,7 @@ export default function App() {
     <>
       {/* Focuses the page instead of following "#main": in this app a hash is a route, and "#main" would leave the screen. */}
       <a href="#main" className="skip-link" onClick={(e) => { e.preventDefault(); document.getElementById('main')?.focus(); }}>Skip to content</a>
+      <AnnouncementBar />
       <TopBar
         counts={counts}
         pathProgress={pathStats && { ...pathStats, title: activePath.title }}
@@ -490,7 +514,7 @@ export default function App() {
       />
       <div id="shell">
         <DestinationRail
-          activeDest={isSavedRoute ? SAVED_ROUTE : isCommunityRoute ? COMMUNITY_HOME : isPageRoute ? BLOG_ROUTE : (isSpecialRoute ? path : null)}
+          activeDest={isSavedRoute ? SAVED_ROUTE : isPathRoute ? EXPLORE_ROUTE : isCommunityRoute ? COMMUNITY_HOME : isPageRoute ? BLOG_ROUTE : (isSpecialRoute ? path : null)}
           user={user}
           isAdmin={!!user?.isAdmin}
           onOpenCurriculum={handleGoHome}
@@ -500,6 +524,9 @@ export default function App() {
           onOpenCommunity={openCommunity}
           onOpenWorkspace={openWorkspace}
           onOpenVideos={openVideos}
+          onOpenPractice={openPractice}
+          onOpenLab={openLab}
+          onOpenMe={openMe}
           hasVideos={!!videoData}
           onOpenAdmin={openAdmin}
           communityBadge={communityActivity.questions.badgeVisible || communityActivity.posts.badgeVisible}
@@ -545,7 +572,7 @@ export default function App() {
         {isSpecialRoute
           ? (
             <div id="mainCol">
-              <main id="main" className="scroll screen-enter" tabIndex={-1} key={hubTab ? 'community' : `${path}@${heading || ''}`}>
+              <main id="main" className="scroll screen-enter" tabIndex={-1} key={hubTab ? 'community' : (isPracticeRoute || isLabRoute) ? path : `${path}@${heading || ''}`}>
                 <ScreenBoundary>
                 <Suspense fallback={<ScreenLoading />}>
                 {authLoading ? <ScreenLoading /> : (<>
@@ -565,7 +592,45 @@ export default function App() {
                     initialTab={path === NOTES_ROUTE ? 'notes' : 'bookmarks'}
                   />
                 )}
-                {isExploreRoute && <ExploreView allTags={tags} onOpenPalette={openPalette} />}
+                {isExploreRoute && <ExploreView allTags={tags} onOpenPalette={openPalette} paths={paths} statusMap={statusMap} nodeByFile={nodeByFile} activeId={activePath?.id} onOpenPath={openPathPage} />}
+                {isPathRoute && (
+                  <PathView
+                    id={heading}
+                    paths={paths}
+                    statusMap={statusMap}
+                    nodeByFile={nodeByFile}
+                    activeId={activePath?.id}
+                    onBack={openExplore}
+                    onOpenFile={openFile}
+                    onStart={startPath}
+                    onOpenQuiz={(slug) => openPractice(`quiz/${slug}`)}
+                    onOpenChallenge={openLab}
+                    onOpenPath={openPathPage}
+                  />
+                )}
+                {isPracticeRoute && <PracticeView item={heading} onOpenItem={openPractice} onOpenFile={openFile} user={user} onLogin={login} onToast={toast.show} nodeByFile={nodeByFile} />}
+                {isLabRoute && <LabView item={heading} onOpenItem={openLab} onOpenFile={openFile} user={user} onLogin={login} onToast={toast.show} nodeByFile={nodeByFile} />}
+                {isMeRoute && (
+                  <MyLearningView
+                    user={user}
+                    onLogin={login}
+                    counts={counts}
+                    statusMap={statusMap}
+                    timeMap={timeMap}
+                    activePath={activePath}
+                    bookmarks={bookmarks}
+                    nodeByFile={nodeByFile}
+                    flatFiles={flatFiles}
+                    activity={activity}
+                    onOpenFile={openFile}
+                    onOpenPath={openPathPage}
+                    onOpenPractice={openPractice}
+                    onOpenLab={openLab}
+                    onOpenActivity={openActivity}
+                    onOpenSaved={openSaved}
+                    onOpenPaths={choosePath}
+                  />
+                )}
                 {hubTab && (
                   <CommunityHub active={hubTab.id} onOpen={openCommunityTab} activity={communityActivity}>
                     {{

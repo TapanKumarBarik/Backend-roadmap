@@ -23,7 +23,9 @@ async function serve(broken = new Set()) {
     // Broken: the app's plain shell, as an address with no Function behind it would answer (it has the policy, nothing else).
     '/blog/': () => [broken.has('pages') ? '<div id="root"></div>' : '<link rel="canonical" href="https://example.com/blog/"><div id="root"></div>', { 'content-type': 'text/html', 'content-security-policy': "default-src 'self'" }],
     '/sitemap-blogs.xml': () => (broken.has('blogSitemap') ? ['not found', { 'content-type': 'text/plain' }, 404] : ['<urlset></urlset>', { 'content-type': 'application/xml' }]),
-    '/api/blogs?limit=1': () => (broken.has('blogs') ? ['no such table: blog_posts', { 'content-type': 'text/plain' }, 500] : [JSON.stringify({ posts: [], next: null }), { 'content-type': 'application/json' }])
+    '/api/blogs?limit=1': () => (broken.has('blogs') ? ['no such table: blog_posts', { 'content-type': 'text/plain' }, 500] : [JSON.stringify({ posts: [], next: null }), { 'content-type': 'application/json' }]),
+    '/api/announcements': () => (broken.has('notices') ? ['no such table: announcements', { 'content-type': 'text/plain' }, 500] : ['[]', { 'content-type': 'application/json' }]),
+    '/api/practice/catalog': () => (broken.has('practice') ? ['not found', { 'content-type': 'text/plain' }, 404] : [JSON.stringify({ quizzes: [] }), { 'content-type': 'application/json' }])
   };
   const server = http.createServer((req, res) => {
     const route = routes[req.url];
@@ -51,7 +53,9 @@ test('each way a deploy can go wrong is reported by name', async () => {
     ['api', /\/api\/auth\/me answered 500/],
     ['pages', /\/blog\/ is not drawn by the server/],
     ['blogSitemap', /sitemap-blogs\.xml answered 404/],
-    ['blogs', /\/api\/blogs answered 500 \(was the database migration applied\?/]
+    ['blogs', /\/api\/blogs answered 500 \(was the database migration applied\?/],
+    ['notices', /\/api\/announcements answered 500 \(was the database migration applied\?/],
+    ['practice', /\/api\/practice\/catalog answered 404/]
   ];
   for (const [what, expected] of cases) {
     const site = await serve(new Set([what]));

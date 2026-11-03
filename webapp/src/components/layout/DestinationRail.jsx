@@ -1,7 +1,8 @@
 import { useState } from 'react';
-import { TreeIcon, StarIcon, CompassIcon, CommunityIcon, WorkspaceIcon, GearIcon, YoutubeIcon, MenuDotsIcon, ArticleIcon } from '../common/icons.jsx';
+import { TreeIcon, StarIcon, CompassIcon, CommunityIcon, WorkspaceIcon, GearIcon, YoutubeIcon, MenuDotsIcon, ArticleIcon, PracticeIcon, LabIcon, MyLearningIcon } from '../common/icons.jsx';
 import { useMediaQuery } from '../../hooks/useMediaQuery.js';
 import { COMMUNITY_HOME } from '../../config/community.js';
+import { PRACTICE_ROUTE, LAB_ROUTE, ME_ROUTE } from '../../config/practice.js';
 import { Dialog } from '../ui/Dialog.jsx';
 
 // The permanent left edge: where you can go, not what's in the thing
@@ -25,7 +26,7 @@ const GROUPS = [
 
 export default function DestinationRail({
   activeDest, user, isAdmin,
-  onOpenCurriculum, onOpenExplore, onOpenVideos, onOpenSaved, onOpenBlogs, onOpenCommunity, onOpenWorkspace, onOpenAdmin,
+  onOpenCurriculum, onOpenExplore, onOpenVideos, onOpenPractice, onOpenLab, onOpenMe, onOpenSaved, onOpenBlogs, onOpenCommunity, onOpenWorkspace, onOpenAdmin,
   hasVideos, communityBadge
 }) {
   const phone = useMediaQuery('(max-width: 860px)');
@@ -37,12 +38,16 @@ export default function DestinationRail({
     { key: '__explore', label: 'Explore', Icon: CompassIcon, onClick: onOpenExplore, group: 'learn', primary: true },
     // The channel's videos; shown once there are some (content/videos.json).
     { key: '__videos', label: 'Videos', Icon: YoutubeIcon, onClick: onOpenVideos, group: 'learn', primary: true, show: !!hasVideos },
+    // Practice and the Design Lab are places to do the work, not to read it; they sit in the phone's "More" sheet.
+    { key: PRACTICE_ROUTE, label: 'Practice', Icon: PracticeIcon, onClick: onOpenPractice, group: 'learn' },
+    { key: LAB_ROUTE, label: 'Design Lab', Icon: LabIcon, onClick: onOpenLab, group: 'learn' },
     // The community's articles, and the community itself. Community carries the "something's new" dot — someone else's post,
     // or someone else's question, is something that happens without you (same pattern as the account menu's reply badge,
     // see useCommunityActivity). The other destinations are just views onto your own state; there's nothing there to be
     // notified of.
     { key: '__blog', label: 'Blogs', Icon: ArticleIcon, onClick: onOpenBlogs, group: 'community', primary: true },
     { key: COMMUNITY_HOME, label: 'Community', Icon: CommunityIcon, onClick: onOpenCommunity, group: 'community', badge: communityBadge },
+    { key: ME_ROUTE, label: 'My Learning', Icon: MyLearningIcon, onClick: onOpenMe, group: 'you' },
     // Private to the signed-in user, like Saved — shown only once signed in,
     // unlike Blogs and Community, which are public to browse.
     { key: '__saved', label: 'Saved', Icon: StarIcon, onClick: onOpenSaved, group: 'you', show: !!user },

@@ -66,7 +66,8 @@
     "feedLastSeen": "docs.feedLastSeen",
     "questionsLastSeen": "docs.questionsLastSeen",
     "languagePreference": "docLangPref",
-    "studioDraft": "docs.studioDraft."
+    "studioDraft": "docs.studioDraft.",
+    "dismissedNotices": "docs.dismissedNotices"
   },
   "assistant": {
     "maxInputChars": 12000,

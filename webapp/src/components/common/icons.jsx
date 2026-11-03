@@ -195,3 +195,37 @@ export function PenIcon(props) {
     </svg>
   );
 }
+
+// Practice: a checklist (tick and rule, tick and rule). Design Lab: a small block diagram. My Learning: a person over a progress rule.
+export function PracticeIcon(props) {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <path d="m2.5 4.2 1.2 1.2 2-2.2" />
+      <path d="m2.5 10.2 1.2 1.2 2-2.2" />
+      <line x1="8" y1="4.5" x2="13.5" y2="4.5" />
+      <line x1="8" y1="10.5" x2="13.5" y2="10.5" />
+    </svg>
+  );
+}
+
+export function LabIcon(props) {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <rect x="5.7" y="1.8" width="4.6" height="3.4" rx="0.8" />
+      <rect x="1.8" y="10.8" width="4.6" height="3.4" rx="0.8" />
+      <rect x="9.6" y="10.8" width="4.6" height="3.4" rx="0.8" />
+      <path d="M8 5.2v2.6M4.1 10.8V7.8h7.8v3" />
+    </svg>
+  );
+}
+
+export function MyLearningIcon(props) {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" {...props}>
+      <circle cx="8" cy="4.8" r="2.4" />
+      <path d="M3.4 10.2c.9-.9 2.7-1.3 4.6-1.3s3.7.4 4.6 1.3" />
+      <line x1="2.5" y1="13.5" x2="13.5" y2="13.5" />
+      <line x1="2.5" y1="13.5" x2="9" y2="13.5" strokeWidth="2.2" />
+    </svg>
+  );
+}
