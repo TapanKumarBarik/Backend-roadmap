@@ -35,7 +35,9 @@ export async function openPage(browser, url, { motion = 'no-preference', seenLan
         await route.fulfill({ response, headers: { ...response.headers(), 'content-security-policy': CSP } });
       } catch {
         // The test ended while a request (the favicon, a picture) was still on its way and the context was closed under it:
-        // there is nobody left to answer, and that is not a failure of the page.
+        // there is nobody left to answer, and that is not a failure of the page. If the context is still there the request
+        // failed, and the page is told so now rather than left waiting for an answer that will never come.
+        await route.abort().catch(() => { /* the context is gone */ });
       }
     });
   }

@@ -14,7 +14,7 @@ export default function MainColumn({
   counts, treeData, user, onLogin, isBookmarked, onToggleBookmark, bookmarks,
   showNotesInArticle, showLanding, siteStats, onDismissLanding,
   indexLoading, indexError, onReloadIndex, videoData, onOpenVideos,
-  paths, activePath, onPickPath, choosingPath, onChoosingPath, neighbours, pathPlace, pathOffer, onFinishPath, onStartPath
+  paths, activePath, onPickPath, choosingPath, onChoosingPath, neighbours, pathPlace, pathOffer, onFinishPath, onStartPath, community
 }) {
   const mainRef = useRef(null);
 
@@ -74,6 +74,7 @@ export default function MainColumn({
                 onDismiss={onDismissLanding}
                 onOpenPalette={onOpenPalette}
                 onOpenVideos={onOpenVideos}
+                community={community}
               />
             )
             : indexError && !treeData.length
@@ -103,6 +104,7 @@ export default function MainColumn({
                     choosing={choosingPath}
                     onChoosing={onChoosingPath}
                     onToast={onToast}
+                    community={community}
                   />
                 )}
       </main>

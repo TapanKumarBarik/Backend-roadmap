@@ -20,8 +20,8 @@ const COVER_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 450"
 const real = (problems) => problems.filter((p) => !/Failed to load resource/.test(p));
 
 /** A page on a seeded blog, with the site's own content security policy applied, and the covers "uploaded". */
-async function openBlog(url, { email = 'reader@example.com', width = 1280, height = 900, motion } = {}) {
-  const opened = await openPage(browser, url, { width, height, withCsp: true, motion });
+async function openBlog(url, { email = 'reader@example.com', width = 1280, height = 900, motion, seenLanding } = {}) {
+  const opened = await openPage(browser, url, { width, height, withCsp: true, motion, seenLanding });
   await opened.context.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: BASE }).catch(() => { /* not every browser has the permission */ });
   await opened.context.route('**/stroadmapprogress.blob.core.windows.net/**', (route) => route.fulfill({ status: 200, contentType: 'image/svg+xml', body: COVER_SVG }));
   const env = await answerApiInProcess(opened.context, { email });
@@ -337,6 +337,53 @@ test('a like pops its icon when it is given, and the icon is still when the page
   assert.equal(await motion(page), 'none', 'and it is over');
   assert.equal(await like.getAttribute('aria-pressed'), 'true');
   await context.close();
+});
+
+test('the front door and the dashboard show the newest articles, and a way in to all of them', async () => {
+  // The landing page, for someone who has not started: the newest three, and no way to write while signed out.
+  const door = await openBlog('/', { email: null, seenLanding: false });
+  const strip = door.page.locator('section.community-strip');
+  await strip.waitFor();
+  assert.equal(await strip.getByRole('heading', { level: 2, name: 'From the community' }).count(), 1);
+  assert.deepEqual(await strip.locator('.post-card__title').allTextContents(), ['Why retries need idempotency', 'Designing a cache you can trust', 'What a queue is not']);
+  assert.equal(await strip.getByRole('link', { name: /Write an article/ }).count() + await strip.getByRole('button', { name: /Write an article/ }).count(), 0, 'signed out, there is nothing to write with');
+  await strip.getByRole('link', { name: 'Designing a cache you can trust' }).click();
+  await door.page.getByRole('heading', { level: 1, name: 'Designing a cache you can trust' }).waitFor();
+  assert.match(new URL(door.page.url()).pathname, /^\/blog\/designing-a-cache-you-can-trust/);
+  await door.page.waitForLoadState('networkidle');
+  await door.context.close();
+
+  // The dashboard of a signed-in reader: the same, with a way to write, and "All articles" leads to the list.
+  const home = await openBlog('/');
+  const mine = home.page.locator('section.community-strip');
+  await mine.waitFor();
+  assert.equal(await mine.locator('.post-card').count(), 3);
+  await mine.getByRole('link', { name: /Write an article/ }).waitFor();
+  await mine.getByRole('link', { name: /All articles/ }).click();
+  await home.page.getByRole('heading', { level: 1, name: 'Blogs' }).waitFor();
+  assert.equal(new URL(home.page.url()).pathname, '/blog/');
+  await home.page.waitForLoadState('networkidle');
+  await home.context.close();
+});
+
+test('with no article yet, a signed-in reader is invited to write the first, and a visitor sees nothing', async () => {
+  for (const [email, expectation] of [['reader@example.com', true], [null, false]]) {
+    const opened = await openPage(browser, '/', { withCsp: true });
+    await answerApiInProcess(opened.context, { email }); // an empty blog
+    await opened.goto();
+    await opened.page.locator('#empty').waitFor();
+    await opened.page.waitForTimeout(600);
+    const strip = opened.page.locator('section.community-strip');
+    assert.equal(await strip.count(), expectation ? 1 : 0, expectation ? 'the invitation' : 'no empty section');
+    if (expectation) {
+      assert.match(await strip.textContent(), /The first article is yours to write/);
+      await strip.getByRole('link', { name: /Write an article/ }).click();
+      await opened.page.getByRole('button', { name: 'New article' }).first().waitFor();
+      assert.equal(new URL(opened.page.url()).pathname, '/write/');
+    }
+    await opened.page.waitForLoadState('networkidle');
+    await opened.context.close();
+  }
 });
 
 test('an admin approves, takes down, puts back and trusts from the Articles section, and the number on its tab follows', async () => {

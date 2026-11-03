@@ -1,3 +1,4 @@
+import { Suspense, lazy } from 'react';
 import { ArrowRightIcon, StarIcon } from '../common/icons.jsx';
 import ProgressBar from '../common/ProgressBar.jsx';
 import ProgressStats from './ProgressStats.jsx';
@@ -14,6 +15,9 @@ import { PATH_COPY } from '../../config/paths.js';
 import { readStored } from '../../lib/storage.js';
 import SiteFooter from '../common/SiteFooter.jsx';
 
+// Its own chunk: the first page does not wait for the community's articles.
+const CommunityStrip = lazy(() => import('./CommunityStrip.jsx'));
+
 // The dashboard has one job: say what to do next. Which "next" depends on where the reader is:
 //   new         nothing picked, nothing started: choose a path
 //   library     progress but no path: carry on, or give it a finish line
@@ -26,7 +30,7 @@ import SiteFooter from '../common/SiteFooter.jsx';
 // rather browse.
 export default function EmptyState({
   counts, treeData, statusMap, timeMap, nodeByFile, flatFiles,
-  bookmarks, onOpenFile, paths, activePath, onPickPath, choosing, onChoosing, onToast, user
+  bookmarks, onOpenFile, paths, activePath, onPickPath, choosing, onChoosing, onToast, user, community
 }) {
   const lastFile = readStored(STORAGE.lastFile);
   const positions = buildPositions(treeData);
@@ -159,6 +163,8 @@ export default function EmptyState({
       {/* The 26-chip tag cloud that used to sit here — above the curriculum
           itself — now lives on Explore, grouped by subject rather than
           ordered by raw frequency. */}
+
+      {community && <Suspense fallback={null}><CommunityStrip variant="dashboard" community={community} user={user} /></Suspense>}
 
       <SiteFooter />
     </div>

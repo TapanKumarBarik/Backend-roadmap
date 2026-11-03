@@ -25,3 +25,12 @@ export const tabRoute = (id) => COMMUNITY.tabs.find((tab) => tab.id === id).rout
 
 /** Where "Community" leads: its first tab. */
 export const COMMUNITY_HOME = COMMUNITY.tabs[0].route;
+
+// "From the community" on the landing page and the dashboard: the newest articles, and a way to write one.
+export const STRIP = {
+  heading: 'From the community',
+  items: 3,
+  all: 'All articles',
+  write: 'Write an article',
+  invitation: 'No one has written here yet. The first article is yours to write.'
+};

@@ -1,3 +1,4 @@
+import { Suspense, lazy } from 'react';
 import { ArrowRightIcon, GithubIcon, SearchIcon, YoutubeIcon } from '../common/icons.jsx';
 import SignInButton from '../account/SignInButton.jsx';
 import SiteFooter from '../common/SiteFooter.jsx';
@@ -9,10 +10,13 @@ import { SITE, YOUTUBE } from '../../config/index.js';
 import { FALLBACK_START_FILE, HERO, ROUTE, PICK, LIBRARY, FRESH, INSIDE, VIDEO, ACCOUNT, OPEN_SOURCE } from '../../config/landing.js';
 import '../../styles/landing.css';
 
+// Its own chunk: the front door does not wait for the community's articles.
+const CommunityStrip = lazy(() => import('./CommunityStrip.jsx'));
+
 // The front door, shown to someone who has not started yet (see hooks/useLanding.js). This component only
 // lays things out: the words are in config/landing.js and the numbers come from build-time stats. If the
 // stats are missing the page still reads correctly, it just says less.
-export default function Landing({ stats, videoData, nodeByFile, user, onLogin, onOpenFile, onStartPath, onDismiss, onOpenPalette, onOpenVideos }) {
+export default function Landing({ stats, videoData, nodeByFile, user, onLogin, onOpenFile, onStartPath, onDismiss, onOpenPalette, onOpenVideos, community }) {
   const link = (file) => ({
     href: routeUrl(file),
     onClick: (e) => {
@@ -166,6 +170,8 @@ export default function Landing({ stats, videoData, nodeByFile, user, onLogin, o
           ))}
         </ul>
       </section>
+
+      {community && <Suspense fallback={null}><CommunityStrip variant="landing" community={community} user={user} /></Suspense>}
 
       {newest.length === 0 && (
         <section className="lp-account lp-video" aria-labelledby="lp-yt">

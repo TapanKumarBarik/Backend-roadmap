@@ -396,6 +396,9 @@ export default function App() {
   // /write is the list of your articles, /write/<id> the editor on one (a click handler's event is not an id).
   const openWrite = useCallback((id) => navigate(WRITE_ROUTE, typeof id === 'string' ? id : null), [navigate]);
 
+  // Where the community's links on the landing page and the dashboard go.
+  const community = useMemo(() => ({ onOpenPost: openPost, onOpenAuthor: openAuthor, onOpenBlogs: openBlogs, onOpenWrite: openWrite }), [openPost, openAuthor, openBlogs, openWrite]);
+
   // A reply or a mention in the account menu leads to where it was said: the module (scrolled to the comment), the article, or the post.
   const openActivity = useCallback((item) => {
     const target = activityTarget(item);
@@ -616,6 +619,7 @@ export default function App() {
           )
           : (
             <MainColumn
+              community={community}
               currentFile={currentFile}
               node={currentFile ? nodeByFile[currentFile] : null}
               statusMap={statusMap}
