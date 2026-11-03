@@ -131,7 +131,7 @@ Each phase ends with the browser and unit tests green, screenshots reviewed in l
 1. **Assistant provider:** Workers AI by default (needs the one binding line in `wrangler.jsonc`), Anthropic optional. Which do you want?
 2. **Moderation:** noindex until trusted (default), approval before anything is visible, or fully open?
 3. **Feed:** keep it as Posts inside Community (default) or retire it in favour of blogs?
-4. **Public identity and legal pages:** handle, name and optional avatar, with a short privacy and terms update for you to approve (default).
+4. **Public identity and legal pages:** handle, name and optional avatar, with a short privacy and terms update for you to approve (default). The wording is drafted in [PRIVACY-TERMS-DRAFT.md](PRIVACY-TERMS-DRAFT.md); `privacy.html` and `terms.html` are unchanged until you approve it.
 5. **Reading typeface:** system serif now (default) or a self-hosted web font later?
 
 ## Not in this plan
