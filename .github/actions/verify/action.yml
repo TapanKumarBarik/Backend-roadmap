@@ -46,6 +46,12 @@ runs:
       shell: bash
       run: npm run check:bundle
 
+    # Every address the site has published (docs/url-registry.tsv) still answers, with the same canonical address and no new noindex:
+    # a published address is a promise to everyone who linked to it. See docs/URL_MIGRATION_REGISTRY.md.
+    - name: Check that every published address still answers
+      shell: bash
+      run: npm run check:urls
+
     # The pages as a reader gets them: a lesson opens, links work, videos play under the real security policy, the
     # built pages carry what search engines read. Chrome is preinstalled on GitHub's Ubuntu runners.
     - name: Browser tests

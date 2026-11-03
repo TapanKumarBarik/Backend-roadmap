@@ -118,6 +118,7 @@ data in `content/paths.json`.
 | Unit tests | `npm test` | the build's logic, the markdown pipeline, and the API (real routes on in-memory SQLite) |
 | Checks | `npm run check` | an `isAdmin()` without `await`, a broken `paths.json`, a missing or oversized lesson image, a video that names a module that is not there, an overview page that says it is unwritten (which would hide it from search) |
 | Build | `npm run build` | the whole site assembles; internal links that point nowhere are listed |
+| URLs | `npm run check:urls` | every address the site has published ([URL_MIGRATION_REGISTRY.md](URL_MIGRATION_REGISTRY.md)) still answers, with the same canonical address, no new `noindex`, text for crawlers and a place in the sitemap; moved ones only by a permanent redirect. Before a release, `npm run check:urls:live -- <staging url>` asks the running site |
 | Size | `npm run check:bundle` | what a first visit downloads (JavaScript and CSS, gzip) and what each heavy screen adds (the writing studio, the workspace, the admin) staying within the `budgets` in `site.config.json`; run it after the build |
 | Browser | `npm run test:e2e` | a lesson opens, links work, videos and their chapters play under the real CSP, the Videos screen lists them, the built pages carry what search engines read (titles, descriptions, structured data, sitemap, share cards), and the signed-in flows (progress, the workspace editor, the admin dashboard) against the real API; every screen is audited for names, labels, ids and landmarks, and for sideways scrolling from 360 to 1920 px |
 
