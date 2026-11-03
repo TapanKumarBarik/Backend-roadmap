@@ -1,0 +1,109 @@
+{
+  "title": "Docker images, containers, volumes and networks",
+  "topic": "docker",
+  "difficulty": "beginner",
+  "module": "learn/02-docker/02-images-and-containers/README.md",
+  "description": "Image layers, the writable container layer, what survives a stop or a remove, and how containers reach each other.",
+  "questions": [
+    {
+      "id": "q1",
+      "type": "single",
+      "text": "When Docker creates a container from an image, what does it add on top of the image's read-only layers?",
+      "options": [
+        { "id": "a", "text": "A full copy of every image layer, so the container can change them freely" },
+        { "id": "b", "text": "One thin writable layer that belongs to that container" },
+        { "id": "c", "text": "A new read-only layer for each process the container starts" },
+        { "id": "d", "text": "A separate virtual disk that replaces the image's filesystem" }
+      ],
+      "answer": ["b"],
+      "explanation": "Image layers stay read-only and are shared; each container gets only a thin writable layer on top. Copying every layer (option a) is exactly what the layered design avoids, and it would multiply disk use per container."
+    },
+    {
+      "id": "q2",
+      "type": "single",
+      "text": "You already have an image built FROM python:3.12-slim and you pull a second image that uses the same base. Why is the second pull fast?",
+      "options": [
+        { "id": "a", "text": "Docker compresses the second image more aggressively" },
+        { "id": "b", "text": "Docker skips verifying the second image against the registry" },
+        { "id": "c", "text": "The second image is automatically merged into the first one" },
+        { "id": "d", "text": "Layers are content-addressed and shared, so only the layers you do not already have are downloaded" }
+      ],
+      "answer": ["d"],
+      "explanation": "Identical base layers are stored once and reused, so Docker downloads only the missing ones. The images stay separate; nothing is merged, and nothing is skipped on the verification side."
+    },
+    {
+      "id": "q3",
+      "type": "truefalse",
+      "text": "A file written inside a container's filesystem is still there after docker stop followed by docker start on the same container.",
+      "options": [
+        { "id": "true", "text": "True" },
+        { "id": "false", "text": "False" }
+      ],
+      "answer": ["true"],
+      "explanation": "stop and start reuse the same container, including its writable layer. The file is lost only when the container is removed with docker rm and a new one is created."
+    },
+    {
+      "id": "q4",
+      "type": "single",
+      "text": "A database container must keep its data after the container is deleted with docker rm and replaced by a fresh docker run. What should you do?",
+      "options": [
+        { "id": "a", "text": "Let it write to its writable layer and use docker stop instead of docker rm" },
+        { "id": "b", "text": "Add EXPOSE for the data directory in the Dockerfile" },
+        { "id": "c", "text": "Mount a named volume at the database's data directory" },
+        { "id": "d", "text": "Publish the data directory with -p" }
+      ],
+      "answer": ["c"],
+      "explanation": "A named volume is storage Docker manages outside any container, so it outlives docker rm. The writable layer is deleted with the container, and EXPOSE and -p only deal with network ports, not files."
+    },
+    {
+      "id": "q5",
+      "type": "single",
+      "text": "Container svcB runs ping svcA and gets 'bad address'. Both containers were started with docker run and no --network flag. What is the most likely fix?",
+      "options": [
+        { "id": "a", "text": "Create a user-defined bridge network and start both containers on it, so names resolve through Docker's DNS" },
+        { "id": "b", "text": "Publish svcA with -p so svcB can find it by name" },
+        { "id": "c", "text": "Restart svcB so that it re-reads the hosts file" },
+        { "id": "d", "text": "Switch both containers to the host network and use localhost" }
+      ],
+      "answer": ["a"],
+      "explanation": "The default bridge network does not resolve container names; a user-defined bridge does. Publishing a port only opens it to the host, so it does nothing for name resolution between containers."
+    },
+    {
+      "id": "q6",
+      "type": "multiple",
+      "text": "Which statements about container networking are correct? Select all that apply.",
+      "options": [
+        { "id": "a", "text": "A container's ports are reachable from the host automatically, even without -p" },
+        { "id": "b", "text": "localhost inside a container refers to that container's own loopback, not the host" },
+        { "id": "c", "text": "Two containers on a user-defined network should call each other on the host-published port, for example web:8080 after -p 8080:8000" },
+        { "id": "d", "text": "On a shared user-defined network, another container can reach the app as http://web:8000 using its name and container port" }
+      ],
+      "answer": ["b", "d"],
+      "explanation": "Each container has its own network namespace, so localhost means itself, and peers on a user-defined network use the container name with the container port. The published host port only matters for traffic coming from the host, and without -p the host cannot reach the container's port at all."
+    },
+    {
+      "id": "q7",
+      "type": "single",
+      "text": "You ran docker run -d --name broken webapp python -c \"print('hi')\" and the container shows Exited (0) almost at once, although the image normally starts a Flask server. Why?",
+      "options": [
+        { "id": "a", "text": "The command after the image name replaced the image's CMD, and that short command finished immediately" },
+        { "id": "b", "text": "The -d flag only works with the image's default command" },
+        { "id": "c", "text": "Python is missing from the image, so the container could not start" },
+        { "id": "d", "text": "The port was not published, so Docker stopped the container" }
+      ],
+      "answer": ["a"],
+      "explanation": "A container lives only as long as its main process. Overriding CMD with a one-shot command leaves nothing running, and exit code 0 shows it finished normally rather than crashing. Missing Python would give an error and a non-zero exit code."
+    },
+    {
+      "id": "q8",
+      "type": "truefalse",
+      "text": "Installing a package inside a running container with docker exec changes the image that the container was started from.",
+      "options": [
+        { "id": "true", "text": "True" },
+        { "id": "false", "text": "False" }
+      ],
+      "answer": ["false"],
+      "explanation": "Images are read-only. The change lands in that container's writable layer only, so a container started later from the same image will not have the package; to keep it, add it to the Dockerfile and rebuild."
+    }
+  ]
+}

@@ -1,0 +1,210 @@
+{
+  "title": "SQL joins, grouping and NULL",
+  "topic": "databases",
+  "difficulty": "beginner",
+  "module": "backend/04-databases-and-data-layer/02-querying-and-joins/README.md",
+  "description": "Which join to pick, how WHERE and HAVING differ, and the NULL and join-grain traps that quietly return wrong numbers.",
+  "questions": [
+    {
+      "id": "q1",
+      "type": "single",
+      "text": "You need a report of every customer and how many orders each has, including customers with zero orders. Which join fits?",
+      "options": [
+        {
+          "id": "a",
+          "text": "INNER JOIN from customers to orders"
+        },
+        {
+          "id": "b",
+          "text": "CROSS JOIN from customers to orders"
+        },
+        {
+          "id": "c",
+          "text": "LEFT JOIN from customers to orders"
+        },
+        {
+          "id": "d",
+          "text": "INNER JOIN from orders to customers"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "A LEFT JOIN keeps every customer and fills the order columns with NULL when nothing matches. An INNER JOIN, in either direction, drops customers with no orders, so the report silently understates the customer list."
+    },
+    {
+      "id": "q2",
+      "type": "single",
+      "text": "Why does SELECT c.name, count(*) AS n FROM ... WHERE n > 2 fail, while ORDER BY n works?",
+      "options": [
+        {
+          "id": "a",
+          "text": "ORDER BY is the only clause allowed to use aliases, by the SQL standard's syntax rules"
+        },
+        {
+          "id": "b",
+          "text": "WHERE runs before SELECT, so the alias does not exist yet; ORDER BY runs after SELECT"
+        },
+        {
+          "id": "c",
+          "text": "n is a reserved word, which only works in ORDER BY"
+        },
+        {
+          "id": "d",
+          "text": "WHERE runs after GROUP BY, and grouped rows cannot be filtered"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "The logical order is FROM, WHERE, GROUP BY, HAVING, SELECT, ORDER BY, LIMIT. An alias is created at the SELECT step, and the aggregate does not exist until grouping. Option d has it backwards: WHERE runs before GROUP BY."
+    },
+    {
+      "id": "q3",
+      "type": "single",
+      "text": "You want customers who have placed at least 3 orders. Where does the condition go?",
+      "options": [
+        {
+          "id": "a",
+          "text": "In HAVING count(o.id) >= 3, after GROUP BY"
+        },
+        {
+          "id": "b",
+          "text": "In WHERE count(o.id) >= 3"
+        },
+        {
+          "id": "c",
+          "text": "In the ON clause of the join"
+        },
+        {
+          "id": "d",
+          "text": "In ORDER BY count(o.id) >= 3"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "WHERE filters individual rows before grouping and cannot use aggregates. HAVING filters whole groups after aggregation, which is exactly what a count threshold needs."
+    },
+    {
+      "id": "q4",
+      "type": "single",
+      "text": "A teammate writes: SELECT c.name, o.total_cents FROM customers c LEFT JOIN orders o ON o.customer_id = c.id WHERE o.total_cents > 1000. Customers with no orders vanish. Why?",
+      "options": [
+        {
+          "id": "a",
+          "text": "LEFT JOIN only keeps customers who have at least one order over the limit"
+        },
+        {
+          "id": "b",
+          "text": "The database rewrites every LEFT JOIN into a RIGHT JOIN when WHERE is present"
+        },
+        {
+          "id": "c",
+          "text": "total_cents must be indexed for a LEFT JOIN to keep unmatched rows"
+        },
+        {
+          "id": "d",
+          "text": "Unmatched rows have NULL in total_cents, and WHERE total_cents > 1000 rejects NULL, turning the join back into an inner join"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "WHERE runs after the join and a comparison with NULL is never true, so the preserved no-match rows are filtered out. Put the condition on the optional table in the ON clause instead (ON ... AND o.total_cents > 1000)."
+    },
+    {
+      "id": "q5",
+      "type": "multiple",
+      "text": "After customers LEFT JOIN orders, grouped by customer, which expressions give 0 for a customer with no orders? Select all that apply.",
+      "options": [
+        {
+          "id": "a",
+          "text": "count(o.id)"
+        },
+        {
+          "id": "b",
+          "text": "count(*)"
+        },
+        {
+          "id": "c",
+          "text": "COALESCE(sum(o.total_cents), 0)"
+        },
+        {
+          "id": "d",
+          "text": "sum(o.total_cents)"
+        }
+      ],
+      "answer": [
+        "a",
+        "c"
+      ],
+      "explanation": "count(column) skips NULLs, so the placeholder row counts as zero, and COALESCE turns the NULL sum into 0. count(*) counts the placeholder row and returns 1, and a bare sum() over only NULLs returns NULL."
+    },
+    {
+      "id": "q6",
+      "type": "truefalse",
+      "text": "WHERE deleted_at = NULL returns the rows where deleted_at is not set.",
+      "options": [
+        {
+          "id": "true",
+          "text": "True"
+        },
+        {
+          "id": "false",
+          "text": "False"
+        }
+      ],
+      "answer": [
+        "false"
+      ],
+      "explanation": "NULL means unknown, so NULL = NULL is itself NULL, not true, and the query matches nothing. Use deleted_at IS NULL."
+    },
+    {
+      "id": "q7",
+      "type": "single",
+      "text": "A query on tables of 1,000 and 2,000 rows returns about 2,000,000 rows and hangs. What is the most likely cause?",
+      "options": [
+        {
+          "id": "a",
+          "text": "A missing index on the primary key"
+        },
+        {
+          "id": "b",
+          "text": "A missing or wrong join condition, which produced a cross join"
+        },
+        {
+          "id": "c",
+          "text": "Using INNER JOIN instead of EXISTS"
+        },
+        {
+          "id": "d",
+          "text": "Using ORDER BY without LIMIT"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "Without a join condition every left row pairs with every right row, so the row count is left times right. A missing index makes a query slow but does not change how many rows come back."
+    },
+    {
+      "id": "q8",
+      "type": "truefalse",
+      "text": "After joining customers to orders, summing a per-customer column such as credit_limit counts each customer's value once per order.",
+      "options": [
+        {
+          "id": "true",
+          "text": "True"
+        },
+        {
+          "id": "false",
+          "text": "False"
+        }
+      ],
+      "answer": [
+        "true"
+      ],
+      "explanation": "The join changes the grain of the result to one row per order, so a customer with three orders appears three times and their credit limit is triple-counted. Summing an order-level value such as total_cents is fine."
+    }
+  ]
+}

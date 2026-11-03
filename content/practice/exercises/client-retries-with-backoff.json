@@ -1,0 +1,17 @@
+{
+  "title": "Add retries with backoff to an API client",
+  "topic": "reliability",
+  "difficulty": "intermediate",
+  "module": "backend/06-background-processing-and-realtime/02-retries-prioritization-and-rate-limiting-in-queues/README.md",
+  "brief": "Your service calls a partner's HTTP API to create shipping labels (`POST /labels`) and to look up their status (`GET /labels/{id}`). Today the client makes one attempt with a 60 second timeout. During busy hours the partner answers some calls with `429 Too Many Requests` (sometimes with a `Retry-After` header), occasionally with `502` or `503`, and a few requests just time out. The first quick fix someone proposed was \"retry up to 10 times with no delay\", which made an incident worse.\n\nDesign the retry behaviour of this client and write it down precisely enough that another engineer could implement it and test it. Pay attention to which calls are safe to repeat: a retried `POST /labels` after a timeout may create two labels if the first attempt actually succeeded. The partner supports an `Idempotency-Key` request header on `POST`.",
+  "deliverables": [
+    "A table of failure types (connection error, timeout, 429, 500, 502, 503, 504, 400, 401, 404) and whether each is retried, with the reason",
+    "The backoff formula with a base delay, a multiplier, a cap and jitter, and which jitter variant you chose and why",
+    "How a Retry-After header is honoured and how it combines with your own backoff",
+    "The maximum attempts and a total time budget for one logical call, and how this fits inside your own caller's timeout",
+    "How you make POST /labels safe to retry (idempotency key: when it is generated, that it is reused across attempts)",
+    "Timeouts per attempt (connect and read), and why 60 seconds is too long",
+    "A retry budget or circuit breaker so that many clients do not multiply load on a struggling partner",
+    "The logging and metrics you would add, and three test cases (including a fake server that fails twice then succeeds)"
+  ]
+}

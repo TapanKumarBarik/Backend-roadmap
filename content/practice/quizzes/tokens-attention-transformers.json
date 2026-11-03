@@ -1,0 +1,211 @@
+{
+  "title": "Tokens, attention and transformers",
+  "topic": "genai",
+  "difficulty": "intermediate",
+  "module": "genai/02-transformer-architecture/06-scaled-dot-product-attention/README.md",
+  "description": "What a language model actually sees, and the attention mechanics inside a transformer: Q/K/V, scaling, masks and heads.",
+  "questions": [
+    {
+      "id": "q1",
+      "type": "single",
+      "text": "What does a language model actually receive as input?",
+      "options": [
+        {
+          "id": "a",
+          "text": "The raw characters of the text, one at a time"
+        },
+        {
+          "id": "b",
+          "text": "One ID per word, using a dictionary of every English word"
+        },
+        {
+          "id": "c",
+          "text": "Integer IDs of tokens, which are chunks of text from a fixed learned vocabulary"
+        },
+        {
+          "id": "d",
+          "text": "The text plus a separate list of its grammatical parts"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "A tokenizer maps text to vocabulary entries, and the model only sees their integer IDs. A token can be a whole word, a word piece or a single character or byte, so it is not the same as a word."
+    },
+    {
+      "id": "q2",
+      "type": "truefalse",
+      "text": "A sentence in Hindi or Japanese usually costs about the same number of tokens as the English sentence with the same meaning.",
+      "options": [
+        {
+          "id": "true",
+          "text": "True"
+        },
+        {
+          "id": "false",
+          "text": "False"
+        }
+      ],
+      "answer": [
+        "false"
+      ],
+      "explanation": "Tokenizers trained mostly on English text split non-Latin scripts into more, smaller tokens, often 2-3 times as many. That raises both cost and latency for the same content."
+    },
+    {
+      "id": "q3",
+      "type": "single",
+      "text": "Why are queries, keys and values computed with three separate learned projections instead of using the token vectors X directly for all three?",
+      "options": [
+        {
+          "id": "a",
+          "text": "It makes the matrices smaller so attention runs faster"
+        },
+        {
+          "id": "b",
+          "text": "Using X as both query and key forces every token to score highest against itself, which is useless for relating tokens"
+        },
+        {
+          "id": "c",
+          "text": "Softmax only works if the inputs come from a linear projection"
+        },
+        {
+          "id": "d",
+          "text": "It is needed to make the output the same length as the input"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "If Q = K = X, the dot product of a vector with itself is always at least as large as with any other vector, so each token is biased toward attending to itself. Separate Wq and Wk remove that guarantee and let the model learn which other tokens matter."
+    },
+    {
+      "id": "q4",
+      "type": "single",
+      "text": "Why are attention scores divided by sqrt(d_k) before the softmax?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Dot products grow with the dimension, so large scores would saturate the softmax and leave almost no gradient to learn from"
+        },
+        {
+          "id": "b",
+          "text": "It makes the weights for each row sum to exactly 1"
+        },
+        {
+          "id": "c",
+          "text": "It hides future tokens from the current position"
+        },
+        {
+          "id": "d",
+          "text": "It reduces the number of parameters in the layer"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "The spread of dot products between random vectors scales with sqrt(d), so unscaled scores make softmax nearly one-hot and its gradient tiny. Softmax already normalises each row to 1, so that is not the reason for the scaling."
+    },
+    {
+      "id": "q5",
+      "type": "single",
+      "text": "A teammate implements a causal mask by setting the scores of future positions to 0 before the softmax. What goes wrong?",
+      "options": [
+        {
+          "id": "a",
+          "text": "The model crashes with a shape error"
+        },
+        {
+          "id": "b",
+          "text": "Nothing; 0 and -inf give identical weights"
+        },
+        {
+          "id": "c",
+          "text": "Future positions get zero weight, but so do all past positions"
+        },
+        {
+          "id": "d",
+          "text": "Softmax still gives future positions a non-zero weight, so the model quietly leaks information from the future"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "A score of 0 is not neutral to softmax; it counts as moderately plausible. Only adding -inf makes exp(-inf) = 0 and gives masked positions exactly zero weight. The bug does not crash, which is why it is dangerous."
+    },
+    {
+      "id": "q6",
+      "type": "truefalse",
+      "text": "Going from 1 attention head to 8 heads at the same d_model adds roughly eight times as many parameters.",
+      "options": [
+        {
+          "id": "true",
+          "text": "True"
+        },
+        {
+          "id": "false",
+          "text": "False"
+        }
+      ],
+      "answer": [
+        "false"
+      ],
+      "explanation": "Wq, Wk, Wv and Wo stay d_model x d_model whatever the head count. The heads are made by splitting the projected vectors, so the parameter count is unchanged and each head just works in a smaller subspace with its own softmax."
+    },
+    {
+      "id": "q7",
+      "type": "multiple",
+      "text": "Which statements about sampling the next token are correct? Select all that apply.",
+      "options": [
+        {
+          "id": "a",
+          "text": "Top-k keeps exactly k candidate tokens, whether the model is confident or torn"
+        },
+        {
+          "id": "b",
+          "text": "Top-p keeps fewer tokens when one token holds most of the probability mass"
+        },
+        {
+          "id": "c",
+          "text": "Temperature removes low-probability tokens from consideration"
+        },
+        {
+          "id": "d",
+          "text": "Greedy decoding samples tokens in proportion to their probabilities"
+        }
+      ],
+      "answer": [
+        "a",
+        "b"
+      ],
+      "explanation": "Top-k is a fixed count while top-p adapts to the shape of the distribution. Temperature only reshapes the probabilities and removes nothing, and greedy decoding always takes the single most likely token rather than sampling."
+    },
+    {
+      "id": "q8",
+      "type": "multiple",
+      "text": "A batch pads shorter sequences with [PAD] tokens so they fit in one tensor. Which are true of masking in this setup? Select all that apply.",
+      "options": [
+        {
+          "id": "a",
+          "text": "A padding mask stops real tokens from attending to the padding"
+        },
+        {
+          "id": "b",
+          "text": "A padding mask and a causal mask are applied by different mechanisms, so they cannot be combined"
+        },
+        {
+          "id": "c",
+          "text": "Both kinds of mask work by adding -inf to scores before the softmax"
+        },
+        {
+          "id": "d",
+          "text": "A causal mask hides padding tokens, so no padding mask is needed"
+        }
+      ],
+      "answer": [
+        "a",
+        "c"
+      ],
+      "explanation": "Padding masks and causal masks are the same additive -inf tool aimed at different problems: one hides non-content, the other hides the future. They are commonly combined additively before a single softmax. A causal mask hides future positions, which is a different job from hiding padding."
+    }
+  ]
+}

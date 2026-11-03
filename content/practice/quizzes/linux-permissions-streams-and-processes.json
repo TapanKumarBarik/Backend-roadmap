@@ -1,0 +1,218 @@
+{
+  "title": "Linux permissions, streams and processes",
+  "topic": "linux",
+  "difficulty": "beginner",
+  "module": "learn/01-linux/03-file-permissions-ownership/README.md",
+  "description": "Reading file modes, redirecting output, and stopping a stuck process: the shell skills you use daily on a server.",
+  "questions": [
+    {
+      "id": "q1",
+      "type": "single",
+      "text": "What does the mode string -rwxr-xr-- mean for a regular file?",
+      "options": [
+        {
+          "id": "a",
+          "text": "The owner can read and write; group and others can execute"
+        },
+        {
+          "id": "b",
+          "text": "The owner can read, write and execute; the group can read and execute; others can only read"
+        },
+        {
+          "id": "c",
+          "text": "Everyone can read; only the owner can write; nobody can execute"
+        },
+        {
+          "id": "d",
+          "text": "It is a directory the owner and group can enter, and others can only list"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "The leading - marks a regular file, then come three triples in order: owner rwx, group r-x, other r--. A directory would start with d."
+    },
+    {
+      "id": "q2",
+      "type": "single",
+      "text": "What permissions does chmod 640 app.conf give?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Owner read and write, group read, others nothing"
+        },
+        {
+          "id": "b",
+          "text": "Owner read and write, group read and write, others read"
+        },
+        {
+          "id": "c",
+          "text": "Owner read, group read and write, others nothing"
+        },
+        {
+          "id": "d",
+          "text": "Owner read, write and execute, group read, others nothing"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "Read is 4, write is 2 and execute is 1, so 6 is rw-, 4 is r-- and 0 is no access: rw-r-----. Adding the digits for each of owner, group and other is the whole trick."
+    },
+    {
+      "id": "q3",
+      "type": "truefalse",
+      "text": "If you own a file whose owner triple lacks read permission, you can still read it when its group triple allows read and you belong to that group.",
+      "options": [
+        {
+          "id": "true",
+          "text": "True"
+        },
+        {
+          "id": "false",
+          "text": "False"
+        }
+      ],
+      "answer": [
+        "false"
+      ],
+      "explanation": "Linux selects one class: if you are the owner, the owner triple applies and the group and other bits are ignored for you. The classes are not added together."
+    },
+    {
+      "id": "q4",
+      "type": "single",
+      "text": "To delete team/report.txt in a normal directory, which permission matters most?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Write permission on report.txt itself"
+        },
+        {
+          "id": "b",
+          "text": "Read permission on report.txt"
+        },
+        {
+          "id": "c",
+          "text": "Write and execute permission on the team directory"
+        },
+        {
+          "id": "d",
+          "text": "Execute permission on report.txt"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "A directory is a table of names, and removing an entry changes that table, so you need write and execute on the directory. The file's own mode governs reading or changing its contents. Shared directories with the sticky bit add an extra rule."
+    },
+    {
+      "id": "q5",
+      "type": "single",
+      "text": "What does find / -name \"*.conf\" 2>/dev/null do?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Hides the matching files and shows only the errors"
+        },
+        {
+          "id": "b",
+          "text": "Saves the matching files into /dev/null"
+        },
+        {
+          "id": "c",
+          "text": "Runs the search as root"
+        },
+        {
+          "id": "d",
+          "text": "Discards the error messages, such as Permission denied, while still showing the matches"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "File descriptor 2 is stderr, so 2> sends only the error stream to /dev/null, the device that silently discards anything written to it. Matches go to stdout and still print."
+    },
+    {
+      "id": "q6",
+      "type": "single",
+      "text": "You want to add one more line to the end of app.log without losing what is already in it. Which command does that?",
+      "options": [
+        {
+          "id": "a",
+          "text": "echo \"restarted\" > app.log"
+        },
+        {
+          "id": "b",
+          "text": "echo \"restarted\" >> app.log"
+        },
+        {
+          "id": "c",
+          "text": "echo \"restarted\" < app.log"
+        },
+        {
+          "id": "d",
+          "text": "echo \"restarted\" 2> app.log"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": ">> appends to the file, creating it if needed. > replaces the whole file first, which is the classic way to destroy a log; < reads from a file instead of writing, and 2> redirects only error output."
+    },
+    {
+      "id": "q7",
+      "type": "single",
+      "text": "A server process has stopped responding. What is the best first move?",
+      "options": [
+        {
+          "id": "a",
+          "text": "kill -9 <PID>, so it cannot ignore the request"
+        },
+        {
+          "id": "b",
+          "text": "Delete the program's executable file"
+        },
+        {
+          "id": "c",
+          "text": "kill <PID> to send SIGTERM, then check whether it exited"
+        },
+        {
+          "id": "d",
+          "text": "Press Ctrl+Z in another terminal"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "SIGTERM asks the process to shut down, giving it a chance to flush data and clean up. SIGKILL gives no chance to do that, so it is the escalation if the process ignores SIGTERM. Ctrl+Z only suspends a foreground job in your own shell, and deleting the file does not stop a running process."
+    },
+    {
+      "id": "q8",
+      "type": "multiple",
+      "text": "Which commands put a program's error messages into errors.txt? Select all that apply.",
+      "options": [
+        {
+          "id": "a",
+          "text": "cmd 2> errors.txt"
+        },
+        {
+          "id": "b",
+          "text": "cmd > errors.txt"
+        },
+        {
+          "id": "c",
+          "text": "cmd &> errors.txt"
+        },
+        {
+          "id": "d",
+          "text": "cmd | errors.txt"
+        }
+      ],
+      "answer": [
+        "a",
+        "c"
+      ],
+      "explanation": "2> redirects stderr and &> sends both stdout and stderr to the file. A plain > only redirects stdout, so errors still land on the screen, and piping into a file name tries to run it as a command."
+    }
+  ]
+}

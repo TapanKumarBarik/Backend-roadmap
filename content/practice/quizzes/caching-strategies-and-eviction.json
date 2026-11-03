@@ -1,0 +1,218 @@
+{
+  "title": "Caching strategies and eviction",
+  "topic": "caching",
+  "difficulty": "intermediate",
+  "module": "backend/05-caching-and-performance/01-caching-strategies/README.md",
+  "description": "Cache-aside, read-through, write-through and write-behind, plus eviction policies, TTLs and invalidation.",
+  "questions": [
+    {
+      "id": "q1",
+      "type": "single",
+      "text": "What is the real difference between cache-aside and read-through?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Cache-aside never touches the database; read-through always does"
+        },
+        {
+          "id": "b",
+          "text": "Read-through lazy-loads on a miss; cache-aside preloads every key at startup"
+        },
+        {
+          "id": "c",
+          "text": "Cache-aside writes to the database first; read-through writes to the cache first"
+        },
+        {
+          "id": "d",
+          "text": "In cache-aside the application runs the miss logic; in read-through the cache layer loads from the source itself"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "Both load lazily on a miss. The difference is organizational: who is responsible for fetching from the source and storing the result. Neither is about write order."
+    },
+    {
+      "id": "q2",
+      "type": "single",
+      "text": "In a cache-aside setup, a record is updated in the database. Which cache action is usually the safer default?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Delete the key so the next read reloads from the database"
+        },
+        {
+          "id": "b",
+          "text": "Overwrite the key with the new value"
+        },
+        {
+          "id": "c",
+          "text": "Leave the key alone and rely on LRU to remove it"
+        },
+        {
+          "id": "d",
+          "text": "Flush the entire cache"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "Deleting makes the database the single source for the refreshed value. Overwriting reintroduces a race where two concurrent writers can leave the older value cached, and eviction does not fix a stale entry."
+    },
+    {
+      "id": "q3",
+      "type": "single",
+      "text": "A page-view counter is incremented in Redis and flushed to the database once a minute. What is the main risk of this write-behind design?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Reads of the counter become slower"
+        },
+        {
+          "id": "b",
+          "text": "Increments not yet flushed are lost if the cache fails"
+        },
+        {
+          "id": "c",
+          "text": "The database receives far more writes than before"
+        },
+        {
+          "id": "d",
+          "text": "The cache fills with keys nobody reads"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "The write is acknowledged before it reaches durable storage, so a crash loses the unflushed window. That is acceptable for view counts and unacceptable for payments. Option c is the opposite of what happens: write-behind coalesces many writes into few."
+    },
+    {
+      "id": "q4",
+      "type": "truefalse",
+      "text": "Write-through gives faster writes than cache-aside, because the cache absorbs the write.",
+      "options": [
+        {
+          "id": "true",
+          "text": "True"
+        },
+        {
+          "id": "false",
+          "text": "False"
+        }
+      ],
+      "answer": [
+        "false"
+      ],
+      "explanation": "Write-through waits for both the database and the cache before acknowledging, so each write is slower. Its benefit is that a read right after a write finds fresh data in the cache. That faster-write claim describes write-behind."
+    },
+    {
+      "id": "q5",
+      "type": "single",
+      "text": "A cache holds 3 entries and key A is read constantly. A nightly job then reads thousands of other keys once each. Which policy best protects A from being evicted?",
+      "options": [
+        {
+          "id": "a",
+          "text": "LRU, because A was used recently at some point"
+        },
+        {
+          "id": "b",
+          "text": "FIFO, because A has been resident longest"
+        },
+        {
+          "id": "c",
+          "text": "LFU, because A's high access count outweighs the one-time scan keys"
+        },
+        {
+          "id": "d",
+          "text": "noeviction, because it never removes anything"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "A long scan makes A the least recently used, so LRU evicts it (cache pollution). LFU keeps it because of its count. FIFO would evict the oldest entry, which is A, and noeviction rejects new writes instead."
+    },
+    {
+      "id": "q6",
+      "type": "single",
+      "text": "Redis is used purely as a cache with maxmemory-policy volatile-lru, but the application never sets a TTL on its keys. What happens when memory is full?",
+      "options": [
+        {
+          "id": "a",
+          "text": "The least recently used keys are evicted as usual"
+        },
+        {
+          "id": "b",
+          "text": "Redis picks random keys to evict"
+        },
+        {
+          "id": "c",
+          "text": "Redis restarts and drops all data"
+        },
+        {
+          "id": "d",
+          "text": "Nothing is eligible for eviction, so Redis starts rejecting writes with an out-of-memory error"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "volatile-* policies only consider keys that have a TTL. With none, the cache behaves like noeviction. Use an allkeys-* policy for a pure cache, or set a TTL on every cache key."
+    },
+    {
+      "id": "q7",
+      "type": "multiple",
+      "text": "Which statements about cache invalidation are correct? Select all that apply.",
+      "options": [
+        {
+          "id": "a",
+          "text": "A TTL is worth keeping as a backstop even when you also invalidate explicitly"
+        },
+        {
+          "id": "b",
+          "text": "Event-based invalidation lets a writer bust caches it knows nothing about"
+        },
+        {
+          "id": "c",
+          "text": "Manual invalidation in application code stays correct when other services write to the database directly"
+        },
+        {
+          "id": "d",
+          "text": "A shorter TTL always lowers the load on the database"
+        }
+      ],
+      "answer": [
+        "a",
+        "b"
+      ],
+      "explanation": "A TTL bounds the damage of a missed invalidation, and an event subscriber decouples the writer from the caches. Manual deletes only cover the write paths you instrumented, and a shorter TTL means more misses and so more database load."
+    },
+    {
+      "id": "q8",
+      "type": "single",
+      "text": "A category rename should make thousands of cached list keys such as products:category:5:v3 stale, and you cannot enumerate them. What is a practical technique?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Run KEYS * and delete everything on each rename"
+        },
+        {
+          "id": "b",
+          "text": "Switch the cache to write-behind"
+        },
+        {
+          "id": "c",
+          "text": "Bump the version number embedded in the keys so the old keys are never read again and age out"
+        },
+        {
+          "id": "d",
+          "text": "Raise maxmemory so the stale entries do not matter"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "Generational (version-based) invalidation makes the old keys unreachable at once with a single increment, and TTL or eviction cleans them up later. Scanning all keys is slow and blocks a busy Redis, and extra memory does not make stale data correct."
+    }
+  ]
+}

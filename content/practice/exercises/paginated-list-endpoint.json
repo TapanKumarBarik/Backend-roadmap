@@ -1,0 +1,16 @@
+{
+  "title": "Design a paginated, cache-friendly list endpoint",
+  "topic": "api-design",
+  "difficulty": "intermediate",
+  "module": "backend/02-api-layer-and-request-handling/07-crud-deep-dive/README.md",
+  "brief": "A blog platform has an endpoint that returns articles:\n\n```\nGET /v1/articles?page=3&per_page=20&tag=python\n```\n\nIt is implemented as `SELECT ... FROM articles WHERE tag = ? ORDER BY published_at DESC LIMIT 20 OFFSET 40`. The table has 30 million rows and new articles are published every few seconds. Symptoms reported by users and the on-call engineer:\n\n- Deep pages (page 5000 and beyond) take several seconds and load the database.\n- A reader scrolling the list sees the same article twice, or misses one, when something new is published between two requests.\n- The response is never cached by the CDN because every client sends different query strings and no caching headers are set.\n- The endpoint returns a `total` count, and the `COUNT(*)` behind it is the slowest part of the request.\n\nRedesign the endpoint. Write a short design document (and, if you like, a sketch of the handler and the SQL) that fixes all four symptoms without breaking existing clients more than necessary.",
+  "deliverables": [
+    "The new request and response shape, including the cursor parameter and a sample JSON response",
+    "What the cursor contains and how it is encoded; why a tie-break column is needed when many rows share the same published_at",
+    "The SQL for the first page and for the next page, and the index that makes it fast (column order matters)",
+    "What you do about the total count (drop it, estimate it, or return it only on request) and why",
+    "Cache-Control, ETag and Vary choices for the first page and for later pages, and what must be part of the cache key",
+    "How deletes and edits between two requests behave, and the maximum limit you enforce",
+    "A migration path for clients that still send page and per_page"
+  ]
+}

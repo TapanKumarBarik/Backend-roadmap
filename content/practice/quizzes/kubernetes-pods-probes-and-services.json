@@ -1,0 +1,111 @@
+{
+  "title": "Kubernetes pods, probes, deployments and services",
+  "topic": "kubernetes",
+  "difficulty": "beginner",
+  "module": "learn/03-kubernetes/02-pods-and-workloads/README.md",
+  "description": "What a Pod is, what each probe does when it fails, how a Deployment replaces Pods, and how a Service finds them.",
+  "questions": [
+    {
+      "id": "q1",
+      "type": "single",
+      "text": "Two containers run in the same Pod. How can the main container call the sidecar?",
+      "options": [
+        { "id": "a", "text": "Through the sidecar's own Pod IP, which is different from the main container's" },
+        { "id": "b", "text": "Only through a Service that selects the Pod" },
+        { "id": "c", "text": "On localhost and the sidecar's port, because the containers share one network namespace and IP" },
+        { "id": "d", "text": "Only by writing to a shared volume, since Pods have no network between containers" }
+      ],
+      "answer": ["c"],
+      "explanation": "All containers in a Pod share one IP address and one localhost, so they reach each other like two processes on one machine. Separate per-container IPs are how plain docker run containers behave, not Pod containers."
+    },
+    {
+      "id": "q2",
+      "type": "single",
+      "text": "A container is running but still warming up its cache, and its readiness probe is failing. What does Kubernetes do?",
+      "options": [
+        { "id": "a", "text": "Kills and restarts the container" },
+        { "id": "b", "text": "Removes the Pod from the Service's endpoints so it receives no traffic, without restarting it" },
+        { "id": "c", "text": "Deletes the Pod and lets the ReplicaSet create a new one" },
+        { "id": "d", "text": "Marks the node unschedulable" }
+      ],
+      "answer": ["b"],
+      "explanation": "A failing readiness probe only stops traffic reaching the Pod; it keeps running and is added back once the probe passes. Restarting is what a failing liveness probe does, and using liveness for slow warm-up can put the container in a restart loop."
+    },
+    {
+      "id": "q3",
+      "type": "single",
+      "text": "An app takes about two minutes to boot, and its liveness probe keeps killing it before it is ready. Which change fits best?",
+      "options": [
+        { "id": "a", "text": "Replace the liveness probe with a readiness probe" },
+        { "id": "b", "text": "Raise the container's memory limit" },
+        { "id": "c", "text": "Set restartPolicy to Never" },
+        { "id": "d", "text": "Add a startup probe so liveness checks only begin after the app has booted" }
+      ],
+      "answer": ["d"],
+      "explanation": "A startup probe holds off the other probes and gives a slow starter time. Swapping to readiness alone would remove the safety net that restarts a hung container, and a memory limit has nothing to do with slow startup."
+    },
+    {
+      "id": "q4",
+      "type": "single",
+      "text": "You change the image tag in a Deployment's Pod template. What happens?",
+      "options": [
+        { "id": "a", "text": "The existing Pods are edited in place to use the new image" },
+        { "id": "b", "text": "The Deployment creates a new ReplicaSet and gradually moves Pods from the old ReplicaSet to it" },
+        { "id": "c", "text": "All old Pods are deleted at once and then new ones are created" },
+        { "id": "d", "text": "Nothing happens until you delete the Pods by hand" }
+      ],
+      "answer": ["b"],
+      "explanation": "A changed Pod template creates a new ReplicaSet and a rolling update shifts Pods over within the maxUnavailable and maxSurge limits. Pods are never edited in place, and the gradual shift is why users do not see downtime."
+    },
+    {
+      "id": "q5",
+      "type": "single",
+      "text": "A Service exists, but kubectl get endpoints shows none for it and requests fail. The Deployment's Pods are Running and Ready. What is the most likely cause?",
+      "options": [
+        { "id": "a", "text": "The Service type must be NodePort to have endpoints" },
+        { "id": "b", "text": "CoreDNS is not running" },
+        { "id": "c", "text": "The Service's selector does not match the Pods' labels" },
+        { "id": "d", "text": "The Deployment has too few replicas" }
+      ],
+      "answer": ["c"],
+      "explanation": "A Service builds its endpoints from Pods whose labels match its selector, so a typo or mismatch leaves it with nothing to route to. DNS problems would make the name fail to resolve, but they would not change the endpoints list."
+    },
+    {
+      "id": "q6",
+      "type": "multiple",
+      "text": "Which statements about resource requests and limits are correct? Select all that apply.",
+      "options": [
+        { "id": "a", "text": "A container that exceeds its memory limit is killed and shows OOMKilled" },
+        { "id": "b", "text": "A container that exceeds its CPU limit is killed" },
+        { "id": "c", "text": "The scheduler uses requests to decide which node has room for the Pod" },
+        { "id": "d", "text": "The scheduler uses limits to reserve CPU and memory on the node" }
+      ],
+      "answer": ["a", "c"],
+      "explanation": "Memory over the limit means the container is killed, and requests drive scheduling. Going over the CPU limit only throttles the container, and limits are enforced at runtime rather than used for placement."
+    },
+    {
+      "id": "q7",
+      "type": "truefalse",
+      "text": "A Service of the default type, ClusterIP, can be reached from a browser outside the cluster.",
+      "options": [
+        { "id": "true", "text": "True" },
+        { "id": "false", "text": "False" }
+      ],
+      "answer": ["false"],
+      "explanation": "ClusterIP is a virtual IP reachable only from inside the cluster. To expose a Service outside you use NodePort or LoadBalancer, or put an Ingress in front of it."
+    },
+    {
+      "id": "q8",
+      "type": "single",
+      "text": "A new Deployment revision is broken. Why can kubectl rollout undo bring back the previous version so quickly?",
+      "options": [
+        { "id": "a", "text": "Kubernetes keeps the old ReplicaSet, scaled to zero, with its Pod template intact" },
+        { "id": "b", "text": "Kubernetes snapshots the node's disk before every rollout" },
+        { "id": "c", "text": "The old container images are kept running in standby Pods" },
+        { "id": "d", "text": "The previous image tag is stored in the Service" }
+      ],
+      "answer": ["a"],
+      "explanation": "Each template change leaves behind its ReplicaSet at zero replicas, so rolling back is just scaling it up while the broken one scales down. No standby Pods are running, and a Service holds no version history."
+    }
+  ]
+}

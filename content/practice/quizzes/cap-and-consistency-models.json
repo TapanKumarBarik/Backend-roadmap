@@ -1,0 +1,218 @@
+{
+  "title": "CAP theorem and consistency models",
+  "topic": "distributed-systems",
+  "difficulty": "intermediate",
+  "module": "backend/10-distributed-systems-patterns/00-cap-theorem-and-consistency-models/README.md",
+  "description": "What CAP really forces you to choose, how it differs from ACID, and which consistency model each kind of feature needs.",
+  "questions": [
+    {
+      "id": "q1",
+      "type": "single",
+      "text": "When does the CAP theorem force you to give up either consistency or availability?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Only while a network partition is happening"
+        },
+        {
+          "id": "b",
+          "text": "Always, on every request"
+        },
+        {
+          "id": "c",
+          "text": "Only when the system has more than three nodes"
+        },
+        {
+          "id": "d",
+          "text": "Only when the database uses SQL"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "In normal operation a well-designed system offers both consistency and availability. The forced choice appears when nodes cannot reach each other and a request arrives."
+    },
+    {
+      "id": "q2",
+      "type": "truefalse",
+      "text": "A system spread over several machines can choose to give up partition tolerance and so be both consistent and available.",
+      "options": [
+        {
+          "id": "true",
+          "text": "True"
+        },
+        {
+          "id": "false",
+          "text": "False"
+        }
+      ],
+      "answer": [
+        "false"
+      ],
+      "explanation": "Networks do drop and delay messages, so partitions will happen whether or not you plan for them. The real choice is what you do during one: refuse requests (CP) or serve possibly stale data (AP)."
+    },
+    {
+      "id": "q3",
+      "type": "single",
+      "text": "During a partition, the minority side of a CP system receives a write. What does it do?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Accepts the write locally and reconciles later"
+        },
+        {
+          "id": "b",
+          "text": "Returns an error or blocks rather than risk inconsistency"
+        },
+        {
+          "id": "c",
+          "text": "Accepts the write and silently drops it later"
+        },
+        {
+          "id": "d",
+          "text": "Switches to eventual consistency until the partition heals"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "CP means sacrificing availability on the side that cannot confirm it has the latest data. Option a describes an AP system."
+    },
+    {
+      "id": "q4",
+      "type": "single",
+      "text": "How does the C in CAP differ from the C in ACID?",
+      "options": [
+        {
+          "id": "a",
+          "text": "They are the same guarantee under two names"
+        },
+        {
+          "id": "b",
+          "text": "CAP's C means a read sees the most recent completed write (linearizability); ACID's C means a transaction keeps the database within its rules"
+        },
+        {
+          "id": "c",
+          "text": "CAP's C is about durability on disk; ACID's C is about network delivery"
+        },
+        {
+          "id": "d",
+          "text": "ACID's C applies to distributed systems and CAP's C applies to single servers"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "ACID consistency is about honoring constraints and invariants. A node can satisfy that while a replica still serves a valid but stale row, which violates CAP's consistency."
+    },
+    {
+      "id": "q5",
+      "type": "single",
+      "text": "Which consistency model guarantees that nobody sees a reply to a comment before the comment itself, without forcing one global order on unrelated events?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Eventual consistency"
+        },
+        {
+          "id": "b",
+          "text": "Strong consistency (linearizability)"
+        },
+        {
+          "id": "c",
+          "text": "Causal consistency"
+        },
+        {
+          "id": "d",
+          "text": "Read-your-writes consistency"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "Causal consistency keeps related operations in the same order for everyone while leaving unrelated ones free. It is stronger than eventual and cheaper than linearizability. Read-your-writes only promises that you see your own writes."
+    },
+    {
+      "id": "q6",
+      "type": "multiple",
+      "text": "Which of these operations generally justify the cost of strong consistency? Select all that apply.",
+      "options": [
+        {
+          "id": "a",
+          "text": "Reading an account balance just before approving a withdrawal"
+        },
+        {
+          "id": "b",
+          "text": "Showing a post's like count"
+        },
+        {
+          "id": "c",
+          "text": "Checking whether a username is already taken at signup"
+        },
+        {
+          "id": "d",
+          "text": "Refreshing an analytics dashboard"
+        }
+      ],
+      "answer": [
+        "a",
+        "c"
+      ],
+      "explanation": "A stale answer in a and c leads to a wrong decision with real consequences, such as an overdraft or a duplicate username. A few seconds of staleness in a like count or a dashboard is harmless, so paying for coordination there only adds latency."
+    },
+    {
+      "id": "q7",
+      "type": "single",
+      "text": "According to PACELC, what trade-off exists even when the network is healthy?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Between availability and partition tolerance"
+        },
+        {
+          "id": "b",
+          "text": "Between latency and consistency"
+        },
+        {
+          "id": "c",
+          "text": "Between throughput and durability only"
+        },
+        {
+          "id": "d",
+          "text": "There is no trade-off when there is no partition"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "The Else clause: giving strong consistency means waiting for enough replicas to acknowledge, which costs round trips on every request. Relaxing consistency returns sooner. CAP alone says nothing about this normal-case cost, which is why option d is a misreading."
+    },
+    {
+      "id": "q8",
+      "type": "single",
+      "text": "A Dynamo-style store keeps N=3 replicas of each key. Which write and read quorum sizes guarantee that every read overlaps the latest successful write?",
+      "options": [
+        {
+          "id": "a",
+          "text": "W=1, R=1"
+        },
+        {
+          "id": "b",
+          "text": "W=2, R=1"
+        },
+        {
+          "id": "c",
+          "text": "W=2, R=2"
+        },
+        {
+          "id": "d",
+          "text": "W=1, R=2"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "Overlap needs W + R > N, and 2 + 2 = 4 > 3. With W=2, R=1 or W=1, R=2 the sum is only 3, so a read can land entirely on replicas that missed the write. Lower quorums are faster and more available, but only eventually consistent."
+    }
+  ]
+}

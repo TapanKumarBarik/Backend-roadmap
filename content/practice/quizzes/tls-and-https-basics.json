@@ -1,0 +1,212 @@
+{
+  "title": "TLS and HTTPS basics",
+  "topic": "security",
+  "difficulty": "intermediate",
+  "module": "backend/01-request-response-fundamentals/09-tls-ssl-and-https/README.md",
+  "description": "What TLS does and does not protect, how certificates are checked, and where HTTPS ends in a real deployment.",
+  "questions": [
+    {
+      "id": "q1",
+      "type": "single",
+      "text": "Which three guarantees does TLS give an HTTPS connection?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Compression, caching and load balancing"
+        },
+        {
+          "id": "b",
+          "text": "Encryption, integrity and server authentication"
+        },
+        {
+          "id": "c",
+          "text": "Authorization, rate limiting and logging"
+        },
+        {
+          "id": "d",
+          "text": "Anonymity, availability and data-at-rest protection"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "TLS keeps the bytes unreadable to eavesdroppers, detects tampering, and proves the server is who its certificate says. It does not hide who you connected to and does not protect data once it is stored or after TLS ends."
+    },
+    {
+      "id": "q2",
+      "type": "truefalse",
+      "text": "If a site presents a valid certificate and the browser shows a padlock, you can be sure the site is honest and safe.",
+      "options": [
+        {
+          "id": "true",
+          "text": "True"
+        },
+        {
+          "id": "false",
+          "text": "False"
+        }
+      ],
+      "answer": [
+        "false"
+      ],
+      "explanation": "The padlock means the connection is encrypted and the server is who its certificate says it is. A scam site can have a perfectly valid certificate for its own domain."
+    },
+    {
+      "id": "q3",
+      "type": "multiple",
+      "text": "When a client verifies a server's certificate during the TLS handshake, which checks does it make? Select all that apply.",
+      "options": [
+        {
+          "id": "a",
+          "text": "The chain of signatures leads up to a root CA in its trust store"
+        },
+        {
+          "id": "b",
+          "text": "The hostname it asked for is covered by the certificate"
+        },
+        {
+          "id": "c",
+          "text": "The website's content has been reviewed and is safe"
+        },
+        {
+          "id": "d",
+          "text": "The current date is inside the certificate's validity period"
+        }
+      ],
+      "answer": [
+        "a",
+        "b",
+        "d"
+      ],
+      "explanation": "Chain of trust, hostname match and validity dates are what the client can actually check. Nothing in the certificate says anything about whether the site's content is safe."
+    },
+    {
+      "id": "q4",
+      "type": "single",
+      "text": "All your API clients suddenly fail with \"certificate has expired\". Which command shows the certificate's validity dates for a host?",
+      "options": [
+        {
+          "id": "a",
+          "text": "curl -k https://example.com/"
+        },
+        {
+          "id": "b",
+          "text": "dig example.com TXT"
+        },
+        {
+          "id": "c",
+          "text": "openssl s_client -connect example.com:443 -servername example.com, piped to openssl x509 -noout -dates"
+        },
+        {
+          "id": "d",
+          "text": "ss -tlnp on the client"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "openssl s_client fetches the certificate and x509 -noout -dates prints notBefore and notAfter. curl -k would just skip verification and hide the problem, and the other commands inspect DNS or local sockets."
+    },
+    {
+      "id": "q5",
+      "type": "multiple",
+      "text": "A network observer between a client and an HTTPS site can typically still see which of these? Select all that apply.",
+      "options": [
+        {
+          "id": "a",
+          "text": "The destination IP address"
+        },
+        {
+          "id": "b",
+          "text": "The value of the Authorization header"
+        },
+        {
+          "id": "c",
+          "text": "The JSON request body"
+        },
+        {
+          "id": "d",
+          "text": "The server name sent in the TLS handshake (SNI), in a typical setup"
+        }
+      ],
+      "answer": [
+        "a",
+        "d"
+      ],
+      "explanation": "TLS hides the HTTP content: headers, cookies, tokens and bodies. It does not hide the fact of the connection, so the IP address and normally the SNI hostname stay visible."
+    },
+    {
+      "id": "q6",
+      "type": "single",
+      "text": "TLS is terminated at your load balancer, and the app behind it sees plain http:// requests. How can the app learn that the client originally used HTTPS?",
+      "options": [
+        {
+          "id": "a",
+          "text": "From an X-Forwarded-Proto header set by the proxy"
+        },
+        {
+          "id": "b",
+          "text": "From the port number on the app's own socket"
+        },
+        {
+          "id": "c",
+          "text": "From the TLS certificate in the request"
+        },
+        {
+          "id": "d",
+          "text": "It cannot be known, so apps must always redirect to HTTPS themselves"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "The proxy adds the original scheme as X-Forwarded-Proto, which the app should trust only from a proxy it controls. The certificate and the original TLS session never reach the app once TLS has ended at the balancer."
+    },
+    {
+      "id": "q7",
+      "type": "single",
+      "text": "What does the header Strict-Transport-Security: max-age=31536000 tell a browser?",
+      "options": [
+        {
+          "id": "a",
+          "text": "The certificate will be renewed automatically in a year"
+        },
+        {
+          "id": "b",
+          "text": "Cookies should be encrypted at rest for a year"
+        },
+        {
+          "id": "c",
+          "text": "Session tokens expire after a year"
+        },
+        {
+          "id": "d",
+          "text": "For the next year, only connect to this site over HTTPS, even if the user types http://"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "HSTS makes the browser refuse plain HTTP for the site, which defeats SSL-stripping downgrade attacks. It has nothing to do with certificate renewal or token lifetimes, and it only makes sense once HTTPS works everywhere on the site."
+    },
+    {
+      "id": "q8",
+      "type": "truefalse",
+      "text": "Using curl -k (skip certificate verification) inside production code is acceptable because the traffic is still encrypted.",
+      "options": [
+        {
+          "id": "true",
+          "text": "True"
+        },
+        {
+          "id": "false",
+          "text": "False"
+        }
+      ],
+      "answer": [
+        "false"
+      ],
+      "explanation": "Without verification you no longer know who you are talking to, so a man-in-the-middle can present their own certificate and read everything. -k is for debugging a certificate problem only."
+    }
+  ]
+}

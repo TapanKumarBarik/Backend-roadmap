@@ -1,0 +1,109 @@
+{
+  "title": "Availability, latency, throughput and single points of failure",
+  "topic": "system-design",
+  "difficulty": "intermediate",
+  "module": "system-design/01-core-fundamentals/10-availability/README.md",
+  "description": "The nines, availability in series and in parallel, Little's Law, percentile latency and finding single points of failure.",
+  "questions": [
+    {
+      "id": "q1",
+      "type": "single",
+      "text": "A service promises 99.9% availability over a year. About how much downtime does that allow?",
+      "options": [
+        { "id": "a", "text": "About 53 minutes" },
+        { "id": "b", "text": "About 3.7 days" },
+        { "id": "c", "text": "About 36 hours" },
+        { "id": "d", "text": "About 8.8 hours" }
+      ],
+      "answer": ["d"],
+      "explanation": "0.1% of 8,760 hours in a year is about 8.8 hours. About 53 minutes is 99.99% (four nines), and about 3.7 days is 99%."
+    },
+    {
+      "id": "q2",
+      "type": "single",
+      "text": "A request must pass through a web tier and then a database, in series. Each is 99.9% available and they fail independently. What is the availability of the pair?",
+      "options": [
+        { "id": "a", "text": "99.9%" },
+        { "id": "b", "text": "About 99.8%" },
+        { "id": "c", "text": "99.99%" },
+        { "id": "d", "text": "About 99.95%" }
+      ],
+      "answer": ["b"],
+      "explanation": "In series you multiply: 0.999 x 0.999 = 0.998, so each extra required component lowers the total. The pair can never be better than its weakest part. 99.99% would be the result for two redundant copies, not a chain."
+    },
+    {
+      "id": "q3",
+      "type": "single",
+      "text": "Two identical servers each have 99% availability, fail independently, and either one can serve all traffic. What is the availability of the pair?",
+      "options": [
+        { "id": "a", "text": "99%" },
+        { "id": "b", "text": "98%" },
+        { "id": "c", "text": "99.99%" },
+        { "id": "d", "text": "99.9%" }
+      ],
+      "answer": ["c"],
+      "explanation": "The service is down only when both are down: 0.01 x 0.01 = 0.0001, so availability is 99.99%. This assumes independent failures and working failover, which is why two instances in one rack or behind one shared dependency do not get this benefit."
+    },
+    {
+      "id": "q4",
+      "type": "single",
+      "text": "By Little's Law, how many requests are in flight on average when a service handles 5,000 requests per second and each takes 50 ms?",
+      "options": [
+        { "id": "a", "text": "25" },
+        { "id": "b", "text": "250" },
+        { "id": "c", "text": "2,500" },
+        { "id": "d", "text": "100,000" }
+      ],
+      "answer": ["b"],
+      "explanation": "Concurrency = throughput x latency = 5,000 per second x 0.05 s = 250. The tempting 100,000 comes from dividing by 0.05 instead of multiplying, and 25 comes from treating 50 ms as 0.005 s."
+    },
+    {
+      "id": "q5",
+      "type": "multiple",
+      "text": "Which of these are single points of failure? Select all that apply.",
+      "options": [
+        { "id": "a", "text": "One Redis instance that holds the sessions for every app server" },
+        { "id": "b", "text": "Four stateless app servers spread across two availability zones" },
+        { "id": "c", "text": "One database primary with no standby or replica" },
+        { "id": "d", "text": "Two load balancers sharing a virtual IP, with automatic failover" }
+      ],
+      "answer": ["a", "c"],
+      "explanation": "If the only Redis or the only database primary dies, everything that depends on it stops, however many app servers sit in front. Redundant stateless servers and a failover pair of load balancers are the fixes, not the problem."
+    },
+    {
+      "id": "q6",
+      "type": "single",
+      "text": "A dashboard shows an average latency of 80 ms and a p99 of 300 ms. What does the p99 figure mean?",
+      "options": [
+        { "id": "a", "text": "99% of requests finished in 300 ms or less, and the slowest 1% took longer" },
+        { "id": "b", "text": "The average of the slowest 1% of requests is 300 ms" },
+        { "id": "c", "text": "300 ms is the longest any request has taken" },
+        { "id": "d", "text": "Requests are 99% likely to take exactly 300 ms" }
+      ],
+      "answer": ["a"],
+      "explanation": "A percentile is a cut-off: p99 is the value that 99% of requests stay under. The tail can be far worse than the cut-off, and the average hides it, which is why latency targets are written as percentiles."
+    },
+    {
+      "id": "q7",
+      "type": "truefalse",
+      "text": "Shortening the time it takes to recover from a failure can raise availability as much as making failures less frequent.",
+      "options": [
+        { "id": "true", "text": "True" },
+        { "id": "false", "text": "False" }
+      ],
+      "answer": ["true"],
+      "explanation": "Availability is roughly MTBF / (MTBF + MTTR), so cutting the repair time raises it just as lengthening the time between failures does. Automated failover that turns a 30-minute outage into 30 seconds is often easier than preventing the failure."
+    },
+    {
+      "id": "q8",
+      "type": "truefalse",
+      "text": "If one server handles 1,000 requests per second, 10 servers will always handle 10,000 requests per second.",
+      "options": [
+        { "id": "true", "text": "True" },
+        { "id": "false", "text": "False" }
+      ],
+      "answer": ["false"],
+      "explanation": "Scaling is linear only when nothing is shared. A shared database, lock or other serial part caps the gain (Amdahl's Law), so the added servers deliver less than 10x."
+    }
+  ]
+}

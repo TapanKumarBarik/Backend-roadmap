@@ -1,0 +1,210 @@
+{
+  "title": "Embeddings and vector search",
+  "topic": "embeddings",
+  "difficulty": "intermediate",
+  "module": "genai/08-embeddings-and-vector-databases/03-cosine-similarity-and-distance-metrics/README.md",
+  "description": "Comparing embeddings with cosine, dot product and L2, why high dimensions behave oddly, chunk sizes, and how pgvector's approximate indexes behave.",
+  "questions": [
+    {
+      "id": "q1",
+      "type": "single",
+      "text": "All the stored vectors and the query are normalised to length 1. Which statement about ranking results is correct?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Cosine similarity and dot product rank documents differently, because dot product also rewards length"
+        },
+        {
+          "id": "b",
+          "text": "Only cosine similarity gives a stable ranking; L2 distance depends on the query's length"
+        },
+        {
+          "id": "c",
+          "text": "Cosine descending, dot product descending and L2 distance ascending all return the same documents in the same order"
+        },
+        {
+          "id": "d",
+          "text": "L1 (Manhattan) distance is also guaranteed to give the same ranking, because it is a function of the angle"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "For unit vectors cosine equals the dot product, and squared L2 distance is 2 - 2*cos, so all three orderings agree. L1 is not a function of the angle and can rank differently even on unit vectors."
+    },
+    {
+      "id": "q2",
+      "type": "single",
+      "text": "In pgvector, what does `SELECT id FROM chunks ORDER BY embedding <#> $1 DESC LIMIT 5` return?",
+      "options": [
+        {
+          "id": "a",
+          "text": "The five most similar chunks, as you would expect from DESC"
+        },
+        {
+          "id": "b",
+          "text": "The five least similar chunks, because <#> is the negative inner product and so already sorts most-similar-first in ascending order"
+        },
+        {
+          "id": "c",
+          "text": "The five chunks closest by cosine distance"
+        },
+        {
+          "id": "d",
+          "text": "An error, because <#> cannot be used in ORDER BY"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "Postgres index scans only go ascending, so pgvector negates the inner product. Adding DESC flips it and puts the least similar rows first, and it would also stop an index from being used."
+    },
+    {
+      "id": "q3",
+      "type": "truefalse",
+      "text": "A similarity cutoff of 0.8 tuned for cosine similarity can be reused unchanged as a cutoff on L2 distance, because both measure how alike two embeddings are.",
+      "options": [
+        {
+          "id": "true",
+          "text": "True"
+        },
+        {
+          "id": "false",
+          "text": "False"
+        }
+      ],
+      "answer": [
+        "false"
+      ],
+      "explanation": "The orderings can agree on unit vectors, but the numbers differ. A cosine of 0.8 is an L2 distance of about 0.63, and the direction is reversed (higher cosine is better, lower distance is better). A threshold does not transfer between metrics."
+    },
+    {
+      "id": "q4",
+      "type": "single",
+      "text": "What happens to the distances between random points as the number of dimensions grows very large?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Nearest and farthest neighbours become further apart in relative terms, so search gets easier"
+        },
+        {
+          "id": "b",
+          "text": "Distances shrink toward zero for every pair of points"
+        },
+        {
+          "id": "c",
+          "text": "Distances become exactly equal, so ranking is impossible in principle"
+        },
+        {
+          "id": "d",
+          "text": "The nearest and farthest points end up at almost the same distance, so absolute scores bunch together and fixed thresholds become fragile"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "Distance concentration: the relative spread of distances shrinks roughly like 1/sqrt(D). They do not become exactly equal and real embeddings still work because real data has low intrinsic dimension, but you should tune cutoffs on your own labelled queries."
+    },
+    {
+      "id": "q5",
+      "type": "single",
+      "text": "A migration creates a table and, in the same step, an IVFFlat index on its empty vector column. The data is loaded afterwards. What is the likely outcome?",
+      "options": [
+        {
+          "id": "a",
+          "text": "The index works and returns rows without an error, but recall is poor because its clusters were built from no data"
+        },
+        {
+          "id": "b",
+          "text": "Postgres refuses to create the index"
+        },
+        {
+          "id": "c",
+          "text": "The index rebuilds itself automatically as rows arrive"
+        },
+        {
+          "id": "d",
+          "text": "Queries fall back to an exact scan, so results are perfect but slow"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "IVFFlat runs k-means over the rows that exist when it is built. On an empty table there is nothing to cluster, so you get only a notice, not an error. Load the data first, then create the index. HNSW has no such training step."
+    },
+    {
+      "id": "q6",
+      "type": "truefalse",
+      "text": "Adding an approximate vector index (HNSW or IVFFlat) to a table can change the results of an existing query, unlike a B-tree index.",
+      "options": [
+        {
+          "id": "true",
+          "text": "True"
+        },
+        {
+          "id": "false",
+          "text": "False"
+        }
+      ],
+      "answer": [
+        "true"
+      ],
+      "explanation": "A B-tree only changes speed. An approximate index returns the probably-nearest rows, so recall can drop. This is why exact search is used as ground truth when measuring recall."
+    },
+    {
+      "id": "q7",
+      "type": "multiple",
+      "text": "A filtered vector query (WHERE category = 'x' ORDER BY embedding <=> $1 LIMIT 10) on an HNSW index often returns fewer than 10 rows, because the filter runs after the index scan. Which fixes does the lesson describe? Select all that apply.",
+      "options": [
+        {
+          "id": "a",
+          "text": "Index the filter column, so Postgres can search the matching rows directly"
+        },
+        {
+          "id": "b",
+          "text": "Turn on iterative index scans, so the scan continues until enough rows are found"
+        },
+        {
+          "id": "c",
+          "text": "Lower hnsw.ef_search so the index returns fewer candidates"
+        },
+        {
+          "id": "d",
+          "text": "Put the category condition inside the ORDER BY expression"
+        }
+      ],
+      "answer": [
+        "a",
+        "b"
+      ],
+      "explanation": "The index returns about ef_search candidates and the filter then discards non-matching ones. Indexing the filter column or using iterative scans helps. A lower ef_search makes it worse, and extra expressions in ORDER BY stop the vector index being used at all."
+    },
+    {
+      "id": "q8",
+      "type": "single",
+      "text": "An embedding model has a 256-token input limit, but your chunker produces 384-token chunks. What happens?",
+      "options": [
+        {
+          "id": "a",
+          "text": "The model automatically splits each chunk into two vectors"
+        },
+        {
+          "id": "b",
+          "text": "Every embedding call fails with an error in all cases"
+        },
+        {
+          "id": "c",
+          "text": "Many models silently truncate, so the vector describes only the first 256 tokens while the LLM would still be sent all 384"
+        },
+        {
+          "id": "d",
+          "text": "The vector is built from all 384 tokens, just less precisely"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "Sentence-Transformers models truncate text past their max sequence length, so the end of each chunk is invisible to search (some hosted APIs reject over-long input instead). Size chunks in the embedding model's own tokens with a margin."
+    }
+  ]
+}

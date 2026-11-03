@@ -1,0 +1,211 @@
+{
+  "title": "Replication and sharding",
+  "topic": "databases",
+  "difficulty": "intermediate",
+  "module": "backend/04-databases-and-data-layer/08-replication-and-sharding/README.md",
+  "description": "What read replicas fix, what replication lag breaks, how shard keys work, and what sharding costs you.",
+  "questions": [
+    {
+      "id": "q1",
+      "type": "single",
+      "text": "A single primary database is saturated by write traffic. Which change addresses that?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Add more read replicas"
+        },
+        {
+          "id": "b",
+          "text": "Shard the data horizontally across several primaries"
+        },
+        {
+          "id": "c",
+          "text": "Switch replication from asynchronous to synchronous"
+        },
+        {
+          "id": "d",
+          "text": "Promote a replica and keep the old primary as a standby"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "Every write still goes through the one primary, so replicas do not help write throughput. Sharding spreads rows, and so writes, across many primaries."
+    },
+    {
+      "id": "q2",
+      "type": "single",
+      "text": "A user posts a comment, is redirected to the page, and their comment is missing. Refreshing a second later shows it. What is the likely cause and the standard fix?",
+      "options": [
+        {
+          "id": "a",
+          "text": "The write failed; retry it with a longer timeout"
+        },
+        {
+          "id": "b",
+          "text": "The primary rolled back; add a unique index"
+        },
+        {
+          "id": "c",
+          "text": "The read hit a replica that was behind (replication lag); route reads that must see the user's own write to the primary"
+        },
+        {
+          "id": "d",
+          "text": "The cache is full; raise its memory limit"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "This is a read-your-own-writes violation: the write was committed on the primary but the replica had not applied it yet. Sending that particular read to the primary, or waiting for the replica to catch up, fixes it."
+    },
+    {
+      "id": "q3",
+      "type": "truefalse",
+      "text": "With asynchronous replication, a write the client was told succeeded can be lost if the primary crashes and a lagging replica is promoted.",
+      "options": [
+        {
+          "id": "true",
+          "text": "True"
+        },
+        {
+          "id": "false",
+          "text": "False"
+        }
+      ],
+      "answer": [
+        "true"
+      ],
+      "explanation": "Async replication acknowledges the client without waiting for any replica, so the newly promoted primary may never have received the last transactions. Synchronous replication closes that gap at the price of write latency."
+    },
+    {
+      "id": "q4",
+      "type": "single",
+      "text": "What is the main cost of synchronous replication to a required standby?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Reads become eventually consistent"
+        },
+        {
+          "id": "b",
+          "text": "Every write waits for the standby, and writes can block if that standby is unreachable"
+        },
+        {
+          "id": "c",
+          "text": "The primary can no longer take writes from more than one client"
+        },
+        {
+          "id": "d",
+          "text": "Replicas stop being able to serve reads"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "Waiting for a replica confirmation adds a network round trip to every commit, and with the required replica down the primary cannot acknowledge writes. It trades availability and latency for durability."
+    },
+    {
+      "id": "q5",
+      "type": "single",
+      "text": "Rows are placed with hash(customer_id) % N. What is the main advantage, and a main drawback?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Range queries stay on one shard; but hot spots are common"
+        },
+        {
+          "id": "b",
+          "text": "Load spreads evenly; but range queries scatter across shards and changing N moves most rows unless you use consistent hashing"
+        },
+        {
+          "id": "c",
+          "text": "Cross-shard joins become cheap; but ids are no longer unique"
+        },
+        {
+          "id": "d",
+          "text": "Rebalancing is trivial; but the shard map is a single point of failure"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "Hashing gives an even spread and avoids hot spots, which range-based sharding does not. The costs are scattered range queries and reshuffling when N changes. Option d describes directory-based sharding."
+    },
+    {
+      "id": "q6",
+      "type": "multiple",
+      "text": "Which of these get harder or stop working when a database is sharded across machines? Select all that apply.",
+      "options": [
+        {
+          "id": "a",
+          "text": "Joins between rows that live on different shards"
+        },
+        {
+          "id": "b",
+          "text": "An ACID transaction that updates rows on two shards"
+        },
+        {
+          "id": "c",
+          "text": "Looking up a row when the query includes the shard key"
+        },
+        {
+          "id": "d",
+          "text": "Globally unique ids from a per-database auto-increment sequence"
+        }
+      ],
+      "answer": [
+        "a",
+        "b",
+        "d"
+      ],
+      "explanation": "Joins, transactions and sequences are all per-database features, so they break across shard boundaries. A query that carries the shard key is routed to one shard and works as before."
+    },
+    {
+      "id": "q7",
+      "type": "truefalse",
+      "text": "Declarative table partitioning inside a single PostgreSQL server is sharding, and it scales write capacity beyond one machine.",
+      "options": [
+        {
+          "id": "true",
+          "text": "True"
+        },
+        {
+          "id": "false",
+          "text": "False"
+        }
+      ],
+      "answer": [
+        "false"
+      ],
+      "explanation": "Partitioning splits one logical table into pieces on the same machine, which helps manageability and some query speed. Sharding spreads data over independent databases, which is what raises the write and capacity ceiling."
+    },
+    {
+      "id": "q8",
+      "type": "single",
+      "text": "You shard an events table by date range, one shard per month. What problem should you expect?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Every current write lands on the newest shard, creating a hot spot"
+        },
+        {
+          "id": "b",
+          "text": "Range queries over a month must scan every shard"
+        },
+        {
+          "id": "c",
+          "text": "Adding a new month forces most existing rows to move"
+        },
+        {
+          "id": "d",
+          "text": "Ids can no longer be generated at all"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "With time-based ranges, all new writes target the current period's shard while older shards sit idle. Range queries within one month actually stay on one shard, which is the strength of range-based sharding."
+    }
+  ]
+}

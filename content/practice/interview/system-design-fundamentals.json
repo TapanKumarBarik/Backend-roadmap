@@ -1,0 +1,48 @@
+{
+  "title": "System design fundamentals",
+  "topic": "system-design",
+  "difficulty": "intermediate",
+  "module": "backend/14-system-design-interview-practice/01-the-system-design-interview-framework/README.md",
+  "questions": [
+    {
+      "q": "How do you structure a system design interview answer?",
+      "a": "Clarify requirements first, both functional and non-functional, and state your assumptions. Then estimate scale, sketch a high-level design, go deeper into the one or two components that matter most, and finish with bottlenecks, failure modes and trade-offs. Keep checking with the interviewer so you spend time where they care."
+    },
+    {
+      "q": "What is the difference between latency and throughput?",
+      "a": "Latency is how long one request takes; throughput is how many requests the system completes per unit of time. They are related but not the same: adding parallel workers raises throughput without making a single request faster, and batching can raise throughput while increasing latency. Little's law links them: the number of requests in flight equals throughput times average latency."
+    },
+    {
+      "q": "Compare vertical and horizontal scaling.",
+      "a": "Vertical scaling means a bigger machine; it is simple and needs no code change, but it has a ceiling, costs more per unit at the top end, and leaves one machine as a single point of failure. Horizontal scaling adds machines behind a load balancer; it scales further and improves availability, but needs stateless services or shared state, and brings distributed-systems problems such as partial failure and consistency."
+    },
+    {
+      "q": "What does the CAP theorem actually say?",
+      "a": "During a network partition a distributed system must choose between consistency (every read sees the latest write) and availability (every request gets a non-error response). When there is no partition you can have both, so CAP is about behaviour under failure, not a permanent choice of two out of three. PACELC extends this by noting that even without a partition there is a trade-off between latency and consistency."
+    },
+    {
+      "q": "How would you calculate availability, and what do \"three nines\" and \"four nines\" mean in practice?",
+      "a": "Availability is uptime divided by total time. 99.9 percent allows roughly 8.8 hours of downtime a year; 99.99 percent allows roughly 53 minutes. Components in series multiply (two 99.9 percent services in a chain give about 99.8 percent), while redundant components in parallel improve it, which is why removing single points of failure matters more than perfecting one component."
+    },
+    {
+      "q": "What is a single point of failure and how do you remove one?",
+      "a": "A component whose failure takes down the whole system, such as one database, one load balancer or one availability zone. You remove it with redundancy: replicas, multiple instances behind a load balancer, and multiple zones, plus automatic failover that you actually test. Redundancy has a cost and adds complexity, so you apply it where the failure impact justifies it."
+    },
+    {
+      "q": "Why do you want application servers to be stateless?",
+      "a": "If a server keeps no per-user state in memory, any request can go to any server, so you can add, remove and replace servers freely and failures do not lose sessions. The state moves into shared stores such as a database, cache or token. The trade-off is an extra network hop for that state and the need to make the shared store reliable."
+    },
+    {
+      "q": "Give a back-of-the-envelope estimate for a service with 10 million daily active users, each making 20 requests a day.",
+      "a": "10 million times 20 is 200 million requests a day. A day has about 86,400 seconds, so the average is about 2,300 requests per second; assume a peak of two to four times that, around 5,000 to 10,000 per second. The point is the order of magnitude and stating the assumptions, since it tells you whether one database or sharding is needed."
+    },
+    {
+      "q": "How do you justify a trade-off in a design?",
+      "a": "State the options, the requirement that decides between them, and the cost of the choice. For example, choosing eventual consistency for a feed because users tolerate a few seconds of delay and it buys availability and lower latency, while accepting that a user might briefly not see a new post. Say what would make you change your mind, such as a stricter consistency requirement."
+    },
+    {
+      "q": "When would you choose strong consistency over eventual consistency?",
+      "a": "When a stale or conflicting read causes real harm: account balances, inventory that must not be oversold, unique usernames, or permission changes. When a stale read is merely a little out of date, such as like counts or a social feed, eventual consistency is usually acceptable and cheaper. Many systems use both in different parts."
+    }
+  ]
+}

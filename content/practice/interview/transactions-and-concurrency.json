@@ -1,0 +1,48 @@
+{
+  "title": "Transactions and concurrency",
+  "topic": "databases",
+  "difficulty": "intermediate",
+  "module": "backend/04-databases-and-data-layer/04-transactions-and-concurrency-control/README.md",
+  "questions": [
+    {
+      "q": "What do the ACID properties guarantee?",
+      "a": "Atomicity: a transaction's changes all happen or none do. Consistency: a transaction moves the database from one valid state to another, respecting constraints. Isolation: concurrent transactions do not see each other's partial work, to a degree set by the isolation level. Durability: once committed, the data survives a crash."
+    },
+    {
+      "q": "Name the common concurrency anomalies.",
+      "a": "A dirty read sees uncommitted data from another transaction. A non-repeatable read gets different values when reading the same row twice. A phantom read gets different sets of rows when running the same query twice. A lost update happens when two transactions read, modify and write the same row and one overwrites the other. Write skew is when two transactions each read overlapping data and write different rows, together breaking an invariant."
+    },
+    {
+      "q": "What are the standard isolation levels and what is a sensible default?",
+      "a": "Read uncommitted, read committed, repeatable read and serializable, each preventing more anomalies at higher cost. Read committed is the default in PostgreSQL and a sensible starting point. PostgreSQL's repeatable read is snapshot isolation, and its serializable level detects dangerous patterns and may abort a transaction, so the application must be ready to retry."
+    },
+    {
+      "q": "How do you prevent a lost update?",
+      "a": "Either lock the row while you read and modify it (SELECT ... FOR UPDATE), use optimistic locking with a version column and fail the update if the version changed, or make the change atomic in SQL, such as UPDATE ... SET stock = stock - 1. The atomic statement is the simplest when it fits the logic."
+    },
+    {
+      "q": "Compare optimistic and pessimistic locking.",
+      "a": "Pessimistic locking takes locks up front so others wait; it is safe under high contention but reduces concurrency and can deadlock. Optimistic locking does no locking and checks at write time that nothing changed, retrying on conflict; it is cheap when conflicts are rare and wasteful when they are common. Choose by expected contention."
+    },
+    {
+      "q": "What is a deadlock and how do you avoid one?",
+      "a": "Two transactions each hold a lock the other needs, so neither can proceed; the database detects it and aborts one. Reduce them by locking resources in a consistent order, keeping transactions short, avoiding user interaction or external calls inside a transaction, and retrying the aborted transaction."
+    },
+    {
+      "q": "How would you make \"reserve the last seat\" correct under concurrency?",
+      "a": "Make the check and the change one atomic operation: a conditional UPDATE that only succeeds if the seat is still free and checks the affected row count, or SELECT ... FOR UPDATE inside a transaction, or a unique constraint on the (show, seat) booking that makes the second insert fail. Never read first and write later without one of those protections."
+    },
+    {
+      "q": "Why should you keep transactions short and avoid network calls inside them?",
+      "a": "A transaction holds locks and a connection, and in some engines also holds back cleanup of old row versions. A slow call to another service inside it stretches those holds, causes lock waits and connection pool exhaustion, and widens the window for conflicts. Do the slow work outside, and keep the transaction to the database changes that must be atomic."
+    },
+    {
+      "q": "What does SELECT ... FOR UPDATE SKIP LOCKED do and when is it useful?",
+      "a": "It locks the selected rows and skips rows already locked by other transactions instead of waiting. It is useful for using a table as a job queue: several workers each claim different rows without blocking one another. Be aware it gives up strict ordering and you need a way to handle jobs whose worker died."
+    },
+    {
+      "q": "A payment is committed in your database but the call to the payment provider failed afterwards. How do you keep them consistent?",
+      "a": "A local database transaction cannot include an external call, so use a pattern that tolerates failure: record the intent in the database first (with an idempotency key), perform the external call, then record the result, with a reconciliation job to resolve anything left unknown. The outbox pattern and sagas with compensating actions are the usual tools."
+    }
+  ]
+}

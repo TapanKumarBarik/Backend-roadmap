@@ -1,0 +1,220 @@
+{
+  "title": "Retrieval-augmented generation (RAG)",
+  "topic": "rag",
+  "difficulty": "intermediate",
+  "module": "genai/04-training-fine-tuning-and-alignment/16-when-to-fine-tune-vs-prompt-vs-rag/README.md",
+  "description": "When RAG is the right tool, what it does and does not change, and the design choices that decide whether retrieval works.",
+  "questions": [
+    {
+      "id": "q1",
+      "type": "single",
+      "text": "A support assistant must answer questions from internal policy documents that are updated every week, and each answer should point to its source. Which approach fits best?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Fine-tune the model on the documents every week"
+        },
+        {
+          "id": "b",
+          "text": "Put three example answers in the prompt"
+        },
+        {
+          "id": "c",
+          "text": "RAG: retrieve the relevant passages at query time and put them in the prompt"
+        },
+        {
+          "id": "d",
+          "text": "A multi-agent system with a separate agent per document"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "RAG suits facts that are new, private or change often, since nothing is retrained when the documents change, and retrieved passages are inspectable, citable evidence. Fine-tuned behaviour is opaque, with no source to cite."
+    },
+    {
+      "id": "q2",
+      "type": "single",
+      "text": "What does RAG change when it answers a question?",
+      "options": [
+        {
+          "id": "a",
+          "text": "The model's weights, permanently, so it remembers the documents"
+        },
+        {
+          "id": "b",
+          "text": "Which facts are available in the context for this one call, with no change to the model"
+        },
+        {
+          "id": "c",
+          "text": "The tokenizer's vocabulary, adding the documents' terms"
+        },
+        {
+          "id": "d",
+          "text": "The model's default output format and style for all future calls"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "Prompting and RAG act at inference time and leave the model untouched. Changing the model's default behaviour, format or style is what fine-tuning is for."
+    },
+    {
+      "id": "q3",
+      "type": "truefalse",
+      "text": "Once retrieval supplies the right passages, the model can no longer fabricate, so checking the answer or its citations is unnecessary.",
+      "options": [
+        {
+          "id": "true",
+          "text": "True"
+        },
+        {
+          "id": "false",
+          "text": "False"
+        }
+      ],
+      "answer": [
+        "false"
+      ],
+      "explanation": "A model has no separate way to say \"I don't know\" and produces fluent text whether or not it is grounded. Production RAG pipelines still ask for sources, tell the model to say when the context does not cover the question, and check the output (for example that citations are real)."
+    },
+    {
+      "id": "q4",
+      "type": "single",
+      "text": "In a typical RAG request (embed the query, vector search, rerank, call the LLM), which step dominates cost and latency, and what is the most effective optimisation?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Vector search; use a faster index"
+        },
+        {
+          "id": "b",
+          "text": "Embedding the query; cache every embedding"
+        },
+        {
+          "id": "c",
+          "text": "Reranking; remove the reranker"
+        },
+        {
+          "id": "d",
+          "text": "The LLM call; send fewer tokens by retrieving better rather than retrieving more"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "The LLM call takes on the order of seconds and the most money, while embedding, search and rerank take milliseconds to a few hundred. Shaving vector-search time while sending thousands of unnecessary prompt tokens is optimising the wrong thing."
+    },
+    {
+      "id": "q5",
+      "type": "multiple",
+      "text": "Why must long documents be split into chunks before indexing them for RAG? Select all that apply.",
+      "options": [
+        {
+          "id": "a",
+          "text": "An embedding model reads a limited number of tokens and may silently truncate longer text"
+        },
+        {
+          "id": "b",
+          "text": "One text becomes one vector, so the chunk is the smallest unit retrieval can hand back"
+        },
+        {
+          "id": "c",
+          "text": "The LLM's context is finite and billed per token, and it uses long contexts unevenly"
+        },
+        {
+          "id": "d",
+          "text": "Vector databases cannot store text longer than a page"
+        }
+      ],
+      "answer": [
+        "a",
+        "b",
+        "c"
+      ],
+      "explanation": "These are three separate limits, each enough on its own. Vector databases do not have a page limit; the constraints come from the embedder, the retrieval unit and the LLM's context."
+    },
+    {
+      "id": "q6",
+      "type": "single",
+      "text": "A fixed-size chunker cuts the sentence holding the answer into two chunks, so no chunk contains the whole answer. What fixes this?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Retrieving more chunks per query (a larger k)"
+        },
+        {
+          "id": "b",
+          "text": "Switching to a better embedding model"
+        },
+        {
+          "id": "c",
+          "text": "Changing how documents are chunked, for example overlap or splitting at sentence and heading boundaries"
+        },
+        {
+          "id": "d",
+          "text": "Lowering the LLM's temperature"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "The share of answers that sit whole inside some chunk is an upper bound on any retriever. A cut answer cannot be recovered by better ranking, a larger k or a better model, so the fix is at the chunking step."
+    },
+    {
+      "id": "q7",
+      "type": "multiple",
+      "text": "Models use information in the middle of a long context less reliably than at the start or end (\"lost in the middle\"). Which design choices follow from this? Select all that apply.",
+      "options": [
+        {
+          "id": "a",
+          "text": "Rerank retrieved chunks and put the most relevant ones where the model uses them best"
+        },
+        {
+          "id": "b",
+          "text": "Avoid adding extra chunks \"to be safe\", since more context costs more and can lower accuracy"
+        },
+        {
+          "id": "c",
+          "text": "Place the best chunk in the middle, where it is separated from the question"
+        },
+        {
+          "id": "d",
+          "text": "Rely on the model to use every position in the context equally"
+        }
+      ],
+      "answer": [
+        "a",
+        "b"
+      ],
+      "explanation": "Ordering matters, and more context is more expensive, slower and often less accurate. Reranking narrows many candidates to a few good ones and orders them deliberately."
+    },
+    {
+      "id": "q8",
+      "type": "single",
+      "text": "Which of these requirements needs tool calling rather than RAG over documents?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Answering questions about a 400-page employee handbook"
+        },
+        {
+          "id": "b",
+          "text": "Telling a customer whether their order has shipped, using live data from the order system"
+        },
+        {
+          "id": "c",
+          "text": "Rewriting support emails to be more polite"
+        },
+        {
+          "id": "d",
+          "text": "Turning a meeting transcript into action items as JSON"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "Live data in an order system is not in any document, so retrieval over documents cannot answer it; the model needs a function to call. The handbook needs RAG, and the email rewrite and transcript summary can be done with a prompt (plus structured output)."
+    }
+  ]
+}

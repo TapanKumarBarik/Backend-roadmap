@@ -1,0 +1,210 @@
+{
+  "title": "The KV cache and GPU memory for serving",
+  "topic": "inference",
+  "difficulty": "intermediate",
+  "module": "genai/05-gpus-and-genai-hardware/05-calculating-a-models-memory-requirements/README.md",
+  "description": "Why serving a language model runs out of GPU memory, and how to estimate weights and KV cache before you deploy.",
+  "questions": [
+    {
+      "id": "q1",
+      "type": "single",
+      "text": "Why does an LLM inference engine keep a KV cache?",
+      "options": [
+        {
+          "id": "a",
+          "text": "To cache complete answers so identical prompts skip the model"
+        },
+        {
+          "id": "b",
+          "text": "To store the keys and values of earlier tokens so that each new token does not recompute attention inputs for the whole prefix"
+        },
+        {
+          "id": "c",
+          "text": "To store the model weights in faster memory"
+        },
+        {
+          "id": "d",
+          "text": "To hold the gradients needed for fine-tuning"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "Each token only attends to earlier tokens, so their keys and values never change once computed. Storing them makes generation fast, but memory grows with every token. It is not a response cache, and gradients belong to training."
+    },
+    {
+      "id": "q2",
+      "type": "single",
+      "text": "How much memory do the weights alone of a 7-billion-parameter model need in 16-bit (FP16 or BF16) precision?",
+      "options": [
+        {
+          "id": "a",
+          "text": "About 3.5 GB"
+        },
+        {
+          "id": "b",
+          "text": "About 7 GB"
+        },
+        {
+          "id": "c",
+          "text": "About 14 GB"
+        },
+        {
+          "id": "d",
+          "text": "About 28 GB"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "Weights = parameters x bytes per parameter, and 16-bit numbers take 2 bytes, so 7e9 x 2 = 14e9 bytes. 7 GB would be 8-bit (1 byte) and 28 GB would be FP32 (4 bytes)."
+    },
+    {
+      "id": "q3",
+      "type": "single",
+      "text": "A model has 32 layers, 8 key/value heads of dimension 128, and stores its cache in FP16. Roughly how large is the KV cache for ONE sequence of 4,096 tokens? (KV bytes per token = 2 x layers x KV heads x head dim x bytes.)",
+      "options": [
+        {
+          "id": "a",
+          "text": "About 64 MiB"
+        },
+        {
+          "id": "b",
+          "text": "About 4 GiB"
+        },
+        {
+          "id": "c",
+          "text": "About 128 KiB"
+        },
+        {
+          "id": "d",
+          "text": "About 512 MiB"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "Per token: 2 x 32 x 8 x 128 x 2 bytes = 131,072 bytes (128 KiB). Times 4,096 tokens is 512 MiB. 128 KiB is the cost of a single token, and 4 GiB would be about eight such sequences."
+    },
+    {
+      "id": "q4",
+      "type": "single",
+      "text": "What does grouped-query attention (GQA) change about memory use at inference time?",
+      "options": [
+        {
+          "id": "a",
+          "text": "It shrinks the KV cache by sharing each key/value head across a group of query heads, by a factor of (query heads / KV heads)"
+        },
+        {
+          "id": "b",
+          "text": "It halves the weights by storing them in 8 bits"
+        },
+        {
+          "id": "c",
+          "text": "It removes the need for a KV cache altogether"
+        },
+        {
+          "id": "d",
+          "text": "It reduces the number of query heads, and so most of the compute"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "GQA keeps the number of query heads (and so most compute) but uses fewer key/value heads, shrinking the g term in the KV formula. Llama 3 uses 8 KV heads at both 8B and 70B. It does not remove the cache or change weight precision."
+    },
+    {
+      "id": "q5",
+      "type": "multiple",
+      "text": "Which changes reduce the KV cache needed per sequence? Select all that apply.",
+      "options": [
+        {
+          "id": "a",
+          "text": "Using fewer key/value heads (GQA or MQA)"
+        },
+        {
+          "id": "b",
+          "text": "Limiting the maximum context length"
+        },
+        {
+          "id": "c",
+          "text": "Quantizing only the model weights to 4 bits"
+        },
+        {
+          "id": "d",
+          "text": "Increasing the batch size to serve more users per GPU"
+        }
+      ],
+      "answer": [
+        "a",
+        "b"
+      ],
+      "explanation": "The cache is 2 x layers x KV heads x head dim x tokens x batch x bytes, so fewer KV heads or fewer tokens shrink it. Weight quantization shrinks the weights (the cache only if you quantize it too), and a bigger batch multiplies the total cache, not the per-sequence one."
+    },
+    {
+      "id": "q6",
+      "type": "truefalse",
+      "text": "A model whose weights are 14 GB will comfortably serve many users on a 24 GB GPU, because the weights fit with room to spare.",
+      "options": [
+        {
+          "id": "true",
+          "text": "True"
+        },
+        {
+          "id": "false",
+          "text": "False"
+        }
+      ],
+      "answer": [
+        "false"
+      ],
+      "explanation": "Weights are the floor, not the total. You still need the KV cache for each user's context plus runtime overhead, and with about 10 GB left the number of concurrent long sequences may be small."
+    },
+    {
+      "id": "q7",
+      "type": "single",
+      "text": "A model server runs fine for hours, then starts failing with out-of-memory errors as traffic rises and users send longer prompts. What is the most likely cause?",
+      "options": [
+        {
+          "id": "a",
+          "text": "The weights slowly grow as the model is used"
+        },
+        {
+          "id": "b",
+          "text": "The KV cache grew as more requests arrived and existing ones got longer"
+        },
+        {
+          "id": "c",
+          "text": "The optimizer states filled the card"
+        },
+        {
+          "id": "d",
+          "text": "The tokenizer ran out of vocabulary"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "Weights are fixed once loaded, and optimizer states exist only in training. The KV cache scales with batch x sequence length and grows while the model generates, so an OOM after minutes or hours in a server points to it."
+    },
+    {
+      "id": "q8",
+      "type": "truefalse",
+      "text": "A mixture-of-experts model activates only a few experts per token, so you only need GPU memory for those active experts' weights.",
+      "options": [
+        {
+          "id": "true",
+          "text": "True"
+        },
+        {
+          "id": "false",
+          "text": "False"
+        }
+      ],
+      "answer": [
+        "false"
+      ],
+      "explanation": "Any expert might be chosen for the next token, so all experts must be resident. Use the model's total parameter count, not the active count, when estimating memory."
+    }
+  ]
+}

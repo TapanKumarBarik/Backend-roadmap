@@ -1,0 +1,219 @@
+{
+  "title": "Transactions, isolation and locking",
+  "topic": "databases",
+  "difficulty": "intermediate",
+  "module": "backend/04-databases-and-data-layer/04-transactions-and-concurrency-control/README.md",
+  "description": "Read anomalies, PostgreSQL's isolation levels, pessimistic and optimistic locking, and how to avoid deadlocks.",
+  "questions": [
+    {
+      "id": "q1",
+      "type": "single",
+      "text": "What is PostgreSQL's default isolation level, and what does each statement see?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Serializable: every transaction runs as if alone"
+        },
+        {
+          "id": "b",
+          "text": "Repeatable Read: one snapshot for the whole transaction"
+        },
+        {
+          "id": "c",
+          "text": "Read Committed: each statement sees data committed before that statement began"
+        },
+        {
+          "id": "d",
+          "text": "Read Uncommitted: uncommitted changes are visible to everyone"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "Read Committed prevents dirty reads but allows a later statement in the same transaction to see newly committed changes. The stronger levels must be requested explicitly."
+    },
+    {
+      "id": "q2",
+      "type": "single",
+      "text": "Inside one transaction you run SELECT ... WHERE status = 'open' twice. Between the runs another transaction inserts a matching row and commits, and your second run returns an extra row. Which anomaly is this?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Dirty read"
+        },
+        {
+          "id": "b",
+          "text": "Phantom read"
+        },
+        {
+          "id": "c",
+          "text": "Non-repeatable read"
+        },
+        {
+          "id": "d",
+          "text": "Lost update"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "A phantom is a row appearing in (or vanishing from) a set matched by a predicate. A non-repeatable read is when an existing row you already read comes back with a different value. A dirty read involves uncommitted data."
+    },
+    {
+      "id": "q3",
+      "type": "truefalse",
+      "text": "On PostgreSQL at Read Committed, an application that reads a balance, adds 10 in code and writes it back is safe from lost updates.",
+      "options": [
+        {
+          "id": "true",
+          "text": "True"
+        },
+        {
+          "id": "false",
+          "text": "False"
+        }
+      ],
+      "answer": [
+        "false"
+      ],
+      "explanation": "Two transactions can both read 100 and both write back their own result, so the second write overwrites the first. You need row locking, an atomic UPDATE, a version check, or a stronger isolation level with retries."
+    },
+    {
+      "id": "q4",
+      "type": "single",
+      "text": "Under PostgreSQL's REPEATABLE READ, two transactions update the same row. The first commits. What happens to the second?",
+      "options": [
+        {
+          "id": "a",
+          "text": "It fails with a serialization error and must be retried"
+        },
+        {
+          "id": "b",
+          "text": "It silently overwrites the first update"
+        },
+        {
+          "id": "c",
+          "text": "It merges both updates automatically"
+        },
+        {
+          "id": "d",
+          "text": "It keeps waiting until the first transaction rolls back"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "The second update blocks until the first finishes, then fails with 'could not serialize access due to concurrent update' because its snapshot is stale. The application has to catch that error and retry the whole transaction."
+    },
+    {
+      "id": "q5",
+      "type": "multiple",
+      "text": "Which approaches prevent a lost update when many requests change the same account balance? Select all that apply.",
+      "options": [
+        {
+          "id": "a",
+          "text": "SELECT ... FOR UPDATE before computing the new balance"
+        },
+        {
+          "id": "b",
+          "text": "An UPDATE ... WHERE id = ? AND version = ? that is retried when it affects 0 rows"
+        },
+        {
+          "id": "c",
+          "text": "A single atomic statement such as UPDATE accounts SET balance = balance + 10"
+        },
+        {
+          "id": "d",
+          "text": "A plain SELECT then UPDATE at Read Committed, with a short transaction"
+        }
+      ],
+      "answer": [
+        "a",
+        "b",
+        "c"
+      ],
+      "explanation": "Pessimistic locking, optimistic versioning and an atomic update each stop two writers from acting on the same stale value. A short transaction narrows the window but does not close it."
+    },
+    {
+      "id": "q6",
+      "type": "single",
+      "text": "Two code paths transfer money between accounts A and B. One locks A then B, the other locks B then A, and they occasionally deadlock. What is the most effective fix?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Raise deadlock_timeout so transactions wait longer"
+        },
+        {
+          "id": "b",
+          "text": "Switch both paths to Read Uncommitted"
+        },
+        {
+          "id": "c",
+          "text": "Add more connections to the pool"
+        },
+        {
+          "id": "d",
+          "text": "Have every code path lock the rows in the same order, such as lowest id first"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "A deadlock needs a cycle of waits, and a consistent lock order makes a cycle impossible. A longer timeout only delays detection, and PostgreSQL has no real Read Uncommitted anyway."
+    },
+    {
+      "id": "q7",
+      "type": "single",
+      "text": "With optimistic locking, your UPDATE ... WHERE id = 'A' AND version = 7 reports 0 rows affected. What does that mean?",
+      "options": [
+        {
+          "id": "a",
+          "text": "The row does not exist, so you should insert it"
+        },
+        {
+          "id": "b",
+          "text": "The database lost the update; you should restart the server"
+        },
+        {
+          "id": "c",
+          "text": "Someone else changed the row first, so re-read it and retry"
+        },
+        {
+          "id": "d",
+          "text": "The write succeeded but nothing needed changing"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "The version no longer matches because another transaction bumped it. The application must detect the zero-row result, re-read the fresh row and retry. This only pays off when conflicts are rare."
+    },
+    {
+      "id": "q8",
+      "type": "single",
+      "text": "Several workers poll a jobs table, and you want each worker to claim different rows without waiting on each other. Which clause fits?",
+      "options": [
+        {
+          "id": "a",
+          "text": "SELECT ... FOR UPDATE SKIP LOCKED"
+        },
+        {
+          "id": "b",
+          "text": "SELECT ... FOR SHARE"
+        },
+        {
+          "id": "c",
+          "text": "SELECT ... FOR UPDATE with no other clause"
+        },
+        {
+          "id": "d",
+          "text": "SET TRANSACTION ISOLATION LEVEL SERIALIZABLE"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "SKIP LOCKED passes over rows another transaction already locked, so workers pick different rows. Plain FOR UPDATE makes every worker queue behind the first, and Serializable would produce errors to retry instead."
+    }
+  ]
+}

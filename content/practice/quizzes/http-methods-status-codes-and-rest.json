@@ -1,0 +1,219 @@
+{
+  "title": "HTTP methods, status codes and REST",
+  "topic": "http",
+  "difficulty": "beginner",
+  "module": "backend/01-request-response-fundamentals/03-http-methods-and-semantics/README.md",
+  "description": "Which method and which status code to use, what safe and idempotent mean, and how to model an API around resources.",
+  "questions": [
+    {
+      "id": "q1",
+      "type": "multiple",
+      "text": "Which methods are both safe and idempotent? Select all that apply.",
+      "options": [
+        {
+          "id": "a",
+          "text": "GET"
+        },
+        {
+          "id": "b",
+          "text": "HEAD"
+        },
+        {
+          "id": "c",
+          "text": "PUT"
+        },
+        {
+          "id": "d",
+          "text": "POST"
+        }
+      ],
+      "answer": [
+        "a",
+        "b"
+      ],
+      "explanation": "GET and HEAD only read, so they change nothing and repeating them changes nothing. PUT is idempotent but not safe because it modifies state, and POST is neither."
+    },
+    {
+      "id": "q2",
+      "type": "single",
+      "text": "User 42 has a name and an email. A client sends PUT /users/42 with the body {\"email\": \"new@example.com\"} only. What does PUT semantics say should happen?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Only the email changes and the name is kept"
+        },
+        {
+          "id": "b",
+          "text": "The server must reject the request with 405"
+        },
+        {
+          "id": "c",
+          "text": "The resource is replaced by the body, so the omitted name is erased"
+        },
+        {
+          "id": "d",
+          "text": "A second user is created"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "PUT replaces the whole resource at a known URL with the representation you send, so omitted fields are lost. Changing just one field is what PATCH is for."
+    },
+    {
+      "id": "q3",
+      "type": "single",
+      "text": "A POST /users request successfully creates a new user. What is the conventional response?",
+      "options": [
+        {
+          "id": "a",
+          "text": "200 OK with an empty body"
+        },
+        {
+          "id": "b",
+          "text": "202 Accepted with a Retry-After header"
+        },
+        {
+          "id": "c",
+          "text": "204 No Content"
+        },
+        {
+          "id": "d",
+          "text": "201 Created with a Location header pointing at the new user"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "201 says a new resource now exists and Location tells the client where. 202 is for work accepted but not yet done, and 204 means success with deliberately no body, the usual answer to a DELETE."
+    },
+    {
+      "id": "q4",
+      "type": "single",
+      "text": "A logged-in user who is not an admin calls DELETE /users/42. Which status code fits best?",
+      "options": [
+        {
+          "id": "a",
+          "text": "401 Unauthorized"
+        },
+        {
+          "id": "b",
+          "text": "403 Forbidden"
+        },
+        {
+          "id": "c",
+          "text": "400 Bad Request"
+        },
+        {
+          "id": "d",
+          "text": "500 Internal Server Error"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "The server knows who the caller is but they are not allowed to do this, which is 403. 401 despite its name means unauthenticated, no valid credentials at all."
+    },
+    {
+      "id": "q5",
+      "type": "multiple",
+      "text": "Which responses suggest that sending the same request again later might succeed? Select all that apply.",
+      "options": [
+        {
+          "id": "a",
+          "text": "503 Service Unavailable"
+        },
+        {
+          "id": "b",
+          "text": "404 Not Found for a path that does not exist"
+        },
+        {
+          "id": "c",
+          "text": "400 Bad Request for malformed JSON"
+        },
+        {
+          "id": "d",
+          "text": "504 Gateway Timeout"
+        }
+      ],
+      "answer": [
+        "a",
+        "d"
+      ],
+      "explanation": "5xx codes say the server or something behind it failed, so the request itself may be fine. 4xx codes blame the request, and repeating an unchanged malformed or misdirected request will fail the same way."
+    },
+    {
+      "id": "q6",
+      "type": "truefalse",
+      "text": "It is fine for an API to return 200 OK with a body like {\"error\": \"not found\"}, because clients can read the body.",
+      "options": [
+        {
+          "id": "true",
+          "text": "True"
+        },
+        {
+          "id": "false",
+          "text": "False"
+        }
+      ],
+      "answer": [
+        "false"
+      ],
+      "explanation": "Caches, retry logic, proxies and monitoring all act on the status code, so a smiling 200 hides failures and may even be cached. The status line is the contract; the body adds detail."
+    },
+    {
+      "id": "q7",
+      "type": "single",
+      "text": "Which design best fits REST for cancelling order 42?",
+      "options": [
+        {
+          "id": "a",
+          "text": "PATCH /orders/42 with {\"status\": \"cancelled\"}"
+        },
+        {
+          "id": "b",
+          "text": "POST /cancelOrder with {\"id\": 42}"
+        },
+        {
+          "id": "c",
+          "text": "GET /orders/42/cancel"
+        },
+        {
+          "id": "d",
+          "text": "DELETE /orders to remove everything and recreate the rest"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "REST models state changes as changes to a resource rather than verbs in the URL. A GET that cancels violates safety, since crawlers and prefetchers issue GETs, and /cancelOrder is the RPC style REST avoids."
+    },
+    {
+      "id": "q8",
+      "type": "single",
+      "text": "A client tries to register with an email address that already belongs to another user. Which status code fits best?",
+      "options": [
+        {
+          "id": "a",
+          "text": "404 Not Found"
+        },
+        {
+          "id": "b",
+          "text": "304 Not Modified"
+        },
+        {
+          "id": "c",
+          "text": "409 Conflict"
+        },
+        {
+          "id": "d",
+          "text": "503 Service Unavailable"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "409 means the request clashes with the current state of the resource. 404 would say the thing does not exist, and 5xx codes would wrongly blame the server."
+    }
+  ]
+}

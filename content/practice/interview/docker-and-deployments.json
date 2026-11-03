@@ -1,0 +1,48 @@
+{
+  "title": "Docker and deployments",
+  "topic": "devops",
+  "difficulty": "intermediate",
+  "module": "backend/13-devops-for-backend-engineers/00-containerizing-a-backend-app/README.md",
+  "questions": [
+    {
+      "q": "What is the difference between an image and a container?",
+      "a": "An image is an immutable, layered template containing the filesystem and metadata needed to run an application. A container is a running (or stopped) instance of an image with its own writable layer and isolated process, network and filesystem views. Many containers can run from one image."
+    },
+    {
+      "q": "How does Docker's build cache work and how should that shape your Dockerfile?",
+      "a": "Each instruction creates a layer that is cached until its inputs change, and a change invalidates every layer after it. So put rarely changing steps first, such as installing dependencies from a lockfile, and frequently changing steps last, such as copying your source code. This makes most rebuilds fast."
+    },
+    {
+      "q": "What is a multi-stage build and why use one?",
+      "a": "A Dockerfile with several FROM stages, where a build stage has compilers and tools and the final stage copies only the built artifacts into a small runtime image. It gives smaller images with a smaller attack surface and no build tools or source caches in production."
+    },
+    {
+      "q": "Why should a container run as a non-root user?",
+      "a": "If the application is compromised, running as root inside the container gives the attacker more power, and a container escape bug would be worse. A dedicated unprivileged user limits the damage. You create the user in the image and make sure files the app needs are readable by it."
+    },
+    {
+      "q": "Why does the exec form of CMD matter for shutdown?",
+      "a": "In exec form (a JSON array) the application is PID 1 and receives SIGTERM directly, so it can finish in-flight requests and exit cleanly. In shell form the shell may be PID 1 and not pass the signal on, so the container is killed after the grace period. Your app also needs to handle SIGTERM and stop accepting new work."
+    },
+    {
+      "q": "How should an application receive configuration and secrets in a container?",
+      "a": "Configuration comes from environment variables or mounted files at runtime, so the same image runs in every environment. Secrets must not be baked into the image or committed to the repository, because image layers keep them; inject them at runtime from a secrets manager or the orchestrator, and restrict who can read them. Note that Kubernetes Secrets are only base64-encoded by default unless encryption at rest is enabled."
+    },
+    {
+      "q": "What is the difference between a liveness probe and a readiness probe?",
+      "a": "Liveness asks whether the process is broken beyond recovery; failing it makes the platform restart the container, so it should be cheap and not depend on external services. Readiness asks whether the instance can serve traffic now; failing it removes the instance from load balancing without restarting it, so it may check dependencies such as the database. Putting a database check in liveness can cause a restart storm during a database blip."
+    },
+    {
+      "q": "Compare rolling, blue-green and canary deployments.",
+      "a": "A rolling update replaces instances gradually, using little extra capacity but mixing old and new versions for a while. Blue-green runs a full second environment and switches traffic at once, giving instant rollback at the cost of double capacity. A canary sends a small share of traffic to the new version and watches metrics before widening, which limits the blast radius of a bad release."
+    },
+    {
+      "q": "What do Kubernetes Deployments, Services and Pods each do?",
+      "a": "A Pod is the smallest unit, one or more containers sharing network and storage. A Deployment declares how many replicas of a Pod template you want and manages rolling updates and rollbacks. A Service gives a stable address and load balancing over the Pods that match a label selector, since individual Pod IPs change."
+    },
+    {
+      "q": "Why must database changes be backward compatible during a rolling deploy?",
+      "a": "During the rollout old and new code run at the same time against the same database, and a rollback puts the old code back. A change that the old version cannot handle, such as dropping or renaming a column, breaks it. The expand and contract pattern solves this: add the new structure first, deploy code that works with both, then remove the old structure later."
+    }
+  ]
+}

@@ -1,0 +1,111 @@
+{
+  "title": "Capacity estimation and back-of-envelope math",
+  "topic": "system-design",
+  "difficulty": "intermediate",
+  "module": "backend/14-system-design-interview-practice/00-capacity-estimation-and-back-of-envelope-math/README.md",
+  "description": "Turn users into QPS, storage, bandwidth, server counts and cache size, and sanity-check the order of magnitude.",
+  "questions": [
+    {
+      "id": "q1",
+      "type": "single",
+      "text": "Which constant is the most useful for turning a per-day count into a per-second rate in a quick estimate?",
+      "options": [
+        { "id": "a", "text": "About 100,000 seconds per day (86,400, rounded to 10^5)" },
+        { "id": "b", "text": "3,600 seconds per day" },
+        { "id": "c", "text": "About 1,000,000 seconds per day" },
+        { "id": "d", "text": "About 10,000 seconds per day" }
+      ],
+      "answer": ["a"],
+      "explanation": "There are 86,400 seconds in a day, so 10^5 is the clean round number and one division converts a daily total to an average rate. 3,600 is the number of seconds in an hour, a very common slip."
+    },
+    {
+      "id": "q2",
+      "type": "single",
+      "text": "A service has 50 million daily active users, and each makes 20 requests a day. Using the 10^5 seconds-per-day rule and a 3x peak factor, what is the peak request rate?",
+      "options": [
+        { "id": "a", "text": "About 3,000 requests per second" },
+        { "id": "b", "text": "About 10,000 requests per second" },
+        { "id": "c", "text": "About 30,000 requests per second" },
+        { "id": "d", "text": "About 300,000 requests per second" }
+      ],
+      "answer": ["c"],
+      "explanation": "50M x 20 = 10^9 requests a day; divided by 10^5 that is about 10,000 per second on average, and times 3 is about 30,000 at peak. 10,000 is the average, which is the wrong number to size for."
+    },
+    {
+      "id": "q3",
+      "type": "single",
+      "text": "A service stores 10 million new records a day, each about 2 KB, and keeps them for one year with 3 copies. About how much storage does it need?",
+      "options": [
+        { "id": "a", "text": "About 7.3 TB" },
+        { "id": "b", "text": "About 220 TB" },
+        { "id": "c", "text": "About 2.2 TB" },
+        { "id": "d", "text": "About 22 TB" }
+      ],
+      "answer": ["d"],
+      "explanation": "10M x 2 KB = 20 GB per day; x 365 is about 7.3 TB; x 3 copies is about 22 TB. The 7.3 TB answer forgets replication, which the real storage bill always includes."
+    },
+    {
+      "id": "q4",
+      "type": "single",
+      "text": "An API serves 20,000 requests per second with an average response of 50 KB. How much outbound bandwidth is that?",
+      "options": [
+        { "id": "a", "text": "About 1 MB/s" },
+        { "id": "b", "text": "About 100 MB/s (under 1 Gbps)" },
+        { "id": "c", "text": "About 1 GB/s (about 8 Gbps)" },
+        { "id": "d", "text": "About 10 GB/s (about 80 Gbps)" }
+      ],
+      "answer": ["c"],
+      "explanation": "Bandwidth is request rate times payload: 20,000 x 50 KB = 1,000,000 KB/s, which is 1 GB/s, or about 8 Gbps. That already takes up most of a single server's NIC, which is the signal to spread the load or use a CDN."
+    },
+    {
+      "id": "q5",
+      "type": "single",
+      "text": "Peak load is 90,000 requests per second and one server sustains 15,000. How many servers do you provision if you add N+2 redundancy?",
+      "options": [
+        { "id": "a", "text": "6" },
+        { "id": "b", "text": "7" },
+        { "id": "c", "text": "12" },
+        { "id": "d", "text": "8" }
+      ],
+      "answer": ["d"],
+      "explanation": "90,000 / 15,000 = 6 servers for load alone, plus 2 spare for failures and deploys gives 8. Six would run at exactly 100% of peak with nothing to lose, and doubling to 12 is more than N+2 asks for."
+    },
+    {
+      "id": "q6",
+      "type": "multiple",
+      "text": "Using the latency ladder (memory ~100 ns, SSD random read ~100 microseconds, disk seek ~10 ms, same-datacenter round trip ~0.5 ms, cross-continent round trip ~100+ ms), which statements are correct? Select all that apply.",
+      "options": [
+        { "id": "a", "text": "A rotational disk seek is about as fast as an SSD random read" },
+        { "id": "b", "text": "A main-memory reference is roughly 1,000 times faster than an SSD random read" },
+        { "id": "c", "text": "A same-datacenter round trip is faster than a main-memory reference" },
+        { "id": "d", "text": "One cross-continent round trip costs more than a million memory references" }
+      ],
+      "answer": ["b", "d"],
+      "explanation": "100 ns against 100 microseconds is 1,000x, and 100 ms against 100 ns is about 10^6x. A disk seek is roughly 100x slower than an SSD read, and any network round trip is far slower than touching memory."
+    },
+    {
+      "id": "q7",
+      "type": "truefalse",
+      "text": "A chat service sends 2 billion messages a day. Dividing by 3,600 gives the right average messages per second.",
+      "options": [
+        { "id": "true", "text": "True" },
+        { "id": "false", "text": "False" }
+      ],
+      "answer": ["false"],
+      "explanation": "3,600 is the number of seconds in an hour. Dividing by about 10^5 gives roughly 20,000 messages per second on average, about 24 times lower than the wrong answer, and you still apply a peak factor on top."
+    },
+    {
+      "id": "q8",
+      "type": "single",
+      "text": "An app touches 100 TB of distinct data a day, and requests follow the 80/20 rule. You cache the hot 20% on nodes with 256 GB of RAM each. Roughly how many nodes are needed?",
+      "options": [
+        { "id": "a", "text": "1" },
+        { "id": "b", "text": "About 8" },
+        { "id": "c", "text": "About 80" },
+        { "id": "d", "text": "About 800" }
+      ],
+      "answer": ["c"],
+      "explanation": "20% of 100 TB is 20 TB, and 20,000 GB / 256 GB is about 78, so roughly 80 nodes. The number shows that one Redis node is not enough and a distributed cache is required."
+    }
+  ]
+}

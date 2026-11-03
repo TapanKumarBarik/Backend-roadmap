@@ -1,0 +1,211 @@
+{
+  "title": "Load balancing and reverse proxies",
+  "topic": "networking",
+  "difficulty": "intermediate",
+  "module": "learn/04-networking-fundamentals/06-load-balancing-concepts/README.md",
+  "description": "Layer 4 versus layer 7, health checks, sticky sessions, and what a reverse proxy such as nginx does in front of your app.",
+  "questions": [
+    {
+      "id": "q1",
+      "type": "single",
+      "text": "You want requests for /api to go to one pool of servers and /images to another. Which kind of load balancer can do this?",
+      "options": [
+        {
+          "id": "a",
+          "text": "A layer 4 balancer, because it sees the destination port"
+        },
+        {
+          "id": "b",
+          "text": "A layer 7 balancer, because it reads the HTTP request"
+        },
+        {
+          "id": "c",
+          "text": "Either one, because the path is part of the TCP header"
+        },
+        {
+          "id": "d",
+          "text": "Neither; this can only be done with DNS"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "Routing on the URL path needs a balancer that terminates the connection and understands HTTP. A layer 4 balancer only sees IP addresses and ports, and the path is not in any TCP header."
+    },
+    {
+      "id": "q2",
+      "type": "single",
+      "text": "A backend keeps its port open but returns 500 for every request because its database is down. The balancer only checks that it can open a TCP connection to the port. What happens?",
+      "options": [
+        {
+          "id": "a",
+          "text": "The balancer removes the backend as soon as it sees the 500 responses in a TCP check"
+        },
+        {
+          "id": "b",
+          "text": "The balancer stops the backend from accepting connections"
+        },
+        {
+          "id": "c",
+          "text": "The balancer keeps sending it traffic, because the shallow check still passes"
+        },
+        {
+          "id": "d",
+          "text": "The balancer retries every failed request on a different backend automatically"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "A TCP-level check only proves something is listening. A deeper layer 7 check, such as GET /healthz expecting 200 and reflecting real readiness, is what notices an app that is up but broken."
+    },
+    {
+      "id": "q3",
+      "type": "truefalse",
+      "text": "Sticky sessions make traffic spread more evenly across backends, which is why they are recommended by default.",
+      "options": [
+        {
+          "id": "true",
+          "text": "True"
+        },
+        {
+          "id": "false",
+          "text": "False"
+        }
+      ],
+      "answer": [
+        "false"
+      ],
+      "explanation": "Pinning a client to one backend can leave a few busy clients piling onto a few servers, and the session is lost anyway if that backend dies. The cleaner answer is stateless backends with session data in a shared store."
+    },
+    {
+      "id": "q4",
+      "type": "single",
+      "text": "Some requests finish in milliseconds and others hold a connection for many seconds. Which balancing method usually copes best?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Least connections"
+        },
+        {
+          "id": "b",
+          "text": "Plain round robin"
+        },
+        {
+          "id": "c",
+          "text": "Always choosing the first server in the list"
+        },
+        {
+          "id": "d",
+          "text": "Random choice of a DNS record"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "Least connections sends the next request to the backend with the fewest open connections, so slow requests do not pile up on one server. Round robin rotates blindly, which is fine when requests are uniform but not here."
+    },
+    {
+      "id": "q5",
+      "type": "single",
+      "text": "Users report intermittent 502 Bad Gateway responses from your site, which sits behind a load balancer. Where should you look first?",
+      "options": [
+        {
+          "id": "a",
+          "text": "The users' browser caches"
+        },
+        {
+          "id": "b",
+          "text": "The DNS records for the site"
+        },
+        {
+          "id": "c",
+          "text": "The clients' TLS settings"
+        },
+        {
+          "id": "d",
+          "text": "The hop between the balancer and the backends, such as a crashed or misbehaving backend"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "A 502 means the balancer was reached fine but did not get a valid response from a backend. Hitting a backend directly, and checking whether one unhealthy instance is still in rotation, narrows it down quickly."
+    },
+    {
+      "id": "q6",
+      "type": "multiple",
+      "text": "Which are real benefits of putting a reverse proxy such as nginx in front of your application containers? Select all that apply.",
+      "options": [
+        {
+          "id": "a",
+          "text": "TLS can be terminated in one place, so the app only speaks plain HTTP internally"
+        },
+        {
+          "id": "b",
+          "text": "The backends do not need to be directly reachable from the internet"
+        },
+        {
+          "id": "c",
+          "text": "Traffic is guaranteed to be encrypted all the way to the app process"
+        },
+        {
+          "id": "d",
+          "text": "Static files can be served from disk without touching the app"
+        }
+      ],
+      "answer": [
+        "a",
+        "b",
+        "d"
+      ],
+      "explanation": "A reverse proxy is the one thing the outside world sees, can terminate TLS and can serve static files itself. Terminating TLS at the proxy means the hop from proxy to app is plain HTTP, so it is not end-to-end encryption."
+    },
+    {
+      "id": "q7",
+      "type": "single",
+      "text": "Your app sits behind nginx and logs nginx's address as the client IP for every request. What is the standard fix?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Switch nginx from round robin to ip_hash"
+        },
+        {
+          "id": "b",
+          "text": "Turn on TLS termination at nginx"
+        },
+        {
+          "id": "c",
+          "text": "Have nginx forward the original address with proxy_set_header X-Forwarded-For, and have the app read that header from the proxy"
+        },
+        {
+          "id": "d",
+          "text": "Run nginx and the app on different ports"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "The backend only sees nginx's connection, so the original client address has to be passed along in a header such as X-Forwarded-For. Only trust that header when it comes from a proxy you control. ip_hash and TLS settings do not change what address the backend sees."
+    },
+    {
+      "id": "q8",
+      "type": "truefalse",
+      "text": "Running three backends behind a single load balancer instance is enough to make a service highly available.",
+      "options": [
+        {
+          "id": "true",
+          "text": "True"
+        },
+        {
+          "id": "false",
+          "text": "False"
+        }
+      ],
+      "answer": [
+        "false"
+      ],
+      "explanation": "The single balancer is itself a single point of failure, and redundancy only helps when something actually health-checks and reroutes around a failed instance. High availability needs redundancy and failure detection at every tier."
+    }
+  ]
+}

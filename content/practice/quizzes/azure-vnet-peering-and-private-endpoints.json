@@ -1,0 +1,111 @@
+{
+  "title": "Azure VNet peering and private endpoints",
+  "topic": "azure",
+  "difficulty": "intermediate",
+  "module": "learn/05-azure-networking/05-vnet-peering-and-private-endpoints/README.md",
+  "description": "How peering connects VNets, why it is not transitive, and what a private endpoint needs before a service name resolves privately.",
+  "questions": [
+    {
+      "id": "q1",
+      "type": "single",
+      "text": "Spoke A and spoke B are each peered with the same hub VNet, but not with each other. By default, can a VM in spoke A reach a VM in spoke B?",
+      "options": [
+        { "id": "a", "text": "Yes, because both are peered to the hub, traffic flows through it automatically" },
+        { "id": "b", "text": "Yes, but only if both spokes are in the same region" },
+        { "id": "c", "text": "No, because peering is not transitive and connects only the two VNets directly peered" },
+        { "id": "d", "text": "No, because a VNet can have only one peering" }
+      ],
+      "answer": ["c"],
+      "explanation": "Peering links two VNets directly and nothing more. To connect the spokes, peer them directly or route their traffic through a firewall or NVA in the hub. A VNet can have many peerings, which is what hub-and-spoke relies on."
+    },
+    {
+      "id": "q2",
+      "type": "single",
+      "text": "You created a peering from hub-vnet to spokeA-vnet and its state is Initiated, not Connected. What is the most likely cause?",
+      "options": [
+        { "id": "a", "text": "The matching peering from spokeA-vnet back to hub-vnet has not been created" },
+        { "id": "b", "text": "Peering needs a VPN gateway in both VNets first" },
+        { "id": "c", "text": "The hub needs a public IP address" },
+        { "id": "d", "text": "Peerings take 24 hours to move to Connected" }
+      ],
+      "answer": ["a"],
+      "explanation": "A peering is two links, one created from each VNet's side, and it is Connected only when both exist and point at each other. Same-region peering needs no gateway, and no public IP is involved."
+    },
+    {
+      "id": "q3",
+      "type": "single",
+      "text": "You try to peer two VNets that both use the address space 10.0.0.0/16. What happens, and what is the remedy?",
+      "options": [
+        { "id": "a", "text": "It works, and Azure automatically translates the overlapping addresses" },
+        { "id": "b", "text": "It works if you add --allow-forwarded-traffic to both links" },
+        { "id": "c", "text": "It fails; you can tell Azure which VNet owns the range with a route table" },
+        { "id": "d", "text": "It fails; the only fix is to re-address one of the VNets" }
+      ],
+      "answer": ["d"],
+      "explanation": "Address spaces of peered VNets must not overlap, because Azure could not tell which network an address belongs to. There is no override or NAT that rescues it, so one VNet has to change its address space."
+    },
+    {
+      "id": "q4",
+      "type": "single",
+      "text": "How does a private endpoint for a storage account differ from a service endpoint?",
+      "options": [
+        { "id": "a", "text": "A private endpoint gives the service a private IP in your subnet, so its public endpoint can be disabled; a service endpoint keeps the public IP and only routes to it privately" },
+        { "id": "b", "text": "A private endpoint only works for storage accounts, while a service endpoint works for any VM" },
+        { "id": "c", "text": "A private endpoint is free and a service endpoint is billed per hour" },
+        { "id": "d", "text": "A private endpoint routes traffic over the public internet with extra encryption" }
+      ],
+      "answer": ["a"],
+      "explanation": "A private endpoint is a NIC with a private IP in your VNet mapped to one service instance, which removes the service from public exposure. A service endpoint still uses the service's public address. Private endpoints are billed hourly plus per GB, and they work across many PaaS services."
+    },
+    {
+      "id": "q5",
+      "type": "single",
+      "text": "You created a private endpoint for a storage account, but nslookup of myacct.blob.core.windows.net from a VM in the same VNet still returns a public IP. What is missing?",
+      "options": [
+        { "id": "a", "text": "A second private endpoint in the same subnet" },
+        { "id": "b", "text": "A private DNS zone named privatelink.blob.core.windows.net, linked to the VNet, with an A record for the endpoint" },
+        { "id": "c", "text": "An NSG rule that allows UDP port 53" },
+        { "id": "d", "text": "A peering to the VNet that holds the storage account" }
+      ],
+      "answer": ["b"],
+      "explanation": "The app still uses the public hostname, so something must make that name resolve to the private IP, which is what the linked privatelink zone and its A record do. Without it the endpoint exists but nothing uses it."
+    },
+    {
+      "id": "q6",
+      "type": "multiple",
+      "text": "You want spoke-to-spoke traffic to flow through a firewall in the hub. Which settings are needed? Select all that apply.",
+      "options": [
+        { "id": "a", "text": "Allow forwarded traffic on the peerings" },
+        { "id": "b", "text": "Route tables that send spoke traffic for the other spoke to the hub firewall" },
+        { "id": "c", "text": "A public IP address on every VM in both spokes" },
+        { "id": "d", "text": "--use-remote-gateways on each spoke peering, so that the firewall can forward traffic" }
+      ],
+      "answer": ["a", "b"],
+      "explanation": "The hub must be allowed to forward traffic that did not originate in it, and the spokes need routes that point at the firewall. Gateway transit is for sharing a VPN or ExpressRoute gateway, and nothing in this design needs public IPs."
+    },
+    {
+      "id": "q7",
+      "type": "truefalse",
+      "text": "Traffic between two peered VNets travels over the public internet, so it should be encrypted separately.",
+      "options": [
+        { "id": "true", "text": "True" },
+        { "id": "false", "text": "False" }
+      ],
+      "answer": ["false"],
+      "explanation": "Peered VNets talk over Azure's private backbone using private IPs, with no gateway or public internet in between for same-region peering. That is the main reason to prefer peering over a VPN between VNets."
+    },
+    {
+      "id": "q8",
+      "type": "single",
+      "text": "A private endpoint lives in spokeA. A VM in the peered spokeB can reach the endpoint's private IP, but the storage name still resolves to the public IP from spokeB. What is the cause?",
+      "options": [
+        { "id": "a", "text": "Peering does not carry traffic to private endpoints" },
+        { "id": "b", "text": "The privatelink private DNS zone is linked only to spokeA, and spokeB needs a link too" },
+        { "id": "c", "text": "The private endpoint must be recreated in spokeB" },
+        { "id": "d", "text": "The storage account must be moved to spokeB's subnet" }
+      ],
+      "answer": ["b"],
+      "explanation": "Peering carries the traffic, but name resolution comes from private DNS zones linked to a VNet. A VM only sees the zone's records if its VNet is linked (or shares a resolver that can see them), so both parts are needed."
+    }
+  ]
+}

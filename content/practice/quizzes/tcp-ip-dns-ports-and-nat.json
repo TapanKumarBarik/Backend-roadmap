@@ -1,0 +1,211 @@
+{
+  "title": "TCP, DNS, ports and NAT",
+  "topic": "networking",
+  "difficulty": "intermediate",
+  "module": "learn/04-networking-fundamentals/03-tcp-udp-ports-and-sockets/README.md",
+  "description": "How a name becomes an address, how a connection reaches the right program, and what the failure messages tell you.",
+  "questions": [
+    {
+      "id": "q1",
+      "type": "single",
+      "text": "A client tries to connect to a server's port and gets \"Connection refused\" almost instantly. What is the most likely situation?",
+      "options": [
+        {
+          "id": "a",
+          "text": "A firewall is silently dropping the SYN packets"
+        },
+        {
+          "id": "b",
+          "text": "The server's host is powered off"
+        },
+        {
+          "id": "c",
+          "text": "The host is reachable, but nothing is listening on that port"
+        },
+        {
+          "id": "d",
+          "text": "The domain name failed to resolve"
+        }
+      ],
+      "answer": [
+        "c"
+      ],
+      "explanation": "A host with no listening socket on the port answers with a TCP reset, which the client reports at once as refused. A silent drop or a dead host gives no reply, so the client waits and times out; a DNS failure would never get as far as a connection."
+    },
+    {
+      "id": "q2",
+      "type": "truefalse",
+      "text": "Seeing many sockets in TIME-WAIT on a busy client is a sign that the application is leaking connections.",
+      "options": [
+        {
+          "id": "true",
+          "text": "True"
+        },
+        {
+          "id": "false",
+          "text": "False"
+        }
+      ],
+      "answer": [
+        "false"
+      ],
+      "explanation": "TIME-WAIT is how TCP lets a recently closed connection linger briefly to catch stray packets, and it clears on its own. A growing pile of CLOSE-WAIT is the one that usually points to an application that forgets to close sockets."
+    },
+    {
+      "id": "q3",
+      "type": "single",
+      "text": "A service answers curl http://127.0.0.1:8080 on its own machine, but other hosts cannot connect. Which explanation and check fit best?",
+      "options": [
+        {
+          "id": "a",
+          "text": "It is bound to 127.0.0.1 only; ss -tlnp shows 127.0.0.1:8080 instead of 0.0.0.0:8080"
+        },
+        {
+          "id": "b",
+          "text": "TCP does not allow more than one client per port; ss -tan shows the active client"
+        },
+        {
+          "id": "c",
+          "text": "Port 8080 is a privileged port; ls -l shows who owns the binary"
+        },
+        {
+          "id": "d",
+          "text": "The DNS TTL is too long; dig +trace shows the delay"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "A socket bound to the loopback address is invisible to every other host, and ss -tlnp shows the address it is bound to. One listening port serves many clients, 8080 is not below 1024, and DNS is not involved when the address is already known."
+    },
+    {
+      "id": "q4",
+      "type": "single",
+      "text": "dig example.com returns the correct IP, but curl example.com connects to a different machine. What should you check first?",
+      "options": [
+        {
+          "id": "a",
+          "text": "Whether the TCP three-way handshake is being retransmitted"
+        },
+        {
+          "id": "b",
+          "text": "Whether the server certificate has expired"
+        },
+        {
+          "id": "c",
+          "text": "Whether the DNS record is a CNAME or an A record"
+        },
+        {
+          "id": "d",
+          "text": "Whether /etc/hosts has an entry for that name"
+        }
+      ],
+      "answer": [
+        "d"
+      ],
+      "explanation": "Applications resolve names through the system resolver, which normally reads /etc/hosts before asking DNS, while dig always queries a DNS server. When dig and getent or curl disagree, a hosts-file override is the first suspect."
+    },
+    {
+      "id": "q5",
+      "type": "multiple",
+      "text": "Which statements about DNS are correct? Select all that apply.",
+      "options": [
+        {
+          "id": "a",
+          "text": "A CNAME record maps a name to another name, which the resolver then looks up"
+        },
+        {
+          "id": "b",
+          "text": "An A record maps a name to an IPv6 address"
+        },
+        {
+          "id": "c",
+          "text": "Lowering a record's TTL before a planned change makes the change take effect sooner"
+        },
+        {
+          "id": "d",
+          "text": "A DNS TTL is a hop counter that routers decrement"
+        }
+      ],
+      "answer": [
+        "a",
+        "c"
+      ],
+      "explanation": "CNAME is an alias, and a short TTL means caches refetch sooner, so operators lower it ahead of a migration. IPv6 addresses live in AAAA records, and the hop counter is the unrelated TTL field in the IP header; a DNS TTL is a caching lifetime in seconds."
+    },
+    {
+      "id": "q6",
+      "type": "single",
+      "text": "A host is configured as 10.0.5.40/29. Which of these addresses is on the same local network?",
+      "options": [
+        {
+          "id": "a",
+          "text": "10.0.5.48"
+        },
+        {
+          "id": "b",
+          "text": "10.0.5.44"
+        },
+        {
+          "id": "c",
+          "text": "10.0.5.39"
+        },
+        {
+          "id": "d",
+          "text": "10.0.6.41"
+        }
+      ],
+      "answer": [
+        "b"
+      ],
+      "explanation": "A /29 has 8 addresses, so blocks start at multiples of 8 and this one spans 10.0.5.40 to 10.0.5.47. 10.0.5.39 and 10.0.5.48 sit in the neighbouring blocks, and 10.0.6.41 is a different third octet entirely, so the host would send those to its gateway."
+    },
+    {
+      "id": "q7",
+      "type": "truefalse",
+      "text": "A container on a private address behind NAT can usually open connections to the internet, but an outside host cannot start a connection to it unless a port forward is configured.",
+      "options": [
+        {
+          "id": "true",
+          "text": "True"
+        },
+        {
+          "id": "false",
+          "text": "False"
+        }
+      ],
+      "answer": [
+        "true"
+      ],
+      "explanation": "NAT creates its translation entry when the inside host sends the first packet out, so replies can find their way back. With no entry and a non-routable private address, unsolicited inbound traffic has nowhere to go until a port forward (destination NAT) maps it."
+    },
+    {
+      "id": "q8",
+      "type": "multiple",
+      "text": "Which workloads fit UDP better than TCP? Select all that apply.",
+      "options": [
+        {
+          "id": "a",
+          "text": "Transferring a file where every byte must arrive intact"
+        },
+        {
+          "id": "b",
+          "text": "A DNS query and its short response"
+        },
+        {
+          "id": "c",
+          "text": "A database client talking to its server"
+        },
+        {
+          "id": "d",
+          "text": "A live voice call where a late packet is useless"
+        }
+      ],
+      "answer": [
+        "b",
+        "d"
+      ],
+      "explanation": "UDP skips the handshake and retransmission, which suits small request/response exchanges and real-time media where timeliness beats completeness. Files and database traffic need TCP's reliable, ordered delivery."
+    }
+  ]
+}

@@ -1,0 +1,16 @@
+{
+  "title": "Debug a slow query with EXPLAIN",
+  "topic": "databases",
+  "difficulty": "intermediate",
+  "module": "backend/04-databases-and-data-layer/07-query-optimization-and-connection-pooling/README.md",
+  "brief": "The \"my shipped orders\" page of an online shop takes about three seconds and the database CPU spikes when many customers open it. The database is PostgreSQL.\n\n**Schema**\n\n```sql\nCREATE TABLE customers (\n  id         bigint PRIMARY KEY,\n  email      text NOT NULL,\n  created_at timestamptz NOT NULL\n);\nCREATE UNIQUE INDEX customers_email_key ON customers (email);\n\nCREATE TABLE orders (\n  id          bigint PRIMARY KEY,\n  customer_id bigint NOT NULL REFERENCES customers (id),\n  status      text   NOT NULL,           -- placed, paid, shipped, delivered, cancelled\n  total_cents integer NOT NULL,\n  created_at  timestamptz NOT NULL\n);\n-- orders has about 20 million rows; a typical customer has under 200 of them\n```\n\n**Query 1 (the page)**\n\n```sql\nSELECT * FROM orders\nWHERE customer_id = 4242 AND status = 'shipped'\nORDER BY created_at DESC\nLIMIT 20;\n```\n\n```\nEXPLAIN (ANALYZE)\n Limit  (cost=398000.30..398000.35 rows=20 width=48) (actual time=2810.40..2810.45 rows=20 loops=1)\n   ->  Sort  (cost=398000.30..398000.60 rows=118 width=48) (actual time=2810.39..2810.42 rows=20 loops=1)\n         Sort Key: created_at DESC\n         Sort Method: top-N heapsort  Memory: 28kB\n         ->  Seq Scan on orders  (cost=0.00..397600.00 rows=118 width=48) (actual time=1.20..2790.10 rows=96 loops=1)\n               Filter: ((customer_id = 4242) AND (status = 'shipped'::text))\n               Rows Removed by Filter: 19999904\n Planning Time: 0.15 ms\n Execution Time: 2810.60 ms\n```\n\n**Query 2 (support tool, finding a customer by email, case-insensitive)**\n\n```sql\nSELECT * FROM customers WHERE lower(email) = 'ana@example.com';\n```\n\n```\n Seq Scan on customers  (cost=0.00..52000.00 rows=5000 width=64) (actual time=0.05..410.30 rows=1 loops=1)\n   Filter: (lower(email) = 'ana@example.com'::text)\n   Rows Removed by Filter: 999999\n Execution Time: 410.40 ms\n```\n\nDiagnose both queries from the plans, propose the fixes, and say how you would prove each fix worked. Assume you are allowed to add indexes, but the table is large and busy.",
+  "deliverables": [
+    "For each query: what the plan shows, in your own words (node types, rows removed by filter, estimated versus actual rows)",
+    "The index you would create for query 1, with the column order and the reason for that order (and why the sort node disappears)",
+    "The fix for query 2 and why the existing unique index on email cannot be used, plus the trade-off of the fix",
+    "The exact CREATE INDEX statements, including how you build them without blocking writes on a busy table",
+    "What you expect the new plans to look like and how you would verify it with EXPLAIN (ANALYZE, BUFFERS)",
+    "Two things that would still make the first query slow after the index exists (for example SELECT * or a very low-selectivity filter) and what you would do about them",
+    "How you would check that the new indexes did not hurt write performance, and when ANALYZE matters"
+  ]
+}

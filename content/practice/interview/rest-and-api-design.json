@@ -1,0 +1,48 @@
+{
+  "title": "REST and API design",
+  "topic": "api-design",
+  "difficulty": "intermediate",
+  "module": "backend/02-api-layer-and-request-handling/08-restful-architecture-and-best-practices/README.md",
+  "questions": [
+    {
+      "q": "What does it mean for an HTTP method to be safe and to be idempotent?",
+      "a": "A safe method does not change server state (GET, HEAD, OPTIONS). An idempotent method has the same effect on the server whether it is sent once or many times (GET, PUT, DELETE, and also the safe ones). POST is neither by default, which is why a retried POST can create duplicates unless you add an idempotency mechanism."
+    },
+    {
+      "q": "What is the difference between PUT and PATCH?",
+      "a": "PUT replaces the whole resource with the representation you send, and is idempotent. PATCH applies a partial change, such as updating one field; whether it is idempotent depends on the operation (setting a field is, appending to a list is not). Use PATCH for partial updates and document what happens to fields you omit."
+    },
+    {
+      "q": "Which status codes would you use for create, validation failure, missing resource, conflict and not authenticated versus not allowed?",
+      "a": "201 Created with a Location header for a successful create. 400 for a malformed request, or 422 when the syntax is right but the content fails validation. 404 for a missing resource. 409 for a conflict with current state, such as a duplicate or a version clash. 401 when the caller is not authenticated and 403 when they are authenticated but not permitted."
+    },
+    {
+      "q": "Compare offset pagination and cursor pagination.",
+      "a": "Offset pagination (page and limit) is simple and allows jumping to a page, but deep offsets are slow because the database still walks the skipped rows, and results shift when rows are inserted or deleted between requests. Cursor (keyset) pagination continues from the last item seen using an indexed column, which stays fast and stable on changing data, at the cost of no random page access."
+    },
+    {
+      "q": "How do you make a POST request safe to retry?",
+      "a": "Have the client send a unique Idempotency-Key header. The server stores the key with the outcome, and if the same key arrives again it returns the stored response instead of repeating the work; a unique constraint makes concurrent duplicates safe. A different request body under the same key should be rejected."
+    },
+    {
+      "q": "How would you version an API, and what counts as a breaking change?",
+      "a": "Common options are a version in the URL path (/v1/), in a header, or in the media type; the URL is the easiest to understand and route. Prefer additive, backward-compatible changes (new optional fields, new endpoints) that need no new version. Removing or renaming a field, changing a type, making an optional input required, or changing semantics are breaking."
+    },
+    {
+      "q": "How do you handle concurrent updates to the same resource through an API?",
+      "a": "Use optimistic concurrency with an ETag or version number. The client sends it back in If-Match on the update, and the server returns 412 Precondition Failed (or 409 with a version field) if the resource changed in the meantime. This prevents the lost update without holding locks across requests."
+    },
+    {
+      "q": "What makes a good error response?",
+      "a": "A consistent machine-readable shape, such as RFC 9457 problem details, with a stable error code, a human message, and field-level details for validation errors. Use the right status code, include a request or trace id for support, and never leak stack traces or internal details."
+    },
+    {
+      "q": "When would you choose REST, GraphQL or gRPC?",
+      "a": "REST suits public, resource-oriented APIs and benefits from HTTP caching and tooling. GraphQL helps when many different clients need to choose exactly the fields they want and you want to avoid many round trips, at the cost of harder caching, query-cost control and N+1 care. gRPC suits internal service-to-service calls where a typed contract, streaming and efficiency matter, but browsers need a gateway."
+    },
+    {
+      "q": "How do you design an API to be cache-friendly?",
+      "a": "Use GET for reads, stable URLs, and Cache-Control with sensible max-age values. Add ETag or Last-Modified so clients can revalidate with a conditional request and receive 304 Not Modified, and use Vary for headers that change the response. Keep personalised data out of shared-cache responses or mark it private."
+    }
+  ]
+}
