@@ -4,7 +4,7 @@
 // `${id}_${userId}` SuggestionVotes row key becomes real columns.
 
 import { createRouter } from '../lib/router.js';
-import { all, first, run } from '../lib/d1.js';
+import { all, batch, first, run } from '../lib/d1.js';
 import { getSession, requireAdmin } from '../lib/admin.js';
 import { checkRateLimit } from '../lib/rateLimit.js';
 import { timeId } from '../lib/util.js';
@@ -123,6 +123,37 @@ community.post('/books', async (c) => {
   return c.json(bookShape(row), 201);
 });
 
+// The person's own entry: change its title, tag or link (the PDF it came with stays), or take it back.
+community.patch('/books/:id', async (c) => {
+  const { session, res } = await requireSession(c);
+  if (res) return res;
+  const book = await first(c.env, 'SELECT * FROM books WHERE id = ?1 AND user_id = ?2', c.req.param('id'), session.sub);
+  if (!book) return c.json({ error: 'not found' }, 404);
+  let body;
+  try { body = await c.req.json(); } catch { return c.json({ error: 'invalid body' }, 400); }
+  const has = (key) => Object.prototype.hasOwnProperty.call(body, key);
+
+  const title = has('title') ? (typeof body.title === 'string' ? body.title.trim() : '') : book.title;
+  if (!title) return c.json({ error: 'a title is required' }, 400);
+  if (title.length > MAX_TITLE_LENGTH) return c.json({ error: `title too long (max ${MAX_TITLE_LENGTH} chars)` }, 400);
+  const tag = has('tag') ? (typeof body.tag === 'string' ? body.tag.trim().slice(0, MAX_TAG_LENGTH) : '') : (book.tag || '');
+  const linkUrl = has('linkUrl') ? (typeof body.linkUrl === 'string' ? body.linkUrl.trim() : '') : (book.link_url || '');
+  if (linkUrl && (!/^https?:\/\//i.test(linkUrl) || linkUrl.length > 2000)) return c.json({ error: 'not a valid link' }, 400);
+  if (!linkUrl && !book.attachment_url) return c.json({ error: 'add a link or a PDF' }, 400);
+
+  await run(c.env, 'UPDATE books SET title = ?1, tag = ?2, link_url = ?3 WHERE id = ?4', title, tag || null, linkUrl || null, book.id);
+  return c.json(bookShape({ ...book, title, tag: tag || null, link_url: linkUrl || null }));
+});
+
+community.delete('/books/:id', async (c) => {
+  const { session, res } = await requireSession(c);
+  if (res) return res;
+  const book = await first(c.env, 'SELECT id FROM books WHERE id = ?1 AND user_id = ?2', c.req.param('id'), session.sub);
+  if (!book) return c.json({ error: 'not found' }, 404);
+  await run(c.env, 'DELETE FROM books WHERE id = ?1', book.id);
+  return c.body(null, 204);
+});
+
 community.delete('/manage/books', async (c) => {
   const denied = await requireAdmin(c);
   if (denied) return denied;
@@ -221,6 +252,32 @@ community.post('/suggestions', async (c) => {
     row.id, row.user_id, row.display_name, row.text, row.created_at
   );
   return c.json(suggestionShape(row), 201);
+});
+
+community.patch('/suggestions/:id', async (c) => {
+  const { session, res } = await requireSession(c);
+  if (res) return res;
+  const idea = await first(c.env, 'SELECT * FROM suggestions WHERE id = ?1 AND user_id = ?2', c.req.param('id'), session.sub);
+  if (!idea) return c.json({ error: 'not found' }, 404);
+  let body;
+  try { body = await c.req.json(); } catch { return c.json({ error: 'invalid body' }, 400); }
+  const text = typeof body.text === 'string' ? body.text.trim() : '';
+  if (!text) return c.json({ error: 'a suggestion needs some text' }, 400);
+  if (text.length > MAX_SUGGESTION_LENGTH) return c.json({ error: `too long (max ${MAX_SUGGESTION_LENGTH} chars)` }, 400);
+  await run(c.env, 'UPDATE suggestions SET text = ?1 WHERE id = ?2', text, idea.id);
+  return c.json(suggestionShape({ ...idea, text }));
+});
+
+community.delete('/suggestions/:id', async (c) => {
+  const { session, res } = await requireSession(c);
+  if (res) return res;
+  const idea = await first(c.env, 'SELECT id FROM suggestions WHERE id = ?1 AND user_id = ?2', c.req.param('id'), session.sub);
+  if (!idea) return c.json({ error: 'not found' }, 404);
+  await batch(c.env, [
+    ['DELETE FROM suggestion_votes WHERE suggestion_id = ?1', idea.id],
+    ['DELETE FROM suggestions WHERE id = ?1', idea.id]
+  ]);
+  return c.body(null, 204);
 });
 
 community.delete('/manage/suggestions', async (c) => {

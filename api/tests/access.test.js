@@ -27,6 +27,7 @@ const PUBLIC = [
   'POST /api/practice/quizzes/:slug/attempts',
   'GET /api/practice/submissions/:kind/:slug/shared',
   'GET /api/announcements',
+  'GET /api/popular',
   'GET /api/blogs',
   'GET /api/blogs/tags',
   'GET /api/blogs/:slug',

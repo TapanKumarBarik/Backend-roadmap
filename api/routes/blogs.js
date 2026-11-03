@@ -19,6 +19,7 @@ import { timeId } from '../lib/util.js';
 import { VISIBLE, postRemoval } from '../lib/blogData.js';
 import { audit } from '../lib/audit.js';
 import { BLOG, TAG_PATTERN } from '../../webapp/src/lib/blog/limits.js';
+import { DEFAULT_CATEGORY, DEFAULT_KIND, isPostCategory, isPostKind, postState } from '../../webapp/src/lib/blog/kinds.js';
 import { DocError, isEmptyDoc, safeHref, safeImageSrc, sanitizeDoc } from '../../webapp/src/lib/blog/sanitizeDoc.js';
 import { renderDoc } from '../../webapp/src/lib/blog/renderDoc.js';
 import { plainText, readingStats, tocOf } from '../../webapp/src/lib/blog/docText.js';
@@ -39,6 +40,7 @@ const REACT = { window: 60 * 1000, max: 60 };
 const REPORT = { window: 60 * 60 * 1000, max: 10 };
 const PAGE = { default: 12, max: 30, saved: 100 };
 const MAX_SCHEDULE_AHEAD_MS = 366 * 24 * 60 * 60 * 1000;
+const VERSIONS = { gapMs: 10 * 60 * 1000, keep: 30 }; // a new version at most this often while someone writes, and this many kept
 const EMPTY_DOC = JSON.stringify({ type: 'doc', content: [{ type: 'paragraph' }] });
 
 const nowIso = () => new Date().toISOString();
@@ -105,14 +107,37 @@ function summary(row, tags) {
     updatedAt: row.updated_at,
     likes: row.likes,
     approved: !!row.approved,
+    kind: row.kind || DEFAULT_KIND,
+    category: row.category || DEFAULT_CATEGORY,
     author: author(row)
   };
 }
 
 const effectiveStatus = (row, now) => (row.status !== 'published' ? 'draft' : row.publish_at > now ? 'scheduled' : 'published');
 
-const WITH_AUTHOR = `SELECT p.*, a.handle AS handle, a.name AS author_name, a.avatar_url AS author_avatar
-  FROM blog_posts p LEFT JOIN author_profiles a ON a.user_id = p.author_id`;
+const WITH_AUTHOR = `SELECT p.*, a.handle AS handle, a.name AS author_name, a.avatar_url AS author_avatar, pc.kind AS kind, pc.category AS category
+  FROM blog_posts p LEFT JOIN author_profiles a ON a.user_id = p.author_id LEFT JOIN post_classification pc ON pc.post_id = p.id`;
+
+/** The kind and category a post has now (the defaults when it has never been classified). */
+async function classificationOf(env, postId) {
+  const row = await first(env, 'SELECT kind, category FROM post_classification WHERE post_id = ?1', postId);
+  return { kind: row ? row.kind : DEFAULT_KIND, category: row ? row.category : DEFAULT_CATEGORY };
+}
+
+/** The writes that save a post as it is now as a version, and drop all but the newest few dozen. A publish or a restore always keeps one. */
+const keepVersion = (post, reason) => [
+  ['INSERT INTO post_versions (id, post_id, title, content, words, saved_at, reason) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)', timeId(), post.id, post.title, post.content, post.words, nowIso(), reason],
+  ['DELETE FROM post_versions WHERE post_id = ?1 AND id NOT IN (SELECT id FROM post_versions WHERE post_id = ?1 ORDER BY saved_at DESC, id DESC LIMIT ?2)', post.id, VERSIONS.keep]
+];
+
+/** While someone writes: the version to keep before this save, only when the text is changing and the last one was kept a while ago. */
+async function versionStep(env, post, newContent) {
+  if (newContent === post.content) return [];
+  try { if (isEmptyDoc(JSON.parse(post.content))) return []; } catch { /* unreadable text is not worth keeping */ return []; } // a blank page is not a version
+  const last = await first(env, 'SELECT saved_at FROM post_versions WHERE post_id = ?1 ORDER BY saved_at DESC LIMIT 1', post.id);
+  if (last && Date.now() - Date.parse(last.saved_at) < VERSIONS.gapMs) return [];
+  return keepVersion(post, 'edit');
+}
 
 // ---------------------------------------------------------------------------------------------- reading (public)
 
@@ -126,13 +151,20 @@ blogs.get('/blogs/tags', async (c) => {
 blogs.get('/blogs/mine', async (c) => {
   const session = await getSession(c);
   if (!session) return unauthenticated(c);
-  const rows = await all(c.env, 'SELECT * FROM blog_posts WHERE author_id = ?1 ORDER BY updated_at DESC LIMIT 200', session.sub);
+  const rows = await all(c.env, `SELECT p.*, pc.kind AS kind, pc.category AS category, m.note AS moderation_note
+    FROM blog_posts p LEFT JOIN post_classification pc ON pc.post_id = p.id LEFT JOIN post_moderation m ON m.post_id = p.id
+    WHERE p.author_id = ?1 ORDER BY p.updated_at DESC LIMIT 200`, session.sub);
   const now = nowIso();
   return c.json({
-    posts: rows.map((r) => ({
-      id: r.id, slug: r.slug, title: r.title, status: effectiveStatus(r, now), publishAt: r.publish_at, words: r.words, minutes: r.minutes,
-      likes: r.likes, approved: !!r.approved, hidden: !!r.hidden, updatedAt: r.updated_at
-    }))
+    posts: rows.map((r) => {
+      const status = effectiveStatus(r, now);
+      return {
+        id: r.id, slug: r.slug, title: r.title, status, publishAt: r.publish_at, words: r.words, minutes: r.minutes,
+        likes: r.likes, approved: !!r.approved, hidden: !!r.hidden, updatedAt: r.updated_at,
+        kind: r.kind || DEFAULT_KIND, category: r.category || DEFAULT_CATEGORY,
+        state: postState({ status, approved: r.approved, hidden: r.hidden }), moderationNote: r.hidden ? r.moderation_note || '' : ''
+      };
+    })
   });
 });
 
@@ -150,11 +182,12 @@ blogs.get('/blogs/saved', async (c) => {
 blogs.get('/blogs/mine/:id', async (c) => {
   const session = await getSession(c);
   if (!session) return unauthenticated(c);
-  const row = await first(c.env, 'SELECT * FROM blog_posts WHERE id = ?1 AND author_id = ?2', c.req.param('id'), session.sub);
+  const row = await first(c.env, 'SELECT p.*, pc.kind AS kind, pc.category AS category FROM blog_posts p LEFT JOIN post_classification pc ON pc.post_id = p.id WHERE p.id = ?1 AND p.author_id = ?2', c.req.param('id'), session.sub);
   if (!row) return notFound(c);
   const tags = await tagsFor(c.env, [row.id]);
   return c.json({
     post: {
+      kind: row.kind || DEFAULT_KIND, category: row.category || DEFAULT_CATEGORY,
       id: row.id, slug: row.slug, title: row.title, subtitle: row.subtitle || '', excerpt: row.excerpt || '', coverUrl: row.cover_url || null,
       tags: tags[row.id] || [], content: JSON.parse(row.content), words: row.words, minutes: row.minutes, status: effectiveStatus(row, nowIso()),
       publishAt: row.publish_at, hidden: !!row.hidden, approved: !!row.approved, createdAt: row.created_at, updatedAt: row.updated_at
@@ -168,6 +201,8 @@ blogs.get('/blogs', async (c) => {
   const q = text(c.req.query('q'), 100);
   const tag = text(c.req.query('tag'), 30).toLowerCase();
   const handle = text(c.req.query('author'), 30).toLowerCase();
+  const kind = text(c.req.query('kind'), 30);
+  const category = text(c.req.query('category'), 30);
   const popular = c.req.query('sort') === 'popular';
   const limit = Math.min(PAGE.max, Math.max(1, Number.parseInt(c.req.query('limit') || '', 10) || PAGE.default));
   const cursor = (c.req.query('cursor') || '').split('~');
@@ -178,6 +213,9 @@ blogs.get('/blogs', async (c) => {
   const next = (value) => { params.push(value); return `?${params.length}`; };
   if (tag) where.push(`EXISTS (SELECT 1 FROM blog_tags t WHERE t.post_id = p.id AND t.tag = ${next(tag)})`);
   if (handle) where.push(`a.handle = ${next(handle)}`);
+  // A post with no classification is an article in General.
+  if (isPostKind(kind)) where.push(`COALESCE(pc.kind, '${DEFAULT_KIND}') = ${next(kind)}`);
+  if (isPostCategory(category)) where.push(`COALESCE(pc.category, '${DEFAULT_CATEGORY}') = ${next(category)}`);
   if (q) {
     // "!" escapes the wildcards of LIKE, so a search for 100% is a search for 100%.
     const like = `%${q.toLowerCase().replace(/[!%_]/g, (ch) => `!${ch}`)}%`;
@@ -265,6 +303,10 @@ blogs.put('/blogs/:id', async (c) => {
     tagList = result.tags;
   }
 
+  const classified = {};
+  if (has('kind')) { if (!isPostKind(body.kind)) return c.json({ error: 'that is not a kind of post' }, 400); classified.kind = body.kind; }
+  if (has('category')) { if (!isPostCategory(body.category)) return c.json({ error: 'that is not a category' }, 400); classified.category = body.category; }
+
   let { content, words, minutes, body_text: bodyText } = post;
   let dropped = [];
   if (has('content')) {
@@ -281,9 +323,12 @@ blogs.put('/blogs/:id', async (c) => {
   }
 
   const updatedAt = nowIso();
+  const current = Object.keys(classified).length ? { ...(await classificationOf(c.env, post.id)), ...classified } : null;
   await batch(c.env, [
+    ...(await versionStep(c.env, post, content)),
     ['UPDATE blog_posts SET title = ?1, subtitle = ?2, excerpt = ?3, cover_url = ?4, content = ?5, body_text = ?6, words = ?7, minutes = ?8, updated_at = ?9 WHERE id = ?10 AND author_id = ?11',
       title, subtitle, excerpt, coverUrl, content, bodyText, words, minutes, updatedAt, post.id, session.sub],
+    ...(current ? [['INSERT INTO post_classification (post_id, kind, category) VALUES (?1, ?2, ?3) ON CONFLICT(post_id) DO UPDATE SET kind = ?2, category = ?3', post.id, current.kind, current.category]] : []),
     ...(tagList ? [['DELETE FROM blog_tags WHERE post_id = ?1', post.id], ...tagList.map((tag) => ['INSERT INTO blog_tags (post_id, tag) VALUES (?1, ?2)', post.id, tag])] : [])
   ]);
   return c.json({ updatedAt, words, minutes, dropped, status: effectiveStatus(post, updatedAt) });
@@ -315,8 +360,41 @@ blogs.post('/blogs/:id/publish', async (c) => {
   const slug = post.slug || await uniqueSlug(post.title, async (candidate) => !!(await first(c.env, 'SELECT 1 AS taken FROM blog_posts WHERE slug = ?1', candidate)));
   const approved = post.approved || profile.trusted ? 1 : 0;
   const updatedAt = new Date(now).toISOString();
-  await run(c.env, "UPDATE blog_posts SET status = 'published', publish_at = ?1, slug = ?2, approved = ?3, updated_at = ?4 WHERE id = ?5 AND author_id = ?6", publishAt, slug, approved, updatedAt, post.id, session.sub);
+  await batch(c.env, [
+    // Publishing is a milestone: what was published is kept, whatever the gap since the last version.
+    ...keepVersion(post, 'publish'),
+    ["UPDATE blog_posts SET status = 'published', publish_at = ?1, slug = ?2, approved = ?3, updated_at = ?4 WHERE id = ?5 AND author_id = ?6", publishAt, slug, approved, updatedAt, post.id, session.sub]
+  ]);
   return c.json({ slug, status: effectiveStatus({ status: 'published', publish_at: publishAt }, updatedAt), publishAt, approved: !!approved });
+});
+
+// The earlier versions of one of my posts (newest first), and going back to one. A restore keeps what is there now as a version first.
+blogs.get('/blogs/mine/:id/versions', async (c) => {
+  const session = await getSession(c);
+  if (!session) return unauthenticated(c);
+  const post = await first(c.env, 'SELECT id FROM blog_posts WHERE id = ?1 AND author_id = ?2', c.req.param('id'), session.sub);
+  if (!post) return notFound(c);
+  const rows = await all(c.env, 'SELECT id, title, words, saved_at, reason FROM post_versions WHERE post_id = ?1 ORDER BY saved_at DESC, id DESC', post.id);
+  return c.json({ versions: rows.map((r) => ({ id: r.id, title: r.title, words: r.words, savedAt: r.saved_at, reason: r.reason })) });
+});
+
+blogs.post('/blogs/:id/restore/:version', async (c) => {
+  const session = await getSession(c);
+  if (!session) return unauthenticated(c);
+  const post = await first(c.env, 'SELECT * FROM blog_posts WHERE id = ?1 AND author_id = ?2', c.req.param('id'), session.sub);
+  if (!post) return notFound(c);
+  const version = await first(c.env, 'SELECT * FROM post_versions WHERE id = ?1 AND post_id = ?2', c.req.param('version'), post.id);
+  if (!version) return notFound(c);
+  let result;
+  try { result = sanitizeDoc(JSON.parse(version.content), DOC_OPTIONS); } catch { return c.json({ error: 'that version cannot be restored' }, 400); }
+  const { words, minutes } = readingStats(result.doc, WORDS_PER_MINUTE);
+  const content = JSON.stringify(result.doc);
+  const updatedAt = nowIso();
+  await batch(c.env, [
+    ...keepVersion(post, 'restore'),
+    ['UPDATE blog_posts SET title = ?1, content = ?2, body_text = ?3, words = ?4, minutes = ?5, updated_at = ?6 WHERE id = ?7 AND author_id = ?8', version.title, content, plainText(result.doc).slice(0, 60000), words, minutes, updatedAt, post.id, session.sub]
+  ]);
+  return c.json({ updatedAt });
 });
 
 blogs.post('/blogs/:id/unpublish', async (c) => {
@@ -441,19 +519,31 @@ blogs.get('/manage/blogs', async (c) => {
     : filter === 'hidden' ? 'p.hidden = 1'
       : filter === 'reported' ? 'EXISTS (SELECT 1 FROM blog_reports r WHERE r.post_id = p.id)'
         : "p.status = 'published'";
-  const rows = await all(c.env, `SELECT p.id, p.slug, p.title, p.publish_at, p.approved, p.hidden, p.likes, a.handle AS handle, a.name AS author_name, a.trusted AS trusted,
+  const rows = await all(c.env, `SELECT p.id, p.slug, p.title, p.publish_at, p.approved, p.hidden, p.likes, a.handle AS handle, a.name AS author_name, a.trusted AS trusted, pc.kind AS kind, pc.category AS category, m.note AS note,
       (SELECT COUNT(*) FROM blog_reports r WHERE r.post_id = p.id) AS reports
-    FROM blog_posts p LEFT JOIN author_profiles a ON a.user_id = p.author_id WHERE ${where} ORDER BY p.publish_at DESC LIMIT 100`);
-  return c.json({ posts: rows.map((r) => ({ id: r.id, slug: r.slug, title: r.title, publishAt: r.publish_at, approved: !!r.approved, hidden: !!r.hidden, likes: r.likes, reports: r.reports, author: r.handle ? { handle: r.handle, name: r.author_name, trusted: !!r.trusted } : null })) });
+    FROM blog_posts p LEFT JOIN author_profiles a ON a.user_id = p.author_id LEFT JOIN post_classification pc ON pc.post_id = p.id LEFT JOIN post_moderation m ON m.post_id = p.id
+    WHERE ${where} ORDER BY p.publish_at DESC LIMIT 100`);
+  return c.json({ posts: rows.map((r) => ({ id: r.id, slug: r.slug, title: r.title, publishAt: r.publish_at, approved: !!r.approved, hidden: !!r.hidden, likes: r.likes, reports: r.reports, kind: r.kind || DEFAULT_KIND, category: r.category || DEFAULT_CATEGORY, note: r.hidden ? r.note || '' : '', author: r.handle ? { handle: r.handle, name: r.author_name, trusted: !!r.trusted } : null })) });
 });
 
+// Approve (indexed by search engines), reject (take down: with a reason the author is shown) and put back. Rejecting is hiding with a note.
 for (const [action, column, value] of [['approve', 'approved', 1], ['hide', 'hidden', 1], ['unhide', 'hidden', 0]]) {
   blogs.post(`/manage/blogs/:id/${action}`, async (c) => {
     const denied = await requireAdmin(c);
     if (denied) return denied;
-    const result = await run(c.env, `UPDATE blog_posts SET ${column} = ?1 WHERE id = ?2`, value, c.req.param('id'));
+    const parsed = await readJson(c, 2000);
+    if (parsed.error) return parsed.error;
+    const id = c.req.param('id');
+    const result = await run(c.env, `UPDATE blog_posts SET ${column} = ?1 WHERE id = ?2`, value, id);
     if (!(result.meta && result.meta.changes)) return notFound(c);
-    await audit(c.env, await getSession(c), { approve: 'article approved', hide: 'article taken down', unhide: 'article put back' }[action], c.req.param('id'));
+    const session = await getSession(c);
+    if (action === 'hide') {
+      const note = text(parsed.body.note, 500);
+      await run(c.env, 'INSERT INTO post_moderation (post_id, note, decided_by, decided_at) VALUES (?1, ?2, ?3, ?4) ON CONFLICT(post_id) DO UPDATE SET note = ?2, decided_by = ?3, decided_at = ?4', id, note, session.email, nowIso());
+    } else if (action === 'unhide') {
+      await run(c.env, 'DELETE FROM post_moderation WHERE post_id = ?1', id);
+    }
+    await audit(c.env, session, { approve: 'article approved', hide: 'article taken down', unhide: 'article put back' }[action], id);
     return c.json({ ok: true });
   });
 }

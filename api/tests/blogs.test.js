@@ -671,3 +671,81 @@ test('every write needs a sign-in and says so as JSON', async () => {
     assert.deepEqual(res.json, { error: 'unauthenticated' });
   }
 });
+
+// ------------------------------------------------------------------------ kinds, categories, history and decisions
+
+test('a post says what kind of contribution it is and where it belongs, and the list can be filtered by either', async () => {
+  await startAuthor(ada, 'ada-l');
+  const note = await published(ada, { kind: 'study-note', category: 'backend', title: 'Notes on B-trees' });
+  const plain = await published(ada, { title: 'Something general' });
+  await published(ada, { kind: 'hld-design', category: 'system-design', title: 'A URL shortener, designed' });
+
+  const listing = (await call(null, 'GET', '/blogs')).json.posts;
+  assert.deepEqual(listing.map((p) => [p.title, p.kind, p.category]).sort(), [
+    ['A URL shortener, designed', 'hld-design', 'system-design'], ['Notes on B-trees', 'study-note', 'backend'], ['Something general', 'article', 'general']
+  ]);
+  assert.deepEqual((await call(null, 'GET', '/blogs?kind=study-note')).json.posts.map((p) => p.slug), [note.slug]);
+  assert.deepEqual((await call(null, 'GET', '/blogs?category=general')).json.posts.map((p) => p.slug), [plain.slug], 'a post never classified is an article in General');
+  assert.equal((await call(null, 'GET', '/blogs?kind=nonsense')).json.posts.length, 3, 'a kind that does not exist filters nothing');
+  assert.equal((await call(ada, 'PUT', `/blogs/${note.id}`, { kind: 'nonsense' })).status, 400);
+  assert.equal((await call(ada, 'PUT', `/blogs/${note.id}`, { category: 'nonsense' })).status, 400);
+  assert.deepEqual((await call(ada, 'GET', `/blogs/mine/${note.id}`)).json.post.kind, 'study-note');
+});
+
+test('earlier versions of a post are kept as it changes, can be listed and restored by its author alone, and go with the post', async () => {
+  await startAuthor(ada, 'ada-l');
+  const id = await draft(ada, { title: 'First title', content: doc('the first draft '.repeat(30)) });
+  assert.equal((await call(ada, 'GET', `/blogs/mine/${id}/versions`)).json.versions.length, 0, 'nothing was replaced yet');
+
+  await call(ada, 'PUT', `/blogs/${id}`, { content: doc('the second draft '.repeat(30)) });
+  const versions = (await call(ada, 'GET', `/blogs/mine/${id}/versions`)).json.versions;
+  assert.equal(versions.length, 1, 'the first text was kept when it was replaced');
+  assert.equal(versions[0].reason, 'edit');
+
+  await call(ada, 'PUT', `/blogs/${id}`, { content: doc('the third draft '.repeat(30)) });
+  assert.equal((await call(ada, 'GET', `/blogs/mine/${id}/versions`)).json.versions.length, 1, 'quick saves in a row are one version, not dozens');
+
+  assert.equal((await call(grace, 'GET', `/blogs/mine/${id}/versions`)).status, 404, 'versions are the author\'s alone');
+  assert.equal((await call(grace, 'POST', `/blogs/${id}/restore/${versions[0].id}`)).status, 404);
+  assert.equal((await call(ada, 'POST', `/blogs/${id}/restore/nope`)).status, 404);
+
+  assert.equal((await call(ada, 'POST', `/blogs/${id}/restore/${versions[0].id}`)).status, 200);
+  const restored = (await call(ada, 'GET', `/blogs/mine/${id}`)).json.post;
+  assert.match(JSON.stringify(restored.content), /the first draft/);
+  assert.deepEqual((await call(ada, 'GET', `/blogs/mine/${id}/versions`)).json.versions.map((v) => v.reason), ['restore', 'edit'], 'a restore keeps what it replaced');
+
+  assert.equal((await call(ada, 'DELETE', `/blogs/${id}`)).status, 204);
+  assert.equal(count('post_versions'), 0);
+});
+
+test('publishing keeps the text as it was published, and only the newest versions are kept', async () => {
+  await startAuthor(ada, 'ada-l');
+  const { id } = await published(ada, {});
+  assert.deepEqual((await call(ada, 'GET', `/blogs/mine/${id}/versions`)).json.versions.map((v) => v.reason), ['publish']);
+  for (let i = 0; i < 40; i++) sql("INSERT INTO post_versions (id, post_id, title, content, words, saved_at, reason) VALUES (?, ?, 't', '{}', 1, ?, 'edit')", `old${i}`, id, longAgo((i % 28) + 1));
+  sql("UPDATE post_versions SET saved_at = ? WHERE reason = 'publish'", longAgo(1)); // the last version is an old one, so the next change keeps another
+  await call(ada, 'PUT', `/blogs/${id}`, { content: doc('changed ' + sentence(BLOG.minWordsToPublish + 5)) });
+  assert.equal(count('post_versions'), 30, 'the history does not grow without end');
+  assert.ok(row("SELECT 1 AS yes FROM post_versions WHERE reason = 'edit' AND saved_at > '2021'"), 'and the newest is kept');
+});
+
+test('a moderator rejects a post with a reason its author is shown, and putting it back clears it; an author sees where each post is', async () => {
+  await startAuthor(ada, 'ada-l');
+  const { id } = await published(ada, {});
+  const draftId = await draft(ada, { title: 'Still a draft' });
+  const state = async () => Object.fromEntries((await call(ada, 'GET', '/blogs/mine')).json.posts.map((p) => [p.id, [p.state, p.moderationNote]]));
+
+  assert.deepEqual(await state(), { [id]: ['pending', ''], [draftId]: ['draft', ''] });
+  await call(owner, 'POST', `/manage/blogs/${id}/approve`);
+  assert.deepEqual((await state())[id], ['approved', '']);
+
+  assert.equal((await call(reader, 'POST', `/manage/blogs/${id}/hide`, { note: 'x' })).status, 403, 'rejecting is for admins');
+  assert.equal((await call(owner, 'POST', `/manage/blogs/${id}/hide`, { note: 'This is an advert, not a lesson.' })).status, 200);
+  assert.deepEqual((await state())[id], ['rejected', 'This is an advert, not a lesson.']);
+  assert.equal((await call(null, 'GET', '/blogs')).json.posts.length, 0, 'a rejected post is not public');
+  assert.equal((await call(grace, 'GET', '/blogs/mine')).json.posts.length, 0, 'and the reason is not shown to anyone else');
+
+  await call(owner, 'POST', `/manage/blogs/${id}/unhide`);
+  assert.deepEqual((await state())[id], ['approved', '']);
+  assert.equal(count('post_moderation'), 0);
+});

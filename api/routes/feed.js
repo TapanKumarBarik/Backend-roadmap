@@ -4,11 +4,12 @@
 // columns. File uploads still PUT to the Azure feed-uploads container via SAS.
 
 import { createRouter } from '../lib/router.js';
-import { all, first, run } from '../lib/d1.js';
+import { all, batch, first, run } from '../lib/d1.js';
 import { getSession, requireAdmin } from '../lib/admin.js';
 import { checkRateLimit } from '../lib/rateLimit.js';
 import { timeId } from '../lib/util.js';
 import { FEED_PREFIX } from '../lib/commentPaths.js';
+
 import { FEED_CONTAINER, blobBase, bytesFromBase64, bytesMatch, putBlob } from '../lib/blob.js';
 
 const feed = createRouter();
@@ -20,6 +21,7 @@ const RATE_LIMIT_MAX = 10;
 // a limit of their own, so an author with a dozen figures does not use up what they may post to the feed, and the other way round.
 const ARTICLE_UPLOADS = { bucket: 'blog-upload', windowMs: 60 * 60 * 1000, max: 60 };
 const MAX_LIST = 200;
+const PAGE_MAX = 50; // a page of the feed, when the client asks for pages (?limit=&before=)
 
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 const MAX_PDF_BYTES = 10 * 1024 * 1024;
@@ -98,12 +100,19 @@ async function loadCommentCounts(env) {
   return counts;
 }
 
+// The newest posts. A client that wants pages asks for ?limit=20 and, for the next page, &before=<the id of the last post it has>: ids
+// are time-sortable, so "before" is "older than". Without them the answer is the newest MAX_LIST, as it always was.
 feed.get('/feed', async (c) => {
   const session = await getSession(c);
+  const asked = Number.parseInt(c.req.query('limit') || '', 10);
+  const limit = Number.isInteger(asked) && asked >= 1 ? Math.min(asked, PAGE_MAX) : MAX_LIST;
+  const before = c.req.query('before') || '';
   const [votes, commentCounts, posts] = await Promise.all([
     loadFeedVotes(c.env, session && session.sub),
     loadCommentCounts(c.env),
-    all(c.env, 'SELECT * FROM feed_posts ORDER BY id DESC LIMIT ?1', MAX_LIST)
+    before
+      ? all(c.env, 'SELECT * FROM feed_posts WHERE id < ?1 ORDER BY id DESC LIMIT ?2', before, limit)
+      : all(c.env, 'SELECT * FROM feed_posts ORDER BY id DESC LIMIT ?1', limit)
   ]);
   return c.json(posts.map((e) => toClientShape(e, votes, commentCounts)));
 });
@@ -229,6 +238,35 @@ feed.post('/feed/upload', async (c) => {
     return c.json({ error: 'upload failed', detail: await res.text() }, 502);
   }
   return c.json({ url: `${blobBase(FEED_CONTAINER)}/${blobName}`, type: spec.kind, filename: `${safeName}.${spec.ext}` });
+});
+
+// The author's own post: change its words (its attachment stays), or take it back, with its upvotes and the discussion under it.
+feed.patch('/feed/:id', async (c) => {
+  const session = await getSession(c);
+  if (!session) return c.json({ error: 'unauthenticated' }, 401);
+  const post = await first(c.env, 'SELECT * FROM feed_posts WHERE id = ?1 AND user_id = ?2', c.req.param('id'), session.sub);
+  if (!post) return c.json({ error: 'not found' }, 404);
+  let body;
+  try { body = await c.req.json(); } catch { return c.json({ error: 'invalid body' }, 400); }
+  const text = typeof body.text === 'string' ? body.text.trim() : '';
+  if (!text && !post.attachment_url) return c.json({ error: 'a post needs text or an attachment' }, 400);
+  if (text.length > MAX_TEXT_LENGTH) return c.json({ error: `too long (max ${MAX_TEXT_LENGTH} chars)` }, 400);
+  await run(c.env, 'UPDATE feed_posts SET text = ?1 WHERE id = ?2', text, post.id);
+  return c.json(toClientShape({ ...post, text }));
+});
+
+feed.delete('/feed/:id', async (c) => {
+  const session = await getSession(c);
+  if (!session) return c.json({ error: 'unauthenticated' }, 401);
+  const post = await first(c.env, 'SELECT id FROM feed_posts WHERE id = ?1 AND user_id = ?2', c.req.param('id'), session.sub);
+  if (!post) return c.json({ error: 'not found' }, 404);
+  await batch(c.env, [
+    ['DELETE FROM feed_votes WHERE post_id = ?1', post.id],
+    ['DELETE FROM comment_votes WHERE path = ?1', `${FEED_PREFIX}${post.id}`],
+    ['DELETE FROM comments WHERE path = ?1', `${FEED_PREFIX}${post.id}`],
+    ['DELETE FROM feed_posts WHERE id = ?1', post.id]
+  ]);
+  return c.body(null, 204);
 });
 
 feed.delete('/manage/feed', async (c) => {

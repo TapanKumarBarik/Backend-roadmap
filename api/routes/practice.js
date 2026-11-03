@@ -21,7 +21,8 @@ import practice from '../generated/practice-content.json' with { type: 'json' };
 
 const router = createRouter();
 
-const LIMIT = { text: 20000, diagram: 20000, code: 30000, review: 5000, title: 120, notice: 600 };
+const LIMIT = { text: 20000, diagram: 20000, code: 30000, review: 5000, peer: 3000, title: 120, notice: 600 };
+const PEER = { min: 20, window: 60 * 60 * 1000, max: 20 }; // characters of feedback at least; and how much feedback an hour
 const ATTEMPTS = { window: 60 * 60 * 1000, max: 60 };
 const SAVES = { window: 10 * 60 * 1000, max: 120 };
 const MIN_SUBMISSION = 40; // characters of written answer before something can be submitted
@@ -95,7 +96,13 @@ router.post('/practice/quizzes/:slug/attempts', async (c) => {
   const given = body && typeof body.answers === 'object' && body.answers && !Array.isArray(body.answers) ? body.answers : null;
   if (!given) return c.json({ error: 'answers are required' }, 400);
 
-  const results = quiz.questions.map((q) => {
+  // A retry of the questions that were missed: scored the same way but only for those, and never kept, so a quiz's history stays
+  // a record of whole tries.
+  const only = Array.isArray(body.only) ? new Set(body.only.filter((id) => typeof id === 'string')) : null;
+  const asked = only ? quiz.questions.filter((q) => only.has(q.id)) : quiz.questions;
+  if (!asked.length) return c.json({ error: 'no such questions' }, 400);
+
+  const results = asked.map((q) => {
     const chosen = Array.isArray(given[q.id]) ? [...new Set(given[q.id].filter((id) => typeof id === 'string'))].filter((id) => q.options.some((o) => o.id === id)) : [];
     return { id: q.id, chosen, correct: sameSet(chosen, q.answer), answer: q.answer, explanation: q.explanation };
   });
@@ -103,7 +110,7 @@ router.post('/practice/quizzes/:slug/attempts', async (c) => {
 
   const session = await getSession(c);
   let saved = false;
-  if (session && await checkRateLimit(c.env, session.sub, 'quiz-attempt', ATTEMPTS.window, ATTEMPTS.max)) {
+  if (session && !only && await checkRateLimit(c.env, session.sub, 'quiz-attempt', ATTEMPTS.window, ATTEMPTS.max)) {
     const id = timeId(4);
     const now = new Date().toISOString();
     await batch(c.env, [
@@ -113,6 +120,32 @@ router.post('/practice/quizzes/:slug/attempts', async (c) => {
     saved = true;
   }
   return c.json({ score, max: results.length, saved, results });
+});
+
+// Where a person is weak: from the latest try of each quiz they have taken, how many questions they got right by topic, and the
+// questions they missed (the text only, never the answer). The latest try, not all of them, so a quiz retaken until it is perfect
+// stops counting against them.
+router.get('/practice/weak-areas', async (c) => {
+  const session = await getSession(c);
+  if (!session) return unauthenticated(c);
+  const rows = await all(c.env, `
+    SELECT a.quiz_id, w.question_id, w.correct
+    FROM quiz_attempts a JOIN quiz_answers w ON w.attempt_id = a.id
+    WHERE a.user_id = ?1 AND a.created_at = (SELECT MAX(created_at) FROM quiz_attempts WHERE user_id = a.user_id AND quiz_id = a.quiz_id)`, session.sub);
+  const topics = new Map();
+  const missed = [];
+  for (const r of rows) {
+    const quiz = practice.quizzes[r.quiz_id];
+    const question = quiz && quiz.questions.find((q) => q.id === r.question_id);
+    if (!question) continue; // a quiz or question that has since been removed
+    const t = topics.get(quiz.topic) || { topic: quiz.topic, correct: 0, total: 0 };
+    t.total += 1;
+    if (r.correct) t.correct += 1;
+    topics.set(quiz.topic, t);
+    if (!r.correct) missed.push({ quiz: r.quiz_id, title: quiz.title, question: question.id, text: question.text });
+  }
+  const list = [...topics.values()].map((t) => ({ ...t, percent: Math.round((t.correct / t.total) * 100) })).sort((a, b) => a.percent - b.percent || b.total - a.total);
+  return c.json({ topics: list, missed });
 });
 
 router.get('/practice/attempts', async (c) => {
@@ -127,10 +160,12 @@ router.get('/practice/attempts', async (c) => {
 /** A submission as its author sees it, with the reviews written about it. */
 async function mineShape(env, row) {
   const reviews = await all(env, 'SELECT id, text, created_at FROM submission_reviews WHERE submission_id = ?1 ORDER BY created_at', row.id);
+  const peers = await all(env, 'SELECT id, reviewer_name, text, created_at FROM peer_reviews WHERE submission_id = ?1 ORDER BY created_at', row.id);
   return {
     id: row.id, kind: row.kind, challenge: row.challenge_id, text: row.text, diagram: row.diagram, diagramUrl: row.diagram_url || null, code: row.code,
     status: row.status, shared: !!row.shared, updatedAt: row.updated_at, submittedAt: row.submitted_at || null,
-    reviews: reviews.map((r) => ({ id: r.id, text: r.text, at: r.created_at }))
+    reviews: reviews.map((r) => ({ id: r.id, text: r.text, at: r.created_at })),
+    peerReviews: peers.map((r) => ({ id: r.id, by: r.reviewer_name, text: r.text, at: r.created_at }))
   };
 }
 
@@ -213,11 +248,51 @@ router.delete('/practice/submissions/:kind/:slug', async (c) => {
 router.get('/practice/submissions/:kind/:slug/shared', async (c) => {
   const at = target(c);
   if (!at) return notFound(c);
+  const session = await getSession(c);
   const rows = await all(c.env,
-    `SELECT s.id, s.text, s.diagram, s.diagram_url, s.code, s.submitted_at, a.handle AS handle, a.name AS author_name
+    `SELECT s.id, s.user_id, s.text, s.diagram, s.diagram_url, s.code, s.submitted_at, a.handle AS handle, a.name AS author_name
        FROM submissions s LEFT JOIN author_profiles a ON a.user_id = s.user_id
       WHERE s.kind = ?1 AND s.challenge_id = ?2 AND s.shared = 1 AND s.status != 'draft' ORDER BY s.submitted_at DESC LIMIT 50`, at.kind, at.slug);
-  return c.json(rows.map((r) => ({ id: r.id, text: r.text, diagram: r.diagram, diagramUrl: r.diagram_url || null, code: r.code, at: r.submitted_at, author: r.handle ? { handle: r.handle, name: r.author_name } : null })));
+  const peers = rows.length
+    ? await all(c.env, `SELECT id, submission_id, reviewer_id, reviewer_name, text, created_at FROM peer_reviews WHERE submission_id IN (${rows.map((_, i) => `?${i + 1}`).join(', ')}) ORDER BY created_at`, ...rows.map((r) => r.id))
+    : [];
+  return c.json(rows.map((r) => ({
+    id: r.id, text: r.text, diagram: r.diagram, diagramUrl: r.diagram_url || null, code: r.code, at: r.submitted_at, author: r.handle ? { handle: r.handle, name: r.author_name } : null,
+    own: !!session && r.user_id === session.sub, // so the page does not offer feedback on your own solution
+    peerReviews: peers.filter((p) => p.submission_id === r.id).map((p) => ({ id: p.id, by: p.reviewer_name, text: p.text, at: p.created_at, mine: !!session && p.reviewer_id === session.sub }))
+  })));
+});
+
+// Feedback on someone else's shared solution. Only on work that is submitted and shared, never on your own, and rate-limited.
+router.post('/practice/submissions/:id/peer-reviews', async (c) => {
+  const session = await getSession(c);
+  if (!session) return unauthenticated(c);
+  const row = await first(c.env, "SELECT id, user_id FROM submissions WHERE id = ?1 AND shared = 1 AND status != 'draft'", c.req.param('id'));
+  if (!row) return notFound(c);
+  if (row.user_id === session.sub) return c.json({ error: 'you cannot review your own solution' }, 403);
+  let body;
+  try { body = await c.req.json(); } catch { return c.json({ error: 'invalid body' }, 400); }
+  const text = typeof body.text === 'string' ? body.text.trim() : '';
+  if (text.length < PEER.min) return c.json({ error: `say a little more: at least ${PEER.min} characters` }, 400);
+  if (text.length > LIMIT.peer) return c.json({ error: `too long: at most ${LIMIT.peer} characters` }, 400);
+  if (!await checkRateLimit(c.env, session.sub, 'peer-review', PEER.window, PEER.max)) return c.json({ error: 'too many reviews: try again later' }, 429);
+  const id = timeId(4);
+  const now = new Date().toISOString();
+  await run(c.env, 'INSERT INTO peer_reviews (id, submission_id, reviewer_id, reviewer_name, text, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)', id, row.id, session.sub, session.name || 'A learner', text, now);
+  return c.json({ id, by: session.name || 'A learner', text, at: now, mine: true }, 201);
+});
+
+// A review is taken back by whoever wrote it, or removed by an admin (which is written to the audit log).
+router.delete('/practice/peer-reviews/:id', async (c) => {
+  const session = await getSession(c);
+  if (!session) return unauthenticated(c);
+  const row = await first(c.env, 'SELECT id, reviewer_id FROM peer_reviews WHERE id = ?1', c.req.param('id'));
+  if (!row) return notFound(c);
+  const own = row.reviewer_id === session.sub;
+  if (!own && !(await isAdmin(c.env, session))) return c.json({ error: 'forbidden' }, 403);
+  await run(c.env, 'DELETE FROM peer_reviews WHERE id = ?1', row.id);
+  if (!own) await audit(c.env, session, 'peer review removed', row.id);
+  return c.body(null, 204);
 });
 
 /* ---------------------------------------------------------------------------------------------------------- notices */

@@ -7,6 +7,7 @@ import app from '../app.js';
 import { invalidateAdminCache } from '../lib/admin.js';
 import { UPLOAD_ORIGINS } from '../../webapp/src/lib/blog/uploads.js';
 import { OWNER_EMAIL, createEnv, signedInAs } from './helpers.js';
+import practiceContent from '../generated/practice-content.json' with { type: 'json' };
 
 let env;
 let ada;
@@ -36,9 +37,10 @@ const RIGHT = { q1: ['b'], q2: ['true'], q3: ['a', 'c', 'd'], q4: ['b'], q5: ['f
 
 test('the catalog lists everything, and nothing in it or in a quiz gives an answer away', async () => {
   const { json, raw } = await call(null, 'GET', '/practice/catalog');
-  assert.ok(json.quizzes.length >= 4 && json.exercises.length >= 3 && json.interview.length >= 3 && json.challenges.length === 10);
-  assert.deepEqual(json.challenges.map((c) => c.kind).sort(), ['hld', 'hld', 'hld', 'hld', 'hld', 'lld', 'lld', 'lld', 'lld', 'lld']);
-  assert.doesNotMatch(raw, /"answer"|explanation|reference/);
+  const have = (group) => Object.keys(practiceContent[group]).length;
+  assert.deepEqual([json.quizzes.length, json.exercises.length, json.interview.length, json.challenges.length], [have('quizzes'), have('exercises'), have('interview'), have('challenges')], 'everything in git is listed');
+  assert.ok(json.quizzes.length >= 4 && json.challenges.filter((c) => c.kind === 'lld').length >= 5 && json.challenges.filter((c) => c.kind === 'hld').length >= 5);
+  assert.doesNotMatch(raw, /"answer"|"explanation"|"reference"/);
 
   const quiz = await call(null, 'GET', `/practice/quizzes/${QUIZ}`);
   assert.equal(quiz.json.questions.length, 5);
@@ -198,7 +200,7 @@ test('the admin sees real counts of what people did with the practice content', 
   assert.deepEqual([quiz.tries, quiz.people, quiz.average], [2, 2, 80]);
   assert.equal(stats.quizzes.find((q) => q.slug === 'http-caching').average, null, 'no tries, no average');
   assert.deepEqual(stats.submissions, { draft: 1 });
-  assert.equal(stats.content.challenges, 10);
+  assert.equal(stats.content.challenges, Object.keys(practiceContent.challenges).length);
   assert.equal((await call(grace, 'GET', '/manage/practice/stats')).status, 403);
 });
 
@@ -211,4 +213,104 @@ test("a discussion under a challenge is not among the curriculum's questions, an
   assert.deepEqual((await call(null, 'GET', '/comments/questions')).json, []);
   const item = (await call(ada, 'GET', '/comments/activity')).json.items[0];
   assert.deepEqual([item.kind, item.title, item.slug], ['reply', 'Parking Lot', 'lld/parking-lot']);
+});
+
+test('a retry of the missed questions is scored for those only, and is not kept as a try', async () => {
+  const wrong = { ...RIGHT, q1: ['a'], q3: ['a'] };
+  const first = await call(ada, 'POST', `/practice/quizzes/${QUIZ}/attempts`, { answers: wrong });
+  assert.equal(first.json.score, 3);
+  const missed = first.json.results.filter((r) => !r.correct).map((r) => r.id);
+  assert.deepEqual(missed, ['q1', 'q3']);
+
+  const retry = await call(ada, 'POST', `/practice/quizzes/${QUIZ}/attempts`, { answers: { q1: ['b'], q3: ['a', 'c', 'd'] }, only: missed });
+  assert.equal(retry.status, 200);
+  assert.deepEqual({ score: retry.json.score, max: retry.json.max, saved: retry.json.saved }, { score: 2, max: 2, saved: false });
+  assert.deepEqual(retry.json.results.map((r) => r.id), ['q1', 'q3']);
+  assert.equal(rows('SELECT * FROM quiz_attempts').length, 1, 'only the whole try is in the history');
+  assert.equal((await call(ada, 'POST', `/practice/quizzes/${QUIZ}/attempts`, { answers: {}, only: ['nope'] })).status, 400);
+});
+
+test('weak areas come from the latest try of each quiz: topics by how many were right, and the questions missed', async () => {
+  assert.equal((await call(null, 'GET', '/practice/weak-areas')).status, 401);
+  assert.deepEqual((await call(ada, 'GET', '/practice/weak-areas')).json, { topics: [], missed: [] });
+
+  await call(ada, 'POST', `/practice/quizzes/${QUIZ}/attempts`, { answers: { ...RIGHT, q1: ['a'], q3: ['a'] } });
+  const now = (await call(ada, 'GET', '/practice/weak-areas')).json;
+  const topic = practiceContent.quizzes[QUIZ].topic;
+  assert.deepEqual(now.topics, [{ topic, correct: 3, total: 5, percent: 60 }]);
+  assert.deepEqual(now.missed.map((m) => m.question), ['q1', 'q3']);
+  assert.ok(now.missed.every((m) => m.text && !('answer' in m) && !('explanation' in m)), 'a missed question is its text, never its answer');
+
+  env.DB.raw.prepare("UPDATE quiz_attempts SET created_at = '2020-01-01T00:00:00.000Z'").run(); // the first try is now an old one
+  await call(ada, 'POST', `/practice/quizzes/${QUIZ}/attempts`, { answers: RIGHT });
+  assert.deepEqual((await call(ada, 'GET', '/practice/weak-areas')).json, { topics: [{ topic, correct: 5, total: 5, percent: 100 }], missed: [] }, 'a quiz retaken until it is right stops counting against them');
+  assert.deepEqual((await call(grace, 'GET', '/practice/weak-areas')).json, { topics: [], missed: [] }, 'and it is theirs alone');
+});
+
+async function sharedSolution(cookie = ada) {
+  await call(cookie, 'PUT', '/practice/submissions/hld/url-shortener', WORK);
+  await call(cookie, 'POST', '/practice/submissions/hld/url-shortener/submit');
+  await call(cookie, 'PUT', '/practice/submissions/hld/url-shortener', { ...WORK, shared: true });
+  return (await call(null, 'GET', '/practice/submissions/hld/url-shortener/shared')).json[0].id;
+}
+const FEEDBACK = 'Good start. Say who owns the key generator, and what happens when it is down.';
+
+test('another learner can give feedback on a shared solution; the author reads it, and neither is shown the other\'s e-mail', async () => {
+  const id = await sharedSolution();
+  assert.equal((await call(null, 'POST', `/practice/submissions/${id}/peer-reviews`, { text: FEEDBACK })).status, 401, 'signing in is needed');
+  const given = await call(grace, 'POST', `/practice/submissions/${id}/peer-reviews`, { text: FEEDBACK });
+  assert.equal(given.status, 201);
+  assert.equal(given.json.by, 'Grace Hopper');
+
+  const shared = (await call(null, 'GET', '/practice/submissions/hld/url-shortener/shared')).json[0];
+  assert.deepEqual(shared.peerReviews.map((r) => [r.by, r.text, r.mine]), [['Grace Hopper', FEEDBACK, false]]);
+  assert.equal(shared.own, false);
+  assert.equal((await call(ada, 'GET', '/practice/submissions/hld/url-shortener/shared')).json[0].own, true);
+  assert.equal((await call(grace, 'GET', '/practice/submissions/hld/url-shortener/shared')).json[0].peerReviews[0].mine, true, 'the reviewer is told which one is theirs');
+  assert.doesNotMatch(JSON.stringify(shared), /grace@example|user-grace/);
+
+  const mine = (await call(ada, 'GET', '/practice/submissions/hld/url-shortener')).json.submission;
+  assert.deepEqual(mine.peerReviews.map((r) => r.text), [FEEDBACK], 'the author reads the feedback with their own work');
+});
+
+test('feedback needs something to say, is never on your own work, a draft or a private solution, and is rate-limited', async () => {
+  const id = await sharedSolution();
+  assert.equal((await call(ada, 'POST', `/practice/submissions/${id}/peer-reviews`, { text: FEEDBACK })).status, 403, 'not your own');
+  assert.equal((await call(grace, 'POST', `/practice/submissions/${id}/peer-reviews`, { text: 'nice' })).status, 400, 'too short');
+  assert.equal((await call(grace, 'POST', `/practice/submissions/${id}/peer-reviews`, { text: 'x'.repeat(3001) })).status, 400, 'too long');
+  assert.equal((await call(grace, 'POST', '/practice/submissions/nope/peer-reviews', { text: FEEDBACK })).status, 404);
+
+  await call(ada, 'PUT', '/practice/submissions/hld/url-shortener', { ...WORK, shared: false });
+  assert.equal((await call(grace, 'POST', `/practice/submissions/${id}/peer-reviews`, { text: FEEDBACK })).status, 404, 'a solution taken back is not open to feedback');
+
+  await call(ada, 'PUT', '/practice/submissions/hld/url-shortener', { ...WORK, shared: true });
+  let last = 201;
+  for (let i = 0; i < 21 && last === 201; i++) last = (await call(grace, 'POST', `/practice/submissions/${id}/peer-reviews`, { text: FEEDBACK })).status;
+  assert.equal(last, 429, 'twenty an hour is plenty');
+});
+
+test('feedback is taken back by its writer or removed by an admin (and the audit log says so), and nobody else can', async () => {
+  const id = await sharedSolution();
+  const one = (await call(grace, 'POST', `/practice/submissions/${id}/peer-reviews`, { text: FEEDBACK })).json.id;
+  assert.equal((await call(ada, 'DELETE', `/practice/peer-reviews/${one}`)).status, 403, 'the author cannot delete feedback they dislike');
+  assert.equal((await call(null, 'DELETE', `/practice/peer-reviews/${one}`)).status, 401);
+  assert.equal((await call(owner, 'DELETE', `/practice/peer-reviews/${one}`)).status, 204);
+  assert.ok(rows('SELECT * FROM audit_log').some((r) => r.action === 'peer review removed'));
+
+  const two = (await call(grace, 'POST', `/practice/submissions/${id}/peer-reviews`, { text: FEEDBACK })).json.id;
+  assert.equal((await call(grace, 'DELETE', `/practice/peer-reviews/${two}`)).status, 204, 'the writer takes it back');
+  assert.equal((await call(grace, 'DELETE', `/practice/peer-reviews/${two}`)).status, 404);
+});
+
+test('deleting an account removes the feedback it gave and the feedback on its solutions', async () => {
+  const id = await sharedSolution();
+  await call(grace, 'POST', `/practice/submissions/${id}/peer-reviews`, { text: FEEDBACK });
+  assert.equal((await call(grace, 'DELETE', '/account')).status, 204);
+  assert.deepEqual(rows('SELECT * FROM peer_reviews'), []);
+
+  const again = await sharedSolution(ada);
+  const other = await signedInAs('lin@example.com', { name: 'Lin' });
+  await call(other, 'POST', `/practice/submissions/${again}/peer-reviews`, { text: FEEDBACK });
+  await call(ada, 'DELETE', '/account');
+  assert.deepEqual(rows('SELECT * FROM peer_reviews'), [], 'feedback on a deleted solution goes with it');
 });
