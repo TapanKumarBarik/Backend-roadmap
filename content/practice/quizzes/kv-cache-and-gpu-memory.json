@@ -144,7 +144,7 @@
     {
       "id": "q6",
       "type": "truefalse",
-      "text": "A model whose weights are 14 GB will comfortably serve many users on a 24 GB GPU, because the weights fit with room to spare.",
+      "text": "If a model's weights take 14 GB and the GPU has 24 GB, you can stop estimating memory: the weights are the only large consumer when serving.",
       "options": [
         {
           "id": "true",
@@ -158,7 +158,7 @@
       "answer": [
         "false"
       ],
-      "explanation": "Weights are the floor, not the total. You still need the KV cache for each user's context plus runtime overhead, and with about 10 GB left the number of concurrent long sequences may be small."
+      "explanation": "Weights are the floor, not the total. You still need the KV cache for each user's context plus runtime overhead, and with about 10 GB left the number of concurrent long sequences can be small (how small depends on the model's KV heads and the context length)."
     },
     {
       "id": "q7",

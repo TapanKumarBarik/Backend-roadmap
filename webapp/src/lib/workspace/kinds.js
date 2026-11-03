@@ -1,6 +1,8 @@
 // What a page in the private workspace can be, and what each kind may carry, in numbers and patterns. One place, used by the
 // API (which enforces them), the workspace (which tells the person before the server has to) and the tests. No DOM in here:
 // it runs in the API (a Worker) as well as in the browser.
+import { DIAGRAM_LABEL_FALLBACK, DIAGRAM_MODE, DIAGRAM_SHAPES } from './diagramShapes.js';
+import { toMermaid } from './diagramMermaid.js';
 
 /** The kinds of page. A plain page is the only one that existed before the hub, and is what a row with no kind is. */
 export const KIND = Object.freeze({ page: 'page', folder: 'folder', plan: 'plan', revision: 'revision', diagram: 'diagram' });
@@ -32,6 +34,12 @@ export const LIMITS = {
   itemIdPattern: /^[A-Za-z0-9_-]{1,40}$/,
   pathIdMax: 80,
   diagramSourceMax: 20000,
+  /** A drawn diagram: boxes, arrows, the words on them, and how far from the origin a box may be put. */
+  diagramNodesMax: 60,
+  diagramEdgesMax: 120,
+  diagramNodeLabelMax: 60,
+  diagramEdgeLabelMax: 40,
+  diagramCoordMax: 5000,
   /** Lessons in one revision list. */
   revisionItemsMax: 500
 };
@@ -96,9 +104,54 @@ export function cleanPlanData(input) {
   return { data: { source, pathId: pathId || null, targetDate, steps } };
 }
 
-/** A diagram's data: its Mermaid source, which may be empty while it is being written. */
+const isCoordinate = (value) => typeof value === 'number' && Number.isFinite(value) && Math.abs(value) <= LIMITS.diagramCoordMax;
+
+/**
+ * A drawing's boxes and arrows, rebuilt from what a client sent: only the known keys, a known shape, words with no control characters and
+ * of a bounded length, whole-number positions inside the canvas, and arrows that join two boxes that are there. `{ model }` or `{ problem }`.
+ */
+export function cleanDiagramModel(input) {
+  if (!isObject(input) || !Array.isArray(input.nodes) || !Array.isArray(input.edges)) return { problem: 'A drawing needs its boxes and arrows.' };
+  if (input.nodes.length > LIMITS.diagramNodesMax) return { problem: `A drawing has at most ${LIMITS.diagramNodesMax} boxes.` };
+  if (input.edges.length > LIMITS.diagramEdgesMax) return { problem: `A drawing has at most ${LIMITS.diagramEdgesMax} arrows.` };
+
+  const nodes = [];
+  const nodeIds = new Set();
+  for (const node of input.nodes) {
+    if (!isObject(node) || typeof node.id !== 'string' || !LIMITS.itemIdPattern.test(node.id) || nodeIds.has(node.id)) return { problem: 'A box of the drawing is malformed.' };
+    if (!DIAGRAM_SHAPES.includes(node.shape)) return { problem: 'A box of the drawing has a shape that is not known.' };
+    if (!isCoordinate(node.x) || !isCoordinate(node.y)) return { problem: 'A box of the drawing is somewhere that is not on the canvas.' };
+    nodeIds.add(node.id);
+    nodes.push({ id: node.id, label: clean(node.label, LIMITS.diagramNodeLabelMax) || DIAGRAM_LABEL_FALLBACK, shape: node.shape, x: Math.round(node.x), y: Math.round(node.y) });
+  }
+  const edges = [];
+  const edgeIds = new Set();
+  for (const edge of input.edges) {
+    if (!isObject(edge) || typeof edge.id !== 'string' || !LIMITS.itemIdPattern.test(edge.id) || edgeIds.has(edge.id)) return { problem: 'An arrow of the drawing is malformed.' };
+    if (!nodeIds.has(edge.from) || !nodeIds.has(edge.to)) return { problem: 'An arrow of the drawing joins a box that is not there.' };
+    edgeIds.add(edge.id);
+    edges.push({ id: edge.id, from: edge.from, to: edge.to, label: clean(edge.label, LIMITS.diagramEdgeLabelMax), dashed: edge.dashed === true });
+  }
+  return { model: { nodes, edges } };
+}
+
+/**
+ * A diagram's data. Written as text it is `{ source }`, the Mermaid text, which may be empty while it is being written. Drawn it is
+ * `{ source, mode: 'visual', model }`: the source is written here from the drawing, whatever the client sent as the source, so the
+ * two can never disagree.
+ */
 export function cleanDiagramData(input) {
-  if (!isObject(input) || typeof input.source !== 'string') return { problem: 'A diagram needs its source text.' };
+  if (!isObject(input)) return { problem: 'A diagram needs its source text.' };
+  const mode = input.mode === undefined ? DIAGRAM_MODE.text : input.mode;
+  if (mode === DIAGRAM_MODE.visual) {
+    const drawn = cleanDiagramModel(input.model);
+    if (drawn.problem) return drawn;
+    const source = toMermaid(drawn.model);
+    if (source.length > LIMITS.diagramSourceMax) return { problem: 'This drawing is too large to keep.' };
+    return { data: { source, mode: DIAGRAM_MODE.visual, model: drawn.model } };
+  }
+  if (mode !== DIAGRAM_MODE.text) return { problem: 'A diagram is written as text or drawn.' };
+  if (typeof input.source !== 'string') return { problem: 'A diagram needs its source text.' };
   if (input.source.length > LIMITS.diagramSourceMax) return { problem: `A diagram is at most ${LIMITS.diagramSourceMax.toLocaleString('en')} characters.` };
   return { data: { source: input.source.replace(/\r\n?/g, '\n') } };
 }

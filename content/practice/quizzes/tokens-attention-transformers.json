@@ -49,7 +49,7 @@
       "answer": [
         "false"
       ],
-      "explanation": "Tokenizers trained mostly on English text split non-Latin scripts into more, smaller tokens, often 2-3 times as many. That raises both cost and latency for the same content."
+      "explanation": "Tokenizers trained mostly on English text split non-Latin scripts into more, smaller tokens. The exact ratio depends on the language and the tokenizer (2-3 times is common, and it can be higher), but it is rarely close to 1. That raises both cost and latency for the same content."
     },
     {
       "id": "q3",
@@ -62,7 +62,7 @@
         },
         {
           "id": "b",
-          "text": "Using X as both query and key forces every token to score highest against itself, which is useless for relating tokens"
+          "text": "Using X as both query and key makes the score matrix symmetric and biases each token toward attending to itself, so the model cannot learn directional relations between tokens"
         },
         {
           "id": "c",
@@ -76,7 +76,7 @@
       "answer": [
         "b"
       ],
-      "explanation": "If Q = K = X, the dot product of a vector with itself is always at least as large as with any other vector, so each token is biased toward attending to itself. Separate Wq and Wk remove that guarantee and let the model learn which other tokens matter."
+      "explanation": "If Q = K = X, the scores are X times X-transpose: the score from token i to token j always equals the score from j to i, and a token's dot product with itself (its squared length) tends to dominate its row, so each token is biased toward attending to itself. Separate Wq and Wk give each token a 'what I look for' vector and a different 'what I offer' vector, which removes the symmetry and lets the model learn which other tokens matter."
     },
     {
       "id": "q4",
@@ -198,14 +198,14 @@
         },
         {
           "id": "d",
-          "text": "A causal mask hides padding tokens, so no padding mask is needed"
+          "text": "A causal mask also hides padding that comes before the real tokens, so no padding mask is needed"
         }
       ],
       "answer": [
         "a",
         "c"
       ],
-      "explanation": "Padding masks and causal masks are the same additive -inf tool aimed at different problems: one hides non-content, the other hides the future. They are commonly combined additively before a single softmax. A causal mask hides future positions, which is a different job from hiding padding."
+      "explanation": "Padding masks and causal masks are the same additive -inf tool aimed at different problems: one hides non-content, the other hides the future. They are commonly combined additively before a single softmax. A causal mask hides only future positions: padding placed before the real tokens (left padding) is in their past and stays visible, and an encoder with bidirectional attention has no causal mask at all, so a padding mask is still needed."
     }
   ]
 }

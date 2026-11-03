@@ -79,3 +79,14 @@ export function ChevronUpDownIcon({ dir = 'up', ...props }) {
     </svg>
   );
 }
+
+// Six dots: the handle a row is dragged by.
+export function GripIcon(props) {
+  return (
+    <svg viewBox="0 0 16 16" fill="currentColor" {...props}>
+      <circle cx="5.5" cy="3.5" r="1.2" /><circle cx="10.5" cy="3.5" r="1.2" />
+      <circle cx="5.5" cy="8" r="1.2" /><circle cx="10.5" cy="8" r="1.2" />
+      <circle cx="5.5" cy="12.5" r="1.2" /><circle cx="10.5" cy="12.5" r="1.2" />
+    </svg>
+  );
+}

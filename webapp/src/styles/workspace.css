@@ -114,3 +114,46 @@
 .wsx-diagram__source > .ui-btn { margin-top: var(--space-2); }
 .wsx-diagram .pr-diagram { min-height: 0; overflow-x: auto; }
 .wsx-diagram .pr-diagram:not(:empty) { padding: var(--space-3); border: 1px dashed var(--border); border-radius: var(--r-md); background: var(--bg); }
+
+/* ---------- dragging a page in the tree ---------- */
+/* A row is chrome, not text: pressing and moving must drag it, not select it. (The rename box is still text.) */
+.ws-shell .ws-row { position: relative; user-select: none; -webkit-user-select: none; }
+.ws-shell .ws-rename-input { user-select: text; -webkit-user-select: text; }
+/* The handle. It is there for a finger (it alone does not scroll) and is shown to the pointer as soon as the row is hovered or has focus. */
+.ws-grip {
+  flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; align-self: stretch; width: 14px;
+  color: var(--fg-muted); opacity: 0; cursor: grab; touch-action: none; -webkit-touch-callout: none;
+}
+.ws-grip svg { width: 12px; height: 12px; }
+.ws-shell .ws-row:hover .ws-grip, .ws-shell .ws-row:focus-within .ws-grip, .ws-shell .ws-row.on .ws-grip { opacity: 1; }
+@media (pointer: coarse) {
+  .ws-grip { opacity: 1; width: 44px; margin: 0 -10px 0 -8px; }
+  .ws-shell .ws-row { min-height: 44px !important; }
+}
+.ws-row.is-drag-source { opacity: .45; }
+/* Where a drop lands: a line between two rows, a solid box round a folder it goes into, a dashed box round somewhere it may not go.
+   Each differs in shape as well as in colour, and the label beside the pointer says it in words. */
+.ws-row.is-drop-inside { background: var(--signal-bg) !important; outline: 2px solid var(--signal); outline-offset: -2px; }
+.ws-row.is-drop-denied { outline: 2px dashed var(--danger); outline-offset: -2px; cursor: not-allowed; }
+.ws-row.is-drop-before::before, .ws-row.is-drop-after::after {
+  content: ""; position: absolute; left: 4px; right: 4px; height: 3px; border-radius: 2px; background: var(--signal); pointer-events: none;
+}
+.ws-row.is-drop-before::before { top: -3px; }
+.ws-row.is-drop-after::after { bottom: -3px; }
+.ws-drop-root {
+  margin-top: var(--space-2); padding: var(--space-3); text-align: center; font-size: var(--text-xs); color: var(--fg-muted);
+  border: 1px dashed var(--border-strong); border-radius: var(--r-md);
+}
+.ws-drop-root.is-over { color: var(--fg); background: var(--signal-bg); border-style: solid; outline: 2px solid var(--signal); outline-offset: -2px; }
+.ws-ghost {
+  position: fixed; left: 0; top: 0; z-index: var(--z-menu); display: grid; gap: 2px; max-width: 260px; padding: var(--space-2) var(--space-3);
+  pointer-events: none; font-size: var(--text-sm); background: var(--bg-raised); border: 1px solid var(--border-strong);
+  border-radius: var(--r-md); box-shadow: var(--shadow-md);
+}
+.ws-ghost__name { font-weight: var(--weight-semibold); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ws-ghost__over { font-size: var(--text-xs); color: var(--fg-muted); }
+body.ws-dragging, body.ws-dragging * { cursor: grabbing !important; user-select: none; -webkit-user-select: none; }
+/* The Mermaid text written from a drawing: read only, and not a place to type. */
+.wsx-derived { margin-top: var(--space-4); }
+.wsx-derived textarea.ui-field__control { min-height: 140px; font-family: var(--mono); font-size: var(--text-sm); line-height: var(--leading-normal); background: var(--bg-sunken); }
+.wsx-sourcebar { display: flex; flex-wrap: wrap; gap: var(--space-2); margin-top: var(--space-2); }

@@ -1,0 +1,80 @@
+/* The visual diagram editor. Fetched with the editor (it is imported by DiagramEditor.jsx), not with the workspace. Tokens only, so the
+   canvas follows the light and dark themes; a box or an arrow is never told apart by colour alone (a selected one is thicker and has a
+   dashed ring, the one an arrow starts from is dashed, a dashed arrow is dashed). */
+
+.dg-editor { display: grid; gap: var(--space-3); }
+
+/* ---------- the tools ---------- */
+.dg-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); }
+.dg-toolbar__group { display: inline-flex; align-items: center; gap: var(--space-1); }
+.dg-toolbar__end { margin-left: auto; }
+.dg-zoom { min-width: 3.5em; text-align: center; font-size: var(--text-xs); font-variant-numeric: tabular-nums; color: var(--fg-muted); }
+.dg-inspector {
+  display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--space-2) var(--space-3); min-height: 52px; padding: var(--space-2) var(--space-3);
+  background: var(--bg-sunken); border: 1px solid var(--border-subtle); border-radius: var(--r-md);
+}
+.dg-inspector p { margin: 0; align-self: center; font-size: var(--text-sm); }
+.dg-inspector__none { color: var(--fg-muted); }
+.dg-inspector__name { font-weight: var(--weight-semibold); overflow-wrap: anywhere; }
+.dg-inspector__shape { min-width: 160px; margin: 0; }
+.dg-check { display: inline-flex; align-items: center; gap: var(--space-2); align-self: center; font-size: var(--text-sm); cursor: pointer; }
+.dg-check input { width: 18px; height: 18px; margin: 0; accent-color: var(--accent); }
+.dg-help { margin: 0; font-size: var(--text-xs); line-height: var(--leading-snug); color: var(--fg-muted); }
+.dg-connecting { margin: 0; padding: var(--space-2) var(--space-3); font-size: var(--text-sm); background: var(--signal-bg); border: 1px dashed var(--signal-line); border-radius: var(--r-md); }
+
+/* ---------- the canvas ---------- */
+.dg-stage { position: relative; height: clamp(360px, 62vh, 620px); border: 1px solid var(--border); border-radius: var(--r-md); overflow: hidden; background: var(--bg-raised); }
+.dg-svg { display: block; width: 100%; height: 100%; background: var(--bg-raised); touch-action: none; cursor: grab; user-select: none; -webkit-user-select: none; }
+.dg-svg:active { cursor: grabbing; }
+.dg-svg.is-connecting { cursor: crosshair; }
+.dg-svg:focus-visible { outline: 2px solid var(--signal); outline-offset: -2px; }
+.dg-grid-dot { fill: var(--border); }
+.dg-empty { position: absolute; inset: 0; display: grid; place-items: center; margin: 0; padding: var(--space-4); text-align: center; pointer-events: none; color: var(--fg-muted); font-size: var(--text-sm); }
+
+/* A box. */
+.dg-node { cursor: move; outline: none; }
+.dg-svg.is-connecting .dg-node { cursor: pointer; }
+.dg-shape { fill: var(--bg-raised); stroke: var(--border-strong); stroke-width: 1.5; }
+.dg-shape--rim { fill: none; }
+.dg-label { fill: var(--fg); font-family: var(--sans); font-size: 13px; pointer-events: none; }
+.dg-ring { display: none; fill: none; stroke: var(--signal); stroke-width: 2; stroke-dasharray: 5 3; pointer-events: none; }
+.dg-node.is-selected .dg-ring, .dg-node:focus-visible .dg-ring { display: block; }
+.dg-node.is-selected .dg-shape, .dg-node:focus-visible .dg-shape { stroke: var(--fg); stroke-width: 3; }
+.dg-node.is-source .dg-shape { stroke: var(--signal); stroke-width: 3; stroke-dasharray: 8 4; }
+.dg-node.is-target .dg-shape { stroke: var(--signal); stroke-width: 3.5; fill: var(--signal-bg); }
+
+/* An arrow. The wide invisible line under it is what a finger or a pointer grabs. */
+.dg-edge { outline: none; cursor: pointer; }
+.dg-edge__line { fill: none; stroke: var(--fg-muted); stroke-width: 1.8; }
+.dg-edge.is-dashed .dg-edge__line { stroke-dasharray: 7 5; }
+.dg-edge__hit { fill: none; stroke: transparent; stroke-width: 18; }
+.dg-edge__halo { display: none; fill: none; stroke: var(--signal); stroke-opacity: .35; stroke-width: 9; stroke-linecap: round; }
+.dg-edge.is-selected .dg-edge__halo, .dg-edge:focus-visible .dg-edge__halo { display: block; }
+.dg-edge.is-selected .dg-edge__line, .dg-edge:focus-visible .dg-edge__line { stroke: var(--fg); stroke-width: 2.6; }
+.dg-edge__label { fill: var(--fg); font-family: var(--sans); font-size: 12px; stroke: var(--bg-raised); stroke-width: 5; paint-order: stroke; stroke-linejoin: round; pointer-events: none; }
+.dg-arrowhead { fill: var(--fg-muted); }
+
+/* The round handle an arrow is dragged out of, and the arrow while it is being dragged. */
+.dg-handle__hit { fill: transparent; cursor: crosshair; }
+.dg-handle { fill: var(--signal); stroke: var(--bg-raised); stroke-width: 1.5; }
+.dg-rubber { stroke: var(--signal); stroke-width: 2; stroke-dasharray: 6 4; }
+
+/* The box that words are typed in, over the canvas. */
+.dg-edit {
+  position: absolute; box-sizing: border-box; height: 32px; padding: 0 var(--space-2); text-align: center; font: inherit; font-size: var(--text-sm);
+  color: var(--fg); background: var(--bg-raised); border: 2px solid var(--signal); border-radius: var(--r-sm); box-shadow: var(--shadow-md);
+}
+.dg-edit:focus-visible { outline: none; }
+
+/* ---------- the list ---------- */
+.dg-list { border: 1px solid var(--border-subtle); border-radius: var(--r-md); padding: var(--space-2) var(--space-3); }
+.dg-list > summary { cursor: pointer; font-size: var(--text-sm); font-weight: var(--weight-semibold); padding: var(--space-1) 0; }
+.dg-list__title { margin: var(--space-3) 0 var(--space-1); font-size: var(--text-sm); }
+.dg-list__items { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.dg-list__item {
+  width: 100%; min-height: 32px; padding: var(--space-1) var(--space-2); text-align: left; font: inherit; font-size: var(--text-sm); color: var(--fg);
+  background: none; border: 1px solid transparent; border-radius: var(--r-sm); cursor: pointer; overflow-wrap: anywhere;
+}
+.dg-list__item:hover { background: var(--hover); }
+.dg-list__item.is-selected { font-weight: var(--weight-semibold); border-color: var(--border-strong); border-style: dashed; }
+@media (pointer: coarse) { .dg-list__item { min-height: 44px; } }

@@ -76,7 +76,7 @@
       "answer": [
         "false"
       ],
-      "explanation": "The orderings can agree on unit vectors, but the numbers differ. A cosine of 0.8 is an L2 distance of about 0.63, and the direction is reversed (higher cosine is better, lower distance is better). A threshold does not transfer between metrics."
+      "explanation": "The orderings can agree on unit vectors, but the numbers differ. For unit vectors a cosine of 0.8 is an L2 distance of about 0.63, and the direction is reversed (higher cosine is better, lower distance is better). A threshold does not transfer between metrics."
     },
     {
       "id": "q4",

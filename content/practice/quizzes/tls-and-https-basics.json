@@ -192,7 +192,7 @@
     {
       "id": "q8",
       "type": "truefalse",
-      "text": "Using curl -k (skip certificate verification) inside production code is acceptable because the traffic is still encrypted.",
+      "text": "Turning off certificate verification (curl -k, or verify=False in an HTTP library) in production code is acceptable because the traffic is still encrypted.",
       "options": [
         {
           "id": "true",

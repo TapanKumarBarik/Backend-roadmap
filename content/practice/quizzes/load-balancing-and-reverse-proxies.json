@@ -130,7 +130,7 @@
       "answer": [
         "d"
       ],
-      "explanation": "A 502 means the balancer was reached fine but did not get a valid response from a backend. Hitting a backend directly, and checking whether one unhealthy instance is still in rotation, narrows it down quickly."
+      "explanation": "A 502 means the balancer was reached fine but did not get a valid response from a backend, so the balancer-to-backend hop is the first place to look (a 502 can have other causes, such as a misconfigured upstream address). Hitting a backend directly, and checking whether one unhealthy instance is still in rotation, narrows it down quickly."
     },
     {
       "id": "q6",

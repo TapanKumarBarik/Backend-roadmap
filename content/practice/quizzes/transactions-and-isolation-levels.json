@@ -186,7 +186,7 @@
       "answer": [
         "c"
       ],
-      "explanation": "The version no longer matches because another transaction bumped it. The application must detect the zero-row result, re-read the fresh row and retry. This only pays off when conflicts are rare."
+      "explanation": "The version no longer matches because another transaction bumped it. The application must detect the zero-row result, re-read the fresh row and retry (the re-read also shows if the row was deleted instead). This only pays off when conflicts are rare."
     },
     {
       "id": "q8",

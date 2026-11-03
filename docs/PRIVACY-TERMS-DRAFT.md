@@ -68,7 +68,7 @@ Articles in the community belong to their authors, not to the site owner.
 
 ## Added with the workspace as a personal hub: a new section for privacy.html, "Your private workspace"
 
-*(A note only: privacy.html and terms.html are not changed by this work.)*
+*(Approved and applied to webapp/public/privacy.html on 2026-11-03; kept here as the record.)*
 
 Your workspace is private. Your pages, folders, study plans (with your target date), revision lists (which lessons you revise, and the
 day you last revised each) and saved diagrams are visible only to you: they are not on your author page, not in search, and not shown

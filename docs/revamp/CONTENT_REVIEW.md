@@ -1,5 +1,36 @@
 # Content to review before it is trusted
 
+## Second read (2026-11-03): four independent reviewers
+
+After the drafts were written, four reviewers who had not seen them each read every quiz, exercise, interview set and design challenge against the
+lesson it is tied to, decided the right answer before looking at the marked one, redid every calculation, and fixed what was wrong. The sections below are
+the drafters' original lists; **most of those items were looked at again and settled** (the outcome is here). What is left for a person is at the end.
+
+- **No marked quiz answer was wrong**, but about 40 questions were sharpened: an option that was also defensible (two cases, e.g. `noeviction` as a distractor for "which is
+  evicted", and a causal mask hiding padding), a true/false with a trick clause, an explanation that overstated (SCAN does not block Redis; `max-age` alone already makes a
+  response storable by shared caches; a 24x that mixed 10^5 with 86,400), a claim that was product-specific stated as general (RollingUpdate as the default, `&>` as Bash/zsh
+  only, `max_tool_calls` is an OpenAI Responses API option), and a statement that was only true on some systems (a container's ports from the host on Linux).
+- **Five quizzes had fewer than six questions and gained some** (`idempotency-and-retries` +1, `database-indexes` +2, `http-caching` +3).
+- **Design challenges and references were corrected, not just polished:** the food-delivery class diagram now has every class the prose names and a complete order state
+  machine; the movie-booking reference now orders multi-seat locks consistently (a deadlock risk) and says what a late confirm does; the e-commerce checkout order was
+  inconsistent with its reservation row; the EXPLAIN exercise's plan costs were internally inconsistent and are now consistent; reference solutions that presented one design
+  as the only one now name the alternatives (code generation for the URL shortener, rate-limit algorithms, delivery guarantees); older references gained missing diagram
+  relations and capacity assumptions, labelled as assumptions. All 48 Mermaid diagrams draw.
+- **A lesson is wrong (not edited: lessons are yours to change):** `genai/02-transformer-architecture/04-queries-keys-and-values/README.md` says a token's score
+  against itself is "mathematically guaranteed" to be the largest in its row (it cites Cauchy-Schwarz). That does not follow: a longer vector can score higher against `x`
+  than `x` does against itself (`x = (1, 0)`, `y = (5, 0)`). It tends to hold when the vectors have similar norms, which is what the lesson's experiment uses. The quiz was
+  reworded to say "tends to dominate" and to make the real point (with Q = K the score matrix is symmetric, so the model cannot learn directional relations). The lesson
+  (around lines 37-43, 58 and 138-143) should say the same.
+
+**What is still for a person to check:** the product facts that no lesson covers (current Azure wording on service endpoints and `allow-forwarded-traffic`; whether
+`max_tool_calls` still limits only built-in tools in the OpenAI Responses API; the default-versus-user-defined bridge name resolution in Docker, which no lesson teaches), the
+rule-of-thumb capacity figures in the references (about 100k ops/s per Redis node, 100k connections per gateway, a 3 Mbps average stream, 20 CPU-minutes per transcode),
+the EXPLAIN exercise's sequential-scan costs (synthetic), the elevator's "out of service between stops" rule (a design choice, not a standard), and the e-commerce
+reference's choice to create the order PENDING before reserving stock (the saga text matches; some will prefer to reserve first).
+
+---
+
+
 The 2.0 quizzes, exercises, interview sets and design challenges were drafted from the lessons by writers who could not run anything and who said, for
 each, what they were least sure of. A person who knows the subject should read these before the content is relied on. The files are in
 `content/practice/` and `content/design-lab/`; an admin can fix one in the browser (Admin, Practice, "Edit the content") or in git.

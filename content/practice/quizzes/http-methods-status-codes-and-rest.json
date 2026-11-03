@@ -112,7 +112,7 @@
       "answer": [
         "b"
       ],
-      "explanation": "The server knows who the caller is but they are not allowed to do this, which is 403. 401 despite its name means unauthenticated, no valid credentials at all."
+      "explanation": "The server knows who the caller is but they are not allowed to do this, which is 403. 401 despite its name means unauthenticated, no valid credentials at all. (Some APIs answer 404 instead, to avoid revealing that the resource exists, but 403 is the standard answer for 'known caller, not allowed'.)"
     },
     {
       "id": "q5",
@@ -180,13 +180,13 @@
         },
         {
           "id": "d",
-          "text": "DELETE /orders to remove everything and recreate the rest"
+          "text": "PUT /orders/42 with only {\"status\": \"cancelled\"} as the body"
         }
       ],
       "answer": [
         "a"
       ],
-      "explanation": "REST models state changes as changes to a resource rather than verbs in the URL. A GET that cancels violates safety, since crawlers and prefetchers issue GETs, and /cancelOrder is the RPC style REST avoids."
+      "explanation": "REST models state changes as changes to a resource rather than verbs in the URL, and PATCH edits just the status. A GET that cancels violates safety, since crawlers and prefetchers issue GETs, and /cancelOrder is the RPC style REST avoids. PUT would replace the whole order, erasing every field you left out."
     },
     {
       "id": "q8",

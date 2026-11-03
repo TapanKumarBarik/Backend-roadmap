@@ -17,7 +17,7 @@ in CI (`.github/actions/verify`), in this order, and nothing is deployed unless 
 
 ## Numbers
 
-- **Unit and API tests: 501.** The API tests are the security boundary: `access.test.js` lists the public routes and fails when any other route answers a
+- **Unit and API tests: 575.** The API tests are the security boundary: `access.test.js` lists the public routes and fails when any other route answers a
   visitor, or when an admin route answers a non-admin; `practice.test.js` (quizzes never give answers away before a try, submissions are private until
   shared, feedback rules, weak areas), `blogs.test.js` (who may write what, kinds, versions, rejection reasons), `ownposts.test.js` (own edit and delete),
   `content.test.js` (the admin editor refuses what is not a lesson or a valid practice file), `siteContent.test.js` (the three site files: the allow-list, the checks against the module list, committing, a 409 conflict), `popular.test.js`, `migrations.test.js` (each migration twice).
@@ -25,7 +25,13 @@ in CI (`.github/actions/verify`), in this order, and nothing is deployed unless 
   refuses a visitor and treats another person's page as not found; folders, plans and diagrams are rebuilt from an allow-list and size-limited; the
   plan's tick on a lesson is the lesson's own progress (one truth, tested as a pure function and in the browser); revision lists order by what is most overdue;
   copying a page into an article draft makes a draft and publishes nothing; account deletion removes all of it. The counts here were taken before these were added.
-- **Browser tests: 149**, in `tests/e2e/`: `site` (modules, landing page, videos, search), `account` (sign in, progress, bookmarks, notes, admin), `design`
+  Dragging a page in the tree and the visual diagram editor add: the drop rules as pure functions (`tree.test.js`: inside, between, the top level, never into itself
+  or its descendants, no room between two neighbours), the drawing's model to Mermaid text with every escape and a hostile label (`diagramMermaid.test.js`), the
+  model's operations (`diagramModel.test.js`), geometry and arrows (`diagramGeometry.test.js`), "Tidy" including loops (`diagramLayout.test.js`), undo and redo
+  (`diagramHistory.test.js`), zoom, fit and file names (`diagramView.test.js`), the allow-list and limits of a drawing (`kinds.test.js`), and the API round trip of a
+  drop and of a drawing (`workspace.test.js`). The browser tests drag with a real mouse (and a synthetic touch for the handle), draw, connect, move, undo, tidy,
+  download and convert a diagram; they need a build and a browser, so they run in CI and on the owner's machine, not in the unit run.
+- **Browser tests: 166**, in `tests/e2e/`: `site` (modules, landing page, videos, search), `account` (sign in, progress, bookmarks, notes, admin), `design`
   (the style guide, the rail), `community`, `comments`, `blog`, `studio` (the editor, publishing, history, the assistant), `site-admin` (the admin's paths, videos and search-title editors), `practice` (quizzes, the design
   workspace, My Learning, paths, notices, admin review, the content editor, the real pages crawlers get, reading options, the module tree from the keyboard)
   and `audit` (every screen: every control has a name, no id is shared, nothing overflows at any width from 360 to 1920 px).

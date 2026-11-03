@@ -33,7 +33,9 @@ async function call(cookie, method, path, body) {
 const rows = (sql, ...params) => env.DB.raw.prepare(sql).all(...params).map((row) => ({ ...row }));
 
 const QUIZ = 'idempotency-and-retries'; // q1 single (b), q2 true/false (true), q3 multiple (a, c, d), q4 single (b), q5 true/false (false)
-const RIGHT = { q1: ['b'], q2: ['true'], q3: ['a', 'c', 'd'], q4: ['b'], q5: ['false'] };
+// The right answers to every question of the quiz, read from the content, so a question added to the quiz does not break the tests.
+const RIGHT = Object.fromEntries(practiceContent.quizzes[QUIZ].questions.map((q) => [q.id, q.answer]));
+const N = Object.keys(RIGHT).length; // how many questions it has; q1 to q5 are the ones these tests get wrong on purpose
 
 test('the catalog lists everything, and nothing in it or in a quiz gives an answer away', async () => {
   const { json, raw } = await call(null, 'GET', '/practice/catalog');
@@ -43,7 +45,7 @@ test('the catalog lists everything, and nothing in it or in a quiz gives an answ
   assert.doesNotMatch(raw, /"answer"|"explanation"|"reference"/);
 
   const quiz = await call(null, 'GET', `/practice/quizzes/${QUIZ}`);
-  assert.equal(quiz.json.questions.length, 5);
+  assert.equal(quiz.json.questions.length, N);
   assert.doesNotMatch(quiz.raw, /"answer"|"explanation"/, 'the answers are not sent with the questions');
   assert.equal(quiz.json.questions.find((q) => q.id === 'q3').choose, 'any');
   assert.equal((await call(null, 'GET', '/practice/quizzes/nope')).status, 404);
@@ -52,13 +54,13 @@ test('the catalog lists everything, and nothing in it or in a quiz gives an answ
 test('a try is scored on the server for single, multiple and true/false questions, and the answers come back with it', async () => {
   const all = await call(null, 'POST', `/practice/quizzes/${QUIZ}/attempts`, { answers: RIGHT });
   assert.equal(all.status, 200);
-  assert.equal(all.json.score, 5);
-  assert.equal(all.json.max, 5);
+  assert.equal(all.json.score, N);
+  assert.equal(all.json.max, N);
   assert.ok(all.json.results.every((r) => r.correct && r.explanation));
   assert.equal(all.json.saved, false, 'a visitor can take a quiz; nothing is kept');
 
   const some = await call(null, 'POST', `/practice/quizzes/${QUIZ}/attempts`, { answers: { ...RIGHT, q3: ['a', 'c'], q1: ['a'], q5: [] } });
-  assert.equal(some.json.score, 2);
+  assert.equal(some.json.score, N - 3);
   assert.deepEqual(some.json.results.filter((r) => !r.correct).map((r) => r.id), ['q1', 'q3', 'q5'], 'a multiple-choice question needs exactly the right set');
   assert.equal((await call(null, 'POST', `/practice/quizzes/${QUIZ}/attempts`, { answers: { q1: ['not-an-option', 7], q2: 'true' } })).json.score, 0, 'nonsense is wrong, not an error');
   assert.equal((await call(null, 'POST', `/practice/quizzes/${QUIZ}/attempts`, {})).status, 400);
@@ -69,10 +71,10 @@ test("a signed-in reader's attempts are kept, are theirs alone, and go with the 
   assert.equal((await call(ada, 'POST', `/practice/quizzes/${QUIZ}/attempts`, { answers: RIGHT })).json.saved, true);
   await call(ada, 'POST', `/practice/quizzes/${QUIZ}/attempts`, { answers: { ...RIGHT, q1: ['a'] } });
   const history = (await call(ada, 'GET', '/practice/attempts')).json;
-  assert.deepEqual(history.map((a) => [a.quiz, a.score, a.max]).sort(), [[QUIZ, 4, 5], [QUIZ, 5, 5]]);
+  assert.deepEqual(history.map((a) => [a.quiz, a.score, a.max]).sort(), [[QUIZ, N - 1, N], [QUIZ, N, N]]);
   assert.equal(history[0].title, 'Idempotency and retries');
   assert.deepEqual((await call(grace, 'GET', '/practice/attempts')).json, []);
-  assert.equal(rows('SELECT COUNT(*) AS n FROM quiz_answers')[0].n, 10);
+  assert.equal(rows('SELECT COUNT(*) AS n FROM quiz_answers')[0].n, 2 * N, 'an answer row for each question of each try');
 
   assert.equal((await call(ada, 'DELETE', '/account')).status, 204);
   assert.equal(rows('SELECT COUNT(*) AS n FROM quiz_attempts')[0].n, 0);
@@ -197,7 +199,7 @@ test('the admin sees real counts of what people did with the practice content', 
   await call(ada, 'PUT', '/practice/submissions/lld/atm', WORK);
   const stats = (await call(owner, 'GET', '/manage/practice/stats')).json;
   const quiz = stats.quizzes.find((q) => q.slug === QUIZ);
-  assert.deepEqual([quiz.tries, quiz.people, quiz.average], [2, 2, 80]);
+  assert.deepEqual([quiz.tries, quiz.people, quiz.average], [2, 2, Math.round((100 + ((N - 2) / N) * 100) / 2)]);
   assert.equal(stats.quizzes.find((q) => q.slug === 'http-caching').average, null, 'no tries, no average');
   assert.deepEqual(stats.submissions, { draft: 1 });
   assert.equal(stats.content.challenges, Object.keys(practiceContent.challenges).length);
@@ -218,7 +220,7 @@ test("a discussion under a challenge is not among the curriculum's questions, an
 test('a retry of the missed questions is scored for those only, and is not kept as a try', async () => {
   const wrong = { ...RIGHT, q1: ['a'], q3: ['a'] };
   const first = await call(ada, 'POST', `/practice/quizzes/${QUIZ}/attempts`, { answers: wrong });
-  assert.equal(first.json.score, 3);
+  assert.equal(first.json.score, N - 2);
   const missed = first.json.results.filter((r) => !r.correct).map((r) => r.id);
   assert.deepEqual(missed, ['q1', 'q3']);
 
@@ -237,13 +239,13 @@ test('weak areas come from the latest try of each quiz: topics by how many were 
   await call(ada, 'POST', `/practice/quizzes/${QUIZ}/attempts`, { answers: { ...RIGHT, q1: ['a'], q3: ['a'] } });
   const now = (await call(ada, 'GET', '/practice/weak-areas')).json;
   const topic = practiceContent.quizzes[QUIZ].topic;
-  assert.deepEqual(now.topics, [{ topic, correct: 3, total: 5, percent: 60 }]);
+  assert.deepEqual(now.topics, [{ topic, correct: N - 2, total: N, percent: Math.round(((N - 2) / N) * 100) }]);
   assert.deepEqual(now.missed.map((m) => m.question), ['q1', 'q3']);
   assert.ok(now.missed.every((m) => m.text && !('answer' in m) && !('explanation' in m)), 'a missed question is its text, never its answer');
 
   env.DB.raw.prepare("UPDATE quiz_attempts SET created_at = '2020-01-01T00:00:00.000Z'").run(); // the first try is now an old one
   await call(ada, 'POST', `/practice/quizzes/${QUIZ}/attempts`, { answers: RIGHT });
-  assert.deepEqual((await call(ada, 'GET', '/practice/weak-areas')).json, { topics: [{ topic, correct: 5, total: 5, percent: 100 }], missed: [] }, 'a quiz retaken until it is right stops counting against them');
+  assert.deepEqual((await call(ada, 'GET', '/practice/weak-areas')).json, { topics: [{ topic, correct: N, total: N, percent: 100 }], missed: [] }, 'a quiz retaken until it is right stops counting against them');
   assert.deepEqual((await call(grace, 'GET', '/practice/weak-areas')).json, { topics: [], missed: [] }, 'and it is theirs alone');
 });
 

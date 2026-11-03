@@ -191,7 +191,7 @@
     {
       "id": "q8",
       "type": "truefalse",
-      "text": "Setting a max_tool_calls option on the provider's API is enough to bound a loop that calls your own functions, so you do not need your own step limit.",
+      "text": "Setting the max_tool_calls option on an OpenAI Responses API request is enough to bound a loop that calls your own functions, so you do not need your own step limit.",
       "options": [
         {
           "id": "true",
@@ -205,7 +205,7 @@
       "answer": [
         "false"
       ],
-      "explanation": "The provider's max_tool_calls limits calls to built-in tools. Your own functions need your own cap on model calls, and in production also a time budget, a token budget and a check for repeated calls."
+      "explanation": "The API reference describes max_tool_calls as a limit on built-in tool calls (check the current reference, since options change). Whatever a provider offers, your own functions need your own cap on model calls, and in production also a time budget, a token budget and a check for repeated calls."
     }
   ]
 }

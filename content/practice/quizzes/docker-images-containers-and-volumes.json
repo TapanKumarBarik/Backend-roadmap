@@ -73,13 +73,13 @@
       "type": "multiple",
       "text": "Which statements about container networking are correct? Select all that apply.",
       "options": [
-        { "id": "a", "text": "A container's ports are reachable from the host automatically, even without -p" },
+        { "id": "a", "text": "A server listening on port 8000 in a container answers at localhost:8000 on the host even when -p was not used" },
         { "id": "b", "text": "localhost inside a container refers to that container's own loopback, not the host" },
         { "id": "c", "text": "Two containers on a user-defined network should call each other on the host-published port, for example web:8080 after -p 8080:8000" },
         { "id": "d", "text": "On a shared user-defined network, another container can reach the app as http://web:8000 using its name and container port" }
       ],
       "answer": ["b", "d"],
-      "explanation": "Each container has its own network namespace, so localhost means itself, and peers on a user-defined network use the container name with the container port. The published host port only matters for traffic coming from the host, and without -p the host cannot reach the container's port at all."
+      "explanation": "Each container has its own network namespace, so localhost means itself, and peers on a user-defined network use the container name with the container port. The published host port only matters for traffic coming in from outside the container network, and without -p nothing is listening on the host's localhost:8000, so option a is wrong."
     },
     {
       "id": "q7",

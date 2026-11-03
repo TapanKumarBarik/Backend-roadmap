@@ -62,7 +62,7 @@
     {
       "id": "q3",
       "type": "truefalse",
-      "text": "If you own a file whose owner triple lacks read permission, you can still read it when its group triple allows read and you belong to that group.",
+      "text": "You are an ordinary (non-root) user and you own a file whose owner triple lacks read permission. You can still read it, without changing its mode, when its group triple allows read and you belong to that group.",
       "options": [
         {
           "id": "true",
@@ -212,7 +212,7 @@
         "a",
         "c"
       ],
-      "explanation": "2> redirects stderr and &> sends both stdout and stderr to the file. A plain > only redirects stdout, so errors still land on the screen, and piping into a file name tries to run it as a command."
+      "explanation": "2> redirects stderr and &> (a Bash and zsh shorthand) sends both stdout and stderr to the file; in a plain POSIX sh you would write > errors.txt 2>&1. A plain > only redirects stdout, so errors still land on the screen, and piping into a file name tries to run it as a command."
     }
   ]
 }

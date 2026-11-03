@@ -14,7 +14,7 @@
     },
     {
       "q": "What are the standard isolation levels and what is a sensible default?",
-      "a": "Read uncommitted, read committed, repeatable read and serializable, each preventing more anomalies at higher cost. Read committed is the default in PostgreSQL and a sensible starting point. PostgreSQL's repeatable read is snapshot isolation, and its serializable level detects dangerous patterns and may abort a transaction, so the application must be ready to retry."
+      "a": "Read uncommitted, read committed, repeatable read and serializable, each preventing more anomalies at higher cost (PostgreSQL accepts read uncommitted but treats it as read committed). Read committed is the default in PostgreSQL and a sensible starting point. PostgreSQL's repeatable read is snapshot isolation, and its serializable level detects dangerous patterns and may abort a transaction, so the application must be ready to retry."
     },
     {
       "q": "How do you prevent a lost update?",

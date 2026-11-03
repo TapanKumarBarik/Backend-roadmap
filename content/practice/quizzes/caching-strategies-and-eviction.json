@@ -103,7 +103,7 @@
       "answer": [
         "false"
       ],
-      "explanation": "Write-through waits for both the database and the cache before acknowledging, so each write is slower. Its benefit is that a read right after a write finds fresh data in the cache. That faster-write claim describes write-behind."
+      "explanation": "Write-through acknowledges only after the database write and the cache write both finish, so the cache does not absorb anything: the write is no faster than cache-aside and pays for the extra cache write. Its benefit is that a read right after a write finds fresh data in the cache. The faster-write claim describes write-behind."
     },
     {
       "id": "q5",
@@ -124,13 +124,13 @@
         },
         {
           "id": "d",
-          "text": "noeviction, because it never removes anything"
+          "text": "Random eviction, because it ignores how recently or how often a key was used"
         }
       ],
       "answer": [
         "c"
       ],
-      "explanation": "A long scan makes A the least recently used, so LRU evicts it (cache pollution). LFU keeps it because of its count. FIFO would evict the oldest entry, which is A, and noeviction rejects new writes instead."
+      "explanation": "A long scan makes A the least recently used, so LRU evicts it (cache pollution). LFU keeps it because of its count. FIFO evicts whatever has been resident longest, so it would push A out as soon as the scan fills the cache, and random eviction can drop A at any time because it ignores usage."
     },
     {
       "id": "q6",
@@ -212,7 +212,7 @@
       "answer": [
         "c"
       ],
-      "explanation": "Generational (version-based) invalidation makes the old keys unreachable at once with a single increment, and TTL or eviction cleans them up later. Scanning all keys is slow and blocks a busy Redis, and extra memory does not make stale data correct."
+      "explanation": "Generational (version-based) invalidation makes the old keys unreachable at once with a single increment, and TTL or eviction cleans them up later. KEYS * walks every key in one blocking command (SCAN avoids the blocking but is still a full walk), and extra memory does not make stale data correct."
     }
   ]
 }

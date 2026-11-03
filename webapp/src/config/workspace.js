@@ -89,6 +89,46 @@ export const TREE = {
   delete: 'Delete'
 };
 
+// Dragging a page in the tree (with the mouse, a finger or a pen) puts it in a folder or between two pages. Everything it does is also
+// possible from the keyboard with "Move to…" and the up, down, indent and outdent items of a row's menu.
+export const TREE_DRAG = {
+  /** The pointer has to travel this far before a press becomes a drag, so a click is still a click. */
+  startDistancePx: 5,
+  /** A folder the pointer rests on for this long opens, to drop into what is inside it. */
+  expandAfterMs: 600,
+  /** The top and bottom of a row that mean "before" and "after"; the middle means "inside". */
+  edgeFraction: 0.25,
+  /** Near the top or bottom of the window a drag scrolls the page, faster the closer it gets. */
+  scrollEdgePx: 56,
+  scrollSpeedPx: 16,
+  gripLabel: 'Drag to move',
+  hint: 'Drag a page by its handle onto a folder to put it inside, or between two pages to reorder them. Or use “Move to…” in its menu.',
+  rootDrop: 'Drop here for the top level',
+  // Said aloud (a polite live region) as it happens.
+  picked: (name) => `Dragging “${name}”. Release over a folder to put it inside, or between two pages to place it there. Escape cancels.`,
+  cancelled: (name) => `Move cancelled. “${name}” stays where it was.`,
+  inside: (name, target) => `Moved “${name}” into “${target}”`,
+  topLevel: (name) => `Moved “${name}” to the top level`,
+  before: (name, other) => `Moved “${name}” before “${other}”`,
+  after: (name, other) => `Moved “${name}” after “${other}”`,
+  failed: (name) => `Could not move “${name}”`,
+  refused: {
+    itself: 'A page cannot go inside itself.',
+    ownDescendant: 'A folder cannot go inside itself or anything inside it.',
+    notContainer: 'Only a page or a folder can have pages inside it.',
+    unknown: 'That is not a place a page can go.'
+  },
+  // Beside the pointer while dragging, so what a release would do is in words and not only in a line.
+  over: {
+    inside: (target) => `Into “${target}”`,
+    before: (target) => `Before “${target}”`,
+    after: (target) => `After “${target}”`,
+    topLevel: 'To the top level',
+    samePlace: 'Stays where it is',
+    nowhere: 'Drop on a folder, or between pages'
+  }
+};
+
 // "Add…": the kinds of page besides a plain one (which has its own button), and a plain page again at the end.
 export const NEW_MENU = {
   button: 'Add…',
@@ -218,7 +258,22 @@ export const DIAGRAM = {
   previewLabel: (title) => `Diagram: ${title || 'Untitled'}`,
   copy: 'Copy source',
   copied: 'Source copied',
-  copyFailed: 'Could not copy. Select the text and copy it by hand.'
+  copyFailed: 'Could not copy. Select the text and copy it by hand.',
+  // Text or drawn.
+  modeLabel: 'How this diagram is made',
+  mode: { text: 'Text', visual: 'Visual' },
+  loadingEditor: 'Loading the canvas…',
+  leadVisual: 'Draw boxes and arrows. The Mermaid text underneath is written from the drawing as you go, ready to paste into an article or a post.',
+  derivedLabel: 'Mermaid source, written from the drawing',
+  derivedHint: 'Read only. Convert to text to edit it by hand.',
+  convert: 'Convert to text',
+  convertTitle: 'Convert this drawing to text?',
+  convertBody: 'The drawing is turned into Mermaid text that you edit by hand from then on. It cannot be edited visually again.',
+  convertConfirm: 'Convert to text',
+  converted: 'Converted to text',
+  startTitle: 'Draw this diagram instead?',
+  startBody: 'The drawing starts empty, and the text written here is replaced by the text written from the drawing. Copy it first if you want to keep it.',
+  startConfirm: 'Start drawing'
 };
 
 // -------------------------------------------------------------------------------------------------------------- from a page to an article

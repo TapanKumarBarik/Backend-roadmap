@@ -55,7 +55,7 @@
         { "id": "d", "text": "About 10 GB/s (about 80 Gbps)" }
       ],
       "answer": ["c"],
-      "explanation": "Bandwidth is request rate times payload: 20,000 x 50 KB = 1,000,000 KB/s, which is 1 GB/s, or about 8 Gbps. That already takes up most of a single server's NIC, which is the signal to spread the load or use a CDN."
+      "explanation": "Bandwidth is request rate times payload: 20,000 x 50 KB = 1,000,000 KB/s, which is 1 GB/s, or about 8 Gbps. That is more than a 1 Gbps network card can carry and most of a 10 Gbps one, which is the signal to spread the load or use a CDN."
     },
     {
       "id": "q5",
@@ -92,7 +92,7 @@
         { "id": "false", "text": "False" }
       ],
       "answer": ["false"],
-      "explanation": "3,600 is the number of seconds in an hour. Dividing by about 10^5 gives roughly 20,000 messages per second on average, about 24 times lower than the wrong answer, and you still apply a peak factor on top."
+      "explanation": "3,600 is the number of seconds in an hour. Dividing by about 10^5 gives roughly 20,000 messages per second on average, more than 20 times lower than the roughly 555,000 per second that dividing by 3,600 gives, and you still apply a peak factor on top."
     },
     {
       "id": "q8",

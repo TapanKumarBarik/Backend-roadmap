@@ -125,6 +125,33 @@
         "false"
       ],
       "explanation": "A key names one operation. The server should reject a reused key whose request differs, rather than return the first answer to an unrelated request."
+    },
+    {
+      "id": "q6",
+      "type": "single",
+      "text": "A message consumer receives the same \"order 7 was paid\" event twice because the queue delivers at least once. Which handler is naturally safe to run twice, with no extra bookkeeping?",
+      "options": [
+        {
+          "id": "a",
+          "text": "UPDATE orders SET status = 'paid' WHERE id = 7"
+        },
+        {
+          "id": "b",
+          "text": "UPDATE accounts SET balance = balance + 50 WHERE id = 3"
+        },
+        {
+          "id": "c",
+          "text": "INSERT INTO ledger (account, delta) VALUES (3, 50) with an auto-increment id"
+        },
+        {
+          "id": "d",
+          "text": "Send the customer a receipt email"
+        }
+      ],
+      "answer": [
+        "a"
+      ],
+      "explanation": "Setting a value to its final state gives the same result however many times it runs. A relative change (balance + 50), an insert with a fresh id and an email each repeat their effect, so they need a stable event id and a record of what was processed."
     }
   ]
 }

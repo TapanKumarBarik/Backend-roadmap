@@ -76,7 +76,7 @@
       "answer": [
         "b"
       ],
-      "explanation": "public allows shared caches to store it, and max-age gives its lifetime in seconds. private would keep it to the user's own browser."
+      "explanation": "max-age gives the lifetime in seconds, and public explicitly allows shared caches such as a CDN to store the response. private would keep it to the user's own browser, and no-store and Pragma: no-cache ask caches not to reuse it."
     },
     {
       "id": "q4",
@@ -93,7 +93,7 @@
         },
         {
           "id": "c",
-          "text": "A response with a Set-Cookie for a session"
+          "text": "A response that sets a session cookie with Set-Cookie"
         },
         {
           "id": "d",
@@ -132,6 +132,45 @@
         "b"
       ],
       "explanation": "A new version gets a new name, so the old name can be cached for a year. That is the standard way to combine long caching with instant deploys."
+    },
+    {
+      "id": "q6",
+      "type": "single",
+      "text": "A response says Cache-Control: max-age=60. A cache holds a copy that is 20 seconds old and a client asks for it again. What should the cache do?",
+      "options": [
+        { "id": "a", "text": "Serve its stored copy without contacting the server, because the copy is still fresh" },
+        { "id": "b", "text": "Send If-None-Match to the server first, because every reuse must be validated" },
+        { "id": "c", "text": "Fetch the full response again, because max-age only applies to the first request" },
+        { "id": "d", "text": "Refuse to serve it, because 20 seconds is more than zero" }
+      ],
+      "answer": ["a"],
+      "explanation": "For 60 seconds after it was fetched the copy is fresh, so it is reused with no request to the server at all. After that it is stale and has to be revalidated or refetched. Validating on every reuse is what no-cache asks for, not max-age."
+    },
+    {
+      "id": "q7",
+      "type": "single",
+      "text": "Your endpoint returns gzip-compressed or plain bodies depending on the request's Accept-Encoding header, and a CDN sits in front of it. Which response header stops the CDN from serving a gzip body to a client that cannot decode it?",
+      "options": [
+        { "id": "a", "text": "Vary: Accept-Encoding" },
+        { "id": "b", "text": "Cache-Control: immutable" },
+        { "id": "c", "text": "If-None-Match" },
+        { "id": "d", "text": "Last-Modified" }
+      ],
+      "answer": ["a"],
+      "explanation": "Vary lists the request headers that change the response, so a shared cache stores one copy per distinct value and picks the right one. Without it the cache keys only on the URL and can hand the wrong representation to someone. If-None-Match is a request header, and Last-Modified and immutable say nothing about which representation was sent."
+    },
+    {
+      "id": "q8",
+      "type": "single",
+      "text": "GET /profile returns the logged-in user's email address and is sent with Cache-Control: public, max-age=3600. What is the problem, and the fix?",
+      "options": [
+        { "id": "a", "text": "A CDN or proxy may store the response and serve it to the next person who asks for /profile; mark it private (and no-store if it should not be kept at all)" },
+        { "id": "b", "text": "The browser will never cache it, so add an ETag" },
+        { "id": "c", "text": "Nothing, because a shared cache always checks the login before serving a stored copy" },
+        { "id": "d", "text": "The max-age is too short, so raise it to a year" }
+      ],
+      "answer": ["a"],
+      "explanation": "public lets shared caches keep the response for an hour, and they key it by URL, not by user, so one user's data can be handed to another. Per-user responses should be private, and often no-store as well. A shared cache does not know about your login system."
     }
   ]
 }

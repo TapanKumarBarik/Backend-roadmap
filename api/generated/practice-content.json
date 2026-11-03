@@ -168,12 +168,12 @@
       "a",
       "b"
      ],
-     "explanation": "The hub must be allowed to forward traffic that did not originate in it, and the spokes need routes that point at the firewall. Gateway transit is for sharing a VPN or ExpressRoute gateway, and nothing in this design needs public IPs."
+     "explanation": "The peerings must accept traffic that was forwarded by the firewall and did not originate in the VNet it arrives from, and the spokes need routes that point at the firewall. Gateway transit is for sharing a VPN or ExpressRoute gateway, and nothing in this design needs public IPs."
     },
     {
      "id": "q7",
      "type": "truefalse",
-     "text": "Traffic between two peered VNets travels over the public internet, so it should be encrypted separately.",
+     "text": "Traffic between two peered VNets travels over the public internet.",
      "options": [
       {
        "id": "true",
@@ -187,7 +187,7 @@
      "answer": [
       "false"
      ],
-     "explanation": "Peered VNets talk over Azure's private backbone using private IPs, with no gateway or public internet in between for same-region peering. That is the main reason to prefer peering over a VPN between VNets."
+     "explanation": "Peered VNets talk over Azure's private backbone using private IPs, and it never crosses the public internet. Same-region peering needs no gateway at all, which is a main reason to prefer peering over a VPN between VNets."
     },
     {
      "id": "q8",
@@ -323,7 +323,7 @@
      "answer": [
       "false"
      ],
-     "explanation": "Write-through waits for both the database and the cache before acknowledging, so each write is slower. Its benefit is that a read right after a write finds fresh data in the cache. That faster-write claim describes write-behind."
+     "explanation": "Write-through acknowledges only after the database write and the cache write both finish, so the cache does not absorb anything: the write is no faster than cache-aside and pays for the extra cache write. Its benefit is that a read right after a write finds fresh data in the cache. The faster-write claim describes write-behind."
     },
     {
      "id": "q5",
@@ -344,13 +344,13 @@
       },
       {
        "id": "d",
-       "text": "noeviction, because it never removes anything"
+       "text": "Random eviction, because it ignores how recently or how often a key was used"
       }
      ],
      "answer": [
       "c"
      ],
-     "explanation": "A long scan makes A the least recently used, so LRU evicts it (cache pollution). LFU keeps it because of its count. FIFO would evict the oldest entry, which is A, and noeviction rejects new writes instead."
+     "explanation": "A long scan makes A the least recently used, so LRU evicts it (cache pollution). LFU keeps it because of its count. FIFO evicts whatever has been resident longest, so it would push A out as soon as the scan fills the cache, and random eviction can drop A at any time because it ignores usage."
     },
     {
      "id": "q6",
@@ -432,7 +432,7 @@
      "answer": [
       "c"
      ],
-     "explanation": "Generational (version-based) invalidation makes the old keys unreachable at once with a single increment, and TTL or eviction cleans them up later. Scanning all keys is slow and blocks a busy Redis, and extra memory does not make stale data correct."
+     "explanation": "Generational (version-based) invalidation makes the old keys unreachable at once with a single increment, and TTL or eviction cleans them up later. KEYS * walks every key in one blocking command (SCAN avoids the blocking but is still a full walk), and extra memory does not make stale data correct."
     }
    ]
   },
@@ -628,7 +628,7 @@
     {
      "id": "q8",
      "type": "single",
-     "text": "A Dynamo-style store keeps N=3 replicas of each key. Which write and read quorum sizes guarantee that every read overlaps the latest successful write?",
+     "text": "A Dynamo-style store keeps N=3 replicas of each key and uses strict quorums. Which write and read quorum sizes guarantee that every read set overlaps the replicas that acknowledged the latest successful write?",
      "options": [
       {
        "id": "a",
@@ -650,7 +650,7 @@
      "answer": [
       "c"
      ],
-     "explanation": "Overlap needs W + R > N, and 2 + 2 = 4 > 3. With W=2, R=1 or W=1, R=2 the sum is only 3, so a read can land entirely on replicas that missed the write. Lower quorums are faster and more available, but only eventually consistent."
+     "explanation": "Overlap needs W + R > N, and 2 + 2 = 4 > 3. With W=2, R=1 or W=1, R=2 the sum is only 3, so a read can land entirely on replicas that missed the write. Overlap means at least one replica you read from has the write (the client still has to pick the newest version). Lower quorums are faster and more available, but only eventually consistent."
     }
    ]
   },
@@ -767,7 +767,7 @@
      "answer": [
       "c"
      ],
-     "explanation": "Bandwidth is request rate times payload: 20,000 x 50 KB = 1,000,000 KB/s, which is 1 GB/s, or about 8 Gbps. That already takes up most of a single server's NIC, which is the signal to spread the load or use a CDN."
+     "explanation": "Bandwidth is request rate times payload: 20,000 x 50 KB = 1,000,000 KB/s, which is 1 GB/s, or about 8 Gbps. That is more than a 1 Gbps network card can carry and most of a 10 Gbps one, which is the signal to spread the load or use a CDN."
     },
     {
      "id": "q5",
@@ -841,7 +841,7 @@
      "answer": [
       "false"
      ],
-     "explanation": "3,600 is the number of seconds in an hour. Dividing by about 10^5 gives roughly 20,000 messages per second on average, about 24 times lower than the wrong answer, and you still apply a peak factor on top."
+     "explanation": "3,600 is the number of seconds in an hour. Dividing by about 10^5 gives roughly 20,000 messages per second on average, more than 20 times lower than the roughly 555,000 per second that dividing by 3,600 gives, and you still apply a peak factor on top."
     },
     {
      "id": "q8",
@@ -909,7 +909,7 @@
     {
      "id": "q2",
      "type": "truefalse",
-     "text": "Every additional index makes writes to the table slower.",
+     "text": "Adding more B-tree indexes to a table generally makes its inserts, updates and deletes slower.",
      "options": [
       {
        "id": "true",
@@ -923,7 +923,7 @@
      "answer": [
       "true"
      ],
-     "explanation": "Each insert, update or delete must also maintain every index on the table, and each index takes space."
+     "explanation": "A write usually has to update each index that covers the changed row, so more indexes mean more work per write, and each index also takes space. The cost is real even though a few writes (for example a row that falls outside a partial index) skip some indexes."
     },
     {
      "id": "q3",
@@ -1005,7 +1005,61 @@
      "answer": [
       "b"
      ],
-     "explanation": "WHERE lower(email) = ... cannot use a plain index on email. Rewrite the predicate or create an index on the expression. Stale statistics are the other usual suspect."
+     "explanation": "WHERE lower(email) = ... cannot use a plain index on email. Rewrite the predicate or create an index on the expression. Two other usual suspects are a filter that matches a large share of the rows, where a sequential scan really is cheaper, and stale statistics."
+    },
+    {
+     "id": "q6",
+     "type": "single",
+     "text": "In PostgreSQL, orders.customer_id is declared as a FOREIGN KEY to customers(id), and you often fetch all orders for one customer. What do you need to do about indexing orders.customer_id?",
+     "options": [
+      {
+       "id": "a",
+       "text": "Nothing, because PostgreSQL creates an index for every foreign key automatically"
+      },
+      {
+       "id": "b",
+       "text": "Create the index yourself, because PostgreSQL indexes primary keys and unique constraints automatically but not the referencing side of a foreign key"
+      },
+      {
+       "id": "c",
+       "text": "Nothing, because the index on customers(id) already speeds up lookups on orders.customer_id"
+      },
+      {
+       "id": "d",
+       "text": "Nothing, because foreign keys are only indexed when ON DELETE CASCADE is set"
+      }
+     ],
+     "answer": [
+      "b"
+     ],
+     "explanation": "The primary key on customers(id) is indexed, but orders.customer_id is a separate column in a separate table, and PostgreSQL does not index it for you. Without your own index, finding one customer's orders (and checking the foreign key when a customer is deleted) scans the whole orders table."
+    },
+    {
+     "id": "q7",
+     "type": "single",
+     "text": "Which single index serves this query best? SELECT * FROM orders WHERE customer_id = 17 AND created_at >= '2026-01-01' ORDER BY created_at",
+     "options": [
+      {
+       "id": "a",
+       "text": "(created_at, customer_id)"
+      },
+      {
+       "id": "b",
+       "text": "(customer_id, created_at)"
+      },
+      {
+       "id": "c",
+       "text": "(created_at) alone"
+      },
+      {
+       "id": "d",
+       "text": "(customer_id) alone"
+      }
+     ],
+     "answer": [
+      "b"
+     ],
+     "explanation": "Put the equality column first and the range or sort column second. The index then jumps straight to customer 17 and reads that customer's rows already sorted by created_at from the start date. With (created_at, customer_id) the database has to walk every entry since the start date, for all customers, and check customer_id as it goes. An index on customer_id alone finds the right rows but leaves the date filter and the sort to extra work."
     }
    ]
   },
@@ -1150,7 +1204,7 @@
      "options": [
       {
        "id": "a",
-       "text": "A container's ports are reachable from the host automatically, even without -p"
+       "text": "A server listening on port 8000 in a container answers at localhost:8000 on the host even when -p was not used"
       },
       {
        "id": "b",
@@ -1169,7 +1223,7 @@
       "b",
       "d"
      ],
-     "explanation": "Each container has its own network namespace, so localhost means itself, and peers on a user-defined network use the container name with the container port. The published host port only matters for traffic coming from the host, and without -p the host cannot reach the container's port at all."
+     "explanation": "Each container has its own network namespace, so localhost means itself, and peers on a user-defined network use the container name with the container port. The published host port only matters for traffic coming in from outside the container network, and without -p nothing is listening on the host's localhost:8000, so option a is wrong."
     },
     {
      "id": "q7",
@@ -1297,7 +1351,7 @@
      "answer": [
       "false"
      ],
-     "explanation": "The orderings can agree on unit vectors, but the numbers differ. A cosine of 0.8 is an L2 distance of about 0.63, and the direction is reversed (higher cosine is better, lower distance is better). A threshold does not transfer between metrics."
+     "explanation": "The orderings can agree on unit vectors, but the numbers differ. For unit vectors a cosine of 0.8 is an L2 distance of about 0.63, and the direction is reversed (higher cosine is better, lower distance is better). A threshold does not transfer between metrics."
     },
     {
      "id": "q4",
@@ -1507,7 +1561,7 @@
      "answer": [
       "b"
      ],
-     "explanation": "public allows shared caches to store it, and max-age gives its lifetime in seconds. private would keep it to the user's own browser."
+     "explanation": "max-age gives the lifetime in seconds, and public explicitly allows shared caches such as a CDN to store the response. private would keep it to the user's own browser, and no-store and Pragma: no-cache ask caches not to reuse it."
     },
     {
      "id": "q4",
@@ -1524,7 +1578,7 @@
       },
       {
        "id": "c",
-       "text": "A response with a Set-Cookie for a session"
+       "text": "A response that sets a session cookie with Set-Cookie"
       },
       {
        "id": "d",
@@ -1563,6 +1617,87 @@
       "b"
      ],
      "explanation": "A new version gets a new name, so the old name can be cached for a year. That is the standard way to combine long caching with instant deploys."
+    },
+    {
+     "id": "q6",
+     "type": "single",
+     "text": "A response says Cache-Control: max-age=60. A cache holds a copy that is 20 seconds old and a client asks for it again. What should the cache do?",
+     "options": [
+      {
+       "id": "a",
+       "text": "Serve its stored copy without contacting the server, because the copy is still fresh"
+      },
+      {
+       "id": "b",
+       "text": "Send If-None-Match to the server first, because every reuse must be validated"
+      },
+      {
+       "id": "c",
+       "text": "Fetch the full response again, because max-age only applies to the first request"
+      },
+      {
+       "id": "d",
+       "text": "Refuse to serve it, because 20 seconds is more than zero"
+      }
+     ],
+     "answer": [
+      "a"
+     ],
+     "explanation": "For 60 seconds after it was fetched the copy is fresh, so it is reused with no request to the server at all. After that it is stale and has to be revalidated or refetched. Validating on every reuse is what no-cache asks for, not max-age."
+    },
+    {
+     "id": "q7",
+     "type": "single",
+     "text": "Your endpoint returns gzip-compressed or plain bodies depending on the request's Accept-Encoding header, and a CDN sits in front of it. Which response header stops the CDN from serving a gzip body to a client that cannot decode it?",
+     "options": [
+      {
+       "id": "a",
+       "text": "Vary: Accept-Encoding"
+      },
+      {
+       "id": "b",
+       "text": "Cache-Control: immutable"
+      },
+      {
+       "id": "c",
+       "text": "If-None-Match"
+      },
+      {
+       "id": "d",
+       "text": "Last-Modified"
+      }
+     ],
+     "answer": [
+      "a"
+     ],
+     "explanation": "Vary lists the request headers that change the response, so a shared cache stores one copy per distinct value and picks the right one. Without it the cache keys only on the URL and can hand the wrong representation to someone. If-None-Match is a request header, and Last-Modified and immutable say nothing about which representation was sent."
+    },
+    {
+     "id": "q8",
+     "type": "single",
+     "text": "GET /profile returns the logged-in user's email address and is sent with Cache-Control: public, max-age=3600. What is the problem, and the fix?",
+     "options": [
+      {
+       "id": "a",
+       "text": "A CDN or proxy may store the response and serve it to the next person who asks for /profile; mark it private (and no-store if it should not be kept at all)"
+      },
+      {
+       "id": "b",
+       "text": "The browser will never cache it, so add an ETag"
+      },
+      {
+       "id": "c",
+       "text": "Nothing, because a shared cache always checks the login before serving a stored copy"
+      },
+      {
+       "id": "d",
+       "text": "The max-age is too short, so raise it to a year"
+      }
+     ],
+     "answer": [
+      "a"
+     ],
+     "explanation": "public lets shared caches keep the response for an hour, and they key it by URL, not by user, so one user's data can be handed to another. Per-user responses should be private, and often no-store as well. A shared cache does not know about your login system."
     }
    ]
   },
@@ -1680,7 +1815,7 @@
      "answer": [
       "b"
      ],
-     "explanation": "The server knows who the caller is but they are not allowed to do this, which is 403. 401 despite its name means unauthenticated, no valid credentials at all."
+     "explanation": "The server knows who the caller is but they are not allowed to do this, which is 403. 401 despite its name means unauthenticated, no valid credentials at all. (Some APIs answer 404 instead, to avoid revealing that the resource exists, but 403 is the standard answer for 'known caller, not allowed'.)"
     },
     {
      "id": "q5",
@@ -1748,13 +1883,13 @@
       },
       {
        "id": "d",
-       "text": "DELETE /orders to remove everything and recreate the rest"
+       "text": "PUT /orders/42 with only {\"status\": \"cancelled\"} as the body"
       }
      ],
      "answer": [
       "a"
      ],
-     "explanation": "REST models state changes as changes to a resource rather than verbs in the URL. A GET that cancels violates safety, since crawlers and prefetchers issue GETs, and /cancelOrder is the RPC style REST avoids."
+     "explanation": "REST models state changes as changes to a resource rather than verbs in the URL, and PATCH edits just the status. A GET that cancels violates safety, since crawlers and prefetchers issue GETs, and /cancelOrder is the RPC style REST avoids. PUT would replace the whole order, erasing every field you left out."
     },
     {
      "id": "q8",
@@ -1912,6 +2047,33 @@
       "false"
      ],
      "explanation": "A key names one operation. The server should reject a reused key whose request differs, rather than return the first answer to an unrelated request."
+    },
+    {
+     "id": "q6",
+     "type": "single",
+     "text": "A message consumer receives the same \"order 7 was paid\" event twice because the queue delivers at least once. Which handler is naturally safe to run twice, with no extra bookkeeping?",
+     "options": [
+      {
+       "id": "a",
+       "text": "UPDATE orders SET status = 'paid' WHERE id = 7"
+      },
+      {
+       "id": "b",
+       "text": "UPDATE accounts SET balance = balance + 50 WHERE id = 3"
+      },
+      {
+       "id": "c",
+       "text": "INSERT INTO ledger (account, delta) VALUES (3, 50) with an auto-increment id"
+      },
+      {
+       "id": "d",
+       "text": "Send the customer a receipt email"
+      }
+     ],
+     "answer": [
+      "a"
+     ],
+     "explanation": "Setting a value to its final state gives the same result however many times it runs. A relative change (balance + 50), an insert with a fresh id and an email each repeat their effect, so they need a stable event id and a record of what was processed."
     }
    ]
   },
@@ -2006,7 +2168,7 @@
     {
      "id": "q4",
      "type": "single",
-     "text": "You change the image tag in a Deployment's Pod template. What happens?",
+     "text": "You change the image tag in a Deployment's Pod template, and the Deployment uses its default (RollingUpdate) strategy. What happens?",
      "options": [
       {
        "id": "a",
@@ -2028,7 +2190,7 @@
      "answer": [
       "b"
      ],
-     "explanation": "A changed Pod template creates a new ReplicaSet and a rolling update shifts Pods over within the maxUnavailable and maxSurge limits. Pods are never edited in place, and the gradual shift is why users do not see downtime."
+     "explanation": "A changed Pod template creates a new ReplicaSet and a rolling update shifts Pods over within the maxUnavailable and maxSurge limits. A Deployment replaces Pods rather than editing them in place, and the gradual shift is why users do not see downtime."
     },
     {
      "id": "q5",
@@ -2088,7 +2250,7 @@
     {
      "id": "q7",
      "type": "truefalse",
-     "text": "A Service of the default type, ClusterIP, can be reached from a browser outside the cluster.",
+     "text": "A Service of the default type, ClusterIP, can be reached directly from a browser outside the cluster.",
      "options": [
       {
        "id": "true",
@@ -2279,7 +2441,7 @@
     {
      "id": "q6",
      "type": "truefalse",
-     "text": "A model whose weights are 14 GB will comfortably serve many users on a 24 GB GPU, because the weights fit with room to spare.",
+     "text": "If a model's weights take 14 GB and the GPU has 24 GB, you can stop estimating memory: the weights are the only large consumer when serving.",
      "options": [
       {
        "id": "true",
@@ -2293,7 +2455,7 @@
      "answer": [
       "false"
      ],
-     "explanation": "Weights are the floor, not the total. You still need the KV cache for each user's context plus runtime overhead, and with about 10 GB left the number of concurrent long sequences may be small."
+     "explanation": "Weights are the floor, not the total. You still need the KV cache for each user's context plus runtime overhead, and with about 10 GB left the number of concurrent long sequences can be small (how small depends on the model's KV heads and the context length)."
     },
     {
      "id": "q7",
@@ -2407,7 +2569,7 @@
     {
      "id": "q3",
      "type": "truefalse",
-     "text": "If you own a file whose owner triple lacks read permission, you can still read it when its group triple allows read and you belong to that group.",
+     "text": "You are an ordinary (non-root) user and you own a file whose owner triple lacks read permission. You can still read it, without changing its mode, when its group triple allows read and you belong to that group.",
      "options": [
       {
        "id": "true",
@@ -2557,7 +2719,7 @@
       "a",
       "c"
      ],
-     "explanation": "2> redirects stderr and &> sends both stdout and stderr to the file. A plain > only redirects stdout, so errors still land on the screen, and piping into a file name tries to run it as a command."
+     "explanation": "2> redirects stderr and &> (a Bash and zsh shorthand) sends both stdout and stderr to the file; in a plain POSIX sh you would write > errors.txt 2>&1. A plain > only redirects stdout, so errors still land on the screen, and piping into a file name tries to run it as a command."
     }
    ]
   },
@@ -2693,7 +2855,7 @@
      "answer": [
       "d"
      ],
-     "explanation": "A 502 means the balancer was reached fine but did not get a valid response from a backend. Hitting a backend directly, and checking whether one unhealthy instance is still in rotation, narrows it down quickly."
+     "explanation": "A 502 means the balancer was reached fine but did not get a valid response from a backend, so the balancer-to-backend hop is the first place to look (a 502 can have other causes, such as a misconfigured upstream address). Hitting a backend directly, and checking whether one unhealthy instance is still in rotation, narrows it down quickly."
     },
     {
      "id": "q6",
@@ -2965,7 +3127,7 @@
     {
      "id": "q8",
      "type": "truefalse",
-     "text": "Setting a max_tool_calls option on the provider's API is enough to bound a loop that calls your own functions, so you do not need your own step limit.",
+     "text": "Setting the max_tool_calls option on an OpenAI Responses API request is enough to bound a loop that calls your own functions, so you do not need your own step limit.",
      "options": [
       {
        "id": "true",
@@ -2979,7 +3141,7 @@
      "answer": [
       "false"
      ],
-     "explanation": "The provider's max_tool_calls limits calls to built-in tools. Your own functions need your own cap on model calls, and in production also a time budget, a token budget and a check for repeated calls."
+     "explanation": "The API reference describes max_tool_calls as a limit on built-in tool calls (check the current reference, since options change). Whatever a provider offers, your own functions need your own cap on model calls, and in production also a time budget, a token budget and a check for repeated calls."
     }
    ]
   },
@@ -3061,7 +3223,7 @@
      "answer": [
       "false"
      ],
-     "explanation": "A model has no separate way to say \"I don't know\" and produces fluent text whether or not it is grounded. Production RAG pipelines still ask for sources, tell the model to say when the context does not cover the question, and check the output (for example that citations are real)."
+     "explanation": "A model produces fluent text whether or not it is grounded, and nothing guarantees it will say \"I don't know\" when the context is thin. Production RAG pipelines still ask for sources, tell the model to say when the context does not cover the question, and check the output (for example that citations are real)."
     },
     {
      "id": "q4",
@@ -3088,7 +3250,7 @@
      "answer": [
       "d"
      ],
-     "explanation": "The LLM call takes on the order of seconds and the most money, while embedding, search and rerank take milliseconds to a few hundred. Shaving vector-search time while sending thousands of unnecessary prompt tokens is optimising the wrong thing."
+     "explanation": "In a typical pipeline the LLM call takes on the order of seconds and costs the most, while embedding, search and rerank take milliseconds to a few hundred (illustrative figures; measure your own). Shaving vector-search time while sending thousands of unnecessary prompt tokens is optimising the wrong thing."
     },
     {
      "id": "q5",
@@ -3122,7 +3284,7 @@
     {
      "id": "q6",
      "type": "single",
-     "text": "A fixed-size chunker cuts the sentence holding the answer into two chunks, so no chunk contains the whole answer. What fixes this?",
+     "text": "A fixed-size chunker cuts the sentence holding the answer into two chunks, so no chunk contains the whole answer. What is the most direct fix?",
      "options": [
       {
        "id": "a",
@@ -3144,7 +3306,7 @@
      "answer": [
       "c"
      ],
-     "explanation": "The share of answers that sit whole inside some chunk is an upper bound on any retriever. A cut answer cannot be recovered by better ranking, a larger k or a better model, so the fix is at the chunking step."
+     "explanation": "The share of answers that sit whole inside some chunk is an upper bound on what a retriever returning single chunks can reach. Better ranking or a better model cannot rebuild a cut answer, and a larger k only helps by luck (both fragments must rank high) while costing tokens, so the dependable fix is at the chunking step."
     },
     {
      "id": "q7",
@@ -4377,7 +4539,7 @@
     {
      "id": "q8",
      "type": "truefalse",
-     "text": "Using curl -k (skip certificate verification) inside production code is acceptable because the traffic is still encrypted.",
+     "text": "Turning off certificate verification (curl -k, or verify=False in an HTTP library) in production code is acceptable because the traffic is still encrypted.",
      "options": [
       {
        "id": "true",
@@ -4446,7 +4608,7 @@
      "answer": [
       "false"
      ],
-     "explanation": "Tokenizers trained mostly on English text split non-Latin scripts into more, smaller tokens, often 2-3 times as many. That raises both cost and latency for the same content."
+     "explanation": "Tokenizers trained mostly on English text split non-Latin scripts into more, smaller tokens. The exact ratio depends on the language and the tokenizer (2-3 times is common, and it can be higher), but it is rarely close to 1. That raises both cost and latency for the same content."
     },
     {
      "id": "q3",
@@ -4459,7 +4621,7 @@
       },
       {
        "id": "b",
-       "text": "Using X as both query and key forces every token to score highest against itself, which is useless for relating tokens"
+       "text": "Using X as both query and key makes the score matrix symmetric and biases each token toward attending to itself, so the model cannot learn directional relations between tokens"
       },
       {
        "id": "c",
@@ -4473,7 +4635,7 @@
      "answer": [
       "b"
      ],
-     "explanation": "If Q = K = X, the dot product of a vector with itself is always at least as large as with any other vector, so each token is biased toward attending to itself. Separate Wq and Wk remove that guarantee and let the model learn which other tokens matter."
+     "explanation": "If Q = K = X, the scores are X times X-transpose: the score from token i to token j always equals the score from j to i, and a token's dot product with itself (its squared length) tends to dominate its row, so each token is biased toward attending to itself. Separate Wq and Wk give each token a 'what I look for' vector and a different 'what I offer' vector, which removes the symmetry and lets the model learn which other tokens matter."
     },
     {
      "id": "q4",
@@ -4595,14 +4757,14 @@
       },
       {
        "id": "d",
-       "text": "A causal mask hides padding tokens, so no padding mask is needed"
+       "text": "A causal mask also hides padding that comes before the real tokens, so no padding mask is needed"
       }
      ],
      "answer": [
       "a",
       "c"
      ],
-     "explanation": "Padding masks and causal masks are the same additive -inf tool aimed at different problems: one hides non-content, the other hides the future. They are commonly combined additively before a single softmax. A causal mask hides future positions, which is a different job from hiding padding."
+     "explanation": "Padding masks and causal masks are the same additive -inf tool aimed at different problems: one hides non-content, the other hides the future. They are commonly combined additively before a single softmax. A causal mask hides only future positions: padding placed before the real tokens (left padding) is in their past and stays visible, and an encoder with bidirectional attention has no causal mask at all, so a padding mask is still needed."
     }
    ]
   },
@@ -4794,7 +4956,7 @@
      "answer": [
       "c"
      ],
-     "explanation": "The version no longer matches because another transaction bumped it. The application must detect the zero-row result, re-read the fresh row and retry. This only pays off when conflicts are rare."
+     "explanation": "The version no longer matches because another transaction bumped it. The application must detect the zero-row result, re-read the fresh row and retry (the re-read also shows if the row was deleted instead). This only pays off when conflicts are rare."
     },
     {
      "id": "q8",
@@ -4849,7 +5011,7 @@
    "topic": "databases",
    "difficulty": "intermediate",
    "module": "backend/04-databases-and-data-layer/07-query-optimization-and-connection-pooling/README.md",
-   "brief": "The \"my shipped orders\" page of an online shop takes about three seconds and the database CPU spikes when many customers open it. The database is PostgreSQL.\n\n**Schema**\n\n```sql\nCREATE TABLE customers (\n  id         bigint PRIMARY KEY,\n  email      text NOT NULL,\n  created_at timestamptz NOT NULL\n);\nCREATE UNIQUE INDEX customers_email_key ON customers (email);\n\nCREATE TABLE orders (\n  id          bigint PRIMARY KEY,\n  customer_id bigint NOT NULL REFERENCES customers (id),\n  status      text   NOT NULL,           -- placed, paid, shipped, delivered, cancelled\n  total_cents integer NOT NULL,\n  created_at  timestamptz NOT NULL\n);\n-- orders has about 20 million rows; a typical customer has under 200 of them\n```\n\n**Query 1 (the page)**\n\n```sql\nSELECT * FROM orders\nWHERE customer_id = 4242 AND status = 'shipped'\nORDER BY created_at DESC\nLIMIT 20;\n```\n\n```\nEXPLAIN (ANALYZE)\n Limit  (cost=398000.30..398000.35 rows=20 width=48) (actual time=2810.40..2810.45 rows=20 loops=1)\n   ->  Sort  (cost=398000.30..398000.60 rows=118 width=48) (actual time=2810.39..2810.42 rows=20 loops=1)\n         Sort Key: created_at DESC\n         Sort Method: top-N heapsort  Memory: 28kB\n         ->  Seq Scan on orders  (cost=0.00..397600.00 rows=118 width=48) (actual time=1.20..2790.10 rows=96 loops=1)\n               Filter: ((customer_id = 4242) AND (status = 'shipped'::text))\n               Rows Removed by Filter: 19999904\n Planning Time: 0.15 ms\n Execution Time: 2810.60 ms\n```\n\n**Query 2 (support tool, finding a customer by email, case-insensitive)**\n\n```sql\nSELECT * FROM customers WHERE lower(email) = 'ana@example.com';\n```\n\n```\n Seq Scan on customers  (cost=0.00..52000.00 rows=5000 width=64) (actual time=0.05..410.30 rows=1 loops=1)\n   Filter: (lower(email) = 'ana@example.com'::text)\n   Rows Removed by Filter: 999999\n Execution Time: 410.40 ms\n```\n\nDiagnose both queries from the plans, propose the fixes, and say how you would prove each fix worked. Assume you are allowed to add indexes, but the table is large and busy.",
+   "brief": "The \"my shipped orders\" page of an online shop takes about three seconds and the database CPU spikes when many customers open it. The database is PostgreSQL.\n\n**Schema**\n\n```sql\nCREATE TABLE customers (\n  id         bigint PRIMARY KEY,\n  email      text NOT NULL,\n  created_at timestamptz NOT NULL\n);\nCREATE UNIQUE INDEX customers_email_key ON customers (email);\n\nCREATE TABLE orders (\n  id          bigint PRIMARY KEY,\n  customer_id bigint NOT NULL REFERENCES customers (id),\n  status      text   NOT NULL,           -- placed, paid, shipped, delivered, cancelled\n  total_cents integer NOT NULL,\n  created_at  timestamptz NOT NULL\n);\n-- orders has about 20 million rows; a typical customer has under 200 of them\n```\n\n**Query 1 (the page)**\n\n```sql\nSELECT * FROM orders\nWHERE customer_id = 4242 AND status = 'shipped'\nORDER BY created_at DESC\nLIMIT 20;\n```\n\n```\nEXPLAIN (ANALYZE)\n Limit  (cost=397604.25..397604.30 rows=20 width=48) (actual time=2810.40..2810.45 rows=20 loops=1)\n   ->  Sort  (cost=397604.25..397604.54 rows=118 width=48) (actual time=2810.39..2810.42 rows=20 loops=1)\n         Sort Key: created_at DESC\n         Sort Method: top-N heapsort  Memory: 28kB\n         ->  Seq Scan on orders  (cost=0.00..397600.00 rows=118 width=48) (actual time=1.20..2790.10 rows=96 loops=1)\n               Filter: ((customer_id = 4242) AND (status = 'shipped'::text))\n               Rows Removed by Filter: 19999904\n Planning Time: 0.15 ms\n Execution Time: 2810.60 ms\n```\n\n**Query 2 (support tool, finding a customer by email, case-insensitive)**\n\n```sql\nSELECT * FROM customers WHERE lower(email) = 'ana@example.com';\n```\n\n```\n Seq Scan on customers  (cost=0.00..27500.00 rows=5000 width=64) (actual time=0.05..410.30 rows=1 loops=1)\n   Filter: (lower(email) = 'ana@example.com'::text)\n   Rows Removed by Filter: 999999\n Execution Time: 410.40 ms\n```\n\nDiagnose both queries from the plans, propose the fixes, and say how you would prove each fix worked. Assume you are allowed to add indexes, but the table is large and busy.",
    "deliverables": [
     "For each query: what the plan shows, in your own words (node types, rows removed by filter, estimated versus actual rows)",
     "The index you would create for query 1, with the column order and the reason for that order (and why the sort node disappears)",
@@ -4923,7 +5085,7 @@
    "module": "backend/13-devops-for-backend-engineers/04-database-migrations-in-deployment-pipelines/README.md",
    "brief": "Your orders table stores the order total as a decimal in a column named `total` (for example `19.99`). It has about 300 million rows and takes writes all day. The team wants to store money as integer cents in a new column `total_cents` and eventually drop `total`.\n\nConstraints:\n\n- The service runs as 12 replicas behind a load balancer and is deployed with a rolling update, so for several minutes old and new versions of the code run at the same time.\n- A nightly reporting job, owned by another team, reads `orders.total` directly from a read replica. It cannot change this quarter.\n- No maintenance window is allowed. Writes must never fail and no request may see a wrong total.\n- The database is PostgreSQL. A plain `ALTER TABLE ... ALTER COLUMN TYPE` on this table is not acceptable.\n\nWrite the migration plan as an ordered runbook. Each step must say whether it is a schema migration, an application deploy, or a data job, what it changes, and what happens if you stop or roll back at that point.",
    "deliverables": [
-    "The ordered steps using expand and contract: add column, dual-write deploy, backfill, switch reads, stop writing the old column, drop it; for each, the type of step and the rollback",
+    "The ordered steps using expand and contract: add column, dual-write deploy, backfill, switch reads, stop writing the old column (only once the reporting job no longer needs it, or if you keep it filled another way), drop it; for each, the type of step and the rollback",
     "The exact SQL for adding the column and why it is safe on a large table (locks taken and for how long)",
     "The backfill design: batch size, how it walks the table (by primary key range), how it throttles itself, and why it must be idempotent and restartable",
     "How you guarantee rows written during the backfill are correct (the dual-write code, or a trigger as an alternative, and the trade-off between them)",
@@ -5015,7 +5177,7 @@
     },
     {
      "q": "What is the difference between a liveness probe and a readiness probe?",
-     "a": "Liveness asks whether the process is broken beyond recovery; failing it makes the platform restart the container, so it should be cheap and not depend on external services. Readiness asks whether the instance can serve traffic now; failing it removes the instance from load balancing without restarting it, so it may check dependencies such as the database. Putting a database check in liveness can cause a restart storm during a database blip."
+     "a": "Liveness asks whether the process is broken beyond recovery; failing it makes the platform restart the container, so it should be cheap and not depend on external services. Readiness asks whether the instance can serve traffic now; failing it removes the instance from load balancing without restarting it, so it can reflect dependencies the instance needs, though a check on a shared database can make every instance unready at once during a blip. Putting a database check in liveness is worse and can cause a restart storm."
     },
     {
      "q": "Compare rolling, blue-green and canary deployments.",
@@ -5043,7 +5205,7 @@
     },
     {
      "q": "How would you make a POST that charges a card safe to retry?",
-     "a": "The client sends a unique idempotency key per intended operation. The server stores the key with the result under a unique constraint, in the same transaction as the charge. A repeat with the same key returns the stored result; a concurrent repeat waits or gets a conflict."
+     "a": "The client sends a unique idempotency key per intended operation. The server records the key under a unique constraint before doing the work and stores the result against it afterwards, in the same transaction as any local writes. The call to the card processor cannot join that database transaction, so the same key is passed on to the processor as well. A repeat with the same key returns the stored result; a concurrent repeat waits or gets a conflict."
     },
     {
      "q": "How long do you keep idempotency keys?",
@@ -5167,7 +5329,7 @@
     },
     {
      "q": "What are the standard isolation levels and what is a sensible default?",
-     "a": "Read uncommitted, read committed, repeatable read and serializable, each preventing more anomalies at higher cost. Read committed is the default in PostgreSQL and a sensible starting point. PostgreSQL's repeatable read is snapshot isolation, and its serializable level detects dangerous patterns and may abort a transaction, so the application must be ready to retry."
+     "a": "Read uncommitted, read committed, repeatable read and serializable, each preventing more anomalies at higher cost (PostgreSQL accepts read uncommitted but treats it as read committed). Read committed is the default in PostgreSQL and a sensible starting point. PostgreSQL's repeatable read is snapshot isolation, and its serializable level detects dangerous patterns and may abort a transaction, so the application must be ready to retry."
     },
     {
      "q": "How do you prevent a lost update?",
@@ -5233,7 +5395,7 @@
     "What protocol keeps a connection open to the client?",
     "How do you order messages within a conversation across servers?"
    ],
-   "reference": "```mermaid\nflowchart LR\n  C1[Client A] <-->|WebSocket| G1[Gateway 1]\n  C2[Client B] <-->|WebSocket| G2[Gateway 2]\n  G1 --> CS[Chat service]\n  G2 --> CS\n  CS --> MQ[[Message log per conversation]]\n  MQ --> G2\n  CS --> DB[(Message store, partitioned by conversation)]\n  CS --> R[(Presence + routing: user to gateway)]\n  CS --> PUSH[Push for offline users]\n```\n\n- Clients hold a **WebSocket** to a gateway; a routing table says which gateway a user is on, so the chat service can deliver to the right one.\n- Each conversation is a **partition** with a sequence number, which gives the ordering guarantee; the message is persisted before it is acknowledged.\n- Offline users get a **push** notification and fetch history by sequence number on reconnect, which is also how multi-device sync works.\n- Presence uses heartbeats with a short TTL in a fast store; do not fan out presence to every contact, only to open chats.\n- Large groups use fan-out on read for the message list and fan-out on write only for notifications."
+   "reference": "```mermaid\nflowchart LR\n  C1[Client A] <-->|WebSocket| G1[Gateway 1]\n  C2[Client B] <-->|WebSocket| G2[Gateway 2]\n  G1 --> CS[Chat service]\n  G2 --> CS\n  CS --> MQ[[Message log per conversation]]\n  MQ --> G2\n  CS --> DB[(Message store, partitioned by conversation)]\n  CS --> R[(Presence + routing: user to gateway)]\n  CS --> PUSH[Push for offline users]\n```\n\n- **Capacity (assumptions).** 50 M daily users x about 40 messages a day is 2 B messages/day, about 23,000/s on average and perhaps 70,000/s at a 3x peak. At about 100 bytes of text and metadata per message that is about 200 GB/day, about 73 TB/year before replication. If 20 M users are connected at the peak and a tuned gateway holds about 100,000 connections, that is about 200 gateways.\n- Clients hold a **WebSocket** to a gateway; a routing table says which gateway a user is on, so the chat service can deliver to the right one.\n- Each conversation is a **partition** with a sequence number, which gives the ordering guarantee; the message is persisted before it is acknowledged.\n- Offline users get a **push** notification and fetch history by sequence number on reconnect, which is also how multi-device sync works.\n- Presence uses heartbeats with a short TTL in a fast store; do not fan out presence to every contact, only to open chats.\n- Large groups use fan-out on read for the message list and fan-out on write only for notifications.\n- Delivery is at-least-once: the client gives each message an id and the server deduplicates on it, so a retry after a dropped connection does not create a second message.\n- Alternatives: long polling or server-sent events instead of WebSocket (simpler through some proxies, more overhead); ordering by a server-assigned sequence per conversation (chosen here) rather than by client or server timestamps, which can disagree across devices; a wide-column store keyed by conversation versus a sharded relational database for history."
   },
   "hld/ecommerce-platform": {
    "title": "E-commerce Platform",
@@ -5277,7 +5439,7 @@
     "Stock can be reserved at add-to-cart, at checkout start, or at payment. What does each cost?",
     "A client that retries a checkout request after a timeout is normal, not an error. How does the server recognise it?"
    ],
-   "reference": "This is one reasonable design. Decisions with reasonable alternatives are named in the trade-offs.\n\n### Capacity estimate\n- Browse: 20 million users x 10 page views = 200 million/day, about 2,300/s average, about 10,000/s at peak (4x). Most are catalog reads, cacheable at the CDN or in a cache.\n- Search: perhaps a third of views, so about 3,000/s at peak, served by a search index.\n- Orders: 1 million/day is about 12/s average; assume 5x at a busy peak, 60/s. A flash sale at 100x is about 1,200 orders/s overall, but concentrated on a few product rows. That concentration, not the total, is the hard part.\n- Order storage: 1 million/day x about 2 KB (header and lines) = 2 GB/day, about 730 GB/year. Easily a sharded relational database.\n- Catalog: 50 million products x about 5 KB = 250 GB of metadata, plus images in object storage. Fits a sharded store with a search index beside it.\n\n### Architecture\n```mermaid\nflowchart LR\n  U[Shopper] --> CDN[CDN: images, static, cacheable pages]\n  CDN --> GW[API gateway]\n  GW --> CAT[Catalog service]\n  GW --> SRCH[Search service]\n  GW --> CART[Cart service]\n  GW --> CO[Checkout service]\n  CAT --> CDB[(Catalog DB)]\n  CAT --> CC[(Cache)]\n  SRCH --> ES[(Search index)]\n  CDB -. change events .-> ES\n  CART --> CR[(Cart store: Redis with DB backup)]\n  CO --> INV[Inventory service]\n  CO --> ORD[Order service]\n  CO --> PAY[Payment service]\n  INV --> IDB[(Inventory DB)]\n  ORD --> ODB[(Orders DB, sharded by user id)]\n  PAY --> PSP[Payment provider]\n  PSP -- webhook --> PAY\n  ORD --> BUS[[Event bus]]\n  BUS --> FUL[Fulfilment]\n  BUS --> NOT[Notifications]\n  BUS --> ES\n```\n\n**Catalog and search (read-heavy).** The catalog database is the source of truth. Changes are published as events and a consumer updates the search index (so search is eventually consistent with the catalog, usually within seconds). Product pages and listings are cached at the CDN and in a cache with short TTLs and invalidation on change. The page shows \"in stock\" from a cached approximation; the exact check happens at checkout.\n\n**Cart.** A cart is a small document per user (or anonymous cart id) with product id, quantity, and the price seen at add time. Redis with a TTL suits anonymous carts; signed-in carts are persisted to the database so a restart does not lose them. The cart never reserves stock and never decides a price; checkout re-reads the current price.\n\n**Checkout.** The checkout service coordinates, in order: validate the cart and prices, reserve stock, create the order in PENDING, charge, confirm the order. It is a short saga with compensations: if payment fails, release the reservation and mark the order failed.\n\n### Inventory and overselling\nKeep available stock in a single row per SKU (and warehouse, if relevant) in a transactional store. Reserve with one conditional statement, so concurrent buyers cannot both take the last unit:\n\n`UPDATE inventory SET available = available - :qty, reserved = reserved + :qty WHERE sku = :sku AND available >= :qty`\n\nIf zero rows were updated, the item is out of stock. A reservation record (order id, sku, qty, expires_at) is created in the same transaction. A job releases reservations that expire unpaid (for example after 10 to 15 minutes). On payment success the reservation becomes a sale (reserved decreases, sold is recorded). That sequence means stock is never negative.\n\n**Flash sale.** A single hot row serialises on the row lock, so throughput on one SKU is bounded (often a few hundred to a couple of thousand updates per second per row on a well-tuned database, but treat that as a number to measure, not a promise). Options, from simplest: (1) keep the conditional update but put a queue or waiting room in front, admitting buyers at a rate the row can take; (2) split the stock for a hot SKU into N buckets (for example 20 rows of 50 units), pick a bucket at random and fall through to the next when it is empty, which spreads the contention at the cost of a more complex \"is it sold out\" check; (3) pre-load the counter into Redis and decrement atomically there, with the database as the durable record and a reconciliation job; this is faster but you must handle Redis loss, so it needs care. Always cap quantity per customer and serve the product page from cache.\n\n### Payment, idempotency and unknown results\n- The client creates a checkout attempt and receives a unique idempotency key (or generates one). Every checkout call carries `Idempotency-Key`. The server stores the key with the request fingerprint and the response in a table with a unique constraint; a repeat of the same key returns the stored result, and the same key with a different body is rejected.\n- The key is passed on to the payment provider as well, so a retried charge cannot charge twice.\n- If the charge call times out, the result is unknown. Do not release the stock and do not retry blindly. Mark the order PAYMENT_UNKNOWN, then resolve it by querying the provider by the idempotency key and by consuming the provider's webhook, whichever arrives first. Webhooks are themselves deduplicated by event id.\n- Order state: PENDING -> PAID -> PACKED -> SHIPPED -> DELIVERED, with CANCELLED and REFUNDED branches. Transitions are checked in code and written with a version column to stop concurrent updates winning twice.\n\n### API\n- `PUT /v1/cart/items/{sku}` body `{ \"quantity\": 2 }`; `GET /v1/cart`\n- `POST /v1/checkouts` with `Idempotency-Key` header, body address, shipping option, payment token; returns `202` with order id and status when payment is asynchronous, or `201` if it completed in time\n- `GET /v1/orders/{id}` and `GET /v1/orders?cursor=...`\n- `GET /v1/search?q=...&brand=...&sort=price` (cursor or search-after pagination)\n\n### Data model (core tables)\n- `products`(id, title, description, seller_id, price, attrs), `inventory`(sku, available, reserved), `reservations`(id, order_id, sku, qty, expires_at, status).\n- `orders`(id, user_id, status, total, currency, idempotency_key unique per user, version, created_at), `order_lines`(order_id, sku, qty, unit_price) with the price copied at order time.\n- `idempotency_keys`(key, user_id, request_hash, response, created_at), `payments`(id, order_id, provider_ref, status).\n- Shard orders by user id so \"my orders\" is a single shard query; admin and reporting queries go to a replica or a warehouse.\n\n### Scaling and failure handling\n- Stateless services scale horizontally behind the gateway; the browse path scales with caches and replicas, the checkout path scales by separating hot SKUs and sharding orders.\n- Isolate the flash sale: give checkout and inventory their own capacity and rate limits so a surge on a few products cannot starve browsing. Shed load early with a waiting room and a clear \"sold out\" response.\n- Payment provider down: stop accepting new checkouts for that method with a clear message, keep carts, and retry unknown payments. Use a circuit breaker and timeouts on every outbound call.\n- Event bus down: write events to an outbox table in the same transaction as the order and publish from there, so no event is lost and none is published for a rolled-back order.\n- Monitor: checkout success rate, payment unknown count and age, reservation expiry rate, oversell invariant (available below zero must be zero), search index lag, p99 latency per path, and per-SKU lock wait time.\n\n### Trade-offs and alternatives\n- **When to reserve stock.** At add-to-cart: simplest for users but carts hold stock hostage and abandoned carts hurt sales. At checkout start with a timeout (chosen here): a fair balance. At payment time only: no hostage stock but a customer can pay and then be told it is gone, which is the worst experience, unless you accept overselling and compensate (some retailers do, for low-value items).\n- **Strong consistency for inventory, eventual for the catalog.** Money and stock need transactions; descriptions and search do not. Treating them differently is what makes the system both correct and fast.\n- **Saga vs distributed transaction.** Two-phase commit across the inventory, order and payment systems is brittle and the payment provider cannot take part in it. A saga with compensations and idempotent steps is the practical choice.\n- **Single database vs services.** A well-run modular monolith with one database can carry this load and avoids the saga entirely until the organisation or scale forces a split. Splitting early is a cost, not a goal.\n- **Search: database full text vs a dedicated engine.** Database search is enough for a small catalog; at 50 million products with facets and ranking a dedicated engine (Elasticsearch, OpenSearch, Solr) is the usual choice, accepting extra infrastructure and index lag.\n- **Not built here:** recommendations, reviews, promotions and coupons engine, tax and shipping rate calculation, multi-warehouse allocation, fraud scoring, returns, and multi-currency."
+   "reference": "This is one reasonable design. Decisions with reasonable alternatives are named in the trade-offs.\n\n### Capacity estimate\n- Browse: 20 million users x 10 page views = 200 million/day, about 2,300/s average, about 10,000/s at peak (4x). Most are catalog reads, cacheable at the CDN or in a cache.\n- Search: perhaps a third of views, so about 3,000/s at peak, served by a search index.\n- Orders: 1 million/day is about 12/s average; assume 5x at a busy peak, 60/s. A flash sale at 100x is about 1,200 orders/s overall, but concentrated on a few product rows. That concentration, not the total, is the hard part.\n- Order storage: 1 million/day x about 2 KB (header and lines) = 2 GB/day, about 730 GB/year. Easily a sharded relational database.\n- Catalog: 50 million products x about 5 KB = 250 GB of metadata, plus images in object storage. Fits a sharded store with a search index beside it.\n\n### Architecture\n```mermaid\nflowchart LR\n  U[Shopper] --> CDN[CDN: images, static, cacheable pages]\n  CDN --> GW[API gateway]\n  GW --> CAT[Catalog service]\n  GW --> SRCH[Search service]\n  GW --> CART[Cart service]\n  GW --> CO[Checkout service]\n  CAT --> CDB[(Catalog DB)]\n  CAT --> CC[(Cache)]\n  SRCH --> ES[(Search index)]\n  CDB -. change events .-> ES\n  CART --> CR[(Cart store: Redis with DB backup)]\n  CO --> INV[Inventory service]\n  CO --> ORD[Order service]\n  CO --> PAY[Payment service]\n  INV --> IDB[(Inventory DB)]\n  ORD --> ODB[(Orders DB, sharded by user id)]\n  PAY --> PSP[Payment provider]\n  PSP -- webhook --> PAY\n  ORD --> BUS[[Event bus]]\n  BUS --> FUL[Fulfilment]\n  BUS --> NOT[Notifications]\n  BUS --> ES\n```\n\n**Catalog and search (read-heavy).** The catalog database is the source of truth. Changes are published as events and a consumer updates the search index (so search is eventually consistent with the catalog, usually within seconds). Product pages and listings are cached at the CDN and in a cache with short TTLs and invalidation on change. The page shows \"in stock\" from a cached approximation; the exact check happens at checkout.\n\n**Cart.** A cart is a small document per user (or anonymous cart id) with product id, quantity, and the price seen at add time. Redis with a TTL suits anonymous carts; signed-in carts are persisted to the database so a restart does not lose them. The cart never reserves stock and never decides a price; checkout re-reads the current price.\n\n**Checkout.** The checkout service coordinates, in order: validate the cart and prices, create the order in PENDING, reserve stock (the reservation records the order id), charge, confirm the order. It is a short saga with compensations: if the reservation fails, mark the order failed; if payment fails, release the reservation and mark the order failed.\n\n### Inventory and overselling\nKeep available stock in a single row per SKU (and warehouse, if relevant) in a transactional store. Reserve with one conditional statement, so concurrent buyers cannot both take the last unit:\n\n`UPDATE inventory SET available = available - :qty, reserved = reserved + :qty WHERE sku = :sku AND available >= :qty`\n\nIf zero rows were updated, the item is out of stock. A reservation record (order id, sku, qty, expires_at) is created in the same transaction. A job releases reservations that expire unpaid (for example after 10 to 15 minutes). On payment success the reservation becomes a sale (reserved decreases, sold is recorded). That sequence means stock is never negative.\n\n**Flash sale.** A single hot row serialises on the row lock, so throughput on one SKU is bounded (often a few hundred to a couple of thousand updates per second per row on a well-tuned database, but treat that as a number to measure, not a promise). Options, from simplest: (1) keep the conditional update but put a queue or waiting room in front, admitting buyers at a rate the row can take; (2) split the stock for a hot SKU into N buckets (for example 20 rows of 50 units), pick a bucket at random and fall through to the next when it is empty, which spreads the contention at the cost of a more complex \"is it sold out\" check; (3) pre-load the counter into Redis and decrement atomically there, with the database as the durable record and a reconciliation job; this is faster but you must handle Redis loss, so it needs care. Always cap quantity per customer and serve the product page from cache.\n\n### Payment, idempotency and unknown results\n- The client creates a checkout attempt and receives a unique idempotency key (or generates one). Every checkout call carries `Idempotency-Key`. The server stores the key with the request fingerprint and the response in a table with a unique constraint; a repeat of the same key returns the stored result, and the same key with a different body is rejected.\n- The key is passed on to the payment provider as well, so a retried charge cannot charge twice.\n- If the charge call times out, the result is unknown. Do not release the stock and do not retry blindly. Mark the order PAYMENT_UNKNOWN (and keep its reservation out of the expiry job's reach until it is resolved), then resolve it by querying the provider by the idempotency key and by consuming the provider's webhook, whichever arrives first. Webhooks are themselves deduplicated by event id.\n- Order state: PENDING -> PAID -> PACKED -> SHIPPED -> DELIVERED, with CANCELLED and REFUNDED branches, and PENDING -> PAYMENT_UNKNOWN -> PAID or FAILED when the provider does not answer. Transitions are checked in code and written with a version column to stop concurrent updates winning twice.\n\n### API\n- `PUT /v1/cart/items/{sku}` body `{ \"quantity\": 2 }`; `GET /v1/cart`\n- `POST /v1/checkouts` with `Idempotency-Key` header, body address, shipping option, payment token; returns `202` with order id and status when payment is asynchronous, or `201` if it completed in time\n- `GET /v1/orders/{id}` and `GET /v1/orders?cursor=...`\n- `GET /v1/search?q=...&brand=...&sort=price` (cursor or search-after pagination)\n\n### Data model (core tables)\n- `products`(id, title, description, seller_id, price, attrs), `inventory`(sku, available, reserved), `reservations`(id, order_id, sku, qty, expires_at, status).\n- `orders`(id, user_id, status, total, currency, idempotency_key unique per user, version, created_at), `order_lines`(order_id, sku, qty, unit_price) with the price copied at order time.\n- `idempotency_keys`(key, user_id, request_hash, response, created_at), `payments`(id, order_id, provider_ref, status).\n- Shard orders by user id so \"my orders\" is a single shard query; admin and reporting queries go to a replica or a warehouse.\n\n### Scaling and failure handling\n- Stateless services scale horizontally behind the gateway; the browse path scales with caches and replicas, the checkout path scales by separating hot SKUs and sharding orders.\n- Isolate the flash sale: give checkout and inventory their own capacity and rate limits so a surge on a few products cannot starve browsing. Shed load early with a waiting room and a clear \"sold out\" response.\n- Payment provider down: stop accepting new checkouts for that method with a clear message, keep carts, and retry unknown payments. Use a circuit breaker and timeouts on every outbound call.\n- Event bus down: write events to an outbox table in the same transaction as the order and publish from there, so no event is lost and none is published for a rolled-back order.\n- Monitor: checkout success rate, payment unknown count and age, reservation expiry rate, oversell invariant (available below zero must be zero), search index lag, p99 latency per path, and per-SKU lock wait time.\n\n### Trade-offs and alternatives\n- **When to reserve stock.** At add-to-cart: simplest for users but carts hold stock hostage and abandoned carts hurt sales. At checkout start with a timeout (chosen here): a fair balance. At payment time only: no hostage stock but a customer can pay and then be told it is gone, which is the worst experience, unless you accept overselling and compensate (some retailers do, for low-value items).\n- **Strong consistency for inventory, eventual for the catalog.** Money and stock need transactions; descriptions and search do not. Treating them differently is what makes the system both correct and fast.\n- **Saga vs distributed transaction.** Two-phase commit across the inventory, order and payment systems is brittle and the payment provider cannot take part in it. A saga with compensations and idempotent steps is the practical choice.\n- **Single database vs services.** A well-run modular monolith with one database can carry this load and avoids the saga entirely until the organisation or scale forces a split. Splitting early is a cost, not a goal.\n- **Search: database full text vs a dedicated engine.** Database search is enough for a small catalog; at 50 million products with facets and ranking a dedicated engine (Elasticsearch, OpenSearch, Solr) is the usual choice, accepting extra infrastructure and index lag.\n- **Not built here:** recommendations, reviews, promotions and coupons engine, tax and shipping rate calculation, multi-warehouse allocation, fraud scoring, returns, and multi-currency."
   },
   "hld/notification-service": {
    "title": "Notification Service",
@@ -5313,7 +5475,7 @@
     "Separate urgent from bulk traffic with different queues.",
     "What do you store so a retry does not send twice?"
    ],
-   "reference": "```mermaid\nflowchart LR\n  S[Calling services] --> API[Notification API]\n  API --> V[Validate + check preferences]\n  V --> Q1[[Urgent queue]]\n  V --> Q2[[Bulk queue]]\n  Q1 --> W1[Channel workers]\n  Q2 --> W2[Channel workers, rate limited]\n  W1 --> P[Providers: e-mail, SMS, push]\n  W2 --> P\n  W1 --> DB[(Status + dedupe store)]\n  W2 --> DB\n  P -. webhooks .-> API\n```\n\n- Each request carries an **idempotency key**; the dedupe store ensures a retried send is not delivered twice.\n- **Two priority lanes** keep a bulk campaign from delaying a login code; bulk workers are rate limited to each provider's quota.\n- Workers retry with exponential backoff and jitter, then dead-letter; a second provider is the fallback.\n- Preferences and unsubscribes are checked before queuing and again at send time.\n- Delivery receipts come back by webhook and update the status store; scheduling uses a delayed queue."
+   "reference": "```mermaid\nflowchart LR\n  S[Calling services] --> API[Notification API]\n  API --> V[Validate + check preferences]\n  V --> Q1[[Urgent queue]]\n  V --> Q2[[Bulk queue]]\n  Q1 --> W1[Channel workers]\n  Q2 --> W2[Channel workers, rate limited]\n  W1 --> P[Providers: e-mail, SMS, push]\n  W2 --> P\n  W1 --> DB[(Status + dedupe store)]\n  W2 --> DB\n  P -. webhooks .-> API\n```\n\n- Each request carries an **idempotency key**; the dedupe store ensures a retried send is not delivered twice.\n- **Two priority lanes** keep a bulk campaign from delaying a login code; bulk workers are rate limited to each provider's quota.\n- Workers retry with exponential backoff and jitter, then dead-letter; a second provider is the fallback.\n- Preferences and unsubscribes are checked before queuing and again at send time.\n- Delivery receipts come back by webhook and update the status store; scheduling uses a delayed queue.\n- Be honest about the guarantee: sending to a third party is at-least-once. If a worker crashes after the provider accepted a message but before the status is recorded, the retry can send it twice, and a fallback provider can duplicate a message the first one actually delivered. Pass the idempotency key to providers that support one, and treat the dedupe store as strong protection, not a proof of exactly-once.\n- Capacity (assumptions): a 10 million blast spread over an hour is about 2,800 sends/s, and a provider quota, not your own servers, is usually what sets the pace. The store keeps one row per notification per channel (50 million users x 3 messages a day = 150 million rows a day, about 30 GB a day at roughly 200 bytes a row), with old rows archived.\n- Alternatives: one queue per channel and priority instead of shared worker pools; a managed provider (or provider-side batching APIs) for bulk e-mail instead of running your own sender."
   },
   "hld/rate-limiter": {
    "title": "Rate Limiter",
@@ -5346,7 +5508,7 @@
     "Compare fixed window, sliding window and token bucket.",
     "Where does the shared counter live, and what happens to concurrent updates?"
    ],
-   "reference": "```mermaid\nflowchart LR\n  C[Client] --> GW[API gateway with limiter middleware]\n  GW -->|check and decrement| R[(Redis: counters / token buckets)]\n  GW -->|allowed| S[Service]\n  GW -->|limited| X[429 + Retry-After]\n  Cfg[(Rules store)] --> GW\n```\n\n- A **token bucket** per key allows bursts up to the bucket size while holding the average rate; it stores two numbers (tokens, last refill time).\n- The check-and-update must be **atomic**: a Lua script or a single Redis command per request, so concurrent servers do not both spend the last token.\n- Respond **429** with `Retry-After` and `X-RateLimit-Remaining` headers.\n- Rules are cached at the gateway and refreshed from the rules store, so changes need no deploy.\n- Shard counters by key across Redis nodes; for the limiter failing, **fail open** for general APIs and **fail closed** for sensitive ones such as login."
+   "reference": "```mermaid\nflowchart LR\n  C[Client] --> GW[API gateway with limiter middleware]\n  GW -->|check and decrement| R[(Redis: counters / token buckets)]\n  GW -->|allowed| S[Service]\n  GW -->|limited| X[429 + Retry-After]\n  Cfg[(Rules store)] --> GW\n```\n\n- **Algorithms.** Fixed window is the cheapest (one counter) but allows up to twice the limit across a window boundary. A sliding window log is exact but stores every request time. A sliding window counter approximates it with two counters. A **token bucket** per key allows bursts up to the bucket size while holding the average rate; it stores two numbers (tokens, last refill time) and is the one used here. Choose by whether bursts are acceptable and how exact the limit must be.\n- **Capacity (assumptions).** At 1 million checks per second, one Redis node (very roughly 100,000 simple operations per second; measure yours) is far from enough, so plan on tens of shards with replicas, and note that every request pays one network round trip to Redis, which is why the 5 ms budget matters. A local per-server counter that syncs periodically cuts that cost but lets the limit be overshot by a margin; that is the trade-off against exactness.\n- The check-and-update must be **atomic**: a Lua script or a single Redis command per request, so concurrent servers do not both spend the last token. Take the time from Redis (`TIME`) rather than from each API server, so clock skew between servers does not distort the refill.\n- Respond **429** with `Retry-After` and `X-RateLimit-Remaining` headers.\n- Rules are cached at the gateway and refreshed from the rules store, so changes need no deploy.\n- Shard counters by key across Redis nodes; for the limiter failing, **fail open** for general APIs and **fail closed** for sensitive ones such as login."
   },
   "hld/social-media-feed": {
    "title": "Social Media Feed",
@@ -5389,7 +5551,7 @@
     "Offset pagination breaks on a feed that changes while it is read. What can you use instead?",
     "A feed does not need to store posts, only post ids in order."
    ],
-   "reference": "This is one reasonable design. The numbers are estimates to show the reasoning; adjust them and the conclusions follow.\n\n### Capacity estimate\n- Posts: 20 million per day / 86,400 s is about 230 posts/s on average. Assume peak is 3x, so about 700/s.\n- Feed reads: 100 million users x 10 opens per day = 1 billion/day, about 12,000/s on average and 35,000/s at peak. The read:write ratio is roughly 50:1, so reads must be cheap.\n- Fan-out on write for normal accounts: 230 posts/s x 200 followers is about 46,000 feed-entry writes/s on average, about 140,000/s at peak. That is high but fine for a sharded in-memory store fed by a queue.\n- One celebrity post with 30 million followers would be 30 million writes in one burst. That one number is why pure push fails.\n- Feed cache: store about 500 entries per active user, each a post id (8 bytes) and a score or timestamp (8 bytes), about 16 bytes: 500 x 16 B = 8 KB per user. For 100 million users that is about 800 GB, so a Redis (or similar) cluster of some tens of nodes with replicas.\n- Post storage: 20 million posts/day x about 1 KB of metadata is about 20 GB/day, about 7 TB/year. Media is separate, in object storage behind a CDN.\n\n### Architecture\n```mermaid\nflowchart LR\n  C[Client] --> GW[API gateway]\n  GW --> PS[Post service]\n  GW --> FS[Feed service]\n  GW --> GS[Graph service: follows]\n  PS --> PDB[(Post store, sharded by post id)]\n  PS --> Q[[Fan-out queue]]\n  Q --> FW[Fan-out workers]\n  FW --> GS\n  FW --> FC[(Feed cache: sorted list per user)]\n  FS --> FC\n  FS --> PC[(Post cache)]\n  PC --> PDB\n  FS --> CP[(Celebrity post lists)]\n  FS --> RK[Ranking service]\n  PS --> CP\n```\n\n**Write path.** The client posts to the post service. It stores the post (id from a time-ordered generator such as a Snowflake-style id, so ids sort by time), then publishes a small event to a queue and returns. Fan-out workers read the event, fetch the author's follower list from the graph service, and for each follower push the post id into that follower's feed list in the cache. Workers only push to followers who were active recently; inactive users get their feed rebuilt when they return.\n\n**Celebrity problem (hybrid).** If an author has more than a threshold of followers (say 100,000), the post is not fanned out. It is only written to the author's own post list. When a user opens their feed, the feed service reads the precomputed feed (pushed posts from normal accounts) and merges in recent posts from the few celebrities that user follows (pulled at read time, from a cached list per celebrity). A user follows only a handful of celebrities, so the merge is cheap and the celebrity list is one of the hottest cache keys, which caches well.\n\n**Read path.** The feed service reads the first page of ids from the user's feed list, merges celebrity posts, optionally calls ranking, then hydrates ids into full posts using a post cache (batch get; misses go to the post store), and adds counts and the author's profile data from their own caches. Hydration at read time means edits and deletes show up immediately and the feed list stays tiny.\n\n### API\n- `POST /v1/posts` body `{ \"text\": \"...\", \"mediaIds\": [\"m1\"] }` returns `201` with the post.\n- `GET /v1/feed?limit=20&cursor=<opaque>` returns `{ \"items\": [...], \"nextCursor\": \"...\" }`.\n- `GET /v1/users/{id}/posts?limit=20&cursor=...`\n- `PUT /v1/users/{id}/follow` and `DELETE /v1/users/{id}/follow`.\n\n**Pagination.** Use a cursor, not an offset. The cursor encodes the position, for example the (score, post id) of the last item returned. With offset, a new post pushed to the top shifts everything and the next page repeats an item. A cursor says \"items older than this\", so new posts do not disturb it. If ranking reorders items, snapshot the ranked candidate list for the session (or cache it for a short time keyed by a feed session id) so scrolling stays consistent.\n\n### Data model\n- `posts`: post_id (time-ordered), author_id, text, media refs, created_at. Sharded by post id (or by author id if you favour profile page locality; that creates hot shards for celebrities, so many teams shard by post id and keep a separate author index).\n- `follows`: (follower_id, followee_id, created_at), stored twice, indexed by follower and by followee, in a store sharded by the indexed user, because you need both \"who do I follow\" and \"who follows me\".\n- `feed:{user_id}`: a sorted collection of (post_id, score), capped to about 500 entries by trimming the oldest.\n- `counters`: likes and comments counts, updated asynchronously and cached, since exact real-time counts are not required.\n\n### Ranking\nStart with reverse chronological: it is predictable, cheap and easy to explain. When ranking is added, do it in two stages: candidate generation (the merged feed list, a few hundred ids) and then a scoring step using features such as author affinity, post age, engagement so far, and media type, producing a score by a model or weighted formula. Keep the model behind the ranking service interface with a timeout and fall back to chronological order if it is slow or down.\n\n### Scaling and failure handling\n- The queue absorbs bursts; workers scale horizontally by partitioning on follower shard. Retries must be idempotent: adding the same post id to a sorted set twice changes nothing.\n- Feed cache loss: rebuild a user's feed on demand from the graph and the recent post lists (the pull path), which is the same code used for inactive users, so the fallback is exercised daily.\n- Hot keys: a celebrity's post list and a viral post are read by millions. Replicate those keys, add a short local in-process cache in the feed service, and let CDN or edge caching serve the post media.\n- Fan-out lag: if the queue backs up, feeds get fresher posts later but still load. Monitor queue age, not just depth.\n- Deleted posts and blocked users: filter at hydration time, so no one has to scrub millions of lists.\n- Monitor: feed p50/p99 latency, cache hit rate, fan-out queue age, post-to-visible delay, hydration miss rate, ranking timeout rate.\n\n### Trade-offs and alternatives\n- **Push vs pull vs hybrid.** Pure pull is simple and exact but makes each read do a heavy merge across hundreds of accounts. Pure push makes reads fast but multiplies writes and fails on celebrities. The hybrid costs more code and a threshold to tune, in return for both fast reads and bounded writes. The threshold is a tunable, not a law.\n- **Store the feed as ids, not copies of posts.** Storage is tiny and edits are consistent, but each read pays for hydration. Storing full posts in the feed would remove that cost and make every edit a massive rewrite.\n- **Cache only active users.** Saves memory but a returning user's first load is slower. Another option is a longer retention for more users at a higher cost.\n- **Eventual consistency.** A user may not see their own post at once in their own feed unless you insert it into their own list synchronously (cheap and worth doing).\n- **Not built here:** ads insertion, stories, spam and abuse filtering, real-time push of new posts to open feeds (a websocket or \"new posts\" banner), and a full recommendation system for posts from accounts the user does not follow."
+   "reference": "This is one reasonable design. The numbers are estimates to show the reasoning; adjust them and the conclusions follow.\n\n### Capacity estimate\n- Posts: 20 million per day / 86,400 s is about 230 posts/s on average. Assume peak is 3x, so about 700/s.\n- Feed reads: 100 million users x 10 opens per day = 1 billion/day, about 12,000/s on average and 35,000/s at peak. The read:write ratio is roughly 50:1, so reads must be cheap.\n- Fan-out on write for normal accounts: 230 posts/s x 200 followers is about 46,000 feed-entry writes/s on average, about 140,000/s at peak. That is high but fine for a sharded in-memory store fed by a queue.\n- One celebrity post with 30 million followers would be 30 million writes in one burst. That one number is why pure push fails.\n- Feed cache: store about 500 entries per active user, each a post id (8 bytes) and a score or timestamp (8 bytes), about 16 bytes: 500 x 16 B = 8 KB per user. For 100 million users that is about 800 GB of raw data. Treat that as a floor: a real in-memory sorted set spends several times more per entry on structure overhead, so plan for a Redis (or similar) cluster of tens of nodes with replicas and measure the real bytes per entry.\n- Post storage: 20 million posts/day x about 1 KB of metadata is about 20 GB/day, about 7 TB/year. Media is separate, in object storage behind a CDN.\n\n### Architecture\n```mermaid\nflowchart LR\n  C[Client] --> GW[API gateway]\n  GW --> PS[Post service]\n  GW --> FS[Feed service]\n  GW --> GS[Graph service: follows]\n  PS --> PDB[(Post store, sharded by post id)]\n  PS --> Q[[Fan-out queue]]\n  Q --> FW[Fan-out workers]\n  FW --> GS\n  FW --> FC[(Feed cache: sorted list per user)]\n  FS --> FC\n  FS --> PC[(Post cache)]\n  PC --> PDB\n  FS --> CP[(Celebrity post lists)]\n  FS --> RK[Ranking service]\n  PS --> CP\n```\n\n**Write path.** The client posts to the post service. It stores the post (id from a time-ordered generator such as a Snowflake-style id, so ids sort by time), then publishes a small event to a queue and returns. Fan-out workers read the event, fetch the author's follower list from the graph service, and for each follower push the post id into that follower's feed list in the cache. Workers only push to followers who were active recently; inactive users get their feed rebuilt when they return.\n\n**Celebrity problem (hybrid).** If an author has more than a threshold of followers (say 100,000), the post is not fanned out. It is only written to the author's own post list. When a user opens their feed, the feed service reads the precomputed feed (pushed posts from normal accounts) and merges in recent posts from the few celebrities that user follows (pulled at read time, from a cached list per celebrity). A user follows only a handful of celebrities, so the merge is cheap and the celebrity list is one of the hottest cache keys, which caches well.\n\n**Read path.** The feed service reads the first page of ids from the user's feed list, merges celebrity posts, optionally calls ranking, then hydrates ids into full posts using a post cache (batch get; misses go to the post store), and adds counts and the author's profile data from their own caches. Hydration at read time means edits and deletes show up immediately and the feed list stays tiny.\n\n### API\n- `POST /v1/posts` body `{ \"text\": \"...\", \"mediaIds\": [\"m1\"] }` returns `201` with the post.\n- `GET /v1/feed?limit=20&cursor=<opaque>` returns `{ \"items\": [...], \"nextCursor\": \"...\" }`.\n- `GET /v1/users/{id}/posts?limit=20&cursor=...`\n- `PUT /v1/users/{id}/follow` and `DELETE /v1/users/{id}/follow`.\n\n**Pagination.** Use a cursor, not an offset. The cursor encodes the position, for example the (score, post id) of the last item returned. With offset, a new post pushed to the top shifts everything and the next page repeats an item. A cursor says \"items older than this\", so new posts do not disturb it. If ranking reorders items, snapshot the ranked candidate list for the session (or cache it for a short time keyed by a feed session id) so scrolling stays consistent.\n\n### Data model\n- `posts`: post_id (time-ordered), author_id, text, media refs, created_at. Sharded by post id (or by author id if you favour profile page locality; that creates hot shards for celebrities, so many teams shard by post id and keep a separate author index).\n- `follows`: (follower_id, followee_id, created_at), stored twice, indexed by follower and by followee, in a store sharded by the indexed user, because you need both \"who do I follow\" and \"who follows me\".\n- `feed:{user_id}`: a sorted collection of (post_id, score), capped to about 500 entries by trimming the oldest.\n- `counters`: likes and comments counts, updated asynchronously and cached, since exact real-time counts are not required.\n\n### Ranking\nStart with reverse chronological: it is predictable, cheap and easy to explain. When ranking is added, do it in two stages: candidate generation (the merged feed list, a few hundred ids) and then a scoring step using features such as author affinity, post age, engagement so far, and media type, producing a score by a model or weighted formula. Keep the model behind the ranking service interface with a timeout and fall back to chronological order if it is slow or down.\n\n### Scaling and failure handling\n- The queue absorbs bursts; workers scale horizontally by partitioning on follower shard. Retries must be idempotent: adding the same post id to a sorted set twice changes nothing.\n- Feed cache loss: rebuild a user's feed on demand from the graph and the recent post lists (the pull path), which is the same code used for inactive users, so the fallback is exercised daily.\n- Hot keys: a celebrity's post list and a viral post are read by millions. Replicate those keys, add a short local in-process cache in the feed service, and let CDN or edge caching serve the post media.\n- Fan-out lag: if the queue backs up, feeds get fresher posts later but still load. Monitor queue age, not just depth.\n- Deleted posts, blocked users and unfollows: filter at hydration time (check the follow edge or block list for each author), so no one has to scrub millions of lists. Filtering after the page is cut can leave a short page, so over-fetch a little.\n- Monitor: feed p50/p99 latency, cache hit rate, fan-out queue age, post-to-visible delay, hydration miss rate, ranking timeout rate.\n\n### Trade-offs and alternatives\n- **Push vs pull vs hybrid.** Pure pull is simple and exact but makes each read do a heavy merge across hundreds of accounts. Pure push makes reads fast but multiplies writes and fails on celebrities. The hybrid costs more code and a threshold to tune, in return for both fast reads and bounded writes. The threshold is a tunable, not a law.\n- **Store the feed as ids, not copies of posts.** Storage is tiny and edits are consistent, but each read pays for hydration. Storing full posts in the feed would remove that cost and make every edit a massive rewrite.\n- **Cache only active users.** Saves memory but a returning user's first load is slower. Another option is a longer retention for more users at a higher cost.\n- **Eventual consistency.** A user may not see their own post at once in their own feed unless you insert it into their own list synchronously (cheap and worth doing).\n- **Not built here:** ads insertion, stories, spam and abuse filtering, real-time push of new posts to open feeds (a websocket or \"new posts\" banner), and a full recommendation system for posts from accounts the user does not follow."
   },
   "hld/url-shortener": {
    "title": "URL Shortener",
@@ -5423,7 +5585,7 @@
     "Estimate first: how many bytes per record, how many redirects per second?",
     "How do you generate a unique short code without a single bottleneck?"
    ],
-   "reference": "### Sketch\n```mermaid\nflowchart LR\n  U[Client] --> CDN[CDN / edge cache]\n  CDN --> LB[Load balancer]\n  LB --> API[Stateless API servers]\n  API --> C[(Cache: code to URL)]\n  API --> DB[(Key-value store: code, url, expiry)]\n  API --> Q[[Click events queue]]\n  Q --> A[Analytics workers] --> OLAP[(Counts store)]\n```\n\n### Numbers\nAbout 40 writes/s and 4,000 redirects/s on average, with peaks of 10x. 100 M x 12 months x 5 years x ~500 B is about 3 TB: a key-value store partitioned by code is enough.\n\n### Decisions\n- **Code generation**: a counter handed out in ranges to each API server (no coordination per request), encoded in base62 and shuffled with a keyed permutation so codes are not sequential. 7 characters give 3.5 trillion codes.\n- **Redirect path**: edge cache, then an in-memory cache, then the store. Use **302** if you need every click counted at the server, **301** if you accept browsers caching the redirect.\n- **Availability**: the store is replicated; redirects work from replicas, creating a link needs the primary.\n- **Analytics** is asynchronous through a queue, so a failing analytics system never slows a redirect.\n- **Abuse**: rate limit creation, scan target URLs, allow takedown."
+   "reference": "### Sketch\n```mermaid\nflowchart LR\n  U[Client] --> CDN[CDN / edge cache]\n  CDN --> LB[Load balancer]\n  LB --> API[Stateless API servers]\n  API --> C[(Cache: code to URL)]\n  API --> DB[(Key-value store: code, url, expiry)]\n  API --> Q[[Click events queue]]\n  Q --> A[Analytics workers] --> OLAP[(Counts store)]\n```\n\n### Numbers\nAssumptions, not measurements. 100 M links a month is about 40 writes/s and 10 B redirects a month is about 4,000 redirects/s on average (30 days is about 2.6 M seconds), with peaks of, say, 10x. 100 M x 12 months x 5 years x ~500 B per record (an assumption) is about 3 TB: a key-value store partitioned by code is enough, and at 40 writes/s a single well-run relational database with a unique index on the code would also cope for a long time.\n\n### Decisions\n- **Code generation**: a counter handed out in ranges to each API server (no coordination per request), encoded in base62 and shuffled with a keyed permutation so codes are not sequential. 7 characters give 3.5 trillion codes.\n- **Other ways to make a code**: hash the long URL and keep a prefix (the same URL gets the same code, but you must detect collisions and retry); a random code with a conditional insert that retries on conflict (no counter to run, at the price of occasional retries as the space fills); or a pool of pre-generated codes. The counter-range design is chosen here because it never collides and needs no retry; the others are simpler to operate.\n- **Redirect path**: edge cache, then an in-memory cache, then the store. Use **302** (or 307) if you need every click counted at the server, **301** (or 308) if you accept browsers caching the redirect. A CDN that caches the redirect also hides those clicks from the origin, so either count at the edge or accept undercounting.\n- **Availability**: the store is replicated; redirects work from replicas, creating a link needs the primary.\n- **Analytics** is asynchronous through a queue, so a failing analytics system never slows a redirect.\n- **Abuse**: rate limit creation, scan target URLs, allow takedown."
   },
   "hld/video-streaming-platform": {
    "title": "Video Streaming Platform",
@@ -5458,7 +5620,7 @@
     "Where does the transcoding work happen, and how does it scale?",
     "Why must most video bytes never touch your application servers?"
    ],
-   "reference": "```mermaid\nflowchart LR\n  Cr[Creator] -->|chunked upload| OS[(Object storage: originals)]\n  OS --> Q[[Transcode jobs]]\n  Q --> T[Transcoding workers] --> OS2[(Object storage: HLS/DASH renditions)]\n  T --> M[(Metadata DB)]\n  V[Viewer] --> API[API: metadata, manifest]\n  V -->|segments| CDN[CDN]\n  CDN --> OS2\n  API --> M\n  V -. view events .-> K[[Event stream]] --> Cnt[(View counts)]\n```\n\n- **Chunked, resumable upload** straight to object storage with pre-signed URLs; the API only records metadata.\n- A transcoding **job per rendition** runs on a pool of workers fed by a queue, so a 4K upload fans out in parallel.\n- Streaming uses **adaptive bitrate** (HLS/DASH): short segments and a manifest; the player switches quality with the viewer's bandwidth.\n- A **CDN** serves nearly all bytes; popular videos stay at the edge, the long tail comes from origin.\n- View counts are aggregated from an event stream, not updated per request."
+   "reference": "```mermaid\nflowchart LR\n  Cr[Creator] -->|chunked upload| OS[(Object storage: originals)]\n  OS --> Q[[Transcode jobs]]\n  Q --> T[Transcoding workers] --> OS2[(Object storage: HLS/DASH renditions)]\n  T --> M[(Metadata DB)]\n  V[Viewer] --> API[API: metadata, manifest]\n  V -->|segments| CDN[CDN]\n  CDN --> OS2\n  API --> M\n  V -. view events .-> K[[Event stream]] --> Cnt[(View counts)]\n```\n\n- **Chunked, resumable upload** straight to object storage with pre-signed URLs; the API only records metadata.\n- A transcoding **job per rendition** runs on a pool of workers fed by a queue, so a 4K upload fans out in parallel.\n- Streaming uses **adaptive bitrate** (HLS/DASH): short segments and a manifest; the player switches quality with the viewer's bandwidth.\n- A **CDN** serves nearly all bytes; popular videos stay at the edge, the long tail comes from origin.\n- View counts are aggregated from an event stream, not updated per request.\n- **Capacity (assumptions, adjust them).** 100 M hours watched a day is about 4.2 M viewers streaming at any moment on average (100 M x 3,600 s / 86,400 s); at about 3 Mbps each that is roughly 12 Tbps of egress, which is why bandwidth, served mostly by CDN, dominates cost. Storage: 1 M uploads a day at an assumed 300 MB average is about 300 TB/day of originals, and if the renditions together take about as much again, roughly 600 TB/day, about 220 PB a year. Transcoding: at an assumed 20 CPU-minutes per video that is 20 M CPU-minutes a day, about 14,000 cores busy around the clock, which favours a pool that scales with queue depth (or spot capacity).\n- Search is a separate index (inverted index fed from the metadata DB) and recommendations are computed offline; both are out of scope here beyond naming them.\n- Alternatives and trade-offs: transcode every rendition up front (fast start, high storage) versus only the popular ones and the long tail on demand (cheaper storage, slower first play); a newer codec such as AV1 saves bandwidth but costs far more compute and has uneven device support; building your own CDN is worth it only at very large scale."
   },
   "lld/atm": {
    "title": "ATM",
@@ -5489,7 +5651,7 @@
     "The ATM itself is a state machine: idle, card inserted, authenticated, transaction, ejecting.",
     "Note dispensing is a classic chain-of-responsibility: try the largest note first."
    ],
-   "reference": "```mermaid\nstateDiagram-v2\n  [*] --> Idle\n  Idle --> CardInserted: insert card\n  CardInserted --> Authenticated: correct PIN\n  CardInserted --> Idle: 3 wrong PINs, card kept\n  Authenticated --> Transaction: choose operation\n  Transaction --> Authenticated: done\n  Authenticated --> Idle: eject card\n```\n\n- `ATM` holds the state and a `CashDispenser` chain (`Dispense500` -> `Dispense100` -> `Dispense20`), each handler dispensing what it can and passing on the rest.\n- `Transaction` is an interface (`Withdraw`, `Deposit`, `BalanceInquiry`): a new operation is a new class (open/closed).\n- The `BankService` interface hides the real bank; the ATM debits first, dispenses second, and reverses the debit if dispensing fails."
+   "reference": "```mermaid\nstateDiagram-v2\n  [*] --> Idle\n  Idle --> CardInserted: insert card\n  CardInserted --> Authenticated: correct PIN\n  CardInserted --> CardInserted: wrong PIN, fewer than 3\n  CardInserted --> Idle: 3 wrong PINs, card kept\n  Authenticated --> Transaction: choose operation\n  Transaction --> Authenticated: done\n  Authenticated --> Idle: eject card\n```\n\n- `ATM` holds the state and a `CashDispenser` chain (`Dispense500` -> `Dispense100` -> `Dispense20`), each handler dispensing what it can and passing on the rest.\n- `Transaction` is an interface (`Withdraw`, `Deposit`, `BalanceInquiry`): a new operation is a new class (open/closed).\n- The chain is one reasonable choice; a plain loop over denominations or a strategy does the same job. Greedy largest-first is only guaranteed to work when each denomination divides the next larger one (500, 100, 20 does), and with limited stock it can fail where another combination would succeed, so plan the notes first and reject an amount that cannot be made before touching the account.\n- The `BankService` interface hides the real bank; the ATM debits first, dispenses second, and reverses the debit if dispensing fails. Give each withdrawal a transaction id so a retry or a reversal is idempotent, and log it so a crash between the two steps can be reconciled."
   },
   "lld/ecommerce-cart": {
    "title": "E-commerce Cart",
@@ -5520,7 +5682,7 @@
     "The cart should not know how a discount is calculated: give that to a rule.",
     "An order is a snapshot: copy the prices at checkout, do not point at live products."
    ],
-   "reference": "```mermaid\nclassDiagram\n  class Cart { items +add(product, qty) +remove(product) +total() Money +checkout() Order }\n  class CartItem { product quantity }\n  class DiscountRule { <<interface>> +apply(cart) Money }\n  class PercentageOff\n  class FixedAmountOff\n  class FreeShipping\n  class PricingService { +price(cart) PriceBreakdown }\n  class Order { lines total placedAt }\n  Cart o-- CartItem\n  DiscountRule <|-- PercentageOff\n  DiscountRule <|-- FixedAmountOff\n  DiscountRule <|-- FreeShipping\n  PricingService --> DiscountRule\n  Cart --> PricingService\n  Cart ..> Order\n```\n\n- `PricingService` composes tax, shipping and the coupon's `DiscountRule` (strategy); the cart only asks for a breakdown.\n- Checkout builds an `Order` from a snapshot of line prices and reserves stock in the same transaction.\n- Quantities and money are value objects that cannot be negative."
+   "reference": "```mermaid\nclassDiagram\n  class Cart { items +add(product, qty) +remove(product) +total() Money +checkout() Order }\n  class CartItem { product quantity }\n  class DiscountRule { <<interface>> +apply(cart) Money }\n  class PercentageOff\n  class FixedAmountOff\n  class FreeShipping\n  class PricingService { +price(cart) PriceBreakdown }\n  class TaxPolicy { <<interface>> +tax(cart) Money }\n  class ShippingPolicy { <<interface>> +shipping(cart) Money }\n  class Order { lines total placedAt }\n  Cart o-- CartItem\n  DiscountRule <|-- PercentageOff\n  DiscountRule <|-- FixedAmountOff\n  DiscountRule <|-- FreeShipping\n  PricingService --> DiscountRule\n  PricingService --> TaxPolicy\n  PricingService --> ShippingPolicy\n  Order *-- OrderLine\n  Cart --> PricingService\n  Cart ..> Order\n```\n\n- `PricingService` composes tax, shipping and the coupon's `DiscountRule` (strategy); the cart only asks for a breakdown.\n- Checkout re-prices the cart, and if the total differs from what the shopper last saw it stops and asks them to confirm, so \"checkout equals what was shown\" holds. It then builds an `Order` from a snapshot of the line prices (`OrderLine`) and reserves stock: in the same transaction if stock lives in the same database, otherwise as a reservation that is released if the order cannot be completed.\n- Quantities and money are value objects that cannot be negative."
   },
   "lld/elevator-system": {
    "title": "Elevator System",
@@ -5552,7 +5714,7 @@
     "An elevator is a small state machine: idle, moving up, moving down, doors open.",
     "The scheduler that picks an elevator is the part most likely to change: make it replaceable."
    ],
-   "reference": "### Classes\n`ElevatorController` (receives hall calls), `Elevator` (state, current floor, a sorted set of stops), `Request`, `Direction`, `Door`, `DispatchStrategy`.\n\n```mermaid\nstateDiagram-v2\n  [*] --> Idle\n  Idle --> MovingUp: stop above\n  Idle --> MovingDown: stop below\n  MovingUp --> DoorsOpen: reached a stop\n  MovingDown --> DoorsOpen: reached a stop\n  DoorsOpen --> Idle: no more stops\n  DoorsOpen --> MovingUp: stops above\n  DoorsOpen --> MovingDown: stops below\n```\n\n### Why it works\n- `DispatchStrategy` (nearest car, least loaded, SCAN-style) is a strategy chosen by the controller, so scheduling changes are isolated.\n- Each elevator keeps up-stops and down-stops and serves the current direction first (the \"elevator algorithm\"), which avoids starvation.\n- State is explicit, so out-of-service is a state that dispatch skips.\n- Hall calls go to the controller; car calls go straight to the elevator."
+   "reference": "### Classes\n`ElevatorController` (receives hall calls), `Elevator` (state, current floor, a sorted set of stops), `Request`, `Direction`, `Door`, `DispatchStrategy`.\n\n```mermaid\nclassDiagram\n  class ElevatorController {\n    +hallCall(floor, direction)\n    +setOutOfService(elevatorId)\n  }\n  class Elevator {\n    state\n    currentFloor\n    upStops\n    downStops\n    +carCall(floor)\n    +addStop(request)\n    +step()\n  }\n  class Request {\n    floor\n    direction\n  }\n  class Direction {\n    <<enumeration>>\n    UP\n    DOWN\n    NONE\n  }\n  class Door {\n    +open()\n    +close()\n  }\n  class DispatchStrategy {\n    <<interface>>\n    +choose(elevators, request) Elevator\n  }\n  ElevatorController o-- Elevator\n  ElevatorController --> DispatchStrategy\n  ElevatorController ..> Request\n  Elevator *-- Door\n  Elevator --> Direction\n  Request --> Direction\n  DispatchStrategy <|.. NearestCarStrategy\n  DispatchStrategy <|.. LeastLoadedStrategy\n```\n\n```mermaid\nstateDiagram-v2\n  [*] --> Idle\n  Idle --> OutOfService: fault or maintenance\n  OutOfService --> Idle: back in service\n  Idle --> MovingUp: stop above\n  Idle --> MovingDown: stop below\n  MovingUp --> DoorsOpen: reached a stop\n  MovingDown --> DoorsOpen: reached a stop\n  DoorsOpen --> Idle: no more stops\n  DoorsOpen --> MovingUp: stops above\n  DoorsOpen --> MovingDown: stops below\n```\n\n### Why it works\n- `DispatchStrategy` (nearest car, least loaded, SCAN-style) is a strategy chosen by the controller, so scheduling changes are isolated.\n- Each elevator keeps up-stops and down-stops and serves the current direction first (the \"elevator algorithm\"), which avoids starvation.\n- State is explicit, so out-of-service is a state that dispatch skips; when a car goes out of service its pending hall calls are given back to the controller to dispatch again, and the car is only taken out between stops with the doors closed.\n- Hall calls, car calls and the movement loop run concurrently, so each elevator's stop sets are touched by one thread at a time (a lock, or one event loop per elevator). A nearest-car strategy can starve a far floor on a busy building; SCAN-style service inside each car and an age bonus in dispatch are common remedies.\n- Hall calls go to the controller; car calls go straight to the elevator."
   },
   "lld/food-delivery": {
    "title": "Food Delivery System",
@@ -5593,7 +5755,7 @@
     "The order state machine can be an enum with a table of allowed transitions, or one class per state. Both work; decide which suits the number of states and the behaviour attached to each.",
     "Assigning a partner is a claim: the check that the partner is free and the change to busy must happen as one atomic step."
    ],
-   "reference": "This is one reasonable design, not the only valid one. The alternatives are named where they matter.\n\n### Classes\n- `Restaurant` owns a `Menu`, a list of `MenuItem` (id, name, price as `Money`, available).\n- `Customer` and `DeliveryPartner` (id, location, status: AVAILABLE, ASSIGNED, OFFLINE).\n- `Order` is the aggregate: customer, restaurant, a list of `OrderLine` (item name, unit price copied at order time, quantity), a status, an optional partner, and a price breakdown. It enforces its own state transitions.\n- `OrderService` is the facade used by the API: `place`, `accept`, `markReady`, `cancel`, `deliver`.\n- `PricingEngine` applies an ordered list of `PricingRule` objects (strategy). Rules: `DeliveryFeeRule`, `PercentageDiscount`, `FlatDiscount`, `FreeDeliveryAbove`.\n- `PartnerAssigner` (strategy interface) with `NearestPartnerAssigner`; a `PartnerPool` holds the partners and does the atomic claim.\n- `OrderEventListener` (observer) with `NotificationListener`; `OrderService` publishes an event on every transition.\n\n```mermaid\nclassDiagram\n  class OrderService {\n    +place(customer, restaurant, items) Order\n    +accept(orderId)\n    +markReady(orderId)\n    +cancel(orderId)\n    +deliver(orderId)\n  }\n  class Order {\n    id\n    status\n    lines\n    breakdown\n    +transitionTo(newStatus)\n  }\n  class OrderLine {\n    itemName\n    unitPrice\n    quantity\n  }\n  class OrderStatus {\n    <<enumeration>>\n    PLACED\n    ACCEPTED\n    PREPARING\n    READY\n    PICKED_UP\n    DELIVERED\n    CANCELLED\n    REJECTED\n  }\n  class Restaurant {\n    menu\n    +isOpen() bool\n  }\n  class MenuItem {\n    name\n    price\n    available\n  }\n  class Customer\n  class DeliveryPartner {\n    location\n    status\n  }\n  class PricingEngine {\n    +price(lines, rules) PriceBreakdown\n  }\n  class PricingRule {\n    <<interface>>\n    +apply(running) Money\n  }\n  class PartnerAssigner {\n    <<interface>>\n    +assign(order, pool) DeliveryPartner\n  }\n  class PartnerPool {\n    +tryClaim(partnerId) bool\n    +release(partnerId)\n  }\n  class OrderEventListener {\n    <<interface>>\n    +onEvent(order, from, to)\n  }\n  OrderService --> Order\n  OrderService --> PricingEngine\n  OrderService --> PartnerAssigner\n  OrderService --> OrderEventListener\n  Order *-- OrderLine\n  Order --> OrderStatus\n  Order --> Customer\n  Order --> Restaurant\n  Order --> DeliveryPartner\n  Restaurant o-- MenuItem\n  PricingEngine o-- PricingRule\n  PricingRule <|.. PercentageDiscount\n  PricingRule <|.. FlatDiscount\n  PricingRule <|.. DeliveryFeeRule\n  PartnerAssigner <|.. NearestPartnerAssigner\n  NearestPartnerAssigner --> PartnerPool\n  OrderEventListener <|.. NotificationListener\n```\n\n### Order state machine\nPLACED -> ACCEPTED (restaurant) -> PREPARING (restaurant) -> READY (restaurant) -> PICKED_UP (partner) -> DELIVERED (partner).\nPLACED -> REJECTED (restaurant, or timeout). PLACED, ACCEPTED -> CANCELLED (customer); PREPARING -> CANCELLED only by the restaurant or support, with a cancellation fee. After PICKED_UP there is no cancellation, only a refund process outside this model.\n\n`Order.transitionTo` looks the move up in a table `Map<OrderStatus, Set<OrderStatus>>` and throws on an illegal one. That keeps every rule in one place and gives the unit test a single table to cover.\n\n### Pricing as a strategy pipeline\n`PricingEngine` starts from the sum of `unitPrice * quantity` and passes the running amount through each rule in a defined order (discounts first, then fees, then tax, for example). Order matters: a 10% discount before the delivery fee is not the same as after it, so the order is part of the contract and is tested. The breakdown (subtotal, discounts, fee, total) is stored on the order so it can be shown and audited without recomputing. Money is an integer number of minor units, never a float.\n\n### Assignment and concurrency\n`NearestPartnerAssigner` ranks available partners by distance and tries to `tryClaim` the best one. `tryClaim` is an atomic compare-and-set from AVAILABLE to ASSIGNED (a lock per partner, a CAS on the status, or a conditional UPDATE in a database). If the claim fails because another order got there first, it tries the next candidate. If nobody is free the order stays READY and is retried by a timer. If the partner declines or times out, the partner is released and the assigner runs again with that partner excluded.\n\n### Trade-offs and alternatives\n- **State machine: table vs State pattern.** A transition table is the smallest thing that works and is easy to test. One class per state is worthwhile when each state has significant different behaviour (for example, different cancellation fees and side effects). With about eight states and little per-state behaviour, the table is usually enough; the State pattern is the reasonable choice if behaviour grows.\n- **Price snapshot vs live reference.** Copying the price onto the order line costs a little duplication but protects history. The alternative, versioned menu items, is heavier and only pays off if you also need menu history for other reasons.\n- **Discounts: strategy list vs decorator vs chain of responsibility.** A list of rules is simplest. Decorators suit stacking where each wraps the next; a chain suits rules that can stop the pipeline (for example an exclusive coupon). Pick based on whether rules interact.\n- **Assign at accept time or at ready time.** Assigning early cuts waiting but may leave the partner idle at the restaurant; assigning late reduces idle time but may delay pickup. Real systems often assign when the estimated preparation time is close to the travel time.\n- **Push to one partner vs offer to several.** Offering to one partner at a time is simple and avoids conflicts; broadcasting to a few and taking the first accept is faster but needs the atomic claim above.\n- **Events: synchronous observers vs a message queue.** In-process listeners are fine for this exercise; in production notifications go through a queue so a slow SMS provider cannot slow down a state change.\n- **Out of scope but worth naming:** batching several orders per partner, surge pricing, refunds, restaurant opening hours, and persisting the order with optimistic locking (a version column) so two concurrent transitions cannot both succeed."
+   "reference": "This is one reasonable design, not the only valid one. The alternatives are named where they matter.\n\n### Classes\n- `Restaurant` owns a `Menu`, a list of `MenuItem` (id, name, price as `Money`, available).\n- `Customer` and `DeliveryPartner` (id, location, status: AVAILABLE, ASSIGNED, OFFLINE).\n- `Order` is the aggregate: customer, restaurant, a list of `OrderLine` (item name, unit price copied at order time, quantity), a status, an optional partner, and a price breakdown. It enforces its own state transitions.\n- `OrderService` is the facade used by the API: `place`, `accept`, `markReady`, `cancel`, `deliver`.\n- `PricingEngine` applies an ordered list of `PricingRule` objects (strategy). Rules: `DeliveryFeeRule`, `PercentageDiscount`, `FlatDiscount`, `FreeDeliveryAbove`.\n- `PartnerAssigner` (strategy interface) with `NearestPartnerAssigner`; a `PartnerPool` holds the partners and does the atomic claim.\n- `OrderEventListener` (observer) with `NotificationListener`; `OrderService` publishes an event on every transition.\n\n```mermaid\nclassDiagram\n  class OrderService {\n    +place(customer, restaurant, items) Order\n    +accept(orderId)\n    +markReady(orderId)\n    +cancel(orderId)\n    +deliver(orderId)\n  }\n  class Order {\n    id\n    status\n    lines\n    breakdown\n    +transitionTo(newStatus)\n  }\n  class OrderLine {\n    itemName\n    unitPrice\n    quantity\n  }\n  class OrderStatus {\n    <<enumeration>>\n    PLACED\n    ACCEPTED\n    PREPARING\n    READY\n    PICKED_UP\n    DELIVERED\n    CANCELLED\n    REJECTED\n  }\n  class Restaurant {\n    menu\n    +isOpen() bool\n  }\n  class MenuItem {\n    name\n    price\n    available\n  }\n  class Customer\n  class DeliveryPartner {\n    location\n    status\n  }\n  class PricingEngine {\n    +price(lines, rules) PriceBreakdown\n  }\n  class PricingRule {\n    <<interface>>\n    +apply(running) Money\n  }\n  class PartnerAssigner {\n    <<interface>>\n    +assign(order, pool) DeliveryPartner\n  }\n  class PartnerPool {\n    +tryClaim(partnerId) bool\n    +release(partnerId)\n  }\n  class OrderEventListener {\n    <<interface>>\n    +onEvent(order, from, to)\n  }\n  OrderService --> Order\n  OrderService --> PricingEngine\n  OrderService --> PartnerAssigner\n  OrderService --> OrderEventListener\n  Order *-- OrderLine\n  Order --> OrderStatus\n  Order --> Customer\n  Order --> Restaurant\n  Order --> DeliveryPartner\n  Restaurant *-- Menu\n  Menu o-- MenuItem\n  PartnerPool o-- DeliveryPartner\n  PricingEngine o-- PricingRule\n  PricingRule <|.. PercentageDiscount\n  PricingRule <|.. FlatDiscount\n  PricingRule <|.. DeliveryFeeRule\n  PricingRule <|.. FreeDeliveryAbove\n  PartnerAssigner <|.. NearestPartnerAssigner\n  NearestPartnerAssigner --> PartnerPool\n  OrderEventListener <|.. NotificationListener\n```\n\n### Order state machine\nPLACED -> ACCEPTED (restaurant) -> PREPARING (restaurant) -> READY (restaurant) -> PICKED_UP (partner) -> DELIVERED (partner).\nPLACED -> REJECTED (restaurant, or timeout). PLACED, ACCEPTED -> CANCELLED (customer); PREPARING -> CANCELLED only by the restaurant or support, with a cancellation fee. READY -> CANCELLED is a policy choice (a partner may already be on the way): allow it only for support or the restaurant, release the partner, and decide who pays. After PICKED_UP there is no cancellation, only a refund process outside this model. REJECTED, CANCELLED and DELIVERED are terminal.\n\n`Order.transitionTo` looks the move up in a table `Map<OrderStatus, Set<OrderStatus>>` and throws on an illegal one. That keeps every rule in one place and gives the unit test a single table to cover. The table says which moves exist; who may trigger each one (restaurant, partner, customer, support) is a separate check in `OrderService`, because the same target state can be legal for one actor and not another.\n\n### Pricing as a strategy pipeline\n`PricingEngine` starts from the sum of `unitPrice * quantity` and passes the running amount through each rule in a defined order (discounts first, then fees, then tax, for example). Order matters: a 10% discount before the delivery fee is not the same as after it, so the order is part of the contract and is tested. The breakdown (subtotal, discounts, fee, total) is stored on the order so it can be shown and audited without recomputing. Money is an integer number of minor units, never a float.\n\n### Assignment and concurrency\n`NearestPartnerAssigner` ranks available partners by distance and tries to `tryClaim` the best one. `tryClaim` is an atomic compare-and-set from AVAILABLE to ASSIGNED (a lock per partner, a CAS on the status, or a conditional UPDATE in a database). If the claim fails because another order got there first, it tries the next candidate. If nobody is free the order stays READY and is retried by a timer. If the partner declines or times out, the partner is released and the assigner runs again with that partner excluded. A partner must also be released when the order is cancelled or delivered, otherwise they stay ASSIGNED forever; and assignment must not race with cancellation, so the order's own status change (guarded by the same transition check, or a version column) decides which of the two wins.\n\n### Trade-offs and alternatives\n- **State machine: table vs State pattern.** A transition table is the smallest thing that works and is easy to test. One class per state is worthwhile when each state has significant different behaviour (for example, different cancellation fees and side effects). With about eight states and little per-state behaviour, the table is usually enough; the State pattern is the reasonable choice if behaviour grows.\n- **Price snapshot vs live reference.** Copying the price onto the order line costs a little duplication but protects history. The alternative, versioned menu items, is heavier and only pays off if you also need menu history for other reasons.\n- **Discounts: strategy list vs decorator vs chain of responsibility.** A list of rules is simplest. Decorators suit stacking where each wraps the next; a chain suits rules that can stop the pipeline (for example an exclusive coupon). Pick based on whether rules interact.\n- **Assign at accept time or at ready time.** Assigning early cuts waiting but may leave the partner idle at the restaurant; assigning late reduces idle time but may delay pickup. Real systems often assign when the estimated preparation time is close to the travel time.\n- **Push to one partner vs offer to several.** Offering to one partner at a time is simple and avoids conflicts; broadcasting to a few and taking the first accept is faster but needs the atomic claim above.\n- **Events: synchronous observers vs a message queue.** In-process listeners are fine for this exercise; in production notifications go through a queue so a slow SMS provider cannot slow down a state change.\n- **Out of scope but worth naming:** batching several orders per partner, surge pricing, refunds, restaurant opening hours, and persisting the order with optimistic locking (a version column) so two concurrent transitions cannot both succeed."
   },
   "lld/library-management": {
    "title": "Library Management",
@@ -5624,7 +5786,7 @@
     "A \"Book\" and a \"BookCopy\" are different things: reservations attach to the title, loans to the copy.",
     "Notifications are a natural fit for the observer pattern."
    ],
-   "reference": "```mermaid\nclassDiagram\n  class Book { isbn title authors }\n  class BookCopy { id status }\n  class Member { id name loans }\n  class Loan { copy member dueDate returnedAt }\n  class Reservation { book member }\n  class Library { +borrow(member, copy) Loan +return(loan) Fine +reserve(member, book) }\n  class FinePolicy { <<interface>> +fine(loan, returnDate) Money }\n  class Notifier { <<interface>> +notify(member, message) }\n  Book \"1\" o-- \"*\" BookCopy\n  Member \"1\" o-- \"*\" Loan\n  Loan --> BookCopy\n  Library --> FinePolicy\n  Library --> Notifier\n  Library ..> Reservation\n```\n\n- `Library` coordinates; `Loan` holds the dates; a returned copy checks the title's reservation queue and tells the first member through `Notifier` (observer).\n- `FinePolicy` is a strategy (per-day rate, capped fine, free for staff).\n- A member's loan limit is checked in `borrow`, not scattered through callers."
+   "reference": "```mermaid\nclassDiagram\n  class Book { isbn title authors }\n  class BookCopy { id status }\n  class Member { id name loans }\n  class Loan { copy member dueDate returnedAt }\n  class Reservation { book member }\n  class Library { +borrow(member, copy) Loan +return(loan) Fine +reserve(member, book) }\n  class FinePolicy { <<interface>> +fine(loan, returnDate) Money }\n  class Notifier { <<interface>> +notify(member, message) }\n  Book \"1\" o-- \"*\" BookCopy\n  Member \"1\" o-- \"*\" Loan\n  Loan --> BookCopy\n  Library --> FinePolicy\n  Library --> Notifier\n  Library ..> Reservation\n  Loan --> Member\n  Reservation --> Book\n  Reservation --> Member\n```\n\n- `Library` coordinates; `Loan` holds the dates; a returned copy checks the title's reservation queue and tells the first member through `Notifier` (observer).\n- `FinePolicy` is a strategy (per-day rate, capped fine, free for staff).\n- A member's loan limit is checked in `borrow`, not scattered through callers.\n- Two desks may borrow the same copy at once, so `borrow` must claim the copy atomically (check status and set it to BORROWED as one step). A copy returned for a reservation is held for the first member in the queue for a limited time, then released to the next, so a copy does not sit on the shelf unclaimed and a walk-in does not jump the queue."
   },
   "lld/movie-ticket-booking": {
    "title": "Movie Ticket Booking",
@@ -5665,7 +5827,7 @@
     "A hold is a record with an owner, a set of seats and an expiry time. Expiry can be lazy (checked when read) or active (a timer sweeps), and you will probably want both.",
     "Think about the order of operations around payment: hold, charge, confirm, and what each failure leaves behind."
    ],
-   "reference": "This is one reasonable design. Where a decision has a reasonable alternative, it is named below.\n\n### Classes\n- `Theatre` owns `Screen`s; `Screen` owns `Seat`s (row, number, category). These are static layout data.\n- `Movie` and `Show` (movie, screen, start time, price per category). `Show` is the unit of consistency: it owns the seat inventory for that show.\n- `ShowSeats` (inside `Show`) maps seat id to a state: AVAILABLE, HELD (hold id, expiry) or BOOKED (booking id).\n- `SeatHold` (id, user, show, seats, expiresAt, status).\n- `Booking` (id, user, show, seats, amount, status: CONFIRMED, CANCELLED, payment reference).\n- `BookingService` is the facade: `hold`, `confirm`, `cancel`, `expireHolds`.\n- `PaymentGateway` (interface) with an adapter per provider; `PricingStrategy` (interface) so a matinee or a member discount is a new class.\n- `Clock` (interface) injected so expiry can be tested without sleeping.\n\n```mermaid\nclassDiagram\n  class BookingService {\n    +hold(userId, showId, seatIds) SeatHold\n    +confirm(holdId, paymentToken) Booking\n    +cancel(bookingId)\n    +expireHolds()\n  }\n  class Theatre\n  class Screen\n  class Seat {\n    row\n    number\n    category\n  }\n  class Movie\n  class Show {\n    startTime\n    +tryHold(seatIds, holdId, expiresAt) bool\n    +book(seatIds, holdId, bookingId) bool\n    +release(holdId)\n    +freeSeats() list\n  }\n  class SeatState {\n    <<enumeration>>\n    AVAILABLE\n    HELD\n    BOOKED\n  }\n  class SeatHold {\n    id\n    userId\n    seatIds\n    expiresAt\n    status\n  }\n  class Booking {\n    id\n    seatIds\n    amount\n    status\n  }\n  class PaymentGateway {\n    <<interface>>\n    +charge(amount, token, idempotencyKey) PaymentResult\n    +refund(paymentRef)\n  }\n  class PricingStrategy {\n    <<interface>>\n    +price(show, seats) Money\n  }\n  class Clock {\n    <<interface>>\n    +now() Instant\n  }\n  Theatre o-- Screen\n  Screen o-- Seat\n  Show --> Movie\n  Show --> Screen\n  Show --> SeatState\n  BookingService --> Show\n  BookingService --> SeatHold\n  BookingService --> Booking\n  BookingService --> PaymentGateway\n  BookingService --> PricingStrategy\n  BookingService --> Clock\n  Booking --> Show\n```\n\n### Seat state machine\nAVAILABLE -> HELD when a user selects the seat (only if every requested seat is AVAILABLE, or HELD with an expiry already in the past).\nHELD -> BOOKED when the owner of the hold confirms with a successful payment before expiry.\nHELD -> AVAILABLE when the owner releases, payment fails, or the hold expires.\nBOOKED -> AVAILABLE only through cancellation.\n\n### All-or-nothing and concurrency\n`Show.tryHold` runs under a lock owned by that show (a mutex in one process, or a database row lock or conditional update in a real system): it checks that every requested seat is free, and only then marks all of them HELD. Checking and marking one seat at a time would let two overlapping requests each take part of the set. One lock per show means a popular show serialises its own bookings but never blocks other shows.\n\nExpiry has two layers: a seat whose hold has expired is treated as available when read (lazy), and a periodic `expireHolds` sweep (or a delayed job, or a Redis key TTL) frees them and keeps the free-seat listing cheap (active).\n\n### Payment ordering and failures\n1. `hold`: seats become HELD for N minutes. Return the hold id and the expiry to the client.\n2. `confirm`: re-check that the hold still exists, belongs to the user and has not expired.\n3. Charge using the hold id as the idempotency key, so a retry cannot charge twice.\n4. On success, call `Show.book`, which moves the seats to BOOKED only if they are still held by this hold, and create the booking.\n5. On failure, release the hold.\n\nFailure cases. Payment fails: release the hold. The charge times out with an unknown result: keep the seats held a little longer and ask the gateway for the status using the idempotency key, rather than guessing. Payment succeeds but the hold already expired and another user took the seats: refund automatically and tell the user; to make this rare, add a short grace period or extend the hold when a payment starts. The booking write fails after a successful charge: a retry with the same key is safe, and a reconciliation job compares gateway charges with bookings.\n\n### Trade-offs and alternatives\n- **Lock per show vs per seat.** One lock per show is simple and enough for hundreds of seats. Per-seat locks give more parallelism but need ordered acquisition to avoid deadlock; they rarely matter at this size.\n- **Pessimistic lock vs optimistic version check.** In a database, `SELECT ... FOR UPDATE` on the show's seat rows, or a conditional `UPDATE ... WHERE state = 'AVAILABLE'` that checks the affected row count, are both reasonable. Optimistic retries are cheap when conflicts are rare but wasteful for a hot release of a blockbuster.\n- **Hold in memory vs in Redis vs in the database.** In memory is fine for the exercise; with several servers the hold must be shared, so Redis with a TTL, or a row with an `expires_at` column, is typical. The database as the source of truth is the safest; Redis is faster but needs care about losing holds on failover.\n- **Seat status on the Seat vs per show.** A boolean on `Seat` links the 7 pm and 9 pm shows incorrectly; keep state per (show, seat).\n- **Lazy vs active expiry.** Lazy alone is correct but leaves stale counts; active alone can lag and allow a short window where a seat looks held. Using both is cheap.\n- **Out of scope but worth naming:** waiting rooms for very hot releases, group bookings that must be adjacent, seat maps with best-available selection, and refunds policy by time before the show."
+   "reference": "This is one reasonable design. Where a decision has a reasonable alternative, it is named below.\n\n### Classes\n- `Theatre` owns `Screen`s; `Screen` owns `Seat`s (row, number, category). These are static layout data.\n- `Movie` and `Show` (movie, screen, start time, price per category). `Show` is the unit of consistency: it owns the seat inventory for that show.\n- `ShowSeats` (inside `Show`) maps seat id to a state: AVAILABLE, HELD (hold id, expiry) or BOOKED (booking id).\n- `SeatHold` (id, user, show, seats, expiresAt, status).\n- `Booking` (id, user, show, seats, amount, status: CONFIRMED, CANCELLED, payment reference).\n- `BookingService` is the facade: `hold`, `confirm`, `cancel`, `expireHolds`.\n- `PaymentGateway` (interface) with an adapter per provider; `PricingStrategy` (interface) so a matinee or a member discount is a new class.\n- `Clock` (interface) injected so expiry can be tested without sleeping.\n\n```mermaid\nclassDiagram\n  class BookingService {\n    +hold(userId, showId, seatIds) SeatHold\n    +confirm(holdId, paymentToken) Booking\n    +cancel(bookingId)\n    +expireHolds()\n  }\n  class Theatre\n  class Screen\n  class Seat {\n    row\n    number\n    category\n  }\n  class Movie\n  class Show {\n    startTime\n    +tryHold(seatIds, holdId, expiresAt, now) bool\n    +book(seatIds, holdId, bookingId) bool\n    +release(holdId)\n    +freeSeats(now) list\n  }\n  class ShowSeats {\n    seatId to state\n  }\n  class SeatState {\n    <<enumeration>>\n    AVAILABLE\n    HELD\n    BOOKED\n  }\n  class SeatHold {\n    id\n    userId\n    seatIds\n    expiresAt\n    status\n  }\n  class Booking {\n    id\n    seatIds\n    amount\n    status\n  }\n  class PaymentGateway {\n    <<interface>>\n    +charge(amount, token, idempotencyKey) PaymentResult\n    +refund(paymentRef)\n  }\n  class PricingStrategy {\n    <<interface>>\n    +price(show, seats) Money\n  }\n  class Clock {\n    <<interface>>\n    +now() Instant\n  }\n  Theatre o-- Screen\n  Screen o-- Seat\n  Show --> Movie\n  Show --> Screen\n  Show *-- ShowSeats\n  ShowSeats --> SeatState\n  ShowSeats --> Seat\n  BookingService --> Show\n  BookingService --> SeatHold\n  BookingService --> Booking\n  BookingService --> PaymentGateway\n  BookingService --> PricingStrategy\n  BookingService --> Clock\n  Booking --> Show\n```\n\n### Seat state machine\nAVAILABLE -> HELD when a user selects the seat (only if every requested seat is AVAILABLE, or HELD with an expiry already in the past).\nHELD -> BOOKED when the owner of the hold confirms with a successful payment before expiry.\nHELD -> AVAILABLE when the owner releases, payment fails, or the hold expires.\nBOOKED -> AVAILABLE only through cancellation.\n\n### All-or-nothing and concurrency\n`Show.tryHold` runs under a lock owned by that show (a mutex in one process, or a database row lock or conditional update in a real system): it checks that every requested seat is free, and only then marks all of them HELD. Checking and marking one seat at a time would let two overlapping requests each take part of the set. One lock per show means a popular show serialises its own bookings but never blocks other shows.\n\nExpiry has two layers: a seat whose hold has expired is treated as available when read (lazy), and a periodic `expireHolds` sweep (or a delayed job, or a Redis key TTL) frees them and keeps the free-seat listing cheap (active).\n\n### Payment ordering and failures\n1. `hold`: seats become HELD for N minutes. Return the hold id and the expiry to the client.\n2. `confirm`: re-check that the hold still exists, belongs to the user and has not expired.\n3. Charge using the hold id as the idempotency key, so a retry cannot charge twice.\n4. On success, call `Show.book`, which moves the seats to BOOKED only if they are still held by this hold, and create the booking. If the hold's expiry has passed but nobody else has taken the seats, `book` can still succeed (a late confirm is better than a refund); if any seat is gone, the whole booking fails and the charge is refunded.\n5. On failure, release the hold.\n\nFailure cases. Payment fails: release the hold. The charge times out with an unknown result: keep the seats held a little longer and ask the gateway for the status using the idempotency key, rather than guessing. Payment succeeds but the hold already expired and another user took the seats: refund automatically and tell the user; to make this rare, add a short grace period or extend the hold when a payment starts. The booking write fails after a successful charge: a retry with the same key is safe, and a reconciliation job compares gateway charges with bookings.\n\n### Trade-offs and alternatives\n- **Lock per show vs per seat.** One lock per show is simple and enough for hundreds of seats. Per-seat locks give more parallelism but need ordered acquisition to avoid deadlock; they rarely matter at this size.\n- **Pessimistic lock vs optimistic version check.** In a database, `SELECT ... FOR UPDATE` on the requested seat rows (taken in a consistent order, for example by seat id, so two requests cannot deadlock), or one conditional `UPDATE ... WHERE state = 'AVAILABLE' OR hold expired` inside a transaction that is rolled back unless the affected row count equals the number of seats requested, are both reasonable. Optimistic retries are cheap when conflicts are rare but wasteful for a hot release of a blockbuster.\n- **Hold in memory vs in Redis vs in the database.** In memory is fine for the exercise; with several servers the hold must be shared, so Redis with a TTL (a multi-seat hold must still be all-or-nothing, for example in one Lua script), or a row with an `expires_at` column, is typical. The database as the source of truth is the safest; Redis is faster but needs care about losing holds on failover.\n- **Seat status on the Seat vs per show.** A boolean on `Seat` links the 7 pm and 9 pm shows incorrectly; keep state per (show, seat).\n- **Lazy vs active expiry.** Lazy alone is correct but leaves stale counts; active alone can lag and allow a short window where a seat looks held. Using both is cheap.\n- **Out of scope but worth naming:** waiting rooms for very hot releases, group bookings that must be adjacent, seat maps with best-available selection, and refunds policy by time before the show."
   },
   "lld/parking-lot": {
    "title": "Parking Lot",
@@ -5697,7 +5859,7 @@
     "Separate the thing that finds a spot (an allocation strategy) from the thing that prices a stay (a pricing strategy).",
     "A ticket is the record that links a vehicle, a spot and an entry time."
    ],
-   "reference": "### Classes\n`Vehicle` (abstract, with `Car`, `Motorbike`, `Truck`), `ParkingSpot` (size, level, occupied), `Level`, `ParkingLot` (facade), `Ticket`, `SpotAllocator` (strategy), `PricingStrategy` (strategy), `Payment`.\n\n```mermaid\nclassDiagram\n  class ParkingLot { +park(Vehicle) Ticket +exit(Ticket) Payment }\n  class Level { +findSpot(size) ParkingSpot }\n  class ParkingSpot { size occupied +assign() +release() }\n  class Ticket { vehicle spot entryTime }\n  class SpotAllocator { <<interface>> +allocate(levels, vehicle) ParkingSpot }\n  class PricingStrategy { <<interface>> +fee(ticket, exitTime) Money }\n  class Vehicle { <<abstract>> plate size() }\n  Vehicle <|-- Car\n  Vehicle <|-- Motorbike\n  Vehicle <|-- Truck\n  ParkingLot o-- Level\n  Level o-- ParkingSpot\n  ParkingLot --> SpotAllocator\n  ParkingLot --> PricingStrategy\n  ParkingLot ..> Ticket\n```\n\n### Why it works\n- `ParkingLot` is the single entry point (a facade); gates call `park` and `exit`.\n- Allocation and pricing are **strategies**, so a new pricing rule or a \"closest to the exit\" allocator is a new class, not an edit (open/closed).\n- Allocation takes a lock per spot (or per level) so two gates cannot assign the same spot.\n- A vehicle reports its required size; spots do not know about vehicle types."
+   "reference": "### Classes\n`Vehicle` (abstract, with `Car`, `Motorbike`, `Truck`), `ParkingSpot` (size, level, occupied), `Level`, `ParkingLot` (facade), `Ticket`, `SpotAllocator` (strategy), `PricingStrategy` (strategy), `Payment`.\n\n```mermaid\nclassDiagram\n  class ParkingLot { +park(Vehicle) Ticket +exit(Ticket) Payment }\n  class Level { +findSpot(size) ParkingSpot }\n  class ParkingSpot { size occupied +assign() +release() }\n  class Ticket { vehicle spot entryTime }\n  class SpotAllocator { <<interface>> +allocate(levels, vehicle) ParkingSpot }\n  class PricingStrategy { <<interface>> +fee(ticket, exitTime) Money }\n  class Vehicle { <<abstract>> plate size() }\n  Vehicle <|-- Car\n  Vehicle <|-- Motorbike\n  Vehicle <|-- Truck\n  ParkingLot o-- Level\n  Level o-- ParkingSpot\n  ParkingLot --> SpotAllocator\n  ParkingLot --> PricingStrategy\n  ParkingLot ..> Ticket\n  ParkingLot ..> Payment\n  Ticket --> Vehicle\n  Ticket --> ParkingSpot\n```\n\n### Why it works\n- `ParkingLot` is the single entry point (a facade); gates call `park` and `exit`.\n- Allocation and pricing are **strategies**, so a new pricing rule or a \"closest to the exit\" allocator is a new class, not an edit (open/closed).\n- Allocation must be an atomic claim: `assign()` is a compare-and-set (or runs under a lock per level), and the allocator tries the next free spot if it loses the race, so two gates cannot assign the same spot.\n- A vehicle reports its required size; spots do not know about vehicle types."
   }
  }
 }

@@ -4,6 +4,7 @@ import { test, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import app from '../app.js';
 import { LIMITS } from '../../webapp/src/lib/workspace/kinds.js';
+import { DROP_REFUSAL, childrenOf, planDrop } from '../../webapp/src/lib/workspace/tree.js';
 import { createEnv, signedInAs } from './helpers.js';
 
 let env;
@@ -247,4 +248,145 @@ test('deleting a plan, a diagram or a list removes what it kept; deleting an acc
   assert.equal(count('workspace_pages', 'user_id = ?', 'user-grace@example.com'), 1);
   assert.equal(count('workspace_meta', 'user_id = ?', 'user-grace@example.com'), 1);
   assert.equal(count('revision_items', 'user_id = ?', 'user-grace@example.com'), 1);
+});
+
+// ------------------------------------------------------------------------------------------------ a drawn diagram
+const DRAWING = {
+  nodes: [
+    { id: 'n1', label: 'Client', shape: 'circle', x: 40, y: 40 },
+    { id: 'n2', label: 'Is it valid?', shape: 'decision', x: 240, y: 40 },
+    { id: 'n3', label: 'Users "DB"', shape: 'database', x: 480, y: 40 }
+  ],
+  edges: [
+    { id: 'e1', from: 'n1', to: 'n2', label: '', dashed: false },
+    { id: 'e2', from: 'n2', to: 'n3', label: 'yes', dashed: true }
+  ]
+};
+const DRAWN_SOURCE = 'flowchart LR\n  n1(("Client"))\n  n2{"Is it valid?"}\n  n3[("Users #quot;DB#quot;")]\n  n1 --> n2\n  n2 -.->|"yes"| n3';
+
+test('a drawn diagram keeps its boxes and arrows, and the Mermaid source is written by the server from them', async () => {
+  const diagram = await create(ada, { kind: 'diagram', title: 'Login flow' });
+  const res = await call(ada, 'PUT', `/workspace/pages/${diagram.id}`, { data: { mode: 'visual', model: DRAWING, source: 'flowchart LR\n  not --> this' } });
+  assert.equal(res.status, 200);
+  const stored = (await json(await call(ada, 'GET', `/workspace/pages/${diagram.id}`))).data;
+  assert.deepEqual(stored, { source: DRAWN_SOURCE, mode: 'visual', model: DRAWING });
+  assert.deepEqual(JSON.parse(raw('SELECT data FROM workspace_meta WHERE page_id = ?', diagram.id)[0].data), stored);
+
+  // a drawing can be the first data a diagram gets
+  const born = await create(ada, { kind: 'diagram', title: 'Made drawn', data: { mode: 'visual', model: DRAWING } });
+  assert.equal(born.data.source, DRAWN_SOURCE);
+  assert.deepEqual(born.data.model, DRAWING);
+});
+
+test('a diagram goes back to text, and from then on is the person\'s own text again', async () => {
+  const diagram = await create(ada, { kind: 'diagram', title: 'Back to text', data: { mode: 'visual', model: DRAWING } });
+  const text = 'flowchart LR\n  A --> B';
+  assert.equal((await call(ada, 'PUT', `/workspace/pages/${diagram.id}`, { data: { source: text } })).status, 200);
+  assert.deepEqual((await json(await call(ada, 'GET', `/workspace/pages/${diagram.id}`))).data, { source: text }, 'no drawing, no mode');
+});
+
+test('a drawing that is malformed, unknown or too large is refused and the page is not changed', async () => {
+  const diagram = await create(ada, { kind: 'diagram', title: 'Careful', data: { mode: 'visual', model: DRAWING } });
+  const bad = [
+    { mode: 'visual' },
+    { mode: 'visual', model: 'drawing' },
+    { mode: 'visual', model: { nodes: [{ id: 'n1', label: 'A', shape: 'star', x: 0, y: 0 }], edges: [] } },
+    { mode: 'visual', model: { nodes: [{ id: 'n1', label: 'A', shape: 'rect', x: 'left', y: 0 }], edges: [] } },
+    { mode: 'visual', model: { nodes: [{ id: 'n1', label: 'A', shape: 'rect', x: LIMITS.diagramCoordMax + 1, y: 0 }], edges: [] } },
+    { mode: 'visual', model: { nodes: [{ id: 'n1', label: 'A', shape: 'rect', x: 0, y: 0 }], edges: [{ id: 'e1', from: 'n1', to: 'ghost' }] } },
+    { mode: 'visual', model: { nodes: Array.from({ length: LIMITS.diagramNodesMax + 1 }, (_, i) => ({ id: `n${i}`, label: 'A', shape: 'rect', x: 0, y: 0 })), edges: [] } },
+    { mode: 'visual', model: { nodes: Array.from({ length: LIMITS.diagramNodesMax }, (_, i) => ({ id: `n${i}`, label: '"'.repeat(LIMITS.diagramNodeLabelMax), shape: 'rect', x: 0, y: 0 })), edges: [] } },
+    { mode: 'sketch', source: 'x' }
+  ];
+  for (const data of bad) assert.equal((await call(ada, 'PUT', `/workspace/pages/${diagram.id}`, { data })).status, 400, JSON.stringify(data).slice(0, 80));
+  assert.equal((await call(ada, 'POST', '/workspace/pages', { kind: 'diagram', title: 'New', data: bad[2] })).status, 400, 'a new page is checked the same way');
+  assert.deepEqual((await json(await call(ada, 'GET', `/workspace/pages/${diagram.id}`))).data.model, DRAWING, 'unchanged');
+});
+
+test('what is kept of a drawing is only what is allowed: unknown keys are dropped and words are cleaned', async () => {
+  const diagram = await create(ada, { kind: 'diagram', title: 'Cleaned' });
+  const model = { admin: true, nodes: [{ id: 'n1', label: 'A\u0007B', shape: 'rect', x: 1.4, y: 2.6, onclick: 'alert(1)' }], edges: [] };
+  await call(ada, 'PUT', `/workspace/pages/${diagram.id}`, { data: { mode: 'visual', model } });
+  const stored = (await json(await call(ada, 'GET', `/workspace/pages/${diagram.id}`))).data;
+  assert.deepEqual(stored.model, { nodes: [{ id: 'n1', label: 'AB', shape: 'rect', x: 1, y: 3 }], edges: [] });
+  assert.equal(stored.source, 'flowchart LR\n  n1["AB"]');
+});
+
+test('another person cannot read or change a drawing; it is not found, and nothing changes', async () => {
+  const diagram = await create(ada, { kind: 'diagram', title: 'Private drawing', data: { mode: 'visual', model: DRAWING } });
+  assert.equal((await call(grace, 'GET', `/workspace/pages/${diagram.id}`)).status, 404);
+  assert.equal((await call(grace, 'PUT', `/workspace/pages/${diagram.id}`, { data: { source: 'x' } })).status, 404);
+  assert.equal((await call(null, 'PUT', `/workspace/pages/${diagram.id}`, { data: { source: 'x' } })).status, 401);
+  assert.deepEqual((await json(await call(ada, 'GET', `/workspace/pages/${diagram.id}`))).data.model, DRAWING);
+});
+
+// ------------------------------------------------------------------------------------------------ a page dropped in the tree
+// A drag in the tree saves through the same PUT as "Move to…", with the parent and the order that webapp/src/lib/workspace/tree.js
+// works out. The server needs nothing new for it: these tests put the two together.
+const shown = async (cookie) => (await json(await call(cookie, 'GET', '/workspace/pages'))).map((p) => ({ ...p }));
+const order = (pages, parentId) => childrenOf(pages, parentId).map((p) => p.title);
+async function dropOn(cookie, id, targetId, position, expanded) {
+  const pages = await shown(cookie);
+  const plan = planDrop(pages, id, targetId, position, expanded);
+  assert.equal(plan.ok, true, plan.reason);
+  for (const other of plan.renumber || []) assert.equal((await call(cookie, 'PUT', `/workspace/pages/${other.id}`, { order: other.order })).status, 200);
+  const res = await call(cookie, 'PUT', `/workspace/pages/${id}`, { parentId: plan.parentId, order: plan.order });
+  assert.equal(res.status, 200);
+  return plan;
+}
+
+test('a page dropped between two others, onto a folder, or on the top level keeps the place it was given after a reload', async () => {
+  const folder = await create(ada, { kind: 'folder', title: 'Folder' });
+  const a = await create(ada, { title: 'A', parentId: folder.id });
+  const b = await create(ada, { title: 'B', parentId: folder.id });
+  const c = await create(ada, { title: 'C' });
+  const d = await create(ada, { title: 'D' });
+
+  await dropOn(ada, c.id, b.id, 'before'); // between A and B, in the folder
+  assert.deepEqual(order(await shown(ada), folder.id), ['A', 'C', 'B']);
+  await dropOn(ada, d.id, folder.id, 'inside'); // last in the folder
+  assert.deepEqual(order(await shown(ada), folder.id), ['A', 'C', 'B', 'D']);
+  await dropOn(ada, a.id, null, 'inside'); // out to the top level, last
+  assert.deepEqual(order(await shown(ada), null), ['Folder', 'A']);
+  await dropOn(ada, a.id, folder.id, 'before'); // before the folder
+  assert.deepEqual(order(await shown(ada), null), ['A', 'Folder']);
+  assert.equal(raw('SELECT parent_id FROM workspace_pages WHERE id = ?', a.id)[0].parent_id, null);
+});
+
+test('dropping again and again in the same gap runs out of room, and the siblings are numbered afresh and keep their order', async () => {
+  const first = await create(ada, { title: 'First' });
+  await create(ada, { title: 'Last' });
+  const movers = [];
+  for (let i = 0; i < 26; i++) movers.push(await create(ada, { title: `M${i}` }));
+  // each page is dropped just after First, so the gap between First and what follows it is halved every time
+  let renumbered = false;
+  for (const mover of movers) {
+    const plan = await dropOn(ada, mover.id, first.id, 'after');
+    renumbered = renumbered || !!plan.renumber;
+  }
+  assert.equal(renumbered, true, 'the numbers ran out and were given out again');
+  const pages = await shown(ada);
+  assert.deepEqual(order(pages, null), ['First', ...movers.map((m) => m.title).reverse(), 'Last']);
+  const orders = pages.map((p) => p.order);
+  assert.equal(new Set(orders).size, orders.length, 'no two pages share a place');
+});
+
+test('a folder dropped into itself or into what is inside it is refused by the rules and by the server', async () => {
+  const outer = await create(ada, { kind: 'folder', title: 'Outer' });
+  const inner = await create(ada, { kind: 'folder', title: 'Inner', parentId: outer.id });
+  const pages = await shown(ada);
+  assert.equal(planDrop(pages, outer.id, inner.id, 'inside').reason, DROP_REFUSAL.ownDescendant);
+  assert.equal(planDrop(pages, outer.id, outer.id, 'inside').reason, DROP_REFUSAL.itself);
+  assert.equal((await call(ada, 'PUT', `/workspace/pages/${outer.id}`, { parentId: inner.id, order: 0 })).status, 400, 'a client that ignores the rules is stopped');
+  assert.equal(raw('SELECT parent_id FROM workspace_pages WHERE id = ?', outer.id)[0].parent_id, null);
+});
+
+test('a drop onto someone else\'s folder, or of someone else\'s page, is not found and changes nothing', async () => {
+  const mine = await create(ada, { kind: 'folder', title: 'Mine' });
+  const hers = await create(grace, { title: 'Hers' });
+  assert.equal((await call(grace, 'PUT', `/workspace/pages/${hers.id}`, { parentId: mine.id, order: 0 })).status, 404);
+  assert.equal((await call(grace, 'PUT', `/workspace/pages/${mine.id}`, { parentId: null, order: 9 })).status, 404);
+  assert.equal((await call(null, 'PUT', `/workspace/pages/${mine.id}`, { parentId: null, order: 9 })).status, 401);
+  assert.equal(raw('SELECT parent_id, sort_order FROM workspace_pages WHERE id = ?', hers.id)[0].parent_id, null);
+  assert.equal(raw('SELECT sort_order FROM workspace_pages WHERE id = ?', mine.id)[0].sort_order, 0);
 });

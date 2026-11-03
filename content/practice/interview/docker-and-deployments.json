@@ -30,7 +30,7 @@
     },
     {
       "q": "What is the difference between a liveness probe and a readiness probe?",
-      "a": "Liveness asks whether the process is broken beyond recovery; failing it makes the platform restart the container, so it should be cheap and not depend on external services. Readiness asks whether the instance can serve traffic now; failing it removes the instance from load balancing without restarting it, so it may check dependencies such as the database. Putting a database check in liveness can cause a restart storm during a database blip."
+      "a": "Liveness asks whether the process is broken beyond recovery; failing it makes the platform restart the container, so it should be cheap and not depend on external services. Readiness asks whether the instance can serve traffic now; failing it removes the instance from load balancing without restarting it, so it can reflect dependencies the instance needs, though a check on a shared database can make every instance unready at once during a blip. Putting a database check in liveness is worse and can cause a restart storm."
     },
     {
       "q": "Compare rolling, blue-green and canary deployments.",

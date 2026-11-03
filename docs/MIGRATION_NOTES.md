@@ -31,7 +31,17 @@ reader's real lesson progress), a diagram its Mermaid source. A revision list is
 last revised and how many times, are rows of `revision_items`. The lesson page's "Add to revision list" button posts to
 `/api/workspace/revision`, which makes the person's first list if they have none. Every route is the owner's alone (a page that is not yours
 is "not found"), what is sent is rebuilt from an allow-list and size-limited (`webapp/src/lib/workspace/kinds.js`, shared by the API and the
-screens). Behaviour that changed for the *old* routes, all in the direction of refusing what was never meant to work: a page's parent must
+screens). A diagram is stored as `{ source }` (Mermaid text the person writes: this is how every diagram page was, and a page in text mode is still exactly
+that) or, when it is *drawn* in the visual editor, as `{ source, mode: 'visual', model }` with `model = { nodes: [{ id, label, shape, x, y }], edges: [{ id, from, to,
+label, dashed }] }`. No migration: the kind is the same and `data` is JSON, so an old diagram reads as text. `shape` is one of `rect`, `rounded`, `decision`, `database`,
+`circle`; ids are `[A-Za-z0-9_-]{1,40}` and unique in their list; positions are whole numbers within ±5000; there are at most 60 boxes and 120 arrows, box words up to
+60 characters and arrow words up to 40; an arrow must join two boxes that are in the drawing. The API rebuilds the model from that allow-list
+(`cleanDiagramModel` in `kinds.js`, shared with the editor) and **writes `source` itself from the model** (`toMermaid` in `diagramMermaid.js`: ids `n1…`, every label in
+quotes, with the characters Mermaid reads as syntax (hash, double quote, less-than, greater-than, ampersand, backtick, percent, backslash) written as entity codes), ignoring any source the client sent, so the two cannot disagree; a drawing whose text would pass the
+20,000 character source limit is refused. "Convert to text" saves `{ source }` and drops the model. Nothing in the API changed for dragging pages in the tree: a drop
+is the same `PUT /api/workspace/pages/:id { parentId, order }` that "Move to…" and the row menu use (the order is the midpoint between the two new neighbours; when
+two neighbours have no room left the tree first renumbers the siblings with the same call), and the server's ownership, parent-kind and cycle checks apply as before.
+Behaviour that changed for the *old* routes, all in the direction of refusing what was never meant to work: a page's parent must
 exist, be yours, and be a page or a folder (it used to accept any string); deleting a page that is not yours answers 404 instead of an empty
 success; a person can keep at most 1000 pages.
 

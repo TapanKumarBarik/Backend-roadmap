@@ -190,7 +190,7 @@
     {
       "id": "q8",
       "type": "single",
-      "text": "A Dynamo-style store keeps N=3 replicas of each key. Which write and read quorum sizes guarantee that every read overlaps the latest successful write?",
+      "text": "A Dynamo-style store keeps N=3 replicas of each key and uses strict quorums. Which write and read quorum sizes guarantee that every read set overlaps the replicas that acknowledged the latest successful write?",
       "options": [
         {
           "id": "a",
@@ -212,7 +212,7 @@
       "answer": [
         "c"
       ],
-      "explanation": "Overlap needs W + R > N, and 2 + 2 = 4 > 3. With W=2, R=1 or W=1, R=2 the sum is only 3, so a read can land entirely on replicas that missed the write. Lower quorums are faster and more available, but only eventually consistent."
+      "explanation": "Overlap needs W + R > N, and 2 + 2 = 4 > 3. With W=2, R=1 or W=1, R=2 the sum is only 3, so a read can land entirely on replicas that missed the write. Overlap means at least one replica you read from has the write (the client still has to pick the newest version). Lower quorums are faster and more available, but only eventually consistent."
     }
   ]
 }

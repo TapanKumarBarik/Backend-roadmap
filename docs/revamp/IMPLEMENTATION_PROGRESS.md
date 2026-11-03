@@ -84,8 +84,11 @@ Updated after every phase: what was implemented, files, features preserved, test
   - *Needs a person:* a screen-reader pass; real-device testing; the new workspace sentence for the privacy page (a draft is at the end of `docs/PRIVACY-TERMS-DRAFT.md`;
     the live page is unchanged until it is approved).
   - *Needs a reader:* the quiz and challenge drafts (`docs/revamp/CONTENT_REVIEW.md`).
-  - *Not built:* custom drag-and-drop diagram editor; drag-and-drop in the workspace tree (the keyboard "Move to…" is there); admin screens for site configuration beyond
-    paths, videos and SEO (announcements and practice content already have theirs).
+  - *Not built:* admin screens for site configuration beyond paths, videos and SEO (announcements and practice content already have theirs); pinch-zoom in the diagram editor.
+- **Fourth pass (same day):** drag-and-drop in the workspace tree (mouse, touch and pen, with the keyboard "Move to…" still there) and a visual diagram editor (boxes, arrows,
+  keyboard operable, undo/redo, tidy, zoom, SVG/PNG export; the Mermaid source is written from the drawing), both inside the workspace chunk; the workspace privacy paragraph is on the
+  live privacy page; and four independent reviewers fact-checked every quiz, exercise, interview set and design challenge (outcome in `docs/revamp/CONTENT_REVIEW.md`, including a
+  wrong claim in a GenAI lesson that is for you to correct).
 - **Before deploying:** apply migrations 0004, 0005 and 0006 (`npm run db:migrate:remote`).
 
 ## Earlier revamp (docs/MODERNIZATION.md): phases 1 to 6, committed and, from 2026-11-03, on `origin/main`

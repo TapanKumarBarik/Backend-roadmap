@@ -76,7 +76,7 @@
       "answer": [
         "false"
       ],
-      "explanation": "A model has no separate way to say \"I don't know\" and produces fluent text whether or not it is grounded. Production RAG pipelines still ask for sources, tell the model to say when the context does not cover the question, and check the output (for example that citations are real)."
+      "explanation": "A model produces fluent text whether or not it is grounded, and nothing guarantees it will say \"I don't know\" when the context is thin. Production RAG pipelines still ask for sources, tell the model to say when the context does not cover the question, and check the output (for example that citations are real)."
     },
     {
       "id": "q4",
@@ -103,7 +103,7 @@
       "answer": [
         "d"
       ],
-      "explanation": "The LLM call takes on the order of seconds and the most money, while embedding, search and rerank take milliseconds to a few hundred. Shaving vector-search time while sending thousands of unnecessary prompt tokens is optimising the wrong thing."
+      "explanation": "In a typical pipeline the LLM call takes on the order of seconds and costs the most, while embedding, search and rerank take milliseconds to a few hundred (illustrative figures; measure your own). Shaving vector-search time while sending thousands of unnecessary prompt tokens is optimising the wrong thing."
     },
     {
       "id": "q5",
@@ -137,7 +137,7 @@
     {
       "id": "q6",
       "type": "single",
-      "text": "A fixed-size chunker cuts the sentence holding the answer into two chunks, so no chunk contains the whole answer. What fixes this?",
+      "text": "A fixed-size chunker cuts the sentence holding the answer into two chunks, so no chunk contains the whole answer. What is the most direct fix?",
       "options": [
         {
           "id": "a",
@@ -159,7 +159,7 @@
       "answer": [
         "c"
       ],
-      "explanation": "The share of answers that sit whole inside some chunk is an upper bound on any retriever. A cut answer cannot be recovered by better ranking, a larger k or a better model, so the fix is at the chunking step."
+      "explanation": "The share of answers that sit whole inside some chunk is an upper bound on what a retriever returning single chunks can reach. Better ranking or a better model cannot rebuild a cut answer, and a larger k only helps by luck (both fragments must rank high) while costing tokens, so the dependable fix is at the chunking step."
     },
     {
       "id": "q7",

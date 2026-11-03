@@ -47,7 +47,7 @@
     {
       "id": "q4",
       "type": "single",
-      "text": "You change the image tag in a Deployment's Pod template. What happens?",
+      "text": "You change the image tag in a Deployment's Pod template, and the Deployment uses its default (RollingUpdate) strategy. What happens?",
       "options": [
         { "id": "a", "text": "The existing Pods are edited in place to use the new image" },
         { "id": "b", "text": "The Deployment creates a new ReplicaSet and gradually moves Pods from the old ReplicaSet to it" },
@@ -55,7 +55,7 @@
         { "id": "d", "text": "Nothing happens until you delete the Pods by hand" }
       ],
       "answer": ["b"],
-      "explanation": "A changed Pod template creates a new ReplicaSet and a rolling update shifts Pods over within the maxUnavailable and maxSurge limits. Pods are never edited in place, and the gradual shift is why users do not see downtime."
+      "explanation": "A changed Pod template creates a new ReplicaSet and a rolling update shifts Pods over within the maxUnavailable and maxSurge limits. A Deployment replaces Pods rather than editing them in place, and the gradual shift is why users do not see downtime."
     },
     {
       "id": "q5",
@@ -86,7 +86,7 @@
     {
       "id": "q7",
       "type": "truefalse",
-      "text": "A Service of the default type, ClusterIP, can be reached from a browser outside the cluster.",
+      "text": "A Service of the default type, ClusterIP, can be reached directly from a browser outside the cluster.",
       "options": [
         { "id": "true", "text": "True" },
         { "id": "false", "text": "False" }

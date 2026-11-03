@@ -81,18 +81,18 @@
         { "id": "d", "text": "--use-remote-gateways on each spoke peering, so that the firewall can forward traffic" }
       ],
       "answer": ["a", "b"],
-      "explanation": "The hub must be allowed to forward traffic that did not originate in it, and the spokes need routes that point at the firewall. Gateway transit is for sharing a VPN or ExpressRoute gateway, and nothing in this design needs public IPs."
+      "explanation": "The peerings must accept traffic that was forwarded by the firewall and did not originate in the VNet it arrives from, and the spokes need routes that point at the firewall. Gateway transit is for sharing a VPN or ExpressRoute gateway, and nothing in this design needs public IPs."
     },
     {
       "id": "q7",
       "type": "truefalse",
-      "text": "Traffic between two peered VNets travels over the public internet, so it should be encrypted separately.",
+      "text": "Traffic between two peered VNets travels over the public internet.",
       "options": [
         { "id": "true", "text": "True" },
         { "id": "false", "text": "False" }
       ],
       "answer": ["false"],
-      "explanation": "Peered VNets talk over Azure's private backbone using private IPs, with no gateway or public internet in between for same-region peering. That is the main reason to prefer peering over a VPN between VNets."
+      "explanation": "Peered VNets talk over Azure's private backbone using private IPs, and it never crosses the public internet. Same-region peering needs no gateway at all, which is a main reason to prefer peering over a VPN between VNets."
     },
     {
       "id": "q8",

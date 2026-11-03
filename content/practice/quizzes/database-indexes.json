@@ -35,7 +35,7 @@
     {
       "id": "q2",
       "type": "truefalse",
-      "text": "Every additional index makes writes to the table slower.",
+      "text": "Adding more B-tree indexes to a table generally makes its inserts, updates and deletes slower.",
       "options": [
         {
           "id": "true",
@@ -49,7 +49,7 @@
       "answer": [
         "true"
       ],
-      "explanation": "Each insert, update or delete must also maintain every index on the table, and each index takes space."
+      "explanation": "A write usually has to update each index that covers the changed row, so more indexes mean more work per write, and each index also takes space. The cost is real even though a few writes (for example a row that falls outside a partial index) skip some indexes."
     },
     {
       "id": "q3",
@@ -131,7 +131,33 @@
       "answer": [
         "b"
       ],
-      "explanation": "WHERE lower(email) = ... cannot use a plain index on email. Rewrite the predicate or create an index on the expression. Stale statistics are the other usual suspect."
+      "explanation": "WHERE lower(email) = ... cannot use a plain index on email. Rewrite the predicate or create an index on the expression. Two other usual suspects are a filter that matches a large share of the rows, where a sequential scan really is cheaper, and stale statistics."
+    },
+    {
+      "id": "q6",
+      "type": "single",
+      "text": "In PostgreSQL, orders.customer_id is declared as a FOREIGN KEY to customers(id), and you often fetch all orders for one customer. What do you need to do about indexing orders.customer_id?",
+      "options": [
+        { "id": "a", "text": "Nothing, because PostgreSQL creates an index for every foreign key automatically" },
+        { "id": "b", "text": "Create the index yourself, because PostgreSQL indexes primary keys and unique constraints automatically but not the referencing side of a foreign key" },
+        { "id": "c", "text": "Nothing, because the index on customers(id) already speeds up lookups on orders.customer_id" },
+        { "id": "d", "text": "Nothing, because foreign keys are only indexed when ON DELETE CASCADE is set" }
+      ],
+      "answer": ["b"],
+      "explanation": "The primary key on customers(id) is indexed, but orders.customer_id is a separate column in a separate table, and PostgreSQL does not index it for you. Without your own index, finding one customer's orders (and checking the foreign key when a customer is deleted) scans the whole orders table."
+    },
+    {
+      "id": "q7",
+      "type": "single",
+      "text": "Which single index serves this query best? SELECT * FROM orders WHERE customer_id = 17 AND created_at >= '2026-01-01' ORDER BY created_at",
+      "options": [
+        { "id": "a", "text": "(created_at, customer_id)" },
+        { "id": "b", "text": "(customer_id, created_at)" },
+        { "id": "c", "text": "(created_at) alone" },
+        { "id": "d", "text": "(customer_id) alone" }
+      ],
+      "answer": ["b"],
+      "explanation": "Put the equality column first and the range or sort column second. The index then jumps straight to customer 17 and reads that customer's rows already sorted by created_at from the start date. With (created_at, customer_id) the database has to walk every entry since the start date, for all customers, and check customer_id as it goes. An index on customer_id alone finds the right rows but leaves the date filter and the sort to extra work."
     }
   ]
 }
