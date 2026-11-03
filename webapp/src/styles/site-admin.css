@@ -1,0 +1,61 @@
+/* The admin's Site section (components/admin/SiteAdmin.jsx): the paths, videos and search-title editors. Colours come from the theme
+   variables, so it follows the light and the dark theme; nothing is told by colour alone (a state is also a word). */
+
+.sa-hint { margin: var(--space-1) 0 0; font-size: var(--text-xs); color: var(--fg-subtle); }
+
+/* Paths: the list on the left, the form on the right (one column when it is narrow) */
+.sa-split { display: grid; grid-template-columns: minmax(180px, 260px) minmax(0, 1fr); gap: var(--space-6); align-items: start; }
+.sa-split__list ol { list-style: none; margin: 0 0 var(--space-3); padding: 0; display: grid; gap: var(--space-1); }
+.sa-split__form { display: grid; gap: var(--space-4); min-width: 0; }
+@media (max-width: 760px) { .sa-split { grid-template-columns: minmax(0, 1fr); } }
+
+.sa-pick { display: grid; gap: 2px; width: 100%; text-align: left; padding: var(--space-2) var(--space-3); border: 1px solid var(--border); border-radius: var(--r-md); background: var(--bg); color: var(--fg); font: inherit; cursor: pointer; }
+.sa-pick span { font-size: var(--text-xs); color: var(--fg-subtle); overflow-wrap: anywhere; }
+.sa-pick:hover { background: var(--hover); }
+.sa-pick.is-current { border-color: var(--signal); background: var(--signal-bg); box-shadow: inset 3px 0 0 var(--signal); }
+.sa-pick:focus-visible { outline: 2px solid var(--signal); outline-offset: 2px; }
+.sa-found { list-style: none; margin: 0 0 var(--space-4); padding: 0; display: grid; gap: var(--space-1); max-width: 560px; }
+
+/* An ordered list of texts */
+.sa-list { margin: 0; padding: 0; border: 0; min-width: 0; display: grid; gap: var(--space-2); }
+.sa-list legend { padding: 0; font-weight: var(--weight-semibold); font-size: var(--text-sm); margin-bottom: var(--space-1); }
+.sa-list ol { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-2); }
+.sa-list__row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+.sa-list__row input { flex: 1 1 260px; min-width: 0; }
+
+/* Videos */
+.sa-new { display: grid; gap: var(--space-3); max-width: 560px; margin: var(--space-4) 0 var(--space-6); padding: var(--space-4); border: 1px solid var(--border); border-radius: var(--r-md); }
+.sa-new legend { padding: 0 var(--space-2); font-weight: var(--weight-semibold); font-size: var(--text-sm); }
+.sa-filters { display: flex; flex-wrap: wrap; align-items: end; gap: var(--space-4); margin-bottom: var(--space-2); }
+.sa-filters .ui-field { min-width: 200px; }
+.sa-videos th[scope="row"] { display: grid; gap: var(--space-1); justify-items: start; min-width: 110px; font-weight: normal; }
+.sa-videos td { min-width: 160px; }
+.sa-videos td:nth-child(3) { min-width: 110px; }
+.sa-videos td:last-child { min-width: 260px; }
+.sa-videos td .ui-chip, .sa-videos td .sa-hint { margin-top: var(--space-1); display: inline-flex; }
+
+/* The bar under every editor */
+.sa-savebar { display: grid; gap: var(--space-3); margin-top: var(--space-6); padding-top: var(--space-4); border-top: 1px solid var(--border); }
+.sa-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+.sa-status { font-size: var(--text-sm); color: var(--fg-muted); }
+.sa-problems__lead { margin: 0 0 var(--space-1); font-weight: var(--weight-semibold); font-size: var(--text-sm); color: var(--danger); }
+.sa-problems { margin: 0; padding: var(--space-3) var(--space-4) var(--space-3) var(--space-6); border: 1px solid var(--danger); border-radius: var(--r-md); color: var(--danger); display: grid; gap: var(--space-1); font-size: var(--text-sm); max-height: 260px; overflow: auto; }
+.sa-conflict { display: grid; gap: var(--space-2); justify-items: start; padding: var(--space-3) var(--space-4); border: 1px solid var(--signal-line); border-left: 4px solid var(--signal); border-radius: var(--r-md); background: var(--signal-bg); }
+.sa-conflict p { margin: 0; font-size: var(--text-sm); }
+
+/* Search titles */
+.sa-seo { display: grid; gap: var(--space-3); max-width: 680px; margin-bottom: var(--space-6); }
+.sa-seo__page { margin: 0; font-size: var(--text-md); }
+.sa-seo__page code { margin-left: var(--space-2); font-size: var(--text-xs); color: var(--fg-subtle); overflow-wrap: anywhere; }
+.sa-generated { margin: 0; display: grid; gap: var(--space-1); padding: var(--space-3) var(--space-4); border: 1px dashed var(--border-strong); border-radius: var(--r-md); background: var(--bg-sunken); font-size: var(--text-sm); }
+.sa-generated dt { font-size: var(--text-xs); color: var(--fg-subtle); font-weight: var(--weight-semibold); }
+.sa-generated dd { margin: 0 0 var(--space-2); overflow-wrap: anywhere; }
+.sa-count { margin: calc(var(--space-1) * -1) 0 0; font-size: var(--text-xs); color: var(--fg-muted); }
+.sa-count.is-over { color: var(--danger); font-weight: var(--weight-semibold); }
+
+/* A search result, the way it reads (a neutral rendering: the colours are the theme's, not any engine's) */
+.sa-serp { display: grid; gap: 2px; padding: var(--space-4); border: 1px solid var(--border); border-radius: var(--r-md); background: var(--bg-raised); }
+.sa-serp__head { font-size: var(--text-2xs); text-transform: uppercase; letter-spacing: 0.06em; color: var(--fg-subtle); margin-bottom: var(--space-1); }
+.sa-serp__url { font-size: var(--text-xs); color: var(--fg-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sa-serp__title { font-size: var(--text-lg); color: var(--link); line-height: 1.3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sa-serp__desc { font-size: var(--text-sm); color: var(--fg-muted); line-height: 1.45; }

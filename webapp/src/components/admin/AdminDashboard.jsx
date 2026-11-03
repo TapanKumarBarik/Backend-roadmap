@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react';
+import { Suspense, lazy, useEffect, useState } from 'react';
 import { useToast } from '../ui/Toast.jsx';
+import { Skeleton } from '../ui/Skeleton.jsx';
 import CommentsModeration from './CommentsModeration.jsx';
 import VisitorStats from './VisitorStats.jsx';
 import ContentEditor from './ContentEditor.jsx';
@@ -13,6 +14,9 @@ import AuditLog from './AuditLog.jsx';
 import { fetchQuestions } from '../../lib/api.js';
 import { fetchManagedBlogs } from '../../lib/blogApi.js';
 
+// The Site editors (paths, videos, search titles) are a lot of code for a part of the admin that is opened now and then: fetched when its tab is.
+const SiteAdmin = lazy(() => import('./SiteAdmin.jsx'));
+
 // Sections instead of sibling tabs. The old row put moderation,
 // analytics, the inbox and the content editor at the same level, so
 // "answer a question" and "commit to main" were one click apart and looked
@@ -23,6 +27,7 @@ const SECTIONS = [
   { key: 'community', label: 'Community' },
   { key: 'articles', label: 'Articles' },
   { key: 'practice', label: 'Practice' },
+  { key: 'site', label: 'Site' },
   { key: 'notices', label: 'Notices' },
   { key: 'people', label: 'People' },
   { key: 'analytics', label: 'Analytics' },
@@ -137,6 +142,7 @@ export default function AdminDashboard({ isAdmin, lastViewedFile, onOpenFile, on
       {section === 'people' && <PeoplePanel currentUserEmail={currentUserEmail} />}
       {section === 'analytics' && <VisitorStats onOpenFile={onOpenFile} />}
       {section === 'practice' && <PracticeAdmin onToast={toast.show} />}
+      {section === 'site' && <Suspense fallback={<Skeleton lines={5} />}><SiteAdmin onToast={toast.show} /></Suspense>}
       {section === 'notices' && <NoticesAdmin />}
       {section === 'system' && <UsageStats />}
       {section === 'audit' && <AuditLog />}

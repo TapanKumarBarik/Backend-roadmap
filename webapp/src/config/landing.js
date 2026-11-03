@@ -65,7 +65,7 @@ export const PICK = {
 export const LIBRARY = {
   heading: 'Or browse the library',
   sub: 'Every module, grouped by curriculum. The paths above are routes through this.',
-  startLabel: 'Start',
+  startLabel: (title) => `Start ${title}`,
   tracksLabel: 'See the tracks',
   items: [
     {

@@ -1,4 +1,7 @@
 import { useRef, useState } from 'react';
+import MainNav from './MainNav.jsx';
+import { MAIN_NAV } from '../../config/nav.js';
+import { useMediaQuery } from '../../hooks/useMediaQuery.js';
 import {
   HamburgerIcon, SearchIcon, SunIcon, MoonIcon, AutoIcon, MenuDotsIcon,
   ExportIcon, ImportIcon, ResetIcon, ExpandIcon, CollapseIcon, KeysIcon, SignOutIcon, TrashIcon,
@@ -24,8 +27,9 @@ export default function TopBar({
   onOpenPalette, onGoHome,
   onExport, onImportFile, onReset, onExpandAll, onCollapseAll, onMobileToggle,
   onDeleteAccount, onOpenMessage, onToast, streak,
-  activity, onOpenActivity, nodeByFile
+  activity, onOpenActivity, nodeByFile, mainNav, activeDest
 }) {
+  const wide = useMediaQuery(`(min-width: ${MAIN_NAV.minWidth}px)`);
   const importInputRef = useRef(null);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const ThemeIcon = THEME_ICON[theme] || AutoIcon;
@@ -57,7 +61,8 @@ export default function TopBar({
         <BrandMark />
         <span>{SITE.name}</span>
       </button>
-      <button id="searchTrigger" onClick={() => onOpenPalette()}>
+      {wide && mainNav && <MainNav items={mainNav} activeDest={activeDest} />}
+      <button id="searchTrigger" onClick={() => onOpenPalette()} aria-label="Search modules and tags">
         <SearchIcon style={{ width: 14, height: 14, flexShrink: 0 }} />
         <span>Search modules &amp; tags…</span>
         <kbd>Ctrl K</kbd>

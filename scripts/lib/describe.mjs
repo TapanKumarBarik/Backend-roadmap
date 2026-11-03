@@ -7,14 +7,17 @@
 // their opening). A description is whole sentences when they fit; it is cut at a word, with an ellipsis, only when the first
 // sentence alone is too long.
 
+import { SEO_LIMITS } from '../../webapp/src/lib/siteContent/seo.js';
+
 export const textOf = (html) => html
   .replace(/<[^>]+>/g, ' ')
   .replace(/&nbsp;/g, ' ').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
   .replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, '&')
   .replace(/\s+/g, ' ').replace(/ ([,.;:!?)\]])/g, '$1').replace(/([([]) /g, '$1').trim();
 
-const MIN_LENGTH = 50;
-const MAX_LENGTH = 160;
+// The same range an editor's override must keep to (content/seo.json, webapp/src/lib/siteContent/seo.js).
+const MIN_LENGTH = SEO_LIMITS.descriptionMin;
+const MAX_LENGTH = SEO_LIMITS.descriptionMax;
 // How many candidates are looked through for one that fits whole, before settling for the first one cut short.
 const LOOKAHEAD = 4;
 
@@ -88,7 +91,8 @@ export function descriptionCandidates(html) {
 export const videoCandidates = (videos) => videos.map((v) => v.summary).filter(Boolean).map((summary) => snippet(summary));
 
 // The first candidate no other page has taken that fits whole, else the first one that is free, else the fallback.
-// `taken` is the set of descriptions already used.
+// `taken` is the set of descriptions already used. Start it with the descriptions an editor wrote by hand
+// (descriptionsTaken in webapp/src/lib/siteContent/seo.js): an override counts as taken, so no generated one repeats it.
 export function pickDescription(candidates, taken, fallback) {
   const free = candidates.filter((c) => !taken.has(c));
   const choice = free.slice(0, LOOKAHEAD).find((c) => !c.endsWith('…')) || free[0];

@@ -65,3 +65,15 @@ Articles in the community belong to their authors, not to the site owner.
    reusable (for example under CC BY), say so and I will add it to the terms and to the publish dialog.
 2. **Search engines.** Today a new author's articles are public but not indexed until you approve them, or mark the author trusted.
    The privacy wording above says so. If you would rather index everything immediately, that sentence goes.
+
+## Added with the workspace as a personal hub: a new section for privacy.html, "Your private workspace"
+
+*(A note only: privacy.html and terms.html are not changed by this work.)*
+
+Your workspace is private. Your pages, folders, study plans (with your target date), revision lists (which lessons you revise, and the
+day you last revised each) and saved diagrams are visible only to you: they are not on your author page, not in search, and not shown
+to other readers or to the people who moderate the site's articles. They are kept in the site's database until you delete them or delete
+your account, which removes all of it at once. Nothing from your workspace is ever published unless you choose to copy a page's text into
+a new article draft in the writing studio. That makes a separate draft, which only you can see until you publish it; the page itself
+stays private and unchanged. The site owner can technically read the database, as with every part of the account.
+

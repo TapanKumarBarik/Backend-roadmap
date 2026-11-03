@@ -15,6 +15,7 @@ tables beside the old ones.
 | `0003_practice_and_design_lab.sql` | quiz attempts and answers, submissions and admin reviews, announcements, the audit log | Practice Center, Design Lab, admin notices and audit log |
 | `0004_peer_reviews.sql` | `peer_reviews`: feedback from other learners on a shared solution | Design Lab |
 | `0005_community_workflow.sql` | `post_classification` (kind and category), `post_versions` (history), `post_moderation` (a moderator's reason) | studio, articles list, moderation |
+| `0006_workspace_hub.sql` | `workspace_meta` (what kind a workspace page is, and that kind's data), `revision_items` (the lessons on a revision list) | the private workspace: folders, study plans, revision lists, saved diagrams |
 
 **Apply them before the code that needs them is deployed:** `npm run db:migrate:remote`. The deploy workflow's smoke test reads
 `/api/announcements` and `/api/practice/catalog`, so a forgotten 0003 fails the deploy instead of failing for visitors. Locally,
@@ -23,7 +24,19 @@ tables beside the old ones.
 **Nothing to back-fill.** A post with no `post_classification` row is an article in General; a post with no versions has none; a post with no
 moderation row was taken down without a reason. Old data reads correctly without being touched.
 
-**Account deletion** removes what the new tables hold for that person: quiz tries, submissions, the reviews of them, the feedback they gave and
+**The workspace hub (0006).** `workspace_pages` (0001) is not altered: a page's kind lives beside it in `workspace_meta` (`folder`, `plan`,
+`revision`, `diagram`; a page with no row there is a plain text page, so every page made before the migration reads correctly with nothing to
+back-fill). A plan keeps its steps, lessons and target date as JSON in `workspace_meta.data` (a lesson's tick is *not* stored: it is the
+reader's real lesson progress), a diagram its Mermaid source. A revision list is a page of kind `revision`; its lessons, with the day each was
+last revised and how many times, are rows of `revision_items`. The lesson page's "Add to revision list" button posts to
+`/api/workspace/revision`, which makes the person's first list if they have none. Every route is the owner's alone (a page that is not yours
+is "not found"), what is sent is rebuilt from an allow-list and size-limited (`webapp/src/lib/workspace/kinds.js`, shared by the API and the
+screens). Behaviour that changed for the *old* routes, all in the direction of refusing what was never meant to work: a page's parent must
+exist, be yours, and be a page or a folder (it used to accept any string); deleting a page that is not yours answers 404 instead of an empty
+success; a person can keep at most 1000 pages.
+
+**Account deletion** also removes the workspace's pages, their kinds and data, and every revision lesson (`api/lib/workspaceData.js`), and
+removes what the other new tables hold for that person: quiz tries, submissions, the reviews of them, the feedback they gave and
 received, their posts' classification, versions and moderation notes (`api/lib/practiceData.js`, `api/lib/blogData.js`). The privacy page says so.
 
 ## Where content lives
@@ -34,6 +47,12 @@ received, their posts' classification, versions and moderation notes (`api/lib/p
   the admin editor can commit a quiz without regenerating anything and the deploy still carries it.
 - Quizzes, exercises, interview sets and challenges can be edited in the browser (Admin, Practice, "Edit the content"). The server checks the file
   (`webapp/src/lib/practice/validate.js`, and that the lesson it names exists) before it commits it with the site's GitHub token.
+- **Three more files can be edited in the browser** (Admin, Site; [`ADMIN_CONTENT.md`](ADMIN_CONTENT.md)): `content/paths.json` (the learning paths),
+  `content/videos.json` (the playlists, and which module each video belongs to) and the new, optional `content/seo.json` (a hand-written title and
+  description for a module's page). Same mechanism and same strict allow-list as the practice content, validated on the server with the rules the
+  command-line checks use (`npm run check:paths`, `check:videos`, `check:seo`). `dist/docs-index.json` gained a top-level `seo` map (the overrides),
+  and the build writes `dist/seo-defaults.json` (the generated descriptions, for the SEO screen). Both are additions; nothing was renamed or removed.
+  A module's page without an override is built exactly as before.
 
 ## Addresses
 

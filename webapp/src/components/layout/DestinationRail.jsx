@@ -1,8 +1,9 @@
 import { useState } from 'react';
+import { MAIN_NAV } from '../../config/nav.js';
 import { TreeIcon, StarIcon, CompassIcon, CommunityIcon, WorkspaceIcon, GearIcon, YoutubeIcon, MenuDotsIcon, ArticleIcon, PracticeIcon, LabIcon, MyLearningIcon } from '../common/icons.jsx';
 import { useMediaQuery } from '../../hooks/useMediaQuery.js';
 import { COMMUNITY_HOME } from '../../config/community.js';
-import { PRACTICE_ROUTE, LAB_ROUTE, ME_ROUTE } from '../../config/practice.js';
+import { PRACTICE_ROUTE, LAB_ROUTE, ME_ROUTE } from '../../lib/appPages.js';
 import { Dialog } from '../ui/Dialog.jsx';
 
 // The permanent left edge: where you can go, not what's in the thing
@@ -27,9 +28,10 @@ const GROUPS = [
 export default function DestinationRail({
   activeDest, user, isAdmin,
   onOpenCurriculum, onOpenExplore, onOpenVideos, onOpenPractice, onOpenLab, onOpenMe, onOpenSaved, onOpenBlogs, onOpenCommunity, onOpenWorkspace, onOpenAdmin,
-  hasVideos, communityBadge
+  hasVideos, communityBadge, mainKeys
 }) {
   const phone = useMediaQuery('(max-width: 860px)');
+  const topNav = useMediaQuery(`(min-width: ${MAIN_NAV.minWidth}px)`);
   const [moreOpen, setMoreOpen] = useState(false);
 
   // `primary` ones stay in the phone's bottom bar; the rest go behind "More".
@@ -53,7 +55,7 @@ export default function DestinationRail({
     { key: '__saved', label: 'Saved', Icon: StarIcon, onClick: onOpenSaved, group: 'you', show: !!user },
     { key: '__workspace', label: 'Workspace', Icon: WorkspaceIcon, onClick: onOpenWorkspace, group: 'you', show: !!user },
     { key: '__admin', label: 'Admin', Icon: GearIcon, onClick: onOpenAdmin, group: 'admin', show: isAdmin }
-  ].filter((item) => item.show !== false);
+  ].filter((item) => item.show !== false && !(topNav && mainKeys && mainKeys.has(item.key)));
 
   const button = (item, { inSheet = false } = {}) => {
     const { key, label, Icon, onClick, badge } = item;

@@ -4,13 +4,14 @@ import { enhanceContent } from '../../lib/markdown/enhanceContent.js';
 import { renderMermaidDiagrams } from '../../lib/markdown/mermaidRender.js';
 import { rewriteLinks } from '../../lib/markdown/rewriteLinks.js';
 import { routeUrl } from '../../lib/curriculum/moduleUrl.js';
+import { topicOf } from '../../lib/curriculum/pageTitle.js';
 import { isPlaceholder, editUrl, reportUrl, claimUrl, WRITE_GUIDE_URL } from '../../lib/curriculum/contribute.js';
 import { inlineTitleHtml, readTimeStats, slugify, splitTitle } from '../../lib/markdown/markdown.js';
 import { handleCopyClick, handleVideoClick } from '../../lib/markdown/contentClicks.js';
 import { ancestorsOf, buildPositions, placeName, siblingStats } from '../../lib/curriculum/curriculumPosition.js';
 import { getPosition, savePosition, clearPosition, describeWhen } from '../../lib/curriculum/readingPosition.js';
 import { enhanceSelfCheck, handleSelfCheckClick } from '../../lib/markdown/selfCheck.js';
-import { watchCodeOverflow } from '../../lib/markdown/codeOverflow.js';
+import { watchCodeOverflow } from '../../lib/markdown/codeOverflowLazy.js';
 import { STORAGE, CONTENT } from '../../config/index.js';
 import { PATH_COPY } from '../../config/paths.js';
 import { readStored, writeStored } from '../../lib/storage.js';
@@ -25,6 +26,7 @@ import ProgressBar from '../common/ProgressBar.jsx';
 import CommentsSection from './CommentsSection.jsx';
 import RelatedPractice from './RelatedPractice.jsx';
 import ReadingOptions from './ReadingOptions.jsx';
+import ReviseButton from './ReviseButton.jsx';
 import NotesPanel from './NotesPanel.jsx';
 import ReactionsBar from './ReactionsBar.jsx';
 import '../../styles/video.css';
@@ -270,6 +272,7 @@ export default function ArticleView({
           >
             <StarIcon />
           </button>
+          <ReviseButton path={path} title={node ? topicOf(node) : path} user={user} onLogin={onLogin} onToast={onToast} />
           <ReadingOptions />
         </div>}
         {/* Some modules carry a dozen tags, which made the header shout

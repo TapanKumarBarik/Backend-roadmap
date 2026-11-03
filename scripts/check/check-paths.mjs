@@ -2,30 +2,20 @@
 // path. Run it after editing paths.json or moving modules:  npm run check:paths
 // (How a step is resolved is in scripts/lib/paths.mjs.)
 import { loadCatalogue, resolvePath } from '../lib/paths.mjs';
+import { pathListProblems } from '../../webapp/src/lib/siteContent/paths.js';
 
 const paths = loadCatalogue();
-const ids = new Set(paths.map((p) => p.id));
 const problems = [];
 const fail = (message) => problems.push(message);
 
-if (!paths.length) fail('paths.json has no paths');
-if (ids.size !== paths.length) fail('paths.json has two paths with the same id');
+// The shape of the file is the rules the admin editor uses too (webapp/src/lib/siteContent/paths.js); the steps are looked up on disk.
+pathListProblems(paths).forEach(fail);
 
 const rows = [];
 for (const p of paths) {
-  const who = `path "${p.id}"`;
-  for (const field of ['id', 'title', 'topic', 'goal', 'audience']) {
-    if (!p[field] || typeof p[field] !== 'string') fail(`${who}: "${field}" is missing`);
-  }
-  if (!['beginner', 'intermediate', 'advanced'].includes(p.difficulty)) fail(`${who}: "difficulty" must be beginner, intermediate or advanced`);
-  for (const field of ['prerequisites', 'skills']) {
-    if (!Array.isArray(p[field]) || !p[field].length || !p[field].every((t) => typeof t === 'string' && t.trim())) fail(`${who}: "${field}" must be a list of texts`);
-  }
-  if (!Array.isArray(p.steps) || !p.steps.length) { fail(`${who}: "steps" is empty`); continue; }
-  if (p.next && (!ids.has(p.next) || p.next === p.id)) fail(`${who}: next "${p.next}" is not another path in this file`);
-
+  if (!p || !Array.isArray(p.steps) || !p.steps.every((step) => typeof step === 'string')) continue; // the shape check above says what is wrong
   const r = resolvePath(p);
-  r.problems.forEach((m) => fail(`${who}: ${m}`));
+  r.problems.forEach((m) => fail(`path "${p.id}": ${m}`));
   rows.push({ id: p.id, ...r });
 }
 

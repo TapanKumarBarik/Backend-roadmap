@@ -21,7 +21,8 @@ import { isModule } from '../../webapp/src/lib/curriculum/nodeKind.js';
 import { formatClock, groupByModule, isoDuration } from '../../webapp/src/lib/curriculum/videos.js';
 import { thumbnailUrl, watchUrl } from '../../webapp/src/lib/markdown/video.js';
 import { ROOT, CONTENT_DIR, config, SITE_URL, REPO_URL, isPlaceholderText } from '../lib/config.mjs';
-import { descriptionCandidates, pickDescription, videoCandidates } from '../lib/describe.mjs';
+import { descriptionCandidates, videoCandidates } from '../lib/describe.mjs';
+import { pageSeo } from '../lib/seoPage.mjs';
 import { gitDates } from '../lib/gitDates.mjs';
 import { homePage } from '../lib/homePage.mjs';
 import { shareImagePath, shareImageUrl } from '../lib/shareImage.mjs';
@@ -29,6 +30,7 @@ import { listingPages } from '../lib/listingPages.mjs';
 import { LEARNING_PATHS } from '../../webapp/src/config/paths.js';
 import { resolvePaths } from '../../webapp/src/lib/curriculum/learningPaths.js';
 import { escapeHtml as esc, shellPage } from '../../webapp/src/lib/seo/shellPage.js';
+import { descriptionsTaken } from '../../webapp/src/lib/siteContent/seo.js';
 
 const SITE = SITE_URL;
 const SITE_NAME = config.site.name;
@@ -41,7 +43,8 @@ const DIST = path.join(ROOT, 'dist');
 const SHELL_COPY = path.join(DIST, 'app-shell.html');
 const template = fs.readFileSync(fs.existsSync(SHELL_COPY) ? SHELL_COPY : path.join(DIST, 'index.html'), 'utf8');
 if (!fs.existsSync(SHELL_COPY)) fs.writeFileSync(SHELL_COPY, template);
-const { tree } = JSON.parse(fs.readFileSync(path.join(DIST, 'docs-index.json'), 'utf8'));
+// `seo`: the titles and descriptions an editor wrote by hand (content/seo.json), which replace the generated ones.
+const { tree, seo = {} } = JSON.parse(fs.readFileSync(path.join(DIST, 'docs-index.json'), 'utf8'));
 const titles = buildPageTitles(tree, SITE_NAME);
 const dates = gitDates(ROOT, CONTENT_DIR); // null without full history (a shallow clone): the dates are then left out
 // The channel's videos, and by module (dist/videos.json, written by gen-videos.mjs in `npm run index`).
@@ -149,7 +152,9 @@ function walkOn(node) {
 }
 
 const urls = [{ url: '/' }];
-const takenDescriptions = new Set();
+// A description written by hand counts as taken before any page is described, so no generated one repeats it.
+const takenDescriptions = descriptionsTaken(seo);
+const generatedDescriptions = {}; // what each page's description would be without an override (dist/seo-defaults.json, for the admin SEO screen)
 let written = 0;
 let skipped = 0;
 
@@ -171,7 +176,16 @@ for (const { node, ancestors } of modules) {
   const thin = unwritten && !clips.length;
   const html = rewriteLinks(renderMarkdownDoc(raw), node.file);
   const track = ancestors[0] ? titles[ancestors[0].file].title : title;
-  const description = pickDescription(unwritten && clips.length ? videoCandidates(clips) : descriptionCandidates(html), takenDescriptions, `${title} — a module in the ${track} curriculum on ${SITE_NAME}.`);
+  const seoOf = pageSeo({
+    override: seo[node.file],
+    title,
+    full,
+    candidates: unwritten && clips.length ? videoCandidates(clips) : descriptionCandidates(html),
+    taken: takenDescriptions,
+    fallback: `${title} — a module in the ${track} curriculum on ${SITE_NAME}.`
+  });
+  const { description } = seoOf;
+  generatedDescriptions[node.file] = seoOf.generated;
 
   const crumbs = [{ title: SITE_NAME, url: '/' }, ...ancestors.map((a) => ({ title: titles[a.file].title, url: moduleUrl(a.file) })).filter((c) => c.url), { title, url }];
   const nav = crumbs.slice(0, -1).map((c) => link(c.url, c.title)).join(' › ');
@@ -183,8 +197,8 @@ for (const { node, ancestors } of modules) {
     : null;
 
   const out = page({
-    title,
-    fullTitle: full,
+    title: seoOf.title,
+    fullTitle: seoOf.fullTitle,
     description,
     url,
     type: 'article',
@@ -227,6 +241,8 @@ for (const { node, ancestors } of modules) {
   written++;
   if (thin) skipped++;
 }
+
+fs.writeFileSync(path.join(DIST, 'seo-defaults.json'), JSON.stringify(generatedDescriptions));
 
 // Home: what the landing page says (its paths, curricula and tracks, the newest videos), so a crawler walks in from
 // the root with something to read as well as somewhere to go. Built by scripts/lib/homePage.mjs.

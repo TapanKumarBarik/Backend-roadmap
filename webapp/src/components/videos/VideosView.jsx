@@ -70,7 +70,7 @@ export default function VideosView({ videoData, nodeByFile, onOpenFile }) {
 
             {groups.length === 0 && <p>{VIDEOS_PAGE.none}</p>}
 
-            {groups.map(({ playlist, items, total }) => (
+            {groups.map(({ playlist, items, total }, group) => (
               <section key={playlist.id} className="vid-group" aria-labelledby={`vid-g-${playlist.id}`}>
                 <div className="vid-group-h">
                   <h3 id={`vid-g-${playlist.id}`}>{playlist.title}</h3>
@@ -78,8 +78,8 @@ export default function VideosView({ videoData, nodeByFile, onOpenFile }) {
                   <a href={playlist.url} target="_blank" rel="noopener noreferrer">{VIDEOS_PAGE.playlist}</a>
                 </div>
                 <ul className="vid-grid">
-                  {items.map((v) => (
-                    <li key={v.id}><VideoCard video={v} node={v.file ? nodeByFile[v.file] : null} onOpenFile={onOpenFile} /></li>
+                  {items.map((v, i) => (
+                    <li key={v.id}><VideoCard video={v} node={v.file ? nodeByFile[v.file] : null} onOpenFile={onOpenFile} eager={group === 0 && i < 4} /></li>
                   ))}
                 </ul>
               </section>

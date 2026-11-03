@@ -9,6 +9,7 @@ import { SESSION_COOKIE, cookieAttrs } from '../lib/session.js';
 import { authorRemoval } from '../lib/blogData.js';
 import { commentsOfAccount } from '../lib/commentData.js';
 import { practiceRemoval } from '../lib/practiceData.js';
+import { workspaceRemoval } from '../lib/workspaceData.js';
 import { DELETED } from '../lib/deleted.js';
 
 const study = createRouter();
@@ -244,7 +245,7 @@ study.post('/reactions/:path{.+}', async (c) => {
 
 /* ------------------------------------------------------------------ account */
 
-// Delete-my-data: hard-delete everything private to the account (progress, notes, bookmarks, the workspace's pages, the
+// Delete-my-data: hard-delete everything private to the account (progress, notes, bookmarks, the workspace's pages, folders, plans, revision lists and diagrams, the
 // directory row with the e-mail address, name and picture, votes), take the articles and the author page with it
 // (lib/blogData.js), delete the comments nobody replied to (lib/commentData.js), and anonymize the identity on what other
 // people's threads depend on (comments with replies, feed posts, books, suggestions, messages, page views), then clear the
@@ -265,7 +266,6 @@ study.delete('/account', async (c) => {
     ['DELETE FROM comment_votes WHERE voter_id = ?1', uid],
     ['DELETE FROM feed_votes WHERE voter_id = ?1', uid],
     ['DELETE FROM suggestion_votes WHERE voter_id = ?1', uid],
-    ['DELETE FROM workspace_pages WHERE user_id = ?1', uid],
     ['DELETE FROM users WHERE user_id = ?1', uid],
     ...commentsOfAccount(uid),
     ['UPDATE feed_posts SET display_name = ?2, user_id = ?3 WHERE user_id = ?1', uid, DELETED.name, DELETED.userId],
@@ -274,7 +274,8 @@ study.delete('/account', async (c) => {
     ['UPDATE messages SET display_name = ?2, email = ?3, user_id = ?3 WHERE user_id = ?1', uid, DELETED.name, DELETED.userId],
     ['UPDATE page_views SET user = ?2 WHERE user = ?1', email, DELETED.userId],
     ...authorRemoval(uid),
-    ...practiceRemoval(uid)
+    ...practiceRemoval(uid),
+    ...workspaceRemoval(uid)
   ]);
 
   c.header('Set-Cookie', cookieAttrs(SESSION_COOKIE, '', 0));

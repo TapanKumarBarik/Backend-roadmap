@@ -22,9 +22,12 @@ export function useWorkspace(user) {
 
   useEffect(() => { reload(); }, [reload]);
 
-  const createPage = useCallback(async (title, parentId) => {
-    const created = await createWorkspacePage(title, parentId || null);
-    setPages((prev) => [...(prev || []), created]);
+  // `extra` is { kind, data } for a page that is not plain text (a folder, a study plan, ...).
+  const createPage = useCallback(async (title, parentId, extra) => {
+    const created = await createWorkspacePage(title, parentId || null, extra);
+    // The list carries a page's tree facts, not its text or data.
+    const { content: _content, data: _data, ...entry } = created;
+    setPages((prev) => [...(prev || []), entry]);
     return created;
   }, []);
 
@@ -52,9 +55,11 @@ export function useWorkspace(user) {
     }
   }, [reload]);
 
+  // Resolves the ids that went (the page and everything inside it).
   const removePage = useCallback(async (id) => {
     const { deletedIds } = await deleteWorkspacePage(id);
     setPages((prev) => prev.filter((p) => !deletedIds.includes(p.id)));
+    return deletedIds;
   }, []);
 
   return { pages, error, loadError, createPage, renamePage, movePage, removePage, reload };

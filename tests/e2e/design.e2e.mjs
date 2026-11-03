@@ -141,7 +141,7 @@ test('the rail names every place and groups them; keyboard focus is visible', as
   const { context, page } = await openPage(browser, '/#__feed', { width: 1440, height: 900 });
   await page.goto(`${BASE}/#__feed`, { waitUntil: 'networkidle' });
   const labels = await page.locator('#destRail .dest-label').allTextContents();
-  assert.ok(labels.length >= 5 && labels.every((l) => l.trim().length > 0), `every rail item has a visible name: ${labels.join(', ')}`);
+  assert.ok(labels.length >= 2 && labels.every((l) => l.trim().length > 0), `every rail item has a visible name: ${labels.join(', ')}`);
   assert.ok(await page.locator('#destRail .dest-group').count() >= 2, 'in groups');
   const cut = await page.locator('#destRail .dest-label').evaluateAll((els) => els.filter((el) => el.scrollWidth > el.clientWidth).map((el) => el.textContent));
   assert.deepEqual(cut, [], 'no name is cut short');
@@ -235,4 +235,42 @@ test('"Reset all progress" and "Keyboard shortcuts" are dialogs, not browser pop
   await reset.getByRole('button', { name: 'Cancel' }).click();
   assert.equal(nativeDialogs, 0);
   await context.close();
+});
+
+test('on a wide screen the six main places are links in the top bar, the rail keeps the others, and below that width they are all in the rail', async () => {
+  const wide = await openPage(browser, '/#__feed', { width: 1440, height: 900 });
+  await wide.page.goto(`${BASE}/#__feed`, { waitUntil: 'networkidle' });
+  const links = wide.page.locator('#mainNav').getByRole('link');
+  assert.deepEqual(await links.allTextContents(), ['Learn', 'Explore', 'Practice', 'Design Lab', 'Community', 'My Learning']);
+  assert.equal(await wide.page.locator('#mainNav').getAttribute('aria-label'), 'Main');
+  assert.equal(await wide.page.locator('#mainNav a[aria-current="page"]').count(), 1, 'one place says it is where you are');
+  const railed = await wide.page.locator('#destRail .dest-label').allTextContents();
+  for (const name of ['Explore', 'Practice', 'Design Lab', 'Community', 'My Learning']) assert.ok(!railed.includes(name), `${name} is not in the rail as well`);
+  assert.ok(railed.includes('Blogs') && railed.includes('Videos'), 'the rail keeps the other places');
+
+  await links.nth(2).focus();
+  const outline = await links.nth(2).evaluate((el) => getComputedStyle(el).outlineStyle);
+  assert.equal(outline, 'solid', 'keyboard focus draws a ring');
+  await links.nth(3).click();
+  await wide.page.getByRole('heading', { level: 2, name: 'Design Lab' }).waitFor();
+  assert.equal(new URL(wide.page.url()).pathname, '/design-lab/');
+  assert.equal(await wide.page.locator('#mainNav a[aria-current="page"]').textContent(), 'Design Lab');
+  const fits = await wide.page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth);
+  assert.equal(fits, true, 'the top bar fits');
+  await wide.context.close();
+
+  for (const width of [1280, 1366]) {
+    const narrowish = await openPage(browser, '/', { width, height: 800 });
+    await narrowish.page.goto(`${BASE}/`, { waitUntil: 'networkidle' });
+    assert.equal(await narrowish.page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true, `nothing overflows at ${width}px`);
+    assert.equal(await narrowish.page.locator('#searchTrigger').isVisible(), true, `search is still there at ${width}px`);
+    await narrowish.context.close();
+  }
+
+  const narrow = await openPage(browser, '/', { width: 1000, height: 800 });
+  await narrow.page.goto(`${BASE}/`, { waitUntil: 'networkidle' });
+  assert.equal(await narrow.page.locator('#mainNav').count(), 0, 'no room for it: the places are in the rail');
+  const inRail = await narrow.page.locator('#destRail .dest-label').allTextContents();
+  for (const name of ['Explore', 'Practice', 'Design Lab', 'Community', 'My Learning']) assert.ok(inRail.includes(name), `${name} is in the rail`);
+  await narrow.context.close();
 });

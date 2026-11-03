@@ -42,3 +42,5 @@ challenges. All of it is **content in git**, reviewed like a lesson, and each it
 
 Quizzes: optional timed mode (a minute per question; scored when it runs out), a retry of just the questions missed (practice: not added to the
 history), and "Where to practise" on My Learning (from the latest try of each quiz, by topic). Their tries are kept when they are signed in.
+
+The other files an admin can edit in the browser (the learning paths, the videos and the search titles) work the same way: see [`ADMIN_CONTENT.md`](ADMIN_CONTENT.md).

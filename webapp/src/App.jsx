@@ -1,4 +1,5 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useState } from 'react';
+import { MAIN_NAV } from './config/nav.js';
 import { useDocsIndex } from './hooks/useDocsIndex.js';
 import { useHashRoute } from './hooks/useHashRoute.js';
 import { useTheme } from './hooks/useTheme.js';
@@ -19,19 +20,20 @@ import { useVideos } from './hooks/useVideos.js';
 import { STORAGE, SITE } from './config/index.js';
 import { LEARNING_PATHS, LISTING_COPY, PATH_COPY } from './config/paths.js';
 import { COMMUNITY, COMMUNITY_HOME, communityTab, tabRoute } from './config/community.js';
-import { PRACTICE_ROUTE, LAB_ROUTE, ME_ROUTE } from './config/practice.js';
 import { readStored, writeStored } from './lib/storage.js';
 import { useLanding } from './hooks/useLanding.js';
 import { useCommentActivity } from './hooks/useCommentActivity.js';
 import { useCommunityActivity } from './hooks/useCommunityActivity.js';
 import { computeTreeVisibility } from './lib/curriculum/treeFilter.js';
 import { buildPageTitles } from './lib/curriculum/pageTitle.js';
+import { withSeoTitles } from './lib/siteContent/seo.js';
 import { globalCounts } from './lib/curriculum/progressStats.js';
 import { dirsOnPath } from './lib/curriculum/treePath.js';
 import { trackPageView, deleteAccount } from './lib/api.js';
 import { fetchPracticeCatalog } from './lib/practiceApi.js';
 import { useLoader } from './hooks/useLoader.js';
-import { BLOG_ROUTE, AUTHOR_ROUTE, WRITE_ROUTE, PATH_ROUTE, VIDEOS_ROUTE } from './lib/appPages.js';
+import { BLOG_ROUTE, AUTHOR_ROUTE, WRITE_ROUTE, PATH_ROUTE, VIDEOS_ROUTE, PRACTICE_ROUTE, LAB_ROUTE, ME_ROUTE, pageUrl } from './lib/appPages.js';
+import { routeUrl } from './lib/curriculum/moduleUrl.js';
 import { activityTarget } from './lib/comments.js';
 import { pickContinue, neighbourModules } from './lib/curriculum/curriculumPosition.js';
 import { resolvePaths, pathProgress, pathNeighbours, pickPathNext, placeOnPath } from './lib/curriculum/learningPaths.js';
@@ -137,7 +139,7 @@ function ScreenLoading() {
 
 export default function App() {
   const {
-    treeData, tags, nodeByFile, flatFiles, learnFiles, fileSet, dirIndex, searchItems,
+    treeData, tags, seo, nodeByFile, flatFiles, learnFiles, fileSet, dirIndex, searchItems,
     loading: indexLoading, error: indexError, reload: reloadIndex
   } = useDocsIndex();
   // The reader's picked learning path (paths.json), if any. See lib/curriculum/learningPaths.js.
@@ -222,7 +224,7 @@ export default function App() {
   // Each module page is served with its own <title> (scripts/build/prerender.mjs), built by the same function;
   // keep it right as the reader moves between modules without a page load.
   // While the docs index is still loading, leave whatever the page shipped with.
-  const pageTitles = useMemo(() => buildPageTitles(treeData, SITE.name), [treeData]);
+  const pageTitles = useMemo(() => withSeoTitles(buildPageTitles(treeData, SITE.name), seo), [treeData, seo]);
   useEffect(() => {
     const title = currentFile && pageTitles[currentFile];
     if (title) document.title = title.full;
@@ -496,6 +498,16 @@ export default function App() {
   }, [learnFiles, activePath, statusMap, currentFile, user, videoData, practiceCatalog, openPractice, openLab, openFile, goHome, navigate,
     setStatus, handleCycleTheme, expandAll, allDirPaths, collapseAll, handleExport, handleReset]);
 
+  // Where you are, for the rail and the top bar: the place a screen belongs to, null for the curriculum.
+  const activeDest = isSavedRoute ? SAVED_ROUTE : isPathRoute ? EXPLORE_ROUTE : isCommunityRoute ? COMMUNITY_HOME : isPageRoute ? BLOG_ROUTE : (isSpecialRoute ? path : null);
+  // The six main places (config/nav.js): links in the top bar on a wide screen, and the rail leaves them out there.
+  const communityDot = communityActivity.questions.badgeVisible || communityActivity.posts.badgeVisible;
+  const mainNav = useMemo(() => {
+    const places = { learn: [null, '/', handleGoHome], explore: [EXPLORE_ROUTE, routeUrl(EXPLORE_ROUTE), openExplore], practice: [PRACTICE_ROUTE, pageUrl(PRACTICE_ROUTE), () => openPractice(null)], 'design-lab': [LAB_ROUTE, pageUrl(LAB_ROUTE), () => openLab(null)], community: [COMMUNITY_HOME, routeUrl(COMMUNITY_HOME), openCommunity], 'my-learning': [ME_ROUTE, routeUrl(ME_ROUTE), openMe] };
+    return MAIN_NAV.items.map((item) => ({ key: places[item.id][0], label: item.label, href: places[item.id][1], go: places[item.id][2], badge: item.id === 'community' && communityDot }));
+  }, [handleGoHome, openExplore, openPractice, openLab, openCommunity, openMe, communityDot]);
+  const mainKeys = useMemo(() => new Set(mainNav.map((item) => item.key)), [mainNav]);
+
   const lastViewedFile = readStored(STORAGE.lastFile) || '';
 
   return (
@@ -504,6 +516,8 @@ export default function App() {
       <a href="#main" className="skip-link" onClick={(e) => { e.preventDefault(); document.getElementById('main')?.focus(); }}>Skip to content</a>
       <AnnouncementBar />
       <TopBar
+        mainNav={mainNav}
+        activeDest={activeDest}
         counts={counts}
         pathProgress={pathStats && { ...pathStats, title: activePath.title }}
         theme={theme}
@@ -530,7 +544,8 @@ export default function App() {
       />
       <div id="shell">
         <DestinationRail
-          activeDest={isSavedRoute ? SAVED_ROUTE : isPathRoute ? EXPLORE_ROUTE : isCommunityRoute ? COMMUNITY_HOME : isPageRoute ? BLOG_ROUTE : (isSpecialRoute ? path : null)}
+          activeDest={activeDest}
+          mainKeys={mainKeys}
           user={user}
           isAdmin={!!user?.isAdmin}
           onOpenCurriculum={handleGoHome}
@@ -689,7 +704,7 @@ export default function App() {
                     onOpenList={openBlogs}
                   />
                 )}
-                {isWorkspaceRoute && <WorkspaceView user={user} onLogin={login} />}
+                {isWorkspaceRoute && <WorkspaceView user={user} onLogin={login} paths={paths} statusMap={statusMap} onSetStatus={setStatus} nodeByFile={nodeByFile} learnFiles={learnFiles} onOpenFile={openFile} onOpenWrite={openWrite} />}
                 {isVideosRoute && <VideosView videoData={videoData} nodeByFile={nodeByFile} onOpenFile={openFile} />}
                 {isDesignRoute && <DesignView />}
                 </>)}

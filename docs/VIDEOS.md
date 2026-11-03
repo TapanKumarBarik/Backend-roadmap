@@ -27,7 +27,7 @@ Chapters come from the video's description: a list of lines like `0:23 Accept no
    ```
 
    The sync reads each playlist twice: its public feed (the newest 15, with full descriptions) and its page (every video, up to a hundred), then the page of any video the file lacks, so a playlist that has grown past 15 is not missed. YouTube sometimes answers a feed with an error; the sync tries a few times. A new playlist is added to the top of `content/videos.json` by hand (`id`, `title`, `url`). It adds the video with its title, upload date, summary and chapters from the description, in the right playlist. A video already in the file is never touched, so what you have edited stays.
-3. Say which module it belongs to. The sync cannot know that; open `content/videos.json`, find the new entry (the last of its playlist) and add its `"module"`: the module's folder under `content/`, with no `README.md`:
+3. Say which module it belongs to. The sync cannot know that. Either set it in the browser (Admin, Site, Videos: pick the module from the list, then save; see [`ADMIN_CONTENT.md`](ADMIN_CONTENT.md)), or open `content/videos.json`, find the new entry (the last of its playlist) and add its `"module"`: the module's folder under `content/`, with no `README.md`:
 
    ```json
    {

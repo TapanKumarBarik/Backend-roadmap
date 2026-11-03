@@ -76,7 +76,7 @@ test('the admin dashboard opens for the owner with its ten sections, and tells a
   await owner.page.waitForSelector('.admin-dashboard');
   assert.deepEqual(
     await owner.page.locator('.admin-dashboard .page-tabs button').allTextContents().then((labels) => labels.map((l) => l.trim().replace(/\d+$/, ''))),
-    ['Overview', 'Content', 'Community', 'Articles', 'Practice', 'Notices', 'People', 'Analytics', 'System', 'Audit log']
+    ['Overview', 'Content', 'Community', 'Articles', 'Practice', 'Site', 'Notices', 'People', 'Analytics', 'System', 'Audit log']
   );
   await owner.page.getByRole('button', { name: 'People' }).click();
   await owner.page.locator('.admin-chip.is-root', { hasText: OWNER_EMAIL }).waitFor();

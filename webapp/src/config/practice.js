@@ -1,10 +1,9 @@
 // The Practice Center, the Design Lab and My Learning: their addresses and their words. Practice and the Design Lab have addresses of
 // their own (/practice/quiz/<slug>/, /design-lab/lld/<slug>/, lib/appPages.js); My Learning is a private screen and lives in the hash.
 
-export const ME_ROUTE = '__me';
-export { PATH_ROUTE, PRACTICE_ROUTE, LAB_ROUTE } from '../lib/appPages.js';
+export { PATH_ROUTE, PRACTICE_ROUTE, LAB_ROUTE, ME_ROUTE } from '../lib/appPages.js';
 
-export const DIFFICULTY = { beginner: 'Beginner', intermediate: 'Intermediate', advanced: 'Advanced' };
+export { DIFFICULTY } from './difficulty.js';
 
 export const PRACTICE = {
   title: 'Practice',
@@ -97,14 +96,7 @@ export const STRIP = {
   kind: { lld: 'Low-level design', hld: 'High-level design' }
 };
 
-// At the foot of a lesson: the practice that goes with it.
-export const RELATED = {
-  heading: 'Practise this',
-  quiz: (title) => `Quiz: ${title}`,
-  exercise: (title) => `Exercise: ${title}`,
-  interview: (title) => `Interview questions: ${title}`,
-  design: (title) => `Design challenge: ${title}`
-};
+export { RELATED } from './related.js';
 
 // The admins' editor for the quizzes, exercises, interview sets and design challenges.
 export const CONTENT_EDITOR = {

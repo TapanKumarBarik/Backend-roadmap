@@ -64,6 +64,30 @@ Updated after every phase: what was implemented, files, features preserved, test
   - *Not done by a person:* a screen-reader pass; Lighthouse and real-device runs.
   - *Needs a reader:* the quiz and challenge drafts. Each draft came with a list of statements worth double-checking; they are collected in `docs/revamp/CONTENT_REVIEW.md`.
 
+## 2.0 third batch: the rest of the "not done" list (2026-11-03)
+
+- **Implemented**
+  - *Top navigation:* on a window 1280 px or wider the six places (Learn, Explore, Practice, Design Lab, Community, My Learning) are links in the top bar, with
+    the current place marked and the Community "something new" dot; the left rail keeps the others (videos, articles, saved, workspace, admin). Below 1280 px the rail
+    carries all of them, and on a phone it is the bottom bar as before. (`config/nav.js`, `components/layout/MainNav.jsx`.)
+  - *Admin, Site* (`docs/ADMIN_CONTENT.md`): edit the **learning paths** (a form: steps picked from the real folders, order, prerequisites, skills), the **YouTube registry**
+    (playlists, and the module each video belongs to, searchable, with a flag for videos without one) and **SEO** (a hand-written title and description for a module's
+    page, applied when the site is built and in the browser tab). All commit to the repository after a server-side check with the rules the command-line checks use.
+  - *Workspace as a personal hub* (migration 0006): folders (with a keyboard-operable "Move to…"), study plans from a learning path or your own list (a lesson's tick is
+    your real progress), revision lists (most overdue first, an "Add to revision list" button on each lesson), saved Mermaid diagrams, a clear "Private" note on every kind
+    of page, and "Copy text into a new article draft". The tree, the plans and the lists are lazy-loaded, so the first page stays inside its size budget.
+  - *Lighthouse:* run on six pages (accessibility 100, SEO 100, best practices 96, performance 82 to 90). Fixed: the search button had no name at phone width, five vague
+    "Start" links, the module page drew 8,700 elements (now 1,300; blocking time 290 to 80 ms), the first video thumbnails were lazy. `npm run lighthouse` repeats it.
+- **Tests:** the combined suite on Linux is in `docs/TESTING_REPORT.md`; the new browser tests are `tests/e2e/workspace.e2e.mjs` (10) and `tests/e2e/site-admin.e2e.mjs` (4),
+  and the navigation test in `design.e2e.mjs`.
+- **Remaining**
+  - *Needs a person:* a screen-reader pass; real-device testing; the new workspace sentence for the privacy page (a draft is at the end of `docs/PRIVACY-TERMS-DRAFT.md`;
+    the live page is unchanged until it is approved).
+  - *Needs a reader:* the quiz and challenge drafts (`docs/revamp/CONTENT_REVIEW.md`).
+  - *Not built:* custom drag-and-drop diagram editor; drag-and-drop in the workspace tree (the keyboard "Move to…" is there); admin screens for site configuration beyond
+    paths, videos and SEO (announcements and practice content already have theirs).
+- **Before deploying:** apply migrations 0004, 0005 and 0006 (`npm run db:migrate:remote`).
+
 ## Earlier revamp (docs/MODERNIZATION.md): phases 1 to 6, committed and, from 2026-11-03, on `origin/main`
 
 Design system and shell; community blogs, studio, assistant, moderation; Community hub, comments and notifications, counts; search;

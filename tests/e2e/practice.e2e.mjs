@@ -15,7 +15,8 @@ before(async () => { browser = await launchBrowser(); });
 after(async () => { await browser.close(); });
 
 const real = (problems) => problems.filter((p) => !/Failed to load resource/.test(p));
-const railButton = (page, name) => page.locator('#destRail').getByRole('button', { name });
+// On a wide screen the main places are links in the top bar.
+const mainLink = (page, name) => page.locator('#mainNav').getByRole('link', { name });
 
 /** Waits for something that happens in the database after a pause (typing is saved a moment after it stops). */
 async function until(read, message) {
@@ -39,9 +40,9 @@ test('the rail has Practice, Design Lab and My Learning, and Practice lists the 
   const { context, page, problems, goto } = await open('/#__practice');
   await goto();
   await page.getByRole('heading', { level: 2, name: 'Practice' }).waitFor();
-  const places = await page.locator('#destRail .dest-label').allTextContents();
-  for (const name of ['Practice', 'Design Lab', 'My Learning']) assert.ok(places.includes(name), `the rail has ${name}`);
-  assert.equal(await railButton(page, 'Practice').getAttribute('aria-current'), 'page');
+  const places = await page.locator('#mainNav a').allTextContents();
+  for (const name of ['Practice', 'Design Lab', 'My Learning']) assert.ok(places.includes(name), `the top bar has ${name}`);
+  assert.equal(await mainLink(page, 'Practice').getAttribute('aria-current'), 'page');
 
   const tablist = page.getByRole('tablist', { name: /practice/i });
   assert.deepEqual((await tablist.getByRole('tab').allTextContents()).map((t) => t.replace(/\d+$/, '')), ['Quizzes', 'Exercises', 'Interview prep']);
@@ -97,7 +98,7 @@ test('a design challenge keeps its reference solution back until your own is sub
   const { context, page, env, problems, goto } = await open('/#__lab@lld/parking-lot');
   await goto();
   await page.getByRole('heading', { level: 2, name: /parking/i }).waitFor();
-  assert.equal(await railButton(page, 'Design Lab').getAttribute('aria-current'), 'page');
+  assert.equal(await mainLink(page, 'Design Lab').getAttribute('aria-current'), 'page');
   await page.getByText('The reference solution opens once you have submitted your own').waitFor();
 
   const answer = 'A ParkingLot owns Levels; each Level owns Spots; a Strategy picks the spot for a vehicle.';
@@ -129,7 +130,7 @@ test('My Learning shows what was done: a quiz try appears there, and a reader wi
   const fresh = await open('/#__me');
   await fresh.goto();
   await fresh.page.getByRole('heading', { level: 2, name: 'My learning' }).waitFor();
-  assert.equal(await railButton(fresh.page, 'My Learning').getAttribute('aria-current'), 'page');
+  assert.equal(await mainLink(fresh.page, 'My Learning').getAttribute('aria-current'), 'page');
   await fresh.page.getByRole('button', { name: 'Choose a path' }).waitFor();
   await fresh.context.close();
 
@@ -139,7 +140,7 @@ test('My Learning shows what was done: a quiz try appears there, and a reader wi
   await page.locator('.pr-questions > li').first().locator('input').first().check();
   await page.getByRole('button', { name: 'Check my answers' }).click();
   await page.locator('.pr-score').waitFor();
-  await railButton(page, 'My Learning').click();
+  await mainLink(page, 'My Learning').click();
   await page.getByRole('heading', { level: 2, name: 'My learning' }).waitFor();
   await page.getByText(/HTTP caching/i).first().waitFor();
   assert.equal(env.DB.raw.prepare('SELECT COUNT(*) AS n FROM quiz_attempts').get().n, 1);
@@ -159,7 +160,7 @@ test('Explore lists the learning paths, and a path has a page of its own with wh
   await page.getByRole('heading', { level: 3, name: 'Before you start' }).waitFor();
   await page.getByRole('heading', { level: 3, name: 'What you will cover' }).waitFor();
   await page.getByRole('heading', { level: 3, name: 'The curriculum' }).waitFor();
-  assert.equal(await railButton(page, 'Explore').getAttribute('aria-current'), 'page', 'a path page belongs to Explore');
+  assert.equal(await mainLink(page, 'Explore').getAttribute('aria-current'), 'page', 'a path page belongs to Explore');
   await page.getByRole('button', { name: 'Start this path' }).waitFor();
 
   await page.evaluate(() => { history.pushState(null, '', '/paths/no-such-path/'); dispatchEvent(new PopStateEvent('popstate')); });
@@ -423,7 +424,7 @@ test('My Learning says where to practise, from the quizzes that were taken', asy
   await page.locator('.pr-questions > li').first().locator('input').first().check();
   await page.getByRole('button', { name: 'Check my answers' }).click();
   await page.locator('.pr-score').waitFor();
-  await railButton(page, 'My Learning').click();
+  await mainLink(page, 'My Learning').click();
   await page.getByRole('heading', { level: 3, name: 'Where to practise' }).waitFor();
   await page.getByText(/right \(\d+%\)/).first().waitFor();
   await page.getByRole('heading', { name: 'Questions you missed' }).waitFor();

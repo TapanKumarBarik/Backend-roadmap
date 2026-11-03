@@ -56,7 +56,7 @@ function ToolbarButton({ active, disabled, onClick, title, children }) {
 // above the page is the only way to insert a block type, which keeps the
 // scope to "a real editor with real formatting and real reordering"
 // without also building a command palette inside the editor itself.
-export default function BlockEditor({ page, onSave, onToast }) {
+export default function BlockEditor({ page, onSave, onToast, editorRef }) {
   const [status, setStatus] = useState('idle'); // idle | saving | saved
   const saveTimer = useRef(null);
   const fileInputRef = useRef(null);
@@ -85,6 +85,13 @@ export default function BlockEditor({ page, onSave, onToast }) {
       if (saveTimer.current) clearTimeout(saveTimer.current);
     };
   }, [page?.id]);
+
+  // The screen around the editor can ask for the text as it is right now (for "copy into an article"), not as it was last saved.
+  useEffect(() => {
+    if (!editorRef) return undefined;
+    editorRef.current = editor;
+    return () => { editorRef.current = null; };
+  }, [editor, editorRef]);
 
   if (!editor) return null;
 

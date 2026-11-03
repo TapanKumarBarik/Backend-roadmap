@@ -9,6 +9,7 @@ import { requireAdmin } from '../lib/admin.js';
 import { upstreamStatus } from '../lib/util.js';
 import { IMAGE_CONTAINER, blobBase, bytesFromBase64, putBlob } from '../lib/blob.js';
 import { isPracticePath, practiceFileProblems } from '../../webapp/src/lib/practice/validate.js';
+import { isSiteFile, serializeSiteFile, siteFileProblems } from '../../webapp/src/lib/siteContent/index.js';
 
 const content = createRouter();
 
@@ -17,6 +18,7 @@ const GITHUB_BRANCH = site.repo.branch;
 const GITHUB_API = 'https://api.github.com';
 const CONTENT_DIR = site.content.dir;
 const CURRICULA = site.content.curricula;
+const INDEX_PATH = '/docs-index.json'; // the deployed site's own list of every folder and module
 const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 const ALLOWED_IMAGE_TYPES = {
   'image/png': 'png',
@@ -29,11 +31,12 @@ const ALLOWED_IMAGE_TYPES = {
 // The editor works on lessons, so a path is a lesson's path from the content folder ("learn/01-linux/README.md") and
 // becomes content/learn/01-linux/README.md in the repository. The practice content is the other thing it may edit: the quizzes,
 // exercises, interview sets and design challenges ("practice/quizzes/http-caching.json", "design-lab/lld/atm.json"), which are
-// checked before they are committed (a bad one would stop the next deploy). Anything else (another folder of the repository, a
+// checked before they are committed (a bad one would stop the next deploy). So are the three site files, and only these three: the
+// learning paths, the videos and the SEO overrides ("paths.json", "videos.json", "seo.json"). Anything else (another folder of the repository, a
 // path that climbs out with "..") is refused: this endpoint commits with the site's GitHub token, and it should not
 // be a way to change workflows or code. Returns null for a path it will not touch.
 export function repoPathFor(path) {
-  if (isPracticePath(path)) return `${CONTENT_DIR}/${path}`;
+  if (isPracticePath(path) || isSiteFile(path)) return `${CONTENT_DIR}/${path}`;
   const parts = String(path || '').split('/');
   if (!CURRICULA.includes(parts[0]) || parts.some((part) => part === '' || part === '.' || part === '..')) return null;
   return CONTENT_DIR + '/' + parts.map(encodeURIComponent).join('/');
@@ -66,14 +69,43 @@ async function practiceProblems(env, path, text) {
   return { problems, item };
 }
 
-// Checks a practice file without committing it: the problems, or an empty list.
+/**
+ * What is wrong with a site file's text (paths.json, videos.json, seo.json), or [] when it can be committed. The rules are the
+ * checkers' (webapp/src/lib/siteContent). Which folders and modules exist is read from the deployed site's own module index: this
+ * Function cannot read the repository, and the index lists every one. A module added since the last deploy is not in it yet, so it
+ * cannot be used here until the site has been rebuilt. Returns { problems, text }, `text` being the file as it is committed.
+ */
+async function siteProblems(c, path, text) {
+  let item;
+  try { item = JSON.parse(text); } catch (err) { return { problems: [`${path}: not valid JSON (${err.message})`], text }; }
+  let tree;
+  try {
+    const res = await fetch(new URL(INDEX_PATH, c.req.url).href);
+    if (!res.ok) throw new Error(`answered ${res.status}`);
+    tree = (await res.json()).tree;
+    if (!Array.isArray(tree)) throw new Error('has no module tree');
+  } catch (err) {
+    return { problems: [`${path}: the site's module list (${INDEX_PATH}) could not be read (${err.message}), so the modules cannot be checked; try again`], text };
+  }
+  const problems = siteFileProblems(path, item, { tree, curricula: CURRICULA });
+  return { problems, text: problems.length ? text : serializeSiteFile(path, item) };
+}
+
+// A file's problems and its text as it is committed: one layout, so a change shows as a change in the history.
+async function contentProblems(c, path, text) {
+  if (isSiteFile(path)) return siteProblems(c, path, text);
+  const checked = await practiceProblems(c.env, path, text);
+  return { problems: checked.problems, text: checked.item ? `${JSON.stringify(checked.item, null, 2)}\n` : text };
+}
+
+// Checks a practice or site file without committing it: the problems, or an empty list.
 content.post('/manage/content/check', async (c) => {
   const denied = await requireAdmin(c);
   if (denied) return denied;
   let body;
   try { body = await c.req.json(); } catch { return c.json({ error: 'invalid body' }, 400); }
-  if (!isPracticePath(body.path) || typeof body.content !== 'string') return c.json({ error: 'path must be a practice file, and content its text' }, 400);
-  return c.json({ problems: (await practiceProblems(c.env, body.path, body.content)).problems });
+  if (!(isPracticePath(body.path) || isSiteFile(body.path)) || typeof body.content !== 'string') return c.json({ error: 'path must be a practice file or a site file, and content its text' }, 400);
+  return c.json({ problems: (await contentProblems(c, body.path, body.content)).problems });
 });
 
 content.get('/manage/content', async (c) => {
@@ -101,18 +133,18 @@ content.put('/manage/content', async (c) => {
   let body;
   try { body = await c.req.json(); } catch { return c.json({ error: 'invalid body' }, 400); }
   const { path, content: fileContent, sha } = body;
-  const practice = isPracticePath(path);
-  // A new practice file has no sha yet: it is created, when `create` says so.
-  if (!path || typeof fileContent !== 'string' || (!sha && !(practice && body.create === true))) {
+  const checkable = isPracticePath(path) || isSiteFile(path);
+  // A new practice file (or seo.json, which is optional) has no sha yet: it is created, when `create` says so.
+  if (!path || typeof fileContent !== 'string' || (!sha && !(checkable && body.create === true))) {
     return c.json({ error: 'path, content, and sha are required' }, 400);
   }
   const repoPath = repoPathFor(path);
   if (!repoPath) return c.json({ error: 'path must be a lesson inside a curriculum folder' }, 400);
   let text = fileContent;
-  if (practice) {
-    const checked = await practiceProblems(c.env, path, fileContent);
+  if (checkable) {
+    const checked = await contentProblems(c, path, fileContent);
     if (checked.problems.length) return c.json({ error: 'this file has problems, so it was not saved', problems: checked.problems }, 400);
-    text = `${JSON.stringify(checked.item, null, 2)}\n`; // one layout, so a change shows as a change in the history
+    text = checked.text;
   }
 
   const res = await fetch(`${GITHUB_API}/repos/${GITHUB_REPO}/contents/${repoPath}`, {
@@ -126,6 +158,8 @@ content.put('/manage/content', async (c) => {
     })
   });
   if (!res.ok) {
+    // GitHub answers 409 when the file is no longer the version the editor read: someone saved it in between.
+    if (res.status === 409) return c.json({ error: 'this file changed in the repository since you opened it; reload it and make your change again' }, 409);
     return c.json({ error: 'GitHub commit failed', detail: await res.text() }, upstreamStatus(res));
   }
   const data = await res.json();

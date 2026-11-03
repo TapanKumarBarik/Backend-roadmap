@@ -1,6 +1,6 @@
 import '../../styles/paths.css';
 import { PATH_COPY, formatDuration } from '../../config/paths.js';
-import { DIFFICULTY } from '../../config/practice.js';
+import { DIFFICULTY } from '../../config/difficulty.js';
 
 // The cards a reader chooses from. Each one answers the four questions that decide it: what will I be able to
 // do, is it for me, what is in it, and how much of my time does it take.

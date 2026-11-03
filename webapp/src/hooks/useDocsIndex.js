@@ -38,6 +38,7 @@ function buildIndex(data) {
   return {
     treeData: data.tree,
     tags: data.tags || {},
+    seo: data.seo || {}, // titles and descriptions written by hand for some modules (content/seo.json)
     nodeByFile,
     flatFiles,
     learnFiles: studyableFiles(flatFiles, nodeByFile),
@@ -53,6 +54,7 @@ export function useDocsIndex() {
   const [state, setState] = useState({
     treeData: [],
     tags: {},
+    seo: {},
     loading: true,
     error: null,
     nodeByFile: {},

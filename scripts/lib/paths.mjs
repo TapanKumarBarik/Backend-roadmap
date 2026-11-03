@@ -9,6 +9,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { CONTENT_ROOT, CURRICULA, isPlaceholderText } from './config.mjs';
 import { SKIP_DIRS, readText, readingMinutes } from './content.mjs';
+import { stepProblem } from '../../webapp/src/lib/siteContent/paths.js';
 
 export const loadCatalogue = () => JSON.parse(fs.readFileSync(path.join(CONTENT_ROOT, 'paths.json'), 'utf8')).paths || [];
 
@@ -31,11 +32,9 @@ export function resolvePath(p) {
   let steps = 0;
 
   for (const step of p.steps || []) {
-    if (!CURRICULA.includes(step.split('/')[0])) { problems.push(`step "${step}" is not inside a curriculum (${CURRICULA.join(', ')})`); continue; }
     const dir = path.join(CONTENT_ROOT, step);
-    if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) { problems.push(`step "${step}" is not a folder`); continue; }
-    const found = modulesUnder(dir);
-    if (!found.length) { problems.push(`step "${step}" has no modules in it`); continue; }
+    const isFolder = CURRICULA.includes(step.split('/')[0]) && fs.existsSync(dir) && fs.statSync(dir).isDirectory();
+    const found = isFolder ? modulesUnder(dir) : [];
     let stepWritten = 0;
     for (const m of found) {
       const raw = readText(path.join(m, 'README.md'));
@@ -43,7 +42,9 @@ export function resolvePath(p) {
       stepWritten++;
       if (!seen.has(m)) { seen.add(m); written.push({ dir: m, minutes: readingMinutes(raw) }); }
     }
-    if (!stepWritten) problems.push(`step "${step}" has only planned modules, so it adds nothing yet`);
+    // The words (and the rules) are shared with the admin editor: webapp/src/lib/siteContent/paths.js.
+    const problem = stepProblem(step, CURRICULA, isFolder ? { modules: found.length, written: stepWritten } : null);
+    if (problem) problems.push(problem);
     else steps++;
   }
 

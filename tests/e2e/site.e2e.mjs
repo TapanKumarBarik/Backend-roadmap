@@ -50,7 +50,10 @@ test('a lesson opens with a topic-first title, its heading, its text and real li
   await page.waitForSelector('#content p');
   assert.equal(await page.title(), 'Sessions and Cookies · Backend Roadmap');
   assert.match(await page.textContent('h1.doc-title'), /Sessions and Cookies/);
-  assert.ok(await page.locator('#sidebar a.name[href]').count() > 700, 'every module row is a link');
+  // Only the open tracks draw their rows (a closed one is none of the page's elements), and every row that is drawn is a real link.
+  const rows = await page.locator('#sidebar .row[data-file]').count();
+  assert.ok(rows >= 5 && rows < 300, `${rows} rows are drawn, not the whole curriculum`);
+  assert.equal(await page.locator('#sidebar .row[data-file] a.name[href]').count(), rows, 'every module row is a link');
   assert.equal(await page.locator('.content-skeleton').count(), 0, 'the skeleton is gone once the text is there');
   assert.ok(await page.locator('#pager').count() === 1);
   // nothing makes the reading column scroll sideways

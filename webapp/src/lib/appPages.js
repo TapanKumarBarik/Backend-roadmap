@@ -28,6 +28,7 @@ export const PATH_ROUTE = '__path';
 export const VIDEOS_ROUTE = '__videos';
 export const PRACTICE_ROUTE = '__practice';
 export const LAB_ROUTE = '__lab';
+export const ME_ROUTE = '__me';
 
 /** The first segment of each page's address, and the route (the app's name for the screen) it opens. */
 export const PAGES = [

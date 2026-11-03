@@ -479,11 +479,12 @@ export async function fetchWorkspacePage(id) {
   return res.json();
 }
 
-export async function createWorkspacePage(title, parentId) {
+// `extra` is what a page of another kind needs: { kind, data } (lib/workspace/kinds.js). Nothing for a plain page.
+export async function createWorkspacePage(title, parentId, extra = {}) {
   const res = await fetch('/api/workspace/pages', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ title, parentId: parentId || null })
+    body: JSON.stringify({ title, parentId: parentId || null, ...extra })
   });
   if (!res.ok) throw await apiError(res, 'failed to create page');
   return res.json();

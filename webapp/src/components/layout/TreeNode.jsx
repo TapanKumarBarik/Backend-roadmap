@@ -115,8 +115,9 @@ export default function TreeNode({
         )}
         {prog}
       </div>
-      {hasKids && (
-        <ul className="tree" style={{ display: isOpen ? '' : 'none' }}>
+      {/* Only an open track draws its rows: the whole curriculum is some eight thousand elements, and a closed track is none of them. */}
+      {hasKids && isOpen && (
+        <ul className="tree">
           {node.children.map((child) => (
             <TreeNode
               key={child.file || child.path}

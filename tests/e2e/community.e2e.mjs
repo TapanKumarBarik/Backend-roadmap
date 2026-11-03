@@ -19,6 +19,8 @@ const tablist = (page) => page.getByRole('tablist', { name: 'Community' });
 const tabs = (page) => tablist(page).getByRole('tab');
 const selectedTab = (page) => tablist(page).locator('[role="tab"][aria-selected="true"]');
 const railButton = (page, name) => page.locator('#destRail').getByRole('button', { name });
+// On a wide screen the main places are links in the top bar; the rail keeps the others.
+const mainLink = (page, name) => page.locator('#mainNav').getByRole('link', { name });
 
 /** The community, signed in as a reader (or signed out when `email` is null), opened on `url`. */
 async function openCommunity(url = '/#__community', { email = 'reader@example.com', ...options } = {}) {
@@ -38,10 +40,10 @@ test('Community is one place in the rail, and its tabs are questions, posts, res
   assert.deepEqual(await tabs(page).allTextContents(), ['Questions', 'Posts', 'Resources', 'Ideas']);
   assert.equal(await selectedTab(page).textContent(), 'Questions');
 
-  const places = await page.locator('#destRail .dest-label').allTextContents();
-  assert.ok(places.includes('Community'), 'the rail has Community');
+  const places = [...await page.locator('#destRail .dest-label').allTextContents(), ...await page.locator('#mainNav a').allTextContents()];
+  assert.ok(places.includes('Community'), 'the top bar has Community');
   assert.deepEqual(places.filter((p) => ['Feed', 'Posts', 'Books', 'Suggestions', 'Ideas'].includes(p)), [], 'and not the places that are its tabs now');
-  assert.equal(await railButton(page, 'Community').getAttribute('aria-current'), 'page');
+  assert.equal(await mainLink(page, 'Community').getAttribute('aria-current'), 'page');
   assert.deepEqual(real(problems), []);
   await context.close();
 });
@@ -63,7 +65,7 @@ test('each tab opens its own screen under the address it always had, and the tab
     await content.waitFor();
     assert.equal(hashOf(page), hash);
     assert.equal(await selectedTab(page).textContent(), name);
-    assert.equal(await railButton(page, 'Community').getAttribute('aria-current'), 'page', 'the rail still says where you are');
+    assert.equal(await mainLink(page, 'Community').getAttribute('aria-current'), 'page', 'the top bar still says where you are');
   }
   assert.equal(await tablist(page).getAttribute('data-kept'), 'yes', 'the tabs were not drawn again');
 
@@ -116,19 +118,19 @@ test('a tab with something new says so, and opening it clears the dot on the tab
   await goto();
   await tablist(page).waitFor();
 
-  await railButton(page, 'Community — new activity').waitFor();
+  await mainLink(page, 'Community — new activity').waitFor();
   await tabs(page).filter({ hasText: /^Posts\s*new$/ }).waitFor();
   assert.equal(await selectedTab(page).textContent(), 'Questions', 'the tab that was asked for is open, not the one with news');
 
   await tabs(page).filter({ hasText: /^Posts/ }).click();
   await page.getByText('A post nobody has read yet').waitFor();
   await tabs(page).filter({ hasText: /^Posts$/ }).waitFor();
-  await railButton(page, 'Community').waitFor();
-  assert.equal(await page.locator('#destRail .activity-dot').count(), 0, 'nothing is new any more');
+  await mainLink(page, 'Community').waitFor();
+  assert.equal(await page.locator('#mainNav .activity-dot').count(), 0, 'nothing is new any more');
 
   await page.reload({ waitUntil: 'networkidle' });
   await tablist(page).waitFor();
-  assert.equal(await page.locator('#destRail .activity-dot').count(), 0, 'and it stays that way');
+  assert.equal(await page.locator('#mainNav .activity-dot').count(), 0, 'and it stays that way');
   await context.close();
 });
 
@@ -138,7 +140,7 @@ test('a post has a page of its own that is not a tab, and Back to Posts returns 
   await goto();
   await page.getByText('A post with a thread').waitFor();
   assert.equal(await tablist(page).count(), 0, 'a post is not drawn inside the tabs');
-  assert.equal(await railButton(page, 'Community').getAttribute('aria-current'), 'page');
+  assert.equal(await mainLink(page, 'Community').getAttribute('aria-current'), 'page');
 
   await page.getByRole('button', { name: '← Back to Posts' }).click();
   await tablist(page).waitFor();

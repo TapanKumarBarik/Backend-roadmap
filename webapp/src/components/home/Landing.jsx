@@ -144,7 +144,7 @@ export default function Landing({ stats, videoData, nodeByFile, user, onLogin, o
                 <p>{p.blurb}</p>
                 {c && <div className="lp-meta">{LIBRARY.meta(p.id, c)}</div>}
                 <div className="lp-card-acts">
-                  {c?.start && <a className="lp-link lp-link-strong" {...link(c.start)}>{LIBRARY.startLabel} <ArrowRightIcon /></a>}
+                  {c?.start && <a className="lp-link lp-link-strong" {...link(c.start)}>{LIBRARY.startLabel(p.title)} <ArrowRightIcon /></a>}
                   {c?.overview && <a className="lp-link" {...link(c.overview)}>{LIBRARY.tracksLabel}</a>}
                 </div>
               </article>

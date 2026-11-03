@@ -1144,6 +1144,7 @@ body.right-rail-collapsed #toc { display: none; }
 /* ---------- bookmark star ---------- */
 .bookmark-btn.on { color: var(--fg); }
 .bookmark-btn.on svg { fill: var(--fg); }
+.revise-btn.on { color: var(--signal); }
 
 /* ---------- notes ---------- */
 .notes-panel { margin-top: 40px; }
@@ -2756,3 +2757,15 @@ li[data-checked="true"] > div {
 /* The tree's caret and progress tick are buttons now (the keyboard and a screen reader reach them); they look as the spans did. */
 .tree button.caret, .tree button.check { background: none; border-color: transparent; padding: 0; margin: 0; font: inherit; color: inherit; cursor: pointer; }
 .tree .name:focus-visible { outline: 2px solid var(--focus, var(--accent)); outline-offset: 1px; border-radius: var(--r-sm); }
+
+/* The main navigation in the top bar (components/layout/MainNav.jsx), on a wide screen. */
+#mainNav { display: flex; align-items: center; gap: 2px; margin-left: 4px; flex-shrink: 0; }
+.mainnav-link { position: relative; display: inline-flex; align-items: center; gap: 4px; height: 32px; padding: 0 10px; border-radius: var(--r-md); color: var(--fg-muted); font-size: 13.5px; font-weight: 550; text-decoration: none; white-space: nowrap; }
+.mainnav-link:hover { background: var(--hover); color: var(--fg); }
+.mainnav-link.on { color: var(--signal); background: var(--signal-bg); }
+.mainnav-link:focus-visible { outline: 2px solid var(--focus, var(--accent)); outline-offset: 1px; }
+.mainnav-link .activity-dot { position: static; margin-left: 2px; }
+.brand span { white-space: nowrap; }
+/* With the links in the bar the search box keeps a usable width, and the progress pill gives up its word before the search box gives up its room. */
+#mainNav ~ #searchTrigger { min-width: 112px; }
+@media (max-width: 1340px) { #mainNav ~ #globalStat .lbl { display: none; } }

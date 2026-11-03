@@ -1,0 +1,116 @@
+/* The workspace as a personal hub: the kinds of page besides text (folder, study plan, revision list, diagram), the private note, and the
+   tree's kind marks. Tokens only. Loaded with the workspace screen, so the first page does not pay for it. The text editor and the tree's
+   basic look are in global.css (the "workspace" sections). */
+
+/* ---------- private, in words ---------- */
+.wsx-private {
+  display: flex; align-items: flex-start; gap: var(--space-2); margin: 0 0 var(--space-4);
+  font-size: var(--text-sm); line-height: var(--leading-snug); color: var(--fg-muted);
+}
+.wsx-private svg { flex-shrink: 0; width: 15px; height: 15px; margin-top: 2px; }
+.wsx-private strong { color: var(--fg); font-weight: var(--weight-semibold); }
+.ws-shell > .wsx-private { margin-bottom: var(--space-5); }
+
+/* ---------- the tree ---------- */
+/* The row menus open over the edge of the tree, so it must not clip them. */
+.ws-shell .ws-tree { overflow: visible; }
+.wsx-tree-add { padding: var(--space-2) var(--space-1) var(--space-3); }
+.ws-title { display: flex; align-items: center; gap: var(--space-2); }
+.ws-title-text { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ws-title .ws-kind-icon { flex-shrink: 0; width: 14px; height: 14px; color: var(--fg-muted); }
+.ws-row--folder .ws-title { font-weight: var(--weight-semibold); }
+/* The actions of a row are shown to the pointer on hover, and to the keyboard as soon as anything in the row has focus. */
+.ws-shell .ws-row:focus-within .ws-row-acts { display: flex; opacity: 1; }
+
+/* ---------- a page's top ---------- */
+.wsx-panel { padding-top: var(--space-6); }
+.wsx-panel--page { padding-bottom: var(--space-2); }
+.wsx-titlebar { margin-bottom: var(--space-2); }
+.wsx-kind {
+  display: flex; align-items: center; gap: var(--space-2); margin: 0 0 var(--space-1);
+  font-size: var(--text-2xs); font-weight: var(--weight-bold); letter-spacing: .08em; text-transform: uppercase; color: var(--fg-muted);
+}
+.wsx-kind svg { width: 14px; height: 14px; }
+.wsx-titlerow { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); }
+.wsx-title { margin: 0; font-size: var(--text-2xl); line-height: var(--leading-tight); letter-spacing: -.02em; overflow-wrap: anywhere; }
+.wsx-title-input {
+  min-width: 0; flex: 1 1 240px; font: inherit; font-size: var(--text-xl); font-weight: var(--weight-semibold); padding: var(--space-1) var(--space-2);
+  color: var(--fg); background: var(--bg-sunken); border: 1px solid var(--border-strong); border-radius: var(--r-sm);
+}
+.wsx-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); margin-left: auto; }
+.wsx-hint { margin: 0 0 var(--space-4); font-size: var(--text-sm); line-height: var(--leading-snug); color: var(--fg-muted); }
+.wsx-save { margin: var(--space-1) 0 0; font-size: var(--text-xs); color: var(--fg-muted); }
+.wsx-form { display: grid; gap: var(--space-4); }
+.wsx-tag {
+  display: inline-block; padding: 0 var(--space-2); border: 1px solid var(--border); border-radius: var(--r-pill);
+  font-size: var(--text-2xs); line-height: 18px; color: var(--fg-muted); white-space: nowrap;
+}
+
+/* ---------- a folder ---------- */
+.wsx-contents { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--space-1); }
+.wsx-contents__item {
+  display: flex; align-items: center; gap: var(--space-3); width: 100%; padding: var(--space-3); text-align: left;
+  background: var(--bg); border: 1px solid var(--border-subtle); border-radius: var(--r-md); color: var(--fg); font: inherit; cursor: pointer;
+}
+.wsx-contents__item:hover { background: var(--hover); border-color: var(--border); }
+.wsx-contents__item svg { flex-shrink: 0; width: 16px; height: 16px; color: var(--fg-muted); }
+.wsx-contents__name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wsx-contents__kind { font-size: var(--text-xs); color: var(--fg-muted); }
+
+/* ---------- a study plan ---------- */
+.wsx-summary { margin: var(--space-4) 0 var(--space-6); padding: var(--space-4); background: var(--bg-sunken); border: 1px solid var(--border-subtle); border-radius: var(--r-lg); }
+.wsx-summary p { margin: var(--space-2) 0 0; font-size: var(--text-sm); }
+.wsx-summary__row { display: flex; justify-content: space-between; gap: var(--space-3); margin: 0 0 var(--space-2); font-size: var(--text-sm); }
+.wsx-summary .bar { height: 7px; }
+.wsx-summary__date { max-width: 280px; margin-top: var(--space-3); }
+.wsx-finished { color: var(--done); font-weight: var(--weight-semibold); }
+.wsx-late { color: var(--danger); }
+.wsx-step { margin-bottom: var(--space-6); }
+.wsx-step__title {
+  display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-3); margin: 0 0 var(--space-2);
+  padding-bottom: var(--space-2); border-bottom: 1px solid var(--border-subtle); font-size: var(--text-md); font-weight: var(--weight-semibold);
+}
+.wsx-step__count { font-size: var(--text-xs); font-weight: var(--weight-regular); color: var(--fg-muted); }
+.wsx-checklist { list-style: none; margin: 0; padding: 0; }
+.wsx-item { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-2) 0; border-bottom: 1px solid var(--border-subtle); }
+.wsx-item input[type="checkbox"] { flex-shrink: 0; width: 18px; height: 18px; margin: 0; accent-color: var(--done); cursor: pointer; }
+.wsx-item__text { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.wsx-item.is-done .wsx-item__text, .wsx-item.is-done .wsx-item__text a { color: var(--fg-muted); text-decoration: line-through; }
+.wsx-item__remove { flex-shrink: 0; }
+.wsx-add { margin-bottom: var(--space-8); }
+.wsx-add .ui-field, .wsx-picker { max-width: 480px; margin-bottom: var(--space-3); }
+.wsx-inline-form { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--space-3); }
+.wsx-inline-form .ui-field { flex: 1 1 240px; margin: 0; }
+.wsx-notes { margin-top: var(--space-8); }
+
+/* ---------- finding a lesson ---------- */
+.wsx-picker__list { list-style: none; margin: calc(var(--space-1) * -1) 0 0; padding: var(--space-1); background: var(--bg-raised); border: 1px solid var(--border); border-radius: var(--r-md); }
+.wsx-picker__item {
+  display: flex; justify-content: space-between; gap: var(--space-3); width: 100%; padding: var(--space-2) var(--space-3);
+  background: none; border: 0; border-radius: var(--r-sm); color: var(--fg); font: inherit; font-size: var(--text-sm); text-align: left; cursor: pointer;
+}
+.wsx-picker__item:hover, .wsx-picker__item:focus-visible { background: var(--hover); }
+.wsx-picker__add { color: var(--fg-muted); }
+.wsx-picker__none { padding: var(--space-2) var(--space-3); font-size: var(--text-sm); color: var(--fg-muted); }
+
+/* ---------- a revision list ---------- */
+.wsx-revision { list-style: none; margin: 0 0 var(--space-6); padding: 0; display: grid; gap: var(--space-2); }
+.wsx-revision__item { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-3); padding: var(--space-3) var(--space-4); }
+.wsx-revision__item.is-overdue { border-left: 3px solid var(--danger); }
+.wsx-revision__item.is-today { border-left: 3px solid var(--signal); }
+.wsx-revision__main { flex: 1 1 260px; min-width: 0; }
+.wsx-revision__main a { font-weight: var(--weight-semibold); overflow-wrap: anywhere; }
+.wsx-revision__when { display: flex; flex-wrap: wrap; gap: var(--space-1) var(--space-3); margin: var(--space-1) 0 0; font-size: var(--text-xs); color: var(--fg-muted); }
+/* "Overdue" is also said in words, so the colour is only help. */
+.wsx-due { font-weight: var(--weight-semibold); }
+.wsx-due.is-overdue { color: var(--danger); }
+.wsx-due.is-today { color: var(--signal); }
+.wsx-revision__acts { display: flex; gap: var(--space-2); }
+
+/* ---------- a diagram ---------- */
+.wsx-diagram { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--space-6); align-items: start; }
+@media (max-width: 860px) { .wsx-diagram { grid-template-columns: minmax(0, 1fr); } }
+.wsx-diagram textarea.ui-field__control { min-height: 320px; font-family: var(--mono); font-size: var(--text-sm); line-height: var(--leading-normal); tab-size: 2; }
+.wsx-diagram__source > .ui-btn { margin-top: var(--space-2); }
+.wsx-diagram .pr-diagram { min-height: 0; overflow-x: auto; }
+.wsx-diagram .pr-diagram:not(:empty) { padding: var(--space-3); border: 1px dashed var(--border); border-radius: var(--r-md); background: var(--bg); }

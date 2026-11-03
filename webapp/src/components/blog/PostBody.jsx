@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { watchCodeOverflow } from '../../lib/markdown/codeOverflow.js';
+import { watchCodeOverflow } from '../../lib/markdown/codeOverflowLazy.js';
 import { enhanceContent } from '../../lib/markdown/enhanceContent.js';
 import { renderMermaidDiagrams } from '../../lib/markdown/mermaidRender.js';
 import { handleCopyClick, handleVideoClick } from '../../lib/markdown/contentClicks.js';
