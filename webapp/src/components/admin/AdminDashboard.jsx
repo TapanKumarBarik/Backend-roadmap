@@ -6,6 +6,9 @@ import MessagesInbox from './MessagesInbox.jsx';
 import UsageStats from './UsageStats.jsx';
 import PeoplePanel from './PeoplePanel.jsx';
 import BlogsModeration from './BlogsModeration.jsx';
+import PracticeAdmin from './PracticeAdmin.jsx';
+import NoticesAdmin from './NoticesAdmin.jsx';
+import AuditLog from './AuditLog.jsx';
 import { fetchQuestions } from '../../lib/api.js';
 import { fetchManagedBlogs } from '../../lib/blogApi.js';
 
@@ -18,9 +21,12 @@ const SECTIONS = [
   { key: 'content', label: 'Content' },
   { key: 'community', label: 'Community' },
   { key: 'articles', label: 'Articles' },
+  { key: 'practice', label: 'Practice' },
+  { key: 'notices', label: 'Notices' },
   { key: 'people', label: 'People' },
   { key: 'analytics', label: 'Analytics' },
-  { key: 'system', label: 'System' }
+  { key: 'system', label: 'System' },
+  { key: 'audit', label: 'Audit log' }
 ];
 
 export default function AdminDashboard({ isAdmin, lastViewedFile, onOpenFile, onOpenPost, currentUserEmail }) {
@@ -128,7 +134,10 @@ export default function AdminDashboard({ isAdmin, lastViewedFile, onOpenFile, on
       )}
       {section === 'people' && <PeoplePanel currentUserEmail={currentUserEmail} />}
       {section === 'analytics' && <VisitorStats onOpenFile={onOpenFile} />}
+      {section === 'practice' && <PracticeAdmin />}
+      {section === 'notices' && <NoticesAdmin />}
       {section === 'system' && <UsageStats />}
+      {section === 'audit' && <AuditLog />}
     </div>
   );
 }
