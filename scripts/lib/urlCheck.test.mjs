@@ -75,6 +75,12 @@ test('a page tells what it says to a search engine', () => {
   assert.deepEqual(pageFacts(html), { canonical: 'https://example.org/a/', indexable: false, title: 'A page', textLength: 9 });
 });
 
+test('a script the host adds after the page (an analytics beacon) is not counted as the page, and does not hide it', () => {
+  const html = '<body><div id="root"><div class="prerender">Some text</div></div><script defer src="https://static.cloudflareinsights.com/beacon.min.js" data-cf-beacon="x"></script></body>';
+  assert.equal(pageFacts(html).textLength, 9);
+  assert.equal(pageFacts('<body><script>var a = 1;</script></body>').textLength, 0, 'no pre-rendered copy, no text');
+});
+
 test('the report names the verdict and what is new', () => {
   const text = reportOf({ problems: ['/a/: gone'], checked: 3, redirected: 1, added: ['/blog/'] }, { commit: 'commit abc', when: '2026-11-03' });
   assert.match(text, /1 problem\(s\)/);

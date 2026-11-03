@@ -26,12 +26,15 @@ export function pageFacts(html) {
   const canonical = /<link[^>]+rel=["']canonical["'][^>]*>/i.exec(html);
   const href = canonical && /href=["']([^"']+)["']/i.exec(canonical[0]);
   const robots = /<meta[^>]+name=["']robots["'][^>]*>/i.exec(html);
-  const prerendered = /<div[^>]+class=["'][^"']*prerender[^"']*["'][^>]*>([\s\S]*?)<\/div>\s*<\/body>/i.exec(html);
+  // The page's own text: from the pre-rendered copy to the end of <body>, without scripts and styles (a live site gets some added by
+  // its host, such as an analytics beacon, after the copy).
+  const start = html.search(/<div[^>]+class=["'][^"']*prerender[^"']*["'][^>]*>/i);
+  const prerendered = start === -1 ? null : html.slice(start).replace(/<(script|style|noscript)\b[\s\S]*?<\/\1>/gi, '').split(/<\/body>/i)[0];
   return {
     canonical: href ? href[1] : null,
     indexable: !(robots && /noindex/i.test(robots[0])),
     title: ((/<title>([^<]*)<\/title>/i.exec(html) || [])[1] || '').trim(),
-    textLength: prerendered ? prerendered[1].replace(/<[^>]+>/g, '').trim().length : 0
+    textLength: prerendered ? prerendered.replace(/<[^>]+>/g, '').trim().length : 0
   };
 }
 
