@@ -2714,3 +2714,25 @@ li[data-checked="true"] > div {
 .notice-bar p { margin: 0; text-align: center; }
 .notice-bar__close { flex: none; border: 0; background: transparent; color: var(--fg-muted); font-size: 20px; line-height: 1; padding: 0 var(--space-2); cursor: pointer; border-radius: var(--r-sm); }
 .notice-bar__close:hover { color: var(--fg); }
+
+/* The practice that goes with a lesson, at its foot (components/article/RelatedPractice.jsx). */
+.related-practice { margin: var(--space-8) 0 var(--space-4); padding-top: var(--space-5); border-top: 1px solid var(--border); }
+#root .related-practice h2 { font-size: var(--text-lg); margin: 0 0 var(--space-3); }
+.related-practice ul { margin: 0; padding-left: 1.2em; display: grid; gap: var(--space-2); }
+.practice-strip { margin-top: var(--space-8); }
+.practice-strip .pr-cards { margin-top: var(--space-3); }
+
+/* Reading options on a lesson (components/article/ReadingOptions.jsx): applied from <html data-read-size / data-read-width>. */
+[data-read-size="s"] #article #content { font-size: 15px; }
+[data-read-size="l"] #article #content { font-size: 18.5px; }
+@media (min-width: 701px) {
+  [data-read-width="n"] #article { max-width: 640px; }
+  [data-read-width="w"] #article { max-width: 900px; }
+}
+.reading-options { position: relative; display: inline-flex; }
+.reading-btn { font-weight: var(--weight-semibold); font-size: var(--text-sm); width: auto; padding: 0 var(--space-2); }
+.reading-btn.on { color: var(--fg); }
+.reading-panel { position: absolute; z-index: 20; top: calc(100% + 6px); left: 0; min-width: 260px; display: grid; gap: var(--space-3); padding: var(--space-4); background: var(--bg); border: 1px solid var(--border); border-radius: var(--r-md); box-shadow: var(--shadow-md, 0 8px 24px rgba(0, 0, 0, .12)); }
+.reading-group { display: grid; gap: var(--space-2); }
+.reading-group__label { font-size: var(--text-xs); color: var(--fg-muted); text-transform: uppercase; letter-spacing: .06em; }
+.reading-group__choices { display: flex; flex-wrap: wrap; gap: var(--space-2); }

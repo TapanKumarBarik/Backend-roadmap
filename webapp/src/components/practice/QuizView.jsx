@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { usePageTitle } from '../../hooks/usePageTitle.js';
 import { fetchQuiz, submitQuizAttempt } from '../../lib/practiceApi.js';
 import { friendlyMessage } from '../../lib/errors.js';
 import { useLoader } from '../../hooks/useLoader.js';
@@ -13,6 +14,7 @@ import ErrorText from '../common/ErrorText.jsx';
 // after a try, so the page itself holds nothing to look up. A signed-in reader's tries are kept (they show on My learning).
 export default function QuizView({ slug, onBack, onOpenFile, user, onLogin, nodeByFile }) {
   const { data: quiz, error, reload } = useLoader(() => fetchQuiz(slug), [slug]);
+  usePageTitle(quiz && quiz.title);
   const [chosen, setChosen] = useState({});
   const [result, setResult] = useState(null);
   const [busy, setBusy] = useState(false);

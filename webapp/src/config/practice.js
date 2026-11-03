@@ -1,11 +1,8 @@
-// The Practice Center, the Design Lab and My Learning: their addresses and their words. The addresses are screens in the hash (like
-// the Community tabs), so no published address is touched (docs/URL_MIGRATION_REGISTRY.md). A screen that opens one item puts it
-// after the "@": #__practice@quiz/<slug>, #__lab@lld/<slug>.
+// The Practice Center, the Design Lab and My Learning: their addresses and their words. Practice and the Design Lab have addresses of
+// their own (/practice/quiz/<slug>/, /lab/lld/<slug>/, lib/appPages.js); My Learning is a private screen and lives in the hash.
 
-export const PRACTICE_ROUTE = '__practice';
-export const LAB_ROUTE = '__lab';
 export const ME_ROUTE = '__me';
-export const PATH_ROUTE = '__path';
+export { PATH_ROUTE, PRACTICE_ROUTE, LAB_ROUTE } from '../lib/appPages.js';
 
 export const DIFFICULTY = { beginner: 'Beginner', intermediate: 'Intermediate', advanced: 'Advanced' };
 
@@ -47,4 +44,22 @@ export const WORKSPACE = {
 export const ME = {
   title: 'My learning',
   intro: 'Where you are, what you have done, and what to do next. It is built from your own progress, notes, attempts and submissions.'
+};
+
+// On the front door and the dashboard: a few quizzes, and the way in to all of them.
+export const STRIP = {
+  heading: 'Practise what you learn',
+  lead: 'Quizzes, design exercises and interview questions, each tied to the lesson that teaches it.',
+  all: 'All practice',
+  lab: 'Design Lab',
+  items: 3 // how many quizzes it shows
+};
+
+// At the foot of a lesson: the practice that goes with it.
+export const RELATED = {
+  heading: 'Practise this',
+  quiz: (title) => `Quiz: ${title}`,
+  exercise: (title) => `Exercise: ${title}`,
+  interview: (title) => `Interview questions: ${title}`,
+  design: (title) => `Design challenge: ${title}`
 };

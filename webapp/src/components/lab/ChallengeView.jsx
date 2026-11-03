@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { usePageTitle } from '../../hooks/usePageTitle.js';
 import { fetchChallenge, fetchSharedSubmissions } from '../../lib/practiceApi.js';
 import { challengeCommentPath } from '../../lib/blog/limits.js';
 import { useLoader } from '../../hooks/useLoader.js';
@@ -24,6 +25,7 @@ const Section = ({ title, items }) => (
 export default function ChallengeView({ kind, slug, onBack, onOpenFile, user, onLogin, onToast, nodeByFile }) {
   const [submissions, setSubmissions] = useState(0); // counts submissions made here: the reference solution is asked for again after one
   const { data: current, error, reload } = useLoader(() => fetchChallenge(kind, slug), [kind, slug, user?.userId, submissions]);
+  usePageTitle(current && current.title);
   const { data: shared } = useLoader(() => fetchSharedSubmissions(kind, slug), [kind, slug, submissions]);
   const lesson = current && current.module && nodeByFile ? nodeByFile[current.module] : null;
 

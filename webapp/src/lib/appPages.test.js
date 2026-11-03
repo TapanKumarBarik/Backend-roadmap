@@ -50,13 +50,21 @@ test('the router gives these routes their addresses, and still gives a module it
 test('no curriculum has a folder named like a page, so an address is never both', () => {
   const taken = new Set(PAGES.map((page) => page.prefix));
   for (const curriculum of site.content.curricula) assert.ok(!taken.has(curriculum), `${curriculum} is also a page prefix`);
+  // Only the curricula are published as addresses (scripts/build/copy-content.mjs); the other folders of content/ (the practice
+  // items, the design challenges) are data that the build reads, so a folder of one of those named like a page is no clash.
   const content = fileURLToPath(new URL(`../../../${site.content.dir}/`, import.meta.url));
-  for (const entry of fs.readdirSync(content)) assert.ok(!taken.has(entry), `${site.content.dir}/${entry} is also a page prefix`);
+  for (const entry of fs.readdirSync(content)) {
+    if (site.content.curricula.includes(entry)) assert.ok(!taken.has(entry), `${site.content.dir}/${entry} is also a page prefix`);
+  }
 });
 
 test('the server is told which addresses the pages live at', () => {
   const routes = JSON.parse(fs.readFileSync(fileURLToPath(new URL('../../public/_routes.json', import.meta.url)), 'utf8'));
-  for (const { prefix } of PAGES) {
+  for (const { prefix, built } of PAGES) {
+    if (built) {
+      assert.ok(!routes.include.includes(`/${prefix}`) && !routes.include.includes(`/${prefix}/*`), `/${prefix} is built as files, so no Function should answer it`);
+      continue;
+    }
     assert.ok(routes.include.includes(`/${prefix}`) && routes.include.includes(`/${prefix}/*`), `_routes.json must run Functions for /${prefix} and /${prefix}/*`);
   }
 });

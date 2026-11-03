@@ -3,6 +3,8 @@
 // from the build's stats and the videos from content/videos.json, so this cannot drift from what the app shows. The app
 // replaces all of it when it starts (see scripts/build/prerender.mjs).
 import { HERO, HOME_META, INSIDE, LIBRARY, OPEN_SOURCE, PICK, VIDEO } from '../../webapp/src/config/landing.js';
+import { LISTING_COPY } from '../../webapp/src/config/paths.js';
+import { PATH_ROUTE, VIDEOS_ROUTE, pageUrl } from '../../webapp/src/lib/appPages.js';
 import { totals } from '../../webapp/src/lib/curriculum/videos.js';
 import { escapeHtml } from '../../webapp/src/lib/markdown/escapeHtml.js';
 import { watchUrl } from '../../webapp/src/lib/markdown/video.js';
@@ -46,10 +48,10 @@ export function homePage({ stats, videos, tree, titles, config, urlOf, repoUrl, 
 
   const body = [
     `<header><h1>${esc(config.site.name)}: ${esc(HERO.headline)}</h1><p>${esc(HERO.lead(modules))}</p></header>`,
-    paths && section(PICK.heading, `<p>${esc(PICK.sub)}</p><ul>${paths}</ul>`),
+    paths && section(PICK.heading, `<p>${esc(PICK.sub)}</p><ul>${paths}</ul><p>${link(pageUrl(PATH_ROUTE), LISTING_COPY.allPaths)}</p>`),
     library && section(LIBRARY.heading, `<p>${esc(LIBRARY.sub)}</p><ul>${library}</ul>`),
     section(INSIDE.heading, `<p>${esc(INSIDE.sub)}</p><ul>${inside}</ul>`),
-    clips && section(VIDEO.heading, `<p>${esc(VIDEO.sub(count, seconds))}</p><ul>${clips}</ul><p>${link(config.youtube.channel, VIDEO.label)}</p>`),
+    clips && section(VIDEO.heading, `<p>${esc(VIDEO.sub(count, seconds))}</p><ul>${clips}</ul><p>${link(pageUrl(VIDEOS_ROUTE), LISTING_COPY.allVideos)} · ${link(config.youtube.channel, VIDEO.label)}</p>`),
     section(OPEN_SOURCE.heading, `<p>${esc(OPEN_SOURCE.body(modules, config.site.license))}</p><p>${link(contributeUrl, OPEN_SOURCE.primaryLabel)} · ${link(repoUrl, OPEN_SOURCE.secondaryLabel)}</p>`),
     `<footer><p>${esc(HOME_META.credit(config.developer.name))} ${link(config.developer.linkedin, 'LinkedIn')} · ${link(config.developer.github, 'GitHub')}</p></footer>`
   ].filter(Boolean).join('');

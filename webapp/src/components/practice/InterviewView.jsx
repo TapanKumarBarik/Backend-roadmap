@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { usePageTitle } from '../../hooks/usePageTitle.js';
 import { fetchInterviewSet } from '../../lib/practiceApi.js';
 import { useLoader } from '../../hooks/useLoader.js';
 import { DIFFICULTY } from '../../config/practice.js';
@@ -11,6 +12,7 @@ import LoadError from '../common/LoadError.jsx';
 // own head or aloud. Nothing here is graded or stored; it is rehearsal.
 export default function InterviewView({ slug, onBack, onOpenFile, nodeByFile }) {
   const { data: set, error, reload } = useLoader(() => fetchInterviewSet(slug), [slug]);
+  usePageTitle(set && set.title);
   const [shown, setShown] = useState({});
   const lesson = set && set.module && nodeByFile ? nodeByFile[set.module] : null;
   return (

@@ -1,4 +1,6 @@
 import { useMemo, useState } from 'react';
+import { usePageTitle } from '../../hooks/usePageTitle.js';
+import { PRACTICE_ROUTE, pageUrl } from '../../lib/appPages.js';
 import { fetchPracticeCatalog, fetchQuizAttempts } from '../../lib/practiceApi.js';
 import { useLoader } from '../../hooks/useLoader.js';
 import { DIFFICULTY, PRACTICE } from '../../config/practice.js';
@@ -15,7 +17,7 @@ import InterviewView from './InterviewView.jsx';
 import '../../styles/practice.css';
 
 // The Practice Center: quizzes, exercises and interview preparation, filtered by topic and level. An item opens in place
-// (#__practice@quiz/<slug>); the list is the screen with no item.
+// (/practice/quiz/<slug>/); the list is the screen with no item.
 const KINDS = { quiz: QuizView, exercise: ExerciseView, interview: InterviewView };
 const TAB_KIND = { quizzes: 'quiz', exercises: 'exercise', interview: 'interview' };
 
@@ -25,6 +27,7 @@ export default function PracticeView({ item, onOpenItem, onOpenFile, user, onLog
   const [level, setLevel] = useState('');
   const { data: catalog, error, reload } = useLoader(fetchPracticeCatalog);
   const { data: attempts } = useLoader(fetchQuizAttempts, [user?.userId], { enabled: !!user });
+  usePageTitle(item ? null : PRACTICE.title);
 
   const [kind, slug] = item ? item.split('/') : [];
   const Item = KINDS[kind];
@@ -71,7 +74,7 @@ export default function PracticeView({ item, onOpenItem, onOpenFile, user, onLog
                       {tab === 'quizzes' && best[c.slug] && <span className="pr-best">Best {best[c.slug].score}/{best[c.slug].max}</span>}
                     </div>
                     <h3 className="pr-card__title">
-                      <a href={`/#__practice@${TAB_KIND[tab]}/${c.slug}`} onClick={(e) => { e.preventDefault(); onOpenItem(`${TAB_KIND[tab]}/${c.slug}`); }}>{c.title}</a>
+                      <a href={pageUrl(PRACTICE_ROUTE, `${TAB_KIND[tab]}/${c.slug}`)} onClick={(e) => { e.preventDefault(); onOpenItem(`${TAB_KIND[tab]}/${c.slug}`); }}>{c.title}</a>
                     </h3>
                     {c.description && <p className="pr-card__text">{c.description}</p>}
                   </Card>

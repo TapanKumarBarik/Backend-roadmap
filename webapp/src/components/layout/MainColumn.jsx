@@ -14,7 +14,7 @@ export default function MainColumn({
   counts, treeData, user, onLogin, isBookmarked, onToggleBookmark, bookmarks,
   showNotesInArticle, showLanding, siteStats, onDismissLanding,
   indexLoading, indexError, onReloadIndex, videoData, onOpenVideos,
-  paths, activePath, onPickPath, choosingPath, onChoosingPath, neighbours, pathPlace, pathOffer, onFinishPath, onStartPath, community
+  paths, activePath, onPickPath, choosingPath, onChoosingPath, neighbours, pathPlace, pathOffer, onFinishPath, onStartPath, community, practice
 }) {
   const mainRef = useRef(null);
 
@@ -38,6 +38,7 @@ export default function MainColumn({
               pathPlace={pathPlace}
               pathOffer={pathOffer}
               onPickPath={onPickPath}
+              practice={practice}
               onFinishPath={onFinishPath}
               nodeByFile={nodeByFile}
               dirIndex={dirIndex}
@@ -75,6 +76,7 @@ export default function MainColumn({
                 onOpenPalette={onOpenPalette}
                 onOpenVideos={onOpenVideos}
                 community={community}
+                practice={practice}
               />
             )
             : indexError && !treeData.length
@@ -105,6 +107,7 @@ export default function MainColumn({
                     onChoosing={onChoosingPath}
                     onToast={onToast}
                     community={community}
+                    practice={practice}
                   />
                 )}
       </main>

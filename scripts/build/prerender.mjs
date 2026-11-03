@@ -25,6 +25,9 @@ import { descriptionCandidates, pickDescription, videoCandidates } from '../lib/
 import { gitDates } from '../lib/gitDates.mjs';
 import { homePage } from '../lib/homePage.mjs';
 import { shareImagePath, shareImageUrl } from '../lib/shareImage.mjs';
+import { listingPages } from '../lib/listingPages.mjs';
+import { LEARNING_PATHS } from '../../webapp/src/config/paths.js';
+import { resolvePaths } from '../../webapp/src/lib/curriculum/learningPaths.js';
 import { escapeHtml as esc, shellPage } from '../../webapp/src/lib/seo/shellPage.js';
 
 const SITE = SITE_URL;
@@ -43,7 +46,8 @@ const titles = buildPageTitles(tree, SITE_NAME);
 const dates = gitDates(ROOT, CONTENT_DIR); // null without full history (a shallow clone): the dates are then left out
 // The channel's videos, and by module (dist/videos.json, written by gen-videos.mjs in `npm run index`).
 const videosFile = path.join(DIST, 'videos.json');
-const videoList = fs.existsSync(videosFile) ? JSON.parse(fs.readFileSync(videosFile, 'utf8')).videos : [];
+const videosData = fs.existsSync(videosFile) ? JSON.parse(fs.readFileSync(videosFile, 'utf8')) : { videos: [], playlists: [] };
+const videoList = videosData.videos;
 const videosByFile = groupByModule(videoList);
 
 // Same lookups the app builds in useDocsIndex, for resolving internal links.
@@ -257,6 +261,35 @@ const home = page({
 });
 fs.writeFileSync(path.join(DIST, 'index.html'), home);
 
+// The learning paths and the video lectures have pages of their own (/paths/, /paths/<id>/, /videos/): the same facts the app shows,
+// drawn by scripts/lib/listingPages.mjs. Each is written like a module's page, and the sitemap lists it.
+const listings = listingPages({
+  paths: resolvePaths(LEARNING_PATHS, dirIndex, nodeByFile, tree),
+  videos: videoList,
+  playlists: videosData.playlists,
+  titles,
+  urlOf: moduleUrl,
+  site: SITE,
+  siteName: SITE_NAME,
+  author,
+  practice: JSON.parse(fs.readFileSync(path.join(ROOT, 'api/generated/practice-content.json'), 'utf8'))
+});
+for (const listing of listings) {
+  const out = page({
+    title: listing.title,
+    fullTitle: listing.fullTitle,
+    description: listing.description,
+    url: listing.url,
+    type: 'website',
+    body: listing.body,
+    ld: listing.ld
+  });
+  const dir = path.join(DIST, ...listing.url.split('/').filter(Boolean));
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, 'index.html'), out);
+  urls.push({ url: listing.url });
+}
+
 const newest = urls.map((u) => u.lastmod).filter(Boolean).sort().at(-1);
 if (newest) urls[0].lastmod = newest;
 fs.writeFileSync(path.join(DIST, 'sitemap.xml'),
@@ -264,7 +297,7 @@ fs.writeFileSync(path.join(DIST, 'sitemap.xml'),
   urls.map((u) => `  <url><loc>${esc(SITE + u.url)}</loc>${u.lastmod ? `<lastmod>${u.lastmod}</lastmod>` : ''}</url>`).join('\n') +
   '\n</urlset>\n');
 
-console.log(`prerender: ${written} module pages (${skipped} placeholders without a video set to noindex), sitemap with ${urls.length} URLs${dates ? ', dated from git history' : ', no dates (no full git history here)'}`);
+console.log(`prerender: ${written} module pages (${skipped} placeholders without a video set to noindex), ${listings.length} path and video pages, sitemap with ${urls.length} URLs${dates ? ', dated from git history' : ', no dates (no full git history here)'}`);
 if (brokenLinks.length) {
   console.warn(`prerender: ${brokenLinks.length} internal link(s) point at a page that does not exist:\n  ${brokenLinks.slice(0, 15).join('\n  ')}`);
 }

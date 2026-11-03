@@ -17,6 +17,7 @@ import SiteFooter from '../common/SiteFooter.jsx';
 
 // Its own chunk: the first page does not wait for the community's articles.
 const CommunityStrip = lazy(() => import('./CommunityStrip.jsx'));
+const PracticeStrip = lazy(() => import('./PracticeStrip.jsx'));
 
 // The dashboard has one job: say what to do next. Which "next" depends on where the reader is:
 //   new         nothing picked, nothing started: choose a path
@@ -30,7 +31,7 @@ const CommunityStrip = lazy(() => import('./CommunityStrip.jsx'));
 // rather browse.
 export default function EmptyState({
   counts, treeData, statusMap, timeMap, nodeByFile, flatFiles,
-  bookmarks, onOpenFile, paths, activePath, onPickPath, choosing, onChoosing, onToast, user, community
+  bookmarks, onOpenFile, paths, activePath, onPickPath, choosing, onChoosing, onToast, user, community, practice
 }) {
   const lastFile = readStored(STORAGE.lastFile);
   const positions = buildPositions(treeData);
@@ -164,6 +165,7 @@ export default function EmptyState({
           itself — now lives on Explore, grouped by subject rather than
           ordered by raw frequency. */}
 
+      {practice && <Suspense fallback={null}><PracticeStrip variant="dashboard" practice={practice} /></Suspense>}
       {community && <Suspense fallback={null}><CommunityStrip variant="dashboard" community={community} user={user} /></Suspense>}
 
       <SiteFooter />

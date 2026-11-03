@@ -1,4 +1,6 @@
 import { useState } from 'react';
+import { usePageTitle } from '../../hooks/usePageTitle.js';
+import { LAB_ROUTE, pageUrl } from '../../lib/appPages.js';
 import { fetchPracticeCatalog } from '../../lib/practiceApi.js';
 import { useLoader } from '../../hooks/useLoader.js';
 import { LAB } from '../../config/practice.js';
@@ -10,10 +12,11 @@ import LoadError from '../common/LoadError.jsx';
 import ChallengeView from './ChallengeView.jsx';
 import '../../styles/practice.css';
 
-// The Design Lab: low-level and high-level design challenges. A challenge opens in place (#__lab@lld/<slug>).
+// The Design Lab: low-level and high-level design challenges. A challenge opens in place (/lab/lld/<slug>/).
 export default function LabView({ item, onOpenItem, onOpenFile, user, onLogin, onToast, nodeByFile }) {
   const [tab, setTab] = useState('lld');
   const { data: catalog, error, reload } = useLoader(fetchPracticeCatalog);
+  usePageTitle(item ? null : LAB.title);
   const [kind, slug] = item ? item.split('/') : [];
   if (kind && slug) return <ChallengeView kind={kind} slug={slug} onBack={() => onOpenItem(null)} onOpenFile={onOpenFile} user={user} onLogin={onLogin} onToast={onToast} nodeByFile={nodeByFile} />;
 
@@ -33,7 +36,7 @@ export default function LabView({ item, onOpenItem, onOpenFile, user, onLogin, o
             <li key={c.key}>
               <Card as="article" className="pr-card">
                 <h3 className="pr-card__title">
-                  <a href={`/#__lab@${c.key}`} onClick={(e) => { e.preventDefault(); onOpenItem(c.key); }}>{c.title}</a>
+                  <a href={pageUrl(LAB_ROUTE, c.key)} onClick={(e) => { e.preventDefault(); onOpenItem(c.key); }}>{c.title}</a>
                 </h3>
                 <p className="pr-card__text">{c.summary}</p>
               </Card>

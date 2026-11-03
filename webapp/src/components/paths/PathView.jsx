@@ -1,4 +1,5 @@
 import { fetchPracticeCatalog } from '../../lib/practiceApi.js';
+import { LAB_ROUTE, PRACTICE_ROUTE, pageUrl, pathUrl } from '../../lib/appPages.js';
 import { pathProgress, pickPathNext } from '../../lib/curriculum/learningPaths.js';
 import { routeUrl } from '../../lib/curriculum/moduleUrl.js';
 import { useLoader } from '../../hooks/useLoader.js';
@@ -72,12 +73,12 @@ export default function PathView({ id, paths, statusMap, nodeByFile, activeId, o
         <>
           <h3>Practise it</h3>
           <ul className="pr-list">
-            {quizzes.map((q) => <li key={q.slug}><a href={`/#__practice@quiz/${q.slug}`} onClick={(e) => { e.preventDefault(); onOpenQuiz(q.slug); }}>Quiz: {q.title}</a></li>)}
-            {challenges.map((c) => <li key={c.key}><a href={`/#__lab@${c.key}`} onClick={(e) => { e.preventDefault(); onOpenChallenge(c.key); }}>Design: {c.title}</a></li>)}
+            {quizzes.map((q) => <li key={q.slug}><a href={pageUrl(PRACTICE_ROUTE, `quiz/${q.slug}`)} onClick={(e) => { e.preventDefault(); onOpenQuiz(q.slug); }}>Quiz: {q.title}</a></li>)}
+            {challenges.map((c) => <li key={c.key}><a href={pageUrl(LAB_ROUTE, c.key)} onClick={(e) => { e.preventDefault(); onOpenChallenge(c.key); }}>Design: {c.title}</a></li>)}
           </ul>
         </>
       )}
-      {nextPath && <p className="pr-note">After this: <a href={`/#__path@${nextPath.id}`} onClick={(e) => { e.preventDefault(); onOpenPath(nextPath.id); }}>{nextPath.title}</a></p>}
+      {nextPath && <p className="pr-note">After this: <a href={pathUrl(nextPath.id)} onClick={(e) => { e.preventDefault(); onOpenPath(nextPath.id); }}>{nextPath.title}</a></p>}
     </div>
   );
 }

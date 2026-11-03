@@ -85,6 +85,15 @@ const SCREENS = [
   { name: 'your articles', url: '/write/', email: 'ada@example.com' },
   { name: 'the editor', url: '/write/', email: 'ada@example.com', before: async (page) => { await page.getByRole('button', { name: 'New article' }).first().click(); await page.locator('.ProseMirror').waitFor(); } },
   { name: 'the admin dashboard', url: '/#__admin', email: OWNER_EMAIL },
+  { name: 'the learning paths', url: '/paths/', before: (page) => page.locator('.pr-card').first().waitFor() },
+  { name: 'a learning path', url: '/paths/backend-foundations/', before: (page) => page.getByRole('heading', { level: 3, name: 'The curriculum' }).waitFor() },
+  { name: 'Practice', url: '/practice/', before: (page) => page.locator('.pr-card').first().waitFor() },
+  { name: 'a quiz', url: '/practice/quiz/http-caching/', before: (page) => page.locator('.pr-questions > li').first().waitFor() },
+  { name: 'an interview set', url: '/practice/interview/caching/', before: (page) => page.locator('.pr-qa').first().waitFor() },
+  { name: 'the Design Lab', url: '/lab/', before: (page) => page.locator('.pr-card').first().waitFor() },
+  { name: 'a design challenge', url: '/lab/lld/parking-lot/', email: 'ada@example.com', before: (page) => page.getByLabel('Your answer').waitFor() },
+  { name: 'My Learning', url: '/#__me', email: 'ada@example.com', before: (page) => page.getByRole('heading', { level: 2, name: 'My learning' }).waitFor() },
+  { name: 'the admin practice section', url: '/#__admin', email: OWNER_EMAIL, before: async (page) => { await page.locator('.admin-dashboard .page-tabs button', { hasText: /^Practice/ }).click(); await page.getByText('Submissions').first().waitFor(); } },
   { name: 'the style guide', url: '/#__design' }
 ];
 

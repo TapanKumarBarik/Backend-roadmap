@@ -42,6 +42,7 @@ export default function MentionTextarea({ value, onChange, participants, placeho
         onChange={handleChange}
         onBlur={() => setTimeout(() => setQuery(null), 150)}
         placeholder={placeholder}
+        aria-label={placeholder}
         autoFocus={autoFocus}
       />
       {suggestions.length > 0 && (

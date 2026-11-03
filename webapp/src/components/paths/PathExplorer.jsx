@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { pathUrl } from '../../lib/appPages.js';
 import { pathProgress } from '../../lib/curriculum/learningPaths.js';
 import { formatDuration } from '../../config/paths.js';
 import { DIFFICULTY } from '../../config/practice.js';
@@ -42,7 +43,7 @@ export default function PathExplorer({ paths, statusMap, nodeByFile, activeId, o
             <li key={p.id}>
               <Card as="article" className="pr-card">
                 <div className="pr-card__meta"><span className="pr-badge">{DIFFICULTY[p.difficulty]}</span><span>{p.topic}</span>{p.id === activeId && <span className="pr-best">Your path</span>}</div>
-                <h3 className="pr-card__title"><a href={`/#__path@${p.id}`} onClick={(e) => { e.preventDefault(); onOpenPath(p.id); }}>{p.title}</a></h3>
+                <h3 className="pr-card__title"><a href={pathUrl(p.id)} onClick={(e) => { e.preventDefault(); onOpenPath(p.id); }}>{p.title}</a></h3>
                 <p className="pr-card__text">{p.goal}</p>
                 <p className="pr-card__meta">{p.files.length} modules · {formatDuration(p.minutes)}{progress.done > 0 ? ` · ${progress.done} done` : ''}</p>
               </Card>

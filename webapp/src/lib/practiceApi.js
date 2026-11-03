@@ -14,7 +14,15 @@ const send = (method, url, body) => fetch(url, {
 });
 
 /** Everything there is to practise: { quizzes, exercises, interview, challenges }, as cards (no answers, no long text). */
-export const fetchPracticeCatalog = async () => answer(await fetch('/api/practice/catalog'), 'failed to load the practice list');
+// The catalog is the same for everyone and changes only with a deploy, and a lesson, the dashboard and the Practice Center all ask for it:
+// it is fetched once per visit, and asked for again only after a failure.
+let catalog = null;
+export const fetchPracticeCatalog = () => {
+  if (!catalog) {
+    catalog = fetch('/api/practice/catalog').then((res) => answer(res, 'failed to load the practice list')).catch((err) => { catalog = null; throw err; });
+  }
+  return catalog;
+};
 
 /** A quiz without its answers. */
 export const fetchQuiz = async (slug) => answer(await fetch(`/api/practice/quizzes/${encodeURIComponent(slug)}`), 'failed to load the quiz');

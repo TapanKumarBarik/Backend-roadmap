@@ -8,6 +8,13 @@
 //   /authors/<handle>   an author                        route "__author", heading = the handle
 //   /write              the writing studio               route "__write"
 //   /write/<id>         the studio, on one of your posts route "__write", heading = the post's id
+//   /paths/             the learning paths               route "__path"
+//   /paths/<id>/        one learning path                route "__path", heading = the path's id
+//   /videos/            the video lectures               route "__videos"
+//   /practice/          the Practice Center              route "__practice"
+//   /practice/quiz/<slug>/   a quiz (also exercise/, interview/)   heading = "quiz/<slug>"
+//   /lab/               the Design Lab                   route "__lab"
+//   /lab/lld/<slug>/    a design challenge (also hld/)   heading = "lld/<slug>"
 //
 // The first segment of each is reserved: a curriculum cannot have a folder of that name (a test checks it), so an
 // address is never both a page and a module.
@@ -15,12 +22,22 @@
 export const BLOG_ROUTE = '__blog';
 export const AUTHOR_ROUTE = '__author';
 export const WRITE_ROUTE = '__write';
+export const PATH_ROUTE = '__path';
+export const VIDEOS_ROUTE = '__videos';
+export const PRACTICE_ROUTE = '__practice';
+export const LAB_ROUTE = '__lab';
 
 /** The first segment of each page's address, and the route (the app's name for the screen) it opens. */
 export const PAGES = [
   { prefix: 'blog', route: BLOG_ROUTE, index: true },
   { prefix: 'authors', route: AUTHOR_ROUTE, index: false },
-  { prefix: 'write', route: WRITE_ROUTE, index: false }
+  { prefix: 'write', route: WRITE_ROUTE, index: false },
+  // Built as files when the site is built (scripts/build/prerender.mjs), like the modules: so no Function answers them, and
+  // each address ends in a slash, as a folder does.
+  { prefix: 'paths', route: PATH_ROUTE, index: true, built: true },
+  { prefix: 'videos', route: VIDEOS_ROUTE, index: true, built: true },
+  { prefix: 'practice', route: PRACTICE_ROUTE, index: true, built: true },
+  { prefix: 'lab', route: LAB_ROUTE, index: true, built: true }
 ];
 
 const byPrefix = new Map(PAGES.map((page) => [page.prefix, page]));
@@ -56,12 +73,15 @@ export function pageUrl(route, heading = null) {
   const page = byRoute.get(route);
   if (!page) return null;
   if (!heading) return `/${page.prefix}/`;
-  return `/${page.prefix}/${String(heading).split('/').map(encodeURIComponent).join('/')}`;
+  const rest = String(heading).split('/').map(encodeURIComponent).join('/');
+  return `/${page.prefix}/${rest}${page.built ? '/' : ''}`;
 }
 
 /** The address of an article. */
 export const postUrl = (slug) => pageUrl(BLOG_ROUTE, slug);
 /** The address of an author's page. */
 export const authorUrl = (handle) => pageUrl(AUTHOR_ROUTE, handle);
+/** The address of a learning path's page. */
+export const pathUrl = (id) => pageUrl(PATH_ROUTE, id);
 /** The address of the studio, on a post when given one. */
 export const writeUrl = (id = null) => pageUrl(WRITE_ROUTE, id);

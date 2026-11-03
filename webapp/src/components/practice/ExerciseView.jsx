@@ -1,4 +1,5 @@
 import { fetchExercise } from '../../lib/practiceApi.js';
+import { usePageTitle } from '../../hooks/usePageTitle.js';
 import { useLoader } from '../../hooks/useLoader.js';
 import { DIFFICULTY } from '../../config/practice.js';
 import { LOAD_WHAT } from '../../config/messages.js';
@@ -10,6 +11,7 @@ import SubmissionWorkspace from './SubmissionWorkspace.jsx';
 // diagrams of the Design Lab are not asked for here).
 export default function ExerciseView({ slug, onBack, onOpenFile, user, onLogin, onToast, nodeByFile }) {
   const { data: exercise, error, reload } = useLoader(() => fetchExercise(slug), [slug]);
+  usePageTitle(exercise && exercise.title);
   const lesson = exercise && exercise.module && nodeByFile ? nodeByFile[exercise.module] : null;
   return (
     <div id="empty" className="pr-screen">

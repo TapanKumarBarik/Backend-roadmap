@@ -180,7 +180,7 @@ test('the landing page: a route that draws itself, a YouTube link, and none of t
   assert.ok(await moving.page.locator('.site-footer a[href*="youtube.com/@"]').count() >= 1);
   await moving.page.click('.lp-video-acts button');
   await moving.page.waitForSelector('.vid-screen');
-  assert.equal(new URL(moving.page.url()).hash, '#__videos', 'the way to all of them opens the Videos screen');
+  assert.equal(new URL(moving.page.url()).pathname, '/videos/', 'the way to all of them opens the Videos page, at its own address');
   await moving.context.close();
 
   const still = await open('/', { seenLanding: false, motion: 'reduce' });
@@ -239,8 +239,8 @@ test('a written lecture has its video and its text; one still to come has the vi
 
 test('the Videos screen lists every video, filters them, and a card opens its module with the video at the top', async () => {
   const { videos } = JSON.parse(fs.readFileSync(path.join(ROOT, 'dist', 'videos.json'), 'utf8'));
-  const { context, page } = await open('/#__videos');
-  await page.goto(BASE + '/#__videos', { waitUntil: 'networkidle' });
+  const { context, page } = await open('/videos/');
+  await page.goto(BASE + '/videos/', { waitUntil: 'networkidle' });
   await page.waitForSelector('.vid-card');
   assert.equal(await page.locator('.vid-card').count(), videos.length, 'every video is listed');
 

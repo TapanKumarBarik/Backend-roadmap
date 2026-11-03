@@ -17,9 +17,9 @@ import { useStreak } from './hooks/useStreak.js';
 import { useSiteStats } from './hooks/useSiteStats.js';
 import { useVideos } from './hooks/useVideos.js';
 import { STORAGE, SITE } from './config/index.js';
-import { LEARNING_PATHS, PATH_COPY } from './config/paths.js';
+import { LEARNING_PATHS, LISTING_COPY, PATH_COPY } from './config/paths.js';
 import { COMMUNITY, COMMUNITY_HOME, communityTab, tabRoute } from './config/community.js';
-import { PRACTICE_ROUTE, LAB_ROUTE, ME_ROUTE, PATH_ROUTE } from './config/practice.js';
+import { PRACTICE_ROUTE, LAB_ROUTE, ME_ROUTE } from './config/practice.js';
 import { readStored, writeStored } from './lib/storage.js';
 import { useLanding } from './hooks/useLanding.js';
 import { useCommentActivity } from './hooks/useCommentActivity.js';
@@ -29,7 +29,9 @@ import { buildPageTitles } from './lib/curriculum/pageTitle.js';
 import { globalCounts } from './lib/curriculum/progressStats.js';
 import { dirsOnPath } from './lib/curriculum/treePath.js';
 import { trackPageView, deleteAccount } from './lib/api.js';
-import { BLOG_ROUTE, AUTHOR_ROUTE, WRITE_ROUTE } from './lib/appPages.js';
+import { fetchPracticeCatalog } from './lib/practiceApi.js';
+import { useLoader } from './hooks/useLoader.js';
+import { BLOG_ROUTE, AUTHOR_ROUTE, WRITE_ROUTE, PATH_ROUTE, VIDEOS_ROUTE } from './lib/appPages.js';
 import { activityTarget } from './lib/comments.js';
 import { pickContinue, neighbourModules } from './lib/curriculum/curriculumPosition.js';
 import { resolvePaths, pathProgress, pathNeighbours, pickPathNext, placeOnPath } from './lib/curriculum/learningPaths.js';
@@ -111,7 +113,6 @@ const EXPLORE_ROUTE = '__explore';
 // post's own page, with its comment thread, which is not a tab.
 const FEED_ROUTE = tabRoute('posts');
 const WORKSPACE_ROUTE = '__workspace';
-const VIDEOS_ROUTE = '__videos';
 // The living style guide: every token and shared component, drawn. Not in the rail; open /#__design.
 const DESIGN_ROUTE = '__design';
 
@@ -168,6 +169,8 @@ export default function App() {
   const [choosingPath, setChoosingPath] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [paletteQuery, setPaletteQuery] = useState('');
+  // The quizzes and design challenges are searchable from the palette; the list is fetched when it is first opened.
+  const { data: practiceCatalog } = useLoader(fetchPracticeCatalog, [], { enabled: paletteOpen });
   const [navOpen, setNavOpen] = useState(false);
   const [tocHeadings, setTocHeadings] = useState([]);
   const [activeHeadingId, setActiveHeadingId] = useState(null);
@@ -194,6 +197,8 @@ export default function App() {
   const isPageRoute = isBlogRoute || isAuthorRoute || isWriteRoute;
   const isSpecialRoute = isAdminRoute || isSavedRoute || isExploreRoute || isCommunityRoute || isWorkspaceRoute || isVideosRoute || isDesignRoute || isPracticeRoute || isLabRoute || isMeRoute || isPathRoute || isPageRoute;
   const currentFile = !isSpecialRoute && path && fileSet.has(path) ? path : null;
+  // The paths and the videos have addresses of their own (/paths/<id>/, /videos/), each served with its own <title>; keep it right.
+  const listingTitle = isPathRoute ? (heading ? paths.find((p) => p.id === heading)?.title : LISTING_COPY.pathsTitle) : isVideosRoute ? LISTING_COPY.videosTitle : null;
 
   useEffect(() => {
     document.body.classList.toggle('nav-open', navOpen);
@@ -221,8 +226,9 @@ export default function App() {
   useEffect(() => {
     const title = currentFile && pageTitles[currentFile];
     if (title) document.title = title.full;
-    else if (!path || (isSpecialRoute && !isPageRoute)) document.title = SITE.title;
-  }, [currentFile, pageTitles, path, isSpecialRoute, isPageRoute]);
+    else if (listingTitle) document.title = LISTING_COPY.title(listingTitle, SITE.name);
+    else if (!path || (isSpecialRoute && !isPageRoute && !isPracticeRoute && !isLabRoute)) document.title = SITE.title;
+  }, [currentFile, pageTitles, path, isSpecialRoute, isPageRoute, isPracticeRoute, isLabRoute, listingTitle]);
 
   const openFile = useCallback((filePath, headingId) => {
     navigate(filePath, headingId || null);
@@ -415,6 +421,9 @@ export default function App() {
   // /write is the list of your articles, /write/<id> the editor on one (a click handler's event is not an id).
   const openWrite = useCallback((id) => navigate(WRITE_ROUTE, typeof id === 'string' ? id : null), [navigate]);
 
+  // Where the practice links on the landing page, the dashboard and a lesson go.
+  const practiceNav = useMemo(() => ({ onOpenPractice: openPractice, onOpenLab: openLab }), [openPractice, openLab]);
+
   // Where the community's links on the landing page and the dashboard go.
   const community = useMemo(() => ({ onOpenPost: openPost, onOpenAuthor: openAuthor, onOpenBlogs: openBlogs, onOpenWrite: openWrite }), [openPost, openAuthor, openBlogs, openWrite]);
 
@@ -454,7 +463,13 @@ export default function App() {
       ...(videoData ? [{ label: 'Watch the videos', keywords: 'videos youtube lectures watch course channel', run: () => navigate(VIDEOS_ROUTE) }] : []),
       { label: 'Blogs', keywords: 'articles posts community writing read', run: () => navigate(BLOG_ROUTE) },
       ...COMMUNITY.tabs.map((tab) => ({ label: `${COMMUNITY.title} — ${tab.label.toLowerCase()}`, keywords: tab.words, run: () => navigate(tab.route) })),
-      { label: 'Your curriculum', keywords: 'home progress paths', run: goHome }
+      { label: 'Your curriculum', keywords: 'home progress paths', run: goHome },
+      ...(practiceCatalog ? [
+        ...practiceCatalog.quizzes.map((q) => ({ label: `Quiz — ${q.title}`, keywords: `practice test ${q.topic}`, run: () => openPractice(`quiz/${q.slug}`) })),
+        ...practiceCatalog.exercises.map((e) => ({ label: `Exercise — ${e.title}`, keywords: `practice ${e.topic}`, run: () => openPractice(`exercise/${e.slug}`) })),
+        ...practiceCatalog.interview.map((s) => ({ label: `Interview questions — ${s.title}`, keywords: `practice ${s.topic}`, run: () => openPractice(`interview/${s.slug}`) })),
+        ...practiceCatalog.challenges.map((c) => ({ label: `Design challenge — ${c.title}`, keywords: `lab ${c.kind} system design`, run: () => openLab(c.key) }))
+      ] : [])
     ];
     if (currentFile) {
       const done = statusMap[currentFile] === 'done';
@@ -477,7 +492,7 @@ export default function App() {
       { label: 'Reset all progress', keywords: 'clear delete wipe', run: handleReset }
     );
     return list;
-  }, [learnFiles, activePath, statusMap, currentFile, user, videoData, openFile, goHome, navigate,
+  }, [learnFiles, activePath, statusMap, currentFile, user, videoData, practiceCatalog, openPractice, openLab, openFile, goHome, navigate,
     setStatus, handleCycleTheme, expandAll, allDirPaths, collapseAll, handleExport, handleReset]);
 
   const lastViewedFile = readStored(STORAGE.lastFile) || '';
@@ -592,8 +607,8 @@ export default function App() {
                     initialTab={path === NOTES_ROUTE ? 'notes' : 'bookmarks'}
                   />
                 )}
-                {isExploreRoute && <ExploreView allTags={tags} onOpenPalette={openPalette} paths={paths} statusMap={statusMap} nodeByFile={nodeByFile} activeId={activePath?.id} onOpenPath={openPathPage} />}
-                {isPathRoute && (
+                {(isExploreRoute || (isPathRoute && !heading)) && <ExploreView allTags={tags} onOpenPalette={openPalette} paths={paths} statusMap={statusMap} nodeByFile={nodeByFile} activeId={activePath?.id} onOpenPath={openPathPage} />}
+                {isPathRoute && !!heading && (
                   <PathView
                     id={heading}
                     paths={paths}
@@ -685,6 +700,7 @@ export default function App() {
           : (
             <MainColumn
               community={community}
+              practice={practiceNav}
               currentFile={currentFile}
               node={currentFile ? nodeByFile[currentFile] : null}
               statusMap={statusMap}

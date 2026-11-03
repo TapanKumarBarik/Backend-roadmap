@@ -5,7 +5,9 @@
 
 import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { OWNER_EMAIL, answerApiInProcess, launchBrowser, openPage } from './support.mjs';
+import { BASE, OWNER_EMAIL, answerApiInProcess, launchBrowser, openPage } from './support.mjs';
+import { moduleUrl } from '../../webapp/src/lib/curriculum/moduleUrl.js';
+import practiceContent from '../../api/generated/practice-content.json' with { type: 'json' };
 
 let browser;
 before(async () => { browser = await launchBrowser(); });
@@ -57,6 +59,8 @@ test('a quiz is taken, scored on the server, and kept: the answers are not in th
   page.on('response', async (res) => { if (/\/api\/practice\/quizzes\/http-caching$/.test(res.url())) bodies.push(await res.text()); });
   await goto();
   await page.getByRole('heading', { level: 2, name: /caching/i }).waitFor();
+  assert.equal(new URL(page.url()).pathname, '/practice/quiz/http-caching/', 'a quiz has an address of its own');
+  assert.match(await page.title(), /^HTTP caching · /);
   await page.waitForFunction(() => document.querySelectorAll('.pr-questions > li').length > 0);
   assert.ok(bodies.length > 0, 'the quiz was fetched');
   assert.doesNotMatch(bodies[0], /"answer"|"correct"|explanation/, 'the quiz sent to the browser carries no answers or explanations');
@@ -134,7 +138,7 @@ test('My Learning shows what was done: a quiz try appears there, and a reader wi
   await page.locator('.pr-questions > li').first().locator('input').first().check();
   await page.getByRole('button', { name: 'Check my answers' }).click();
   await page.locator('.pr-score').waitFor();
-  await page.evaluate(() => { location.hash = '#__me'; });
+  await railButton(page, 'My Learning').click();
   await page.getByRole('heading', { level: 2, name: 'My learning' }).waitFor();
   await page.getByText(/HTTP caching/i).first().waitFor();
   assert.equal(env.DB.raw.prepare('SELECT COUNT(*) AS n FROM quiz_attempts').get().n, 1);
@@ -149,14 +153,15 @@ test('Explore lists the learning paths, and a path has a page of its own with wh
   await link.waitFor();
   await link.click();
   await page.getByRole('heading', { level: 2, name: 'Backend foundations' }).waitFor();
-  assert.equal(new URL(page.url()).hash, '#__path@backend-foundations');
+  assert.equal(new URL(page.url()).pathname, '/paths/backend-foundations/', 'a path has an address of its own');
+  assert.match(await page.title(), /^Backend foundations · /);
   await page.getByRole('heading', { level: 3, name: 'Before you start' }).waitFor();
   await page.getByRole('heading', { level: 3, name: 'What you will cover' }).waitFor();
   await page.getByRole('heading', { level: 3, name: 'The curriculum' }).waitFor();
   assert.equal(await railButton(page, 'Explore').getAttribute('aria-current'), 'page', 'a path page belongs to Explore');
   await page.getByRole('button', { name: 'Start this path' }).waitFor();
 
-  await page.goto(`${new URL(page.url()).origin}/#__path@no-such-path`);
+  await page.evaluate(() => { history.pushState(null, '', '/paths/no-such-path/'); dispatchEvent(new PopStateEvent('popstate')); });
   await page.getByRole('heading', { level: 2, name: 'That path is not here' }).waitFor();
   assert.deepEqual(real(problems), []);
   await context.close();
@@ -211,5 +216,99 @@ test('the admin sees practice figures and submissions waiting for review, and a 
   await page.locator('.admin-dashboard .page-tabs button', { hasText: /^Audit log/ }).click();
   await page.getByText('announcement added').waitFor();
   assert.deepEqual(real(problems), []);
+  await context.close();
+});
+
+test('the paths and the videos are real pages: a crawler gets their content without running the app, and the sitemap lists them', async () => {
+  const get = async (url) => { const res = await fetch(BASE + url); return { status: res.status, html: await res.text() }; };
+
+  const index = await get('/paths/');
+  assert.equal(index.status, 200);
+  assert.match(index.html, /<link rel="canonical" href="[^"]*\/paths\/">/);
+  assert.match(index.html, /<h1>Learning paths<\/h1>/);
+  assert.match(index.html, /href="\/paths\/backend-foundations\/"/, 'it links to each path');
+
+  const one = await get('/paths/backend-foundations/');
+  assert.equal(one.status, 200);
+  assert.match(one.html, /<title>Backend foundations · [^<]+<\/title>/);
+  assert.match(one.html, /<link rel="canonical" href="[^"]*\/paths\/backend-foundations\/">/);
+  assert.match(one.html, /<h1>Backend foundations<\/h1>/);
+  assert.match(one.html, /Before you start/);
+  assert.match(one.html, /href="\/backend\/[^"]+\/"/, 'and it links to the modules, which have addresses of their own');
+  assert.match(one.html, /"@type":"Course"/);
+
+  const videos = await get('/videos/');
+  assert.equal(videos.status, 200);
+  assert.match(videos.html, /<h1>Video lectures<\/h1>/);
+  assert.match(videos.html, /Phase 3: Caching, Scaling &amp; Traffic/);
+
+  const quiz = await get('/practice/quiz/http-caching/');
+  assert.equal(quiz.status, 200);
+  assert.match(quiz.html, /<h1>HTTP caching<\/h1>/);
+  assert.match(quiz.html, /<ol><li><p>/, 'the questions are on the page');
+  assert.doesNotMatch(quiz.html, /"explanation"|Right answer/, 'the answers are not');
+  const challenge = await get('/lab/lld/parking-lot/');
+  assert.equal(challenge.status, 200);
+  assert.match(challenge.html, /Functional requirements/);
+  assert.match((await get('/practice/')).html, /href="\/practice\/quiz\/http-caching\/"/);
+
+  const sitemap = (await get('/sitemap.xml')).html;
+  for (const url of ['/paths/', '/paths/backend-foundations/', '/videos/', '/practice/', '/practice/quiz/http-caching/', '/lab/', '/lab/lld/parking-lot/']) assert.ok(sitemap.includes(`${url}</loc>`), `${url} is in the sitemap`);
+
+  const { context, page } = await open('/#__videos', { email: null });
+  await page.goto(`${BASE}/#__videos`);
+  await page.waitForFunction(() => location.pathname === '/videos/');
+  await context.close();
+});
+
+test('a lesson shows the practice that goes with it, and the dashboard and the palette lead to practice too', async () => {
+  const lesson = practiceContent.quizzes['http-caching'].module;
+  const { context, page, goto } = await open(moduleUrl(lesson), { email: null });
+  await goto();
+  const related = page.locator('.related-practice');
+  await related.waitFor();
+  const link = related.getByRole('link', { name: /^Quiz: HTTP caching/ });
+  await link.click();
+  await page.getByRole('heading', { level: 2, name: /caching/i }).waitFor();
+  assert.equal(new URL(page.url()).pathname, '/practice/quiz/http-caching/');
+  await context.close();
+
+  const home = await open('/', { email: null });
+  await home.goto();
+  const strip = home.page.locator('.practice-strip');
+  await strip.waitFor();
+  assert.ok(await strip.locator('.pr-card').count() > 0, 'the dashboard offers quizzes');
+  await strip.getByRole('link', { name: /^Design Lab/ }).click();
+  await home.page.getByRole('heading', { level: 2, name: 'Design Lab' }).waitFor();
+  assert.equal(new URL(home.page.url()).pathname, '/lab/');
+
+  await home.page.keyboard.press('Control+k');
+  await home.page.getByPlaceholder(/Search modules/).fill('> parking');
+  await home.page.getByText('Design challenge — ', { exact: false }).first().waitFor();
+  await home.page.keyboard.press('Enter');
+  await home.page.getByRole('heading', { level: 2, name: /parking/i }).waitFor();
+  assert.equal(new URL(home.page.url()).pathname, '/lab/lld/parking-lot/');
+  await home.context.close();
+});
+
+test('reading options change the text size and width of a lesson, and are kept', async () => {
+  const lesson = practiceContent.quizzes['http-caching'].module;
+  const { context, page, goto } = await open(moduleUrl(lesson), { email: null });
+  await goto();
+  await page.locator('#content').waitFor();
+  const size = () => page.locator('#article #content').evaluate((el) => parseFloat(getComputedStyle(el).fontSize));
+  const before = await size();
+  await page.getByRole('button', { name: 'Reading options' }).click();
+  await page.getByRole('button', { name: 'Large' }).click();
+  assert.ok(await size() > before, 'large text is larger');
+  await page.keyboard.press('Escape');
+  assert.equal(await page.getByRole('button', { name: 'Large' }).count(), 0, 'Escape closes the options');
+
+  await page.reload();
+  await page.locator('#content').waitFor();
+  assert.ok(await size() > before, 'and the choice is kept after a reload');
+  await page.getByRole('button', { name: 'Reading options' }).click();
+  await page.getByRole('button', { name: 'Back to default' }).click();
+  assert.equal(await size(), before);
   await context.close();
 });

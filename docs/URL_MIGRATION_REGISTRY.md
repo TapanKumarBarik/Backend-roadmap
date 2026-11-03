@@ -32,6 +32,14 @@ check pass.
    `/#<lesson path>@<heading>` form, which is rewritten to the lesson's own address. A browser test opens each Community address.
 8. The addresses the revamp added (`/blog/`, `/blog/<slug>`, `/authors/<handle>`, `/write`, `/write/<id>`) are under prefixes no lesson
    uses (`lib/appPages.js` reserves them), so they cannot take an existing address.
+9. The 2.0 revamp adds addresses that are built as files when the site is built (`scripts/lib/listingPages.mjs`, written by
+   `prerender.mjs`, each in the sitemap with its own canonical, title, description and plain-HTML content): `/paths/`,
+   `/paths/<id>/`, `/videos/`, `/practice/`, `/practice/{quiz,exercise,interview}/<slug>/`, `/lab/`, `/lab/{lld,hld}/<slug>/`. They are
+   additions: `docs/url-registry.tsv` is the baseline of the addresses that were public **before** the revamp, so `check:urls` reports
+   them as "new" and fails nothing. `/#__videos` and `/#__explore` keep working; the first is rewritten in the browser to `/videos/`
+   (a hash screen cannot be a redirect: the server never sees it). Quiz answers and a challenge's reference solution are never in
+   these pages (a unit test checks it). My Learning (`/#__me`), the admin screens and the submission workspaces stay private
+   hash screens: nothing there is for a search engine.
 
 ## The checks
 

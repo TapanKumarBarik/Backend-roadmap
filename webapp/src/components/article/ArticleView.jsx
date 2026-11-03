@@ -22,6 +22,8 @@ import LectureVideos from './LectureVideos.jsx';
 import SignpostSummary from './SignpostSummary.jsx';
 import ProgressBar from '../common/ProgressBar.jsx';
 import CommentsSection from './CommentsSection.jsx';
+import RelatedPractice from './RelatedPractice.jsx';
+import ReadingOptions from './ReadingOptions.jsx';
 import NotesPanel from './NotesPanel.jsx';
 import ReactionsBar from './ReactionsBar.jsx';
 import '../../styles/video.css';
@@ -48,7 +50,7 @@ export default function ArticleView({
   path, node, statusMap, neighbours, pathPlace, pathOffer, onPickPath, onFinishPath, nodeByFile, dirIndex, fileSet, allTags, treeData,
   onOpenFile, onSetStatus, onOpenPalette, headingTarget, onToast,
   onTocChange, onActiveHeadingChange, mainRef, user, onLogin,
-  isBookmarked, onToggleBookmark, showNotesInArticle, videos, playlists
+  isBookmarked, onToggleBookmark, showNotesInArticle, videos, playlists, practice
 }) {
   const { html, rawText, loading, error, reload: reloadDoc } = useMarkdownDoc(path);
   const contentRef = useRef(null);
@@ -263,6 +265,7 @@ export default function ArticleView({
           >
             <StarIcon />
           </button>
+          <ReadingOptions />
         </div>}
         {/* Some modules carry a dozen tags, which made the header shout
             louder than the title underneath it. Show a handful; the rest
@@ -394,6 +397,7 @@ export default function ArticleView({
           </div>
         </div>
 
+        <RelatedPractice path={path} practice={practice} />
         <ReactionsBar path={path} user={user} onLogin={onLogin} />
         {/* Notes normally live in the right rail; below 1180px that rail is
             hidden, so they fall back into the article rather than vanishing. */}

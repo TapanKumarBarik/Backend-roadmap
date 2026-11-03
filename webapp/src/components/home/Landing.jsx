@@ -12,11 +12,12 @@ import '../../styles/landing.css';
 
 // Its own chunk: the front door does not wait for the community's articles.
 const CommunityStrip = lazy(() => import('./CommunityStrip.jsx'));
+const PracticeStrip = lazy(() => import('./PracticeStrip.jsx'));
 
 // The front door, shown to someone who has not started yet (see hooks/useLanding.js). This component only
 // lays things out: the words are in config/landing.js and the numbers come from build-time stats. If the
 // stats are missing the page still reads correctly, it just says less.
-export default function Landing({ stats, videoData, nodeByFile, user, onLogin, onOpenFile, onStartPath, onDismiss, onOpenPalette, onOpenVideos, community }) {
+export default function Landing({ stats, videoData, nodeByFile, user, onLogin, onOpenFile, onStartPath, onDismiss, onOpenPalette, onOpenVideos, community, practice }) {
   const link = (file) => ({
     href: routeUrl(file),
     onClick: (e) => {
@@ -171,6 +172,7 @@ export default function Landing({ stats, videoData, nodeByFile, user, onLogin, o
         </ul>
       </section>
 
+      {practice && <Suspense fallback={null}><PracticeStrip variant="landing" practice={practice} /></Suspense>}
       {community && <Suspense fallback={null}><CommunityStrip variant="landing" community={community} user={user} /></Suspense>}
 
       {newest.length === 0 && (

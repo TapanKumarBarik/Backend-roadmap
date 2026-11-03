@@ -1,4 +1,5 @@
 import { useMemo } from 'react';
+import { pathUrl } from '../../lib/appPages.js';
 import { fetchAllNotes } from '../../lib/api.js';
 import { fetchMySubmissions, fetchPracticeCatalog, fetchQuizAttempts } from '../../lib/practiceApi.js';
 import { pathProgress, pickPathNext } from '../../lib/curriculum/learningPaths.js';
@@ -72,7 +73,7 @@ export default function MyLearningView({
         {activePath && (
           <Card className="me-stat">
             <p className="pr-card__meta"><span className="pr-badge">{activePath.topic}</span></p>
-            <h3 className="pr-card__title"><a href={`/#__path@${activePath.id}`} onClick={(e) => { e.preventDefault(); onOpenPath(activePath.id); }}>{activePath.title}</a></h3>
+            <h3 className="pr-card__title"><a href={pathUrl(activePath.id)} onClick={(e) => { e.preventDefault(); onOpenPath(activePath.id); }}>{activePath.title}</a></h3>
             <ProgressBar done={progress.done} wip={progress.wip} total={progress.total} />
             <p className="pr-note">{progress.done} of {progress.total} modules done</p>
           </Card>

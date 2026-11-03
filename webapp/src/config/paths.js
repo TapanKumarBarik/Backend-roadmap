@@ -43,6 +43,47 @@ export const PATH_COPY = {
   meta: (modules, time, tracks) => `${modules} modules · about ${time} of reading${tracks > 1 ? ` · ${tracks} tracks` : ''}`
 };
 
+// The pages the paths and the videos have at addresses of their own (/paths/, /paths/<id>/, /videos/). The build draws them
+// (scripts/build/prerender.mjs) and the app sets the same titles and descriptions, so what a search result says is what the page says.
+export const LISTING_COPY = {
+  pathsTitle: 'Learning paths',
+  pathsHeading: 'Learning paths',
+  pathsLead: 'A path is an ordered route through the curriculum with a goal, a stated audience, what to know first and a finish line. Choose one and work through it in order.',
+  pathsDescription: (count) => `${count} learning paths through the curriculum, each with a goal, who it is for, what to know first and the modules to read in order.`,
+  pathDescription: (p, time) => `${p.goal} ${p.files.length} modules, about ${time} of reading. ${p.audience}`,
+  beforeYouStart: 'Before you start',
+  whatYouCover: 'What you will cover',
+  curriculum: 'The curriculum',
+  allPaths: 'All learning paths',
+  videosTitle: 'Video lectures',
+  videosHeading: 'Video lectures',
+  videosLead: (count, total) => `${count} short animated lectures, ${total} in all. Each one plays at the top of the module that covers it, with the written lesson and the code beside it.`,
+  videosDescription: (count, total) => `${count} short animated system design and backend lectures (${total}), in course order. Each belongs to a module with the full written lesson.`,
+  allVideos: 'All video lectures',
+  practiceTitle: 'Practice',
+  practiceLead: 'Check what you know with quizzes, work through design exercises, and rehearse the questions interviews ask. Each one is tied to the lesson that teaches it.',
+  practiceDescription: (quizzes, exercises, interview) => `${quizzes} quizzes, ${exercises} exercises and ${interview} interview question sets for backend engineers, each tied to the lesson that teaches it.`,
+  quizzes: 'Quizzes',
+  exercises: 'Exercises',
+  interviewSets: 'Interview preparation',
+  quizDescription: (quiz) => `${quiz.description} A ${quiz.questions.length}-question ${quiz.difficulty} quiz on ${quiz.topic}, with explanations.`,
+  interviewDescription: (set) => `${set.questions.length} ${set.difficulty} interview questions on ${set.topic.replace(/-/g, ' ')}, each with a model answer.`,
+  questionsHeading: 'Questions',
+  deliverablesHeading: 'What to hand in',
+  readTheLesson: 'Read the lesson',
+  allPractice: 'All practice',
+  labTitle: 'Design Lab',
+  labLead: 'Design real systems and write down how: requirements and constraints, a place to work, and a reference solution to compare with once you have submitted your own.',
+  labDescription: (lld, hld) => `${lld} low-level design and ${hld} high-level design challenges, each with requirements, constraints and a reference solution.`,
+  lldHeading: 'Low-level design',
+  hldHeading: 'High-level design',
+  functional: 'Functional requirements',
+  nonFunctional: 'Non-functional requirements',
+  constraints: 'Constraints',
+  allChallenges: 'All design challenges',
+  title: (name, brand) => `${name} · ${brand}`
+};
+
 // The line under the title of a track's or curriculum's own page: its size is worded like a path step's.
 export const SIGNPOST_COPY = {
   start: 'Start',
