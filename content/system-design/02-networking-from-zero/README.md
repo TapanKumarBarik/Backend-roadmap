@@ -20,7 +20,7 @@ Lessons are being published one at a time. Those not yet out are listed so you c
 | # | Lesson | Status |
 |---|--------|--------|
 | | **Foundations** | |
-| 01 | What is a network? Clients, servers and the conversation between them | coming soon |
+| 01 | [What is a network? Clients, servers and the conversation between them](01-what-is-a-network/README.md) | available |
 | 02 | Packets: why data travels in small pieces | coming soon |
 | 03 | IP addresses: the street address of every device | coming soon |
 | 04 | Ports and sockets: the flat number inside the building | coming soon |
@@ -67,6 +67,6 @@ Lessons are being published one at a time. Those not yet out are listed so you c
 4. **Say the interview answer out loud.** Every lesson ends with the sentences to use in 30 seconds.
 5. **Keep the free PDF notes.** Every lesson has a printable PDF with the same pictures, linked at the bottom of its page.
 
-Start here → [08-tcp-sequence-numbers-and-acks/README.md](08-tcp-sequence-numbers-and-acks/README.md), the first lesson published.
+Start here → [01-what-is-a-network/README.md](01-what-is-a-network/README.md), lesson 1.
 
 Back to the course index: [../README.md](../README.md)
