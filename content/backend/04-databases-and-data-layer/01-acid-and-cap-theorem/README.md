@@ -382,6 +382,10 @@ Write down your answer to each question before expanding it — checking without
 - [PostgreSQL: Reliability and the Write-Ahead Log](https://www.postgresql.org/docs/current/wal-intro.html) - exactly how the WAL delivers durability across crashes.
 - [Designing Data-Intensive Applications (Kleppmann), Ch. 7-9](https://dataintensive.net/) - the definitive treatment of transactions, isolation, and distributed consistency.
 
+## Free PDF notes
+
+Download these notes as a printable PDF, with every diagram and interview questions: [SD-E-008: ACID Explained](https://backendroadmap.com/notes/system-design/SD-E-008.pdf). Each section in one file: [Phase 2, Databases (PDF)](https://backendroadmap.com/notes/system-design/Phase2_Databases_Notes.pdf).
+
 ## Next
 
 [02-querying-and-joins](../02-querying-and-joins/README.md) — you now know the

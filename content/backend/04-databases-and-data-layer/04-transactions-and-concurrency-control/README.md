@@ -545,6 +545,10 @@ Write down your answer to each question before expanding it — checking without
 - [2ndQuadrant/EDB: What is SELECT SKIP LOCKED for](https://www.2ndquadrant.com/en/blog/what-is-select-skip-locked-for-in-postgresql-9-5/) - the canonical job-queue pattern explained.
 - [A Beginner's Guide to Read and Write Skew (Vlad Mihalcea)](https://vladmihalcea.com/a-beginners-guide-to-read-and-write-skew-phenomena/) - concrete walk-through of the concurrency anomalies isolation levels prevent.
 
+## Free PDF notes
+
+Download the notes for each video on this page as a printable PDF, with every diagram and interview questions: [SD-E-009: Isolation Levels & Write Skew](https://backendroadmap.com/notes/system-design/SD-E-009.pdf), [SD-E-010: MVCC Explained](https://backendroadmap.com/notes/system-design/SD-E-010.pdf), [SD-E-011: Database Locks & Deadlocks](https://backendroadmap.com/notes/system-design/SD-E-011.pdf), [SD-E-012: Optimistic vs Pessimistic Locking](https://backendroadmap.com/notes/system-design/SD-E-012.pdf). Each section in one file: [Phase 2, Databases (PDF)](https://backendroadmap.com/notes/system-design/Phase2_Databases_Notes.pdf).
+
 ## Next
 
 [05-orms-and-migrations](../05-orms-and-migrations/README.md) — you've been

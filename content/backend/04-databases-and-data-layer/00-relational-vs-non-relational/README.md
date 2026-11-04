@@ -517,6 +517,10 @@ Write down your answer to each question before expanding it — checking without
 - [Martin Fowler: Polyglot Persistence](https://martinfowler.com/bliki/PolyglotPersistence.html) - the original framing of using multiple stores, each for its best-fit access pattern.
 - [Designing Data-Intensive Applications (Kleppmann), Ch. 2](https://dataintensive.net/) - a rigorous comparison of relational, document, and graph data models.
 
+## Free PDF notes
+
+Download the notes for each video on this page as a printable PDF, with every diagram and interview questions: [SD-E-001: Relational Model & SQL Basics](https://backendroadmap.com/notes/system-design/SD-E-001.pdf), [SD-E-013: NoSQL Explained](https://backendroadmap.com/notes/system-design/SD-E-013.pdf), [SD-E-014: Key-Value Stores Explained](https://backendroadmap.com/notes/system-design/SD-E-014.pdf), [SD-E-015: Document Databases Explained](https://backendroadmap.com/notes/system-design/SD-E-015.pdf), [SD-E-016: Wide-Column Stores](https://backendroadmap.com/notes/system-design/SD-E-016.pdf), [SD-E-017: Graph Databases Explained](https://backendroadmap.com/notes/system-design/SD-E-017.pdf), [SD-E-018: Time-Series Databases](https://backendroadmap.com/notes/system-design/SD-E-018.pdf), [SD-E-033: How to Choose a Database](https://backendroadmap.com/notes/system-design/SD-E-033.pdf). Each section in one file: [Phase 2, Databases (PDF)](https://backendroadmap.com/notes/system-design/Phase2_Databases_Notes.pdf).
+
 ## Next
 
 [01-acid-and-cap-theorem](../01-acid-and-cap-theorem/README.md) — you've

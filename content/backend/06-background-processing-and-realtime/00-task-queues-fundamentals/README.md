@@ -474,6 +474,10 @@ Write down your answer to each question before expanding it — checking without
 - [Redis documentation](https://redis.io/docs/latest/) - the broker and result backend used throughout this track.
 - [Celery: Task serializers](https://docs.celeryq.dev/en/stable/userguide/calling.html#serializers) - why arguments must be serializable and how JSON is the safe default.
 
+## Free PDF notes
+
+Download these notes as a printable PDF, with every diagram and interview questions: [SD-C-021: Async APIs for Long Jobs](https://backendroadmap.com/notes/system-design/SD-C-021.pdf). Each section in one file: [Phase 2, APIs (PDF)](https://backendroadmap.com/notes/system-design/Phase2_APIs_Notes.pdf).
+
 ## Next
 
 [01-task-dependencies-and-groups](../01-task-dependencies-and-groups/README.md)

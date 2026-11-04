@@ -468,6 +468,10 @@ Write down your answer to each question before expanding it — checking without
 - [Designing a Rate Limiter](../../14-system-design-interview-practice/03-designing-a-rate-limiter/README.md) - the same algorithms as a distributed system-design interview problem: a shared Redis store, read-modify-write races, and the trade-offs between algorithms.
 - [Retries, Prioritization, and Rate Limiting in Queues](../../06-background-processing-and-realtime/02-retries-prioritization-and-rate-limiting-in-queues/README.md) - the outbound side: throttling your own workers so they respect a downstream API's limits.
 
+## Free PDF notes
+
+Download these notes as a printable PDF, with every diagram and interview questions: [SD-C-012: Rate Limiting Algorithms](https://backendroadmap.com/notes/system-design/SD-C-012.pdf). Each section in one file: [Phase 2, APIs (PDF)](https://backendroadmap.com/notes/system-design/Phase2_APIs_Notes.pdf).
+
 ## Next
 
 [05-secrets-management](../05-secrets-management/README.md) — you've defended the

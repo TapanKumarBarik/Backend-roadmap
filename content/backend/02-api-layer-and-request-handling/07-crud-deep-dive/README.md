@@ -633,6 +633,10 @@ to find out what actually stuck.
 - [FastAPI — Response Model](https://fastapi.tiangolo.com/tutorial/response-model/) - using a dedicated `*Out` model to redact sensitive fields by construction.
 - [Google API Design Guide — List pagination](https://cloud.google.com/apis/design/design_patterns#list_pagination) - the page-token (cursor) pagination pattern for large, changing collections.
 
+## Free PDF notes
+
+Download the notes for each video on this page as a printable PDF, with every diagram and interview questions: [SD-C-007: API Pagination](https://backendroadmap.com/notes/system-design/SD-C-007.pdf), [SD-C-008: API Filtering, Sorting & Field Selection Without Table Scans](https://backendroadmap.com/notes/system-design/SD-C-008.pdf). Each section in one file: [Phase 2, APIs (PDF)](https://backendroadmap.com/notes/system-design/Phase2_APIs_Notes.pdf).
+
 ## Next
 
 [08-restful-architecture-and-best-practices](../08-restful-architecture-and-best-practices/README.md)

@@ -656,6 +656,10 @@ Write down your answer to each question before expanding it — checking without
 - [Martin Fowler — Fail Fast](https://www.martinfowler.com/ieeeSoftware/failFast.pdf) - the canonical short essay on why crashing loudly at the first sign of a broken assumption beats limping on.
 - [AWS Builders' Library — Timeouts, retries, and backoff with jitter](https://aws.amazon.com/builders-library/timeouts-retries-and-backoff-with-jitter/) - practical guidance on retrying transient failures without amplifying an outage.
 
+## Free PDF notes
+
+Download these notes as a printable PDF, with every diagram and interview questions: [SD-C-011: API Error Handling](https://backendroadmap.com/notes/system-design/SD-C-011.pdf). Each section in one file: [Phase 2, APIs (PDF)](https://backendroadmap.com/notes/system-design/Phase2_APIs_Notes.pdf).
+
 ## Next
 
 [01-global-error-handlers-and-user-facing-errors](../01-global-error-handlers-and-user-facing-errors/README.md)

@@ -508,6 +508,10 @@ Write down your answer to each question before expanding it — checking without
 - [How to succeed in a system design interview (Pramp / Exponent write-ups)](https://www.tryexponent.com/blog/system-design-interview-guide) - practical guidance on driving the conversation, thinking out loud, and reading interviewer steers.
 - [Functional vs. non-functional requirements](https://en.wikipedia.org/wiki/Non-functional_requirement) - reference for the distinction that structures step 1 and quietly drives every later architectural fork.
 
+## Free PDF notes
+
+Download these notes as a printable PDF, with every diagram and interview questions: [SD-D-012: Architecture Diagrams](https://backendroadmap.com/notes/system-design/SD-D-012.pdf). Each section in one file: [Phase 2, Estimation (PDF)](https://backendroadmap.com/notes/system-design/Phase2_Estimation_Notes.pdf).
+
 ## Next
 
 [02-designing-a-url-shortener](../02-designing-a-url-shortener/README.md) — you

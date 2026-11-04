@@ -140,7 +140,7 @@ Write down your answer to each question before expanding it — checking without
 
 ## Free PDF notes
 
-Download the notes for each video on this page as a printable PDF, with every diagram and interview questions: [SD-B-008: How DNS Resolution Works](https://backendroadmap.com/notes/system-design/SD-B-008.pdf), [SD-B-009: DNS Traffic Management](https://backendroadmap.com/notes/system-design/SD-B-009.pdf). All Phase 2 networking notes in one file: [Phase 2, Networking (PDF)](https://backendroadmap.com/notes/system-design/Phase2_Networking_Notes.pdf).
+Download the notes for each video on this page as a printable PDF, with every diagram and interview questions: [SD-B-008: How DNS Resolution Works](https://backendroadmap.com/notes/system-design/SD-B-008.pdf), [SD-B-009: DNS Traffic Management](https://backendroadmap.com/notes/system-design/SD-B-009.pdf). Each section in one file: [Phase 2, Networking (PDF)](https://backendroadmap.com/notes/system-design/Phase2_Networking_Notes.pdf).
 
 ## Next
 

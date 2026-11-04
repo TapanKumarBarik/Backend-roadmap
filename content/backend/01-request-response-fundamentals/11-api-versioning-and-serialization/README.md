@@ -644,6 +644,10 @@ Write down your answer to each question before expanding it — checking without
 - [Protocol Buffers: Overview](https://protobuf.dev/overview/) - the schema-driven binary format contrasted with JSON here.
 - [OWASP: Deserialization Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Deserialization_Cheat_Sheet.html) - why unsafe deserializers (pickle, native Java) are an RCE risk and how to validate.
 
+## Free PDF notes
+
+Download the notes for each video on this page as a printable PDF, with every diagram and interview questions: [SD-C-006: API Versioning Without Breaking Clients](https://backendroadmap.com/notes/system-design/SD-C-006.pdf), [SD-C-023: API Backward Compatibility](https://backendroadmap.com/notes/system-design/SD-C-023.pdf). Each section in one file: [Phase 2, APIs (PDF)](https://backendroadmap.com/notes/system-design/Phase2_APIs_Notes.pdf).
+
 ## Next
 
 [12-cdn-and-edge-caching](../12-cdn-and-edge-caching/README.md) — module

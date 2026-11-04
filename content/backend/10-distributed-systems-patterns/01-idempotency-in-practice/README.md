@@ -526,6 +526,10 @@ Write down your answer to each question before expanding it — checking without
 - [The Idempotency-Key HTTP Header Field (IETF draft)](https://datatracker.ietf.org/doc/draft-ietf-httpapi-idempotency-key-header/) - the emerging standard header for the technique used throughout this module.
 - [PostgreSQL: INSERT ... ON CONFLICT](https://www.postgresql.org/docs/current/sql-insert.html#SQL-ON-CONFLICT) - the upsert that powers the natural-idempotency and processed-event-log patterns here.
 
+## Free PDF notes
+
+Download these notes as a printable PDF, with every diagram and interview questions: [SD-C-009: Idempotency Keys](https://backendroadmap.com/notes/system-design/SD-C-009.pdf). Each section in one file: [Phase 2, APIs (PDF)](https://backendroadmap.com/notes/system-design/Phase2_APIs_Notes.pdf).
+
 ## Next
 
 [02-distributed-locking](../02-distributed-locking/README.md) — idempotency makes

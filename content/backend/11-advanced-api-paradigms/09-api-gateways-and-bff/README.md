@@ -490,6 +490,10 @@ Write down your answer to each question before expanding it — checking without
 - [microservices.io — Backends for frontends pattern](https://microservices.io/patterns/apigateway.html#variation-backends-for-frontends) - the BFF as a per-client variation of the gateway, tying both patterns together.
 - [Track 19: API gateway concepts and where APIM fits](../../../learn/19-api-management/00-api-gateway-concepts-and-where-apim-fits/README.md) - the gateway pattern as a managed Azure product: policies, subscription keys, products, developer portal and analytics.
 
+## Free PDF notes
+
+Download these notes as a printable PDF, with every diagram and interview questions: [SD-C-017: API Gateway Explained](https://backendroadmap.com/notes/system-design/SD-C-017.pdf). Each section in one file: [Phase 2, APIs (PDF)](https://backendroadmap.com/notes/system-design/Phase2_APIs_Notes.pdf).
+
 ## Next
 
 [10-api-design-tradeoffs-in-practice](../10-api-design-tradeoffs-in-practice/README.md)

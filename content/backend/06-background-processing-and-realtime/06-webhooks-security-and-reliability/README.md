@@ -445,6 +445,10 @@ Write down your answer to each question before expanding it — checking without
 - [OWASP: Webhook / SSRF and secure design cheat sheets](https://cheatsheetseries.owasp.org/cheatsheets/Server_Side_Request_Forgery_Prevention_Cheat_Sheet.html) - hardening a public endpoint that acts on untrusted input.
 - [ngrok documentation](https://ngrok.com/docs) - exposing a local receiver over HTTPS to test against real senders.
 
+## Free PDF notes
+
+Download these notes as a printable PDF, with every diagram and interview questions: [SD-C-020: Webhooks](https://backendroadmap.com/notes/system-design/SD-C-020.pdf). Each section in one file: [Phase 2, APIs (PDF)](https://backendroadmap.com/notes/system-design/Phase2_APIs_Notes.pdf).
+
 ## Next
 
 [07-websockets-and-server-sent-events](../07-websockets-and-server-sent-events/README.md)

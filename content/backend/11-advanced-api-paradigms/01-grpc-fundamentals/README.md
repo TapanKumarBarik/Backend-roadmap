@@ -542,6 +542,10 @@ Write down your answer to each question before expanding it — checking without
 - [Google API Improvement Proposals (AIP)](https://google.aip.dev/) - the source of the "dedicated request/response message per method" convention and other gRPC API-design hygiene.
 - [grpcurl (GitHub)](https://github.com/fullstorydev/grpcurl) - the `curl`-for-gRPC tool used with server reflection to introspect and call a binary service.
 
+## Free PDF notes
+
+Download these notes as a printable PDF, with every diagram and interview questions: [SD-C-003: gRPC & Protocol Buffers](https://backendroadmap.com/notes/system-design/SD-C-003.pdf). Each section in one file: [Phase 2, APIs (PDF)](https://backendroadmap.com/notes/system-design/Phase2_APIs_Notes.pdf).
+
 ## Next
 
 [02-grpc-streaming-and-advanced-patterns](../02-grpc-streaming-and-advanced-patterns/README.md)

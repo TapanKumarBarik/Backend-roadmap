@@ -546,6 +546,10 @@ Write down your answer to each question before expanding it — checking without
 - [OWASP — Input Validation Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Input_Validation_Cheat_Sheet.html) - why the server is the real security boundary and how to think about validating untrusted input.
 - [MDN — Client-side form validation](https://developer.mozilla.org/en-US/docs/Learn/Forms/Form_validation) - what client-side validation is good for (UX) and its explicit caveat that it is not a security control.
 
+## Free PDF notes
+
+Download these notes as a printable PDF, with every diagram and interview questions: [SD-C-010: API Request Validation](https://backendroadmap.com/notes/system-design/SD-C-010.pdf). Each section in one file: [Phase 2, APIs (PDF)](https://backendroadmap.com/notes/system-design/Phase2_APIs_Notes.pdf).
+
 ## Next
 
 [01-transformation-and-normalization](../01-transformation-and-normalization/README.md)

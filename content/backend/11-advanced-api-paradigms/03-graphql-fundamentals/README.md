@@ -619,6 +619,10 @@ find out what actually stuck across "when to leave REST," gRPC, and GraphQL.
 - [Apollo — Understanding the N+1 problem](https://www.apollographql.com/docs/technotes/TN0021-graph-fundamentals/) - a clear writeup of why resolver-per-field execution causes N+1 and how batching fixes it.
 - [GraphQL — Best practices: caching](https://graphql.org/learn/caching/) - explains why URL-based HTTP caching stops working and what to do instead, the operational cost this module flags.
 
+## Free PDF notes
+
+Download these notes as a printable PDF, with every diagram and interview questions: [SD-C-002: GraphQL for System Design](https://backendroadmap.com/notes/system-design/SD-C-002.pdf). Each section in one file: [Phase 2, APIs (PDF)](https://backendroadmap.com/notes/system-design/Phase2_APIs_Notes.pdf).
+
 ## Next
 
 [04-graphql-advanced-patterns](../04-graphql-advanced-patterns/README.md) — with

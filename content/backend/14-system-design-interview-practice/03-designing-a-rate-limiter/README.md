@@ -573,6 +573,10 @@ find out what actually stuck.
 - [Rate Limiting and Abuse Prevention](../../09-security-deep-dive/04-rate-limiting-and-abuse-prevention/README.md) - the algorithms in depth (fixed and sliding window, token and leaky bucket) and how to apply them against abuse.
 - [Retries, Prioritization, and Rate Limiting in Queues](../../06-background-processing-and-realtime/02-retries-prioritization-and-rate-limiting-in-queues/README.md) - rate limiting applied to background workers calling a limited downstream API.
 
+## Free PDF notes
+
+Download these notes as a printable PDF, with every diagram and interview questions: [SD-C-013: Distributed Rate Limiting](https://backendroadmap.com/notes/system-design/SD-C-013.pdf). Each section in one file: [Phase 2, APIs (PDF)](https://backendroadmap.com/notes/system-design/Phase2_APIs_Notes.pdf).
+
 ## Next
 
 [04-designing-a-distributed-cache-and-key-value-store](../04-designing-a-distributed-cache-and-key-value-store/README.md)

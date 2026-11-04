@@ -136,6 +136,8 @@ Yes. A region-wide outage takes everything there down. Multi-region removes it, 
 
 Download these notes as a printable PDF, with every diagram: [SD-A-017.pdf](https://backendroadmap.com/notes/system-design/SD-A-017.pdf). All Phase 1 notes in one file: [Phase 1, Core Fundamentals (PDF)](https://backendroadmap.com/notes/system-design/Phase1_Core_Fundamentals_Notes.pdf).
 
+The Phase 2 video on this page has its own notes: [SD-D-014: Identifying SPOFs](https://backendroadmap.com/notes/system-design/SD-D-014.pdf). All of them in one file: [Phase 2, Estimation (PDF)](https://backendroadmap.com/notes/system-design/Phase2_Estimation_Notes.pdf).
+
 ## Next
 
 Continue with [Lesson 18: Simple Beats Clever](../18-simple-beats-clever/README.md).

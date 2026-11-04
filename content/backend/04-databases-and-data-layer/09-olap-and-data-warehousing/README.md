@@ -449,6 +449,10 @@ thinking you've learned this.
 - [ClickHouse: Why ClickHouse is fast](https://clickhouse.com/docs/en/concepts/why-clickhouse-is-so-fast) - a production columnar engine's own explanation of the same row-vs-column mechanics taught here.
 - [Snowflake: OLAP vs OLTP](https://www.snowflake.com/guides/olap-vs-oltp/) - a vendor's side-by-side comparison consistent with this module's framing.
 
+## Free PDF notes
+
+Download the notes for each video on this page as a printable PDF, with every diagram and interview questions: [SD-E-030: OLTP vs OLAP](https://backendroadmap.com/notes/system-design/SD-E-030.pdf), [SD-E-031: Change Data Capture](https://backendroadmap.com/notes/system-design/SD-E-031.pdf). Each section in one file: [Phase 2, Databases (PDF)](https://backendroadmap.com/notes/system-design/Phase2_Databases_Notes.pdf).
+
 ## Next
 
 [10-multi-tenancy-patterns](../10-multi-tenancy-patterns/README.md) —

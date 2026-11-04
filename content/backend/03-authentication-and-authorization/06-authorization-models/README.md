@@ -449,6 +449,10 @@ Write down your answer to each question before expanding it — checking without
 - [OpenFGA documentation](https://openfga.dev/docs/authorization-concepts) - an open-source Zanzibar-style service and a clear intro to ReBAC concepts.
 - [Casbin documentation](https://casbin.org/docs/overview) - the policy engine used here for externalized, auditable RBAC/ABAC.
 
+## Free PDF notes
+
+Download these notes as a printable PDF, with every diagram and interview questions: [SD-C-016: API Authorization & BOLA](https://backendroadmap.com/notes/system-design/SD-C-016.pdf). Each section in one file: [Phase 2, APIs (PDF)](https://backendroadmap.com/notes/system-design/Phase2_APIs_Notes.pdf).
+
 ## Next
 
 [07-securing-auth-in-practice](../07-securing-auth-in-practice/README.md) — you

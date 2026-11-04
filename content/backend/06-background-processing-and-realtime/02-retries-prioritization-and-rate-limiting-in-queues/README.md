@@ -554,6 +554,10 @@ Write down your answer to each question before expanding it — checking without
 - [Rate Limiting and Abuse Prevention](../../09-security-deep-dive/04-rate-limiting-and-abuse-prevention/README.md) - the inbound side: rate-limiting algorithms protecting your own API from abuse.
 - [Designing a Rate Limiter](../../14-system-design-interview-practice/03-designing-a-rate-limiter/README.md) - designing a distributed rate limiter end to end, as a system-design interview problem.
 
+## Free PDF notes
+
+Download these notes as a printable PDF, with every diagram and interview questions: [SD-C-018: Retries, Exponential Backoff & Jitter](https://backendroadmap.com/notes/system-design/SD-C-018.pdf). Each section in one file: [Phase 2, APIs (PDF)](https://backendroadmap.com/notes/system-design/Phase2_APIs_Notes.pdf).
+
 ## Next
 
 [03-scheduling-recurring-jobs](../03-scheduling-recurring-jobs/README.md) —

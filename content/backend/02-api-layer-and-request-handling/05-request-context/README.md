@@ -560,7 +560,7 @@ Write down your answer to each question before expanding it — checking without
 
 ## Free PDF notes
 
-Download these notes as a printable PDF, with every diagram and interview questions: [SD-B-020: Network Timeouts](https://backendroadmap.com/notes/system-design/SD-B-020.pdf). All Phase 2 networking notes in one file: [Phase 2, Networking (PDF)](https://backendroadmap.com/notes/system-design/Phase2_Networking_Notes.pdf).
+Download the notes for each video on this page as a printable PDF, with every diagram and interview questions: [SD-B-020: Network Timeouts](https://backendroadmap.com/notes/system-design/SD-B-020.pdf), [SD-C-019: API Timeouts & Deadline Propagation](https://backendroadmap.com/notes/system-design/SD-C-019.pdf). Each section in one file: [Phase 2, Networking (PDF)](https://backendroadmap.com/notes/system-design/Phase2_Networking_Notes.pdf) and [Phase 2, APIs (PDF)](https://backendroadmap.com/notes/system-design/Phase2_APIs_Notes.pdf).
 
 ## Next
 

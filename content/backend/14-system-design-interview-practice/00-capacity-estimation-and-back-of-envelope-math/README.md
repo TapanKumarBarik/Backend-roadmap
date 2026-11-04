@@ -465,6 +465,10 @@ Write down your answer to each question before expanding it — checking without
 - [The Log: What every software engineer should know about real-time data (Jay Kreps)](https://engineering.linkedin.com/distributed-systems/log-what-every-software-engineer-should-know-about-real-time-datas-unifying-abstraction) - background on why streaming/queue paths absorb the concurrent-session write loads this module warns about.
 - [Latency Numbers Every Programmer Should Know — interactive](https://colin-scott.github.io/personal_website/research/interactive_latency.html) - an interactive version of the latency ladder showing how the numbers scale over hardware generations.
 
+## Free PDF notes
+
+Download the notes for each video on this page as a printable PDF, with every diagram and interview questions: [SD-D-001: Back-of-the-Envelope Estimation](https://backendroadmap.com/notes/system-design/SD-D-001.pdf), [SD-D-003: How to Estimate RPS](https://backendroadmap.com/notes/system-design/SD-D-003.pdf), [SD-D-004: Peak vs Average Traffic](https://backendroadmap.com/notes/system-design/SD-D-004.pdf), [SD-D-005: Read/Write Ratio](https://backendroadmap.com/notes/system-design/SD-D-005.pdf), [SD-D-006: Storage Estimation](https://backendroadmap.com/notes/system-design/SD-D-006.pdf), [SD-D-007: Bandwidth Estimation](https://backendroadmap.com/notes/system-design/SD-D-007.pdf), [SD-D-008: Cache Sizing](https://backendroadmap.com/notes/system-design/SD-D-008.pdf), [SD-D-009: How Many Servers Do You Need? Capacity, 60% Target & N+2](https://backendroadmap.com/notes/system-design/SD-D-009.pdf), [SD-D-010: Growth Projections](https://backendroadmap.com/notes/system-design/SD-D-010.pdf), [SD-D-011: Back-of-the-Envelope Estimation](https://backendroadmap.com/notes/system-design/SD-D-011.pdf). Each section in one file: [Phase 2, Estimation (PDF)](https://backendroadmap.com/notes/system-design/Phase2_Estimation_Notes.pdf).
+
 ## Next
 
 [01-the-system-design-interview-framework](../01-the-system-design-interview-framework/README.md)

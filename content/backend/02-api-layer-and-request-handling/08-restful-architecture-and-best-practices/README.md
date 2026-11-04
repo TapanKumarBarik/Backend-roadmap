@@ -500,6 +500,10 @@ Write down your answer to each question before expanding it — checking without
 - [Google API Design Guide — Resource-oriented design](https://cloud.google.com/apis/design/resources) - modeling APIs around resources and standard methods rather than RPC verbs.
 - [FastAPI — Bigger Applications (routers)](https://fastapi.tiangolo.com/tutorial/bigger-applications/) - mounting versioned routers (`/v1`, `/v2`) side by side.
 
+## Free PDF notes
+
+Download the notes for each video on this page as a printable PDF, with every diagram and interview questions: [SD-C-001: REST Principles](https://backendroadmap.com/notes/system-design/SD-C-001.pdf), [SD-C-005: API Resource Modeling & URI Design](https://backendroadmap.com/notes/system-design/SD-C-005.pdf). Each section in one file: [Phase 2, APIs (PDF)](https://backendroadmap.com/notes/system-design/Phase2_APIs_Notes.pdf).
+
 ## Next
 
 [09-openapi-standards](../09-openapi-standards/README.md) — you've been

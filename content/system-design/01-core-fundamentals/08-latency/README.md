@@ -141,6 +141,8 @@ Yes, if misses add a network hop before the database, or the cache is overloaded
 
 Download these notes as a printable PDF, with every diagram: [SD-A-008.pdf](https://backendroadmap.com/notes/system-design/SD-A-008.pdf). All Phase 1 notes in one file: [Phase 1, Core Fundamentals (PDF)](https://backendroadmap.com/notes/system-design/Phase1_Core_Fundamentals_Notes.pdf).
 
+The Phase 2 video on this page has its own notes: [SD-D-002: Latency Numbers & Powers of Two Every Engineer Should Know](https://backendroadmap.com/notes/system-design/SD-D-002.pdf). All of them in one file: [Phase 2, Estimation (PDF)](https://backendroadmap.com/notes/system-design/Phase2_Estimation_Notes.pdf).
+
 ## Next
 
 Continue with [Lesson 09: Throughput and Little's Law](../09-throughput-and-littles-law/README.md).

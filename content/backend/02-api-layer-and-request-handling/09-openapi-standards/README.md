@@ -513,6 +513,10 @@ Write down your answer to each question before expanding it — checking without
 - [swagger.io — What is OpenAPI?](https://swagger.io/docs/specification/about/) - the OpenAPI-vs-Swagger history and the tooling ecosystem around the spec.
 - [JSON Schema](https://json-schema.org/) - the schema standard OpenAPI 3.1 aligns with and that Pydantic emits.
 
+## Free PDF notes
+
+Download these notes as a printable PDF, with every diagram and interview questions: [SD-C-022: API Contracts & OpenAPI](https://backendroadmap.com/notes/system-design/SD-C-022.pdf). Each section in one file: [Phase 2, APIs (PDF)](https://backendroadmap.com/notes/system-design/Phase2_APIs_Notes.pdf).
+
 ## Next
 
 [10-capstone-project](../10-capstone-project/README.md) — time to synthesize

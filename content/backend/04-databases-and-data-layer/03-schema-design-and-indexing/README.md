@@ -608,6 +608,10 @@ expanding — no peeking at earlier modules.
 - [Use The Index, Luke: The Where Clause](https://use-the-index-luke.com/sql/where-clause) - deep dive on selectivity and the leftmost-prefix rule.
 - [Database Normalization (overview)](https://en.wikipedia.org/wiki/Database_normalization) - a concise reference for 1NF through higher normal forms.
 
+## Free PDF notes
+
+Download the notes for each video on this page as a printable PDF, with every diagram and interview questions: [SD-E-002: Database Normalization](https://backendroadmap.com/notes/system-design/SD-E-002.pdf), [SD-E-003: Denormalization](https://backendroadmap.com/notes/system-design/SD-E-003.pdf), [SD-E-004: B-Tree Indexes Explained](https://backendroadmap.com/notes/system-design/SD-E-004.pdf), [SD-E-005: Composite, Covering & Partial Indexes](https://backendroadmap.com/notes/system-design/SD-E-005.pdf), [SD-E-006: LSM Trees & SSTables](https://backendroadmap.com/notes/system-design/SD-E-006.pdf). Each section in one file: [Phase 2, Databases (PDF)](https://backendroadmap.com/notes/system-design/Phase2_Databases_Notes.pdf).
+
 ## Next
 
 [04-transactions-and-concurrency-control](../04-transactions-and-concurrency-control/README.md)

@@ -352,6 +352,10 @@ challenge is testing.
 - [Stripe docs: Webhooks](https://stripe.com/docs/webhooks) - signature verification and event handling for the plan-sync pattern.
 - [Track 05, backend: caching and performance](../../05-caching-and-performance/README.md) - the same read-then-write race class discussed there for caches applies to naive quota counters here.
 
+## Free PDF notes
+
+Download these notes as a printable PDF, with every diagram and interview questions: [SD-C-014: Throttling vs Rate Limiting vs Quotas](https://backendroadmap.com/notes/system-design/SD-C-014.pdf). Each section in one file: [Phase 2, APIs (PDF)](https://backendroadmap.com/notes/system-design/Phase2_APIs_Notes.pdf).
+
 ## Next
 
 [05-scaling-and-noisy-neighbor-at-the-app-layer](../05-scaling-and-noisy-neighbor-at-the-app-layer/README.md) —

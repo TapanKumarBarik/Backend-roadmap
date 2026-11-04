@@ -438,6 +438,10 @@ Write down your answer to each question before expanding it — checking without
 - [microservices.io — API Gateway pattern](https://microservices.io/patterns/apigateway.html) - Chris Richardson's overview of the gateway/BFF topology that lets these paradigms coexist at the edge (module 06).
 - [MDN — Choosing between WebSockets, SSE, and polling](https://developer.mozilla.org/en-US/docs/Web/API/Server-sent_events/Using_server-sent_events) - grounds the server-initiated / event-driven branch of the decision framework (module 05, track 06).
 
+## Free PDF notes
+
+Download these notes as a printable PDF, with every diagram and interview questions: [SD-C-004: REST vs GraphQL vs gRPC](https://backendroadmap.com/notes/system-design/SD-C-004.pdf). Each section in one file: [Phase 2, APIs (PDF)](https://backendroadmap.com/notes/system-design/Phase2_APIs_Notes.pdf).
+
 ## Next
 
 [01-grpc-fundamentals](../01-grpc-fundamentals/README.md) — you've decided

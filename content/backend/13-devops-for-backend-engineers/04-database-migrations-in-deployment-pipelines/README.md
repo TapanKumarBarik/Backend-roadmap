@@ -441,6 +441,10 @@ Write down your answer to each question before expanding it — checking without
 - [The Twelve-Factor App: Admin processes (factor XII)](https://12factor.net/admin-processes) - Why a migration is a one-off admin process on the same image and config as the app, not app-startup code.
 - [Alembic documentation](https://alembic.sqlalchemy.org/en/latest/) - The migration tool used for the upgrade/downgrade sequences shown here.
 
+## Free PDF notes
+
+Download these notes as a printable PDF, with every diagram and interview questions: [SD-E-028: Zero-Downtime Database Migrations](https://backendroadmap.com/notes/system-design/SD-E-028.pdf). Each section in one file: [Phase 2, Databases (PDF)](https://backendroadmap.com/notes/system-design/Phase2_Databases_Notes.pdf).
+
 ## Next
 
 [05-service-configuration-and-environments](../05-service-configuration-and-environments/README.md)

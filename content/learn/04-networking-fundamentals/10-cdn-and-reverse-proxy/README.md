@@ -402,7 +402,7 @@ thinking you've learned this.
 
 ## Free PDF notes
 
-Download these notes as a printable PDF, with every diagram and interview questions: [SD-B-017: Forward vs Reverse Proxy](https://backendroadmap.com/notes/system-design/SD-B-017.pdf). All Phase 2 networking notes in one file: [Phase 2, Networking (PDF)](https://backendroadmap.com/notes/system-design/Phase2_Networking_Notes.pdf).
+Download these notes as a printable PDF, with every diagram and interview questions: [SD-B-017: Forward vs Reverse Proxy](https://backendroadmap.com/notes/system-design/SD-B-017.pdf). Each section in one file: [Phase 2, Networking (PDF)](https://backendroadmap.com/notes/system-design/Phase2_Networking_Notes.pdf).
 
 ## Next
 

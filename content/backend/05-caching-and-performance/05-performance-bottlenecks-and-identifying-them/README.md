@@ -498,6 +498,10 @@ Write down your answer to each question before expanding it — checking without
 - [brendangregg.com: the USE method](https://www.brendangregg.com/usemethod.html) - a systematic utilization/saturation/errors procedure for finding the bottleneck resource.
 - [PostgreSQL: pg_stat_statements](https://www.postgresql.org/docs/current/pgstatstatements.html) - surfacing the N+1 "huge call count, tiny per-call time" signature in the database.
 
+## Free PDF notes
+
+Download these notes as a printable PDF, with every diagram and interview questions: [SD-D-013: Identifying Bottlenecks](https://backendroadmap.com/notes/system-design/SD-D-013.pdf). Each section in one file: [Phase 2, Estimation (PDF)](https://backendroadmap.com/notes/system-design/Phase2_Estimation_Notes.pdf).
+
 ## Next
 
 [06-scaling-strategies-and-batch-processing](../06-scaling-strategies-and-batch-processing/README.md)

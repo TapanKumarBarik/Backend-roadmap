@@ -437,6 +437,10 @@ Write down your answer to each question before expanding it — checking without
 - [FastAPI: API Key security](https://fastapi.tiangolo.com/tutorial/security/) - the `APIKeyHeader` / `Security` primitives used in this module.
 - [Istio: Mutual TLS](https://istio.io/latest/docs/concepts/security/#mutual-tls-authentication) - how a service mesh automates per-workload certs and zero-trust mTLS at scale.
 
+## Free PDF notes
+
+Download these notes as a printable PDF, with every diagram and interview questions: [SD-C-015: API Authentication](https://backendroadmap.com/notes/system-design/SD-C-015.pdf). Each section in one file: [Phase 2, APIs (PDF)](https://backendroadmap.com/notes/system-design/Phase2_APIs_Notes.pdf).
+
 ## Next
 
 [05-mfa-and-password-security](../05-mfa-and-password-security/README.md) —

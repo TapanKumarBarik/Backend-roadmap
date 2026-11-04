@@ -557,6 +557,10 @@ Write down your answer to each question before expanding it — checking without
 - [Citus: Distributed PostgreSQL / sharding](https://docs.citusdata.com/en/stable/sharding/data_modeling.html) - shard keys, co-location, and distributed query patterns in practice.
 - [Instagram Engineering: Sharding & IDs](https://instagram-engineering.com/sharding-ids-at-instagram-1cf5a71e5a5c) - a real-world account of shard-aware id generation.
 
+## Free PDF notes
+
+Download the notes for each video on this page as a printable PDF, with every diagram and interview questions: [SD-E-019: Leader-Follower Replication](https://backendroadmap.com/notes/system-design/SD-E-019.pdf), [SD-E-020: Read Replicas & Replication Lag](https://backendroadmap.com/notes/system-design/SD-E-020.pdf), [SD-E-021: Multi-Leader & Leaderless Replication](https://backendroadmap.com/notes/system-design/SD-E-021.pdf), [SD-E-022: Database Sharding Fundamentals](https://backendroadmap.com/notes/system-design/SD-E-022.pdf), [SD-E-023: Range vs Hash Partitioning](https://backendroadmap.com/notes/system-design/SD-E-023.pdf), [SD-E-024: Rebalancing & Hot Partitions](https://backendroadmap.com/notes/system-design/SD-E-024.pdf), [SD-E-025: Secondary Indexes in Partitioned Data](https://backendroadmap.com/notes/system-design/SD-E-025.pdf), [SD-E-026: Postgres Table Partitioning](https://backendroadmap.com/notes/system-design/SD-E-026.pdf), [SD-E-027: Distributed ID Generation](https://backendroadmap.com/notes/system-design/SD-E-027.pdf), [SD-E-032: Distributed SQL Explained](https://backendroadmap.com/notes/system-design/SD-E-032.pdf). Each section in one file: [Phase 2, Databases (PDF)](https://backendroadmap.com/notes/system-design/Phase2_Databases_Notes.pdf).
+
 ## Next
 
 [09-olap-and-data-warehousing](../09-olap-and-data-warehousing/README.md) —
