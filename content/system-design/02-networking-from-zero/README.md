@@ -21,7 +21,7 @@ Lessons are being published one at a time. Those not yet out are listed so you c
 |---|--------|--------|
 | | **Foundations** | |
 | 01 | [What is a network? Clients, servers and the conversation between them](01-what-is-a-network/README.md) | available |
-| 02 | Packets: why data travels in small pieces | coming soon |
+| 02 | [Packets: why data travels in small pieces](02-packets/README.md) | available |
 | 03 | IP addresses: the street address of every device | coming soon |
 | 04 | Ports and sockets: the flat number inside the building | coming soon |
 | 05 | Protocols and layers: agreed languages, and why we stack them | coming soon |

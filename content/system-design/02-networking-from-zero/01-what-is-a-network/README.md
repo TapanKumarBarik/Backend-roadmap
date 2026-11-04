@@ -2,7 +2,7 @@
 
 ## Roadmap
 
-You are in **System Design Interview Prep**, Track 02, **Networking from Zero**: lesson 1 of 30, the very first one. It needs nothing before it. The next lesson, packets, is coming soon. See [the track overview](../README.md) for the whole plan.
+You are in **System Design Interview Prep**, Track 02, **Networking from Zero**: lesson 1 of 30, the very first one. It needs nothing before it. The next lesson is [packets](../02-packets/README.md). See [the track overview](../README.md) for the whole plan.
 
 These are the written notes for the lesson's video. Prefer paper? The same notes are a free, printable PDF: [download SD-N-001.pdf](https://backendroadmap.com/notes/system-design/SD-N-001.pdf).
 
@@ -200,4 +200,4 @@ Download these notes as a printable PDF, with every picture, the real-numbers ta
 
 ## Next
 
-Next comes lesson 2, packets: why your request doesn't cross the internet in one piece (coming soon). Until then, the [track overview](../README.md) lists the whole series, and [lesson 8](../08-tcp-sequence-numbers-and-acks/README.md) is already out.
+Next comes [lesson 2, packets](../02-packets/README.md): why your request doesn't cross the internet in one piece. The [track overview](../README.md) lists the whole series.
