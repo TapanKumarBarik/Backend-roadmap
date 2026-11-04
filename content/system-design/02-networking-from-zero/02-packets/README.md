@@ -2,7 +2,7 @@
 
 ## Roadmap
 
-You are in **System Design Interview Prep**, Track 02, **Networking from Zero**: lesson 2 of 30. It builds on [lesson 1](../01-what-is-a-network/README.md), where a client and a server exchange messages. The next lesson, IP addresses, is coming soon. See [the track overview](../README.md) for the whole plan.
+You are in **System Design Interview Prep**, Track 02, **Networking from Zero**: lesson 2 of 30. It builds on [lesson 1](../01-what-is-a-network/README.md), where a client and a server exchange messages. The next lesson is [IP addresses](../03-ip-addresses/README.md). See [the track overview](../README.md) for the whole plan.
 
 These are the written notes for the lesson's video. Prefer paper? The same notes are a free, printable PDF: [download SD-N-002.pdf](https://backendroadmap.com/notes/system-design/SD-N-002.pdf).
 
@@ -199,4 +199,4 @@ Download these notes as a printable PDF, with every picture, the real-numbers ta
 
 ## Next
 
-Next comes lesson 3, IP addresses: the header said "to the WhatsApp server", but how do you write a computer's address? (coming soon). Until then, the [track overview](../README.md) lists the whole series, and [lesson 8](../08-tcp-sequence-numbers-and-acks/README.md) is already out.
+Next comes [lesson 3, IP addresses](../03-ip-addresses/README.md): the header said "to the WhatsApp server", but how do you write a computer's address? The [track overview](../README.md) lists the whole series.
