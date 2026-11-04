@@ -527,6 +527,10 @@ Write down your answer to each question before expanding it — checking without
 >   works on top of a protocol that remembers nothing
 > - Hand-type a valid GET request over a socket, CRLFs and all
 
+## Free PDF notes
+
+Download these notes as a printable PDF, with every diagram and interview questions: [SD-B-010: HTTP Fundamentals](https://backendroadmap.com/notes/system-design/SD-B-010.pdf). All Phase 2 networking notes in one file: [Phase 2, Networking (PDF)](https://backendroadmap.com/notes/system-design/Phase2_Networking_Notes.pdf).
+
 ## Next
 
 [02-http-headers-deep-dive](../02-http-headers-deep-dive/README.md) — you

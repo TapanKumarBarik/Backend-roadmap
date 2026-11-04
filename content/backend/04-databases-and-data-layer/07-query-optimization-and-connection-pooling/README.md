@@ -529,6 +529,10 @@ Write down your answer to each question before expanding it — checking without
 - [PgBouncer documentation](https://www.pgbouncer.org/) - the external transaction pooler you point apps at once you have many instances.
 - [Use The Index, Luke: Slow Indexes / execution plans](https://use-the-index-luke.com/sql/explain-plan) - reading execution plans across databases.
 
+## Free PDF notes
+
+Download these notes as a printable PDF, with every diagram and interview questions: [SD-B-019: Connection Pooling & Keep-Alive](https://backendroadmap.com/notes/system-design/SD-B-019.pdf). All Phase 2 networking notes in one file: [Phase 2, Networking (PDF)](https://backendroadmap.com/notes/system-design/Phase2_Networking_Notes.pdf).
+
 ## Next
 
 [08-replication-and-sharding](../08-replication-and-sharding/README.md) — you've

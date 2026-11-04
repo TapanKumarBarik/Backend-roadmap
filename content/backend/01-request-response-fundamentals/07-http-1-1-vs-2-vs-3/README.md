@@ -408,6 +408,10 @@ Write down your answer to each question before expanding it — checking without
 - [caniuse: HTTP/3](https://caniuse.com/http3) and [HTTP/2](https://caniuse.com/http2) - real-world browser and version support you can cite.
 - [MDN: Alt-Svc](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Alt-Svc) - the header that advertises HTTP/3 availability, from exercise 3.
 
+## Free PDF notes
+
+Download these notes as a printable PDF, with every diagram and interview questions: [SD-B-013: HTTP/1.1 vs HTTP/2 vs HTTP/3](https://backendroadmap.com/notes/system-design/SD-B-013.pdf). All Phase 2 networking notes in one file: [Phase 2, Networking (PDF)](https://backendroadmap.com/notes/system-design/Phase2_Networking_Notes.pdf).
+
 ## Next
 
 [08-content-negotiation-and-compression](../08-content-negotiation-and-compression/README.md)

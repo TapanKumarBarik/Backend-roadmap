@@ -155,6 +155,10 @@ Closed-book. Don't reopen earlier modules while attempting these. These delibera
 
 </details>
 
+## Free PDF notes
+
+Download the notes for each video on this page as a printable PDF, with every diagram and interview questions: [SD-B-003: TCP Explained](https://backendroadmap.com/notes/system-design/SD-B-003.pdf), [SD-B-004: TCP Handshake, FIN/RST & TIME_WAIT](https://backendroadmap.com/notes/system-design/SD-B-004.pdf), [SD-B-005: UDP vs TCP](https://backendroadmap.com/notes/system-design/SD-B-005.pdf), [SD-B-007: Ports, Sockets & Routing](https://backendroadmap.com/notes/system-design/SD-B-007.pdf). All Phase 2 networking notes in one file: [Phase 2, Networking (PDF)](https://backendroadmap.com/notes/system-design/Phase2_Networking_Notes.pdf).
+
 ## Next
 
 [05 — Routing, NAT & firewalls](../05-routing-nat-and-firewalls/README.md): you have a reliable TCP connection between two hosts — now learn how packets actually choose a path between them, get their addresses translated, and are permitted or blocked along the way. The application protocols that ride on TCP are taught in the backend track: [HTTP protocol basics](../../../backend/01-request-response-fundamentals/01-http-protocol-basics/README.md) and [TLS, SSL and HTTPS](../../../backend/01-request-response-fundamentals/09-tls-ssl-and-https/README.md).

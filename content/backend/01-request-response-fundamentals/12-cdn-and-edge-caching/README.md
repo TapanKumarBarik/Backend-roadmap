@@ -511,6 +511,10 @@ Write down your answer to each question before expanding it — checking without
 - [MDN: stale-while-revalidate](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Cache-Control#stale-while-revalidate) - the exact header syntax and semantics used in this module's Concepts section.
 - [nginx: proxy_cache_path and related directives](https://nginx.org/en/docs/http/ngx_http_proxy_module.html#proxy_cache_path) - the reference for every directive used in this module's exercises.
 
+## Free PDF notes
+
+Download these notes as a printable PDF, with every diagram and interview questions: [SD-B-018: CDNs Explained](https://backendroadmap.com/notes/system-design/SD-B-018.pdf). All Phase 2 networking notes in one file: [Phase 2, Networking (PDF)](https://backendroadmap.com/notes/system-design/Phase2_Networking_Notes.pdf).
+
 ## Next
 
 [13-capstone-project](../13-capstone-project/README.md) — time to put the

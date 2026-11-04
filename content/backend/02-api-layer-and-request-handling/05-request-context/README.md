@@ -558,6 +558,10 @@ Write down your answer to each question before expanding it — checking without
 - [Python docs — `contextvars`](https://docs.python.org/3/library/contextvars.html) - request-safe implicit context that avoids the concurrency hazards of module-level globals.
 - [Python docs — `asyncio.timeout`](https://docs.python.org/3/library/asyncio-task.html#asyncio.timeout) - bounding and cancelling long-running work, the deadline side of request context.
 
+## Free PDF notes
+
+Download these notes as a printable PDF, with every diagram and interview questions: [SD-B-020: Network Timeouts](https://backendroadmap.com/notes/system-design/SD-B-020.pdf). All Phase 2 networking notes in one file: [Phase 2, Networking (PDF)](https://backendroadmap.com/notes/system-design/Phase2_Networking_Notes.pdf).
+
 ## Next
 
 [06-handlers-controllers-and-services](../06-handlers-controllers-and-services/README.md)

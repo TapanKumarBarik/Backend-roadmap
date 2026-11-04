@@ -635,6 +635,10 @@ Closed-book. Don't reopen modules 00-07 while attempting these.
 - [MDN: WebSockets vs Server-sent events](https://developer.mozilla.org/en-US/docs/Web/API/Server-sent_events) - when one-way SSE is the simpler, more robust choice.
 - [RFC 6455: The WebSocket Protocol](https://datatracker.ietf.org/doc/html/rfc6455) - the handshake, framing, and ping/pong heartbeats.
 
+## Free PDF notes
+
+Download the notes for each video on this page as a printable PDF, with every diagram and interview questions: [SD-B-014: WebSockets](https://backendroadmap.com/notes/system-design/SD-B-014.pdf), [SD-B-015: SSE vs Long Polling vs WebSockets](https://backendroadmap.com/notes/system-design/SD-B-015.pdf), [SD-B-016: HTTP Streaming](https://backendroadmap.com/notes/system-design/SD-B-016.pdf). All Phase 2 networking notes in one file: [Phase 2, Networking (PDF)](https://backendroadmap.com/notes/system-design/Phase2_Networking_Notes.pdf).
+
 ## Next
 
 [08-pub-sub-architecture](../08-pub-sub-architecture/README.md) — module 07

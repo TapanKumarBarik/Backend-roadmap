@@ -174,6 +174,10 @@ Write down your answer to each question before expanding it — checking without
 
 </details>
 
+## Free PDF notes
+
+Download these notes as a printable PDF, with every diagram and interview questions: [SD-B-006: IP Addresses, Subnets & CIDR](https://backendroadmap.com/notes/system-design/SD-B-006.pdf). All Phase 2 networking notes in one file: [Phase 2, Networking (PDF)](https://backendroadmap.com/notes/system-design/Phase2_Networking_Notes.pdf).
+
 ## Next
 
 [02 — DNS fundamentals](../02-dns-fundamentals/README.md): you can now reason about addresses, but humans use names. Learn how `example.com` becomes an IP before any packet is ever sent.

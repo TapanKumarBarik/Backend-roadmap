@@ -400,6 +400,10 @@ thinking you've learned this.
 - [Cloudflare: What is a reverse proxy?](https://www.cloudflare.com/learning/cdn/glossary/reverse-proxy/) - a side-by-side diagram of forward and reverse proxies.
 - [Docker: Use a proxy server with the Docker CLI](https://docs.docker.com/engine/cli/proxy/) - passing `HTTP_PROXY`/`NO_PROXY` into containers and builds.
 
+## Free PDF notes
+
+Download these notes as a printable PDF, with every diagram and interview questions: [SD-B-017: Forward vs Reverse Proxy](https://backendroadmap.com/notes/system-design/SD-B-017.pdf). All Phase 2 networking notes in one file: [Phase 2, Networking (PDF)](https://backendroadmap.com/notes/system-design/Phase2_Networking_Notes.pdf).
+
 ## Next
 
 [12 — Capstone project](../12-capstone-project/README.md): put the whole
