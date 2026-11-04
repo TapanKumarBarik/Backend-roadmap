@@ -24,5 +24,6 @@ Same convention as `backend/`:
 | # | Track | What you'll be able to do after | Depends on |
 |---|-------|---------------------------------|------------|
 | 1 | [01-core-fundamentals](01-core-fundamentals/README.md) | Start a design by clarifying requirements, describe a system's layers, scale it out, reason about latency, throughput, availability, CAP and consistency, and design for failure | nothing |
+| 2 | [02-networking-from-zero](02-networking-from-zero/README.md) | Explain, from nothing, how data crosses the internet: packets, addresses, TCP, DNS, HTTP, TLS and the infrastructure in between, with the interview answer for each (being published one lesson at a time) | nothing |
 
 Start here → [01-core-fundamentals/01-what-is-system-design/README.md](01-core-fundamentals/01-what-is-system-design/README.md)
