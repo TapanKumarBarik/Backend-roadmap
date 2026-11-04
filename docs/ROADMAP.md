@@ -2,8 +2,7 @@
 
 Planned features and recently-shipped ones — recorded here so an idea
 doesn't get lost between conversations, and so it's clear what's actually
-live versus still an intention. See [CONTRIBUTING.md](../CONTRIBUTING.md) for
-how to contribute to what already exists.
+live versus still an intention.
 
 ## Shipped: a shared, user-uploaded resources library (Books)
 
@@ -59,11 +58,9 @@ comments on articles, on top of a consistent design system and navigation. It is
 its own, with the decisions, the data model and what "done" means written out in [MODERNIZATION.md](MODERNIZATION.md).
 Phase 1 (the audit and the plan) is done.
 
-## Planned: opening up beyond curriculum-content contributions
+## Decided: closed source
 
-`CONTRIBUTING.md` already documents how to contribute curriculum content
-(markdown conventions, content blocks, `{{tabs}}`). What's not yet decided:
-what it looks like for other people to contribute to the *app* itself, or
-to moderate the public user-generated surfaces that now exist (Feed, Books,
-Suggestions) — whether non-admins ever get a role between "regular user"
-and "admin," and how abuse/spam gets handled at more than personal scale.
+The repository is private and all rights are reserved (see LICENSE). Outside
+contributions are not accepted; readers report problems by email from the
+module page. Still open: how to moderate the public user-generated surfaces
+(Feed, Books, Suggestions) at more than personal scale.

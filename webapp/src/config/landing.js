@@ -19,9 +19,9 @@ export const HOME_META = {
 export const FALLBACK_START_FILE = 'backend/01-request-response-fundamentals/00-system-overview-and-request-flow/README.md';
 
 export const HERO = {
-  eyebrow: 'Free · Open source · No sign-up to read',
+  eyebrow: 'Free · No sign-up to read',
   headline: 'Build the engineering skills that matter.',
-  lead: (modules) => `Learn backend development, cloud engineering, GenAI and system design through structured roadmaps, hands-on practice and real-world challenges.${modules ? ` ${fmt(modules.written)} written modules, every one a markdown file in a public repository: read it here, run the code, and fix it if it is wrong.` : ''}`,
+  lead: (modules) => `Learn backend development, cloud engineering, GenAI and system design through structured roadmaps, hands-on practice and real-world challenges.${modules ? ` ${fmt(modules.written)} written modules, each with runnable code, diagrams and interview questions.` : ''}`,
   // The primary button starts this learning path (an id from paths.json). If it is missing, it opens
   // FALLBACK_START_FILE instead.
   startPath: 'backend-foundations',
@@ -141,8 +141,8 @@ export const VIDEO = {
 };
 
 export const OPEN_SOURCE = {
-  heading: 'Built in the open',
-  body: (modules, license) => `Everything here is ${license} licensed.${modules && modules.planned > 0 ? ` ${fmt(modules.planned)} planned modules are waiting for an author.` : ''} Write one, fix a typo, or suggest a better way to organise it.`,
-  primaryLabel: 'Write a module',
-  secondaryLabel: 'View on GitHub'
+  heading: 'Spotted a mistake?',
+  body: (modules) => `Every module is written and checked by hand.${modules && modules.planned > 0 ? ` ${fmt(modules.planned)} more modules are on the way.` : ''} If something is wrong or unclear, tell me and I will fix it.`,
+  primaryLabel: 'Email me',
+  secondaryLabel: 'Watch on YouTube'
 };

@@ -1,7 +1,7 @@
 # Architecture
 
 How this repository fits together, for someone who is about to change it. The how-to for running it is
-[LOCAL-SETUP.md](LOCAL-SETUP.md); how to contribute is [CONTRIBUTING.md](../CONTRIBUTING.md).
+[LOCAL-SETUP.md](LOCAL-SETUP.md).
 
 ## The idea in one paragraph
 

@@ -323,7 +323,7 @@ itself, which this module's active-compute count directly contradicts.
 
 - [Outrageously Large Neural Networks: The Sparsely-Gated Mixture-of-Experts Layer (Shazeer et al., 2017)](https://arxiv.org/abs/1701.06538) - the paper that introduced the sparsely-gated MoE layer this module's verified top-1 routing example is modeled on, including the load-imbalance problem this module surfaced and module 13 addresses.
 - [Switch Transformers: Scaling to Trillion Parameter Models with Simple and Efficient Sparsity (Fedus et al., 2021)](https://arxiv.org/abs/2101.03961) - simplifies routing to top-1 (exactly this module's choice) and reports real total-vs-active parameter trade-offs at much larger scale than this module's toy example.
-- [Track 02, Module 09: The Feed-Forward Network — Per-Token Processing](../../02-transformer-architecture/09-the-feed-forward-network-per-token-processing/README.md) - the source of the "FFN processes each token independently" finding this module relies on to explain why per-token expert routing is architecturally possible.
+- [Track 02, Module 09: The Feed-Forward Network — Per-Token Processing](../../02-transformer-architecture/12-the-feed-forward-network/README.md) - the source of the "FFN processes each token independently" finding this module relies on to explain why per-token expert routing is architecturally possible.
 
 ## Next
 

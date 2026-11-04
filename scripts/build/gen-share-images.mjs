@@ -67,7 +67,7 @@ function cardElement(card) {
     h('div', { display: 'flex', alignItems: 'center', justifyContent: 'space-between' }, [
       h('div', { display: 'flex', fontSize: 28, color: colors.muted }, [
         h('div', { display: 'flex', fontWeight: 700, color: colors.text }, host),
-        h('div', { display: 'flex', marginLeft: 14 }, `· Open source · ${config.site.license}`)
+        h('div', { display: 'flex', marginLeft: 14 }, '· Free to read')
       ]),
       ...(card.pill ? [pill(card.pill)] : [])
     ])

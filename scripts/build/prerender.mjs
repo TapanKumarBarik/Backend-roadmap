@@ -20,7 +20,7 @@ import { neighbourModules } from '../../webapp/src/lib/curriculum/curriculumPosi
 import { isModule } from '../../webapp/src/lib/curriculum/nodeKind.js';
 import { formatClock, groupByModule, isoDuration } from '../../webapp/src/lib/curriculum/videos.js';
 import { thumbnailUrl, watchUrl } from '../../webapp/src/lib/markdown/video.js';
-import { ROOT, CONTENT_DIR, config, SITE_URL, REPO_URL, isPlaceholderText } from '../lib/config.mjs';
+import { ROOT, CONTENT_DIR, config, SITE_URL, isPlaceholderText } from '../lib/config.mjs';
 import { descriptionCandidates, videoCandidates } from '../lib/describe.mjs';
 import { pageSeo } from '../lib/seoPage.mjs';
 import { gitDates } from '../lib/gitDates.mjs';
@@ -248,7 +248,7 @@ fs.writeFileSync(path.join(DIST, 'seo-defaults.json'), JSON.stringify(generatedD
 // the root with something to read as well as somewhere to go. Built by scripts/lib/homePage.mjs.
 const stats = JSON.parse(fs.readFileSync(path.join(DIST, 'site-stats.json'), 'utf8'));
 const homePageContent = homePage({
-  stats, videos: videoList, tree, titles, config, urlOf: moduleUrl, repoUrl: REPO_URL, contributeUrl: `${REPO_URL}#contribute`
+  stats, videos: videoList, tree, titles, config, urlOf: moduleUrl
 });
 // Google takes a site's name in results from WebSite data on the homepage;
 // alternateName covers how people actually type it.

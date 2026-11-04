@@ -5,7 +5,7 @@ import { renderMermaidDiagrams } from '../../lib/markdown/mermaidRender.js';
 import { rewriteLinks } from '../../lib/markdown/rewriteLinks.js';
 import { routeUrl } from '../../lib/curriculum/moduleUrl.js';
 import { topicOf } from '../../lib/curriculum/pageTitle.js';
-import { isPlaceholder, editUrl, reportUrl, claimUrl, WRITE_GUIDE_URL } from '../../lib/curriculum/contribute.js';
+import { isPlaceholder, reportUrl } from '../../lib/curriculum/contribute.js';
 import { inlineTitleHtml, readTimeStats, slugify, splitTitle } from '../../lib/markdown/markdown.js';
 import { handleCopyClick, handleVideoClick } from '../../lib/markdown/contentClicks.js';
 import { ancestorsOf, buildPositions, placeName, siblingStats } from '../../lib/curriculum/curriculumPosition.js';
@@ -324,17 +324,11 @@ export default function ArticleView({
       )}
 
       {placeholder && (
-        <aside className="help-write" aria-label="This module is open for an author">
-          <div className="help-write-h">This module hasn&apos;t been written yet</div>
+        <aside className="help-write" aria-label="This module is coming soon">
+          <div className="help-write-h">This module is coming soon</div>
           <p>
-            It&apos;s planned, and this project is open source — <strong>you can write it</strong>. Claim it
-            first so two people don&apos;t write the same module, then follow the recipe.
+            The written lesson is on its way. If it has a video, it plays above; the notes follow.
           </p>
-          <div className="help-write-acts">
-            <a className="btn-primary" href={claimUrl(path)} target="_blank" rel="noopener noreferrer">Claim this module</a>
-            <a className="btn-ghost" href={editUrl(path)} target="_blank" rel="noopener noreferrer">Write it on GitHub</a>
-            <a className="btn-ghost" href={WRITE_GUIDE_URL} target="_blank" rel="noopener noreferrer">How to write a module</a>
-          </div>
         </aside>
       )}
 
@@ -439,9 +433,7 @@ export default function ArticleView({
       {!placeholder && html != null && (
         <p className="edit-on-github">
           Found a mistake, or know a better way to explain this?{' '}
-          <a href={editUrl(path)} target="_blank" rel="noopener noreferrer">Edit this page on GitHub</a>
-          {' · '}
-          <a href={reportUrl(path)} target="_blank" rel="noopener noreferrer">Report a problem</a>
+          <a href={reportUrl(path)}>Tell me</a>
         </p>
       )}
     </article>

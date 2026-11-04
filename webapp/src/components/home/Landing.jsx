@@ -1,13 +1,12 @@
 import { Suspense, lazy } from 'react';
-import { ArrowRightIcon, GithubIcon, SearchIcon, YoutubeIcon } from '../common/icons.jsx';
+import { ArrowRightIcon, SearchIcon, YoutubeIcon } from '../common/icons.jsx';
 import SignInButton from '../account/SignInButton.jsx';
 import SiteFooter from '../common/SiteFooter.jsx';
 import VideoCard from '../videos/VideoCard.jsx';
 import { routeUrl } from '../../lib/curriculum/moduleUrl.js';
 import { followInApp } from '../../lib/linkClick.js';
-import { REPO_URL, CONTRIBUTE_URL } from '../../lib/curriculum/contribute.js';
 import { totals } from '../../lib/curriculum/videos.js';
-import { SITE, YOUTUBE } from '../../config/index.js';
+import { YOUTUBE, DEVELOPER_EMAIL_LINK } from '../../config/index.js';
 import { PATH_ROUTE, pageUrl } from '../../lib/appPages.js';
 import { FALLBACK_START_FILE, HERO, ROUTE, PICK, LIBRARY, FRESH, INSIDE, VIDEO, ACCOUNT, OPEN_SOURCE } from '../../config/landing.js';
 import '../../styles/landing.css';
@@ -209,13 +208,11 @@ export default function Landing({ stats, videoData, nodeByFile, user, onLogin, o
       <section className="lp-open" aria-labelledby="lp-oss">
         <div>
           <h2 id="lp-oss">{OPEN_SOURCE.heading}</h2>
-          <p>{OPEN_SOURCE.body(modules, SITE.license)}</p>
+          <p>{OPEN_SOURCE.body(modules)}</p>
         </div>
         <div className="lp-open-acts">
-          <a className="lp-btn lp-btn-invert" href={CONTRIBUTE_URL} target="_blank" rel="noopener noreferrer">{OPEN_SOURCE.primaryLabel}</a>
-          <a className="lp-btn lp-btn-ghost" href={REPO_URL} target="_blank" rel="noopener noreferrer">
-            <GithubIcon /> {OPEN_SOURCE.secondaryLabel}
-          </a>
+          <a className="lp-btn lp-btn-invert" href={DEVELOPER_EMAIL_LINK}>{OPEN_SOURCE.primaryLabel}</a>
+          <a className="lp-btn lp-btn-ghost" href={YOUTUBE.channel} target="_blank" rel="noopener noreferrer">{OPEN_SOURCE.secondaryLabel}</a>
         </div>
       </section>
 

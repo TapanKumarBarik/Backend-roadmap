@@ -21,11 +21,9 @@ const section = (heading, inner) => `<section><h2>${esc(heading)}</h2>${inner}</
  * @param {Record<string, {title: string}>} input.titles   the page titles (webapp/src/lib/curriculum/pageTitle.js)
  * @param {any} input.config      site.config.json
  * @param {(file: string) => string | null} input.urlOf   a module's file to its address on the site
- * @param {string} input.repoUrl
- * @param {string} input.contributeUrl
  * @returns {{ description: string, body: string }}
  */
-export function homePage({ stats, videos, tree, titles, config, urlOf, repoUrl, contributeUrl }) {
+export function homePage({ stats, videos, tree, titles, config, urlOf }) {
   const { modules } = stats;
 
   const paths = stats.paths.filter((p) => urlOf(p.start)).map((p) =>
@@ -52,7 +50,7 @@ export function homePage({ stats, videos, tree, titles, config, urlOf, repoUrl, 
     library && section(LIBRARY.heading, `<p>${esc(LIBRARY.sub)}</p><ul>${library}</ul>`),
     section(INSIDE.heading, `<p>${esc(INSIDE.sub)}</p><ul>${inside}</ul>`),
     clips && section(VIDEO.heading, `<p>${esc(VIDEO.sub(count, seconds))}</p><ul>${clips}</ul><p>${link(pageUrl(VIDEOS_ROUTE), LISTING_COPY.allVideos)} · ${link(config.youtube.channel, VIDEO.label)}</p>`),
-    section(OPEN_SOURCE.heading, `<p>${esc(OPEN_SOURCE.body(modules, config.site.license))}</p><p>${link(contributeUrl, OPEN_SOURCE.primaryLabel)} · ${link(repoUrl, OPEN_SOURCE.secondaryLabel)}</p>`),
+    section(OPEN_SOURCE.heading, `<p>${esc(OPEN_SOURCE.body(modules))}</p><p>${link(`mailto:${config.developer.email}`, OPEN_SOURCE.primaryLabel)} · ${link(config.youtube.channel, OPEN_SOURCE.secondaryLabel)}</p>`),
     `<footer><p>${esc(HOME_META.credit(config.developer.name))} ${link(config.developer.linkedin, 'LinkedIn')} · ${link(config.developer.github, 'GitHub')}</p></footer>`
   ].filter(Boolean).join('');
 

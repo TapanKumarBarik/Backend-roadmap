@@ -33,7 +33,7 @@ export const PATH_COPY = {
   copyPost: 'Copy a post to share',
   postCopied: 'Post copied. Paste it wherever you share.',
   copyFailed: 'Could not copy. Select the text and copy it by hand.',
-  sharePost: (title, modules) => `I just finished the “${title}” path on Backend Roadmap: ${modules} modules, from the basics to the details. Free and open source: ${SITE.url}`,
+  sharePost: (title, modules) => `I just finished the “${title}” path on Backend Roadmap: ${modules} modules, from the basics to the details. Free to read: ${SITE.url}`,
   linkedinShare: `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(SITE.url)}`,
   shareOnLinkedin: 'Post on LinkedIn',
   pathSet: (title) => `Path set: ${title}`,

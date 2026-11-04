@@ -5,7 +5,7 @@ import { useMediaQuery } from '../../hooks/useMediaQuery.js';
 import {
   HamburgerIcon, SearchIcon, SunIcon, MoonIcon, AutoIcon, MenuDotsIcon,
   ExportIcon, ImportIcon, ResetIcon, ExpandIcon, CollapseIcon, KeysIcon, SignOutIcon, TrashIcon,
-  MailIcon, ClockIcon, GithubIcon, YoutubeIcon
+  MailIcon, ClockIcon, YoutubeIcon
 } from '../common/icons.jsx';
 import SignInButton from '../account/SignInButton.jsx';
 import UserAvatar from '../account/UserAvatar.jsx';
@@ -15,7 +15,6 @@ import { Menu, MenuHeader, MenuItem, MenuLabel, MenuSeparator } from '../ui/Menu
 import ShortcutsDialog from './ShortcutsDialog.jsx';
 import { BUILD_TIME } from '../../lib/buildInfo.js';
 import { describeActivity } from '../../lib/comments.js';
-import { CONTRIBUTE_URL } from '../../lib/curriculum/contribute.js';
 import { DEVELOPER, SITE, YOUTUBE } from '../../config/index.js';
 import { CONTACT } from '../../config/messages.js';
 
@@ -148,8 +147,7 @@ export default function TopBar({
         <MenuItem icon={<ExpandIcon />} onSelect={onExpandAll}>Expand all</MenuItem>
         <MenuItem icon={<CollapseIcon />} onSelect={onCollapseAll}>Collapse all</MenuItem>
         <MenuSeparator />
-        <MenuLabel>Open source</MenuLabel>
-        <MenuItem icon={<GithubIcon />} onSelect={() => openOutside(CONTRIBUTE_URL)}>Contribute on GitHub</MenuItem>
+        <MenuLabel>Channel</MenuLabel>
         <MenuItem icon={<YoutubeIcon />} onSelect={() => openOutside(YOUTUBE.channel)}>Watch on YouTube</MenuItem>
         <MenuSeparator />
         <MenuItem icon={<KeysIcon />} onSelect={() => setShortcutsOpen(true)}>Keyboard shortcuts</MenuItem>

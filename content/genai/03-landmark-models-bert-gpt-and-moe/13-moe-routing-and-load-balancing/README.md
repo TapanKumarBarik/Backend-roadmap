@@ -318,7 +318,7 @@ specialize.
 
 - [Outrageously Large Neural Networks: The Sparsely-Gated Mixture-of-Experts Layer (Shazeer et al., 2017)](https://arxiv.org/abs/1701.06538) - introduces the general load-imbalance problem this module verified, and an early importance/load-balancing loss formulation.
 - [Switch Transformers: Scaling to Trillion Parameter Models with Simple and Efficient Sparsity (Fedus et al., 2021)](https://arxiv.org/abs/2101.03961) - the primary source for the exact `num_experts * sum(f_i * P_i)` auxiliary loss formula this module implemented and verified numerically, including the capacity-factor mechanism.
-- [Track 02, Module 09: The Feed-Forward Network — Per-Token Processing](../../02-transformer-architecture/09-the-feed-forward-network-per-token-processing/README.md) - background this module builds on regarding why per-token expert routing is architecturally possible in the first place.
+- [Track 02, Module 09: The Feed-Forward Network — Per-Token Processing](../../02-transformer-architecture/12-the-feed-forward-network/README.md) - background this module builds on regarding why per-token expert routing is architecturally possible in the first place.
 
 ## Next
 

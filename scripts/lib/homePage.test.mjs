@@ -6,7 +6,7 @@ import { HERO, INSIDE, LIBRARY, OPEN_SOURCE, PICK, VIDEO } from '../../webapp/sr
 const config = {
   site: { name: 'Backend Roadmap', license: 'MIT' },
   youtube: { channel: 'https://www.youtube.com/@channel' },
-  developer: { name: 'Ada & Co', linkedin: 'https://www.linkedin.com/in/ada/', github: 'https://github.com/ada' }
+  developer: { name: 'Ada & Co', email: 'ada@example.com', linkedin: 'https://www.linkedin.com/in/ada/', github: 'https://github.com/ada' }
 };
 const stats = {
   modules: { total: 40, written: 31, planned: 9 },
@@ -23,7 +23,7 @@ const videos = [
   { id: 'aaaaaaaaaaa', title: 'Older video', published: '2026-10-01T00:00:00Z', file: null, seconds: 60 },
   { id: 'bbbbbbbbbbb', title: 'Newer video', published: '2026-10-30T00:00:00Z', file: 'backend/01-a/00-x/README.md', seconds: 120 }
 ];
-const input = { stats, videos, tree, titles, config, urlOf, repoUrl: 'https://github.com/o/r', contributeUrl: 'https://github.com/o/r#contribute' };
+const input = { stats, videos, tree, titles, config, urlOf };
 
 const headings = (html, tag) => [...html.matchAll(new RegExp(`<${tag}>(.*?)</${tag}>`, 'g'))].map((m) => m[1].replace(/<[^>]+>/g, ''));
 

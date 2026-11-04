@@ -2,7 +2,7 @@
   "site": {
     "name": "Backend Roadmap",
     "url": "https://backendroadmap.com",
-    "license": "MIT",
+    "license": "All rights reserved",
     "title": "Backend Roadmap — Backend Engineering, System Design & GenAI Curriculum",
     "description": "Backend Roadmap is a free, hands-on curriculum for backend engineering, system design, Linux, low-level design and GenAI, with progress tracking, notes and discussion.",
     "logo": "/icon-512.png",
@@ -42,14 +42,29 @@
   },
   "content": {
     "dir": "content",
-    "curricula": ["backend", "system-design", "learn", "genai", "lld"],
+    "curricula": [
+      "backend",
+      "system-design",
+      "learn",
+      "genai",
+      "lld"
+    ],
     "placeholderMarker": "has not been written yet",
     "placeholderScanLines": 25,
     "wordsPerMinute": 210,
-    "ignoredFiles": ["STATUS.md"],
+    "ignoredFiles": [
+      "STATUS.md"
+    ],
     "images": {
       "maxBytes": 204800,
-      "extensions": [".svg", ".png", ".jpg", ".jpeg", ".webp", ".gif"]
+      "extensions": [
+        ".svg",
+        ".png",
+        ".jpg",
+        ".jpeg",
+        ".webp",
+        ".gif"
+      ]
     }
   },
   "storage": {
@@ -79,39 +94,101 @@
   },
   "studio": {
     "autosaveWaitMs": 1200,
-    "autosaveRetryMs": [2000, 5000, 15000, 30000],
+    "autosaveRetryMs": [
+      2000,
+      5000,
+      15000,
+      30000
+    ],
     "recoveryCopyWaitMs": 400,
     "statsWaitMs": 300
   },
   "uploads": {
     "account": "stroadmapprogress",
-    "containers": { "feed": "feed-uploads", "images": "images", "backups": "backups" }
+    "containers": {
+      "feed": "feed-uploads",
+      "images": "images",
+      "backups": "backups"
+    }
   },
   "budgets": {
     "initialJsKb": 130,
     "initialCssKb": 26,
-    "screensKb": { "StudioView": 240, "WorkspaceView": 210, "AdminDashboard": 16, "BlogsView": 12, "PostView": 14 }
+    "screensKb": {
+      "StudioView": 240,
+      "WorkspaceView": 210,
+      "AdminDashboard": 16,
+      "BlogsView": 12,
+      "PostView": 14
+    }
   },
   "screenshots": {
     "dir": "screenshots",
     "defaultBase": "http://localhost:4180",
     "browserChannel": "msedge",
     "variants": [
-      { "suffix": "desktop", "width": 1440, "height": 900 },
-      { "suffix": "mobile", "width": 390, "height": 844 },
-      { "suffix": "dark", "width": 1440, "height": 900, "colorScheme": "dark" }
+      {
+        "suffix": "desktop",
+        "width": 1440,
+        "height": 900
+      },
+      {
+        "suffix": "mobile",
+        "width": 390,
+        "height": 844
+      },
+      {
+        "suffix": "dark",
+        "width": 1440,
+        "height": 900,
+        "colorScheme": "dark"
+      }
     ],
     "pages": [
-      { "name": "landing", "path": "/", "height": 2500, "mobileHeight": 3700 },
-      { "name": "dashboard", "path": "/", "seenLanding": true },
-      { "name": "module", "path": "/genai/05-gpus-and-genai-hardware/05-calculating-a-models-memory-requirements/" },
-      { "name": "module-mermaid", "path": "/learn/01-linux/09-bash-scripting/" },
-      { "name": "curriculum-overview", "path": "/genai/" },
-      { "name": "unwritten-module", "path": "/genai/09-retrieval-augmented-generation/00-why-rag-exists/" },
-      { "name": "lecture-video", "path": "/system-design/01-core-fundamentals/01-what-is-system-design/" },
-      { "name": "videos", "path": "/#__videos", "height": 1400 },
-      { "name": "explore", "path": "/#__explore" },
-      { "name": "community", "path": "/#__community" }
+      {
+        "name": "landing",
+        "path": "/",
+        "height": 2500,
+        "mobileHeight": 3700
+      },
+      {
+        "name": "dashboard",
+        "path": "/",
+        "seenLanding": true
+      },
+      {
+        "name": "module",
+        "path": "/genai/05-gpus-and-genai-hardware/05-calculating-a-models-memory-requirements/"
+      },
+      {
+        "name": "module-mermaid",
+        "path": "/learn/01-linux/09-bash-scripting/"
+      },
+      {
+        "name": "curriculum-overview",
+        "path": "/genai/"
+      },
+      {
+        "name": "unwritten-module",
+        "path": "/genai/09-retrieval-augmented-generation/00-why-rag-exists/"
+      },
+      {
+        "name": "lecture-video",
+        "path": "/system-design/01-core-fundamentals/01-what-is-system-design/"
+      },
+      {
+        "name": "videos",
+        "path": "/#__videos",
+        "height": 1400
+      },
+      {
+        "name": "explore",
+        "path": "/#__explore"
+      },
+      {
+        "name": "community",
+        "path": "/#__community"
+      }
     ]
   }
 }
