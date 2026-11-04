@@ -2,266 +2,338 @@
 
 ## Why this matters
 
-Module 06 taught you load balancers — one address spreading traffic
-across many identical backends, all still ultimately your own
-infrastructure, all still roughly in one place. Two more layers commonly
-sit in front of a real production service, solving problems load
-balancing alone doesn't: a **reverse proxy** sits directly in front of
-your servers doing far more than distributing load (TLS termination,
-caching, compression, request rewriting, hiding your real backend
-topology entirely), and a **CDN** takes content and pushes it to servers
-physically close to *every* user around the world, so a user in Tokyo
-isn't waiting on a round trip to your one datacenter in Virginia. Both
-are things you'll configure directly (NGINX, Cloudflare, Azure Front
-Door) the moment you run anything real, and both reshape how you read
-failures the same way module 06's load balancer did — one more hop
-between client and origin, one more place a request can go wrong or get
-served from something other than your live server.
+Module 06 put a load balancer between clients and your servers. That box is
+one kind of **proxy**: a host that accepts a connection, makes a second
+connection of its own, and relays between them. Proxies show up on both sides
+of almost every real connection. A **forward proxy** works for the *clients*:
+the corporate egress proxy your laptop, CI runners and containers must go
+through to reach the internet. A **reverse proxy** works for the *servers*:
+the NGINX, Envoy or cloud gateway that terminates TLS and hides your backends.
+Mixing the two up is a classic interview slip. In practice it also leads to
+real debugging mistakes: you blame the app for a `502` the proxy generated, you
+read the proxy's IP as the client's, or you spend an hour on a container that
+"has no internet" when it was simply never told about the egress proxy.
+
+This module is about the two kinds of proxy at the network level: who
+configures each one, what the request looks like on each hop, and what each
+hides. A CDN is a distributed reverse proxy with a cache, and it gets a short
+section here that points to its full treatment in the backend track.
 
 ## Concepts
 
-### Reverse proxy: a proxy that hides the servers, not the client
+### One question tells them apart: who is it working for?
 
-You may already know a **forward proxy**: a proxy that sits in front of
-*clients*, making requests on their behalf and hiding *who's asking* from
-the destination server (a corporate web filter, or a VPN-adjacent
-anonymizing proxy). A **reverse proxy** is the mirror image: it sits in
-front of *servers*, and clients talk to the proxy thinking it's the real
-destination, while the proxy forwards the request to one of possibly
-several real backend servers and hides *which one, and how many there
-are* from the client entirely. This is genuinely the same position module
-06's load balancer occupies — a reverse proxy and an L7 load balancer are
-overlapping concepts, and real software (NGINX, HAProxy, Envoy) routinely
-serves as both at once. What a reverse proxy adds beyond pure load
-distribution: TLS termination in one place instead of on every backend,
-response caching, compression, request/response header rewriting, rate
-limiting, and — importantly — hiding your backend architecture and
-internal addresses from the outside world entirely, so an attacker
-probing your public-facing address learns nothing about how many
-backends exist or what they're individually reachable at.
+Both kinds sit in the middle of a connection and relay traffic. The difference
+is whose agent the proxy is, and that decides everything else:
 
-### CDN: pushing content physically closer to users
+```
+  forward proxy (works for clients)          reverse proxy (works for servers)
 
-A **CDN (Content Delivery Network)** is a distributed network of **edge
-servers** in many geographic locations (**points of presence**, or PoPs)
-that cache and serve your content from whichever location is physically
-closest to each requesting user. Instead of every user worldwide making a
-round trip to your one origin server, users are routed (via DNS-level
-geographic routing, or anycast) to the nearest edge PoP, which serves a
-cached copy if it has one. The direct benefit is latency — physical
-distance is a hard floor on round-trip time no amount of server tuning
-can beat, so moving the *content* closer to the *user* is the only fix
-once you're serving a genuinely global audience — plus reduced load on
-your origin (most requests never reach it at all) and better resilience
-(a DDoS or traffic spike is absorbed and spread across the CDN's many
-edge locations instead of hitting your one origin directly).
+  client ─┐                                                     ┌─► backend 1
+  client ─┼─► forward proxy ─► any site    any client ─► reverse ┼─► backend 2
+  client ─┘   (your company's)  on the        proxy (the site's) └─► backend 3
+              internet                     own front door)
+  hides: which client asked                hides: which backend answered, and how many exist
+  configured by: the client side           configured by: the server side (DNS points at it)
+```
 
-### Cache hit vs cache miss, and the origin fetch
+- **Forward proxy.** The *client* is configured to use it (browser setting,
+  `HTTPS_PROXY` variable, a PAC file), and it can reach *any* destination
+  the policy allows. The destination sees the proxy's IP, not the client's.
+- **Reverse proxy.** The *client* has no idea it's there: DNS for
+  `api.example.com` simply resolves to the proxy, which forwards to a backend
+  it chooses. The client sees one address; the backends are never reachable
+  directly.
 
-When a request reaches a CDN edge server, one of two things happens:
+A quick test when you meet an unfamiliar proxy: if the client had to be told
+about it, it's a forward proxy. If the client just connected to the site's
+public address, it's a reverse proxy.
 
-- **Cache hit** — the edge already has a valid, unexpired copy of the
-  requested content and serves it directly, fast, with no trip back to
-  your origin server at all.
-- **Cache miss** — the edge doesn't have it (first request for this
-  content at this edge, or the cached copy expired), so the edge itself
-  fetches it from your origin server (or a nearer upstream edge, in some
-  CDN architectures), serves it to the user, *and* stores a copy locally
-  so the next request at this edge is a hit.
+### Forward proxies: egress control
 
-This is why a CDN's benefit compounds with popularity and steadiness of
-content: a viral, widely-requested static asset becomes an almost-pure
-cache-hit workload edge-wide after the first few requests, while content
-that's requested once by exactly one user in one region never really
-benefits — the miss-then-fetch cost is paid, but there's no repeat
-traffic to amortize it against.
+Companies put forward proxies on the path out of their network for reasons
+that are all about the *client* side:
 
-### What's cacheable, and cache invalidation
+- **Egress control and filtering.** Only the proxy may talk to the internet;
+  the firewall (module 05) blocks direct outbound traffic, and the proxy
+  enforces an allow-list of domains. This is how a security team stops a
+  compromised build server from calling an attacker's server.
+- **Auditing.** Every outbound request is logged in one place.
+- **Caching shared downloads.** Many machines fetching the same package hit
+  the proxy's copy.
+- **A stable source IP.** Partners can allow-list the proxy's one public
+  address instead of every machine behind it (the same effect NAT gives you,
+  but at the application layer).
 
-CDNs are strongest for **static content** — images, CSS, JS bundles,
-video segments — content that's identical for every user and changes
-infrequently. **Dynamic, personalized content** (a logged-in user's
-account page, an API response that differs per-user) is generally *not*
-cacheable by a CDN in the same way — caching someone else's personalized
-page and serving it to a different user would be a serious data leak, not
-just a bug. HTTP's own caching headers (`Cache-Control`, `ETag`, from
-module 04's territory) tell the CDN what's cacheable and for how long.
-The classic hard problem: **cache invalidation** — you updated the
-origin's content, but edges around the world are still serving a stale
-cached copy until their TTL expires or you explicitly **purge** the cache
-at every edge. "I deployed a fix but users still see the old version" is,
-overwhelmingly often, a CDN cache that hasn't been purged or hasn't
-expired yet — not a failed deployment.
+On the wire, a client using a forward proxy connects to the *proxy*, not the
+destination. For plain HTTP it sends the full URL in the request line, so the
+proxy knows where to go:
 
-### CDN + reverse proxy together
+```
+GET http://example.com/ HTTP/1.1      ← absolute URL, not just "/"
+Host: example.com
+```
 
-These two layers are complementary, not competing, and a real production
-request path commonly passes through both: **CDN** (global edge caching,
-closest-PoP routing, DDoS absorption) → **reverse proxy** (TLS
-termination, request routing/rewriting, and — per module 06 — load
-balancing across your actual backend instances) → **origin servers**. The
-CDN's job is being close to users and absorbing most repeat traffic
-before it ever reaches you; the reverse proxy's job is being the smart,
-protective front door to your own infrastructure for whatever traffic
-does arrive. Many managed CDN products (Cloudflare, Azure Front Door,
-Fastly) bundle both roles into one configured service, but understanding
-them as two distinct, stackable concerns — not one monolithic "the CDN
-does everything" black box — is what lets you actually diagnose which
-layer a given problem lives in.
+For HTTPS the proxy can't read the request, so the client asks it to open a
+raw TCP **tunnel** with `CONNECT`, and then runs TLS with the real server
+*through* that tunnel:
 
-### Reading failures through a CDN + reverse proxy stack
+```
+CONNECT example.com:443 HTTP/1.1
+Host: example.com:443
 
-The client → CDN edge → reverse proxy → backend chain means a failure or
-oddity can originate at any hop, and each hop has its own signature. A
-response header like `X-Cache: HIT` or `CF-Cache-Status: HIT` (CDN-
-specific, but most expose *something*) tells you immediately whether a
-request was served from edge cache or passed through to origin — check
-this *before* assuming a bug is in your application code, because a
-cache hit means your application code didn't run for this request at
-all. A response that's stale/wrong on a cache hit but correct when you
-bypass the CDN (`curl` directly to origin, the same "test the backend
-directly" instinct module 06 taught for load balancers) isolates the
-problem to caching/invalidation, not your application. And a reverse
-proxy adding, stripping, or rewriting headers (a common source of "why is
-this header missing/different by the time it reaches my app") means
-comparing what the client sent, what the proxy forwarded, and what the
-origin received are three genuinely different things worth checking
-separately when debugging something header-dependent.
+HTTP/1.1 200 Connection established     ← from the proxy; now TLS starts end to end
+```
+
+The proxy sees the destination name and port but not the content. (Some
+corporate proxies do **TLS interception**: they terminate TLS with their own
+certificate, which works only because the company installed its private CA
+in every laptop's trust store. Containers and CI images that lack that CA
+fail with "unable to get local issuer certificate".)
+
+Most command-line tools and language runtimes pick up a forward proxy from
+environment variables: `HTTP_PROXY`, `HTTPS_PROXY` and `NO_PROXY` (a list of
+hosts and suffixes to reach directly, usually internal names and
+`localhost`). Lowercase versions are also read, inconsistently, by different
+tools. A container does not inherit your shell's variables, so "works on my
+laptop, times out in Docker" is very often just a missing `HTTPS_PROXY`.
+
+### Reverse proxies: the servers' front door
+
+A reverse proxy sits in the same position as module 06's load balancer, and
+real software (NGINX, HAProxy, Envoy, Traefik, cloud application gateways)
+does both jobs at once. What it takes off your app servers:
+
+- **TLS termination** in one place, so certificates live on the proxy and
+  backends speak plain HTTP on the internal network
+  ([TLS, SSL and HTTPS](../../../backend/01-request-response-fundamentals/09-tls-ssl-and-https/README.md)
+  covers where to terminate).
+- **Load balancing and health checks** across backend instances (module 06).
+- **Buffering slow clients.** The proxy absorbs a slow mobile upload or
+  download so an app worker isn't tied up for its whole duration. This is why
+  Python app servers like Gunicorn are always run behind NGINX.
+- **Compression, caching, rate limiting, request routing** by host or path.
+- **Hiding topology.** Probing the public address tells an attacker nothing
+  about how many backends exist or where they are.
+
+The cost of that hiding: the backend's TCP connection comes from the proxy,
+so its socket shows the *proxy's* IP for every request. The proxy has to pass
+the original client details along as headers: `X-Forwarded-For` (client IP,
+with each proxy appending to the list), `X-Forwarded-Proto` (was it HTTPS?),
+`X-Forwarded-Host`, or the standard `Forwarded` header. A backend must trust
+those headers **only** from its own proxy, since any client can send a fake
+`X-Forwarded-For`. Configuring this in NGINX, line by line, is in
+[Nginx: reverse proxy and load balancing](../../02-docker/12-nginx-reverse-proxy-and-load-balancing/README.md).
+
+A common production chain combines several reverse proxies:
+`client → CDN edge → NGINX → Gunicorn → Uvicorn workers`. Each hop is a
+separate TCP (and maybe TLS) connection, with its own timeouts and its own logs.
+
+### Reading failures through a proxy
+
+Because a proxy holds two connections, it can fail on either side, and it
+answers the client itself when the backend side breaks. Learn to recognise
+responses the proxy generated:
+
+- **`502 Bad Gateway`**: the proxy reached for a backend and got nothing
+  usable: connection refused, connection reset, or a malformed reply. The app
+  is usually down or listening on the wrong port.
+- **`504 Gateway Timeout`**: the backend accepted the connection but didn't
+  answer within the proxy's timeout. The app is slow or stuck.
+- **`503 Service Unavailable`**: often the proxy has no healthy backend left
+  in the pool.
+- **`407 Proxy Authentication Required`**: a *forward* proxy wants
+  credentials before it will relay your request.
+
+The error page's `Server:` header and styling usually name the proxy (an
+`nginx` page means NGINX answered, not your app). Then do what module 06
+taught: skip the proxy and hit the backend directly (its own port, or
+`curl --resolve` to its IP). If the backend works directly, the problem is in
+the proxy hop: config, timeout, or a header it rewrote or dropped.
+
+### Where CDNs fit
+
+A **CDN** is a reverse proxy with a cache, run by someone else at hundreds of
+points of presence close to your users. Everything above applies (it
+terminates TLS, hides your origin, and adds `X-Forwarded-For`-style headers),
+and on top of that it serves cached copies so most requests never reach you.
+Cache hits and misses, cache keys, purging, origin shielding and reading a
+real CDN's `Age`/`X-Cache` headers are taught in one place:
+[CDN and edge caching](../../../backend/01-request-response-fundamentals/12-cdn-and-edge-caching/README.md).
 
 ## Command reference
 
 | Command | What it does | Example |
 |---------|--------------|---------|
-| `curl -I` | Fetches only response headers — check `Cache-Control`, `ETag`, `Age`, and any `X-Cache`/`CF-Cache-Status` header | `curl -I https://example.com/` |
-| `curl -H` | Bypass DNS/CDN routing to hit a specific origin directly by forcing the Host header at a known origin IP (paired with `--resolve`) | `curl --resolve example.com:443:<origin-ip> -I https://example.com/` |
-| `dig` | Reveals CDN-managed DNS behavior — many CDNs return different IPs to different resolvers/locations (geographic routing) | `dig example.com` |
-| NGINX: `proxy_pass` | Reverse-proxies a request to an upstream backend | `proxy_pass http://backend_pool;` |
-| NGINX: `proxy_cache` | Enables response caching at the reverse-proxy layer itself | `proxy_cache my_cache;` |
-| NGINX: `add_header X-Cache $upstream_cache_status` | Exposes NGINX's own HIT/MISS status as a response header, the same debugging signal a CDN's `X-Cache` gives you | in `location` block |
+| `curl -x` | Sends a request through a forward proxy | `curl -x http://localhost:3128 -v http://example.com/` |
+| `HTTPS_PROXY` / `NO_PROXY` | Environment variables most tools read to find a forward proxy | `HTTPS_PROXY=http://localhost:3128 curl -sI https://example.com/` |
+| `curl --noproxy` | Bypasses any configured proxy for the listed hosts | `curl --noproxy '*' -sI https://example.com/` |
+| `curl -v` (through a reverse proxy) | Shows which server actually answered (`Server:`, `Via:` headers) | `curl -sv http://localhost:8080/ -o /dev/null` |
+| `curl --resolve` | Skips DNS and the front proxy to hit a specific backend IP | `curl --resolve api.example.com:443:10.0.1.5 https://api.example.com/` |
+| `env \| grep -i proxy` | Shows which proxy variables a shell or container actually has | `docker exec app env \| grep -i proxy` |
 
 Flag/output notes:
 
-- `curl -I https://example.com/` — response headers alone, no body; the
-  fastest way to check `Age` (seconds since the response was cached —
-  nonzero means you got a cached copy, not a fresh origin hit) and any
-  `Cache-Control: max-age=...` telling you the TTL that governs when this
-  content goes stale.
-- `curl --resolve example.com:443:<origin-ip> -I https://example.com/` —
-  identical technique to module 06's `--resolve`, applied one layer up:
-  forces the request past the CDN/DNS routing entirely to hit your actual
-  origin directly, letting you compare "what the CDN is serving" against
-  "what origin actually has right now" to isolate a stale-cache problem.
-- `$upstream_cache_status` in NGINX is the direct, self-hosted equivalent
-  of a managed CDN's `X-Cache`/`CF-Cache-Status` header — worth adding to
-  any reverse proxy you configure yourself, purely for this kind of
-  debugging visibility.
+- `curl -x http://localhost:3128 -v http://example.com/` — `-x` (or
+  `--proxy`) names the forward proxy. In `-v` output, curl connects to
+  `localhost:3128`, not to `example.com`, and the request line carries the
+  absolute URL. For an `https://` URL, `-v` shows `CONNECT example.com:443`
+  followed by `200 Connection established` and then the normal TLS handshake.
+- `curl --noproxy '*'` — ignore every proxy variable for this request. Useful
+  to prove whether a failure comes from the proxy or the destination.
+- `Via:` — a header some proxies add naming themselves; together with
+  `Server:` it tells you which hop produced a response.
 
 ## Hands-on exercises
 
-Use Docker (from your earlier tracks) to build a small reverse-proxy +
-caching setup, plus real public sites for the CDN-observation exercises
-(no CDN account needed — you're only ever reading headers from sites that
-already use one).
+You need Docker (from the Docker track). The forward-proxy exercises use the
+`ubuntu/squid` image; the reverse-proxy ones use NGINX and a small echo
+server that prints back the request it received.
 
-1. **Stand up NGINX as a reverse proxy in front of two backends.** Reuse
-   module 06's two backends (or two simple containers each returning a
-   distinct response). Configure an NGINX container with `proxy_pass` to
-   both as an upstream pool. Confirm `curl localhost` alternates between
-   backends — you've rebuilt module 06's load balancer, but now via
-   reverse-proxy software specifically, and can add proxy-specific
-   features to it next.
+1. **Run a forward proxy and use it explicitly.** Start Squid:
+   `docker run -d --name fwd -p 3128:3128 ubuntu/squid`. Then run
+   `curl -x http://localhost:3128 -v http://example.com/ -o /dev/null`.
+   Expected: curl's `Connected to localhost ... port 3128` line (not
+   example.com), and a request line of `GET http://example.com/ HTTP/1.1`.
+   Check `docker logs fwd` or
+   `docker exec fwd tail /var/log/squid/access.log` to see the proxy's log
+   entry for your request.
 
-2. **Add response caching at the reverse proxy and observe hit/miss.**
-   Add `proxy_cache_path`/`proxy_cache` and the
-   `$upstream_cache_status` header to your NGINX config. Request the same
-   URL twice: `curl -I localhost/` twice in a row. Expected: the first
-   response shows `X-Cache: MISS` (fetched from a backend), the second
-   shows `HIT` (served from the proxy's own cache, without touching
-   either backend) — confirm by watching backend logs and seeing no new
-   request logged on the second `curl`.
+2. **Watch the CONNECT tunnel for HTTPS.** Run
+   `curl -x http://localhost:3128 -v https://example.com/ -o /dev/null 2>&1 | grep -E 'CONNECT|established|SSL connection|subject'`.
+   Expected: `CONNECT example.com:443`, then `200 Connection established`
+   from the proxy, then a TLS handshake whose certificate is example.com's.
+   The proxy relayed encrypted bytes it could not read; its access log shows
+   only `CONNECT example.com:443`.
 
-3. **Read a real CDN's cache headers.** Pick any site you know uses a CDN
-   (many large sites do) and run `curl -I <url>` on a static asset (an
-   image or JS file). Look for `Cache-Control`, `Age`, and any
-   `X-Cache`/`CF-Cache-Status`-style header. Run it again a few seconds
-   later — expect `Age` to have increased (or a fresh `HIT`), showing
-   you're repeatedly hitting the same cached edge copy rather than the
-   origin.
+3. **Use the environment variables instead.** Run
+   `HTTPS_PROXY=http://localhost:3128 curl -sI https://example.com/` and
+   confirm a new `CONNECT` line in the Squid log. Now add
+   `NO_PROXY=example.com` to the same command and confirm the log gets *no*
+   new entry, because curl went direct.
 
-4. **Observe geographic DNS routing.** Run `dig <cdn-backed-domain>` and
-   note the returned IP. If you have access to an online "dig from
-   multiple locations" tool or a VPN to change your apparent location,
-   repeat the lookup and compare — many CDNs return *different* edge IPs
-   depending on where the query originates, routing you to your nearest
-   PoP. Even without changing location, note that the IP returned is
-   almost certainly not a single fixed server — it's an edge address.
+4. **Put a reverse proxy in front of an echo server.** Create a network and a
+   backend that echoes requests back as JSON:
+   `docker network create rp && docker run -d --name echo --network rp mendhak/http-https-echo`.
+   Write `nginx.conf`:
 
-5. **Diagnose and fix: stale content after a "successful" deploy.**
-   Simulate it with your exercise 2 setup: change one backend's response
-   content, but *don't* purge the NGINX cache. `curl -I localhost/` still
-   shows `HIT` with the old cached content. This is deliberately the same
-   symptom as "I deployed a fix but users still see the old version."
-   **Diagnose**: confirm the backend itself now serves the new content
-   directly (bypass the proxy, hit the backend's own port), proving the
-   backend is correct and the proxy's cache is the stale layer. **Fix**:
-   purge/clear the proxy cache (or wait out its TTL) and re-confirm
-   `curl -I localhost/` now shows fresh content. State in your own words
-   why "the deploy failed" would have been the wrong diagnosis here.
+   ```nginx
+   events {}
+   http {
+     server {
+       listen 80;
+       location / {
+         proxy_pass http://echo:8080;
+       }
+     }
+   }
+   ```
+
+   Start NGINX:
+   `docker run -d --name rev --network rp -p 8080:80 -v "$PWD/nginx.conf:/etc/nginx/nginx.conf:ro" nginx`.
+   Run `curl -s localhost:8080/ | python3 -m json.tool | grep -E '"ip"|forwarded|host'`.
+   Expected: the backend reports the *NGINX container's* IP as the client,
+   and no `x-forwarded-for` header. From the backend's point of view, every
+   user on earth is the proxy.
+
+5. **Forward the client's identity.** Add these lines inside the `location`
+   block, then `docker exec rev nginx -s reload`:
+
+   ```nginx
+   proxy_set_header Host $host;
+   proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+   proxy_set_header X-Forwarded-Proto $scheme;
+   ```
+
+   Repeat the `curl`. Expected: `x-forwarded-for` now carries your real
+   address (the Docker bridge gateway, as seen from the proxy). Then send a
+   fake one: `curl -s -H 'X-Forwarded-For: 6.6.6.6' localhost:8080/`.
+   Expected: the header becomes `6.6.6.6, <your address>`. The proxy appends;
+   it doesn't replace. That's why a backend must take the address its *own*
+   proxy added, not the leftmost value a client could have forged.
+
+6. **Diagnose and fix: a 502 that isn't the app's error.** Stop the backend:
+   `docker stop echo`, then `curl -si localhost:8080/ | head -5`. Expected:
+   `502 Bad Gateway` with `Server: nginx`. NGINX generated this response; your
+   app never saw the request. **Diagnose**: `docker logs rev` shows
+   `connect() failed` or `host not found` for the upstream. Check the backend
+   directly (`docker ps -a` shows `echo` exited). **Fix**: `docker start echo`,
+   wait a moment, and confirm `curl localhost:8080/` returns 200 again. If it
+   still fails, restart NGINX too: it may have cached the old container IP for
+   `echo`. The lesson is to read the `Server:` header before opening the
+   app's logs.
+
+7. **Diagnose and fix: "the container has no internet."** Simulate an
+   egress-only network: block direct outbound access from a test container by
+   giving it a network with no route out, while the proxy can still reach the
+   internet:
+
+   ```bash
+   docker network create --internal locked
+   docker network connect locked fwd
+   docker run --rm --network locked curlimages/curl -sS -m 5 https://example.com/ -o /dev/null
+   ```
+
+   Expected: a timeout or "could not resolve host". It looks like a broken
+   network, but in a proxied environment it is the designed behaviour: only
+   the proxy may go out. **Fix**: tell the container about the proxy:
+   `docker run --rm --network locked -e HTTPS_PROXY=http://fwd:3128 curlimages/curl -sSI https://example.com/`.
+   Expected: a `200` response through Squid. In real environments, set
+   `HTTPS_PROXY`/`NO_PROXY` in the Dockerfile, the Compose file or the
+   Docker daemon's proxy config, not by hand.
+
+   Clean up: `docker rm -f fwd rev echo && docker network rm rp locked`.
 
 ## Independent challenge
 
-No lab given. Your team ships a hotfix for a bug on the marketing site's
-homepage. QA confirms the fix by curling the origin server directly and
-sees it works. Twenty minutes later, real users report the bug still
-happening, and your team's first instinct is to assume the deploy
-silently failed or got reverted. Using this module's concepts, write out
-the actual, more likely diagnosis (without redeploying anything) and the
-specific commands you'd run to confirm it before touching the deploy
-pipeline at all — and explain why "confirmed the origin has the fix"
-does *not* mean "confirmed users are seeing the fix" when a CDN is in the
-path.
+No lab given. A Python service runs on Kubernetes inside a corporate network.
+It must call a partner's public API over HTTPS, and it is itself exposed to
+users through an ingress reverse proxy. Three bugs are reported: (a) calls to
+the partner API time out after 30 seconds, but the same `curl` works from a
+developer's laptop; (b) once `HTTPS_PROXY` is set, the partner calls work but
+calls to an internal service `orders.svc.cluster.local` start failing with
+`403` from the proxy; (c) the service's rate limiter blocks all users at
+once, because it thinks every request comes from the same IP. For each, name
+which proxy is involved (forward or reverse), the mechanism, and the fix.
 
 <details><summary>Stuck? One hint</summary>
 
-A common real answer: the CDN edge nodes serving real users still have
-the *old* cached response, unexpired, and the fix genuinely landed on
-origin correctly — these are two different, independently-checkable
-facts, and QA only checked one of them. Confirm with `curl -I` on the
-public URL (not the origin directly) looking for a `HIT` status and an
-`Age` header showing the cached copy predates the deploy, then compare
-against a `curl --resolve`-forced direct-to-origin request showing the
-fix is genuinely present there. The fix is purging the CDN cache for that
-URL (or waiting out its `Cache-Control` TTL), not touching the deploy
-pipeline — redeploying again would change nothing, since the deployed
-code was never the problem.
+(a) is the forward proxy: the laptop has `HTTPS_PROXY` set (or a system proxy
+setting) and the pod doesn't, so its direct outbound connection is dropped by
+the egress firewall. Set `HTTPS_PROXY` in the pod spec. (b) is the same
+forward proxy over-applied: with no `NO_PROXY`, internal calls also go to the
+proxy, which refuses destinations outside its allow-list. Add
+`NO_PROXY=.svc.cluster.local,.cluster.local,localhost,127.0.0.1` (plus your
+internal domains). (c) is the reverse proxy: the app is reading the socket's
+peer address, which is always the ingress controller. Configure the ingress to
+send `X-Forwarded-For`, and have the app trust that header only from the
+ingress's address range.
 
 </details>
 
 ## Common mistakes & troubleshooting
 
-- **Diagnosing "users still see the old version" as a failed deploy.**
-  Exercise 5 and the independent challenge — check the CDN/reverse-proxy
-  cache layer (`X-Cache`, `Age`, a direct-to-origin comparison) before
-  assuming the deployment itself is broken.
-- **Confusing a reverse proxy with a forward proxy.** They sit on
-  opposite sides of the connection and hide opposite things — a forward
-  proxy hides the client from the destination; a reverse proxy hides the
-  real servers from the client. Getting this backwards leads to
-  misreading which side a given proxy's logs/headers actually describe.
-- **Assuming all content should be cached, or none should.** Static,
-  identical-for-everyone content caches well; personalized/dynamic
-  content generally must not be cached the same way, or you risk serving
-  one user's private response to another — caching decisions have to be
-  content-aware, driven by real `Cache-Control` semantics, not a single
-  blanket policy.
-- **Testing only through the CDN/proxy when something looks wrong.**
-  Same lesson as module 06's load-balancer debugging — hit the origin
-  directly (`--resolve`, or the backend's own port) to isolate whether a
-  problem is at the edge/proxy layer or the origin itself.
-- **Forgetting a reverse proxy can rewrite or strip headers.** A header
-  present at the client, or expected by the backend, isn't guaranteed to
-  survive the proxy hop unchanged — check what the proxy actually
-  forwards, not just what was sent or what's expected.
+- **Confusing a reverse proxy with a forward proxy.** Ask whose agent it is.
+  A forward proxy hides clients and is configured on the client side; a
+  reverse proxy hides servers and is reached through the site's own DNS.
+- **Treating a proxy's 502/504 as an application bug.** Check the `Server:`
+  header and the proxy's own logs first, then hit the backend directly.
+  `502` means the backend was unreachable or broken; `504` means it was too
+  slow.
+- **Logging or rate-limiting on the socket address behind a reverse proxy.**
+  Every request appears to come from the proxy. Use `X-Forwarded-For`, and
+  trust it only from your own proxy.
+- **Trusting the leftmost `X-Forwarded-For` value.** Clients can send that
+  header themselves. Take the entry your own proxy appended.
+- **Forgetting containers don't inherit proxy settings.** A shell's
+  `HTTPS_PROXY` isn't passed into `docker run`, CI jobs or pods unless you
+  set it there.
+- **Setting `HTTPS_PROXY` without `NO_PROXY`.** Internal traffic then
+  goes to the egress proxy too, which is slow at best and refused at worst.
+- **Missing the corporate CA in container images.** With TLS interception,
+  every HTTPS call fails certificate validation inside images that don't
+  trust the company's private CA. Add the CA to the image's trust store;
+  don't disable verification.
 
 ## Checkpoint quiz
 
@@ -269,62 +341,72 @@ Write down your answer to each question before expanding it — checking
 without attempting first is the single easiest way to fool yourself into
 thinking you've learned this.
 
-1. What's the difference between a forward proxy and a reverse proxy, in
-   terms of which side of the connection each one hides?
-2. What is a CDN edge server / point of presence, and what specific
-   problem does moving content physically closer to users solve that no
-   amount of origin-server tuning can fix?
-3. What's the difference between a cache hit and a cache miss, and why
-   does a CDN's benefit compound with how popular/repeated a piece of
-   content is?
-4. Why is dynamic, personalized content generally not cacheable by a CDN
-   the same way static assets are?
-5. A user reports seeing outdated content after a confirmed-successful
-   deploy. What's the likely cause, and what header would you check
-   first to confirm it?
-6. Where do a CDN and a reverse proxy typically sit relative to each
-   other in a request's path, and what's each one's distinct job?
+1. What is the one question that separates a forward proxy from a reverse
+   proxy, and what does each one hide?
+2. How does a client end up using a forward proxy, and how does it end up
+   using a reverse proxy?
+3. What does an HTTP request line look like when sent through a forward
+   proxy, and why is HTTPS handled differently?
+4. Name four jobs a reverse proxy takes off your application servers.
+5. Behind a reverse proxy, your app logs the same IP for every request. Why,
+   and what's the fix?
+6. You get a `502 Bad Gateway` with `Server: nginx`. Who generated it, what
+   does it usually mean, and what do you check first?
+7. A build in a container times out fetching packages but works on your
+   laptop on the same corporate network. What's the likely cause?
+8. How is a CDN related to a reverse proxy?
 
 <details><summary>Show answers</summary>
 
-1. A forward proxy sits in front of clients and hides *who's asking* from
-   the destination server; a reverse proxy sits in front of servers and
-   hides *which backend served the request* (and how many exist) from
-   the client. They occupy opposite ends of the same connection.
-2. A CDN edge server/PoP is a geographically distributed server that
-   caches and serves content close to users. It solves latency caused by
-   physical distance — the speed of light puts a hard floor on round-trip
-   time to a single distant origin that no server-side optimization can
-   remove, so the only fix for a genuinely global audience is moving the
-   content closer to each user.
-3. A cache hit serves content already stored at the edge, with no trip to
-   origin; a cache miss requires fetching from origin (or an upstream
-   edge) first, then caching it for next time. Popular/repeated content
-   quickly becomes almost all cache hits after the first request at each
-   edge, amortizing the one-time miss cost across many free hits; content
-   requested once by one user never gets that benefit.
-4. Because caching a personalized response and serving it to a different
-   user would leak that first user's private data to someone else — CDNs
-   rely on HTTP caching headers (`Cache-Control` etc.) to know what's
-   safe to cache, and personalized/dynamic responses are generally marked
-   (or must be marked) non-cacheable specifically to prevent this.
-5. Likely cause: a CDN or reverse-proxy cache still holding the old,
-   pre-fix response, unexpired or unpurged, even though the deploy to
-   origin succeeded. Check for an `X-Cache`/`CF-Cache-Status: HIT` header
-   and an `Age` value predating the deploy on the public-facing request,
-   distinct from checking the origin directly.
-6. Typically: client → CDN (global edge caching and closest-PoP routing)
-   → reverse proxy (TLS termination, request routing/rewriting, and load
-   balancing across backend instances) → origin servers. The CDN's job is
-   proximity to users and absorbing repeat traffic before it reaches you;
-   the reverse proxy's job is being the protective, smart front door to
-   your own infrastructure for whatever traffic does arrive.
+1. "Who is it working for?" A forward proxy works for clients and hides which
+   client made the request from the destination. A reverse proxy works for
+   servers and hides which backend answered, and how many backends exist,
+   from the client.
+2. A forward proxy must be configured on the client side: browser or OS
+   settings, a PAC file, or `HTTP_PROXY`/`HTTPS_PROXY` variables. A reverse
+   proxy needs nothing from the client: the site's DNS name resolves to the
+   proxy, so the client connects to it without knowing.
+3. For plain HTTP the request line carries the full URL
+   (`GET http://example.com/ HTTP/1.1`) so the proxy knows where to forward
+   it. For HTTPS the proxy can't read the encrypted request, so the client
+   sends `CONNECT example.com:443`, the proxy opens a TCP tunnel, and TLS runs
+   end to end through it. The proxy sees only the destination host and port.
+4. Any four: TLS termination, load balancing and health checks, buffering
+   slow clients, compression, response caching, rate limiting, host/path
+   routing, and hiding backend topology.
+5. The app's TCP connection comes from the proxy, so the socket's peer address
+   is always the proxy. Have the proxy add `X-Forwarded-For` (and
+   `X-Forwarded-Proto`), and have the app read it only when the request
+   arrived from the proxy's own address.
+6. NGINX generated it, not the application. It usually means NGINX could not
+   get a usable response from the backend (refused, reset, or the backend is
+   down or on the wrong port). Check the proxy's error log, then hit the
+   backend directly to see whether it's up.
+7. The laptop has the corporate forward proxy configured, but the container
+   doesn't inherit those settings, and the egress firewall drops direct
+   outbound connections. Set `HTTPS_PROXY` (and `NO_PROXY` for internal
+   hosts) in the container's environment.
+8. A CDN is a reverse proxy with a cache, operated at many points of presence
+   close to users. It terminates TLS and hides your origin like any reverse
+   proxy, and also serves cached copies so most requests never reach you.
 
 </details>
 
+## Further reading & sources
+
+- [MDN: Proxy servers and tunneling](https://developer.mozilla.org/en-US/docs/Web/HTTP/Proxy_servers_and_tunneling) - forward vs reverse proxies, the `CONNECT` method and proxy-related headers.
+- [MDN: X-Forwarded-For](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/X-Forwarded-For) - the header format and the security caveats of trusting it.
+- [RFC 7239: Forwarded HTTP Extension](https://www.rfc-editor.org/rfc/rfc7239) - the standard `Forwarded` header that replaces the `X-Forwarded-*` family.
+- [Cloudflare: What is a reverse proxy?](https://www.cloudflare.com/learning/cdn/glossary/reverse-proxy/) - a side-by-side diagram of forward and reverse proxies.
+- [Docker: Use a proxy server with the Docker CLI](https://docs.docker.com/engine/cli/proxy/) - passing `HTTP_PROXY`/`NO_PROXY` into containers and builds.
+
 ## Next
 
-[11 — WebSocket & gRPC](../11-websocket-and-grpc/README.md): everything so
-far has been request/response HTTP. Now meet two protocols built for
-different shapes of communication — a persistent two-way channel, and
-fast, strongly-typed service-to-service calls.
+[12 — Capstone project](../12-capstone-project/README.md): put the whole
+toolkit — layering, addressing, DNS, TCP/UDP, routing/NAT/firewalls, routing
+protocols, VPNs, load balancing and proxies — to work diagnosing and fixing a
+chain of deliberately broken connectivity problems across a small multi-host
+lab. WebSockets and gRPC, which change how proxies and load balancers behave,
+are covered in the backend track:
+[WebSockets and Server-Sent Events](../../../backend/06-background-processing-and-realtime/07-websockets-and-server-sent-events/README.md)
+and [gRPC fundamentals](../../../backend/11-advanced-api-paradigms/01-grpc-fundamentals/README.md).

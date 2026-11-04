@@ -38,7 +38,7 @@ scales — all against a real PostgreSQL instance you run yourself in Docker.
 | # | Module | What you'll be able to do | Time |
 |---|--------|---------------------------|------|
 | 00 | [Relational vs non-relational](00-relational-vs-non-relational/README.md) | Choose the right database family (relational, document, key-value, wide-column) for an access pattern, and justify polyglot persistence | 60-90 min |
-| 01 | [ACID and the CAP theorem](01-acid-and-cap-theorem/README.md) | State each ACID guarantee and the corruption you get without it, and correctly reason about CP-vs-AP trade-offs | 60-90 min |
+| 01 | [ACID and the CAP theorem](01-acid-and-cap-theorem/README.md) | State each ACID guarantee and the corruption you get without it, and tell the C in ACID from the C in CAP (CAP itself is taught in [System Design 13](../../system-design/01-core-fundamentals/13-cap-theorem/README.md)) | 60-90 min |
 | 02 | [Querying and joins](02-querying-and-joins/README.md) | Write precise SQL, pick the correct join type every time, and choose between subqueries, joins, and CTEs | 75-120 min |
 | 03 | [Schema design and indexing](03-schema-design-and-indexing/README.md) | Normalize to 3NF (and denormalize deliberately), design keys, and choose indexes that speed reads without crippling writes | 90-120 min |
 | 04 | [Transactions and concurrency control](04-transactions-and-concurrency-control/README.md) | Pick the right isolation level, prevent lost updates with optimistic/pessimistic locking, and diagnose and avoid deadlocks | 90-120 min |

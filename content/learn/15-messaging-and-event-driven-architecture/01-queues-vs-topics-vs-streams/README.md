@@ -50,9 +50,12 @@ log at their own position and *replay* from any past offset. That replay, plus
 strict ordering within a partition and very high throughput, is what queues and
 topics don't give you. In Azure this is **Event Hubs** (and the open-source
 equivalent everyone benchmarks against is **Apache Kafka**; Event Hubs even
-speaks the Kafka protocol). Reach for a stream when you have high-volume,
-ordered events that several systems consume independently and may need to
-reprocess: telemetry, clickstream, change-data-capture, event sourcing.
+speaks the Kafka protocol; partitions, offsets and consumer groups are covered
+hands-on in
+[Message Brokers — Kafka](../../../backend/06-background-processing-and-realtime/10-message-brokers-kafka/README.md)).
+Reach for a stream when you have high-volume, ordered events that several
+systems consume independently and may need to reprocess: telemetry,
+clickstream, change-data-capture, event sourcing.
 
 The mental model that keeps them straight:
 
@@ -297,6 +300,10 @@ you've learned this.
    one ordered partition.
 
 </details>
+
+## Further reading & sources
+
+- [Message Brokers — RabbitMQ](../../../backend/06-background-processing-and-realtime/09-message-brokers-rabbitmq/README.md) - the same queue and fan-out topologies built from exchanges and bindings on a self-hosted broker.
 
 ## Next
 

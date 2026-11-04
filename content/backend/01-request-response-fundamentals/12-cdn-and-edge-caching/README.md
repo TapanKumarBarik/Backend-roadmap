@@ -42,6 +42,19 @@ not "reaches it faster," genuinely never touches it. This is why a CDN
 is as much a **load-shedding** tool for your origin as a latency
 optimization for your users.
 
+### How a request finds the nearest PoP
+
+Users reach "the nearest PoP" in one of two ways: **geographic DNS** (the
+CDN's authoritative DNS returns a different edge IP depending on where the
+resolver is) or **anycast** (many PoPs announce the *same* IP, and internet
+routing delivers each packet to the topologically closest one). Either way,
+the address your domain resolves to is an edge, not your origin, which is
+why `dig` on a CDN-fronted domain never shows your server's IP. Proximity
+is the whole latency argument: round-trip time has a physical floor set by
+distance, and no origin tuning removes it. Spreading traffic across many
+PoPs also means a spike or DDoS is absorbed at the edge instead of landing on
+one origin.
+
 ### The cache key: what actually makes two requests "the same" response
 
 A cache (whether one reverse proxy or a CDN PoP) decides "have I already
@@ -344,6 +357,28 @@ docker compose down
 cd .. && rm -rf cdn-lab
 ```
 
+### 8. Read a real CDN from the outside
+
+No account needed; you're only reading headers from sites that already use a
+CDN. Pick a static asset (an image or JS file) on a CDN-fronted site:
+
+```bash
+dig +short <cdn-backed-domain>          # an edge address, not the origin
+curl -sI https://<site>/<static-asset> | grep -iE 'cache-control|^age|x-cache|cf-cache-status'
+sleep 5
+curl -sI https://<site>/<static-asset> | grep -iE '^age|x-cache|cf-cache-status'
+```
+
+Expected: a `HIT`-style status (`X-Cache: HIT`, `CF-Cache-Status: HIT`; the
+header name is vendor-specific) and an `Age` that grew by roughly the time you
+waited. `Age` is the seconds since the edge cached the copy: a nonzero value
+means your request never reached origin. If you know an origin's IP (your own
+site), `curl --resolve <host>:443:<origin-ip> -sI https://<host>/` skips the
+CDN and asks origin directly. Comparing the two answers is how you prove the
+classic "I deployed the fix but users still see the old version": origin is
+correct and the edge copy is stale, so the fix is a purge or waiting out the
+TTL, not another deploy.
+
 ## Independent challenge
 
 No code given. Design the CDN caching strategy for a news site's
@@ -403,6 +438,10 @@ rollout boundary — no purge coordination required either way.
   whole response becomes uncacheable at the CDN layer or (better) the
   personalized part is architected as a separate, uncached fetch so the
   shared shell can still be cached aggressively.
+- **Diagnosing "users still see the old version" as a failed deploy.**
+  Check the public URL's cache status and `Age`, then compare with a
+  direct-to-origin request (`curl --resolve`) before touching the pipeline.
+  A stale edge copy is far more common than a silently failed deploy.
 - **Forgetting module 06's rules still apply.** A CDN doesn't replace
   `Cache-Control`/`ETag`/`Vary` — it reads and enforces them at a larger
   scale. Getting those headers wrong breaks CDN caching exactly the way

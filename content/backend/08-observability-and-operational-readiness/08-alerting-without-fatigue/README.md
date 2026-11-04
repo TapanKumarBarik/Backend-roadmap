@@ -681,6 +681,7 @@ exercises rather than just reading the answer.
 - [Prometheus — Alerting rules](https://prometheus.io/docs/prometheus/latest/configuration/alerting_rules/) - how to express alert conditions as PromQL plus a `for:` duration.
 - [Alertmanager documentation](https://prometheus.io/docs/alerting/latest/alertmanager/) - routing, grouping, deduplication, and silencing — the anti-fatigue plumbing.
 - [My Philosophy on Alerting — Rob Ewaschuk](https://docs.google.com/document/d/199PqyG3UsyXlwieHaqbGiWVa8eMWi8zzAn0YfcApr8Q/edit) - the original memo behind "page on symptoms, not causes."
+- [Track 12: Alerting and on-call basics](../../../learn/12-observability-deep-dive/06-alerting-and-on-call-basics/README.md) - the same ideas hands-on with Prometheus rules and Alertmanager routing, grouping and silencing.
 
 ## Next
 

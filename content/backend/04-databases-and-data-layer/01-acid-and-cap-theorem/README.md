@@ -10,16 +10,12 @@ letter means *and* describe the exact corruption you get when it breaks, you
 don't actually understand why you're using a transaction — you're just wrapping
 things in `BEGIN`/`COMMIT` as a ritual.
 
-The second half is **CAP**, and it matters the moment your data lives on more
-than one machine — which, once you add a read replica (module 08) or reach for
-a distributed database, is *always*. CAP is the most misquoted theorem in
-backend engineering ("pick two of three" is a lie you'll hear constantly). The
-real content is narrow and sharp: *when the network between your nodes breaks,
-you must choose between refusing requests and serving possibly-stale data.*
-Understanding that choice is what lets you read a database's marketing page and
-know what it will actually do to your data at 3am during a network partition.
-ACID is about a single node keeping its promises; CAP is about what promises
-are even *possible* once there are several nodes. You need both.
+The second half is a short look ahead. Once your data lives on more than one
+machine (a read replica in module 08, or a distributed database), a different
+set of promises applies, described by the **CAP theorem**. ACID is about a
+single node keeping its promises; CAP is about which promises are even
+*possible* once there are several nodes. This module only places CAP next to
+ACID; the full treatment lives in the System Design lessons linked below.
 
 ## Concepts
 
@@ -127,84 +123,25 @@ Each guarantee earns its keep by the exact corruption it prevents:
   Durability  →  "saved" then gone: crash eats an acked commit
 ```
 
-### The CAP theorem — what it actually says
+### Beyond one node: where CAP fits
 
-Now data lives on multiple nodes (replicas, a distributed cluster). The **CAP
-theorem** concerns three properties:
+ACID describes one database. Once the same data is copied to several nodes,
+the **CAP theorem** applies: *when the network between the nodes breaks, the
+system must either refuse requests (stay consistent) or answer with possibly
+stale data (stay available).* "Pick two of three" is a myth, because network
+partitions are not optional. Watch the two meanings of "consistency": ACID's C
+is "this database honours its declared constraints"; CAP's C is
+**linearizability**, "every read on every node sees the latest write". A
+single-node database is ACID-consistent with no replicas at all, and a read
+replica can serve a row that is perfectly valid and still stale. That staleness
+(replication lag, and the read-your-writes bugs it causes) is what you meet in
+module 08.
 
-- **Consistency (CAP's C):** every read sees the most recent write (or an
-  error). Every node agrees on the current value. *This is a different, stronger
-  "C" than ACID's — it's specifically about all nodes agreeing.* This property
-  is more precisely called **linearizability**.
-- **Availability:** every request to a non-failing node gets a
-  non-error response (though possibly stale).
-- **Partition tolerance:** the system keeps working even when the network
-  between nodes drops or delays messages (a **network partition**).
-
-The theorem: **when a network partition occurs, you cannot have both
-consistency and availability — you must sacrifice one.** That's it. The popular
-"pick two of three" phrasing is misleading, because **partition tolerance is
-not optional** — networks *do* fail, and a distributed system that can't
-tolerate a partition just breaks. So the real choice is not "which two" but
-"**when a partition happens, do I sacrifice C or A?**" — making every practical
-distributed store either **CP** or **AP**.
-
-### CP vs AP — the choice, made concrete
-
-Picture two nodes holding a copy of a value, and the link between them dies.
-A write arrives at node 1. Node 1 can't reach node 2 to replicate it.
-
-- A **CP** system (consistency over availability) refuses to serve reads that
-  might be stale, or refuses the write, until the partition heals and nodes
-  agree again. You get **errors/timeouts, never wrong answers.** Choose this
-  when correctness beats uptime: a bank ledger, an inventory count that must
-  never oversell, anything where a stale read causes real damage.
-- An **AP** system (availability over consistency) keeps serving on both
-  nodes — node 2 answers reads with the old value, node 1 accepts the write —
-  and **reconciles later** when the partition heals (last-write-wins, version
-  vectors, etc.). You get **answers always, but possibly stale ones.** Choose
-  this when uptime beats momentary correctness: a social feed, a "likes"
-  counter, a shopping cart that can merge conflicting versions.
-
-```
-  During a partition, the link between nodes is cut — you must pick a side:
-
-                          C  (all nodes agree)
-                         / \
-                        /   \      Partition tolerance (P) is not optional:
-                       /  P  \     networks DO fail. So the real axis is C vs A.
-                      /       \
-                     A ─── ✂ ─── (other node)
-                (always answers)
-
-     CP: refuse / error until nodes agree   → never wrong, sometimes down
-     AP: answer on both nodes, reconcile     → always up, sometimes stale
-```
-
-Postgres with a single primary is a CP-flavoured system: if the primary is
-unreachable, writes stop rather than diverge. Classic AP systems include
-Cassandra and DynamoDB (tunable, but availability-leaning by design).
-
-### The nuance CAP hides: it's a spectrum, and it only bites during a partition
-
-Two honest caveats professionals carry:
-
-1. **CAP only forces the choice *during a partition*.** When the network is
-   healthy (the overwhelming majority of the time), a system can be both
-   consistent *and* available. CAP describes behaviour in the failure case, not
-   the normal case. The extended model **PACELC** captures the rest: *if
-   Partition, choose A or C; **E**lse (normal operation), choose between
-   **L**atency and **C**onsistency.* Even with no partition, keeping all nodes
-   perfectly consistent costs latency (you wait for replicas to acknowledge), so
-   there's a second trade-off happening all the time.
-2. **"Consistency" is a spectrum, not a boolean.** Between CAP's strict
-   linearizability and "anything goes" sit useful middle grounds like **eventual
-   consistency** (replicas converge given no new writes) and **read-your-writes
-   consistency** (you always see your *own* recent writes, even if others' are
-   delayed). Real systems pick a point on this spectrum, often tunably per query.
-   This directly sets up **replication lag** in module 08 — a read replica that's
-   a few hundred milliseconds behind the primary is a small, deliberate dose of
-   inconsistency traded for read scaling.
+The distributed side is taught in its own lessons, each with a video:
+[CAP Theorem](../../../system-design/01-core-fundamentals/13-cap-theorem/README.md) (what it really says, CP vs AP),
+[PACELC Theorem](../../../system-design/01-core-fundamentals/14-pacelc-theorem/README.md) (the latency-vs-consistency trade-off when nothing is
+broken) and [Consistency Models](../../../system-design/01-core-fundamentals/15-consistency-models/README.md) (strong, causal, eventual and
+read-your-writes).
 
 ## Command reference
 
@@ -353,62 +290,8 @@ Expected: account C is still there. `COMMIT` returned before the kill, so
 durability (via the WAL replayed on restart) guarantees it survived a hard
 crash.
 
-### 7. Classify five real systems as CP or AP
-
-For each, decide CP or AP and give one sentence why. Answer before expanding.
-
-1. A bank's core ledger.
-2. Amazon's shopping cart (famously designed to always accept "add to cart").
-3. An airline seat-reservation system that must never double-book a seat.
-4. Instagram's like counter.
-5. A distributed inventory count for a flash sale that must never oversell.
-
-<details>
-<summary>Answers</summary>
-
-1. **CP** — a stale or conflicting balance is unacceptable; refuse rather than
-   risk a wrong answer.
-2. **AP** — always let the customer add to cart; reconcile conflicting cart
-   versions later (the classic Dynamo design).
-3. **CP** — double-booking is real damage; better to error than to sell the same
-   seat twice.
-4. **AP** — a like count that's briefly stale by a few hurts nobody; uptime
-   wins.
-5. **CP** — overselling is real damage; the count must be authoritative even if
-   that means some requests wait or fail during a partition.
-
-</details>
-
-### 8. Diagnose and fix: "our writes just stopped during a network blip"
-
-A team runs Postgres with one primary and one synchronous standby, configured
-so a `COMMIT` only returns after the standby acknowledges it (this is a real
-Postgres mode: `synchronous_commit = on` with a `synchronous_standby_names`
-set). During a brief network partition between primary and standby, *all writes
-hung* and users got timeouts, even though the primary itself was perfectly
-healthy. The team wants to "make it never hang again." Explain what CAP choice
-this configuration encodes, what the *only* two real options are, and why "have
-both" is not one of them.
-
-<details>
-<summary>Answer</summary>
-
-Synchronous replication means the primary won't confirm a commit until the
-standby has it — this is a deliberate **CP** choice: the system refuses to
-proceed (loses availability) rather than let the two nodes diverge (lose
-consistency). During the partition the primary can't reach the standby, so by
-design commits block. That's not a bug; it's the guarantee working. Per CAP,
-during a partition you can have C or A, not both, so the only two real options
-are: (1) **stay CP** — accept that writes pause during a partition, which is
-correct if losing an acknowledged transaction is unacceptable; or (2) **move
-toward AP** — switch that standby to *asynchronous* replication so the primary
-commits without waiting, keeping writes available during a partition at the
-cost that the standby can fall behind and a failover could lose the last
-un-replicated transactions (replication lag / possible data loss — module 08).
-"Never hang and never lose data during a partition" is exactly what CAP proves
-is impossible. The team must choose which failure they can live with.
-
-</details>
+For CP-vs-AP practice, including diagnosing a Postgres primary whose writes
+hang during a network blip, see the exercises in [CAP Theorem](../../../system-design/01-core-fundamentals/13-cap-theorem/README.md#practice).
 
 ## Independent challenge
 
@@ -451,13 +334,6 @@ exist to prevent.
   database's declared constraints." CAP consistency = "all nodes agree on the
   latest value (linearizability)." Mixing them up makes every CAP conversation
   incoherent.
-- **Reciting "CAP: pick two of three."** Partition tolerance isn't a free
-  choice — networks fail whether you like it or not. The real content is: *when
-  a partition happens, sacrifice C or A.* A "CA" system is just "a single node,"
-  which stops being distributed.
-- **Thinking CAP applies all the time.** It only forces the C-vs-A trade-off
-  *during a partition*. Normal operation lets you have both — the everyday
-  trade-off is latency vs consistency (PACELC's "else" branch).
 - **Assuming a transaction guarantees success.** Atomicity guarantees
   all-or-nothing, not all. A transaction can legitimately fail and roll back;
   your code must handle that and retry or report it.
@@ -478,13 +354,6 @@ Write down your answer to each question before expanding it — checking without
 2. ACID "C" and CAP "C" are both called "consistency." Define each precisely
    and say how they differ.
 3. What is the write-ahead log (WAL) and which ACID property does it implement?
-4. Restate the CAP theorem correctly, and explain why "pick two of three" is a
-   misleading phrasing.
-5. During a network partition, describe the concrete behaviour of a CP system
-   versus an AP system for a write that arrives at a node that can't reach its
-   peers.
-6. What does PACELC add to CAP, and why does it matter even when the network is
-   perfectly healthy?
 
 <details>
 <summary>Answers</summary>
@@ -504,21 +373,6 @@ Write down your answer to each question before expanding it — checking without
    the changes hit the main data files; on restart after a crash it's replayed
    to recover committed transactions. It implements durability (and underpins
    atomicity by allowing rollback/redo).
-4. When a network partition occurs, a distributed system must sacrifice either
-   consistency or availability — it cannot keep both. "Pick two of three" is
-   misleading because partition tolerance isn't optional (networks fail
-   regardless), so the real choice is only C-vs-A *when a partition happens*; a
-   "CA" system is just a single non-distributed node.
-5. A CP system refuses to serve the write (or would-be-stale reads) — returning
-   errors/timeouts until the nodes can agree again — so it never gives a wrong
-   answer. An AP system accepts the write locally and keeps serving reads
-   (possibly stale) on all reachable nodes, reconciling the divergence after the
-   partition heals.
-6. PACELC adds: *else* (when there's no partition) you still trade **L**atency
-   vs **C**onsistency. It matters because even in normal operation, keeping
-   replicas strongly consistent costs latency (waiting for acknowledgements), so
-   there's a consistency trade-off happening continuously, not only during
-   failures.
 
 </details>
 
@@ -526,9 +380,6 @@ Write down your answer to each question before expanding it — checking without
 
 - [PostgreSQL: Transactions (tutorial)](https://www.postgresql.org/docs/current/tutorial-transactions.html) - how BEGIN/COMMIT/ROLLBACK give you atomicity in practice.
 - [PostgreSQL: Reliability and the Write-Ahead Log](https://www.postgresql.org/docs/current/wal-intro.html) - exactly how the WAL delivers durability across crashes.
-- [Julia Evans: The CAP theorem](https://jvns.ca/blog/2016/10/23/cap-theorem/) - a short, honest explainer that dismantles the "pick two of three" myth.
-- [Martin Kleppmann: Please stop calling databases CP or AP](https://martin.kleppmann.com/2015/05/11/please-stop-calling-databases-cp-or-ap.html) - why CAP is narrower and subtler than the marketing suggests.
-- [PACELC theorem (overview)](https://en.wikipedia.org/wiki/PACELC_theorem) - the extension that captures the latency-vs-consistency trade-off even without a partition.
 - [Designing Data-Intensive Applications (Kleppmann), Ch. 7-9](https://dataintensive.net/) - the definitive treatment of transactions, isolation, and distributed consistency.
 
 ## Next

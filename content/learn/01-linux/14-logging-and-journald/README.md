@@ -189,6 +189,7 @@ Write down your answer to each question before expanding it — checking without
 - [freedesktop.org: systemd-journald docs](https://www.freedesktop.org/software/systemd/man/latest/systemd-journald.service.html) - how the journal itself is structured and configured (`/etc/systemd/journald.conf`).
 - [`man7.org`: logrotate(8)](https://man7.org/linux/man-pages/man8/logrotate.8.html) - full config directive reference for the traditional text-log rotation this module introduced.
 - [DigitalOcean: How To Use Journalctl to View and Manipulate Systemd Logs](https://www.digitalocean.com/community/tutorials/how-to-use-journalctl-to-view-and-manipulate-systemd-logs) - another worked walkthrough with additional filtering examples.
+- [Logging Fundamentals](../../../backend/08-observability-and-operational-readiness/04-logging-fundamentals/README.md) - how applications should produce logs in the first place: levels, structured key/value output, and what belongs in a line.
 
 ## Next
 

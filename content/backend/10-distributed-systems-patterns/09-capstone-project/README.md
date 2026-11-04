@@ -107,7 +107,7 @@ script or test that *proves* it rather than an assertion that it's true:
 - [ ] The `order_summary` **read model** is built by projecting events, is idempotent
       under redelivery, and can be **rebuilt from scratch** from the event log. (05, 06)
 - [ ] A customer who just placed an order **sees it immediately** (read-your-writes),
-      even though other reads come from the lagging projection. (00, 05)
+      even though other reads come from the lagging projection. (SD 15, 05)
 - [ ] Two concurrent orders competing for the **last unit of inventory**: exactly one
       succeeds; the other is cleanly rejected/compensated — **no oversell**. (02)
 - [ ] Killing the process **mid-saga** (after payment, before confirm) and restarting
@@ -155,7 +155,7 @@ script or test that *proves* it rather than an assertion that it's true:
   commits, serve *that customer's* just-placed order from the write-side folded state
   (or return it in the command response), while everyone else reads the lagging
   `order_summary` projection. Don't force all reads to be strongly consistent — choose
-  per read. (Modules 00, 05.)
+  per read. (Module 05 and [Consistency Models](../../../system-design/01-core-fundamentals/15-consistency-models/README.md).)
 
 - **Persist saga position so a crash resumes, not restarts blindly.** Keep a
   `saga_state`/event marker of which steps completed. On restart, fold the events to

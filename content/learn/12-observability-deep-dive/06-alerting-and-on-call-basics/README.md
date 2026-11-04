@@ -334,6 +334,10 @@ Write down your answer to each question before expanding it — checking without
 
 </details>
 
+## Further reading & sources
+
+- [Alerting Without Fatigue](../../../backend/08-observability-and-operational-readiness/08-alerting-without-fatigue/README.md) - tool-agnostic alerting philosophy: SLO and burn-rate alerting, symptom vs cause, actionable pages.
+
 ## Next
 
 [07-correlating-the-three-pillars](../07-correlating-the-three-pillars/README.md)

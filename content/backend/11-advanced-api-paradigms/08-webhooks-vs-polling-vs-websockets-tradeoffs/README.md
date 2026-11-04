@@ -1,4 +1,4 @@
-# Module 05: Webhooks vs Polling vs WebSockets — Tradeoffs
+# Module 08: Webhooks vs Polling vs WebSockets — Tradeoffs
 
 ## Why this matters
 

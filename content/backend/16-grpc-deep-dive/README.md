@@ -60,5 +60,5 @@ Related tracks: **[11-advanced-api-paradigms](../11-advanced-api-paradigms/READM
 is the prerequisite (gRPC fundamentals and streaming);
 **[10-distributed-systems-patterns](../10-distributed-systems-patterns/README.md)**
 covers the retry/idempotency semantics this track applies at the RPC layer;
-and **[learn/04-networking-fundamentals, module 11](../../learn/04-networking-fundamentals/11-websocket-and-grpc/README.md)**
-covers the HTTP/2 framing underneath gRPC from the network side.
+and **[01-request-response-fundamentals/07-http-1-1-vs-2-vs-3](../01-request-response-fundamentals/07-http-1-1-vs-2-vs-3/README.md)**
+covers the HTTP/2 streams and multiplexing underneath gRPC.

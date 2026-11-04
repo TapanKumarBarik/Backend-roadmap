@@ -4,98 +4,76 @@
 
 Before you install a single tool, you need a mental model of *what* you're
 collecting and *why*, or you'll drown in dashboards that don't answer
-questions and alerts that don't mean anything. This module defines the three
+questions and alerts that don't mean anything. This module recaps the three
 signals every observability stack collects — **metrics, logs, and traces** —
-what each is uniquely good and bad at, why "monitoring" and "observability"
-aren't the same word, and the single concept (**cardinality**) that quietly
-decides whether your metrics system stays cheap or falls over. Everything in
-the rest of the track is an implementation of the ideas here.
+and maps each one onto the open-source stack this track builds
+(**Prometheus, Grafana, Loki, OpenTelemetry**), then covers the two ideas that
+shape how that stack behaves: **cardinality**, which quietly decides whether
+Prometheus stays cheap or falls over, and the **pull** model it scrapes with.
+Everything in the rest of the track is an implementation of the ideas here.
 
 ## Concepts
 
-### Monitoring vs. observability — a real distinction, not a buzzword
+### The concepts, in brief
 
-You've already *monitored* things: Container Insights dashboards in
-[track 07](../../07-aks/06-monitoring-aks-azure-monitor-container-insights/README.md)
-showed you node CPU over time, and Azure Monitor alerts paged you when a
-threshold was crossed. **Monitoring** is watching a *predefined* set of
-signals for *known* failure modes — you decided in advance "alert me when CPU
-> 80%", and the system tells you whether that specific thing is happening.
-It answers **questions you thought to ask ahead of time.**
+The generic ideas — **monitoring vs. observability**, the **three pillars**
+(metrics, logs, traces) and the question each one owns, and the
+metric → trace → log debugging loop — are taught in full in
+[The Three Pillars of Observability](../../../backend/08-observability-and-operational-readiness/07-the-three-pillars-of-observability/README.md).
+Read that first if any of them is new. The short version you need for this
+track:
 
-**Observability** is the property of a system that lets you ask *new*
-questions about its internal state from the outside, *without shipping new
-code* — including questions you didn't anticipate. "Why are requests from
-this one customer slow, but only on Tuesdays, only for the checkout
-endpoint?" is not a dashboard you built in advance; it's a question you
-answer by slicing rich, high-dimensional data after the fact. Monitoring
-tells you *that* something is wrong; observability is what lets you figure out
-*why* when the cause is something you never predicted. A well-instrumented
-system is *observable*; the dashboards and alerts you build on it are
-*monitoring*. You need both, and this track builds the observable foundation
-the monitoring sits on.
+- **Monitoring** watches predefined signals for failure modes you anticipated
+  (questions you asked in advance). **Observability** is the property that lets
+  you ask *new* questions of a running system without shipping new code. You
+  already *monitored* with Container Insights dashboards and Azure Monitor
+  alerts in
+  [track 07](../../07-aks/06-monitoring-aks-azure-monitor-container-insights/README.md);
+  this track builds the observable foundation that monitoring sits on.
+- **Metrics** answer "is it happening, how much, what's the trend?";
+  **logs** answer "what exactly happened in this one event?"; **traces**
+  answer "where did this one request spend its time across services?". A metric
+  alert tells you *that*, a trace tells you *where*, logs tell you *why* — and
+  each pillar has a different cost shape (metrics: cardinality; logs: volume;
+  traces: sampled).
 
-### The three pillars: metrics, logs, traces
+### Which tool owns which pillar in this track
 
-Observability is conventionally built on three kinds of telemetry, each a
-different shape of data answering a different kind of question:
+This track replaces the managed Azure tooling with the open-source stack.
+Here's the map you'll fill in module by module:
 
-- **Metrics** — numbers measured over time (a *time series*): request count,
-  CPU percentage, queue depth, error rate. Cheap to store, cheap to query,
-  aggregate beautifully ("total requests per second across all pods"). This is
-  the pillar Prometheus owns (modules 01-02). You met its managed cousin as
-  Azure Monitor **metrics** in track 06/07.
-- **Logs** — timestamped text records of discrete events: "user 4711 logged
-  in", "connection to db failed: timeout". Rich and detailed, human-readable,
-  but heavier to store and search. This is the pillar Loki owns (module 04).
-  You met its managed cousin as **Container Insights / Log Analytics** and the
-  `ContainerLogV2` and `ContainerAppConsoleLogs_CL` tables.
-- **Traces** — the record of a *single request's journey* across multiple
-  services: the checkout call spent 5ms in the API gateway, 200ms in the
-  orders service, 800ms waiting on the database. This is the pillar
-  OpenTelemetry and Tempo/Jaeger own (module 05). Azure-native monitoring
-  barely touched this — it's the pillar the managed tracks *didn't* teach you,
-  and often the most revealing one for microservices.
+| Pillar | Open-source tool here | Managed cousin you already used |
+|---|---|---|
+| **Metrics** | **Prometheus** stores and queries them (modules 01-02); **Grafana** graphs them (module 03) | Azure Monitor **metrics** (tracks 06/07) |
+| **Logs** | **Loki** aggregates and queries them, viewed in Grafana (module 04) | **Container Insights / Log Analytics** — the `ContainerLogV2` and `ContainerAppConsoleLogs_CL` tables |
+| **Traces** | **OpenTelemetry** instruments and exports them; **Tempo/Jaeger** stores them (module 05) | Barely covered — the pillar the managed tracks *didn't* teach you, and often the most revealing one for microservices |
+| **Alerting** | Prometheus rules + **Alertmanager** (module 06) | Azure Monitor alerts and action groups |
+| **Correlation** | Trace IDs joining all three in Grafana (module 07) | — |
 
-### What each pillar is good and bad at
+Module 07 is the payoff: a **metric** alert fires, you pivot to **logs** in
+Loki to read the actual errors, and a **trace** in Tempo shows which
+downstream service caused them. Collecting all three but never *connecting*
+them is why teams still can't debug.
 
-The pillars aren't redundant; they answer different questions, and using the
-wrong one is slow and expensive:
+### Cardinality — why Prometheus cares so much
 
-| | Metrics | Logs | Traces |
-|---|---|---|---|
-| **Best at** | "Is it happening? How much? What's the trend?" — aggregate health, rates, thresholds, alerting | "What exactly happened in this one event?" — detail, context, error messages | "Where did this one slow request spend its time, across services?" |
-| **Weak at** | *Why* — a number can't tell you the error message | Aggregation and trend — counting millions of lines is slow/pricey | Aggregate health — one trace is one request, not a fleet-wide rate |
-| **Cost shape** | Cheapest per unit; cost driven by *cardinality* (below) | Heavier; cost driven by *volume* ingested/retained | Heaviest per request; usually *sampled* (you keep a fraction) |
+[Cardinality](../../../backend/08-observability-and-operational-readiness/06-monitoring-and-metrics/README.md)
+is covered as a general metrics concept elsewhere; here's why it matters for
+the Prometheus server you're about to run. A **time series** is its metric
+name *plus the full set of its label key-value pairs*:
+`http_requests_total{method="GET", status="200", pod="web-abc"}` is one series,
+and changing any label value (`status="500"`) creates another. **Cardinality**
+is the number of distinct series a metric produces — the product of each
+label's distinct values.
 
-The classic workflow — and the whole point of module 07 — is: a **metric**
-alert fires ("error rate spiked"), you pivot to **logs** to read the actual
-errors, and a **trace** shows you which downstream service caused them. Each
-pillar hands off to the next. A metric that spikes with no logs to explain it,
-or logs you can't correlate to a trace, is why teams that collect all three
-but never *connect* them still can't debug.
-
-### Cardinality — the concept that makes or breaks a metrics system
-
-A **time series** is uniquely identified by its metric name *plus the full
-set of its label key-value pairs*. `http_requests_total{method="GET",
-status="200", pod="web-abc"}` is one series; changing any single label value
-(`status="500"`) creates a *different* series. **Cardinality** is the number
-of distinct series a metric produces — the product of how many distinct values
-each label can take.
-
-This matters because Prometheus (and every metrics database) stores and
-indexes *each series separately*. Labels with a small, bounded set of values
-— `method` (a handful of HTTP verbs), `status` (a few dozen codes) — are fine.
-Labels with **unbounded** values are a disaster: putting `user_id`, `email`,
-`request_id`, `session_token`, or a raw `url` with query parameters into a
-metric label can generate millions of series from a single metric and take the
-whole Prometheus server down (a "cardinality explosion"). The rule: **metric
-labels must be low-cardinality and bounded.** High-cardinality data
-(a specific request ID, a specific user) belongs in **logs and traces**, not
-metric labels — which is one more reason you need all three pillars, not just
-metrics. This single idea is behind more Prometheus outages than any other,
-and it's why module 01 keeps hammering it.
+Prometheus stores and indexes *each series separately*, so bounded labels
+(`method`, `status`) are fine, while **unbounded** ones — `user_id`, `email`,
+`request_id`, `session_token`, a raw `url` with query parameters — can generate
+millions of series from one metric and take the whole server down (a
+"cardinality explosion"). The rule: **metric labels must be low-cardinality and
+bounded**; high-cardinality data belongs in **logs and traces**. This single
+idea is behind more Prometheus outages than any other, and it's why module 01
+keeps hammering it.
 
 ### Push vs. pull, and why it's coming up
 

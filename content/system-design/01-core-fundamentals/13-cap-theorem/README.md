@@ -35,7 +35,7 @@ That is the whole theorem: **when a partition happens, you choose consistency or
 ### What CAP does not say
 
 - **It says nothing about normal operation.** With no partition, a system can be both consistent and available. CAP only describes the failure window.
-- **It is not a permanent label.** The choice can differ per operation, per table or even per query.
+- **It is not a permanent label.** The choice can differ per operation, per table or even per query. For each one, ask what is worse here: a stale answer or a refused request?
 - **It ignores latency.** Even without failures, stronger consistency costs round trips between replicas. That everyday trade-off is what PACELC adds.
 
 ![Partitions are short, rare windows. CAP describes behaviour inside them; PACELC adds the latency vs consistency choice for the rest of the time.](images/figure-2.svg)
@@ -70,6 +70,55 @@ That is the whole theorem: **when a partition happens, you choose consistency or
 | **CP** | refuse rather than be wrong |
 | **AP** | answer rather than refuse |
 | **W + R > N** | read and write sets overlap → consistent reads |
+
+## Practice
+
+### 1. CP or AP?
+
+For each system, decide how it should behave during a partition and give one sentence why:
+
+1. A bank's core ledger.
+2. An online store's shopping cart that must always accept "add to cart".
+3. An airline seat-reservation system that must never double-book a seat.
+4. A social app's like counter.
+5. The stock count for a flash sale that must never oversell.
+
+<details><summary>Answer</summary>
+
+1. CP: a wrong balance is worse than a short error.
+2. AP: keep accepting adds on every side and merge the versions afterwards (the original Dynamo design).
+3. CP: selling one seat twice is real damage; refuse instead.
+4. AP: a count that is a few likes behind hurts nobody.
+5. CP: the count has to be authoritative, even if some requests wait or fail during the partition.
+
+</details>
+
+### 2. Merge a partitioned cart
+
+A cart is replicated across two regions with asynchronous replication. During a partition the same user adds a book on their phone (served by region 1) and a lamp on their laptop (served by region 2). When the network heals, both adds must survive. What merge rule gives that, and why is last-write-wins wrong here?
+
+<details><summary>Answer</summary>
+
+Treat the cart as a set and merge concurrent adds by **union**, so the cart ends with both items. A CRDT such as an observed-remove set does this and also handles removes correctly. Last-write-wins keeps only the version with the later timestamp, so one device's add silently disappears, and the user notices. Choosing AP means you must also choose a conflict-resolution rule, and the right rule depends on what the data means: union for a cart, last-write-wins for "user's current profile photo", manual review for things like two edits to the same contract.
+
+</details>
+
+### 3. Diagnose: "writes stopped during a network blip"
+
+A team runs PostgreSQL with one primary and one **synchronous** standby (`synchronous_standby_names` is set, so a `COMMIT` returns only after the standby confirms it). During a short partition between the two, every write hung and users got timeouts, although the primary itself was healthy. The team wants it to "never hang again, and never lose a write". What CAP choice does this setup encode, and what are their real options?
+
+<details><summary>Answer</summary>
+
+Synchronous replication is a deliberate **CP** choice: the primary will not confirm a write the standby does not have, so when it cannot reach the standby it waits instead of letting the two diverge. The hang is the guarantee working, not a bug. During a partition they can keep consistency or availability, not both:
+
+1. **Stay CP** and accept that writes pause while the standby is unreachable. Right when losing an acknowledged write is unacceptable.
+2. **Lean AP**: make the standby asynchronous. Writes keep flowing during a partition, but the standby can fall behind, and failing over to it can lose the last writes it never received.
+
+"Never hang and never lose a write during a partition" is exactly what CAP rules out.
+
+To see it yourself, use any primary + streaming replica pair (the two-container setup in [Backend Track 04, Module 08](../../../backend/04-databases-and-data-layer/08-replication-and-sharding/README.md) is enough). On the primary run `ALTER SYSTEM SET synchronous_standby_names = '*'; SELECT pg_reload_conf();`, then `docker compose pause replica` and try an `UPDATE`: it hangs. `docker compose unpause replica` and it returns. If you cancel the hung statement instead, PostgreSQL warns that the transaction "has already committed locally, but might not have been replicated to the standby": synchronous replication blocks the acknowledgement, it cannot undo the local write. Undo the setting with `ALTER SYSTEM RESET synchronous_standby_names; SELECT pg_reload_conf();`.
+
+</details>
 
 ## Interview questions
 
@@ -145,6 +194,15 @@ The read and write sets always overlap, so a read reaches at least one replica w
 - Treating CAP consistency as ACID consistency.
 - Labelling a whole database CP or AP when its behaviour is tunable per query.
 - Forgetting that CAP applies only during a partition.
+- Choosing AP without a conflict-resolution rule. Two sides *will* diverge; decide how they merge (union, last-write-wins, CRDT, manual review) before it happens, or the default is silent data loss.
+- Deciding partition behaviour during the incident. Pick it on purpose and rehearse it (practice 3) before production does it for you.
+
+## Further reading & sources
+
+- [CAP Twelve Years Later: How the "Rules" Have Changed (Eric Brewer)](https://www.infoq.com/articles/cap-twelve-years-later-how-the-rules-have-changed/) - the theorem's author on why "pick two" misleads and why the choice only bites during a partition.
+- [Please stop calling databases CP or AP (Martin Kleppmann)](https://martin.kleppmann.com/2015/05/11/please-stop-calling-databases-cp-or-ap.html) - why describing behaviour per operation beats a one-letter label.
+- [The CAP theorem (Julia Evans)](https://jvns.ca/blog/2016/10/23/cap-theorem/) - a short, plain explainer that takes apart the "pick two of three" myth.
+- [Dynamo: Amazon's Highly Available Key-value Store](https://www.allthingsdistributed.com/files/amazon-dynamo-sosp2007.pdf) - the classic AP design: the always-writable cart, quorums (N, R, W) and merging divergent versions.
 
 ## Free PDF notes
 

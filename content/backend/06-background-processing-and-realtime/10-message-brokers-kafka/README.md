@@ -492,6 +492,7 @@ thinking you've learned this.
 - [Apache Kafka: Offset management](https://kafka.apache.org/documentation/#semantics) - delivery-semantics reference, including at-least-once and the opt-in exactly-once mode.
 - [kafka-python documentation](https://kafka-python.readthedocs.io/) - the Python client used throughout this module's code.
 - [Confluent: Kafka vs. traditional messaging systems](https://developer.confluent.io/learn-more/podcasts/apache-kafka-vs-traditional-messaging-technology/) - a direct comparison covering the same RabbitMQ-vs-Kafka tradeoffs discussed in this module.
+- [Track 15: Queues vs. topics vs. streams](../../../learn/15-messaging-and-event-driven-architecture/01-queues-vs-topics-vs-streams/README.md) - where a log-based stream fits next to queues and topics, and Azure Event Hubs as a Kafka-compatible managed stream.
 
 ## Next
 

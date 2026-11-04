@@ -158,6 +158,27 @@ Also recall **ALPN** from module 07: the handshake is where client and
 server agree on `h2` vs `http/1.1`. So a single TLS handshake does triple
 duty — secure the channel, prove identity, and negotiate the HTTP version.
 
+### When validation fails: name the check, find the owner
+
+A certificate error is a *validation* failure, not a *connection* failure:
+if TCP to port 443 completes (`nc -zv host 443`) and `curl -v` shows the
+handshake starting, the network is fine and firewalls are not your problem.
+Almost every cert error is one of four checks, and each has a different
+owner and fix:
+
+| Failed check | Typical message | Who fixes it |
+|---|---|---|
+| **Name mismatch** (host not in the cert's CN/SAN) | `no alternative certificate subject name matches` | Client connects by the name on the cert, or the owner reissues with the right SAN |
+| **Expired / not yet valid** | `certificate has expired` | Server operator renews; *or* your clock is wrong |
+| **Untrusted issuer** (self-signed, private CA) | `self-signed certificate`, `unable to get local issuer certificate` | Client adds the CA to its trust store |
+| **Incomplete chain** (intermediate not sent) | `unable to verify the first certificate` | Server operator configures the full chain |
+
+Two tells worth remembering: if *many unrelated* HTTPS sites fail at once,
+check `date` before blaming servers (a skewed clock makes every cert look
+expired); and "works in my browser, fails in curl or a container" usually
+means a missing intermediate that the browser had cached from an earlier
+visit.
+
 ### Where TLS terminates in your architecture
 
 Recall module 00's stack (load balancer → reverse proxy → app server).
@@ -338,6 +359,29 @@ confirm `curl` connects (modulo the self-signed trust issue from exercise
 4). Lesson: certificates expire; monitor expiry and automate renewal.
 (Stop the server: `kill %1`.)
 
+### 9. Diagnose real broken certificates
+
+[badssl.com](https://badssl.com/) hosts deliberately misconfigured sites.
+For each, first prove the transport works, then name the failed check:
+
+```bash
+for h in expired wrong.host self-signed untrusted-root incomplete-chain; do
+  nc -zvw3 $h.badssl.com 443 2>&1 | tail -1          # TCP OK?
+  curl -sS -o /dev/null https://$h.badssl.com/ 2>&1 | head -1   # which check failed?
+done
+echo | openssl s_client -connect expired.badssl.com:443 -servername expired.badssl.com 2>/dev/null \
+  | openssl x509 -noout -dates
+```
+
+Expected: every `nc` line says the connection succeeded, yet every `curl`
+fails with a different message that maps to one row of the table in
+Concepts (`expired` → expiry, `wrong.host` → name mismatch, `self-signed`
+and `untrusted-root` → untrusted issuer, `incomplete-chain` → incomplete
+chain). The `openssl` line shows a `notAfter` in the past. The skill is
+naming *which* check failed, because that tells you who has to fix it. (Some
+clients complete a missing chain on their own, so `incomplete-chain` may pass
+in a browser while failing in curl.)
+
 ## Independent challenge
 
 No code given.
@@ -386,6 +430,11 @@ though the content is not.
   certificate` usually means the server didn't send the intermediate cert;
   clients can't build the chain to a trusted root. Configure the full
   chain.
+- **Debugging firewalls for a certificate error.** If `nc -zv host 443`
+  succeeds, the network is fine; the failure is validation. Read curl's
+  message and match it to one of the four checks.
+- **Ignoring the client's clock.** A badly skewed clock makes every cert
+  look expired or not-yet-valid. If everything breaks at once, check `date`.
 - **Hostname mismatch.** A valid cert for the wrong domain still fails.
   The cert must cover the exact hostname (or via a wildcard/SAN).
 - **Assuming the app sees HTTPS when TLS terminates at a proxy.** The app

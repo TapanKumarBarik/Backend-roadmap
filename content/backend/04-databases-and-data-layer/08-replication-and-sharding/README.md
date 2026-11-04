@@ -66,8 +66,8 @@ creates a specific, common, confusing bug:
 4. user sees their own comment MISSING → "the save didn't work!" (it did)
 ```
 
-This is a **read-your-own-writes** violation (module 01's consistency spectrum,
-now concrete). Standard mitigations: **route reads that must reflect a user's
+This is a **read-your-own-writes** violation (see
+[Consistency Models](../../../system-design/01-core-fundamentals/15-consistency-models/README.md), now concrete). Standard mitigations: **route reads that must reflect a user's
 own recent write to the primary** (e.g. right after a write, or for that user
 for a few seconds); accept eventual consistency where it's harmless (a public
 feed being 200ms stale hurts nobody); or use tooling that waits for a replica to
@@ -89,7 +89,8 @@ is the bug.
 - **Synchronous:** the primary waits for at least one replica to confirm it has
   the transaction before acknowledging the client. **No acknowledged write is
   lost** on failover — but every write now pays the round-trip latency to a
-  replica, and (as you diagnosed in module 01's exercise) if the required
+  replica, and (as diagnosed in the
+  [CAP Theorem](../../../system-design/01-core-fundamentals/13-cap-theorem/README.md#practice) practice) if the required
   replica is unreachable, **writes block**. This is a consistency/durability-
   favouring (CP-leaning) choice.
 

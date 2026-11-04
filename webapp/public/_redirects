@@ -6,3 +6,11 @@
 /lab /design-lab/ 301
 /lab/ /design-lab/ 301
 /lab/* /design-lab/:splat 301
+
+# One home per topic (2026-11-04): a lesson taught twice was merged into its home and the copy redirects there.
+/backend/10-distributed-systems-patterns/00-cap-theorem-and-consistency-models /system-design/01-core-fundamentals/13-cap-theorem/ 301
+/backend/10-distributed-systems-patterns/00-cap-theorem-and-consistency-models/ /system-design/01-core-fundamentals/13-cap-theorem/ 301
+/learn/04-networking-fundamentals/04-http-https-and-tls-fundamentals /backend/01-request-response-fundamentals/09-tls-ssl-and-https/ 301
+/learn/04-networking-fundamentals/04-http-https-and-tls-fundamentals/ /backend/01-request-response-fundamentals/09-tls-ssl-and-https/ 301
+/learn/04-networking-fundamentals/11-websocket-and-grpc /backend/06-background-processing-and-realtime/07-websockets-and-server-sent-events/ 301
+/learn/04-networking-fundamentals/11-websocket-and-grpc/ /backend/06-background-processing-and-realtime/07-websockets-and-server-sent-events/ 301

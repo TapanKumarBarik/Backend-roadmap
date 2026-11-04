@@ -26,7 +26,7 @@ the *judgment* about when each pattern earns its complexity and when it's overki
   reliability disciplines established early — per-operation consistency, idempotent
   operations, fencing tokens — recur throughout and converge in the capstone. Go in
   order.
-- Each standard module (00–08) has the same shape: why it matters, concepts, a
+- Each standard module (01–08) has the same shape: why it matters, concepts, a
   command reference with real Python/FastAPI code, progressive hands-on exercises
   (including a "diagnose and fix" scenario each), an independent challenge with no
   code, common mistakes, and a checkpoint quiz. Modules 04 and 07 also carry a
@@ -37,9 +37,10 @@ the *judgment* about when each pattern earns its complexity and when it's overki
 
 ## Modules
 
+First, consistency: this track builds on CAP, PACELC and per-operation consistency, taught in System Design Track 01: [CAP Theorem](../../system-design/01-core-fundamentals/13-cap-theorem/README.md), [PACELC Theorem](../../system-design/01-core-fundamentals/14-pacelc-theorem/README.md) and [Consistency Models](../../system-design/01-core-fundamentals/15-consistency-models/README.md). Later modules cite them as SD 13, SD 14 and SD 15.
+
 | # | Module | What you'll be able to do | Time |
 |---|--------|---------------------------|------|
-| 00 | [CAP theorem and consistency models](00-cap-theorem-and-consistency-models/README.md) | Choose the right consistency (strong/eventual/causal) *per operation*, reason with CAP and PACELC, and handle replication lag and read-your-writes | 75-100 min |
 | 01 | [Idempotency in practice](01-idempotency-in-practice/README.md) | Make non-idempotent operations safe to retry with idempotency keys, natural idempotency, and idempotent consumers | 75-100 min |
 | 02 | [Distributed locking](02-distributed-locking/README.md) | Build a correct Redis lock, understand lock expiry and fencing tokens, and tell efficiency locks from correctness locks | 75-100 min |
 | 03 | [Distributed transactions and two-phase commit](03-distributed-transactions-and-two-phase-commit/README.md) | Understand 2PC, why the coordinator blocks and doesn't scale, and when to avoid distributed transactions entirely | 75-100 min |
@@ -50,7 +51,7 @@ the *judgment* about when each pattern earns its complexity and when it's overki
 | 08 | [Durable workflow orchestration](08-durable-workflow-orchestration/README.md) | Use a durable execution engine (Temporal) for crash-proof workflows, automatic retries, and long-lived signal-driven steps | 90-120 min |
 | 09 | [Capstone project](09-capstone-project/README.md) | Design and partially build a distributed order-processing system integrating idempotency, a saga, and event sourcing | 4-6 hrs |
 
-Start here → [00-cap-theorem-and-consistency-models/README.md](00-cap-theorem-and-consistency-models/README.md)
+Start here → [CAP Theorem](../../system-design/01-core-fundamentals/13-cap-theorem/README.md), then [01-idempotency-in-practice/README.md](01-idempotency-in-practice/README.md)
 
 Back to the master index: [../README.md](../README.md)
 

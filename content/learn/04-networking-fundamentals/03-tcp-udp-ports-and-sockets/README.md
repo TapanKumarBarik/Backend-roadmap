@@ -157,4 +157,4 @@ Closed-book. Don't reopen earlier modules while attempting these. These delibera
 
 ## Next
 
-[04 — HTTP, HTTPS & TLS fundamentals](../04-http-https-and-tls-fundamentals/README.md): with a reliable TCP connection established, learn the application protocol that rides on it — and how TLS wraps it for security.
+[05 — Routing, NAT & firewalls](../05-routing-nat-and-firewalls/README.md): you have a reliable TCP connection between two hosts — now learn how packets actually choose a path between them, get their addresses translated, and are permitted or blocked along the way. The application protocols that ride on TCP are taught in the backend track: [HTTP protocol basics](../../../backend/01-request-response-fundamentals/01-http-protocol-basics/README.md) and [TLS, SSL and HTTPS](../../../backend/01-request-response-fundamentals/09-tls-ssl-and-https/README.md).

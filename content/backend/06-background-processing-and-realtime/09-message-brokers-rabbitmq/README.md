@@ -476,6 +476,7 @@ thinking you've learned this.
 - [RabbitMQ: Reliability guide](https://www.rabbitmq.com/docs/reliability) - acknowledgment, publisher confirms, and durability covered together.
 - [RabbitMQ: Dead Letter Exchanges](https://www.rabbitmq.com/docs/dlx) - the full DLX configuration reference, including per-message and per-queue TTL triggers.
 - [pika documentation](https://pika.readthedocs.io/) - the Python client used throughout this module's code.
+- [Track 15: Queues vs. topics vs. streams](../../../learn/15-messaging-and-event-driven-architecture/01-queues-vs-topics-vs-streams/README.md) - the same topologies as managed Azure services: Service Bus queues and topics, and Event Hubs streams.
 
 ## Next
 

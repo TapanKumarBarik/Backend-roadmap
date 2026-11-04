@@ -1,4 +1,4 @@
-# Module 07: API Design Tradeoffs in Practice
+# Module 10: API Design Tradeoffs in Practice
 
 ## Why this matters
 

@@ -394,6 +394,7 @@ Write down your answer to each question before expanding it — checking without
 - [HashiCorp Vault: Leases, renewal, and revocation](https://developer.hashicorp.com/vault/docs/concepts/lease) - the lease lifecycle this module's exercise 6 exercises directly.
 - [HashiCorp Vault: Seal/unseal concepts](https://developer.hashicorp.com/vault/docs/concepts/seal) - what dev mode skips, and what a real production Vault deployment must handle.
 - [HashiCorp: Vault vs. dev mode warnings](https://developer.hashicorp.com/vault/docs/concepts/dev-server) - the official warning against using dev mode beyond local learning, referenced throughout this module.
+- [Secrets Management](../../../backend/09-security-deep-dive/05-secrets-management/README.md) - the tool-agnostic principles Vault implements: secrets out of code, rotation with overlapping validity, and least privilege.
 
 ## Next
 

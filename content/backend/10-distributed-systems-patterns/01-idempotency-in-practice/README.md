@@ -106,7 +106,7 @@ The subtle, critical part is step 2's *atomicity*. If two retries arrive
 simultaneously, a naive "check then insert" has a race: both check (not found),
 both proceed, both charge. The check-and-record must be a single atomic operation
 — a unique-constraint insert that one loses, or an atomic Redis `SET key value NX`.
-This is why idempotency keys and the locking/consistency ideas from module 00 are
+This is why idempotency keys and the locking/consistency ideas from [Consistency Models](../../../system-design/01-core-fundamentals/15-consistency-models/README.md) are
 the same family of problem.
 
 ### Natural idempotency: design the operation so a key isn't even needed
@@ -265,7 +265,7 @@ def apply_payment(self, event_id: str, order_id: int, amount: int):
 
 ## Hands-on exercises
 
-Use one Postgres (from module 00's setup or a fresh `docker run -d --name pg -p
+Use one Postgres (a fresh `docker run -d --name pg -p
 5432:5432 -e POSTGRES_PASSWORD=pg postgres:16`) and Redis (`docker run -d --name
 redis -p 6379:6379 redis:7`). `pip install fastapi uvicorn "sqlalchemy>=2"
 psycopg[binary] redis`. Create the `idempotency_keys` and `processed_events`
@@ -394,8 +394,8 @@ re-executes from the beginning.
 
 ## Independent challenge
 
-No code given. Recall the **00-cap-theorem-and-consistency-models** module's
-read-your-writes discussion. Now design an idempotent **"redeem gift card"**
+No code given. Recall the read-your-writes discussion in
+[Consistency Models](../../../system-design/01-core-fundamentals/15-consistency-models/README.md). Now design an idempotent **"redeem gift card"**
 endpoint for a checkout system with these rules: a gift card has a balance;
 redeeming applies some or all of it to an order; the client (a flaky mobile app)
 *will* retry on timeout; a redemption must never be double-applied (that would

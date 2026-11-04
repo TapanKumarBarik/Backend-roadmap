@@ -60,10 +60,13 @@ The logic is unit-tested (`scripts/lib/urlCheck.test.mjs`, `urlLive.test.mjs`).
 
 ## Redirects
 
-None today: no public address has moved. When one must, add a row here and a line to `webapp/public/_redirects`:
+When a public address moves, add a row here and a line to `webapp/public/_redirects`:
 
 | From | To | Status | Why | Date |
 |---|---|---|---|---|
+| `/backend/10-distributed-systems-patterns/00-cap-theorem-and-consistency-models/` | `/system-design/01-core-fundamentals/13-cap-theorem/` | 301 | Same topic taught twice; merged into its home (one home per topic) | 2026-11-04 |
+| `/learn/04-networking-fundamentals/04-http-https-and-tls-fundamentals/` | `/backend/01-request-response-fundamentals/09-tls-ssl-and-https/` | 301 | Same topic taught twice; merged into its home (one home per topic) | 2026-11-04 |
+| `/learn/04-networking-fundamentals/11-websocket-and-grpc/` | `/backend/06-background-processing-and-realtime/07-websockets-and-server-sent-events/` | 301 | Same topic taught twice; merged into its home (one home per topic) | 2026-11-04 |
 
 ## What the 2.0 audit found
 

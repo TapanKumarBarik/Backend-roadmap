@@ -1,4 +1,4 @@
-# Module 06: API Gateways and Backend-for-Frontend
+# Module 09: API Gateways and Backend-for-Frontend
 
 ## Why this matters
 
@@ -61,6 +61,29 @@ The mental model: the gateway is the **operational** front door — it doesn't k
 or care about your domain, it enforces edge policy and routes. Managed options
 (Kong, AWS API Gateway, Apigee, Envoy) exist precisely so you don't hand-roll
 this; but you can also express the pattern in FastAPI to understand it.
+
+### Gateway vs ingress vs service mesh
+
+Three pieces of edge infrastructure overlap enough to blur, so pin them down by
+the question each answers:
+
+- An **ingress controller** (e.g. the Kubernetes Ingress) is L7 routing *into* a
+  cluster — host/path to service, plus TLS termination. It asks "which pod?"
+- A **service mesh** (Istio, Linkerd) governs *east-west* traffic *between*
+  services inside the platform — mTLS, retries, traffic splitting,
+  service-to-service authorization. It asks "can service A call service B,
+  securely?"
+- An **API gateway** governs *north-south* traffic at the *product* edge — the
+  boundary between your APIs and their consumers (partners, mobile apps, other
+  teams). It asks "is this *consumer* allowed to use this *API*, within their
+  quota, on this version?"
+
+They coexist rather than compete: a gateway typically sits *in front of* an
+ingress, and a mesh handles what happens after the request is inside. "We
+already rate-limit in the ingress's nginx config" is not the same as a gateway:
+the ingress can't tie a limit to an issued consumer identity, meter usage per
+consumer, or give one consistent place to enforce policy across many backends
+and teams.
 
 ### Backend-for-Frontend: a client-specific API layer
 
@@ -465,6 +488,7 @@ Write down your answer to each question before expanding it — checking without
 - [Kong — API gateway concepts](https://docs.konghq.com/gateway/latest/) - documentation for a widely used gateway, grounding the auth/rate-limit/routing concerns in a real product.
 - [Strawberry — GraphQL over FastAPI](https://strawberry.rocks/docs/integrations/fastapi) - mounting a GraphQL BFF as one route, as in the aggregation exercises.
 - [microservices.io — Backends for frontends pattern](https://microservices.io/patterns/apigateway.html#variation-backends-for-frontends) - the BFF as a per-client variation of the gateway, tying both patterns together.
+- [Track 19: API gateway concepts and where APIM fits](../../../learn/19-api-management/00-api-gateway-concepts-and-where-apim-fits/README.md) - the gateway pattern as a managed Azure product: policies, subscription keys, products, developer portal and analytics.
 
 ## Next
 

@@ -551,6 +551,8 @@ Write down your answer to each question before expanding it — checking without
 - [Stripe: Idempotent requests](https://docs.stripe.com/api/idempotent_requests) - how an idempotency key makes a retried charge return the original result.
 - [AWS: Timeouts, retries, and backoff with jitter](https://aws.amazon.com/builders-library/timeouts-retries-and-backoff-with-jitter/) - the canonical write-up on backoff and jitter defeating retry storms.
 - [RabbitMQ: Dead Letter Exchanges](https://www.rabbitmq.com/docs/dlx) - broker-level dead-lettering for tasks that exhaust their retries.
+- [Rate Limiting and Abuse Prevention](../../09-security-deep-dive/04-rate-limiting-and-abuse-prevention/README.md) - the inbound side: rate-limiting algorithms protecting your own API from abuse.
+- [Designing a Rate Limiter](../../14-system-design-interview-practice/03-designing-a-rate-limiter/README.md) - designing a distributed rate limiter end to end, as a system-design interview problem.
 
 ## Next
 

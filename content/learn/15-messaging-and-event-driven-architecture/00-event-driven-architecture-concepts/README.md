@@ -97,15 +97,18 @@ valid *right now*?), that's a command / synchronous call, not an event.
 
 ### Point-to-point vs. publish/subscribe
 
-Two fundamental delivery topologies sit under everything in this track.
-**Point-to-point**: one message goes to exactly one consumer, even if several
-are competing for work off the same queue (a *competing-consumers* pattern for
-scaling out a worker pool). **Publish/subscribe**: one message is delivered to
-*every* interested subscriber independently, each with its own copy. The Dapr
-`publish` you did in track 6 was pub/sub; a classic work queue is
-point-to-point. Module 01 maps these two topologies onto the concrete Azure
-services (Service Bus queues vs. Service Bus topics vs. Event Hubs streams), so
-hold onto the distinction — it's the axis the next module is organized around.
+Two delivery topologies sit under everything in this track, and they're taught
+in full — fan-out vs. competing consumers, and why a fire-and-forget bus and a
+durable queue make opposite promises — in
+[Pub/Sub Architecture](../../../backend/06-background-processing-and-realtime/08-pub-sub-architecture/README.md).
+In one line each: **point-to-point** sends each message to exactly one
+consumer, even when several compete for work off the same queue (how you scale
+a worker pool); **publish/subscribe** delivers every message to *every*
+interested subscriber, each with its own copy. The Dapr `publish` you did in
+track 6 was pub/sub; a classic work queue is point-to-point. Module 01 maps
+these two topologies onto the concrete Azure services (Service Bus queues vs.
+Service Bus topics vs. Event Hubs streams) — it's the axis the next module is
+organized around.
 
 ## Command reference
 

@@ -37,7 +37,9 @@ An L4 (TCP/transport) balancer — Azure Load Balancer, AWS NLB, a
 `Service` of type `LoadBalancer` in Kubernetes, `kube-proxy` for a
 ClusterIP — balances *connections*. gRPC multiplexes many concurrent RPCs
 as HTTP/2 streams inside one connection, so after the initial placement
-there are no further connections to balance.
+there are no further connections to balance. (See also:
+[Load balancing concepts](../../../learn/04-networking-fundamentals/06-load-balancing-concepts/README.md)
+for L4 vs L7 balancing in general.)
 
 There are three real fixes:
 

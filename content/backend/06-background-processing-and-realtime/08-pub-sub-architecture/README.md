@@ -466,6 +466,7 @@ Write down your answer to each question before expanding it — checking without
 - [redis-py: Pub/Sub usage](https://redis.readthedocs.io/en/stable/advanced_features.html#publish-subscribe) - the Python client API, including `redis.asyncio` for the backplane.
 - [Enterprise Integration Patterns: Publish-Subscribe Channel](https://www.enterpriseintegrationpatterns.com/patterns/messaging/PublishSubscribeChannel.html) - the canonical description of fan-out vs point-to-point.
 - [RabbitMQ: Publish/Subscribe tutorial](https://www.rabbitmq.com/tutorials/tutorial-three-python) - fan-out exchanges as an alternative pub/sub substrate.
+- [Track 15: Event-driven architecture concepts](../../../learn/15-messaging-and-event-driven-architecture/00-event-driven-architecture-concepts/README.md) - commands vs. events, exactly-once vs. effectively-once, and temporal coupling, applied to Azure Service Bus, Event Grid and Dapr.
 
 ## Next
 

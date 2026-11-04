@@ -171,6 +171,38 @@ frames; SSE conventionally sends a periodic comment line (`: keepalive`) to
 keep the stream and proxies alive. Without heartbeats, dead-but-open
 connections are another source of the leak.
 
+### Through proxies and load balancers
+
+On the wire, the handshake is a plain HTTP/1.1 request with `Connection:
+Upgrade`, `Upgrade: websocket`, `Sec-WebSocket-Key` and
+`Sec-WebSocket-Version: 13`; success is `101 Switching Protocols`, after which
+the same TCP connection carries WebSocket frames instead of HTTP. So a
+connection that never opens is failing at an ordinary HTTP step: a `400`,
+`404` or `200` instead of `101` is a readable HTTP error, and the usual header,
+status and TLS (`wss://`) debugging applies.
+
+Two things in front of your app break this in practice:
+
+- **A reverse proxy that drops the upgrade.** `Upgrade` and `Connection` are
+  hop-by-hop headers, so a proxy doesn't forward them unless told to. In nginx
+  you must set them explicitly, and raise the read timeout above your
+  heartbeat interval, because the default (60s) closes a healthy connection
+  that has simply been quiet:
+
+  ```nginx
+  location /ws/ {
+      proxy_pass http://app;
+      proxy_http_version 1.1;
+      proxy_set_header Upgrade $http_upgrade;
+      proxy_set_header Connection "upgrade";
+      proxy_read_timeout 3600s;
+  }
+  ```
+
+- **A load balancer.** It picks a backend once, when the connection opens, and
+  the connection stays pinned there for its whole life. That pinning is what
+  makes the multi-process problem above unavoidable once you scale out.
+
 ## Command reference
 
 | Concern | FastAPI / approach |
@@ -357,6 +389,35 @@ client without closing it cleanly. Expected: within a ping cycle the server
 detects the dead socket and removes it from `active`, rather than holding it
 forever. Lesson: heartbeats catch the disconnects the OS never reported.
 
+### 10. Read the handshake by hand
+
+With the echo server running, send the upgrade request yourself:
+
+```bash
+curl -i -N --http1.1 -H "Connection: Upgrade" -H "Upgrade: websocket" \
+  -H "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==" -H "Sec-WebSocket-Version: 13" \
+  http://localhost:8000/ws/echo
+```
+
+Expected: `HTTP/1.1 101 Switching Protocols` with a `Sec-WebSocket-Accept`
+header, then curl hangs on the open connection (Ctrl-C). Repeat without the
+`Sec-WebSocket-Version` header: the server rejects the upgrade with an
+ordinary HTTP error (typically `400`, or `426 Upgrade Required` from some
+servers), not `101`. Lesson: before the first frame, WebSocket is just HTTP.
+
+### 11. Diagnose and fix: the proxy idle-timeout drop
+
+Put nginx in front of the app using the snippet from Concepts, but with
+`proxy_read_timeout 5s` and your heartbeat loop from exercise 9 turned off.
+Connect through the proxy with `websocat` and send nothing for 10 seconds.
+Expected: the connection closes even though client and server are both
+healthy. The proxy treated a quiet long-lived connection like a stalled HTTP
+request. **Fix:** raise `proxy_read_timeout` above your heartbeat interval,
+turn the heartbeat back on so the connection is never idle from the proxy's
+point of view, and confirm it survives the same quiet period. Also try removing
+the two `proxy_set_header` lines: the handshake then fails (no `101`), which
+is the other common proxy bug.
+
 ## Independent challenge
 
 No code given. Build a real-time "job status" feature: a client connects and
@@ -409,6 +470,10 @@ send failure, exactly as in the chat example.
   (`list(self.active)`) so pruning failed sockets mid-broadcast doesn't raise.
 - **No heartbeat.** Silently-dead connections linger and proxies time out idle
   streams. Send periodic pings (WS) / keepalive comments (SSE).
+- **A proxy in front that isn't WebSocket-aware.** If the proxy doesn't
+  forward `Upgrade`/`Connection`, the handshake never returns `101`; if its
+  read timeout is shorter than your heartbeat interval, connections "randomly"
+  drop after N seconds of quiet. Configure both (see Concepts).
 - **Doing heavy work inside the WebSocket receive loop.** Blocking the loop
   delays all messages on that connection; offload slow work to a task
   (module 00) and push the result when done.

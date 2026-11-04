@@ -367,7 +367,7 @@ collapsing them into a single local transaction is even better.
 
 ## Independent challenge
 
-No code given. Reach back to **00-cap-theorem-and-consistency-models**: you'll weigh
+No code given. Reach back to [CAP Theorem](../../../system-design/01-core-fundamentals/13-cap-theorem/README.md): you'll weigh
 consistency against availability here explicitly. You're designing the "place a bet"
 operation for a sports-betting platform. Placing a bet must, together: debit the
 user's wallet, create a bet record, and reserve liability against the event's risk

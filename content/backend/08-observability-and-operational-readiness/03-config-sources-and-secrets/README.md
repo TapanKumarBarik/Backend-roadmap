@@ -96,31 +96,28 @@ and dynamic config in a startup-only file (can't flip without redeploy).
 
 ### Managing secrets safely
 
-The rules, in priority order:
+Secrets are the one kind of config that must never reach source control, logs
+or images. The full security treatment — why hardcoded secrets are a disaster,
+secret managers, zero-downtime rotation, the silent leaks through logs and git
+history, least privilege — lives in
+[Secrets Management](../../09-security-deep-dive/05-secrets-management/README.md).
+The rules that shape *config loading* in this module:
 
-1. **Never commit secrets to source control.** Not in code, not in a committed
-   `.env`, not in a checked-in `config.prod.json`. Add `.env` and friends to
-   `.gitignore` *before* you create them. Commit a `.env.example` with the
-   *keys* and dummy values instead, so the shape is documented without the
-   secrets.
-2. **Assume anything committed is compromised forever.** git history is
-   permanent and forked. If a secret is committed, the only real remediation is
-   **rotate the secret** (issue a new key, revoke the old), plus scrubbing
-   history as a secondary cleanup. Deleting the line is not remediation.
-3. **Secrets live in a secret manager in real deployments.** Vault / AWS
-   Secrets Manager / cloud KMS store the secret, control *who* can read it,
-   *audit* every access, and support *rotation*. The app (or the platform)
-   fetches the secret at startup or gets it injected as an env var — the secret
-   never sits in the repo or the image. In Kubernetes this is a `Secret`
-   object (or an external-secrets operator pulling from a cloud vault) mounted
-   as env vars; the `learn/03-kubernetes` module 05 covers the cluster side.
-4. **Never log secrets.** This is its own discipline (module 05 goes deep) —
-   redact them at the boundary, and structure your config object so secrets are
-   hard to accidentally print (Pydantic's `SecretStr` helps — its `repr` is
-   `**********`).
-5. **Least privilege and rotation.** Each environment (and ideally each
-   service) gets its own credentials, scoped to only what it needs, rotated on
-   a schedule and immediately on any suspected exposure.
+1. **Never commit secrets.** Add `.env` and friends to `.gitignore` *before*
+   you create them, and commit a `.env.example` with the *keys* and dummy
+   values so the shape is documented without the secrets. Anything committed
+   is compromised forever: the remediation is to **rotate**, not delete the
+   line.
+2. **The app reads secrets from its environment, wherever they came from.** In
+   real deployments a secret manager (Vault, AWS Secrets Manager, a cloud KMS)
+   holds the value and the platform injects it as an env var or mounted file —
+   in Kubernetes a `Secret` or an external-secrets operator; the
+   `learn/03-kubernetes` module 05 covers the cluster side. Your settings
+   object doesn't care which.
+3. **Never log secrets.** Redact them at the boundary (module 05 goes deep) and
+   type them so they're hard to print by accident — which is what `SecretStr`
+   is for.
+4. **Separate credentials per environment**, so a dev leak can't touch prod.
 
 `SecretStr` is a small but real safety net worth using:
 

@@ -51,6 +51,47 @@ Replication. To keep replicas consistent, a write must wait until other replicas
 | **PA/EL** | available + fast, may be stale |
 | **PC/EC** | consistent always, slower |
 
+## Code
+
+The "else" choice is not a property of the product; it is configuration you set. In PostgreSQL:
+
+| Setting | What a `COMMIT` waits for | PACELC |
+|---|---|---|
+| Asynchronous streaming replication (the default) | the primary's own WAL flush only; replicas catch up afterwards | EL: fast writes, replica reads may lag |
+| `synchronous_standby_names = '*'` with `synchronous_commit = on` | the standby has the write on disk | durable on failover, but a read on the standby can still be a moment behind |
+| ... with `synchronous_commit = remote_apply` | the standby has applied the write | EC: no stale reads on that standby, slowest writes |
+
+Other stores expose the same dial per request: Cassandra's consistency level, DynamoDB's `ConsistentRead`, and Redis's `WAIT numreplicas timeout`, which blocks until that many replicas have the earlier writes (Redis replication stays asynchronous, so a failover can still lose them).
+
+How far behind a replica is, measured on the replica:
+
+```sql
+SELECT now() - pg_last_xact_replay_timestamp() AS replica_lag;
+```
+
+That number is your staleness budget: any read from this replica can be up to that far behind. (On an idle primary it keeps growing, because nothing new has been replayed; measure it under write load.)
+
+## Practice
+
+### 1. Pay the E in PACELC
+
+On a primary + streaming replica pair (the two-container setup in [Backend Track 04, Module 08](../../../backend/04-databases-and-data-layer/08-replication-and-sharding/README.md) is enough), benchmark writes with replication asynchronous, then synchronous:
+
+```bash
+docker compose exec primary pgbench -U postgres -i shop
+docker compose exec primary pgbench -U postgres -c 4 -T 15 shop      # note "latency average"
+docker compose exec primary psql -U postgres -c "ALTER SYSTEM SET synchronous_standby_names = '*'" -c "ALTER SYSTEM SET synchronous_commit = 'remote_apply'" -c "SELECT pg_reload_conf()"
+docker compose exec primary pgbench -U postgres -c 4 -T 15 shop      # compare
+```
+
+What changed, and was there a partition?
+
+<details><summary>Answer</summary>
+
+Average latency goes up and transactions per second go down, because every commit now waits for a round trip to the standby and for the standby to apply it. On one machine the difference is small; across regions each write would pay roughly 100 ms more. There was no partition: this is the "else, latency or consistency" half of PACELC, paid on every write on a perfectly healthy day. Undo it with `ALTER SYSTEM RESET synchronous_standby_names; ALTER SYSTEM RESET synchronous_commit; SELECT pg_reload_conf();`.
+
+</details>
+
 ## Interview questions
 
 Each question is tagged by kind: **Basic** (definitions), **Scenario** (apply it to a system) and **Tricky** (the follow-ups interviewers use to go deeper). Answer out loud before you open the answer.
@@ -125,6 +166,13 @@ Yes. Cassandra (consistency level per query) and DynamoDB (consistent-read flag)
 - Forgetting cross-region replication adds ~100 ms per synchronous write.
 - Labelling a tunable database with one fixed class.
 - Using strongly consistent reads everywhere “to be safe” and paying 2× cost.
+- Assuming a synchronous standby never serves stale reads. With PostgreSQL's default `synchronous_commit = on` it has the write on disk, not yet applied; only `remote_apply` closes that gap.
+
+## Further reading & sources
+
+- [Consistency Tradeoffs in Modern Distributed Database System Design (Daniel Abadi)](https://www.cs.umd.edu/~abadi/papers/abadi-pacelc.pdf) - the paper that introduced PACELC and its "else, latency or consistency" clause.
+- [PACELC theorem (Wikipedia)](https://en.wikipedia.org/wiki/PACELC_theorem) - a short overview with a table classifying common databases.
+- [PostgreSQL: High Availability, Load Balancing, and Replication](https://www.postgresql.org/docs/current/high-availability.html) - streaming and synchronous replication, and what each `synchronous_commit` level waits for.
 
 ## Free PDF notes
 

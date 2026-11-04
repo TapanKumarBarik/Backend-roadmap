@@ -24,7 +24,7 @@ Once it works, introduce **the following chain of independent faults** (do this 
 3. **DNS misconfigured (module 02):** a service name resolves to the wrong address (a stale `/etc/hosts` entry or a bad record), so clients "connect" to the wrong place or fail to resolve entirely.
 4. **Firewall blocking a port (module 05):** an `iptables` DROP rule silently blocks the API's port on one host, producing timeouts (not refusals) from clients.
 5. **Service on the wrong interface (module 03):** one service is bound to `127.0.0.1` instead of `0.0.0.0`, so it works locally but is unreachable from other hosts.
-6. **TLS certificate mismatch (module 04):** the HTTPS service presents a certificate whose name doesn't match the hostname clients use (or an expired/self-signed cert not in the client trust store), so TCP connects but the handshake fails validation.
+6. **TLS certificate mismatch ([TLS, SSL and HTTPS](../../../backend/01-request-response-fundamentals/09-tls-ssl-and-https/README.md)):** the HTTPS service presents a certificate whose name doesn't match the hostname clients use (or an expired/self-signed cert not in the client trust store), so TCP connects but the handshake fails validation.
 
 ### Your task
 

@@ -98,6 +98,22 @@ there; the *correlation between them* does.
         └───────────────── same trace_id on all three ────────────────────────┘
 ```
 
+### What each pillar is good and bad at
+
+The pillars aren't redundant, and reaching for the wrong one is slow and
+expensive. Each has a strength, a blind spot, and a different cost shape:
+
+| | Metrics | Logs | Traces |
+|---|---|---|---|
+| **Best at** | "Is it happening? How much? What's the trend?" — aggregate health, rates, thresholds, alerting | "What exactly happened in this one event?" — detail, context, error messages | "Where did this one slow request spend its time, across services?" |
+| **Weak at** | *Why* — a number can't tell you the error message | Aggregation and trend — counting millions of lines is slow and pricey | Aggregate health — one trace is one request, not a fleet-wide rate |
+| **Cost shape** | Cheapest per unit; cost driven by *cardinality* (module 06) | Heavier; cost driven by *volume* ingested and retained (module 05) | Heaviest per request; usually *sampled* — you keep a fraction (below) |
+
+Two mismatches to recognise on sight: answering "how many requests per
+second?" by counting log lines (that's a metric), and answering "which user hit
+this error?" with a metric label (that's a cardinality explosion — it belongs
+in logs or traces).
+
 ### Traces and spans: the anatomy of a request's journey
 
 A **trace** represents the entire journey of one request through your system. It's
@@ -547,6 +563,7 @@ Write down your answer to each question before expanding it — checking without
 - [Jaeger documentation](https://www.jaegertracing.io/docs/latest/) - the tracing backend used in the exercises to store and visualize waterfalls.
 - [Grafana Tempo documentation](https://grafana.com/docs/tempo/latest/) - the Grafana-native trace backend that pairs with Loki and Prometheus under one UI.
 - [Google SRE Book — Monitoring Distributed Systems](https://sre.google/sre-book/monitoring-distributed-systems/) - context for monitoring vs observability and why correlated signals matter.
+- [Track 12: Observability deep dive](../../../learn/12-observability-deep-dive/00-observability-concepts-and-three-pillars/README.md) - the same three pillars mapped onto the open-source stack: Prometheus, Grafana, Loki and OpenTelemetry.
 
 ## Next
 

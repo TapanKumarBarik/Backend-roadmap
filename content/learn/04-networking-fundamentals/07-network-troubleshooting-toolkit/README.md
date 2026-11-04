@@ -14,7 +14,7 @@ The core discipline is to **test one layer at a time, in order**, using the ment
 2. **IP/routing:** is there a route to the destination, and can packets reach it? (`ip route get`, `ping`, `traceroute`, modules 01/05)
 3. **DNS:** does the name resolve to the right address? (`getent hosts`, `dig`, module 02)
 4. **Transport:** does the TCP handshake to the target port complete? (`nc -zv`, `ss`, module 03)
-5. **TLS:** does the certificate validate? (`openssl s_client`, `curl -v`, module 04)
+5. **TLS:** does the certificate validate? (`openssl s_client`, `curl -v`; see [TLS, SSL and HTTPS](../../../backend/01-request-response-fundamentals/09-tls-ssl-and-https/README.md))
 6. **Application:** does the service return the right HTTP response? (`curl -v`, status codes, modules 04/06)
 
 The power of ordering is that a pass at a lower layer **rules out** everything below when a higher layer fails, and a failure at a lower layer means you needn't touch anything above it yet. "Could not resolve host" (layer 3 above) means stop checking firewalls; "connection refused" means stop checking DNS. Half of troubleshooting speed is knowing which layers to *ignore*.
@@ -87,7 +87,7 @@ Flag breakdowns:
 
 8. **Diagnose and fix (integrated): a service you can't reach.** Create a layered failure and walk the ladder. Start a listener on the wrong interface and firewall a port: `nc -l 127.0.0.1 8080` in one terminal. From another, run the ladder against `<eth0-IP>:8080`: `getent hosts localhost` (resolves), `ping -c1 <eth0-IP>` (reachable), `nc -zv <eth0-IP> 8080 -w3` (**fails** — refused, because the listener is bound to loopback only). `ss -tlnp | grep 8080` reveals `127.0.0.1:8080`, not `0.0.0.0:8080`. **Fix:** rebind — `nc -l 0.0.0.0 8080` — and the port test passes. The method, not the memorized answer, is the point: each rung either passed (rule it out) or failed (stop and fix there).
 
-9. **Diagnose and fix: DNS-then-TLS chain.** Consider a report "our HTTPS API is broken." Run `curl -v https://expired.badssl.com`. The ladder shows DNS resolves, TCP connects (`Connected to ...`), and the failure is the *certificate* (`certificate has expired`) — so every layer through transport is proven fine and the fix lives with the cert owner (module 04), not the network. Contrast by running the ladder against `https://example.com`, which passes all rungs. Expected: you can state precisely which rung failed and therefore who owns the fix.
+9. **Diagnose and fix: DNS-then-TLS chain.** Consider a report "our HTTPS API is broken." Run `curl -v https://expired.badssl.com`. The ladder shows DNS resolves, TCP connects (`Connected to ...`), and the failure is the *certificate* (`certificate has expired`) — so every layer through transport is proven fine and the fix lives with the cert owner ([TLS, SSL and HTTPS](../../../backend/01-request-response-fundamentals/09-tls-ssl-and-https/README.md) maps each certificate error to its owner), not the network. Contrast by running the ladder against `https://example.com`, which passes all rungs. Expected: you can state precisely which rung failed and therefore who owns the fix.
 
 ## Independent challenge
 

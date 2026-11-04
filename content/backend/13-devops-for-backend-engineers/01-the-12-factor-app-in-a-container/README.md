@@ -2,7 +2,8 @@
 
 ## Why this matters
 
-Track 08's module 10 taught the twelve factors as principles: config in the
+[Track 08's module 10](../../08-observability-and-operational-readiness/10-the-12-factor-app/README.md)
+taught the twelve factors as principles: config in the
 environment, stateless processes, disposability, logs as streams. Module 00 here
 gave you a good image. This module is where the two meet: **what do those factors
 actually look like once your app is running inside a container that an
@@ -28,6 +29,20 @@ secrets, and sequences a pod's termination) is `learn/03-kubernetes`; here we st
 on the app's side of the contract.
 
 ## Concepts
+
+### The twelve factors, in brief
+
+The factors themselves are taught in full in
+[The 12-Factor App](../../08-observability-and-operational-readiness/10-the-12-factor-app/README.md);
+here's the one-line recap this module builds on: **I** one codebase, many
+deploys; **II** explicitly declared, isolated dependencies; **III** config in
+the environment; **IV** backing services as attached resources; **V** strict
+build/release/run separation; **VI** stateless, share-nothing processes;
+**VII** export services by port binding; **VIII** scale out via the process
+model; **IX** disposability (fast startup, graceful shutdown); **X** dev/prod
+parity; **XI** logs as event streams; **XII** admin tasks as one-off
+processes. The sections below take the ones a container makes or breaks —
+III, VI, IX and XI — and show what each looks like at run time.
 
 ### Config crosses the container boundary as environment variables
 

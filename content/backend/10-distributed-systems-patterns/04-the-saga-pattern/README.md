@@ -23,8 +23,8 @@ blocking coordinator, and a design that scales. This is not a niche technique �
 is *the* default way multi-step business transactions are built across services, and
 almost every "workflow," "order pipeline," or "onboarding flow" you'll meet in a
 service-oriented system is a saga whether or not anyone called it that. This module
-is where the reliability primitives from the first four modules — consistency
-choices (00), idempotency (01), locking (02), and the 2PC trade-off (03) — combine
+is where the reliability primitives so far — consistency
+choices ([CAP and consistency](../../../system-design/01-core-fundamentals/13-cap-theorem/README.md)), idempotency (01), locking (02), and the 2PC trade-off (03) — combine
 into a pattern you'll actually ship.
 
 ## Concepts
@@ -76,7 +76,7 @@ but the shipment doesn't exist yet. This is precisely the "brief window of
 inconsistency" from module 03 — the thing 2PC exists to prevent and that you are now
 *choosing* to accept.
 
-The judgment from module 00 is exactly what tells you whether that's acceptable, and
+The per-operation consistency judgment ([Consistency Models](../../../system-design/01-core-fundamentals/15-consistency-models/README.md)) is exactly what tells you whether that's acceptable, and
 it almost always is, because you *model the window explicitly* rather than pretending
 it doesn't exist. The order sits in a `pending` state — visible, well-defined, and
 self-correcting — until the saga completes and flips it to `confirmed`, or a
@@ -555,7 +555,7 @@ Write down your answer to each question before expanding it — checking without
    branching flows with compensations (e.g. order → payment → inventory → shipping),
    where you need to see and evolve the process.
 4. It's acceptable because a few seconds of well-defined partial state usually causes
-   no real harm, and module 00's per-operation judgment says so. To *make* it
+   no real harm, and the per-operation consistency judgment says so. To *make* it
    acceptable you model the intermediate states explicitly as first-class statuses
    (`pending`, `compensating`) that the UI and operators understand, ensure the saga
    converges (forward or backward), and — where a visible effect like a card charge
@@ -579,10 +579,10 @@ Write down your answer to each question before expanding it — checking without
 ## Cumulative review
 
 Closed book — cover the earlier modules and answer from memory. This ties modules
-00–04 into one chain, because they are one chain: each pattern exists to handle a
+01–04, and the consistency lessons before them, into one chain, because they are one chain: each pattern exists to handle a
 failure the previous one exposed.
 
-1. **(00 → 04)** A saga leaves the system partially updated for a window. Name the
+1. **(SD 15 → 04)** A saga leaves the system partially updated for a window. Name the
    consistency model that window represents, explain why CAP/PACELC says you're not
    getting something for nothing by accepting it, and give the per-operation
    reasoning that decides whether a *particular* saga's window is tolerable.
@@ -597,7 +597,7 @@ failure the previous one exposed.
    solves, the specific failure mode that makes it unsuitable for a high-throughput
    checkout, and how a saga sidesteps that failure mode (and what it gives up to do
    so).
-5. **(00–04 synthesis)** You're handed "process a refund request": validate the
+5. **(01–04 synthesis)** You're handed "process a refund request": validate the
    order, reverse the payment, restock the item, and email the customer. Sketch this
    as a saga — choreography or orchestration and why, the forward steps and their
    compensations, where the idempotency keys live, which step is irreversible and
@@ -606,11 +606,11 @@ failure the previous one exposed.
 <details>
 <summary>Answers</summary>
 
-1. The window is **eventual consistency** (module 00): the system converges to a
+1. The window is **eventual consistency** (SD 15): the system converges to a
    consistent state but is temporarily divergent in between. CAP/PACELC says this
    isn't free — you bought availability and low coupling by *giving up* strong
    consistency during the window; the trade is real, not a free lunch. Whether a
-   given saga's window is tolerable is a per-operation call (module 00): what does a
+   given saga's window is tolerable is a per-operation call: what does a
    user or the business actually experience during it? "Order shows pending for two
    seconds" is fine; "money can leave one account and appear in neither for two
    seconds" may not be — decide per feature, explicitly.
@@ -669,7 +669,7 @@ failure the previous one exposed.
 [05-cqrs](../05-cqrs/README.md) — sagas coordinate *writes* across services, and a
 recurring theme has been that reads and writes want different things: the write path
 needs strong consistency and careful coordination, while many reads happily tolerate
-staleness (module 00) and just want to be fast. The next module makes that split
+staleness and just want to be fast. The next module makes that split
 architectural. **CQRS** (Command Query Responsibility Segregation) separates the
 model you write through from the model(s) you read from — letting each be optimized,
 scaled, and made consistent independently — and, crucially, examines when that

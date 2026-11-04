@@ -14,16 +14,21 @@ those three modules deferred.
 
 ## Concepts
 
-### The secret lifecycle: it's not "set and forget"
+### The secret lifecycle, in brief
 
-02/09 treated a secret as a static value you inject. In production a secret
-has a *lifecycle*: it's created, distributed to workloads, used, **rotated**
-(replaced with a new value on a schedule or after suspected exposure), and
-eventually revoked. Most secrets-management maturity is about the rotation and
-revocation stages, which the earlier modules never touched. A secret you can't
-rotate quickly is a secret that, once leaked, stays dangerous until you can
-redeploy everything that uses it — which during an incident (module 07) is
-exactly when you can least afford slowness.
+The generic principles — secrets out of code, environment variables as the
+baseline, what a secret manager adds, zero-downtime rotation with overlapping
+validity, the silent leaks through logs and git history, and least-privilege
+blast-radius thinking — are taught in full in
+[Secrets Management](../../../backend/09-security-deep-dive/05-secrets-management/README.md).
+The one idea this module builds on: in production a secret has a *lifecycle* —
+created, distributed to workloads, used, **rotated**, and eventually
+**revoked** — and most secrets-management maturity is about the last two
+stages, which 02/09 never touched. A secret you can't rotate quickly stays
+dangerous until you can redeploy everything that uses it — which during an
+incident (module 07) is exactly when you can least afford slowness. The rest
+of this module is about how rotation and revocation actually work on Kubernetes
+and Azure.
 
 ### Why a Kubernetes `Secret` alone is not a secrets-management solution
 
@@ -61,8 +66,9 @@ mounted secrets are *not* fire-and-forget. Here's the depth:
 ### Key Vault vs. HashiCorp Vault, conceptually
 
 Azure Key Vault isn't the only secrets store; **HashiCorp Vault** is the
-common cloud-agnostic alternative, and knowing the difference sharpens your
-understanding of both:
+common cloud-agnostic alternative (operated hands-on in
+[module 08](../08-hashicorp-vault-in-depth/README.md)), and knowing the
+difference sharpens your understanding of both:
 
 - **Azure Key Vault** — a managed Azure service. Tightly integrated with Azure
   identity (managed identity, workload identity from 07/07), access via Azure
@@ -105,14 +111,16 @@ credentials in CI — federate instead."*
 ### Detecting and responding to a leaked secret
 
 Assume-breach (module 00): secrets *will* occasionally leak — into a log, a
-commit, an error message. Two disciplines matter. **Prevention/detection:**
-secret-scanning (git-hooks, GitHub secret scanning, `trivy fs` from module 01
-catching secrets in source) catches many before they spread. **Response:** the
-*only* safe assumption once a secret is exposed is that it's compromised — so
-you **rotate immediately** (generate a new value, update the store, roll the
-workloads), then revoke the old one, then investigate blast radius. You do not
-"delete the log and hope." Module 07 turns this into a full runbook; here you
-practice the rotation reflex.
+commit, an error message. The general discipline (prevent with scanning,
+respond by rotating first, never "delete the log and hope") is covered in
+[Secrets Management](../../../backend/09-security-deep-dive/05-secrets-management/README.md).
+On this platform the tools are concrete: **detection** is secret-scanning in
+git hooks, GitHub secret scanning, and `trivy fs` from module 01 catching
+secrets in source and images; **response** is generate a new value, update it
+in Key Vault, roll the workloads that consume it (remembering the CSI caveats
+above — a cached or env-var secret needs a restart), then revoke the old value
+and investigate blast radius. Module 07 turns this into a full runbook; here
+you practice the rotation reflex.
 
 ## Command reference
 

@@ -2,7 +2,7 @@
 
 ## Why this matters
 
-Module 05's firewalls decide what's allowed through, and module 04's TLS
+Module 05's firewalls decide what's allowed through, and TLS ([TLS, SSL and HTTPS](../../../backend/01-request-response-fundamentals/09-tls-ssl-and-https/README.md))
 protects one connection's payload. Neither solves a different, common
 need: connecting two entire private networks — your office LAN and your
 cloud VNet, or a remote employee's laptop and your company network —
@@ -91,7 +91,7 @@ typically in two phases: **Phase 1** establishes a secure, authenticated
 channel between the two endpoints themselves (using Diffie-Hellman key
 exchange — the same category of "agree on a shared secret over a public
 channel without ever transmitting the secret itself" trick TLS's handshake
-uses in module 04); **Phase 2** uses that now-secure channel to negotiate
+uses); **Phase 2** uses that now-secure channel to negotiate
 the actual IPSec (ESP) parameters — the keys and algorithms that will
 encrypt the real tunneled traffic. The practical takeaway: a VPN
 connection has two distinct negotiation layers (IKE, then IPSec/ESP) with
@@ -102,7 +102,7 @@ troubleshooting situations, not interchangeable "the VPN is down."
 ### SSL/TLS VPNs: the browser-friendly alternative
 
 Not every VPN uses IPSec. **SSL VPNs** (sometimes marketed as "TLS VPN")
-use the same TLS mechanism from module 04 instead of IPSec's separate
+use the same TLS mechanism that HTTPS uses instead of IPSec's separate
 IKE/ESP machinery — commonly delivered as a browser-accessible portal
 (clientless, reaching specific internal web apps through a gateway) or a
 lightweight client that tunnels traffic over a standard TLS connection.

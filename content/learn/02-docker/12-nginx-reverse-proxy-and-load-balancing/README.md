@@ -132,6 +132,9 @@ order). Two other built-in strategies matter:
   (strict rotation)        (fewest busy wins)        (same client, same backend)
 ```
 
+See also: [Load balancing concepts](../../04-networking-fundamentals/06-load-balancing-concepts/README.md)
+for L4 vs L7, health checks and session persistence independent of nginx.
+
 ### TLS termination: HTTPS ends at nginx, HTTP continues inward
 
 "Terminating" TLS means nginx is the one holding the certificate and

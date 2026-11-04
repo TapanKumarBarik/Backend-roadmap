@@ -185,7 +185,10 @@ are the ones that catch careful teams:
   secret is: **rotate it immediately** (assume it's compromised — bots find
   public ones in seconds), *then* optionally scrub history (`git filter-repo`,
   BFG). Rotation first, because scrubbing history doesn't un-leak what was
-  already cloned. Prevent it with a **pre-commit secret scanner** (`gitleaks`,
+  already cloned. The full response order for *any* exposed secret is the same:
+  generate a new value, update the store, roll the workloads that use it, then
+  revoke the old value and investigate the blast radius — never "delete the log
+  and hope." Prevent it with a **pre-commit secret scanner** (`gitleaks`,
   `detect-secrets`, `trufflehog`) that blocks commits containing secret-shaped
   strings — the same "shift left" idea as dependency scanning in module 06.
 
@@ -557,6 +560,7 @@ Closed-book. Don't reopen modules 00-05 while attempting these.
 - [Pydantic `SecretStr`](https://docs.pydantic.dev/latest/api/types/#pydantic.types.SecretStr) - the type that masks secret values in reprs and logs.
 - [HashiCorp Vault documentation](https://developer.hashicorp.com/vault/docs) - centralized secret storage, dynamic secrets, and rotation.
 - [gitleaks](https://github.com/gitleaks/gitleaks) - the pre-commit secret scanner that blocks secrets before they enter git history.
+- [Track 11: Secrets management in depth](../../../learn/11-security-deep-dive/02-secrets-management-in-depth/README.md) - the platform angle: Key Vault CSI rotation on Kubernetes, why a Kubernetes `Secret` isn't management, and OIDC instead of long-lived CI secrets.
 
 ## Next
 

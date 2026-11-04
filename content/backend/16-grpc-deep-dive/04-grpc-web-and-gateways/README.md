@@ -61,7 +61,7 @@ cors:
 streaming.** Server streaming works; the other two do not, because the
 browser cannot incrementally write a request body. If your design needs
 bidi from a browser, you want WebSockets
-(`learn/04-networking-fundamentals/11-websocket-and-grpc`), not gRPC-Web.
+([WebSockets and Server-Sent Events](../../06-background-processing-and-realtime/07-websockets-and-server-sent-events/README.md)), not gRPC-Web.
 
 ### Option 2: JSON/HTTP transcoding gateway
 

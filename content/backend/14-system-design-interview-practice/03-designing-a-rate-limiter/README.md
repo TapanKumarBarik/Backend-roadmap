@@ -570,6 +570,8 @@ find out what actually stuck.
 - [Leaky bucket algorithm](https://en.wikipedia.org/wiki/Leaky_bucket) - the companion algorithm that smooths bursty input into a constant output rate.
 - [Redis — INCR and atomic counters](https://redis.io/docs/latest/commands/incr/) - the atomic primitive that eliminates the read-modify-write race central to distributed rate limiting.
 - [Redis — EVAL / Lua scripting](https://redis.io/docs/latest/develop/interact/programmability/eval-intro/) - how to run the compound token-bucket read-modify-write atomically server-side without round-trip races.
+- [Rate Limiting and Abuse Prevention](../../09-security-deep-dive/04-rate-limiting-and-abuse-prevention/README.md) - the algorithms in depth (fixed and sliding window, token and leaky bucket) and how to apply them against abuse.
+- [Retries, Prioritization, and Rate Limiting in Queues](../../06-background-processing-and-realtime/02-retries-prioritization-and-rate-limiting-in-queues/README.md) - rate limiting applied to background workers calling a limited downstream API.
 
 ## Next
 

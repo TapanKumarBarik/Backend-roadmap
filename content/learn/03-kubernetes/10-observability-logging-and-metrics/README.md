@@ -393,6 +393,7 @@ Write down your answer to each question before expanding it — checking without
 - [Resource Metrics Pipeline (kubectl top)](https://kubernetes.io/docs/tasks/debug/debug-cluster/resource-metrics-pipeline/) - what `kubectl top`/metrics-server expose and their point-in-time limitation.
 - [Prometheus documentation](https://prometheus.io/docs/introduction/overview/) - the de facto metrics/time-series system introduced in this module.
 - [kube-prometheus-stack Helm chart](https://github.com/prometheus-community/helm-charts/tree/main/charts/kube-prometheus-stack) - the community chart the exercises install for Prometheus + Grafana.
+- [Logging Fundamentals](../../../backend/08-observability-and-operational-readiness/04-logging-fundamentals/README.md) - the application side: choosing log levels, structured key/value output, and what belongs in a log line.
 
 ## Next
 

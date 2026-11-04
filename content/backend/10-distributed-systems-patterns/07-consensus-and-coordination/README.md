@@ -73,7 +73,7 @@ and more things to break, so even numbers are wasteful. And it's why the *minori
 side of a partition **stops serving**: if a 5-node cluster splits 3–2, the 3-side has
 quorum and keeps operating; the 2-side *cannot* reach majority and correctly refuses
 to make decisions (better to be unavailable than to split-brain — CP under partition,
-module 00). The quorum is the concrete mechanism behind every "the minority side
+[CAP Theorem](../../../system-design/01-core-fundamentals/13-cap-theorem/README.md)). The quorum is the concrete mechanism behind every "the minority side
 sacrifices availability" statement in this track.
 
 ### Raft at concept level: leader, term, replicated log
@@ -421,7 +421,7 @@ dispatches carrying a lower term, so the resumed old scheduler (old term) is fen
 even though it still thinks it leads. Run an **odd** number (3 or 5) so a real majority
 exists and tolerate 1–2 failures. During a partition, only the side with **quorum**
 elects/keeps a leader and dispatches; the minority side *cannot* reach majority and
-correctly *stops dispatching* — that's CP-under-partition (module 00), and it's the
+correctly *stops dispatching* — that's CP-under-partition (SD 13), and it's the
 right behavior because pausing is strictly better than two schedulers double-running
 every job.
 
@@ -519,7 +519,7 @@ Write down your answer to each question before expanding it — checking without
    leader and committing. The 2-side cannot reach majority (needs 3) and therefore
    *refuses* to make decisions, becoming unavailable. That's correct because allowing
    the minority to also decide would produce two conflicting decisions (split-brain,
-   lost/divergent data); pausing the minority (CP under partition, module 00)
+   lost/divergent data); pausing the minority (CP under partition, SD 13)
    sacrifices availability to preserve agreement, which is exactly the trade correct
    consensus is supposed to make.
 
@@ -527,14 +527,14 @@ Write down your answer to each question before expanding it — checking without
 
 ## Cumulative review
 
-Closed book — cover modules 00–07 and answer from memory. This is the track's second
+Closed book — cover modules 01–07 and the CAP and consistency lessons, and answer from memory. This is the track's second
 and final cumulative review; it stitches every pattern into the single story the track
 has been telling: *in a distributed system, failure and concurrency are the default,
 and each pattern is a specific, principled response to a failure the previous ones
 exposed.*
 
-1. **(00, 03, 07)** Trace the consistency-vs-availability trade-off through three
-   modules: how CAP frames it (00), how 2PC's coordinator makes the *wrong* trade
+1. **(SD 13, 03, 07)** Trace the consistency-vs-availability trade-off through three
+   modules: how CAP frames it (SD 13), how 2PC's coordinator makes the *wrong* trade
    under failure (03), and how consensus quorums make the *right* one (07). What single
    principle unifies "the minority side stops" across all three?
 2. **(01, 02, 04, 06)** Idempotency (01) recurs in almost every later module. Explain
@@ -547,7 +547,7 @@ exposed.*
    how sagas trade atomicity for availability (04), how CQRS splits the write and read
    models the saga implied (05), and how event sourcing makes the write model a log the
    read models project from (06). What thread runs through all four?
-5. **(00–07 synthesis)** You're the architect for a ride-hailing "request a ride"
+5. **(01–07 synthesis)** You're the architect for a ride-hailing "request a ride"
    feature: match a rider to exactly one nearby driver, charge the rider, record the
    trip's lifecycle for support/audit, and show the rider live status. For each of
    these needs, name the pattern(s) from this track you'd apply and the specific
@@ -559,7 +559,7 @@ exposed.*
 <details>
 <summary>Answers</summary>
 
-1. CAP (00) frames it as a forced choice *during a partition*: keep serving and risk
+1. CAP (SD 13) frames it as a forced choice *during a partition*: keep serving and risk
    inconsistency (AP) or refuse and stay consistent (CP). 2PC (03) makes the wrong
    trade under failure — when the coordinator dies mid-protocol, participants block
    *holding locks* indefinitely, sacrificing availability *without even guaranteeing
@@ -612,7 +612,7 @@ exposed.*
    charge with no ride or a match with no charge, without a blocking 2PC. (d)
    **Event sourcing (06)** — record the trip's lifecycle as an immutable event log, so
    support can replay exactly what happened and reconstruct any past state (audit,
-   tamper-evident). (e) **CQRS read model (05) + eventual consistency (00)** — serve
+   tamper-evident). (e) **CQRS read model (05) + eventual consistency (SD 15)** — serve
    live status from a fast denormalized projection that tolerates slight lag, with
    read-your-writes for the rider's own trip so they always see their current status
    immediately.

@@ -25,32 +25,30 @@ container*. Everything that makes an endpoint a **product** — identity of the
 caller, limits, packaging, analytics, a contract you can publish — has to be
 added on top. That's the gap an API gateway fills.
 
-### The gateway pattern: one front door for many backends
+### The gateway pattern, in brief
 
-An **API gateway** is a reverse proxy with opinions. Every client request hits
-the gateway first; the gateway decides whether to accept it, possibly transforms
-it, forwards it to the right backend, and then possibly transforms the response
-on the way out. Structurally this is the same "traffic enters at one controlled
-edge" idea you met twice already — the **Ingress controller** in track 07 (one
-entry point routing to many Services) and the **Envoy-based ingress** fronting
-Container Apps in track 06. The gateway generalizes it: instead of only routing
-by host/path, it also authenticates, rate-limits, meters, versions, and
-reshapes. One front door, many backends, one place to enforce cross-cutting
-rules — so each backend team doesn't reinvent auth and throttling.
+The generic pattern — a reverse proxy at the edge that owns the concerns every
+request shares (auth termination, rate limiting, routing, TLS, logging), how it
+differs from an Ingress controller and a service mesh, and when a gateway earns
+its complexity — is taught in full in
+[API Gateways and Backend-for-Frontend](../../../backend/11-advanced-api-paradigms/09-api-gateways-and-bff/README.md).
+The short version for this track: an **API gateway** is one front door for many
+backends, the same "traffic enters at one controlled edge" idea as the
+**Ingress controller** in track 07 and the **Envoy-based ingress** fronting
+Container Apps in track 06, generalized so the edge also authenticates,
+rate-limits, meters, versions and reshapes — once, instead of in every backend.
 
-### Gateway vs. ingress vs. service mesh
+### Where APIM sits relative to Ingress and a service mesh
 
-These three overlap enough to blur, so pin them down. An **Ingress controller**
-(track 07) is L7 routing *into* a cluster — host/path to Service, plus TLS
-termination. A **service mesh** (track 13) governs *east-west* traffic
-*between* services inside the platform — mTLS, retries, traffic splitting,
-service-to-service authz. An **API gateway** governs *north-south* traffic at
-the *product* edge — the boundary between your organization's APIs and their
-consumers (partners, mobile apps, other teams). Ingress asks "which pod?"; the
-mesh asks "can service A call service B, securely?"; the gateway asks "is this
-*consumer* allowed to use this *API product*, within their quota, on this
-version?" APIM is a gateway; it sits *in front of* an Ingress or Container App,
-not instead of it.
+The three edge technologies you'll meet on Azure answer different questions.
+The **Ingress controller** (track 07) asks "which pod?" — L7 routing *into* a
+cluster. A **service mesh** (track 13) asks "can service A call service B,
+securely?" — *east-west* traffic between services. **APIM**, as the API
+gateway, asks "is this *consumer* allowed to use this *API product*, within
+their quota, on this version?" — *north-south* traffic at the product edge,
+between your organization's APIs and their consumers (partners, mobile apps,
+other teams). APIM sits *in front of* an Ingress or Container App, not instead
+of it.
 
 ### What APIM adds on top of the endpoint
 
@@ -164,7 +162,8 @@ mental model against resources you can stand up cheaply or already have.
    Ingress (track 07) vs. service mesh (track 13) vs. API gateway (this track)
    across three columns: *primary traffic direction* (north-south vs east-west),
    *primary question it answers*, and *does APIM replace it or sit in front of
-   it*. Confirm your answers against the "gateway vs ingress vs mesh" concept.
+   it*. Confirm your answers against the "where APIM sits relative to Ingress
+   and a service mesh" concept.
 
 7. **Diagnose (paper) a misplaced responsibility.** A teammate says "we don't
    need APIM, we already have rate limiting in the Ingress controller's nginx

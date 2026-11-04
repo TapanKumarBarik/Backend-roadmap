@@ -538,6 +538,7 @@ Write down your answer to each question before expanding it — checking without
 - [The Twelve-Factor App — IV. Backing services](https://12factor.net/backing-services) - treating databases, caches, and queues as attached, swappable resources.
 - [Beyond the Twelve-Factor App (VMware/O'Reilly)](https://www.vmware.com/docs/beyond-the-12-factor-app) - Kevin Hoffman's updated take that extends and revises the factors for modern cloud-native apps.
 - [pydantic-settings documentation](https://docs.pydantic.dev/latest/concepts/pydantic_settings/) - the concrete implementation of factor III (config in the environment) for a FastAPI service.
+- [The 12-Factor App in a Container](../../13-devops-for-backend-engineers/01-the-12-factor-app-in-a-container/README.md) - track 13's follow-up: config injection, statelessness and SIGTERM draining once the app runs in a container.
 
 ## Next
 

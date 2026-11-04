@@ -465,6 +465,8 @@ Write down your answer to each question before expanding it — checking without
 - [Redis - EVAL / Lua scripting](https://redis.io/docs/latest/develop/interact/programmability/eval-intro/) - running read-compute-write atomically for a correct token bucket.
 - [SlowApi documentation](https://slowapi.readthedocs.io/) - the FastAPI/Starlette rate limiter used in this module.
 - [CWE-307: Improper Restriction of Excessive Authentication Attempts](https://cwe.mitre.org/data/definitions/307.html) - the formal weakness this module defends against.
+- [Designing a Rate Limiter](../../14-system-design-interview-practice/03-designing-a-rate-limiter/README.md) - the same algorithms as a distributed system-design interview problem: a shared Redis store, read-modify-write races, and the trade-offs between algorithms.
+- [Retries, Prioritization, and Rate Limiting in Queues](../../06-background-processing-and-realtime/02-retries-prioritization-and-rate-limiting-in-queues/README.md) - the outbound side: throttling your own workers so they respect a downstream API's limits.
 
 ## Next
 

@@ -3,7 +3,7 @@
 ## Why this matters
 
 Every module so far has been circling one observation without naming it: reads and
-writes are different animals. Module 00 said many reads happily tolerate staleness
+writes are different animals. The [consistency lessons](../../../system-design/01-core-fundamentals/15-consistency-models/README.md) showed that many reads happily tolerate staleness
 while a few writes demand strong consistency. Module 01 made writes safe to retry.
 Module 04's sagas were entirely about coordinating *writes*, while noting that the
 read side just wants to be fast and can lag. **CQRS** — Command Query Responsibility
@@ -25,7 +25,7 @@ conflict, or a need to serve the same data in many differently-optimized read sh
 Learn to recognize those pressures, because reaching for CQRS without them is one of
 the most common ways teams manufacture accidental complexity. Getting this judgment
 right — and understanding the read-your-writes and eventual-consistency consequences
-of splitting the models (modules 00, 04) — is what this module is about.
+of splitting the models (module 04 and SD 15) — is what this module is about.
 
 ## Concepts
 
@@ -99,18 +99,18 @@ pressure (below) forces it.
 ### Eventual consistency between write and read models
 
 The moment your read model is a separate store updated asynchronously, the read side
-**lags** the write side — this is exactly the eventual consistency from module 00,
+**lags** the write side — this is exactly the eventual consistency from SD 15,
 now baked into your architecture on purpose. A command commits to the write model,
 an event is published, a projector eventually applies it to the read model; in
 between, a query to the read model returns the *old* state. This is the same
-"read-your-writes" hazard from module 00: a user places an order (command → write
+"read-your-writes" hazard: a user places an order (command → write
 model) and is redirected to "my orders" (query → read model), which hasn't been
 updated yet and shows *no order* — the confusing "I just did it and it's not there"
 bug.
 
 You must plan for this explicitly, using the tools you already have:
 
-- **Read-your-writes for the acting user** (module 00): after a command, either read
+- **Read-your-writes for the acting user**: after a command, either read
   that user's own affected data from the *write* model briefly, or have the command
   return the new state directly so the UI can render optimistically without waiting
   for the projection to catch up.
@@ -184,7 +184,7 @@ boundary:
   outbox: commit the state change and the event in one local transaction, deliver
   at-least-once, project idempotently. A dropped event means a read model that's
   permanently wrong, so this pipeline must be as reliable as any saga step.
-- **Consistency is chosen per read** (module 00). Reads that tolerate lag go to the
+- **Consistency is chosen per read** (SD 15). Reads that tolerate lag go to the
   read model; the rare read that needs the latest write goes to the write model. CQRS
   doesn't force *all* reads to be eventually consistent — it gives you the *choice*
   per query.
@@ -416,8 +416,8 @@ dropped event means a permanently wrong read model.
 
 ## Independent challenge
 
-No code given. Recall **00-cap-theorem-and-consistency-models**' per-operation
-consistency framing and **04-the-saga-pattern**'s outbox-based event delivery — you'll
+No code given. Recall the per-operation consistency framing of
+[Consistency Models](../../../system-design/01-core-fundamentals/15-consistency-models/README.md) and **04-the-saga-pattern**'s outbox-based event delivery — you'll
 use both. Design the read/write architecture for a **social feed**: users post
 updates (writes) and scroll a personalized timeline (reads), with reads outnumbering
 writes by orders of magnitude and the timeline needing to be assembled fast from many
@@ -445,7 +445,7 @@ propagates via the transactional outbox (module 04/06): commit the post + an out
 event in one transaction, relay at-least-once, projector fans it out idempotently
 (dedupe on `(post_id, follower_id)`). Timelines tolerate eventual consistency — a post
 showing up a second late in followers' feeds is invisible — but the **posting user
-must see their own post immediately**, so give them read-your-writes (module 00):
+must see their own post immediately**, so give them read-your-writes:
 render their post optimistically from the write model / the command response rather
 than waiting for fan-out. Keep the projector idempotent and monitored, and because
 the timeline is a *derived* read model, you can always **rebuild** a user's timeline
@@ -466,7 +466,7 @@ model is disposable, which is one of CQRS's biggest operational wins.
   only when a measured pressure demands it.
 - **Ignoring read-your-writes.** A separate async read model lags, so the user who
   just issued a command and re-reads sees stale/absent data. Serve the actor's own
-  recent data from the write model (or return it from the command) — module 00's
+  recent data from the write model (or return it from the command) — the read-your-writes
   fix, now mandatory.
 - **A non-idempotent projector.** The write→read pipeline is at-least-once, so the
   projector will see events twice. Upsert / dedupe so re-applying an event is a

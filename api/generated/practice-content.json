@@ -440,7 +440,7 @@
    "title": "CAP theorem and consistency models",
    "topic": "distributed-systems",
    "difficulty": "intermediate",
-   "module": "backend/10-distributed-systems-patterns/00-cap-theorem-and-consistency-models/README.md",
+   "module": "system-design/01-core-fundamentals/13-cap-theorem/README.md",
    "description": "What CAP really forces you to choose, how it differs from ACID, and which consistency model each kind of feature needs.",
    "questions": [
     {

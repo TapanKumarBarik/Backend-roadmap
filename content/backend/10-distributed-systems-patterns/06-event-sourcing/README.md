@@ -159,8 +159,8 @@ mistake as reflexive CQRS. The real costs:
   versions into new ones on read) or careful additive-only changes. This is the
   single biggest long-term burden — you can never "just change the schema."
 - **Eventual consistency on reads.** The write log is strongly consistent, but read
-  models (projections) lag — the same read-your-writes hazards as CQRS (modules 00,
-  05), to be handled the same way.
+  models (projections) lag — the same read-your-writes hazards as CQRS (module 05 and
+  [Consistency Models](../../../system-design/01-core-fundamentals/15-consistency-models/README.md)), to be handled the same way.
 - **A genuinely different mental model.** "State is a fold over events" is unfamiliar;
   everyone on the team must internalize it, and tooling/debugging looks different
   (you inspect event streams, not rows).
@@ -460,7 +460,7 @@ then append `Withdrawn`; `apply` stays pure. Balance stays fast via **snapshots*
 (balance @ version N + replay events after), and the snapshot is a deletable cache —
 if you change how interest folds, you recompute snapshots from the immutable events.
 "Current balance" is a projection/read model (eventually consistent — give the acting
-customer read-your-writes per module 00), while "past month's statement" is a
+customer read-your-writes), while "past month's statement" is a
 **temporal replay**: fold the events whose timestamps fall in that month, which is
 exact and reproducible forever because the events are immutable (that's also what
 makes it *tamper-evident* — any change would be a new, visible correcting event, and
@@ -501,7 +501,7 @@ for audit remain intact and foldable. That reconciles "never rewrite history" wi
   changes from day one — "just change the event shape" corrupts your ability to
   replay history.
 - **Forgetting reads are eventually consistent.** Projections lag the write log, so
-  the read-your-writes hazards from modules 00 and 05 apply — serve the acting user's
+  the read-your-writes hazards from module 05 apply — serve the acting user's
   own recent state from replayed write state or the command response.
 - **No plan for deletes/privacy.** Append-only collides with "right to be forgotten."
   Decide up front (crypto-shredding, tombstones) — you can't just `DELETE` from an

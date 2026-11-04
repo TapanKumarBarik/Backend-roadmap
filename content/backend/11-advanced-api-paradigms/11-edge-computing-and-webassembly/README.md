@@ -1,4 +1,4 @@
-# Module 08: Edge Computing and WebAssembly
+# Module 11: Edge Computing and WebAssembly
 
 ## Why this matters
 

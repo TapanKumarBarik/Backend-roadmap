@@ -165,7 +165,7 @@ or you're maintaining enough hand-rolled orchestrators that the
 platform's cost is cheaper than N more `saga_state` tables. **Stick with
 module 04's approach when**: the saga is short, few steps, and adding a
 new piece of infrastructure isn't worth it yet — the same escalation
-judgment this whole track has taught from module 00 onward.
+judgment this whole track has taught from the start.
 
 ## Command reference
 
@@ -600,7 +600,7 @@ Write down your answer to each question before expanding it — checking without
 ## Next
 
 [09-capstone-project](../09-capstone-project/README.md) — you now hold
-the whole toolkit: per-operation consistency (00), idempotency (01),
+the whole toolkit: per-operation consistency ([SD 15](../../../system-design/01-core-fundamentals/15-consistency-models/README.md)), idempotency (01),
 locking and fencing (02), the 2PC trade-off (03), sagas (04), CQRS (05),
 event sourcing (06), consensus/coordination (07), and durable workflow
 orchestration (08). The capstone stops teaching new patterns and asks
