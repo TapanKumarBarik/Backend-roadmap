@@ -466,6 +466,10 @@ Extend the shortener with **expiring links**. A link may carry `expires_in_secon
 - [MDN: HTTP caching](https://developer.mozilla.org/en-US/docs/Web/HTTP/Guides/Caching) - how `Cache-Control: max-age` works, what shared caches such as CDNs do with it, and why a stored response stays until it expires or is purged.
 - [FastAPI: First steps](https://fastapi.tiangolo.com/tutorial/first-steps/) - the framework used for the running example.
 
+## Free PDF notes
+
+Download the short version of this lesson as a printable PDF, with its diagrams and eight interview questions: [SD-A-001.pdf](https://backendroadmap.com/notes/system-design/SD-A-001.pdf). All Phase 1 notes in one file: [Phase 1, Core Fundamentals (PDF)](https://backendroadmap.com/notes/system-design/Phase1_Core_Fundamentals_Notes.pdf).
+
 ## Next
 
 [Lesson 02: Client-Server and Multi-Tier Architecture](../02-client-server-and-multi-tier-architecture/README.md)
