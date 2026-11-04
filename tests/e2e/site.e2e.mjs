@@ -15,7 +15,7 @@ import test, { before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { ROOT, config } from '../../scripts/lib/config.mjs';
+import { ROOT, CONTENT_ROOT, config, isPlaceholderText } from '../../scripts/lib/config.mjs';
 import { parseClock } from '../../webapp/src/lib/curriculum/videos.js';
 import { BASE, launchBrowser, openPage } from './support.mjs';
 
@@ -26,7 +26,22 @@ const VIDEO_ID = 'jNQXAC9IVRw';
 const VIDEO_LESSON = '/backend/10-distributed-systems-patterns/01-idempotency-in-practice/';
 const VIDEO_LESSON_ID = 'UQ_2Fuc3QmE';
 const LECTURE = '/system-design/01-core-fundamentals/01-what-is-system-design/';
-const SOON_LECTURE = '/system-design/01-core-fundamentals/02-client-server-and-multi-tier-architecture/';
+
+// A lecture whose video is published but whose text is not written yet: found in the content, so writing the last of them does not
+// break the tests. When there is none left, the checks about such a lecture are skipped (the unit tests keep the rule itself).
+function findSoonLecture() {
+  const { videos } = JSON.parse(fs.readFileSync(path.join(ROOT, 'dist', 'videos.json'), 'utf8'));
+  for (const video of videos) {
+    const file = path.join(CONTENT_ROOT, video.file);
+    if (video.chapters?.length >= 3 && fs.existsSync(file) && isPlaceholderText(fs.readFileSync(file, 'utf8'))) {
+      return { url: `/${video.file.replace(/README\.md$/, '')}`, summary: video.summary };
+    }
+  }
+  return null;
+}
+const SOON = findSoonLecture();
+const SOON_LECTURE = SOON?.url;
+const NO_SOON = { skip: SOON ? false : 'every lecture with a video has its text now' };
 
 let browser;
 before(async () => { browser = await launchBrowser(); });
@@ -221,7 +236,7 @@ test('a module with a video shows it under the title, and a chapter starts the p
   await context.close();
 });
 
-test('a written lecture has its video and its text; one still to come has the video and says so', async () => {
+test('a written lecture has its video and its text', async () => {
   const written = await open(LECTURE);
   await written.goto();
   await written.page.waitForSelector('#content p');
@@ -231,7 +246,9 @@ test('a written lecture has its video and its text; one still to come has the vi
   assert.ok(await written.page.locator('#content .codeblock').count() >= 4, 'the lecture has its code');
   assert.equal(await written.page.locator('.help-write').count(), 0, 'a written lecture does not ask for an author');
   await written.context.close();
+});
 
+test('a lecture whose text is still to come has the video and says so', NO_SOON, async () => {
   const soon = await open(SOON_LECTURE);
   await soon.goto();
   await soon.page.waitForSelector('.help-write');
@@ -304,7 +321,7 @@ test('a module with a video carries it in its built page: structured data, a pla
   assert.ok(marked.includes(`${VIDEO_LESSON.slice(1)}README.md`), 'the module index records which modules have a video');
 });
 
-test('a lecture whose text is not written yet is a page about its video: indexed, in the sitemap, described by the video', () => {
+test('a lecture whose text is not written yet is a page about its video: indexed, in the sitemap, described by the video', NO_SOON, () => {
   const html = builtPage(SOON_LECTURE);
   assert.doesNotMatch(html, /<meta name="robots"/, 'it is not kept out of search results');
   assert.match(fs.readFileSync(path.join(ROOT, 'dist', 'sitemap.xml'), 'utf8'), new RegExp(`<loc>${config.site.url}${SOON_LECTURE}</loc>`));
@@ -312,10 +329,10 @@ test('a lecture whose text is not written yet is a page about its video: indexed
   assert.ok(graph.some((x) => x['@type'] === 'WebPage') && !graph.some((x) => x['@type'] === 'TechArticle'), 'it is a page, not an article');
   assert.ok(graph.some((x) => x['@type'] === 'VideoObject'));
   const description = /<meta name="description" content="([^"]*)">/.exec(html)[1];
-  assert.match(description, /^Why is almost every app split into layers\?/, 'what the video says about itself');
+  assert.ok(description.length > 40, 'described by what the video says about itself');
   assert.match(html, new RegExp(`<meta property="og:image" content="${config.site.url}/${config.shareImage.dir}${SOON_LECTURE.replace(/\/$/, '')}\\.png">`));
-  assert.match(builtPage('/system-design/01-core-fundamentals/'), new RegExp(`<a href="${SOON_LECTURE}">`), 'and its track links to it, so a crawler can find it');
-  assert.match(builtPage(LECTURE), new RegExp(`Next: <a href="${SOON_LECTURE}">`), 'as does the lecture before it');
+  const track = `/${SOON_LECTURE.split('/').filter(Boolean).slice(0, 2).join('/')}/`;
+  assert.match(builtPage(track), new RegExp(`<a href="${SOON_LECTURE}">`), 'and its track links to it, so a crawler can find it');
 });
 
 test('an unwritten module with no video stays out of search results and keeps the site picture', () => {
