@@ -23,7 +23,7 @@ Lessons are being published one at a time. Those not yet out are listed so you c
 | 01 | [What is a network? Clients, servers and the conversation between them](01-what-is-a-network/README.md) | available |
 | 02 | [Packets: why data travels in small pieces](02-packets/README.md) | available |
 | 03 | [IP addresses: the street address of every device](03-ip-addresses/README.md) | available |
-| 04 | Ports and sockets: the flat number inside the building | coming soon |
+| 04 | [Ports and sockets: which app gets the packet](04-ports-and-sockets/README.md) | available |
 | 05 | Protocols and layers: agreed languages, and why we stack them | coming soon |
 | | **Models** | |
 | 06 | The OSI model made simple | coming soon |

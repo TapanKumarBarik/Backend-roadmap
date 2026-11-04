@@ -2,7 +2,7 @@
 
 ## Roadmap
 
-You are in **System Design Interview Prep**, Track 02, **Networking from Zero**: lesson 3 of 30. It builds on [lesson 2](../02-packets/README.md), where every packet carries a header saying where it's from and where it's going. The next lesson, ports and sockets, is coming soon. See [the track overview](../README.md) for the whole plan.
+You are in **System Design Interview Prep**, Track 02, **Networking from Zero**: lesson 3 of 30. It builds on [lesson 2](../02-packets/README.md), where every packet carries a header saying where it's from and where it's going. The next lesson is [ports and sockets](../04-ports-and-sockets/README.md). See [the track overview](../README.md) for the whole plan.
 
 These are the written notes for the lesson's video. Prefer paper? The same notes are a free, printable PDF: [download SD-N-003.pdf](https://backendroadmap.com/notes/system-design/SD-N-003.pdf).
 
@@ -223,4 +223,4 @@ Download these notes as a printable PDF, with every picture, the real-numbers ta
 
 ## Next
 
-Next comes lesson 4, ports and sockets: your laptop has one address but runs many apps at once, so which app gets the packet? (coming soon). Until then, the [track overview](../README.md) lists the whole series, and [lesson 8](../08-tcp-sequence-numbers-and-acks/README.md) is already out.
+Next comes [lesson 4, ports and sockets](../04-ports-and-sockets/README.md): your laptop has one address but runs many apps at once, so which app gets the packet? The [track overview](../README.md) lists the whole series.
