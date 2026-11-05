@@ -2,7 +2,7 @@
 
 ## Roadmap
 
-You are in **System Design Interview Prep**, Track 02, **Networking from Zero**: lesson 4 of 30. It builds on [lesson 3](../03-ip-addresses/README.md), where the IP address gets a packet to the right device, like the address that gets a courier to the right flat. The next lesson, protocols and layers, is coming soon. See [the track overview](../README.md) for the whole plan.
+You are in **System Design Interview Prep**, Track 02, **Networking from Zero**: lesson 4 of 30. It builds on [lesson 3](../03-ip-addresses/README.md), where the IP address gets a packet to the right device, like the address that gets a courier to the right flat. The next lesson is [protocols and layers](../05-protocols-and-layers/README.md). See [the track overview](../README.md) for the whole plan.
 
 These are the written notes for the lesson's video. Prefer paper? The same notes are a free, printable PDF: [download SD-N-004.pdf](https://backendroadmap.com/notes/system-design/SD-N-004.pdf).
 
@@ -230,4 +230,4 @@ Download these notes as a printable PDF, with every picture, the port tables and
 
 ## Next
 
-Next comes lesson 5, protocols and layers: how do the two sides agree on what each packet means? (coming soon). Until then, the [track overview](../README.md) lists the whole series, and [lesson 8](../08-tcp-sequence-numbers-and-acks/README.md) is already out.
+Next comes [lesson 5, protocols and layers](../05-protocols-and-layers/README.md): how do the two sides agree on what each packet means? Until then, the [track overview](../README.md) lists the whole series, and [lesson 8](../08-tcp-sequence-numbers-and-acks/README.md) is already out.

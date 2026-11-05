@@ -24,7 +24,7 @@ Lessons are being published one at a time. Those not yet out are listed so you c
 | 02 | [Packets: why data travels in small pieces](02-packets/README.md) | available |
 | 03 | [IP addresses: the street address of every device](03-ip-addresses/README.md) | available |
 | 04 | [Ports and sockets: which app gets the packet](04-ports-and-sockets/README.md) | available |
-| 05 | Protocols and layers: agreed languages, and why we stack them | coming soon |
+| 05 | [Protocols and layers: agreed languages, and why we stack them](05-protocols-and-layers/README.md) | available |
 | | **Models** | |
 | 06 | The OSI model made simple | coming soon |
 | 07 | The TCP/IP model: what happens when you type a URL | coming soon |
