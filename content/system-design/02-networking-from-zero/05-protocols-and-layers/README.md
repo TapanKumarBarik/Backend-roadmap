@@ -2,7 +2,7 @@
 
 ## Roadmap
 
-You are in **System Design Interview Prep**, Track 02, **Networking from Zero**: lesson 5 of 30. It builds on lessons [2](../02-packets/README.md), [3](../03-ip-addresses/README.md) and [4](../04-ports-and-sockets/README.md), where a packet got a header, an IP address found the device and a port found the app. Here we see how all of those fit together as layers. The next lesson, the OSI model, is coming soon. See [the track overview](../README.md) for the whole plan.
+You are in **System Design Interview Prep**, Track 02, **Networking from Zero**: lesson 5 of 30. It builds on lessons [2](../02-packets/README.md), [3](../03-ip-addresses/README.md) and [4](../04-ports-and-sockets/README.md), where a packet got a header, an IP address found the device and a port found the app. Here we see how all of those fit together as layers. The next lesson is [the OSI model](../06-osi-model/README.md). See [the track overview](../README.md) for the whole plan.
 
 These are the written notes for the lesson's video. Prefer paper? The same notes are a free, printable PDF: [download SD-N-005.pdf](https://backendroadmap.com/notes/system-design/SD-N-005.pdf).
 
@@ -198,4 +198,4 @@ Download these notes as a printable PDF, with every picture, the layer table and
 
 ## Next
 
-Next comes lesson 6, the OSI model: the seven-layer version you'll hear in every interview (coming soon). Until then, the [track overview](../README.md) lists the whole series, and [lesson 8](../08-tcp-sequence-numbers-and-acks/README.md) is already out.
+Next comes [lesson 6, the OSI model](../06-osi-model/README.md): the seven-layer version you'll hear in every interview. Until then, the [track overview](../README.md) lists the whole series, and [lesson 8](../08-tcp-sequence-numbers-and-acks/README.md) is already out.
