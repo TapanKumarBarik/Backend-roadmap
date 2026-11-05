@@ -32,7 +32,7 @@ Lessons are being published one at a time. Those not yet out are listed so you c
 | 08 | [TCP part 1: sequence numbers and ACKs, how data is never lost](08-tcp-sequence-numbers-and-acks/README.md) | available |
 | 09 | [TCP part 2: the three-way handshake (SYN, SYN-ACK, ACK)](09-tcp-three-way-handshake/README.md) | available |
 | 10 | [TCP part 3: flow control and congestion control](10-tcp-flow-and-congestion-control/README.md) | available |
-| 11 | TCP part 4: closing, RST, TIME_WAIT and running out of ports | coming soon |
+| 11 | [TCP part 4: closing, RST, TIME_WAIT and running out of ports](11-tcp-closing-time-wait-and-ports/README.md) | available |
 | 12 | UDP vs TCP: when speed beats reliability | coming soon |
 | | **IP in depth** | |
 | 13 | Subnets and CIDR: neighbourhoods of addresses | coming soon |

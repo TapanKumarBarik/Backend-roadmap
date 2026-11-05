@@ -2,7 +2,7 @@
 
 ## Roadmap
 
-You are in **System Design Interview Prep**, Track 02, **Networking from Zero**: lesson 10 of 30. It builds on [lesson 8](../08-tcp-sequence-numbers-and-acks/README.md), where TCP numbered bytes and answered with ACKs, and [lesson 9](../09-tcp-three-way-handshake/README.md), the handshake that opens a connection. Here we see how TCP decides how fast to send. The next lesson, TCP part 4: closing, RST, TIME_WAIT and running out of ports, is coming soon. See [the track overview](../README.md) for the whole plan.
+You are in **System Design Interview Prep**, Track 02, **Networking from Zero**: lesson 10 of 30. It builds on [lesson 8](../08-tcp-sequence-numbers-and-acks/README.md), where TCP numbered bytes and answered with ACKs, and [lesson 9](../09-tcp-three-way-handshake/README.md), the handshake that opens a connection. Here we see how TCP decides how fast to send. The next lesson is [TCP part 4: closing, RST, TIME_WAIT and running out of ports](../11-tcp-closing-time-wait-and-ports/README.md). See [the track overview](../README.md) for the whole plan.
 
 These are the written notes for the lesson's video. Prefer paper? The same notes are a free, printable PDF: [download SD-N-010.pdf](https://backendroadmap.com/notes/system-design/SD-N-010.pdf).
 
@@ -178,4 +178,4 @@ Download these notes as a printable PDF, with every picture, the round-trip math
 
 ## Next
 
-Next comes lesson 11, TCP part 4: how a connection closes, what a reset means, and how a busy server can run out of ports (coming soon). Until then, the [track overview](../README.md) lists the whole series.
+Next comes [lesson 11, TCP part 4](../11-tcp-closing-time-wait-and-ports/README.md): how a connection closes, what a reset means, and how a busy server can run out of ports. The [track overview](../README.md) lists the whole series.
