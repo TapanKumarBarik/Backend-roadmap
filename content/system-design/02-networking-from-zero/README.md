@@ -39,7 +39,7 @@ Lessons are being published one at a time. Those not yet out are listed so you c
 | 14 | Routing and NAT: how packets find their way, and why your phone shares one public address | coming soon |
 | | **DNS** | |
 | 15 | DNS part 1: the phone book of the internet, one lookup step by step | coming soon |
-| 16 | DNS part 2: records, TTL and safe migrations | coming soon |
+| 16 | [DNS part 2: records, TTL and safe migrations](16-dns-records-ttl-and-migrations/README.md) | available |
 | 17 | DNS traffic management: GeoDNS, weighted, failover, anycast | coming soon |
 | | **HTTP** | |
 | 18 | HTTP part 1: requests, responses and methods | coming soon |
