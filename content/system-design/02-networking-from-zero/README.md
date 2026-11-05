@@ -27,7 +27,7 @@ Lessons are being published one at a time. Those not yet out are listed so you c
 | 05 | [Protocols and layers: agreed languages, and why we stack them](05-protocols-and-layers/README.md) | available |
 | | **Models** | |
 | 06 | [The OSI model made simple](06-osi-model/README.md) | available |
-| 07 | The TCP/IP model: what happens when you type a URL | coming soon |
+| 07 | [The TCP/IP model: what happens when you type a URL](07-what-happens-when-you-type-a-url/README.md) | available |
 | | **TCP** | |
 | 08 | [TCP part 1: sequence numbers and ACKs, how data is never lost](08-tcp-sequence-numbers-and-acks/README.md) | available |
 | 09 | TCP part 2: the three-way handshake (SYN, SYN-ACK, ACK) | coming soon |

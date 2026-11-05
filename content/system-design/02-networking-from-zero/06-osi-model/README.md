@@ -2,7 +2,7 @@
 
 ## Roadmap
 
-You are in **System Design Interview Prep**, Track 02, **Networking from Zero**: lesson 6 of 30. It builds on [lesson 5](../05-protocols-and-layers/README.md), where the internet's work was split into four layers. Here we meet the seven-layer OSI model whose numbers every engineer uses. The next lesson, the TCP/IP model in action, is coming soon. See [the track overview](../README.md) for the whole plan.
+You are in **System Design Interview Prep**, Track 02, **Networking from Zero**: lesson 6 of 30. It builds on [lesson 5](../05-protocols-and-layers/README.md), where the internet's work was split into four layers. Here we meet the seven-layer OSI model whose numbers every engineer uses. The next lesson is [the TCP/IP model in action: what happens when you type a URL](../07-what-happens-when-you-type-a-url/README.md). See [the track overview](../README.md) for the whole plan.
 
 These are the written notes for the lesson's video. Prefer paper? The same notes are a free, printable PDF: [download SD-N-006.pdf](https://backendroadmap.com/notes/system-design/SD-N-006.pdf).
 
@@ -205,4 +205,4 @@ Download these notes as a printable PDF, with every picture, the layer table and
 
 ## Next
 
-Next comes lesson 7, the TCP/IP model in action: everything that happens when you type a URL and press Enter (coming soon). Until then, the [track overview](../README.md) lists the whole series, and [lesson 8](../08-tcp-sequence-numbers-and-acks/README.md) is already out.
+Next comes [lesson 7, the TCP/IP model in action](../07-what-happens-when-you-type-a-url/README.md): everything that happens when you type a URL and press Enter. The [track overview](../README.md) lists the whole series.
