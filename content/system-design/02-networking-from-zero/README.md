@@ -45,7 +45,7 @@ Lessons are being published one at a time. Those not yet out are listed so you c
 | 18 | HTTP part 1: requests, responses and methods | coming soon |
 | 19 | [HTTP part 2: status codes, 401 vs 403, caching and ETags](19-http-status-codes-and-caching/README.md) | available |
 | | **Security on the wire** | |
-| 20 | Why encryption: public and private keys, the mailbox picture | coming soon |
+| 20 | [Why encryption: public and private keys, the padlock picture](20-why-encryption-public-and-private-keys/README.md) | available |
 | 21 | The TLS 1.3 handshake step by step | coming soon |
 | 22 | Certificates and PKI: why your browser trusts a site it has never met | coming soon |
 | | **Modern web** | |

@@ -2,7 +2,7 @@
 
 ## Roadmap
 
-You are in **System Design Interview Prep**, Track 02, **Networking from Zero**: lesson 19 of 30. It follows lesson 18, HTTP requests and responses. Here we look at what every status code means and how HTTP caching works. The next lesson, why encryption: public and private keys, is coming soon. See [the track overview](../README.md) for the whole plan.
+You are in **System Design Interview Prep**, Track 02, **Networking from Zero**: lesson 19 of 30. It follows lesson 18, HTTP requests and responses. Here we look at what every status code means and how HTTP caching works. The next lesson is [why encryption: public and private keys](../20-why-encryption-public-and-private-keys/README.md). See [the track overview](../README.md) for the whole plan.
 
 These are the written notes for the lesson's video. Prefer paper? The same notes are a free, printable PDF: [download SD-N-019.pdf](https://backendroadmap.com/notes/system-design/SD-N-019.pdf).
 
@@ -180,4 +180,4 @@ Download these notes as a printable PDF, with every picture, the status code car
 
 ## Next
 
-Next comes lesson 20, why encryption: what anyone on your Wi-Fi can see without it, and how public and private keys fix that (coming soon). Until then, the [track overview](../README.md) lists the whole series.
+Next comes [lesson 20, why encryption: public and private keys](../20-why-encryption-public-and-private-keys/README.md): what anyone on your Wi-Fi can see without it, and how public and private keys fix that.
