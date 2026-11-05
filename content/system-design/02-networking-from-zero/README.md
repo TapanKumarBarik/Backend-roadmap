@@ -30,7 +30,7 @@ Lessons are being published one at a time. Those not yet out are listed so you c
 | 07 | [The TCP/IP model: what happens when you type a URL](07-what-happens-when-you-type-a-url/README.md) | available |
 | | **TCP** | |
 | 08 | [TCP part 1: sequence numbers and ACKs, how data is never lost](08-tcp-sequence-numbers-and-acks/README.md) | available |
-| 09 | TCP part 2: the three-way handshake (SYN, SYN-ACK, ACK) | coming soon |
+| 09 | [TCP part 2: the three-way handshake (SYN, SYN-ACK, ACK)](09-tcp-three-way-handshake/README.md) | available |
 | 10 | TCP part 3: flow control and congestion control | coming soon |
 | 11 | TCP part 4: closing, RST, TIME_WAIT and running out of ports | coming soon |
 | 12 | UDP vs TCP: when speed beats reliability | coming soon |

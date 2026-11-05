@@ -2,7 +2,7 @@
 
 ## Roadmap
 
-You are in **System Design Interview Prep**, Track 02, **Networking from Zero**: lesson 8 of 30 (how TCP never loses your data). It is the first lesson on TCP; the next one, the three-way handshake, is coming soon. See [the track overview](../README.md) for the whole plan.
+You are in **System Design Interview Prep**, Track 02, **Networking from Zero**: lesson 8 of 30 (how TCP never loses your data). It is the first lesson on TCP; the next one is [the three-way handshake](../09-tcp-three-way-handshake/README.md). See [the track overview](../README.md) for the whole plan.
 
 These are the written notes for the lesson's video. Prefer paper? The same notes are a free, printable PDF: [download SD-N-008.pdf](https://backendroadmap.com/notes/system-design/SD-N-008.pdf).
 
@@ -217,4 +217,4 @@ Download these notes as a printable PDF, with every picture, the real-numbers ta
 
 ## Next
 
-Next comes lesson 9, TCP part 2: the three-way handshake, where both sides agree on their starting numbers (coming soon). Until then, the [track overview](../README.md) lists the whole series.
+Next comes [lesson 9, TCP part 2: the three-way handshake](../09-tcp-three-way-handshake/README.md), where both sides agree on their starting numbers. The [track overview](../README.md) lists the whole series.
