@@ -2,7 +2,7 @@
 
 ## Roadmap
 
-You are in **System Design Interview Prep**, Track 02, **Networking from Zero**: lesson 9 of 30. It builds on [lesson 8](../08-tcp-sequence-numbers-and-acks/README.md), where TCP numbered every byte and answered with ACKs. Here we see how both sides agree on their starting numbers before any data moves. The next lesson, TCP part 3: flow control and congestion control, is coming soon. See [the track overview](../README.md) for the whole plan.
+You are in **System Design Interview Prep**, Track 02, **Networking from Zero**: lesson 9 of 30. It builds on [lesson 8](../08-tcp-sequence-numbers-and-acks/README.md), where TCP numbered every byte and answered with ACKs. Here we see how both sides agree on their starting numbers before any data moves. The next lesson is [TCP part 3: flow control and congestion control](../10-tcp-flow-and-congestion-control/README.md). See [the track overview](../README.md) for the whole plan.
 
 These are the written notes for the lesson's video. Prefer paper? The same notes are a free, printable PDF: [download SD-N-009.pdf](https://backendroadmap.com/notes/system-design/SD-N-009.pdf).
 
@@ -203,4 +203,4 @@ Download these notes as a printable PDF, with every picture, the handshake table
 
 ## Next
 
-Next comes lesson 10, TCP part 3: how TCP decides how fast to send, without drowning the receiver or the network (coming soon). Until then, the [track overview](../README.md) lists the whole series.
+Next comes [lesson 10, TCP part 3](../10-tcp-flow-and-congestion-control/README.md): how TCP decides how fast to send, without drowning the receiver or the network. The [track overview](../README.md) lists the whole series.
