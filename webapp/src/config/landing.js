@@ -3,6 +3,7 @@
 // Numbers come from build-time stats (scripts/gen-site-stats.mjs) and are passed to the functions below.
 // The learning paths themselves (titles, goals, steps) are in content/paths.json.
 import { PATH_COPY, formatDuration } from './paths.js';
+import { AREAS } from './index.js';
 import { formatTotal } from '../lib/curriculum/videos.js';
 
 const fmt = (n) => (typeof n === 'number' ? n.toLocaleString('en-US') : '');
@@ -60,40 +61,14 @@ export const PICK = {
   meta: (p) => PATH_COPY.meta(p.modules, formatDuration(p.minutes), p.tracks)
 };
 
-// The whole library, one card per curriculum. `id` is the curriculum folder (site.config.json -> content.curricula);
-// the numbers come from the stats.
+// The whole library, one card per area. The names and the lines about them are site.config.json -> content.areas (the id is the
+// curriculum folder); the numbers come from the stats.
 export const LIBRARY = {
   heading: 'Or browse the library',
   sub: 'Every module, grouped by curriculum. The paths above are routes through this.',
   startLabel: (title) => `Start ${title}`,
   tracksLabel: 'See the tracks',
-  items: [
-    {
-      id: 'backend',
-      title: 'Backend Engineering',
-      blurb: 'HTTP and APIs, authentication, databases, caching, queues, observability and distributed systems, ending in system-design interview practice.'
-    },
-    {
-      id: 'system-design',
-      title: 'System Design Interview Prep',
-      blurb: 'Short lectures on requirements, scaling, latency, availability, CAP and consistency. Each has a video on YouTube and the written version beside it.'
-    },
-    {
-      id: 'genai',
-      title: 'GenAI Engineering',
-      blurb: 'Tokens, transformers and GPUs, then the OpenAI, Anthropic and Gemini APIs, embeddings and vector databases. RAG, agents and serving come next.'
-    },
-    {
-      id: 'learn',
-      title: 'Linux to Cloud',
-      blurb: 'Linux, Docker, Kubernetes, networking, Git, CI/CD and Terraform, with a deep Azure track, then SRE, security and platform engineering.'
-    },
-    {
-      id: 'lld',
-      title: 'Low-Level Design',
-      blurb: 'OOP, SOLID and design patterns up to classic interview problems. Every example is written twice: in Python and in C#.'
-    }
-  ],
+  items: Object.entries(AREAS).map(([id, area]) => ({ id, title: area.label, blurb: area.blurb })),
   // What a curriculum's children are called (lld is a flat course of topics, with no tracks).
   unit: (id, n) => (id === 'lld' ? (n === 1 ? 'topic' : 'topics') : (n === 1 ? 'track' : 'tracks')),
   meta: (id, c) => (c.written < c.modules

@@ -1,6 +1,10 @@
 import { memo } from 'react';
 import '../../styles/paths.css';
+import '../../styles/areas.css';
 import Tree from './Tree.jsx';
+import { AreaSwitch, AreaHead } from './AreaSwitch.jsx';
+import { groupTracks } from '../../lib/curriculum/areas.js';
+import { AREA_COPY } from '../../config/areas.js';
 import { CaretIcon } from '../common/icons.jsx';
 import { PATH_COPY } from '../../config/paths.js';
 
@@ -24,10 +28,13 @@ const FILTERS = [
 // Every prop is replaced rather than changed in place, so skipping the render when none has changed is safe.
 function Sidebar({
   treeData, statusMap, openDirs, onToggleDir, filter, onSetFilter, counts, pathCount, offPath,
-  visibleFiles, currentFile, onOpenFile, onToggleStatus, onCollapse
+  visibleFiles, currentFile, onOpenFile, onToggleStatus, onCollapse, areas, area, onSetArea
 }) {
   const filters = pathCount == null ? FILTERS : [FILTERS[0], { key: 'path', label: PATH_COPY.chipLabel }, ...FILTERS.slice(1)];
   const countOf = (key) => (key === 'all' ? counts.total : key === 'path' ? pathCount : counts[key]);
+  // One area at a time (its curriculum's tracks, in groups) while the whole library is listed; a status filter or a path looks across areas.
+  const picked = filter === 'all' && area !== 'all' ? areas.find((a) => a.id === area && a.node) : null;
+  const sections = picked ? groupTracks(picked, picked.node.children, AREA_COPY.more) : null;
 
   return (
     <aside id="sidebar" className="scroll">
@@ -54,6 +61,7 @@ function Sidebar({
             <CaretIcon />
           </button>
         </div>
+        {filter === 'all' && <AreaSwitch areas={areas} area={picked ? area : 'all'} onPick={onSetArea} />}
       </div>
       {/* The tree shows only the path, so a module opened from outside it (a search, a link) would otherwise
           vanish from the panel with no explanation. */}
@@ -63,8 +71,12 @@ function Sidebar({
         </p>
       )}
       <div id="treeWrap" className="scroll">
+        {picked && <AreaHead area={picked} node={picked.node} statusMap={statusMap} />}
         <Tree
-          nodes={treeData}
+          nodes={picked ? picked.node.children : treeData}
+          sections={sections}
+          baseDepth={picked ? 1 : 0}
+          idPrefix={picked ? picked.id : 'tree'}
           statusMap={statusMap}
           openDirs={openDirs}
           onToggleDir={onToggleDir}

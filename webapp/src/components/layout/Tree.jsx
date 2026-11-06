@@ -2,8 +2,10 @@ import { useEffect, useRef } from 'react';
 import { treeKey } from '../../lib/curriculum/treeKeys.js';
 import TreeNode from './TreeNode.jsx';
 
+// `sections` (optional) is the nodes in groups under headings, as lib/curriculum/areas.js groupTracks makes them; `baseDepth` is how far
+// down the first row is (1 when a curriculum's tracks are shown without the curriculum's own row).
 export default function Tree({
-  nodes, statusMap, openDirs, onToggleDir, filter, visibleFiles,
+  nodes, sections, baseDepth = 0, idPrefix = 'tree', statusMap, openDirs, onToggleDir, filter, visibleFiles,
   currentFile, onOpenFile, onToggleStatus
 }) {
   const rowRefs = useRef(new Map());
@@ -72,22 +74,34 @@ export default function Tree({
 
   return (
     <ul className="tree" id="tree" ref={treeRef} onKeyDown={onKeyDown} onFocus={(e) => { const n = e.target.closest && e.target.closest('.name'); if (n) lastFocused.current = n; }} aria-label="Modules. Arrow keys move, Right and Left open and close a track, Space changes progress.">
-      {nodes.map((node) => (
-        <TreeNode
-          key={node.file || node.path}
-          node={node}
-          statusMap={statusMap}
-          openDirs={openDirs}
-          filter={filter}
-          visibleFiles={visibleFiles}
-          currentFile={currentFile}
-          onToggleDir={onToggleDir}
-          onOpenFile={onOpenFile}
-          onToggleStatus={onToggleStatus}
-          registerRow={registerRow}
-          closeNavOnMobile={closeNavOnMobile}
-        />
-      ))}
+      {(sections || [{ label: null, nodes }]).map((section, i) => {
+        const rows = section.nodes.map((node) => (
+          <TreeNode
+            key={node.file || node.path}
+            node={node}
+            statusMap={statusMap}
+            openDirs={openDirs}
+            filter={filter}
+            visibleFiles={visibleFiles}
+            currentFile={currentFile}
+            onToggleDir={onToggleDir}
+            onOpenFile={onOpenFile}
+            onToggleStatus={onToggleStatus}
+            registerRow={registerRow}
+            closeNavOnMobile={closeNavOnMobile}
+            depth={baseDepth}
+          />
+        ));
+        if (!section.label) return rows;
+        const id = `${idPrefix}-group-${i}`;
+        const shown = filter === 'all' || section.nodes.some((node) => visibleFiles.has(node.file));
+        return (
+          <li key={id} className="tree-group" style={shown ? undefined : { display: 'none' }}>
+            <span className="tree-group__label" id={id}>{section.label}</span>
+            <ul className="tree-group__list" aria-labelledby={id}>{rows}</ul>
+          </li>
+        );
+      })}
     </ul>
   );
 }

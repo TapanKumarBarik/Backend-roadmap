@@ -53,7 +53,7 @@ test('a topic that is not unique is qualified by where it lives, nearest place f
 
 test('the same track name in two curricula is told apart by the curriculum', () => {
   assert.equal(t('backend/09-security').title, 'Security Deep Dive — Backend Engineering');
-  assert.equal(t('learn/11-security').title, 'Security Deep Dive — Learn');
+  assert.equal(t('learn/11-security').title, 'Security Deep Dive — Linux to Cloud');
 });
 
 test('the site name follows the title only when the whole thing fits', () => {

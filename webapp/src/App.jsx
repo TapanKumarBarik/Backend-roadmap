@@ -17,7 +17,7 @@ import { useBookmarks } from './hooks/useBookmarks.js';
 import { useStreak } from './hooks/useStreak.js';
 import { useSiteStats } from './hooks/useSiteStats.js';
 import { useVideos } from './hooks/useVideos.js';
-import { STORAGE, SITE } from './config/index.js';
+import { STORAGE, SITE, AREAS } from './config/index.js';
 import { LEARNING_PATHS, LISTING_COPY, PATH_COPY } from './config/paths.js';
 import { COMMUNITY, COMMUNITY_HOME, communityTab, tabRoute } from './config/community.js';
 import { readStored, writeStored } from './lib/storage.js';
@@ -29,6 +29,7 @@ import { buildPageTitles } from './lib/curriculum/pageTitle.js';
 import { withSeoTitles } from './lib/siteContent/seo.js';
 import { globalCounts } from './lib/curriculum/progressStats.js';
 import { dirsOnPath } from './lib/curriculum/treePath.js';
+import { areaOf, areaList, effectiveArea } from './lib/curriculum/areas.js';
 import { trackPageView, deleteAccount } from './lib/api.js';
 import { fetchPracticeCatalog } from './lib/practiceApi.js';
 import { useLoader } from './hooks/useLoader.js';
@@ -259,6 +260,17 @@ export default function App() {
     return open;
   }, [matchDirs, currentFile, nodeByFile]);
   const { openDirs, toggleDir, expandAll, collapseAll } = useOpenDirs(defaultOpenDirs, `${currentFile || ''}|${filter}`);
+
+  // Which area of the library the tree shows. What the reader picked is remembered; with no pick it is the area being read. Opening a
+  // lesson in another area (a search, a link) moves the tree there, so the lesson never vanishes from it.
+  const [areaPick, setAreaPick] = useState(() => readStored(STORAGE.areaPick));
+  const area = effectiveArea(areaPick, currentFile, AREAS);
+  const areas = useMemo(() => areaList(AREAS, treeData), [treeData]);
+  const pickArea = useCallback((id) => { setAreaPick(id); writeStored(STORAGE.areaPick, id); }, []);
+  useEffect(() => {
+    const reading = areaOf(currentFile, AREAS);
+    if (reading) setAreaPick((pick) => (pick && pick !== 'all' && pick !== reading ? reading : pick));
+  }, [currentFile]);
 
   // Over the modules you can study, not every page: overview READMEs and modules still waiting for an author are
   // not something to finish (see lib/curriculum/curriculumPosition.js isModule).
@@ -595,6 +607,9 @@ export default function App() {
               currentFile={currentFile}
               onOpenFile={openFile}
               onToggleStatus={toggleStatus}
+              areas={areas}
+              area={area}
+              onSetArea={pickArea}
             />
             <div id="resizer" />
           </>

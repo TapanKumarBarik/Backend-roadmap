@@ -7,6 +7,8 @@
 // path depth.
 import { isModule } from './nodeKind.js';
 import { subtreeStats, derivedStatus } from './progressStats.js';
+import { AREAS } from '../../config/index.js';
+import { areaLabel } from './areas.js';
 
 // file -> { index, total, parentTitle, parentPath, parentNode, curriculumTitle, curriculumPath }
 // index is 1-based, and counts only siblings that are themselves pages (a planned module is not one yet).
@@ -46,6 +48,9 @@ export function placeName(position) {
 // name people actually use for it.
 export function shortTitle(node) {
   const raw = node.title || node.name || '';
+  // A curriculum is called what the site.config.json area says, the same on the home page, in the tree, in a title and on a share card.
+  const named = areaLabel(node.path, AREAS);
+  if (named) return named;
   return raw.includes(':') ? raw.split(':')[0].trim() : raw;
 }
 

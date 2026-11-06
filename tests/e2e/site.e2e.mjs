@@ -366,3 +366,44 @@ test('the home page has something to read without JavaScript: a headline, sectio
   assert.equal(site.description, description);
   assert.match(html, new RegExp(`<meta property="og:image" content="${config.site.url}${config.site.socialImage}">`), 'it keeps the site\'s own picture');
 });
+
+test('the sidebar shows one area of the library at a time: its header, its tracks under headings, and a switcher that follows what is read', async () => {
+  const { context, page, goto } = await open(LESSON);
+  await goto();
+  await page.waitForSelector('#content p');
+  const pressed = () => page.locator('#areaRow button[aria-pressed="true"]').allTextContents();
+  assert.deepEqual(await pressed(), ['Backend'], 'a lesson opens in its own area');
+  assert.equal((await page.locator('.area-head__name').textContent()).trim(), 'Backend Engineering');
+  assert.match(await page.locator('.area-head__count').textContent(), /^\d+ of \d+ modules done$/);
+  const headings = await page.locator('#tree .tree-group__label').allTextContents();
+  assert.ok(headings.includes('The request path') && headings.includes('Data and speed'), 'the tracks are grouped under headings: ' + headings.join(', '));
+  assert.equal(await page.locator(`#tree a.name[href="${LESSON}"]`).count(), 1, 'the lesson being read is in the tree');
+  assert.equal(await page.locator('#tree a.name[href^="/genai/"]').count(), 0, 'another area is not');
+
+  await page.locator('#areaRow button', { hasText: 'GenAI' }).click();
+  await page.waitForFunction(() => document.querySelector('.area-head__name')?.textContent.trim() === 'GenAI Engineering');
+  assert.deepEqual(await pressed(), ['GenAI']);
+  assert.ok((await page.locator('#tree .tree-group__label').allTextContents()).includes('Agents'), 'each area has its own headings');
+
+  await page.locator('#areaRow button', { hasText: 'All areas' }).click();
+  await page.waitForFunction(() => !document.querySelector('.area-head'));
+  assert.equal(await page.locator('#tree > li.node').count(), config.content.curricula.length, 'every area is one row');
+  assert.equal((await page.locator('#tree > li.node .name').first().textContent()).replace(/\s+/g, ' ').trim(), config.content.areas[config.content.curricula[0]].label, 'named as the config says');
+
+  await page.reload({ waitUntil: 'networkidle' });
+  await page.waitForSelector('#content p');
+  assert.deepEqual(await pressed(), ['All areas'], 'what the reader picked is remembered');
+  await context.close();
+});
+
+test('opening a lesson of another area moves the switcher there, so the lesson never vanishes from the tree', async () => {
+  const { context, page, goto } = await open(LESSON);
+  await goto();
+  await page.waitForSelector('#content p');
+  await page.locator('#areaRow button', { hasText: 'Backend' }).click(); // a pick of its own, not just the default
+  await page.evaluate(() => { location.assign('/genai/05-gpus-and-genai-hardware/05-calculating-a-models-memory-requirements/'); });
+  await page.waitForSelector('#content p');
+  assert.deepEqual(await page.locator('#areaRow button[aria-pressed="true"]').allTextContents(), ['GenAI']);
+  assert.equal(await page.locator('#tree a.name[aria-current="page"]').count(), 1, 'the open lesson is in the tree');
+  await context.close();
+});

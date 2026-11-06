@@ -45,8 +45,8 @@
     "curricula": [
       "backend",
       "system-design",
-      "learn",
       "genai",
+      "learn",
       "lld"
     ],
     "placeholderMarker": "has not been written yet",
@@ -65,6 +65,234 @@
         ".webp",
         ".gif"
       ]
+    },
+    "areas": {
+      "backend": {
+        "label": "Backend Engineering",
+        "short": "Backend",
+        "blurb": "HTTP and APIs, authentication, databases, caching, queues, observability and distributed systems, ending in system-design interview practice.",
+        "groups": [
+          {
+            "label": "The request path",
+            "tracks": [
+              "01-request-response-fundamentals",
+              "02-api-layer-and-request-handling",
+              "03-authentication-and-authorization"
+            ]
+          },
+          {
+            "label": "Data and speed",
+            "tracks": [
+              "04-databases-and-data-layer",
+              "05-caching-and-performance",
+              "07-search-with-elasticsearch"
+            ]
+          },
+          {
+            "label": "Background work and scale",
+            "tracks": [
+              "06-background-processing-and-realtime",
+              "10-distributed-systems-patterns",
+              "11-advanced-api-paradigms",
+              "16-grpc-deep-dive",
+              "17-kafka-and-streaming"
+            ]
+          },
+          {
+            "label": "Running it well",
+            "tracks": [
+              "08-observability-and-operational-readiness",
+              "09-security-deep-dive",
+              "12-testing-and-code-quality",
+              "13-devops-for-backend-engineers"
+            ]
+          },
+          {
+            "label": "Design and products",
+            "tracks": [
+              "14-system-design-interview-practice",
+              "15-multi-tenancy-and-saas-architecture"
+            ]
+          }
+        ]
+      },
+      "system-design": {
+        "label": "System Design Interview Prep",
+        "short": "System design",
+        "blurb": "Short lectures on requirements, scaling, latency, availability, CAP and consistency. Each has a video on YouTube and the written version beside it.",
+        "groups": []
+      },
+      "genai": {
+        "label": "GenAI Engineering",
+        "short": "GenAI",
+        "blurb": "Tokens, transformers and GPUs, then the OpenAI, Anthropic and Gemini APIs, embeddings and vector databases. RAG, agents and serving come next.",
+        "groups": [
+          {
+            "label": "How models work",
+            "tracks": [
+              "00-genai-foundations",
+              "01-tokens-and-language-modeling",
+              "02-transformer-architecture",
+              "03-landmark-models-bert-gpt-and-moe"
+            ]
+          },
+          {
+            "label": "Training and hardware",
+            "tracks": [
+              "04-training-fine-tuning-and-alignment",
+              "05-gpus-and-genai-hardware"
+            ]
+          },
+          {
+            "label": "Using models",
+            "tracks": [
+              "06-openai-and-the-model-landscape",
+              "07-prompt-engineering"
+            ]
+          },
+          {
+            "label": "Retrieval",
+            "tracks": [
+              "08-embeddings-and-vector-databases",
+              "09-retrieval-augmented-generation"
+            ]
+          },
+          {
+            "label": "Agents",
+            "tracks": [
+              "10-ai-agents",
+              "11-langchain-and-langgraph",
+              "12-agent-orchestration-and-multi-agent-systems",
+              "13-model-context-protocol-mcp"
+            ]
+          },
+          {
+            "label": "Serving and quality",
+            "tracks": [
+              "14-inference-and-serving-vllm",
+              "15-evaluation-observability-and-safety",
+              "16-speech-and-multimodal-models"
+            ]
+          }
+        ]
+      },
+      "learn": {
+        "label": "Linux to Cloud",
+        "short": "Linux to Cloud",
+        "blurb": "Linux, Docker, Kubernetes, networking, Git, CI/CD and Terraform, with a deep Azure track, then SRE, security and platform engineering.",
+        "groups": [
+          {
+            "label": "Foundations",
+            "tracks": [
+              "01-linux",
+              "02-docker",
+              "03-kubernetes",
+              "04-networking-fundamentals",
+              "08-git-and-version-control"
+            ]
+          },
+          {
+            "label": "Azure",
+            "tracks": [
+              "05-azure-networking",
+              "06-azure-container-apps",
+              "07-aks"
+            ]
+          },
+          {
+            "label": "Delivery",
+            "tracks": [
+              "09-terraform-on-azure",
+              "10-cicd-and-gitops",
+              "19-api-management"
+            ]
+          },
+          {
+            "label": "Security and governance",
+            "tracks": [
+              "11-security-deep-dive",
+              "16-identity-deep-dive",
+              "17-governance-at-scale",
+              "18-supply-chain-security"
+            ]
+          },
+          {
+            "label": "Operations",
+            "tracks": [
+              "12-observability-deep-dive",
+              "13-service-mesh",
+              "14-databases-and-stateful-workloads",
+              "15-messaging-and-event-driven-architecture",
+              "20-sre-practices",
+              "22-disaster-recovery-and-chaos-engineering",
+              "23-performance-and-load-testing"
+            ]
+          },
+          {
+            "label": "Platform and cost",
+            "tracks": [
+              "21-cost-management-and-finops",
+              "24-platform-engineering"
+            ]
+          }
+        ]
+      },
+      "lld": {
+        "label": "Low-Level Design",
+        "short": "Low-level design",
+        "blurb": "OOP, SOLID and design patterns up to classic interview problems. Every example is written twice: in Python and in C#.",
+        "groups": [
+          {
+            "label": "Foundations",
+            "tracks": [
+              "00-programming-basics-python-and-csharp",
+              "01-classes-objects-and-oop-building-blocks",
+              "02-oop-foundations-and-uml",
+              "03-generics-exceptions-and-value-objects"
+            ]
+          },
+          {
+            "label": "Principles",
+            "tracks": [
+              "04-solid-principles",
+              "05-core-design-principles"
+            ]
+          },
+          {
+            "label": "Design patterns",
+            "tracks": [
+              "06-creational-patterns",
+              "07-structural-patterns",
+              "08-behavioral-patterns-i",
+              "09-behavioral-patterns-ii",
+              "10-concurrency-safe-design"
+            ]
+          },
+          {
+            "label": "Classic problems",
+            "tracks": [
+              "11-requirements-to-class-diagrams",
+              "12-parking-lot-and-elevator",
+              "13-library-and-vending-machine",
+              "14-tic-tac-toe-and-chess",
+              "15-splitwise-expense-sharing",
+              "16-movie-ticket-booking",
+              "17-ride-sharing",
+              "18-lru-lfu-cache-and-rate-limiter",
+              "19-api-library-design-and-di"
+            ]
+          },
+          {
+            "label": "Interview and projects",
+            "tracks": [
+              "20-anti-patterns-and-code-smells",
+              "21-lld-interview-playbook",
+              "22-capstone-project",
+              "23-supply-chain-platform"
+            ]
+          }
+        ]
+      }
     }
   },
   "storage": {
@@ -83,7 +311,8 @@
     "languagePreference": "docLangPref",
     "studioDraft": "docs.studioDraft.",
     "dismissedNotices": "docs.dismissedNotices",
-    "readingPrefs": "docs.readingPrefs"
+    "readingPrefs": "docs.readingPrefs",
+    "areaPick": "docs.areaPick"
   },
   "assistant": {
     "maxInputChars": 12000,
@@ -178,7 +407,7 @@
       },
       {
         "name": "videos",
-        "path": "/#__videos",
+        "path": "/videos/",
         "height": 1400
       },
       {
@@ -188,6 +417,35 @@
       {
         "name": "community",
         "path": "/#__community"
+      },
+      {
+        "name": "paths",
+        "path": "/paths/",
+        "height": 1300
+      },
+      {
+        "name": "path-detail",
+        "path": "/paths/backend-foundations/",
+        "height": 1300
+      },
+      {
+        "name": "practice",
+        "path": "/practice/",
+        "height": 1300
+      },
+      {
+        "name": "quiz",
+        "path": "/practice/quiz/database-indexes/"
+      },
+      {
+        "name": "design-lab",
+        "path": "/design-lab/",
+        "height": 1300
+      },
+      {
+        "name": "challenge",
+        "path": "/design-lab/hld/chat-application/",
+        "height": 1300
       }
     ]
   }
