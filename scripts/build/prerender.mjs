@@ -50,7 +50,8 @@ const dates = gitDates(ROOT, CONTENT_DIR); // null without full history (a shall
 // The channel's videos, and by module (dist/videos.json, written by gen-videos.mjs in `npm run index`).
 const videosFile = path.join(DIST, 'videos.json');
 const videosData = fs.existsSync(videosFile) ? JSON.parse(fs.readFileSync(videosFile, 'utf8')) : { videos: [], playlists: [] };
-const videoList = videosData.videos;
+// Only videos already public on YouTube (a scheduled one is private until its time); the app applies the same rule.
+const videoList = videosData.videos.filter((v) => !v.published || Date.parse(v.published) <= Date.now());
 const videosByFile = groupByModule(videoList);
 
 // Same lookups the app builds in useDocsIndex, for resolving internal links.

@@ -24,7 +24,14 @@ export function useVideos() {
   const [data, setData] = useState(undefined);
   useEffect(() => {
     let cancelled = false;
-    load().then((d) => { if (!cancelled) setData(d && Array.isArray(d.videos) && d.videos.length ? d : null); });
+    load().then((d) => {
+      if (cancelled) return;
+      // A video scheduled on YouTube is private until its time: list it only from then on, so nothing on the site
+      // points at a video nobody can watch yet.
+      const now = Date.now();
+      const live = d && Array.isArray(d.videos) ? d.videos.filter((v) => !v.published || Date.parse(v.published) <= now) : [];
+      setData(live.length ? { ...d, videos: live } : null);
+    });
     return () => { cancelled = true; };
   }, []);
   return useMemo(
