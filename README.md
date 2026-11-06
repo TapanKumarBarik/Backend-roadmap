@@ -8,12 +8,12 @@ This repository is private and proprietary. See [LICENSE](LICENSE).
 
 | Folder | What it holds |
 |---|---|
-| `content/` | The curriculum, one folder per module with its `README.md` (and `images/`). Curricula: `backend`, `system-design`, `learn`, `genai`, `lld`. |
+| `content/` | The curriculum, one folder per module with its `README.md` (and `images/`). Five areas: `backend`, `system-design`, `genai`, `learn` (Linux to Cloud) and `lld`, described in `site.config.json` (`content.areas`). Also `practice/`, `design-lab/`, `paths.json`. |
 | `content/videos.json` | The YouTube videos and the module each one belongs to ([docs/VIDEOS.md](docs/VIDEOS.md)). |
 | `webapp/` | The React + Vite app that serves the site; `webapp/public/notes/` holds the free PDF notes. |
 | `api/`, `functions/` | The API on Cloudflare Pages Functions (accounts, progress, community, admin). |
 | `scripts/` | Build, index, check and sync scripts. |
-| `docs/` | How the site works: content rules, images, videos, SEO, architecture. |
+| `docs/` | How the site works, starting with [docs/README.md](docs/README.md) and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): the library's areas, content rules, practice, videos, SEO, the checks. |
 
 ## Working on it
 

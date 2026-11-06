@@ -1,113 +1,134 @@
 # Architecture
 
-How this repository fits together, for someone who is about to change it. The how-to for running it is
-[LOCAL-SETUP.md](LOCAL-SETUP.md).
+How this repository fits together, for someone who is about to change it. How to run it is [LOCAL-SETUP.md](LOCAL-SETUP.md); the
+other documents are listed in [README.md](README.md).
 
 ## The idea in one paragraph
 
-The site is a library of Markdown lessons (`content/`) turned into a fast, searchable reading app. At build time every
-lesson becomes a real HTML page (so search engines and slow phones get text straight away), plus two small indexes the
-app uses to build its menu and its search. In the browser a React app takes over to add progress tracking, notes,
-comments and the rest. Everything that belongs to a signed-in reader lives behind one small API on Cloudflare, backed
-by one SQLite database. The lessons never touch the database, and the database never contains a lesson.
+The site is a library of Markdown lessons (`content/`) turned into a fast, searchable reading app, with practice, a design lab,
+a community and a personal workspace on top. At build time every lesson becomes a real HTML page (so search engines and slow
+phones get text straight away), plus small indexes the app uses to build its menu and its search. In the browser a React app takes
+over to add progress, notes, comments and the rest. Everything that belongs to a signed-in reader lives behind one small API on
+Cloudflare, backed by one SQLite database. **The lessons never touch the database, and the database never contains a lesson.**
 
 ## Where things are
 
 ```text
-content/        what the author writes: backend/ system-design/ learn/ genai/ lld/ (one README.md per module), paths.json
-                (the learning paths) and videos.json (the channel's videos, and which module each belongs to)
-webapp/         the React app (Vite). src/components/<screen>, src/hooks, src/lib/{markdown,curriculum,search}
-api/            the server: Hono routes, the D1 migrations, and the API's tests
-functions/      the one file Cloudflare Pages looks for; it hands /api/* to api/
-scripts/        the build (build/), the checks (check/), maintenance (maintain/), shared code (lib/), dev tools (dev/)
+content/        what the author writes
+                  backend/ system-design/ genai/ learn/ lld/   the five curricula, one README.md per module
+                  practice/    quizzes, exercises and interview sets (JSON)      design-lab/  design challenges (JSON + Mermaid)
+                  paths.json   the learning paths      videos.json   the channel's videos and the module each belongs to
+                  seo.json     titles and descriptions that override the generated ones
+webapp/         the React app (Vite).   src/components/<screen>  src/hooks  src/lib/<topic>  src/config (words)  src/styles
+                public/ holds what is served as it is: _headers, _redirects, the PDF notes under notes/, icons, privacy and terms
+api/            the server: Hono routes (routes/), data helpers (lib/), the D1 migrations, the generated practice file, tests/
+functions/      the files Cloudflare Pages looks for; they hand /api/* and the community's pages to api/
+scripts/        build/ (makes dist/)  check/ (the gates)  maintain/ (sync and one-off jobs)  dev/ (screenshots, Lighthouse, Linux CI)  lib/ (shared, tested)
 tests/e2e/      browser tests of the built site, signed out and signed in
-docs/           this folder: local setup, images, videos, roadmap
-.github/        CI (one shared action, two workflows), issue and PR templates, Dependabot, CODEOWNERS
-site.config.json   the one place that names things: site, developer, repo, content folder, storage keys, screenshots
+docs/           this folder
+.github/        CI: one shared action (actions/verify), the deploy and the pull-request workflows, Dependabot, CODEOWNERS
+site.config.json   the one place that names things (see "Configuration")
 wrangler.jsonc  the Cloudflare project: the database binding, variables, where migrations live
 dist/           the built site, git-ignored. The only thing ever deployed
+screenshots/    local development screenshots, git-ignored (see "Screenshots")
 ```
 
-`functions/` has to be at the root because Cloudflare looks there; the code lives in `api/` so the entry stays a
-three-line file.
+`functions/` has to be at the root because Cloudflare looks there; the code lives in `api/` so each entry stays a few lines.
 
-## One lesson, end to end
+## The library: five areas, tracks, modules
 
-A lesson is `content/<curriculum>/<track>/<module>/README.md`. Its **key** is the path from `content/`
-(`backend/03-authentication-and-authorization/01-sessions-and-cookies/README.md`), and that one string is used
-everywhere: the URL (`/backend/03-.../01-sessions-and-cookies/`), the module index, a reader's progress, bookmarks and
-notes in the database, the search index. That is why moving the content folder changed none of them, and why renaming
-a module folder is the one change that orphans a reader's saved progress.
+A **module** is one lesson: `content/<curriculum>/<track>/<module>/README.md`. A **track** is a folder of modules; a **curriculum** is a
+folder of tracks (`lld` has modules straight under it). The library is shown to readers as five **areas**, one per curriculum, and
+`site.config.json -> content.areas` is the one place that describes them: the name, a short name for the switcher, a line about it,
+and how its tracks are **grouped under headings** ("The request path", "Data and speed"...). That one entry feeds the home page's
+library cards, the tree, the area switcher, breadcrumbs, page titles and share cards, so an area is called the same thing everywhere.
+Grouping is display only: nothing moves on disk, so no address and no saved progress changes. A track no group names shows under "More"
+(`npm run check:areas` lists them, and fails on a typo or a missing folder).
+
+A lesson's **key** is its path from `content/` (`backend/03-authentication-and-authorization/01-sessions-and-cookies/README.md`), and that
+one string is used everywhere: the URL (`/backend/03-.../01-sessions-and-cookies/`), the module index, a reader's progress, bookmarks and
+notes in the database, the search index. That is why moving the content folder changed none of them, and why **renaming a module folder is
+the one change that orphans a reader's saved progress and breaks an address**.
+
+How a reader finds their way, from the broadest to the narrowest: the **top navigation** (Learn, Explore, Practice, Design Lab, Community,
+My Learning; `webapp/src/config/nav.js`), a **learning path** (a short ordered route with a finish line, `content/paths.json`), the **area
+switcher and grouped tree** in the sidebar (`components/layout/AreaSwitch.jsx`, `Tree.jsx`; one area at a time, following the lesson being
+read), and **search** (Ctrl K) over every lesson.
+
+## How a page is built and served
 
 `npm run build` makes the site in `dist/`, in this order:
 
 1. **`vite build`** bundles the app.
-2. **`npm run index`** writes `docs-index.json` (the menu tree with titles, tags, reading times and which modules have a
-   video), `search-index.json` (a word index over every lesson), `site-stats.json` (honest module counts for the landing
-   page) and `videos.json` (the channel's videos, resolved from `content/videos.json`; a mistake in that file stops the
-   build). The code is in `scripts/lib/` (`docsIndex`, `searchIndex`, `tags`, `content`, `videos`) and is unit-tested.
-3. **`copy-content`** copies the curricula to `dist/`, and refuses to continue if anything that looks like a secret
-   is in there. `dist/` is an allow-list on purpose: deploying the repository root once published local secrets.
-4. **`gen-share-images`** draws a share card (a 1200×630 PNG with the page's own title) for every page into `dist/og/`,
-   which is what a link shows on LinkedIn, X or Slack. satori lays a card out and resvg turns it into a PNG, both in plain
-   Node; the size and colours are in `site.config.json` (`shareImage`). An unwritten module with no video gets no card
-   and keeps the site's picture.
-5. **`prerender`** writes a static page for each lesson (title, a description, canonical link, Open Graph with its
-   card, structured data, the lesson text itself, previous and next links), the home page and `sitemap.xml`. A lesson
-   that still carries the placeholder sentence is marked `noindex` and left out of the sitemap, so unwritten modules
-   cannot thin out the site, unless it has a video: then the page is the video, its chapters and what it covers, and it
-   is indexed until the text is written. A module with a video also gets `VideoObject` data and a plain link with its
-   chapters. The description is the module's key idea or its first sentences that say what the page is about, whole
-   sentences, never a look back at the last module (`scripts/lib/describe.mjs`). The home page is built from the
-   landing page's own wording, the learning paths and the real counts (`scripts/lib/homePage.mjs`), so a crawler gets
-   headed sections and links, not a list of names.
+2. **`npm run index`** writes `docs-index.json` (the tree with titles, tags, reading times and which modules have a video),
+   `search-index.json`, `site-stats.json` (honest module counts for the home page) and `videos.json` (the channel's videos, resolved
+   from `content/videos.json`; a mistake in that file stops the build). Code in `scripts/lib/`, unit-tested.
+3. **`copy-content`** copies the curricula to `dist/`, and refuses to continue if anything that looks like a secret is in there. `dist/` is
+   an allow-list on purpose: deploying the repository root once published local secrets.
+4. **`gen-share-images`** draws a 1200x630 share card with the page's own title for every page into `dist/og/` (satori lays it out, resvg
+   makes the PNG, both in plain Node; size and colours are `site.config.json -> shareImage`).
+5. **`prerender`** writes a static page for each lesson (title, description, canonical link, Open Graph, structured data, the lesson text,
+   previous and next links), the home page, the listing pages for paths and videos, and `sitemap.xml`. A lesson that still carries the
+   placeholder sentence is `noindex` and out of the sitemap, unless it has a video: then the page is the video and what it covers.
 
-Then Cloudflare Pages serves static files, with `webapp/public/_headers` (security headers, the Content-Security-Policy)
-and `_routes.json` (only `/api/*` runs code).
+Cloudflare Pages then serves static files, with `webapp/public/_headers` (security headers, the Content-Security-Policy), `_redirects`
+(moved addresses; the permanent ones) and `_routes.json` (only `/api/*` and the community's pages run code). A reader opening a lesson gets
+its pre-rendered page at once; the React app then boots, fetches the lesson's Markdown and `docs-index.json` (both preloaded by the page)
+and renders the same lesson itself. The rendering code (`webapp/src/lib/markdown/`) is shared between browser and build, so the static
+page and the live page agree.
 
-A reader opening a lesson gets its pre-rendered page immediately; the React app then boots, fetches the lesson's
-Markdown and `docs-index.json` (both preloaded by the page), and renders the same lesson itself. The rendering code
-(`webapp/src/lib/markdown/`) is shared between the browser and the build, so the static page and the live page agree.
-It reads every kind of line ending the same way, which is why a Windows checkout builds the same pages as Linux.
+**Addresses.** A lesson, a path (`/paths/<id>/`), the Videos list (`/videos/`), Practice (`/practice/`) and the Design Lab (`/design-lab/`,
+`/lab/` redirects to it) are real built pages. Other screens (My Learning, the workspace, the studio, admin) are hash screens of the one
+app. The table is `webapp/src/lib/appPages.js`. Every address ever published is in `docs/url-registry.tsv`, and `npm run check:urls` fails
+if one stops answering, loses its canonical address or gains `noindex`; see [URL_MIGRATION_REGISTRY.md](URL_MIGRATION_REGISTRY.md).
 
-**Videos** are a second kind of content, beside the lessons. The channel's videos are listed in `content/videos.json`
-(kept up to date by `npm run videos:sync`), each with the module it belongs to. The module page shows its video under
-the title, with chapters that start the player at that point; the sidebar marks the module; the Videos screen and the
-landing page list them all. The text of a lesson never mentions its video, so writing a lesson and recording one stay
-separate jobs. [VIDEOS.md](VIDEOS.md) has the details.
+**Videos** are a second kind of content, beside the lessons: `content/videos.json` (kept up to date by `npm run videos:sync`) lists them,
+each with its module. The module page shows its video under the title, with chapters that start the player at that point; the sidebar
+marks the module; the Videos screen and the home page list them. A video not public yet is not shown. [VIDEOS.md](VIDEOS.md).
+
+**PDF notes** are files in `webapp/public/notes/system-design/` (one per lesson, plus a bundle per phase), served as they are and linked
+from the lesson.
+
+## Practice and the Design Lab
+
+Quizzes, exercises, interview sets and design challenges are **files in `content/practice/` and `content/design-lab/`**, not database
+rows. `npm run practice:build` validates them and writes `api/generated/practice-content.json`, which the API is bundled with (CI
+regenerates it first; `npm run check` fails locally if the committed copy is stale). Answers and explanations never leave the server before
+a try. What a reader *does* with them (attempts, scores, weak areas, a design submission, peer feedback) is in the database. The validators
+are pure functions in `webapp/src/lib/practice/validate.js`, shared by the build, the API and the browser editor. [PRACTICE.md](PRACTICE.md).
 
 ## The account side
 
-`/api/*` is a Cloudflare Pages Function: `functions/api/[[path]].js` calls `api/app.js`, a Hono app made of one router per
-area (`routes/study.js` for bookmarks, notes and progress; `comments`, `feed`, `blogs`, `community`, `workspace`,
-`admin`, `content`, `auth`). Sign-in is Google OAuth; the session is an HMAC-signed `HttpOnly` cookie, so there is no session
-table. Every route is checked by `api/tests/access.test.js`: it calls all of them without signing in and fails for any that
-answers, unless the route is on a written-out public list.
+`/api/*` is a Cloudflare Pages Function: `functions/api/[[path]].js` calls `api/app.js`, a Hono app made of one router per area (`study`
+for bookmarks, notes and progress; `practice`; `comments`; `feed`; `blogs`; `community`; `workspace` and `revision`; `popular`; `admin`;
+`content`; `auth`; `assistant`). Sign-in is Google OAuth; the session is an HMAC-signed `HttpOnly` cookie, so there is no session table.
+Every route is checked by `api/tests/access.test.js`: it calls all of them without signing in and fails for any that answers, unless the
+route is on a written-out public list; `/api/manage/*` must also refuse a signed-in non-admin.
 
-The community's articles have real addresses (`/blog/`, `/blog/<slug>`, `/authors/<handle>`, `/write`; the app's
-own table of them is `webapp/src/lib/appPages.js`), and a file cannot be behind an address that is made when someone
-writes. Three small Pages Functions under `functions/` (listed in `webapp/public/_routes.json`) answer them with
-`api/pages/blogPages.js`: it takes the app's shell (`dist/app-shell.html`, a copy the build keeps of the page before the
-home page is written into it) and writes the article's own title, description, canonical address, social tags,
-structured data and a copy of its text into it, through the same function the build uses for every module
-(`webapp/src/lib/seo/shellPage.js`). The data comes from the API's own routes, so who may see what is decided once. An
-article is live as soon as it is published but is kept out of search results (`noindex`, and out of
-`/sitemap-blogs.xml`) until its author is trusted or an admin approves it. `scripts/lib/smoke.mjs` checks after every deploy
-that `/blog/` and the sitemap are answered by these Functions.
+The community's articles have real addresses (`/blog/`, `/blog/<slug>`, `/authors/<handle>`, `/write`), and a file cannot be behind an
+address made when someone writes. Small Pages Functions under `functions/` answer them with `api/pages/blogPages.js`, which takes the app
+shell (`dist/app-shell.html`) and writes the article's title, description, canonical address, social tags, structured data and text into
+it. An article is live when published but `noindex` until its author is trusted or an admin approves it. `scripts/lib/smoke.mjs` checks
+after every deploy that these answer. The writing studio is [STUDIO.md](STUDIO.md).
 
-The database is Cloudflare D1 (SQLite). Its schema is `api/migrations/`, numbered files applied once each; see
-[api/README.md](../api/README.md) for how to change it safely. Nothing a reader writes is needed to *read* the site: if the
-API is down, lessons still open and a notice says what could not load.
+The **workspace** (pages, folders, study plans, revision lists, diagrams) is private to its owner; the **admin** screens (moderation,
+notices, the audit log, practice content, paths, videos, SEO) are for admins only. The admin content editor commits to GitHub through
+`api/routes/content.js`, which has an allow-list of what it may write (lessons, practice files, `paths.json`, `videos.json`, `seo.json`)
+and validates every file with the same code the build uses; [ADMIN_CONTENT.md](ADMIN_CONTENT.md).
+
+The database is Cloudflare D1 (SQLite). Its schema is `api/migrations/` (`0001` accounts, `0002` blogs, `0003` practice and design lab,
+`0004` peer reviews, `0005` community workflow, `0006` workspace hub): numbered, additive files applied once each; see
+[api/README.md](../api/README.md). Nothing a reader writes is needed to *read* the site: if the API is down, lessons still open and a
+notice says what could not load.
 
 ## Configuration, and why it is one file
 
-`site.config.json` holds everything that would otherwise be a literal in code: the site's name and URL, the developer's
-contact details, the repository and branch, the content folder and curriculum list, the placeholder sentence, the reading
-speed, every browser-storage key, the share cards' size and colours, the screenshots. The app imports it through
-`webapp/src/config/`, the build and the checks through `scripts/lib/config.mjs`, the API directly. Copy that appears on
-screen (landing page, error messages) lives in `webapp/src/config/` too; those modules import their JSON with
-`with { type: 'json' }`, which is what lets the build reuse the landing page's wording in plain Node. Learning paths are
-data in `content/paths.json`.
+`site.config.json` holds everything that would otherwise be a literal in code: the site's name and URL, the developer's contact details,
+the repository, the content folder, the **curricula and their areas**, the placeholder sentence, the reading speed, every browser-storage
+key, the share cards' size and colours, the budgets, the screenshots. The app imports it through `webapp/src/config/`, the build and the
+checks through `scripts/lib/config.mjs`, the API directly. The words that appear on screen (home page, error messages, practice copy)
+live in `webapp/src/config/` too; those modules import their JSON with `with { type: 'json' }`, which lets the build reuse the home page's
+wording in plain Node. Colours, sizes and layers are tokens in `webapp/src/styles/tokens.css` ([DESIGN.md](DESIGN.md)).
 
 ## How we know it works
 
@@ -115,58 +136,66 @@ data in `content/paths.json`.
 |---|---|---|
 | Lint | `npm run lint` | unused code, wrong globals for the runtime (browser, Workers, Node), React hook mistakes |
 | Types | `npm run typecheck` | the API, scripts and the app's non-component code, checked as JavaScript with `tsc` |
-| Unit tests | `npm test` | the build's logic, the markdown pipeline, and the API (real routes on in-memory SQLite) |
-| Checks | `npm run check` | an `isAdmin()` without `await`, a broken `paths.json`, a missing or oversized lesson image, a video that names a module that is not there, an overview page that says it is unwritten (which would hide it from search) |
+| Unit tests | `npm test` | the build's logic, the markdown pipeline, the area and path rules, and the API (real routes on in-memory SQLite) |
+| Checks | `npm run check` | an `isAdmin()` without `await`; `paths.json`; the areas config against the folders; lesson images; videos naming a missing module; SEO overrides; an overview that says it is unwritten; practice content and its generated file |
 | Build | `npm run build` | the whole site assembles; internal links that point nowhere are listed |
-| URLs | `npm run check:urls` | every address the site has published ([URL_MIGRATION_REGISTRY.md](URL_MIGRATION_REGISTRY.md)) still answers, with the same canonical address, no new `noindex`, text for crawlers and a place in the sitemap; moved ones only by a permanent redirect. Before a release, `npm run check:urls:live -- <staging url>` asks the running site |
-| Size | `npm run check:bundle` | what a first visit downloads (JavaScript and CSS, gzip) and what each heavy screen adds (the writing studio, the workspace, the admin) staying within the `budgets` in `site.config.json`; run it after the build |
-| Browser | `npm run test:e2e` | a lesson opens, links work, videos and their chapters play under the real CSP, the Videos screen lists them, the built pages carry what search engines read (titles, descriptions, structured data, sitemap, share cards), and the signed-in flows (progress, the workspace editor, the admin dashboard) against the real API; every screen is audited for names, labels, ids and landmarks, and for sideways scrolling from 360 to 1920 px |
+| URLs | `npm run check:urls` | every published address still answers (above). Before a release, `npm run check:urls:live -- <staging url>` |
+| Size | `npm run check:bundle` | what a first visit downloads and what each heavy screen adds, within `budgets` in `site.config.json`; run after the build |
+| Browser | `npm run test:e2e` | a lesson opens, videos play under the real CSP, the built pages carry what search engines read, the signed-in flows against the real API, and every screen is audited for names, labels, ids, landmarks and sideways scrolling from 360 to 1920 px |
+| Linux | `npm run ci:linux` | the same steps in a Node 22 + Chromium container, for what differs from Windows (fonts, `localhost`, speed) |
+| Lighthouse | `npm run lighthouse` | accessibility, SEO and performance of the built pages (by hand, not in CI) |
 
-CI runs all of them, from one shared definition (`.github/actions/verify`), on every pull request and before every
-deploy. The deploy workflow adds the Cloudflare steps, then tells Bing and other IndexNow engines which pages changed.
+CI runs the first eight from one shared definition (`.github/actions/verify`) on every pull request and before every deploy. The deploy
+workflow then adds the Cloudflare steps, a smoke test, and tells Bing and other IndexNow engines which pages changed. **A failing step
+stops the deploy**, and the site stays on the last good version.
+
+## Screenshots
+
+`npm run shots` opens the built site (`npm run build && npm run preview`, port 4180) in a real browser and saves every page and size
+listed in `site.config.json -> screenshots` into `screenshots/`: one copy per page, size and theme, replaced on each run, git-ignored.
+To add a page, add an entry there. Look at it after a UI change; use git, not old screenshots, to see what a change did.
 
 ## Decisions worth knowing
 
-- **Content under `content/`, not at the root.** The root was four courses next to code. URLs, keys and saved data are
-  unchanged because the key is the path from the content folder.
-- **No TypeScript, but checked JavaScript.** `tsc` with `checkJs` over the API, scripts and the app's logic gives most of the
-  benefit without converting 10,000 lines. React components are left out: their props are untyped destructuring, so the
-  checker would report noise.
-- **No Prettier.** A trial would have rewritten 5,300 of 12,200 lines, burying history for no gain. `.editorconfig` and
-  ESLint are the rules.
-- **React 18, not 19.** Measured: React 19 makes the first download of every page about 22 KB (gzipped) bigger, for
-  nothing this app uses. Dependabot is told to leave React's major version alone (`.github/dependabot.yml`).
-- **The API is tested in-process.** Node's built-in SQLite stands in for D1, and the browser tests answer `/api` requests
-  with the real app inside the test process, so there is no second server to start and the page and the API are tested
-  together.
+- **Content under `content/`, not at the root.** URLs, keys and saved data are unchanged because the key is the path from the content folder.
+- **Areas and groups are configuration, not folders.** Regrouping the library, or renaming an area, is an edit to `site.config.json`; it never
+  moves a lesson and never changes an address.
+- **Practice content is files in git, data is rows in the database.** Content gets review and history; a reader's answers get a table.
+- **No TypeScript, but checked JavaScript.** `tsc` with `checkJs` over the API, scripts and the app's logic gives most of the benefit
+  without converting every file. React components are left out: their props are untyped destructuring, so the checker would be noise.
+- **No Prettier.** A trial would have rewritten 5,300 of 12,200 lines, burying history for no gain. `.editorconfig` and ESLint are the rules.
+- **React 18, not 19.** Measured: React 19 made the first download of every page about 22 KB (gzipped) bigger, for nothing this app uses.
+- **The first-page budget is 130 KB of JavaScript (gzip)**, raised on purpose from 125 for the top navigation and the new home page; the
+  heavy screens are separate chunks with their own budgets.
+- **The API is tested in-process.** Node's built-in SQLite stands in for D1, and the browser tests answer `/api` requests with the real app
+  inside the test process, so there is no second server to start.
 - **Workspaces.** `webapp/` is an npm workspace: one install, one lockfile, one Dependabot entry.
-- **Raw `.md` files are `noindex`.** The site serves the lesson sources next to the pages (the app fetches them), and
-  search engines should list the pages, not the sources.
-- **Share cards are drawn at build time, in Node.** Not by a headless browser (the build would need one) and not on request
-  (a function would pay for it on every share). About 650 cards take 15 seconds. Two things keep it that way: resvg is
-  told not to look through the system's fonts (the text is already outlines; that scan was nine tenths of the time), and
-  the cards are flat colours (a gradient made every PNG two and a half times the size, and there are hundreds).
-- **An overview is never a placeholder.** The site decides a page is unwritten by a sentence in its first lines. An overview
-  that said that sentence in passing was treated as an empty module: hidden from search and shown with a "claim this module"
-  box. `npm run check` now fails if a curriculum or track page carries it.
+- **Raw `.md` files are `noindex`.** The site serves the lesson sources next to the pages (the app fetches them), and search engines should
+  list the pages.
+- **Share cards are drawn at build time, in Node,** not by a headless browser and not on request. About 650 cards take 15 to 30 seconds.
+- **An overview is never a placeholder.** `npm run check` fails if a curriculum or track page carries the "not written yet" sentence.
 
 ## Where to change what
 
 | I want to... | Edit |
 |---|---|
 | write or fix a lesson | `content/<curriculum>/<track>/<module>/README.md`, then `npm run index` if the title or folder changed |
+| add a module or a track | a folder with a `README.md` under its parent; **give a new track a group** in `content.areas` (else it shows under "More"); `npm run check` |
+| rename or regroup an area, or change what it says | `site.config.json` -> `content.areas`; `npm run check:areas` |
+| add a curriculum | a folder in `content/`; its name in `content.curricula` **and** an entry in `content.areas` (same order); a tag in `scripts/lib/tag-vocabulary.mjs`; `npm run check` |
 | add an image | [IMAGES.md](IMAGES.md) |
-| add a video | `npm run videos:sync`, then give it a `"module"` in `content/videos.json` and run `npm run check` ([VIDEOS.md](VIDEOS.md)) |
-| add a curriculum | a folder in `content/`, its name in `site.config.json` (`content.curricula`), a card in `webapp/src/config/landing.js` (`LIBRARY`) and a tag in `scripts/lib/tag-vocabulary.mjs` |
+| add a video | `npm run videos:sync`, then give it a `"module"` in `content/videos.json`; `npm run check` ([VIDEOS.md](VIDEOS.md)) |
+| add a PDF note | a file in `webapp/public/notes/system-design/`, and a link from the lesson |
+| add or fix a quiz, exercise, interview set or design challenge | a file in `content/practice/` or `content/design-lab/`, then `npm run practice:build` ([PRACTICE.md](PRACTICE.md)); or an admin, in the browser |
 | change a learning path | `content/paths.json`, then `npm run check:paths` |
 | change the site name, a link or a storage key | `site.config.json` |
-| change landing-page or error wording | `webapp/src/config/landing.js`, `webapp/src/config/messages.js` |
-| change a colour, a size or a layer, or add a shared component | `webapp/src/styles/tokens.css` and `components/ui/` (see [DESIGN.md](DESIGN.md); `npm test` keeps the dark theme in step and the text readable) |
-| change what a search result shows for a page | the title is built by `webapp/src/lib/curriculum/pageTitle.js`, the description by `scripts/lib/describe.mjs` (or write a clear `> [!key]` sentence at the top of the module); the home page's description is `HOME_META` in `webapp/src/config/landing.js` |
-| change how a share card looks or what it says | `site.config.json` (`shareImage`: size, colours), `scripts/lib/shareImage.mjs` (the words and the title size), `scripts/build/gen-share-images.mjs` (the layout) |
+| change home-page, navigation or error wording | `webapp/src/config/landing.js`, `nav.js`, `messages.js` |
+| change a colour, a size or a layer, or add a shared component | `webapp/src/styles/tokens.css` and `components/ui/` ([DESIGN.md](DESIGN.md)); `webapp/src/styles/voice.css` is the typographic layer |
+| change what a search result shows for a page | the title: `webapp/src/lib/curriculum/pageTitle.js` (or `content/seo.json`); the description: `scripts/lib/describe.mjs` (or write a clear `> [!key]` sentence at the top of the module) |
+| change how a share card looks or what it says | `site.config.json` (`shareImage`), `scripts/lib/shareImage.mjs`, `scripts/build/gen-share-images.mjs` |
 | add an API route | `api/routes/<area>.js`; it must ask for a sign-in unless it is added to `PUBLIC` in `api/tests/access.test.js` |
-| change the database | a new numbered file in `api/migrations/` ([api/README.md](../api/README.md)) |
-| change what an article can contain, or how the writing studio saves and publishes | `webapp/src/lib/blog/` (what a document may hold), `webapp/src/components/studio/` and `webapp/src/lib/studio/` ([STUDIO.md](STUDIO.md)) |
+| change the database | a new numbered file in `api/migrations/`, additive only ([api/README.md](../api/README.md)); apply it with `npm run db:migrate:remote` **before** deploying code that needs it |
+| add a screen | a component under `webapp/src/components/<screen>/`, an entry in `webapp/src/lib/appPages.js` (and a built page if it should be indexed), a link in `config/nav.js`, a page in `site.config.json -> screenshots` |
+| change what an article can contain, or the writing studio | `webapp/src/lib/blog/`, `components/studio/`, `lib/studio/` ([STUDIO.md](STUDIO.md)) |
 | change where uploads are stored | `site.config.json` (`uploads`), and the same host in `webapp/public/_headers` and `webapp/index.html` (a test checks the three agree) |
-| change what a lesson is tagged with | `scripts/lib/tag-vocabulary.mjs`; see the result with `node scripts/dev/tags.mjs <lesson>` |
 | change the security headers | `webapp/public/_headers` (the browser tests apply them) |
