@@ -12,7 +12,7 @@ import { createRequire } from 'node:module';
 import satori from 'satori';
 import { Resvg } from '@resvg/resvg-js';
 import { moduleUrl } from '../../webapp/src/lib/curriculum/moduleUrl.js';
-import { groupByModule } from '../../webapp/src/lib/curriculum/videos.js';
+import { groupByModule, isPublic } from '../../webapp/src/lib/curriculum/videos.js';
 import { ROOT, config, SITE_URL } from '../lib/config.mjs';
 import { cardFor, fitTitle, logoSvg, printable, shareImagePath, withAlpha } from '../lib/shareImage.mjs';
 
@@ -76,7 +76,7 @@ function cardElement(card) {
 
 const { tree } = JSON.parse(fs.readFileSync(path.join(DIST, 'docs-index.json'), 'utf8'));
 const videosFile = path.join(DIST, 'videos.json');
-const videosByFile = fs.existsSync(videosFile) ? groupByModule(JSON.parse(fs.readFileSync(videosFile, 'utf8')).videos.filter((v) => !v.published || Date.parse(v.published) <= Date.now())) : {};
+const videosByFile = fs.existsSync(videosFile) ? groupByModule(JSON.parse(fs.readFileSync(videosFile, 'utf8')).videos.filter((v) => isPublic(v))) : {};
 
 // Every page a link can point at, except an unwritten module with no video: that page is kept out of search results
 // (scripts/build/prerender.mjs), so a link to it shows the site's own picture rather than one more card.

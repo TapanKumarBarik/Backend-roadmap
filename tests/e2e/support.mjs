@@ -3,7 +3,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { chromium } from 'playwright-core';
-import { ROOT, config } from '../../scripts/lib/config.mjs';
+import { ROOT, config, isPlaceholderText, CONTENT_ROOT } from '../../scripts/lib/config.mjs';
+import { isPublic } from '../../webapp/src/lib/curriculum/videos.js';
 import app from '../../api/app.js';
 import { OWNER_EMAIL, createEnv, signedInAs } from '../../api/tests/helpers.js';
 
@@ -14,6 +15,26 @@ export { OWNER_EMAIL };
 // tests apply it themselves to find out whether anything the page needs is blocked.
 const headersFile = fs.readFileSync(path.join(ROOT, 'webapp/public/_headers'), 'utf8');
 export const CSP = /Content-Security-Policy:\s*(.+)/.exec(headersFile)[1].trim();
+
+/**
+ * The videos a reader can watch today, from the built registry (dist/videos.json), with its playlists. A video scheduled for later is
+ * private on YouTube and not listed on the site, so a test must not name one, nor a count or a playlist that depends on one.
+ */
+export function publicVideos() {
+  const { videos, playlists } = JSON.parse(fs.readFileSync(path.join(ROOT, 'dist', 'videos.json'), 'utf8'));
+  const live = videos.filter((v) => isPublic(v));
+  return { videos: live, playlists: playlists.filter((p) => live.some((v) => v.playlist === p.id)) };
+}
+
+/**
+ * A public video whose module has its text written and which has chapters: the page a test opens to see a video under the title.
+ * `url` is the module's address, `id` the video's.
+ */
+export function aVideoLesson() {
+  const video = publicVideos().videos.find((v) => v.file && v.chapters?.length >= 3 && !isPlaceholderText(fs.readFileSync(path.join(CONTENT_ROOT, v.file), 'utf8')));
+  if (!video) throw new Error('no public video with chapters belongs to a written module: the tests that open a video lesson have nothing to open');
+  return { ...video, url: `/${video.file.replace(/README\.md$/, '')}` };
+}
 
 /** E2E_EXECUTABLE names a Chromium binary; otherwise the installed browser channel from site.config.json is used. */
 export function launchBrowser() {

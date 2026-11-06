@@ -17,14 +17,14 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { ROOT, CONTENT_ROOT, config, isPlaceholderText } from '../../scripts/lib/config.mjs';
 import { parseClock } from '../../webapp/src/lib/curriculum/videos.js';
-import { BASE, launchBrowser, openPage } from './support.mjs';
+import { BASE, launchBrowser, openPage, publicVideos, aVideoLesson } from './support.mjs';
 
 const LESSON = '/backend/03-authentication-and-authorization/01-sessions-and-cookies/';
 const NEXT_LESSON = '/backend/03-authentication-and-authorization/02-jwt-deep-dive/';
 const VIDEO_ID = 'jNQXAC9IVRw';
-// A module with a video of its own in content/videos.json, a written lecture, and a lecture whose text is still to come.
-const VIDEO_LESSON = '/backend/10-distributed-systems-patterns/01-idempotency-in-practice/';
-const VIDEO_LESSON_ID = 'UQ_2Fuc3QmE';
+// A module with a public video of its own in content/videos.json (found there, so a video going public or private does not break the tests),
+// a written lecture, and a lecture whose text is still to come.
+const { url: VIDEO_LESSON, id: VIDEO_LESSON_ID } = aVideoLesson();
 const LECTURE = '/system-design/01-core-fundamentals/01-what-is-system-design/';
 
 // A lecture whose video is published but whose text is not written yet: found in the content, so writing the last of them does not
@@ -258,22 +258,24 @@ test('a lecture whose text is still to come has the video and says so', NO_SOON,
 });
 
 test('the Videos screen lists every video, filters them, and a card opens its module with the video at the top', async () => {
-  const { videos } = JSON.parse(fs.readFileSync(path.join(ROOT, 'dist', 'videos.json'), 'utf8'));
+  const { videos } = publicVideos();
   const { context, page } = await open('/videos/');
   await page.goto(BASE + '/videos/', { waitUntil: 'networkidle' });
   await page.waitForSelector('.vid-card');
-  assert.equal(await page.locator('.vid-card').count(), videos.length, 'every video is listed');
+  assert.equal(await page.locator('.vid-card').count(), videos.length, 'every public video is listed, and none that is still scheduled');
 
   await page.click('.vid-chip:has-text("Phase 1")');
   assert.equal(await page.locator('.vid-card').count(), videos.filter((v) => v.playlist === 'phase-1').length);
   await page.click('.vid-chip:has-text("All")');
   assert.equal(await page.locator('.vid-card').count(), videos.length);
 
-  await page.fill('.vid-filter input', 'Why Deep Pages Are Slow');
+  // A video with a title of its own among the public ones, that belongs to a module: search for it, open its card.
+  const one = videos.find((v) => v.file && videos.filter((w) => w.title.toLowerCase().includes(v.title.toLowerCase())).length === 1);
+  await page.fill('.vid-filter input', one.title);
   await page.waitForFunction(() => document.querySelectorAll('.vid-card').length === 1);
   await page.click('.vid-card');
   await page.waitForSelector('.lecture .video');
-  assert.equal(new URL(page.url()).pathname, '/backend/02-api-layer-and-request-handling/07-crud-deep-dive/');
+  assert.equal(new URL(page.url()).pathname, `/${one.file.replace(/README\.md$/, '')}`);
   await context.close();
 });
 

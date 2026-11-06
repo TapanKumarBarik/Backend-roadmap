@@ -18,7 +18,7 @@ import { resolvePath } from '../../webapp/src/lib/markdown/rewriteLinks.js';
 import { buildPageTitles } from '../../webapp/src/lib/curriculum/pageTitle.js';
 import { neighbourModules } from '../../webapp/src/lib/curriculum/curriculumPosition.js';
 import { isModule } from '../../webapp/src/lib/curriculum/nodeKind.js';
-import { formatClock, groupByModule, isoDuration } from '../../webapp/src/lib/curriculum/videos.js';
+import { formatClock, groupByModule, isoDuration, isPublic } from '../../webapp/src/lib/curriculum/videos.js';
 import { thumbnailUrl, watchUrl } from '../../webapp/src/lib/markdown/video.js';
 import { ROOT, CONTENT_DIR, config, SITE_URL, isPlaceholderText } from '../lib/config.mjs';
 import { descriptionCandidates, videoCandidates } from '../lib/describe.mjs';
@@ -51,7 +51,7 @@ const dates = gitDates(ROOT, CONTENT_DIR); // null without full history (a shall
 const videosFile = path.join(DIST, 'videos.json');
 const videosData = fs.existsSync(videosFile) ? JSON.parse(fs.readFileSync(videosFile, 'utf8')) : { videos: [], playlists: [] };
 // Only videos already public on YouTube (a scheduled one is private until its time); the app applies the same rule.
-const videoList = videosData.videos.filter((v) => !v.published || Date.parse(v.published) <= Date.now());
+const videoList = videosData.videos.filter((v) => isPublic(v));
 const videosByFile = groupByModule(videoList);
 
 // Same lookups the app builds in useDocsIndex, for resolving internal links.

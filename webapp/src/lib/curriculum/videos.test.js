@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   parseClock, formatClock, formatTotal, isoDuration, parseChapterLine, chapterLine, parseChapters, firstParagraph,
-  cleanTitle, moduleFile, resolveVideos, groupByModule, totals, nextVideo
+  cleanTitle, moduleFile, resolveVideos, groupByModule, totals, nextVideo, isPublic
 } from './videos.js';
 
 test('clock times read and print both ways', () => {
@@ -134,4 +134,15 @@ test('the next video is the next number in the same playlist, and there is none 
   assert.equal(nextVideo(list, list[1]).id, 'd', 'a number that is missing is skipped');
   assert.equal(nextVideo(list, list[3]), null);
   assert.equal(nextVideo(list, list[2]), null, 'another playlist is another series');
+});
+
+test('a video is public from its published time on; one with no time is public', () => {
+  const now = Date.parse('2026-11-06T12:00:00Z');
+  assert.equal(isPublic({ published: '2026-11-06T11:59:59Z' }, now), true);
+  assert.equal(isPublic({ published: '2026-11-06T12:00:00Z' }, now), true, 'at the minute it goes live');
+  assert.equal(isPublic({ published: '2026-11-06T12:00:01Z' }, now), false, 'a scheduled video is not listed yet');
+  assert.equal(isPublic({}, now), true);
+  assert.equal(isPublic({ published: '' }, now), true);
+  assert.equal(isPublic({ published: 'not a date' }, now), false, 'a time nobody can read is not a reason to list it');
+  assert.equal(isPublic({ published: '2000-01-01T00:00:00Z' }), true, 'with no clock given it is now');
 });

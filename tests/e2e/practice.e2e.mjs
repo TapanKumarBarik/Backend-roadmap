@@ -6,7 +6,7 @@
 import test, { before, after } from 'node:test';
 import fs from 'node:fs';
 import assert from 'node:assert/strict';
-import { BASE, OWNER_EMAIL, answerApiInProcess, launchBrowser, openPage } from './support.mjs';
+import { BASE, OWNER_EMAIL, answerApiInProcess, launchBrowser, openPage, publicVideos } from './support.mjs';
 import { moduleUrl } from '../../webapp/src/lib/curriculum/moduleUrl.js';
 import practiceContent from '../../api/generated/practice-content.json' with { type: 'json' };
 
@@ -244,7 +244,8 @@ test('the paths and the videos are real pages: a crawler gets their content with
   const videos = await get('/videos/');
   assert.equal(videos.status, 200);
   assert.match(videos.html, /<h1>Video lectures<\/h1>/);
-  assert.match(videos.html, /Phase 3: Caching, Scaling &amp; Traffic/);
+  const [playlist] = publicVideos().playlists; // the first playlist with a video already public (a scheduled one is not listed yet)
+  assert.ok(videos.html.includes(playlist.title.replace(/&/g, '&amp;')), `the page names the playlist ${playlist.title}`);
 
   const quiz = await get('/practice/quiz/http-caching/');
   assert.equal(quiz.status, 200);

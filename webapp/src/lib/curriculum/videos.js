@@ -122,6 +122,14 @@ export function cleanTitle(raw) {
   return { title, number: m ? Number(m[1] || m[2]) : null };
 }
 
+/**
+ * Whether a video is public. One scheduled on YouTube is private until its time, so the site lists it (and shows it on its module, and gives
+ * its page a card) only from then on, and nothing points at a video nobody can watch yet. The app, the build and the browser tests all use this.
+ * @param {{ published?: string }} video
+ * @param {number} [now] milliseconds since the epoch
+ */
+export const isPublic = (video, now = Date.now()) => !video.published || Date.parse(video.published) <= now;
+
 /** The key the app knows a module by: its folder's README. */
 export const moduleFile = (folder) => `${folder}/README.md`;
 
