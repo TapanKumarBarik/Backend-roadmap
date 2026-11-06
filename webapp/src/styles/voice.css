@@ -1,0 +1,67 @@
+/* The page's voice, drawn from the tokens (tokens.css): dotted drafting paper behind the page, headings and labels in the monospace and in
+   capitals like the annotations on a drawing, the text itself in the serif, the selected row and the lifted panels in lavender, and one violet ink
+   for what is yours to act on. It is a layer over global.css and ui.css, so taking it off is deleting this file and its import in main.jsx.
+   The capitals are set with CSS only: the words in the page, in search and in the sitemap are unchanged. */
+
+/* The paper. The dots are the violet ink at about one part in eight, behind the text and never over it. */
+#main {
+  background-image: radial-gradient(var(--dot) 1.1px, transparent 1.4px);
+  background-size: 22px 22px;
+  background-position: 11px 11px;
+}
+
+/* A page's own title: violet, in capitals, over a rule. */
+#content h1, .doc-title, .planned-title {
+  font-family: var(--display); text-transform: uppercase; letter-spacing: .02em; font-weight: 800; color: var(--signal);
+  font-size: clamp(24px, 2.6vw, 36px); line-height: 1.15; padding-bottom: 16px; border-bottom: 2px solid var(--signal);
+  text-wrap: balance; overflow-wrap: anywhere;
+}
+#content h2 {
+  font-family: var(--display); text-transform: uppercase; letter-spacing: .05em; font-weight: 700; font-size: 17px; line-height: 1.3;
+  padding-bottom: 8px; border-bottom: 1px solid var(--border);
+}
+#content h3 { font-family: var(--display); font-size: 15.5px; font-weight: 700; letter-spacing: .01em; }
+#content h4 { font-family: var(--display); font-size: 12px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; }
+
+/* Georgia draws old-style numerals (a 5 that looks like an o): every serif text uses the lining ones. */
+#content, #toc, .row .name { font-variant-numeric: lining-nums; }
+
+/* The text of a lesson is in the serif; tables, code, figures, video and the controls around them keep their own faces. */
+#content :is(p, li, blockquote) { font-family: var(--serif); }
+#content { font-size: 17.5px; line-height: 1.72; }
+#content :is(table, figcaption, .lecture, .video, .codeblock, .cblock, .mermaid-diagram, details > summary, button) { font-family: var(--sans); }
+#content table :is(p, li) { font-family: var(--sans); }
+
+/* The headings of the other screens (the home page, the learning paths, the videos). #root keeps them above the rules of the screens' own files. */
+#root :is(.lp h1) { font-family: var(--display); text-transform: uppercase; letter-spacing: .02em; font-weight: 800; color: var(--signal); font-size: clamp(1.7rem, 3.4vw, 2.7rem); line-height: 1.12; }
+#root :is(.lp-sec h2, .lp-account h2, .lpath-picker-head h2, .lpath-head h2, .lpath-done h2, .vid-head h2, #empty h2) {
+  font-family: var(--display); text-transform: uppercase; letter-spacing: .04em; font-weight: 700; font-size: 19px; line-height: 1.25;
+}
+
+/* The labels along the edges. */
+#toc .toc-h, .rail-tabs button { font-family: var(--display); letter-spacing: .1em; }
+#toc .toc-h { color: var(--signal); }
+#toc a, .row .name .ttl { font-family: var(--serif); }
+#toc a { font-size: 13.4px; }
+.row .name .ttl { font-size: 14.2px; }
+.row .name .ord { font-family: var(--display); }
+.row.sel { background: var(--accent-subtle); }
+html[data-theme="dark"] .row.sel, html[data-theme="auto"] .row.sel { background: var(--accent-subtle); }
+.crumb-trail, .crumb-pos { font-family: var(--display); }
+.crumb-trail { font-size: 11.5px; letter-spacing: .06em; text-transform: uppercase; }
+
+/* The top navigation. */
+.mainnav-link { font-family: var(--display); font-size: 11.5px; font-weight: 600; letter-spacing: .07em; text-transform: uppercase; }
+
+/* Buttons are annotations too: a violet fill for the one action that matters, a hairline for the rest. */
+:is(#root, #overlays) .ui-btn { font-family: var(--display); font-size: 11.5px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; }
+:is(#root, #overlays) .ui-btn--sm { font-size: 11px; }
+:is(#root, #overlays) .ui-btn--lg { font-size: 12.5px; }
+
+/* A notice from the admins: a violet bar across the top. */
+.notice-bar { background: var(--signal); color: var(--on-signal); border-bottom: 0; font-family: var(--display); font-size: 12.5px; letter-spacing: .02em; }
+.notice-bar a { color: inherit; font-weight: 700; text-decoration: underline; }
+.notice-bar__close, .notice-bar__close:hover { color: var(--on-signal); }
+
+@media (prefers-reduced-data: reduce) { #main { background-image: none; } }
+@media print { #main { background-image: none; } }

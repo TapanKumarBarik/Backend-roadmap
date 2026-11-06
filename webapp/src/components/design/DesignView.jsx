@@ -70,8 +70,8 @@ export default function DesignView() {
         <p className="dz-kicker">Design system</p>
         <h1>Blueprint</h1>
         <p className="dz-lead">
-          Hairlines on drafting paper. Prose stays monochrome and one amber accent is spent on state: where you are, what is in
-          progress, what needs you. Everything below is drawn from the tokens in <code>tokens.css</code> and the components in{' '}
+          Hairlines on dotted drafting paper and one violet ink: it marks where you are, what is in progress, what needs you and
+          what is yours to act on. Headings and labels are in the monospace, the text in the serif. Everything below is drawn from the tokens in <code>tokens.css</code> and the components in{' '}
           <code>components/ui</code>; change the theme from the top bar and it follows.
         </p>
       </header>

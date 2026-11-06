@@ -1,6 +1,6 @@
 # Design system
 
-The look of the site is one system, called **Blueprint**: hairlines on drafting paper. Prose is monochrome (hierarchy comes from size, weight and value), and **one amber accent is spent on state**: where you are, what is in progress, what needs you. It is drawn from design tokens and a small set of shared components, and `/#__design` shows all of them, from the real code, in whichever theme you are using.
+The look of the site is one system, called **Blueprint**: hairlines on dotted drafting paper and **one violet ink**, which marks where you are, what is in progress, what needs you and what is yours to act on (a link, a page's own title, the selected row, a primary button). Headings and labels are set in the monospace and in capitals (`--display`), the text of a lesson in the serif; `styles/voice.css` is that layer over the tokens, and deleting it (and its import in `main.jsx`) takes the voice off without touching the colours. It is drawn from design tokens and a small set of shared components, and `/#__design` shows all of them, from the real code, in whichever theme you are using.
 
 This page is for whoever changes the interface. The plan it belongs to is [MODERNIZATION.md](MODERNIZATION.md).
 
@@ -14,7 +14,7 @@ Every colour, size, space, radius, shadow, layer and timing is a CSS custom prop
 | Text | `--fg`, `--fg-muted`, `--fg-subtle` | all three are at least 4.5:1 on every surface, in both themes |
 | Lines | `--border-subtle`, `--border` (hairlines: decoration), `--border-strong` (the edge of a field or control: 3:1) | |
 | State | `--signal`, `--signal-bg`, `--signal-line`, `--on-signal`, `--done`, `--danger` | `--on-signal` is the text colour on a solid signal fill |
-| Links | `--link`, `--link-visited` | the one place the interface is not monochrome |
+| Links | `--link`, `--link-visited` | violet, like the rest of the ink; visited links are a plum |
 | Type | `--sans`, `--serif`, `--mono`; `--text-2xs` to `--text-4xl`; `--leading-*`; `--weight-*` | the serif is for long-form reading and is a system stack: no web font is loaded |
 | Space | `--space-1` to `--space-16` | a 4px grid |
 | Shape | `--r-sm`, `--r-md`, `--r-lg`, `--r-pill`; `--shadow-sm`, `--shadow-md`, `--shadow-lg` | control, card and dialog are three different radii, on purpose |

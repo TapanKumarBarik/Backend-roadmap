@@ -8,6 +8,7 @@ import './styles/tokens.css';
 import './styles/global.css';
 import './styles/ui.css';
 import './styles/motion.css';
+import './styles/voice.css';
 import { applyReadingPrefs } from './hooks/useReadingPrefs.js';
 
 applyReadingPrefs();

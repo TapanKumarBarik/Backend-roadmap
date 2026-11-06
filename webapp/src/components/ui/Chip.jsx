@@ -1,6 +1,6 @@
 import { cx } from '../../lib/cx.js';
 
-// A small label: a tag, a status. `tone` is "neutral", "signal" (amber: in progress, new) or "danger". With `onRemove`
+// A small label: a tag, a status. `tone` is "neutral", "signal" (violet: in progress, new) or "danger". With `onRemove`
 // it has a button to take it away.
 export function Chip({ tone = 'neutral', onRemove, removeLabel = 'Remove', className, children }) {
   return (

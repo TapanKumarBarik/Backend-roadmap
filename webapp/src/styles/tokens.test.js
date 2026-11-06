@@ -73,7 +73,7 @@ for (const [name, tokens] of [['light', light], ['dark', dark]]) {
     assert.deepEqual(failing, []);
   });
 
-  test(`${name} theme: amber text on its own tint, and text on a solid amber fill, are readable`, () => {
+  test(`${name} theme: signal text on its own tint, and text on a solid signal fill, are readable`, () => {
     assert.ok(contrast(tokens['--signal'], tokens['--signal-bg']) >= 4.5, 'signal text on --signal-bg');
     assert.ok(contrast(tokens['--on-signal'], tokens['--signal']) >= 4.5, 'text on a solid --signal fill');
   });

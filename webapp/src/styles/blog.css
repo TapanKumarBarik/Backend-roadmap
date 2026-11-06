@@ -3,7 +3,7 @@
    content styles (#content, global.css), with the long-form reading face laid over them below.
 
    The list is editorial rather than a grid of boxes: rows divided by hairlines, the title as the loudest thing, the
-   picture small and to the side. The one amber accent is for state (a like you have given, an article you have saved). */
+   picture small and to the side. The one accent is for state (a like you have given, an article you have saved). */
 
 .blog-screen {
   --page-pad: 32px;
@@ -120,7 +120,7 @@ a.post-byline__author:hover span { text-decoration: underline; }
 
 .post-actions { display: flex; align-items: center; gap: var(--space-1); flex-wrap: wrap; margin-top: var(--space-5); padding-top: var(--space-3); border-top: 1px solid var(--border-subtle); }
 .post-actions > :first-child { margin-left: calc(var(--space-3) * -1); }
-/* A like you have given and an article you have saved: the page's one amber accent (a button's own colour is set with an id). */
+/* A like you have given and an article you have saved: the page's one accent (a button's own colour is set with an id). */
 #root .post-actions .is-on { color: var(--signal); }
 /* The moment a like or a save is given, its icon answers (PostView sets .just-set for one run of it). */
 @keyframes icon-pop { 40% { transform: scale(1.3); } }

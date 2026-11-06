@@ -3,10 +3,10 @@
    never invents one. docs/DESIGN.md says how they are used; `/#__design` shows them; webapp/src/styles/tokens.test.js
    keeps the two dark blocks identical and every text colour readable (4.5:1 on each surface it sits on).
 
-   Hairlines on drafting paper. Prose stays monochrome — hierarchy from
-   weight, size and value — but progress is a drawing metaphor rather than a
-   grey ramp: not started = hairline outline, doing = signal amber, done =
-   solid ink. One accent, spent entirely on state.
+   Hairlines on dotted drafting paper, one violet ink. The violet marks what is yours to act on (a link, the page's own
+   title, the selected row, a primary button) and what you are in the middle of; progress is a drawing metaphor rather
+   than a grey ramp: not started = hairline outline, doing = violet, done = solid ink. Headings and labels are in the
+   monospace and in capitals (--display), the text in the serif.
 
    Two properties this block has to keep, because the whole system leans on
    them: --bg-raised must never equal --bg (otherwise nothing can be lifted
@@ -25,14 +25,14 @@
   --border-subtle: #e4e4de;
   --hover: #f1f1ec;
   --active: #e7e7e0;
-  --accent: #16181c;
+  --accent: #5a1fe0;      /* violet: links, the page's own title, the selected row, a primary button */
   --accent-fg: #ffffff;
-  --accent-subtle: #edede6;
+  --accent-subtle: #efe9fc; /* lavender: what the selected row and a lifted panel sit on */
   --done: #16181c;        /* solid ink */
-  --wip: #a85500;         /* signal amber, deep enough to read as text (5:1) */
-  --signal: #a85500;
-  --signal-bg: #fbf1e2;
-  --signal-line: #e5c398;
+  --wip: #5a1fe0;         /* signal violet, 7:1 as text */
+  --signal: #5a1fe0;
+  --signal-bg: #efe9fc;
+  --signal-line: #c7b6f3;
   --on-signal: #ffffff;   /* text on a solid signal fill */
   --scrim: rgba(20, 22, 26, .5); /* what dims the page behind a dialog or a drawer */
   /* The logo's destination dot sits on the ink-filled mark, so it takes the
@@ -41,8 +41,8 @@
   --danger: #a3301c;
   /* The one deliberate exception to the monochrome palette: hyperlinks.
      Blue + underline is the universal affordance — the UI chrome stays B&W. */
-  --link: #1256b8;
-  --link-visited: #6b3fa0;
+  --link: #5a1fe0;
+  --link-visited: #8a2a96;
   --shadow-sm: 0 1px 2px rgba(20,22,26,.06);
   --shadow-md: 0 2px 4px rgba(20,22,26,.05), 0 8px 20px rgba(20,22,26,.07);
   --shadow-lg: 0 12px 32px rgba(20,22,26,.14);
@@ -56,10 +56,13 @@
      surface (--bg-raised) in this theme — CVD dE 12.6, normal-vision 15.3,
      contrast >= 3:1. Do not swap these for --signal/--border without
      re-validating: those are chosen for text and hairlines, not for fills. */
-  --chart-accent: #b25a08;
+  --chart-accent: #6a2cf0;
   --chart-muted: #8e8e84;
   --chart-grid: #e4e4de;
   --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  /* The page's voice: headings and labels in the monospace, set in capitals, the way a drawing is annotated; the text itself in the serif. */
+  --display: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  --dot: rgba(90, 31, 224, .13); /* the dots of the dotted paper behind the page */
   --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif;
   /* Long-form reading (articles people write) is set in a serif that every system already has. No web font is loaded;
      the policy allows one (font-src 'self') if the reading ever deserves it. */
@@ -96,15 +99,16 @@ html[data-theme="auto"] { color-scheme: light; }
     --fg: #e7eaee; --fg-muted: #9aa2ae; --fg-subtle: #838c9a;
     --border: #39414e; --border-strong: #646e7e; --border-subtle: #252b35;
     --hover: #1a1f27; --active: #232935;
-    --accent: #e7eaee; --accent-fg: #0e1116; --accent-subtle: #232935;
-    --done: #e7eaee; --wip: #e9a053;
-    --signal: #e9a053; --signal-bg: #2a1e11; --signal-line: #6a4a22; --on-signal: #0e1116; --scrim: rgba(0, 0, 0, .62);
+    --accent: #b69cff; --accent-fg: #0e1116; --accent-subtle: #211a3d;
+    --done: #e7eaee; --wip: #b69cff;
+    --signal: #b69cff; --signal-bg: #211a3d; --signal-line: #4b3a85; --on-signal: #0e1116; --scrim: rgba(0, 0, 0, .62);
+    --dot: rgba(182, 156, 255, .12);
     --mark-dot: #b25a08;
     /* Re-validated against the dark card surface, not flipped from light:
        #e9a053 sits outside the dark lightness band, so the fill steps down. */
-    --chart-accent: #cd8133; --chart-muted: #6e7887; --chart-grid: #252b35;
+    --chart-accent: #9d7bff; --chart-muted: #6e7887; --chart-grid: #252b35;
     --danger: #e08a76;
-    --link: #79acff; --link-visited: #c9a3f5;
+    --link: #b69cff; --link-visited: #e0a3ec;
     --shadow-sm: 0 1px 2px rgba(0,0,0,.5);
     --shadow-md: 0 2px 4px rgba(0,0,0,.4), 0 8px 20px rgba(0,0,0,.55);
     --shadow-lg: 0 12px 32px rgba(0,0,0,.7);
@@ -116,15 +120,16 @@ html[data-theme="dark"] {
   --fg: #e7eaee; --fg-muted: #9aa2ae; --fg-subtle: #838c9a;
   --border: #39414e; --border-strong: #646e7e; --border-subtle: #252b35;
   --hover: #1a1f27; --active: #232935;
-  --accent: #e7eaee; --accent-fg: #0e1116; --accent-subtle: #232935;
-  --done: #e7eaee; --wip: #e9a053;
-  --signal: #e9a053; --signal-bg: #2a1e11; --signal-line: #6a4a22; --on-signal: #0e1116; --scrim: rgba(0, 0, 0, .62);
+  --accent: #b69cff; --accent-fg: #0e1116; --accent-subtle: #211a3d;
+  --done: #e7eaee; --wip: #b69cff;
+  --signal: #b69cff; --signal-bg: #211a3d; --signal-line: #4b3a85; --on-signal: #0e1116; --scrim: rgba(0, 0, 0, .62);
+  --dot: rgba(182, 156, 255, .12);
   --mark-dot: #b25a08;
   /* Same re-validated dark steps as the prefers-color-scheme block above;
      an explicit dark toggle must not fall through to the light fills. */
-  --chart-accent: #cd8133; --chart-muted: #6e7887; --chart-grid: #252b35;
+  --chart-accent: #9d7bff; --chart-muted: #6e7887; --chart-grid: #252b35;
   --danger: #e08a76;
-  --link: #79acff; --link-visited: #c9a3f5;
+  --link: #b69cff; --link-visited: #e0a3ec;
   --shadow-sm: 0 1px 2px rgba(0,0,0,.5);
   --shadow-md: 0 2px 4px rgba(0,0,0,.4), 0 8px 20px rgba(0,0,0,.55);
   --shadow-lg: 0 12px 32px rgba(0,0,0,.7);

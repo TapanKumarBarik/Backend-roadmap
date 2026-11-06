@@ -1,10 +1,10 @@
-/* Failure states (components/common/LoadError.jsx, ErrorText.jsx). Amber, not red: an unreachable server is
-   not the reader's mistake, and amber is the app's "signal" colour. Built from tokens, so it follows every theme.
+/* Failure states (components/common/LoadError.jsx, ErrorText.jsx). Violet, not red: an unreachable server is
+   not the reader's mistake, and violet is the app's "signal" colour. Built from tokens, so it follows every theme.
 
    Two deliberate choices:
    - Every selector starts with #root. These components appear inside #empty and #article, whose own rules
      (`#empty p`, `#content h3`, `#content details` ...) are ID selectors and would otherwise beat any class here.
-   - Secondary text uses --fg-muted, not --fg-subtle: on the amber background subtle is only 2.9:1, muted is 6:1. */
+   - Secondary text uses --fg-muted, not --fg-subtle: on the tinted background subtle is only 2.9:1, muted is 6:1. */
 
 #root .load-error {
   display: flex; gap: 14px; align-items: flex-start;
