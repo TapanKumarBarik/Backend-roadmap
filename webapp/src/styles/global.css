@@ -2738,6 +2738,13 @@ li[data-checked="true"] > div {
   [data-read-width="n"] #article { max-width: 640px; }
   [data-read-width="w"] #article { max-width: 900px; }
 }
+/* The room the panels leave. With the module tree and the outline hidden the page was mostly margin, so the column takes some of it and the text grows a
+   little with it, keeping a line comfortable. Only for the default width and size: "Narrow", "Wide", "Small" and "Large" are the reader's own choice. */
+@media (min-width: 1100px) {
+  html[data-read-width="m"] body.sidebar-collapsed #article, html[data-read-width="m"] body.right-rail-collapsed #article { max-width: 820px; }
+  html[data-read-width="m"] body.sidebar-collapsed.right-rail-collapsed #article { max-width: 920px; }
+  html[data-read-size="m"] body.sidebar-collapsed.right-rail-collapsed #article #content { font-size: 18.5px; }
+}
 .reading-options { position: relative; display: inline-flex; }
 .reading-btn { font-weight: var(--weight-semibold); font-size: var(--text-sm); width: auto; padding: 0 var(--space-2); }
 .reading-btn.on { color: var(--fg); }
