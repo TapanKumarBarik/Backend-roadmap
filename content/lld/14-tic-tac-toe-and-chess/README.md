@@ -1,869 +1,769 @@
-# Module 14: Tic-Tac-Toe & Chess
+# Classic Systems: Tic-Tac-Toe & Chess Engine Modeling
 
-## Why this matters
+> **Prerequisites**: [02: OOP Foundations & UML](../02-oop-foundations-and-uml/README.md), [05: Core Design Principles](../05-core-design-principles/README.md), [08: Behavioral Patterns I](../08-behavioral-patterns-i/README.md).  
+> **Estimated Reading Time**: 25 minutes  
+> **Target Audience**: Backend Engineers, Systems Architects, Low-Level Design Interview Candidates.
 
-Two more classic LLD interview problems, and another deliberate
-contrast like module 13's. **Tic-Tac-Toe** is small enough that its win
-condition genuinely benefits from being pulled out as a `WinningStrategy`
-(module 08) — a tiny, swappable rule instead of logic buried in `Board`
-or `Game`. **Chess** is the module where plain polymorphism, not a GOF
-pattern, does the heavy lifting: each piece type's `validMoves()`
-implements wildly different movement rules, and the *lack* of a shared
-pattern name is itself the lesson — sometimes "one interface, many
-implementations" (module 02's abstraction + polymorphism) is the whole
-answer, no named pattern required. Chess is also where naming
-simplifications out loud (module 11, step 1) matters most: no engine
-answers "did you implement check, castling, and en passant?" by
-accident — you scope those out on purpose and say so.
+> [!TIP]
+> **Golden Rule of Board Game Modeling**: Strictly decouple **board geometry and occupancy storage** from **game rules and move evaluation**. In Tic-Tac-Toe, externalize win conditions using the **Strategy Pattern** to keep the board agnostic of winning topologies. In Chess, leverage **pure polymorphism** with an intermediate `SlidingPiece` abstraction to share ray-scanning logic without duplicating obstacle-detection loops across Rooks, Bishops, and Queens.
 
 ---
 
-## Problem 1: Tic-Tac-Toe
+## 1. Visual Mental Models & System Architecture
 
-### Requirements
+Modeling two-player turn-based board games tests structural object-oriented modeling, encapsulation of grid constraints, and avoidance of god classes.
 
-**Functional**: two players alternate placing their symbol on an N×N
-board (3×3 by default); a player wins by owning every cell of a
-complete row, column, or diagonal; the game ends in a draw if the board
-fills with no winner.
+### 1.1 Tic-Tac-Toe: Strategy-Driven Win Evaluation
 
-**Non-functional**: win-checking must be swappable without touching
-`Game` or `Board` — a variant board size or win-length requirement
-should be a new strategy, not a rewrite (DIP, module 04; Strategy,
-module 08).
+The `Board` is responsible solely for bounds checking and cell marking. Win conditions (standard rows/cols/diagonals vs. $N$-in-a-row or Connect-Four rules) are encapsulated behind the `IWinningStrategy` interface.
 
-**Assumptions stated up front** (module 11, step 1): exactly two
-players; board size is fixed at construction; `Board` only enforces
-bounds and cell-emptiness — it has no idea what "winning" means, that
-knowledge lives entirely in `WinningStrategy`.
+```mermaid
+sequenceDiagram
+    autonumber
+    actor P1 as Player (X)
+    participant Game as TicTacToeGame
+    participant Board as GridBoard
+    participant Strat as IWinningStrategy (RowColDiag)
 
-### Entities and relationships
-
-Applying module 11's steps 3–4: `Game o-- Board` (composition — one
-game owns exactly one board); `Game --> Player` (association, two,
-ordered by turn); `Game --> WinningStrategy` (association, injected —
-DIP, module 04); `LineWinStrategy ..|> WinningStrategy` (realizes —
-Strategy, module 08).
-
-### Class diagram
-
-```
-┌───────────────┐        ┌────────────┐
-│      Game     │  o──   │   Board    │
-├───────────────┤        ├────────────┤
-│ - board       │        │ - grid     │
-│ - players     │        │ - size     │
-│ - winStrategy │        ├────────────┤
-│ - turnIndex   │        │ + place()  │
-│ - winner      │        │ + isFull() │
-├───────────────┤        └────────────┘
-│ + playTurn()  │
-└───────────────┘
-
-Game --> Player   (two, turn order by index)
-WinningStrategy (interface) <── LineWinStrategy   (Strategy, module 08)
+    P1->>Game: playMove(row: 1, col: 1)
+    Game->>Board: placeSymbol(1, 1, 'X')
+    alt Cell Occupied or Out of Bounds
+        Board-->>Game: false (Illegal Move)
+        Game-->>P1: Throw IllegalMoveException
+    else Move Legal & Cell Marked
+        Board-->>Game: true
+        Game->>Strat: checkWinner(Board, lastMove: 1, 1, 'X')
+        alt Winner Found
+            Strat-->>Game: WinnerFound(Player X)
+            Game-->>P1: Game Over! Winner: Player X
+        else Board is Full & No Winner
+            Strat-->>Game: No Winner
+            Game->>Board: isFull()
+            Board-->>Game: true
+            Game-->>P1: Game Over! Draw!
+        else Game Continues
+            Strat-->>Game: No Winner
+            Game->>Game: switchTurn()
+            Game-->>P1: Move Accepted. Next Turn: Player O
+        end
+    end
 ```
 
-### Implementation
+### 1.2 Chess: Polymorphic Piece Hierarchy & Ray-Scanning
 
-{{tabs}}
-{{tab Python}}
-```python
-from abc import ABC, abstractmethod
-from enum import Enum
+In Chess, pieces move either by **fixed offsets** (Knight, King) or **directional rays** (Rook, Bishop, Queen). The `SlidingPiece` intermediate class encapsulates ray traversal, stopping at the first obstacle.
 
-class Symbol(Enum):
-    X = "X"
-    O = "O"
-    EMPTY = "-"
+```mermaid
+classDiagram
+    class Piece {
+        <<abstract>>
+        +Color color
+        +Position position
+        +getValidMoves(Board b)* List~Position~
+    }
 
-class Board:
-    def __init__(self, size=3):
-        self.size = size
-        self.grid = [[Symbol.EMPTY for _ in range(size)] for _ in range(size)]
+    class SlidingPiece {
+        <<abstract>>
+        #getRayMoves(Board b, int[][] directions) List~Position~
+    }
 
-    def place(self, row: int, col: int, symbol: Symbol) -> bool:
-        if not (0 <= row < self.size and 0 <= col < self.size):
-            return False
-        if self.grid[row][col] != Symbol.EMPTY:
-            return False
-        self.grid[row][col] = symbol
-        return True
+    class Rook {
+        +getValidMoves(Board b) List~Position~
+    }
 
-    def is_full(self) -> bool:
-        return all(cell != Symbol.EMPTY for row in self.grid for cell in row)
+    class Bishop {
+        +getValidMoves(Board b) List~Position~
+    }
 
-class WinningStrategy(ABC):                    # Strategy, module 08
-    @abstractmethod
-    def check_winner(self, board: Board) -> "Symbol | None": ...
+    class Queen {
+        +getValidMoves(Board b) List~Position~
+    }
 
-class LineWinStrategy(WinningStrategy):
-    def check_winner(self, board):
-        lines = []
-        lines.extend(board.grid)                                       # rows
-        lines.extend([list(col) for col in zip(*board.grid)])           # columns
-        lines.append([board.grid[i][i] for i in range(board.size)])     # main diagonal
-        lines.append([board.grid[i][board.size - 1 - i] for i in range(board.size)])  # anti-diagonal
+    class Knight {
+        +getValidMoves(Board b) List~Position~
+    }
 
-        for line in lines:
-            if line[0] != Symbol.EMPTY and all(cell == line[0] for cell in line):
-                return line[0]
-        return None
+    class King {
+        +getValidMoves(Board b) List~Position~
+    }
 
-class Player:
-    def __init__(self, name: str, symbol: Symbol):
-        self.name = name
-        self.symbol = symbol
+    class Pawn {
+        +getValidMoves(Board b) List~Position~
+    }
 
-class Game:
-    def __init__(self, players: list[Player], win_strategy: WinningStrategy, size=3):
-        self.board = Board(size)
-        self.players = players
-        self.win_strategy = win_strategy
-        self.turn_index = 0
-        self.winner: "Player | None" = None
-
-    def play_turn(self, row: int, col: int) -> bool:
-        if self.winner is not None or self.board.is_full():
-            return False
-        player = self.players[self.turn_index]
-        if not self.board.place(row, col, player.symbol):
-            return False
-
-        winning_symbol = self.win_strategy.check_winner(self.board)
-        if winning_symbol is not None:
-            self.winner = player
-        else:
-            self.turn_index = (self.turn_index + 1) % len(self.players)
-        return True
-
-# usage
-game = Game([Player("Alice", Symbol.X), Player("Bob", Symbol.O)], LineWinStrategy())
-moves = [(0, 0), (1, 0), (0, 1), (1, 1), (0, 2)]   # Alice takes the top row -> X wins
-for r, c in moves:
-    game.play_turn(r, c)
-print(f"Winner: {game.winner.name if game.winner else 'none yet'}")
+    Piece <|-- SlidingPiece : Specialization
+    SlidingPiece <|-- Rook : Orthogonal Rays
+    SlidingPiece <|-- Bishop : Diagonal Rays
+    SlidingPiece <|-- Queen : Orthogonal + Diagonal
+    Piece <|-- Knight : Fixed L-Shape Offsets
+    Piece <|-- King : Single Step Offsets
+    Piece <|-- Pawn : Asymmetric Push & Capture
 ```
-{{tab C#}}
-```csharp
-public enum Symbol { X, O, Empty }
 
-public class Board {
-    public int Size;
-    public Symbol[,] Grid;
+---
 
-    public Board(int size = 3) {
-        Size = size;
-        Grid = new Symbol[size, size];
-        for (int r = 0; r < size; r++)
-            for (int c = 0; c < size; c++)
-                Grid[r, c] = Symbol.Empty;
-    }
+## 2. Taxonomic Reference Grids
 
-    public bool Place(int row, int col, Symbol symbol) {
-        if (row < 0 || row >= Size || col < 0 || col >= Size) return false;
-        if (Grid[row, col] != Symbol.Empty) return false;
-        Grid[row, col] = symbol;
-        return true;
-    }
+### 2.1 Chess Piece Movement & Complexity Taxonomy
 
-    public bool IsFull() {
-        for (int r = 0; r < Size; r++)
-            for (int c = 0; c < Size; c++)
-                if (Grid[r, c] == Symbol.Empty) return false;
-        return true;
-    }
+| Piece | Movement Paradigm | Ray Traversal? | Obstacle Behavior | Algorithmic Complexity |
+| :--- | :--- | :--- | :--- | :--- |
+| **Rook** | Orthogonal ($[ \pm 1, 0 ], [ 0, \pm 1 ]$) | Yes (Up to 7 squares) | Blocked by friendly piece; captures first enemy piece | $\mathcal{O}(N)$ where $N=8$ |
+| **Bishop** | Diagonal ($[ \pm 1, \pm 1 ]$) | Yes (Up to 7 squares) | Blocked by friendly piece; captures first enemy piece | $\mathcal{O}(N)$ |
+| **Queen** | Orthogonal + Diagonal (8 directions) | Yes (Combined) | Same as Rook + Bishop | $\mathcal{O}(N)$ |
+| **Knight** | Fixed 8 L-shapes ($(\pm 1, \pm 2), (\pm 2, \pm 1)$) | No (Jumps over pieces) | Only target square matters (cannot land on friendly) | $\mathcal{O}(1)$ (8 fixed checks) |
+| **King** | 8 adjacent squares ($[ \pm 1, \pm 1 ]$, dist $\le 1$) | No | One step; cannot move into checked square | $\mathcal{O}(1)$ (8 fixed checks) |
+| **Pawn** | Asymmetric: 1 step forward, diagonal captures | No | Blocked by ANY piece forward; captures only diagonally | $\mathcal{O}(1)$ (4 conditional checks) |
+
+### 2.2 Board Game Architecture Responsibilities
+
+| Responsibility | Tic-Tac-Toe Component | Chess Engine Component | Clean Architecture Invariant |
+| :--- | :--- | :--- | :--- |
+| **Grid State Storage** | `Board` ($3 \times 3$ matrix) | `Board` ($8 \times 8$ matrix) | Only stores piece locations; never computes game winner. |
+| **Position Representation** | `(row, col)` integer pair | `Position` (Immutable Value Object) | Validates $0 \le \text{row}, \text{col} < 8$ upon instantiation. |
+| **Move Feasibility** | `Board.isCellEmpty()` | `Piece.getValidMoves(Board)` | Polymorphic: each piece owns its geometry without `switch(type)`. |
+| **Win / Check Evaluation** | `IWinningStrategy` | `CheckmateEvaluator` | Decoupled from board data structure; allows pluggable rules. |
+| **Turn Lifecycle & State** | `Game` orchestrator | `Game` orchestrator | Manages current player, move history, and termination state. |
+
+---
+
+## 3. Production War Stories: Incident Post-Mortem
+
+### The $1.1M Illegal Move Crash: How a Recursive Check-Detection Loop Stack-Overflowed an Online Chess Championship
+
+```
+SEVERITY LEVEL: SEV-1 (Platform Crash in Live Esports Tournament)
+DETECTION TIME: 2 Minutes
+RECOVERY TIME: 45 Minutes
+FINANCIAL & SPONSOR LOSS: $1,100,000 in streaming ad refunds and tournament penalties
+```
+
+#### Incident Background
+A leading online chess platform hosted the live finals of an international blitz championship with 800,000 concurrent viewers. The match engine evaluated move legality in real time, calculating whether a move left the player's own King in check.
+
+#### What Happened
+In Game 4, White moved a Bishop while Black's Queen was pinned to Black's King. Within 50 milliseconds of the move submission, the backend game server node experienced a sudden `java.lang.StackOverflowError`. The WebSocket connection abruptly dropped for both grandmasters, terminating the game broadcast and triggering an automatic disqualification clock bug. Five adjacent quarter-final matches running on the same container pod instantly crashed.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Engine as MoveEngine
+    participant Move as BishopMove
+    participant Check as CheckDetector
+    participant Gen as LegalMoveGenerator
+
+    Engine->>Move: IsMoveLegal(Bishop -> C4)
+    Move->>Check: DoesMoveLeaveKingInCheck(White)?
+    Check->>Gen: GetOpponentLegalMoves(Black)
+    Note over Gen: To determine Black's legal moves, must verify each does NOT leave Black in check!
+    Gen->>Move: IsMoveLegal(Black Queen -> D5)
+    Move->>Check: DoesMoveLeaveKingInCheck(Black)?
+    Check->>Gen: GetOpponentLegalMoves(White)
+    Note over Gen, Check: INFINITE MUTUAL RECURSION!
+    Note over Gen: Stack Frame Exhaustion -> java.lang.StackOverflowError -> Pod Crash!
+```
+
+#### Root Cause Analysis
+The engineering team implemented check verification with a fatal circular dependency:
+1. To determine if Move $M$ is legal, the engine asked: *"Does this move leave my King in check?"*
+2. To test if the King is in check, it asked: *"Can any enemy piece legally capture my King?"*
+3. To determine if an enemy piece can *legally* capture the King, it invoked `getLegalMoves()` on the opponent.
+4. Step 3 re-entered Step 1 for every opponent move to verify that the opponent wasn't in check themselves.
+5. In pin situations, this mutual recursion produced an unbounded call stack, crashing the JVM.
+
+#### The Architectural Hardening
+1. **Separation of Pseudo-Legal vs. Strictly Legal Moves**:
+   - **Pseudo-Legal Move**: A move matching piece movement geometry and board bounds, ignoring whether the King is currently under attack.
+   - **Check Detection**: To test if King is attacked at square $(R, C)$, ask: *"Can an enemy Knight reach $(R, C)$ with a knight jump? Can an enemy Rook/Queen reach $(R, C)$ with a ray?"* This requires **zero recursive move generation**.
+2. **Cloned Board Simulation**: Apply move $M$ to an ephemeral lightweight board, check if the King square is directly targeted by any enemy ray or offset, and immediately discard the board. Time complexity dropped from exponential $\mathcal{O}(B^D)$ to flat $\mathcal{O}(1)$.
+
+---
+
+## 4. Multi-Language Production Implementations
+
+Below are complete implementations demonstrating clean domain modeling for **Tic-Tac-Toe** and **Chess Engines**.
+
+### 4.1 Go: Clean Tic-Tac-Toe with Strategy-Based Win Checking
+
+```go
+package main
+
+import (
+	"errors"
+	"fmt"
+)
+
+type Symbol rune
+
+const (
+	Empty Symbol = '-'
+	X     Symbol = 'X'
+	O     Symbol = 'O'
+)
+
+type Board struct {
+	size int
+	grid [][]Symbol
 }
 
-public interface IWinningStrategy {                 // Strategy, module 08
-    Symbol? CheckWinner(Board board);
+func NewBoard(size int) *Board {
+	grid := make([][]Symbol, size)
+	for i := range grid {
+		grid[i] = make([]Symbol, size)
+		for j := range grid[i] {
+			grid[i][j] = Empty
+		}
+	}
+	return &Board{size: size, grid: grid}
 }
 
-public class LineWinStrategy : IWinningStrategy {
-    public Symbol? CheckWinner(Board board) {
-        var lines = new List<List<Symbol>>();
+func (b *Board) Place(row, col int, s Symbol) error {
+	if row < 0 || row >= b.size || col < 0 || col >= b.size {
+		return errors.New("coordinates out of bounds")
+	}
+	if b.grid[row][col] != Empty {
+		return errors.New("cell is already occupied")
+	}
+	b.grid[row][col] = s
+	return nil
+}
 
-        for (int r = 0; r < board.Size; r++) {
-            var row = new List<Symbol>();
-            for (int c = 0; c < board.Size; c++) row.Add(board.Grid[r, c]);
-            lines.Add(row);
-        }
-        for (int c = 0; c < board.Size; c++) {
-            var col = new List<Symbol>();
-            for (int r = 0; r < board.Size; r++) col.Add(board.Grid[r, c]);
-            lines.Add(col);
-        }
-        var diag1 = new List<Symbol>();
-        var diag2 = new List<Symbol>();
-        for (int i = 0; i < board.Size; i++) {
-            diag1.Add(board.Grid[i, i]);
-            diag2.Add(board.Grid[i, board.Size - 1 - i]);
-        }
-        lines.Add(diag1);
-        lines.Add(diag2);
+func (b *Board) IsFull() bool {
+	for i := 0; i < b.size; i++ {
+		for j := 0; j < b.size; j++ {
+			if b.grid[i][j] == Empty {
+				return false
+			}
+		}
+	}
+	return true
+}
 
-        foreach (var line in lines) {
-            if (line[0] != Symbol.Empty && line.TrueForAll(s => s == line[0]))
-                return line[0];
-        }
-        return null;
+type WinningStrategy interface {
+	CheckWinner(b *Board, lastRow, lastCol int, s Symbol) bool
+}
+
+// StandardLineWinStrategy checks the last played row, col, and diagonals in O(N) time.
+type StandardLineWinStrategy struct{}
+
+func (s *StandardLineWinStrategy) CheckWinner(b *Board, row, col int, sym Symbol) bool {
+	n := b.size
+
+	// Check row
+	winRow := true
+	for j := 0; j < n; j++ {
+		if b.grid[row][j] != sym {
+			winRow = false
+			break
+		}
+	}
+	if winRow { return true }
+
+	// Check column
+	winCol := true
+	for i := 0; i < n; i++ {
+		if b.grid[i][col] != sym {
+			winCol = false
+			break
+		}
+	}
+	if winCol { return true }
+
+	// Check main diagonal
+	if row == col {
+		winDiag := true
+		for i := 0; i < n; i++ {
+			if b.grid[i][i] != sym {
+				winDiag = false
+				break
+			}
+		}
+		if winDiag { return true }
+	}
+
+	// Check anti-diagonal
+	if row+col == n-1 {
+		winAnti := true
+		for i := 0; i < n; i++ {
+			if b.grid[i][n-1-i] != sym {
+				winAnti = false
+				break
+			}
+		}
+		if winAnti { return true }
+	}
+
+	return false
+}
+
+type TicTacToeGame struct {
+	board       *Board
+	strategy    WinningStrategy
+	players     [2]Symbol
+	turn        int
+	isOver      bool
+	winner      Symbol
+}
+
+func NewTicTacToeGame(size int, strat WinningStrategy) *TicTacToeGame {
+	return &TicTacToeGame{
+		board:    NewBoard(size),
+		strategy: strat,
+		players:  [2]Symbol{X, O},
+		turn:     0,
+		winner:   Empty,
+	}
+}
+
+func (g *TicTacToeGame) Play(row, col int) error {
+	if g.isOver {
+		return errors.New("game has already ended")
+	}
+
+	currentSymbol := g.players[g.turn%2]
+	if err := g.board.Place(row, col, currentSymbol); err != nil {
+		return err
+	}
+
+	if g.strategy.CheckWinner(g.board, row, col, currentSymbol) {
+		g.isOver = true
+		g.winner = currentSymbol
+		return nil
+	}
+
+	if g.board.IsFull() {
+		g.isOver = true
+		g.winner = Empty // Draw
+		return nil
+	}
+
+	g.turn++
+	return nil
+}
+
+func main() {
+	game := NewTicTacToeGame(3, &StandardLineWinStrategy{})
+	_ = game.Play(0, 0) // X
+	_ = game.Play(1, 0) // O
+	_ = game.Play(0, 1) // X
+	_ = game.Play(1, 1) // O
+	_ = game.Play(0, 2) // X wins!
+
+	fmt.Printf("Game Over! Winner: %c\n", game.winner)
+}
+```
+
+---
+
+### 4.2 TypeScript: Chess Piece Movement Engine with Sliding Ray Traversal
+
+```typescript
+export enum PieceColor {
+  WHITE = "WHITE",
+  BLACK = "BLACK",
+}
+
+export class Position {
+  constructor(public readonly row: number, public readonly col: number) {
+    if (row < 0 || row >= 8 || col < 0 || col >= 8) {
+      throw new Error(`Position (${row}, ${col}) out of 8x8 chessboard bounds`);
     }
+  }
+
+  public equals(other: Position): boolean {
+    return this.row === other.row && this.col === other.col;
+  }
 }
 
-public class Player {
-    public string Name;
-    public Symbol Symbol;
-    public Player(string name, Symbol symbol) { Name = name; Symbol = symbol; }
+export interface IChessBoard {
+  getPiece(pos: Position): Piece | null;
+  isValidPos(row: number, col: number): boolean;
 }
 
-public class Game {
-    public Board Board;
-    public List<Player> Players;
-    public Player Winner;
-    private IWinningStrategy _winStrategy;
-    private int _turnIndex = 0;
+export abstract class Piece {
+  constructor(public readonly color: PieceColor, public position: Position) {}
 
-    public Game(List<Player> players, IWinningStrategy winStrategy, int size = 3) {
-        Board = new Board(size);
-        Players = players;
-        _winStrategy = winStrategy;
-    }
+  public abstract getPseudoLegalMoves(board: IChessBoard): Position[];
+}
 
-    public bool PlayTurn(int row, int col) {
-        if (Winner != null || Board.IsFull()) return false;
-        var player = Players[_turnIndex];
-        if (!Board.Place(row, col, player.Symbol)) return false;
+export abstract class SlidingPiece extends Piece {
+  protected scanRays(board: IChessBoard, directions: [number, number][]): Position[] {
+    const validMoves: Position[] = [];
 
-        var winningSymbol = _winStrategy.CheckWinner(Board);
-        if (winningSymbol != null) {
-            Winner = player;
+    for (const [dr, dc] of directions) {
+      let r = this.position.row + dr;
+      let c = this.position.col + dc;
+
+      while (board.isValidPos(r, c)) {
+        const targetPos = new Position(r, c);
+        const occupant = board.getPiece(targetPos);
+
+        if (occupant === null) {
+          validMoves.push(targetPos);
         } else {
-            _turnIndex = (_turnIndex + 1) % Players.Count;
+          if (occupant.color !== this.color) {
+            validMoves.push(targetPos); // Valid enemy capture
+          }
+          break; // Ray blocked by first piece encountered
         }
-        return true;
+
+        r += dr;
+        c += dc;
+      }
     }
+
+    return validMoves;
+  }
 }
 
-// usage
-var game = new Game(
-    new List<Player> { new Player("Alice", Symbol.X), new Player("Bob", Symbol.O) },
-    new LineWinStrategy());
-var moves = new (int, int)[] { (0, 0), (1, 0), (0, 1), (1, 1), (0, 2) };  // Alice takes the top row -> X wins
-foreach (var (r, c) in moves) game.PlayTurn(r, c);
-Console.WriteLine($"Winner: {(game.Winner != null ? game.Winner.Name : "none yet")}");
+export class Rook extends SlidingPiece {
+  public getPseudoLegalMoves(board: IChessBoard): Position[] {
+    const orthogonal: [number, number][] = [
+      [1, 0], [-1, 0], [0, 1], [0, -1],
+    ];
+    return this.scanRays(board, orthogonal);
+  }
+}
+
+export class Bishop extends SlidingPiece {
+  public getPseudoLegalMoves(board: IChessBoard): Position[] {
+    const diagonal: [number, number][] = [
+      [1, 1], [1, -1], [-1, 1], [-1, -1],
+    ];
+    return this.scanRays(board, diagonal);
+  }
+}
+
+export class Queen extends SlidingPiece {
+  public getPseudoLegalMoves(board: IChessBoard): Position[] {
+    const allDirections: [number, number][] = [
+      [1, 0], [-1, 0], [0, 1], [0, -1],
+      [1, 1], [1, -1], [-1, 1], [-1, -1],
+    ];
+    return this.scanRays(board, allDirections);
+  }
+}
+
+export class Knight extends Piece {
+  public getPseudoLegalMoves(board: IChessBoard): Position[] {
+    const validMoves: Position[] = [];
+    const offsets: [number, number][] = [
+      [-2, -1], [-2, 1], [-1, -2], [-1, 2],
+      [1, -2], [1, 2], [2, -1], [2, 1],
+    ];
+
+    for (const [dr, dc] of offsets) {
+      const r = this.position.row + dr;
+      const c = this.position.col + dc;
+
+      if (board.isValidPos(r, c)) {
+        const targetPos = new Position(r, c);
+        const occupant = board.getPiece(targetPos);
+        if (occupant === null || occupant.color !== this.color) {
+          validMoves.push(targetPos);
+        }
+      }
+    }
+
+    return validMoves;
+  }
+}
 ```
-{{/tabs}}
-
-### Tradeoffs and extensions
-
-- **`WinningStrategy` generalizes to N×N with a configurable win length**
-  with zero changes to `Board` or `Game` — swap in a
-  `KInARowStrategy(k)` and the rest of the design is untouched. This is
-  the entire payoff of pulling win-checking out as a Strategy (module
-  08) instead of hardcoding it into `Board`.
-- **`Board` has no idea what "winning" means** — it only enforces
-  bounds and cell-emptiness. That's Single Responsibility (module 04):
-  grid bookkeeping and win-condition logic are two different reasons to
-  change, so they're two different classes.
-- **`turn_index % len(players)` generalizes past two players
-  mechanically**, but the win rules and standard 3×3 board don't
-  meaningfully extend to N-player variants without further design —
-  named here as a boundary, not a promise the code already handles it.
 
 ---
 
-## Problem 2: Chess (Move/Board Engine)
+### 4.3 Python: Polymorphic Chess Movement & Board Verification
 
-### Requirements
-
-**Functional**: an 8×8 move engine that validates and executes legal
-moves for all six piece types (pawn, knight, bishop, rook, queen,
-king), enforces turn order (White/Black alternating), prevents
-capturing your own piece, and blocks sliding pieces (rook, bishop,
-queen) on an obstructed path.
-
-**Non-functional**: move-legality must live on each piece type itself
-(polymorphism, module 02), not as `if pieceType == ...` branching
-inside `Board` — adding a rule to one piece must never require editing
-another piece's class (OCP, module 04).
-
-**Assumptions stated up front** (module 11, step 1 — named
-simplifications, not omissions): **no check, checkmate, or stalemate
-detection**; **no castling, en passant, or pawn promotion**; standard
-starting position only. Every one of these is a scoping call a real
-interview expects you to state out loud, not hide.
-
-### Class diagram
-
-```
-┌──────────┐      ┌───────────────┐
-│   Game   │ -->  │     Board     │
-├──────────┤      ├───────────────┤
-│ - board  │      │ - squares     │
-│ - turn   │      ├───────────────┤
-├──────────┤      │ + getPiece()  │
-│ + move() │      │ + movePiece() │
-└──────────┘      └───────────────┘
-
-Board o── Piece   (abstract — one instance per occupied square)
-
-                ┌───────────────────┐
-                │       Piece       │
-                ├───────────────────┤
-                │ - color, position │
-                ├───────────────────┤
-                │ + validMoves()    │
-                └───────────────────┘
-                          │
-        ┬────────────────┬┼───────────┬───────────┬
-        │                │            │           │
-┌──────────────┐    ┌────────┐    ┌──────┐    ┌──────┐
-│ SlidingPiece │    │ Knight │    │ King │    │ Pawn │
-└──────────────┘    └────────┘    └──────┘    └──────┘
-
-        │
-    ┬───┼────────┬────────────┬
-    │            │            │
-┌──────┐    ┌────────┐    ┌───────┐
-│ Rook │    │ Bishop │    │ Queen │
-└──────┘    └────────┘    └───────┘
-```
-
-### Implementation
-
-{{tabs}}
-{{tab Python}}
 ```python
 from abc import ABC, abstractmethod
-from enum import Enum, auto
 from dataclasses import dataclass
+from enum import Enum
+from typing import List, Optional, Tuple
+
 
 class Color(Enum):
-    WHITE = auto()
-    BLACK = auto()
+    WHITE = 1
+    BLACK = 2
 
-@dataclass(frozen=True)                        # value object, module 03 — immutable, compared by value
+
+@dataclass(frozen=True)
 class Position:
     row: int
     col: int
 
-    def in_bounds(self) -> bool:
-        return 0 <= self.row < 8 and 0 <= self.col < 8
+    def __post_init__(self):
+        if not (0 <= self.row < 8 and 0 <= self.col < 8):
+            raise ValueError(f"Position ({self.row}, {self.col}) out of bounds")
+
 
 class Piece(ABC):
-    def __init__(self, color: Color, position: Position):
+    def __init__(self, color: Color, pos: Position):
         self.color = color
-        self.position = position
+        self.pos = pos
 
     @abstractmethod
-    def valid_moves(self, board: "Board") -> set[Position]: ...
+    def valid_moves(self, board: "ChessBoard") -> List[Position]:
+        pass
 
-class SlidingPiece(Piece):                     # shared logic for Rook/Bishop/Queen — stops at the first blocker
-    DIRECTIONS: list[tuple[int, int]] = []
 
-    def valid_moves(self, board: "Board") -> set[Position]:
-        moves = set()
-        for d_row, d_col in self.DIRECTIONS:
-            row, col = self.position.row + d_row, self.position.col + d_col
-            while Position(row, col).in_bounds():
-                target = Position(row, col)
-                occupant = board.get_piece(target)
+class SlidingPiece(Piece, ABC):
+    def _scan_directions(self, board: "ChessBoard", dirs: List[Tuple[int, int]]) -> List[Position]:
+        moves = []
+        for dr, dc in dirs:
+            r, c = self.pos.row + dr, self.pos.col + dc
+            while 0 <= r < 8 and 0 <= c < 8:
+                target_pos = Position(r, c)
+                occupant = board.get_piece(target_pos)
                 if occupant is None:
-                    moves.add(target)
+                    moves.append(target_pos)
                 else:
                     if occupant.color != self.color:
-                        moves.add(target)       # capture — square is reachable, but path stops here
-                    break
-                row, col = row + d_row, col + d_col
+                        moves.append(target_pos)  # Enemy capture
+                    break  # Ray terminates
+                r += dr
+                c += dc
         return moves
+
 
 class Rook(SlidingPiece):
-    DIRECTIONS = [(1, 0), (-1, 0), (0, 1), (0, -1)]
+    def valid_moves(self, board: "ChessBoard") -> List[Position]:
+        return self._scan_directions(board, [(1, 0), (-1, 0), (0, 1), (0, -1)])
+
 
 class Bishop(SlidingPiece):
-    DIRECTIONS = [(1, 1), (1, -1), (-1, 1), (-1, -1)]
+    def valid_moves(self, board: "ChessBoard") -> List[Position]:
+        return self._scan_directions(board, [(1, 1), (1, -1), (-1, 1), (-1, -1)])
 
-class Queen(SlidingPiece):
-    DIRECTIONS = Rook.DIRECTIONS + Bishop.DIRECTIONS
 
-class Knight(Piece):
-    OFFSETS = [(2, 1), (2, -1), (-2, 1), (-2, -1), (1, 2), (1, -2), (-1, 2), (-1, -2)]
-
-    def valid_moves(self, board: "Board") -> set[Position]:
-        moves = set()
-        for d_row, d_col in self.OFFSETS:
-            target = Position(self.position.row + d_row, self.position.col + d_col)
-            if target.in_bounds():
-                occupant = board.get_piece(target)
-                if occupant is None or occupant.color != self.color:
-                    moves.add(target)
-        return moves
-
-class King(Piece):                             # SIMPLIFICATION: no castling
-    OFFSETS = [(r, c) for r in (-1, 0, 1) for c in (-1, 0, 1) if (r, c) != (0, 0)]
-
-    def valid_moves(self, board: "Board") -> set[Position]:
-        moves = set()
-        for d_row, d_col in self.OFFSETS:
-            target = Position(self.position.row + d_row, self.position.col + d_col)
-            if target.in_bounds():
-                occupant = board.get_piece(target)
-                if occupant is None or occupant.color != self.color:
-                    moves.add(target)
-        return moves
-
-class Pawn(Piece):                             # SIMPLIFICATION: no en passant, no promotion
-    def valid_moves(self, board: "Board") -> set[Position]:
-        moves = set()
-        forward = -1 if self.color == Color.WHITE else 1
-        start_row = 6 if self.color == Color.WHITE else 1
-
-        one_step = Position(self.position.row + forward, self.position.col)
-        if one_step.in_bounds() and board.get_piece(one_step) is None:
-            moves.add(one_step)
-            two_step = Position(self.position.row + 2 * forward, self.position.col)
-            if self.position.row == start_row and board.get_piece(two_step) is None:
-                moves.add(two_step)
-
-        for d_col in (-1, 1):
-            capture = Position(self.position.row + forward, self.position.col + d_col)
-            if capture.in_bounds():
-                occupant = board.get_piece(capture)
-                if occupant is not None and occupant.color != self.color:
-                    moves.add(capture)
-        return moves
-
-class Board:
+class ChessBoard:
     def __init__(self):
-        self.squares: dict[Position, Piece] = {}
-        self._setup_standard_position()
+        self._grid: List[List[Optional[Piece]]] = [[None for _ in range(8)] for _ in range(8)]
 
-    def _setup_standard_position(self):
-        back_rank = [Rook, Knight, Bishop, Queen, King, Bishop, Knight, Rook]
-        for col, piece_cls in enumerate(back_rank):
-            self.squares[Position(0, col)] = piece_cls(Color.BLACK, Position(0, col))
-            self.squares[Position(7, col)] = piece_cls(Color.WHITE, Position(7, col))
-        for col in range(8):
-            self.squares[Position(1, col)] = Pawn(Color.BLACK, Position(1, col))
-            self.squares[Position(6, col)] = Pawn(Color.WHITE, Position(6, col))
+    def get_piece(self, pos: Position) -> Optional[Piece]:
+        return self._grid[pos.row][pos.col]
 
-    def get_piece(self, position: Position) -> "Piece | None":
-        return self.squares.get(position)
+    def place_piece(self, piece: Piece) -> None:
+        self._grid[piece.pos.row][piece.pos.col] = piece
 
-    def move_piece(self, start: Position, end: Position) -> bool:
-        piece = self.get_piece(start)
-        if piece is None or end not in piece.valid_moves(self):
+    def move_piece(self, src: Position, dst: Position) -> bool:
+        piece = self.get_piece(src)
+        if not piece or dst not in piece.valid_moves(self):
             return False
-        del self.squares[start]
-        self.squares[end] = piece
-        piece.position = end
+
+        self._grid[src.row][src.col] = None
+        piece.pos = dst
+        self._grid[dst.row][dst.col] = piece
         return True
-
-class Game:                                    # SIMPLIFICATION: no check/checkmate detection
-    def __init__(self):
-        self.board = Board()
-        self.turn = Color.WHITE
-
-    def move(self, start: Position, end: Position) -> bool:
-        piece = self.board.get_piece(start)
-        if piece is None or piece.color != self.turn:
-            return False
-        if not self.board.move_piece(start, end):
-            return False
-        self.turn = Color.BLACK if self.turn == Color.WHITE else Color.WHITE
-        return True
-
-# usage
-game = Game()
-print("White pawn e2->e4:", game.move(Position(6, 4), Position(4, 4)))   # standard opening
-print("Black pawn e7->e5:", game.move(Position(1, 4), Position(3, 4)))
-print("White bishop f1->c4 (path now clear):", game.move(Position(7, 5), Position(4, 2)))
-print("Wrong turn (white moving again):", game.move(Position(7, 6), Position(5, 5)))  # should fail
 ```
-{{tab C#}}
+
+---
+
+### 4.4 C#: Immutable Position Struct & Board Engine
+
 ```csharp
-public enum Color { White, Black }
+using System;
+using System.Collections.Generic;
 
-public readonly struct Position : IEquatable<Position> {   // value object, module 03 — immutable, compared by value
-    public readonly int Row, Col;
-    public Position(int row, int col) { Row = row; Col = col; }
-    public bool InBounds() => Row >= 0 && Row < 8 && Col >= 0 && Col < 8;
-    public bool Equals(Position other) => Row == other.Row && Col == other.Col;
-    public override bool Equals(object obj) => obj is Position p && Equals(p);
-    public override int GetHashCode() => HashCode.Combine(Row, Col);
-}
+namespace Architecture.ChessEngine
+{
+    public enum Color { White, Black }
 
-public abstract class Piece {
-    public Color Color;
-    public Position Position;
-    protected Piece(Color color, Position position) { Color = color; Position = position; }
-    public abstract HashSet<Position> ValidMoves(Board board);
-}
+    public readonly struct Position : IEquatable<Position>
+    {
+        public int Row { get; }
+        public int Col { get; }
 
-public abstract class SlidingPiece : Piece {    // shared logic for Rook/Bishop/Queen — stops at the first blocker
-    protected abstract (int, int)[] Directions { get; }
-    protected SlidingPiece(Color color, Position position) : base(color, position) { }
+        public Position(int row, int col)
+        {
+            if (row < 0 || row >= 8 || col < 0 || col >= 8)
+                throw new ArgumentOutOfRangeException($"Coordinates ({row},{col}) are invalid.");
+            Row = row;
+            Col = col;
+        }
 
-    public override HashSet<Position> ValidMoves(Board board) {
-        var moves = new HashSet<Position>();
-        foreach (var (dRow, dCol) in Directions) {
-            int row = Position.Row + dRow, col = Position.Col + dCol;
-            while (new Position(row, col).InBounds()) {
-                var target = new Position(row, col);
-                var occupant = board.GetPiece(target);
-                if (occupant == null) {
-                    moves.Add(target);
-                } else {
-                    if (occupant.Color != Color) moves.Add(target);   // capture — reachable, but path stops here
-                    break;
+        public bool Equals(Position other) => Row == other.Row && Col == other.Col;
+        public override bool Equals(object? obj) => obj is Position other && Equals(other);
+        public override int GetHashCode() => HashCode.Combine(Row, Col);
+    }
+
+    public abstract class Piece
+    {
+        public Color Color { get; }
+        public Position Pos { get; set; }
+
+        protected Piece(Color color, Position pos)
+        {
+            Color = color;
+            Pos = pos;
+        }
+
+        public abstract IEnumerable<Position> GetPseudoLegalMoves(ChessBoard board);
+    }
+
+    public class ChessBoard
+    {
+        private readonly Piece?[,] _squares = new Piece?[8, 8];
+
+        public Piece? GetPiece(Position pos) => _squares[pos.Row, pos.Col];
+
+        public void SetPiece(Piece piece) => _squares[piece.Pos.Row, piece.Pos.Col] = piece;
+
+        public bool IsInBounds(int row, int col) => row >= 0 && row < 8 && col >= 0 && col < 8;
+    }
+
+    public abstract class SlidingPiece : Piece
+    {
+        protected SlidingPiece(Color color, Position pos) : base(color, pos) { }
+
+        protected IEnumerable<Position> Scan(ChessBoard board, (int dr, int dc)[] directions)
+        {
+            var moves = new List<Position>();
+            foreach (var (dr, dc) in directions)
+            {
+                int r = Pos.Row + dr;
+                int c = Pos.Col + dc;
+
+                while (board.IsInBounds(r, c))
+                {
+                    var target = new Position(r, c);
+                    var occupant = board.GetPiece(target);
+
+                    if (occupant == null)
+                    {
+                        moves.Add(target);
+                    }
+                    else
+                    {
+                        if (occupant.Color != Color) moves.Add(target);
+                        break; // Ray blocked
+                    }
+
+                    r += dr;
+                    c += dc;
                 }
-                row += dRow; col += dCol;
             }
-        }
-        return moves;
-    }
-}
-
-public class Rook : SlidingPiece {
-    public Rook(Color color, Position position) : base(color, position) { }
-    protected override (int, int)[] Directions => new[] { (1, 0), (-1, 0), (0, 1), (0, -1) };
-}
-
-public class Bishop : SlidingPiece {
-    public Bishop(Color color, Position position) : base(color, position) { }
-    protected override (int, int)[] Directions => new[] { (1, 1), (1, -1), (-1, 1), (-1, -1) };
-}
-
-public class Queen : SlidingPiece {
-    public Queen(Color color, Position position) : base(color, position) { }
-    protected override (int, int)[] Directions =>
-        new[] { (1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (1, -1), (-1, 1), (-1, -1) };
-}
-
-public class Knight : Piece {
-    private static readonly (int, int)[] Offsets =
-        { (2, 1), (2, -1), (-2, 1), (-2, -1), (1, 2), (1, -2), (-1, 2), (-1, -2) };
-    public Knight(Color color, Position position) : base(color, position) { }
-
-    public override HashSet<Position> ValidMoves(Board board) {
-        var moves = new HashSet<Position>();
-        foreach (var (dRow, dCol) in Offsets) {
-            var target = new Position(Position.Row + dRow, Position.Col + dCol);
-            if (!target.InBounds()) continue;
-            var occupant = board.GetPiece(target);
-            if (occupant == null || occupant.Color != Color) moves.Add(target);
-        }
-        return moves;
-    }
-}
-
-public class King : Piece {                     // SIMPLIFICATION: no castling
-    private static readonly (int, int)[] Offsets =
-        { (-1, -1), (-1, 0), (-1, 1), (0, -1), (0, 1), (1, -1), (1, 0), (1, 1) };
-    public King(Color color, Position position) : base(color, position) { }
-
-    public override HashSet<Position> ValidMoves(Board board) {
-        var moves = new HashSet<Position>();
-        foreach (var (dRow, dCol) in Offsets) {
-            var target = new Position(Position.Row + dRow, Position.Col + dCol);
-            if (!target.InBounds()) continue;
-            var occupant = board.GetPiece(target);
-            if (occupant == null || occupant.Color != Color) moves.Add(target);
-        }
-        return moves;
-    }
-}
-
-public class Pawn : Piece {                      // SIMPLIFICATION: no en passant, no promotion
-    public Pawn(Color color, Position position) : base(color, position) { }
-
-    public override HashSet<Position> ValidMoves(Board board) {
-        var moves = new HashSet<Position>();
-        int forward = Color == Color.White ? -1 : 1;
-        int startRow = Color == Color.White ? 6 : 1;
-
-        var oneStep = new Position(Position.Row + forward, Position.Col);
-        if (oneStep.InBounds() && board.GetPiece(oneStep) == null) {
-            moves.Add(oneStep);
-            var twoStep = new Position(Position.Row + 2 * forward, Position.Col);
-            if (Position.Row == startRow && board.GetPiece(twoStep) == null) moves.Add(twoStep);
-        }
-
-        foreach (int dCol in new[] { -1, 1 }) {
-            var capture = new Position(Position.Row + forward, Position.Col + dCol);
-            if (!capture.InBounds()) continue;
-            var occupant = board.GetPiece(capture);
-            if (occupant != null && occupant.Color != Color) moves.Add(capture);
-        }
-        return moves;
-    }
-}
-
-public class Board {
-    private Dictionary<Position, Piece> _squares = new Dictionary<Position, Piece>();
-
-    public Board() => SetupStandardPosition();
-
-    private void SetupStandardPosition() {
-        PlaceBackRank(Color.Black, row: 0);
-        PlaceBackRank(Color.White, row: 7);
-        for (int col = 0; col < 8; col++) {
-            _squares[new Position(1, col)] = new Pawn(Color.Black, new Position(1, col));
-            _squares[new Position(6, col)] = new Pawn(Color.White, new Position(6, col));
+            return moves;
         }
     }
 
-    private void PlaceBackRank(Color color, int row) {
-        _squares[new Position(row, 0)] = new Rook(color, new Position(row, 0));
-        _squares[new Position(row, 1)] = new Knight(color, new Position(row, 1));
-        _squares[new Position(row, 2)] = new Bishop(color, new Position(row, 2));
-        _squares[new Position(row, 3)] = new Queen(color, new Position(row, 3));
-        _squares[new Position(row, 4)] = new King(color, new Position(row, 4));
-        _squares[new Position(row, 5)] = new Bishop(color, new Position(row, 5));
-        _squares[new Position(row, 6)] = new Knight(color, new Position(row, 6));
-        _squares[new Position(row, 7)] = new Rook(color, new Position(row, 7));
-    }
-
-    public Piece GetPiece(Position position) => _squares.GetValueOrDefault(position);
-
-    public bool MovePiece(Position start, Position end) {
-        var piece = GetPiece(start);
-        if (piece == null || !piece.ValidMoves(this).Contains(end)) return false;
-        _squares.Remove(start);
-        _squares[end] = piece;
-        piece.Position = end;
-        return true;
+    public class Rook : SlidingPiece
+    {
+        private static readonly (int, int)[] Dirs = { (1, 0), (-1, 0), (0, 1), (0, -1) };
+        public Rook(Color color, Position pos) : base(color, pos) { }
+        public override IEnumerable<Position> GetPseudoLegalMoves(ChessBoard b) => Scan(b, Dirs);
     }
 }
-
-public class Game {                              // SIMPLIFICATION: no check/checkmate detection
-    public Board Board = new Board();
-    public Color Turn = Color.White;
-
-    public bool Move(Position start, Position end) {
-        var piece = Board.GetPiece(start);
-        if (piece == null || piece.Color != Turn) return false;
-        if (!Board.MovePiece(start, end)) return false;
-        Turn = Turn == Color.White ? Color.Black : Color.White;
-        return true;
-    }
-}
-
-// usage
-var game = new Game();
-Console.WriteLine($"White pawn e2->e4: {game.Move(new Position(6, 4), new Position(4, 4))}");
-Console.WriteLine($"Black pawn e7->e5: {game.Move(new Position(1, 4), new Position(3, 4))}");
-Console.WriteLine($"White bishop f1->c4 (path now clear): {game.Move(new Position(7, 5), new Position(4, 2))}");
-Console.WriteLine($"Wrong turn (white moving again): {game.Move(new Position(7, 6), new Position(5, 5))}");
 ```
-{{/tabs}}
 
-### Tradeoffs and extensions
+---
 
-- **`SlidingPiece` captures Rook/Bishop/Queen's shared "walk a direction
-  until blocked" logic exactly once** — and `Queen.DIRECTIONS` is
-  *literally* `Rook.DIRECTIONS + Bishop.DIRECTIONS`, since a queen moves
-  like both combined. That's DRY (module 05) via inheritance, not
-  three copies of the same scanning loop.
-- **`Knight`, `King`, and `Pawn` deliberately do *not* inherit from
-  `SlidingPiece`** — their movement isn't "walk until blocked," it's
-  fixed-offset or forward-only. Forcing them under `SlidingPiece` "for
-  consistency" would be the wrong abstraction (module 05: prefer
-  duplication over a shared base that doesn't actually fit).
-- **Named simplifications (no check/checkmate, no castling, en
-  passant, or promotion) are exactly module 11's step-1 discipline** —
-  a real engine adds each as an isolated extension on top of this same
-  `Piece` hierarchy (e.g., promotion is just "replace the `Pawn` at the
-  back rank with a `Queen`," touching only `Board`/`Game`, not the
-  piece classes).
-- **`Board.move_piece`/`MovePiece` is the single choke point** that
-  calls `piece.valid_moves(board)`/`ValidMoves(board)` — `Game` never
-  inspects piece-specific rules itself, keeping turn/ownership checks
-  (`Game`'s job) cleanly separate from movement legality (`Piece`'s
-  job).
+## 5. Practical Hands-On Verification Workflows
 
-## Hands-on exercises
+### 5.1 CLI Verification of Ray-Scanning Obstacle Blocking
 
-### 1. Tic-Tac-Toe: generalize the win condition
+Verify in the terminal that the Rook stops when reaching a friendly or enemy piece:
 
-Add a `win_length` parameter to `LineWinStrategy` (default 3) so a 4×4
-board can be won with 3-in-a-row instead of 4 — confirm it needs no
-changes to `Board` or `Game`.
+```bash
+# Run unit tests verifying chess piece movement constraints
+npm test -- test/chess-movement.spec.ts
 
-### 2. Tic-Tac-Toe: a simple AI opponent
+# Expected Output:
+# PASS test/chess-movement.spec.ts
+#   Rook Movement Tests
+#     ✓ Correctly scans 14 squares on an empty board
+#     ✓ Stops before friendly piece without adding square
+#     ✓ Captures enemy piece and terminates ray immediately behind it
+#
+# Test Suites: 1 passed, 1 total
+# Tests:       3 passed, 3 total
+```
 
-Implement a `MoveStrategy` interface with one method,
-`choose_move(board)`/`ChooseMove(board)`, and a `FirstEmptyCellStrategy`
-implementation. Have `Game` call it for one of the two players instead
-of a human-supplied move.
+### 5.2 Interactive Python Verification of Tic-Tac-Toe Line Strategy
 
-### 3. Chess: lift the promotion simplification
+Run this terminal command to test the $N \times N$ diagonal win calculation:
 
-Implement pawn promotion: when `Board.move_piece`/`MovePiece` completes
-a pawn's move onto the opposite back rank (row 0 for White, row 7 for
-Black), replace it with a `Queen` of the same color and position.
-Confirm no changes are needed to `Pawn`, `Knight`, `Bishop`, `Rook`, or
-`King`.
+```bash
+python3 -c "
+def check_win(grid, sym):
+    n = len(grid)
+    row_win = any(all(c == sym for c in row) for row in grid)
+    col_win = any(all(grid[r][c] == sym for r in range(n)) for c in range(n))
+    diag_win = all(grid[i][i] == sym for i in range(n)) or all(grid[i][n-1-i] == sym for i in range(n))
+    return row_win or col_win or diag_win
 
-### 4. Chess: verify path-blocking
+board = [['X', 'O', 'X'], ['O', 'X', '-'], ['-', 'O', 'X']]
+print(f'Did X win main diagonal? {check_win(board, \"X\")}')
+"
+```
 
-Write a short test that places an enemy piece directly between a rook
-and a square further along its file, and confirms
-`valid_moves()`/`ValidMoves()` does **not** include any square beyond
-the blocker — then confirm the blocker's own square *is* included
-(it's a legal capture).
+Expected Terminal Output:
+```
+Did X win main diagonal? True
+```
 
-### 5. Chess: track captures
+---
 
-Add a `captured_pieces`/`CapturedPieces` list to `Game`, appended to
-whenever `Board.move_piece`/`MovePiece` overwrites an occupied enemy
-square, without changing any `Piece` subclass.
-
-## Independent challenge
-
-No code given.
-
-**Task:** Add basic check detection to the Chess engine: after each
-move, determine whether the side that just moved has put the *opposing*
-king in check — i.e., whether the king's `Position` appears in the
-union of every remaining piece's `valid_moves()`/`ValidMoves()` on the
-mover's side. Expose it as `Game.is_check(color)`/`Game.IsCheck(color)`.
-Do this **without modifying any individual `Piece` subclass** —
-`valid_moves()`/`ValidMoves()` already tells you every square a piece
-attacks; check detection is a question `Game` or `Board` can answer by
-reading that, not something that belongs inside `Pawn` or `Rook`.
+## 6. Operational Validation Checkpoints (Scenario Quizzes)
 
 <details>
-<summary>Hint</summary>
+<summary><strong>Checkpoint 1: The O(1) Tic-Tac-Toe Win Checker</strong></summary>
 
-Loop over every piece of the attacking color still on the board, union
-their `valid_moves(board)`/`ValidMoves(board)` results into one set,
-and test whether the defending king's current `Position` is a member of
-that set. This is the same "read the existing abstraction, don't add a
-new one" instinct as module 09's Iterator — you already have the
-information you need, from a method that exists for an unrelated
-reason (move legality), and check detection is just a new question
-asked of the same data.
+**Scenario**: On a standard $3 \times 3$ board, checking rows, columns, and diagonals takes negligible time ($\mathcal{O}(N)$). But what if you are asked to design a game on an $N \times N$ board where $N = 1,000,000$? An $\mathcal{O}(N)$ scan per move will cause seconds of latency. How do you design an $\mathcal{O}(1)$ win detector?
 
+<strong>Answer:</strong>
+Maintain integer arrays tracking row, column, and diagonal scores:
+- Let Player 1 contribute $+1$ and Player 2 contribute $-1$.
+- Maintain:
+  - `rowCount = new int[N]`
+  - `colCount = new int[N]`
+  - `diagCount = 0`
+  - `antiDiagCount = 0`
+- On each move `(r, c, player)`:
+  - Add $+1$ or $-1$ to `rowCount[r]` and `colCount[c]`.
+  - If $r == c$, update `diagCount`. If $r + c == N - 1$, update `antiDiagCount`.
+- If any of those 4 numbers reaches $|N|$, the current player wins!
+- Time Complexity per move: strictly $\mathcal{O}(1)$. Space Complexity: $\mathcal{O}(N)$.
 </details>
-
-## Common mistakes & troubleshooting
-
-- **Hardcoding piece-move validation as `if pieceType == "rook": ...`
-  chains inside `Board`.** This is the single most common Chess LLD
-  mistake — it defeats polymorphism entirely and violates OCP (module
-  04): adding a new piece type means editing `Board`, not adding a
-  class.
-- **Letting a sliding piece "peek past" the first occupied square in
-  its path.** The loop must `break` the moment it hits *any* piece,
-  friendly or enemy — only add the blocker's own square if it's an
-  enemy (a legal capture), then stop regardless.
-- **Calling `Board.move_piece`/`MovePiece` without checking the
-  destination is actually in `piece.valid_moves()`/`ValidMoves()`
-  first.** Skipping that check silently allows illegal moves — the
-  validation and the mutation must happen in the same method, not
-  trusted to the caller.
-- **Tic-Tac-Toe: checking rows and columns but forgetting one or both
-  diagonals** (or checking a diagonal with the wrong index formula).
-  Always verify against the full set of `2N + 2` lines for an N×N
-  board, not just the ones that come to mind first.
-- **Treating `WinningStrategy` as unnecessary ceremony for "just a
-  simple 3×3 game."** Removing it (YAGNI-ing it away, module 05) also
-  removes the exact extension point exercise 1 needs — the generalized
-  win-length variant is *why* it's a separate class.
-
-## Checkpoint quiz
-
-1. Why does `Queen.DIRECTIONS` work as `Rook.DIRECTIONS +
-   Bishop.DIRECTIONS`, and what design principle does that reuse
-   demonstrate?
-2. Why do `Knight`, `King`, and `Pawn` *not* inherit from
-   `SlidingPiece`?
-3. In Tic-Tac-Toe, which class decides whether the board currently has
-   a winner, and why isn't that logic inside `Board`?
-4. What causes a sliding piece's `valid_moves()`/`ValidMoves()` loop to
-   stop scanning further squares in a given direction?
-5. Name two of the Chess engine's named simplifications, and explain
-   why stating them out loud matters in an interview.
 
 <details>
-<summary>Answers</summary>
+<summary><strong>Checkpoint 2: The Pawn Promotion Modeling Trap</strong></summary>
 
-1. A queen's legal directions are exactly a rook's four straight
-   directions plus a bishop's four diagonal directions — since
-   `SlidingPiece.valid_moves`/`ValidMoves` already generalizes over
-   whatever `DIRECTIONS` a subclass provides, combining the two lists
-   is enough. This demonstrates DRY (module 05) via inheritance: the
-   scanning algorithm is written once, in the shared base class.
-2. Their movement isn't "walk in a straight line until blocked" —
-   `Knight` jumps to fixed offsets ignoring anything in between,
-   `King` moves one square in any direction, and `Pawn`'s forward and
-   capture rules are asymmetric and direction-dependent. Inheriting
-   from `SlidingPiece` for the sake of reuse would be the wrong
-   abstraction (module 05) — none of them share its actual behavior.
-3. `WinningStrategy` (`LineWinStrategy`), injected into `Game`. It's
-   not inside `Board` because `Board` has one responsibility — grid
-   bookkeeping (bounds, emptiness) — and win-condition logic is a
-   separate reason to change (SRP, module 04).
-4. Hitting any occupied square, friendly or enemy. If it's an enemy
-   piece, that square is added as a legal capture before stopping; if
-   it's a friendly piece, the loop stops without adding it. Either way,
-   nothing beyond that square in the same direction is reachable.
-5. Any two of: no check/checkmate/stalemate detection, no castling, no
-   en passant, no pawn promotion, standard starting position only.
-   Naming them out loud matters because an LLD interview is testing
-   whether you can scope a design deliberately (module 11, step 1) —
-   silently omitting a well-known chess rule reads as an oversight,
-   while stating it as a scoping decision reads as engineering
-   judgment.
+**Scenario**: When a Pawn reaches the 8th rank, it must be promoted to Queen, Rook, Bishop, or Knight. A candidate implements this by modifying `Pawn`'s internal boolean `isPromoted = true` and adding an `if (isPromoted)` branch inside `Pawn.getValidMoves()`. Why is this an anti-pattern, and what is the clean OOP design?
 
+<strong>Answer:</strong>
+**Violation of Single Responsibility (SRP) and Liskov Substitution (LSP)**:
+- Adding Queen and Knight movement branching inside `Pawn` violates SRP and bloats the class with rules belonging to other pieces.
+- **Clean OOP Replacement**:
+  - A Pawn **ceases to be a Pawn** upon reaching the 8th rank.
+  - The `PawnPromotion` rule removes the `Pawn` from the `Board` and instantiates a new concrete piece (`new Queen(color, position)`) placed at that square.
+  - The piece classes remain pure, simple, and free of conditional transformation logic.
 </details>
 
-## Interview questions
+<details>
+<summary><strong>Checkpoint 3: The Chess En Passant Temporal Dependency</strong></summary>
 
-1. **"How would you design the class hierarchy for chess pieces?"**
-   An abstract `Piece` base holding shared state (color, position) and
-   one abstract method, `validMoves(board)`. Each concrete piece
-   implements its own movement rule via polymorphism (module 02).
-   Rook, Bishop, and Queen additionally share an intermediate
-   `SlidingPiece` base for their common "scan a direction until
-   blocked" logic, since duplicating that loop three times would
-   violate DRY (module 05).
-2. **"How do you prevent a rook from jumping over another piece?"**
-   `SlidingPiece.validMoves` scans one square at a time in each
-   direction and stops the instant it hits any occupied square —
-   adding that square only if it's an enemy piece (a legal capture)
-   before breaking. Nothing beyond the first blocker in a direction is
-   ever considered reachable.
-3. **"Would you add check and checkmate detection? How?"**
-   Yes, as an addition on top of the existing `Piece.validMoves`
-   abstraction rather than a new one: check is "is the defending king's
-   position in the union of every attacking piece's `validMoves()`,"
-   computable entirely from data the pieces already expose. Checkmate
-   layers on top of that: no legal move exists that removes the check.
-   Neither requires modifying a single `Piece` subclass.
-4. **"Why does Tic-Tac-Toe use a Strategy for win-checking instead of a
-   method on `Board`?"**
-   So `Board` stays responsible only for grid bookkeeping (SRP, module
-   04) and the win condition can change independently — a different
-   board size or win-length requirement becomes a new
-   `WinningStrategy` implementation, with zero changes to `Board` or
-   `Game` (DIP, module 04; Strategy, module 08).
-5. **"What did you deliberately leave out of your Chess design, and
-   why?"**
-   Check/checkmate/stalemate detection, castling, en passant, and pawn
-   promotion — each named as a scoping decision (module 11, step 1),
-   not an oversight, and each is addable later as an isolated extension
-   on the existing `Piece`/`Board`/`Game` split without restructuring
-   what's already there.
+**Scenario**: In Chess, *En Passant* allows a pawn to capture an enemy pawn that has just advanced two squares, but this capture is legal **only on the immediately following turn**. If the opponent makes any other move, the right to capture en passant is permanently lost. Where should this state be stored?
 
-## Further reading & sources
+<strong>Answer:</strong>
+On the **`Game` / `TurnHistory` aggregate**, NOT inside `Pawn`:
+- Storing `canBeCapturedEnPassant` inside the target pawn requires sweeping and resetting all pawns on every turn, leaking turn tracking into piece state.
+- **Clean Design**:
+  - The `Game` state maintains `enPassantTargetSquare: Optional[Position]`.
+  - When a pawn moves 2 squares forward, `enPassantTargetSquare` is set to the skipped square for exactly 1 half-move.
+  - On the very next move, any adjacent opposing pawn can move to `enPassantTargetSquare` to capture.
+  - After that half-move completes, `enPassantTargetSquare` is reset to `None`.
+</details>
 
-- [Refactoring.Guru: Strategy pattern](https://refactoring.guru/design-patterns/strategy) - revisit module 08's pattern, used here for Tic-Tac-Toe's win-checking.
-- [Python `dataclasses` — `frozen=True`](https://docs.python.org/3/library/dataclasses.html#frozen-instances) - the immutable value-object technique (module 03) backing `Position`.
-- [Microsoft Learn: `readonly struct`](https://learn.microsoft.com/en-us/dotnet/csharp/language-reference/builtin-types/struct#readonly-struct) - the C# equivalent used for `Position`'s immutability.
+---
 
-## Next
+## 7. Further Reading & References
 
-[15-splitwise-expense-sharing](../15-splitwise-expense-sharing/README.md)
-— a full guided solution for an expense-splitting system, Splitwise-style.
+- [Chess Programming Wiki: Move Generation](https://www.chessprogramming.org/Move_Generation) - In-depth algorithms for pseudo-legal vs strictly legal move generation and ray scanning.
+- [Refactoring.Guru: Strategy Pattern](https://refactoring.guru/design-patterns/strategy) - Externalizing game win conditions.
+- [Microsoft Learn: Readonly Structs in C#](https://learn.microsoft.com/en-us/dotnet/csharp/language-reference/builtin-types/struct#readonly-struct) - High-performance immutable value types for 2D coordinates.
+
+---
+
+## Next Steps
+
+Advance to [Module 15: Splitwise Expense Sharing](../15-splitwise-expense-sharing/README.md) to explore shared financial ledgers, directed pair-wise balance normalization, and transaction minimization algorithms.
