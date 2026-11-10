@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   parseClock, formatClock, formatTotal, isoDuration, parseChapterLine, chapterLine, parseChapters, firstParagraph,
-  cleanTitle, moduleFile, resolveVideos, groupByModule, totals, nextVideo, isPublic
+  cleanTitle, moduleFile, resolveVideos, groupByModule, totals, nextVideo, isPublic, isFresh, nextRelease, releaseDay
 } from './videos.js';
 
 test('clock times read and print both ways', () => {
@@ -145,4 +145,38 @@ test('a video is public from its published time on; one with no time is public',
   assert.equal(isPublic({ published: '' }, now), true);
   assert.equal(isPublic({ published: 'not a date' }, now), false, 'a time nobody can read is not a reason to list it');
   assert.equal(isPublic({ published: '2000-01-01T00:00:00Z' }), true, 'with no clock given it is now');
+});
+
+test('a video is new for two days after it goes public, and never before', () => {
+  const now = Date.parse('2026-11-10T12:00:00Z');
+  assert.equal(isFresh({ published: '2026-11-10T06:00:00Z' }, now), true);
+  assert.equal(isFresh({ published: '2026-11-08T12:00:01Z' }, now), true, 'just under two days');
+  assert.equal(isFresh({ published: '2026-11-08T12:00:00Z' }, now), false, 'two days is old');
+  assert.equal(isFresh({ published: '2026-11-11T06:00:00Z' }, now), false, 'a scheduled video is not new yet');
+  assert.equal(isFresh({}, now), false);
+  assert.equal(isFresh({ published: 'nope' }, now), false);
+});
+
+test('the next release is the scheduled video with the earliest time', () => {
+  const now = Date.parse('2026-11-10T12:00:00Z');
+  const list = [
+    { id: 'old', published: '2026-11-01T00:00:00Z' },
+    { id: 'later', published: '2026-11-13T00:00:00Z' },
+    { id: 'soon', published: '2026-11-11T00:00:00Z' },
+    { id: 'undated' }
+  ];
+  assert.equal(nextRelease(list, now).id, 'soon');
+  assert.equal(nextRelease([list[0], list[3]], now), null, 'nothing scheduled');
+  assert.equal(nextRelease([], now), null);
+});
+
+test('a time is today or tomorrow by the calendar day of whoever is reading', () => {
+  // Built from local parts, so the answer does not depend on the machine's time zone.
+  const at = (day, hour) => new Date(2026, 10, day, hour, 0, 0).toISOString();
+  const now = new Date(2026, 10, 10, 23, 30, 0).getTime();
+  assert.equal(releaseDay(at(10, 0), now), 'today');
+  assert.equal(releaseDay(at(11, 0), now), 'tomorrow', 'half an hour later, but the next calendar day');
+  assert.equal(releaseDay(at(12, 9), now), null);
+  assert.equal(releaseDay(at(9, 9), now), null, 'yesterday is neither');
+  assert.equal(releaseDay('nope', now), null);
 });

@@ -86,3 +86,7 @@
   .vid-thumb img, .vid-play { transition: none; }
   .vid-card:hover .vid-thumb img { transform: none; }
 }
+
+/* The release calendar: a "New" mark on a video that went public in the last two days, and when the next one comes out. */
+.vid-new { position: absolute; left: 8px; top: 8px; padding: 2px 7px; border-radius: var(--r-sm); background: var(--signal); color: var(--on-signal); font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
+.vid-next { margin: 6px 0 0; font-size: 13px; color: var(--signal); font-weight: 600; }

@@ -130,6 +130,36 @@ export function cleanTitle(raw) {
  */
 export const isPublic = (video, now = Date.now()) => !video.published || Date.parse(video.published) <= now;
 
+const DAY = 86400000;
+/** How long a video that has just gone public is marked "New". */
+export const FRESH_DAYS = 2;
+
+/** Whether a video went public within the last FRESH_DAYS days (and has not been scheduled for later). */
+export function isFresh(video, now = Date.now()) {
+  const at = Date.parse(video.published || '');
+  return Number.isFinite(at) && at <= now && now - at < FRESH_DAYS * DAY;
+}
+
+/** The video that goes public next: the scheduled one with the earliest time, or null when nothing is scheduled. */
+export function nextRelease(videos, now = Date.now()) {
+  let next = null;
+  let nextAt = Infinity;
+  for (const video of videos) {
+    const at = Date.parse(video.published || '');
+    if (Number.isFinite(at) && at > now && at < nextAt) { next = video; nextAt = at; }
+  }
+  return next;
+}
+
+/** "today" or "tomorrow" for a time, by the reader's own calendar day; null for any other day. */
+export function releaseDay(published, now = Date.now()) {
+  const at = Date.parse(published || '');
+  if (!Number.isFinite(at)) return null;
+  const startOfDay = (ms) => { const d = new Date(ms); d.setHours(0, 0, 0, 0); return d.getTime(); };
+  const days = Math.round((startOfDay(at) - startOfDay(now)) / DAY);
+  return days === 0 ? 'today' : days === 1 ? 'tomorrow' : null;
+}
+
 /** The key the app knows a module by: its folder's README. */
 export const moduleFile = (folder) => `${folder}/README.md`;
 

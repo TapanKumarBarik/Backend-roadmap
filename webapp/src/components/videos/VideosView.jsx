@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { SearchIcon, YoutubeIcon } from '../common/icons.jsx';
-import { formatTotal, totals } from '../../lib/curriculum/videos.js';
+import { formatTotal, totals, isFresh, releaseDay } from '../../lib/curriculum/videos.js';
 import VideoCard from './VideoCard.jsx';
 import { YOUTUBE } from '../../config/index.js';
 import { VIDEOS_PAGE } from '../../config/videos.js';
@@ -15,7 +15,8 @@ export default function VideosView({ videoData, nodeByFile, onOpenFile }) {
 
   // undefined: still loading; null: none, or they could not be loaded (see hooks/useVideos.js).
   const loading = videoData === undefined;
-  const { videos, playlists } = videoData || { videos: [], playlists: [] };
+  const { videos, playlists, next } = videoData || { videos: [], playlists: [], next: null };
+  const now = Date.now();
   const all = useMemo(() => totals(videos), [videos]);
 
   const shown = useMemo(() => {
@@ -38,6 +39,11 @@ export default function VideosView({ videoData, nodeByFile, onOpenFile }) {
         <div>
           <h2>{VIDEOS_PAGE.heading}</h2>
           {videos.length > 0 && <p className="home-sub">{VIDEOS_PAGE.sub(all.count, all.seconds)}</p>}
+          {next && (
+            <p className="vid-next">
+              {VIDEOS_PAGE.next(next.title, releaseDay(next.published, now), new Date(next.published).toLocaleDateString(undefined, { weekday: 'short', day: 'numeric', month: 'short' }))}
+            </p>
+          )}
         </div>
         <a className="vid-sub-btn" href={YOUTUBE.channel} target="_blank" rel="noopener noreferrer">
           <YoutubeIcon aria-hidden="true" /> {VIDEOS_PAGE.subscribe}
@@ -79,7 +85,7 @@ export default function VideosView({ videoData, nodeByFile, onOpenFile }) {
                 </div>
                 <ul className="vid-grid">
                   {items.map((v, i) => (
-                    <li key={v.id}><VideoCard video={v} node={v.file ? nodeByFile[v.file] : null} onOpenFile={onOpenFile} eager={group === 0 && i < 4} /></li>
+                    <li key={v.id}><VideoCard video={v} node={v.file ? nodeByFile[v.file] : null} onOpenFile={onOpenFile} eager={group === 0 && i < 4} fresh={isFresh(v, now)} /></li>
                   ))}
                 </ul>
               </section>

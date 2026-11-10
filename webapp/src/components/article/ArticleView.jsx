@@ -25,6 +25,7 @@ import SignpostSummary from './SignpostSummary.jsx';
 import ProgressBar from '../common/ProgressBar.jsx';
 import CommentsSection from './CommentsSection.jsx';
 import RelatedPractice from './RelatedPractice.jsx';
+import FinishCheck from './FinishCheck.jsx';
 import ReadingOptions from './ReadingOptions.jsx';
 import ReviseButton from './ReviseButton.jsx';
 import NotesPanel from './NotesPanel.jsx';
@@ -370,6 +371,7 @@ export default function ArticleView({
               )}
           </div>
           <div className="finish-acts">
+            <FinishCheck path={path} practice={practice} />
             {status !== 'done' && (
               <button
                 className="btn-ghost"

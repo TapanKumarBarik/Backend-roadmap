@@ -34,6 +34,8 @@ export const VIDEOS_PAGE = {
   notes: 'Read the notes',
   notesSoon: 'Notes soon',
   playlist: 'Open the playlist on YouTube',
+  fresh: 'New',
+  next: (title, day, date) => `Next video ${day || `on ${date}`}: ${title}`,
   loading: 'Loading…',
   empty: 'The videos could not be loaded. Try again in a moment.'
 };
