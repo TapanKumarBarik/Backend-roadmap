@@ -267,17 +267,139 @@ Nothing here needs a different stack. Cloudflare Pages, D1 and the existing API 
 - **Stop writing new breadth** (more Linux to Cloud, more GenAI) until the core earns its keep. Park GenAI's 164
   unwritten modules out of sight.
 
+## UI and UX: what to change
+
+From the screenshots in `screenshots/` (captured 2026-11-06, signed out, at 1440 px, 390 px and in the dark theme) and
+the live site. Signed-in screens (My Learning, the workspace, the admin) were not looked at for this section. The
+findings are ordered by how much they stand between a visitor and the daily loop above.
+
+### Across the whole site
+
+| Finding | Why it matters | Change |
+|---|---|---|
+| **Two navigation systems.** Six items in the top bar, plus a left rail that holds only "Videos" and "Blogs" and takes an 84 px column on every screen. | A visitor has to learn two menus, and the channel's best asset (Videos) is in the weaker one. | One navigation. Top bar: Today, Learn, Practice, Videos, Library. Remove the rail; Blogs and Community go under a "More" menu until they have content. |
+| **"Learn" and "Explore" do not say what they are.** Learn is the dashboard and tree; Explore is the list of paths, whose page is titled "EXPLORE / LEARNING PATHS" twice over; a path page lights up "Explore". | Labels that need a click to understand are skipped. | Name things by what the reader gets: "Paths", "Library". One heading per page. |
+| **"0% done" in the top bar for a signed-out visitor.** It is 0% of 600 modules. | A number nobody can move reads as a reproach, and it is the most prominent status on the page. | Show it only when signed in, and of the reader's own path, not the library. In its place for a signed-in reader: the streak. |
+| **Wide empty margins on every screen that is not a lesson.** Practice, Explore, Community, a path and a challenge sit in a 630 px column on a 1440 px screen. | The page looks unfinished and lists become long single-column scrolls (24 quiz cards in one column). | Lists as a two or three column grid up to about 1100 px; a side panel on Practice and Paths for "your progress" and "recommended next". Keep the narrow column only for reading. |
+| **Headings are in two voices.** Page titles and lesson headings are monospace capitals; card titles, "Before you start", "Functional requirements" and the Videos section headings are sans. | It reads as two designs. | Decide once. My recommendation: capitals only for short labels and page titles of up to four words; sentence case in the serif or sans for lesson titles and section headings. A two-line title in capitals ("LESSON 01: WHAT IS SYSTEM DESIGN? HLD VS LLD") is slow to read; that is a criticism of the restyle I made last week. |
+| **The search box is cut to "Search m..."** at 1440 px. | The most useful control looks broken. | With one navigation there is room; otherwise an icon that opens the palette. |
+| **Signing in explains nothing.** One Google button in the top bar. | People do not sign in without a reason, and the daily loop needs an account. | Ask at the moment it pays off: after a quiz ("keep this score and your streak"), after a drill, on bookmarking. Say what is stored. Add email sign-in for people who will not use Google. |
+| **No onboarding.** A first-time visitor is given 12 paths and 5 areas to choose from. | Choice overload; most leave without starting. | Three questions on first visit (goal: interview in N weeks / learn backend properly / a specific topic; level; minutes a day), then one recommended path and a first lesson. Skippable. |
+| **Empty community screens.** "No questions yet." | An empty room tells a visitor nobody is here. | Hide a surface until it has content, or seed it with the author's own questions and answers. |
+
+### The home page (first visit)
+
+- **Three buttons that mean nearly the same thing** ("Explore Learning Paths", "Start Learning", "Browse the
+  curriculum"), then a search box. One primary action: "Start the system design course" (or the recommended path after
+  onboarding), one quiet secondary link to the library.
+- **The headline is generic** ("Build the engineering skills that matter"). Say the promise and the proof: what it is,
+  for whom, how long a day, and that it is free to read.
+- **Nothing is shown.** There is no picture of a lesson, no video, no sample drill. Put one lesson video and today's
+  drill, playable and answerable without an account, in the first screen. Trying the product is the pitch.
+- **No evidence.** No count of learners, no quote, no author. Add an "about the author" line with a face and what they
+  have built, and real numbers once they exist (videos published, lessons, subscribers).
+- **Twelve path cards before anything else.** On a phone the page is over 3,700 px tall and the first eight screens are
+  path cards. Show three paths chosen by goal, with "all paths" as a link.
+- **No email box.** Add one in the first screen and again at the foot: "one lesson a day in your inbox".
+
+### The home page (returning reader)
+
+Today it is the path picker again, or a dashboard of progress numbers. It should be the "today" screen described
+above: the drill, today's new lesson, what is due for review, and one button, "Continue: <lesson>". Everything else
+moves below the fold.
+
+### The lesson page
+
+- **Too much before the first row of the tree:** four status filters, six area buttons, an area header with a
+  paragraph, then the tree. That is about 300 px of controls. Collapse the area switcher into one dropdown showing the
+  current area, and move the status filters into it.
+- **A 3-minute video sits on a 20-minute, 4,200-word lesson.** A reader who came from the video wants the short
+  version first. Add "Key takeaways" (three to five lines) and the PDF note directly under the video, then the full
+  text.
+- **No clear end.** At the foot there is previous and next. Replace with one bar: "Mark as done", then "Check
+  yourself" (two or three questions from the bank, answered in place), then "Next lesson". Finishing a lesson should
+  feel like finishing something and should feed the streak.
+- **Inline checkpoints.** A long lesson has no question until its end. One question after each major section keeps a
+  reader active; the reference site you showed does this with its checkpoints.
+- **The outline lists 25 or more entries** including every code listing. Show the top-level sections; open sub-entries
+  for the section being read.
+- **Tags take a full row** under the title and are rarely useful there. Move them to the foot.
+- **The PDF note and "Watch on YouTube" are small grey links.** They are things people want; give the note a button.
+- Good and worth keeping: the video with chapters at the top, the reading options, the reading-position bar, the
+  "pick up where you left off" strip.
+
+### Practice and a quiz
+
+- **The list is 24 cards in one column, filtered by 21 topic chips.** Lead with "Recommended for you" (from weak areas
+  and the lessons read), then group by area. Show on each card whether it was taken and the last score.
+- **A quiz is one long page of every question,** scored at the end. One question at a time, with a progress bar and the
+  explanation straight after each answer, teaches more and feels shorter. Keep the timed mode as it is for people
+  preparing for a test.
+- **A signed-out reader's score is lost** without warning. Say so before they start, and offer to save it at the end.
+- **Results should point somewhere:** the lesson for each missed question, and "add to my review queue".
+
+### The Design Lab
+
+- **A challenge is a plain document** ending in "Sign in to keep your work and submit it". Let a reader write first, in
+  a structured editor with a box per deliverable (requirements, estimates, API, data model, diagram, trade-offs), and
+  ask for the sign-in only when saving.
+- **A timer and stages** ("requirements, 5 minutes") make it feel like the interview it prepares for.
+- **Feedback is the product.** The rubric-scored result should be a screen of its own: a score per section, what was
+  missed, the lesson to read, and "try again".
+- The reference solution unlocking after a submission is right; keep it.
+
+### Paths and Videos
+
+- **A path page lists modules as plain lines with grey dots** and "Module 00:" prefixes. Show for each: minutes, whether
+  it has a video, done or not, and make the next one unmistakable. Add "about N days at 10 minutes a day".
+- **The Videos page is the best-looking screen.** Add what turns it into a habit: a "new today" badge, "coming
+  tomorrow", a watched mark on each card, and "continue where you stopped". "Read the notes" under each card should be
+  a visible link, not grey text.
+
+### On a phone
+
+- **The bottom bar is Curriculum, Explore, Videos, Blogs, More.** Practice and the Design Lab, the two things worth
+  returning for, are under "More"; Blogs, which is empty, has a slot. Make it Today, Learn, Practice, Videos, More.
+- **The home page is very long** (see above).
+- Lesson pages read well at 390 px; the title wraps cleanly and nothing scrolls sideways.
+- Once there is something daily, add an "install this app" prompt (the site already works offline for pages that were
+  opened) and, later, web push for the streak reminder.
+
+### Look and feel
+
+- **The violet and the dotted paper are distinctive;** keep them, but the dots add noise behind text-heavy lists. Use
+  the paper for the margins and a plain surface behind content.
+- **Cards all look the same.** Paths, quizzes, challenges and videos are the same white box. Give each kind a small
+  marker (an icon or a coloured label) so a mixed list can be scanned.
+- **Motion is nearly absent,** which is right for reading. The two places it would pay: finishing a lesson and keeping
+  a streak. A small moment there, respecting "reduce motion".
+- **The dark theme** carries the same structure and reads well; no separate findings.
+
+### The order to do the UI work in
+
+1. One navigation, with "Today" in it; the phone bar to match.
+2. The "today" screen and the lesson's end bar (mark done, check yourself, next).
+3. The first-visit home page: one promise, one action, a playable video and drill, the email box.
+4. Onboarding in three questions.
+5. Quiz one question at a time; Practice with recommendations and done-state.
+6. The Design Lab editor, timer and feedback screen (this is also the paid feature).
+7. Wider layouts for list screens; headings in one voice.
+
+Each of these should be measured against the same numbers as the rest of this document (return on day 1, 7 and 30,
+drills answered, design answers submitted), not judged by eye.
+
 ## A 90-day order of work
 
 **Days 1 to 30: reach and habit.** Email sign-up and the three messages. The "today" home screen, the daily drill with
 a bank of 60, the visible streak with a freeze, the release calendar. The events table. The handbook on sale as the
-payment test. An author page. Repository visibility decided.
+payment test. One navigation with "Today" in it, the lesson's end bar, and the first-visit home page with one promise and one action
+(UI items 1 to 3). An author page. Repository visibility decided.
 *Gate:* email subscribers, and the share of new sign-ins who return within 7 days. If the 7-day return does not move,
 fix the loop before going on.
 
 **Days 31 to 60: the thing worth paying for.** Rubrics for all 14 challenges, AI feedback on submissions (free, capped,
-labelled as a preview), spaced review, the question bank format and the first 150 questions, the navigation led by the
-promise, community surfaces consolidated.
+labelled as a preview), spaced review, the question bank format and the first 150 questions, onboarding in three questions,
+the quiz one question at a time, the Design Lab editor and feedback screen (UI items 4 to 6), community surfaces consolidated.
 *Gate:* how many readers submit a design answer, and whether those who get feedback come back more than those who do
 not.
 
