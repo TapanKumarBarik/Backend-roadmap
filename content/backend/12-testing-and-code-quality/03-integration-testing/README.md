@@ -1,569 +1,564 @@
 # Module 03: Integration Testing
 
-## Why this matters
+> **Prerequisites**: [00-testing-fundamentals-and-the-test-pyramid](../00-testing-fundamentals-and-the-test-pyramid/README.md) and [01-unit-testing-in-depth](../01-unit-testing-in-depth/README.md).  
+> **Estimated Reading Time**: 32 minutes  
+> **Target Audience**: Backend Engineers, Systems Architects, and Reliability Engineers designing high-fidelity tests across databases, web frameworks, and service boundaries.
 
-Your unit tests replaced every real collaborator with a double — that's what
-made them fast and precise. But it also means they can *all pass while the app
-is completely broken*. A fake repository can't have a SQL typo. A stubbed DB
-can't reject a row for a constraint violation. A service tested in isolation
-never proves it's actually *wired* to the route, that the Pydantic model
-serializes the way the client expects, or that your session commits when you
-think it does. Unit tests verify the pieces; **integration tests verify the
-pieces fit together** — real database, real ORM, real FastAPI routing — which
-is exactly the class of bug isolation hides. This is the middle of the pyramid,
-and it exists because "every unit works" and "the assembled system works" are
-different claims.
+---
 
-The reason there are *fewer* integration tests than unit tests is that this
-truthfulness costs you: they touch real I/O, so they're slower, and they
-require real setup and teardown to stay isolated from each other. A test that
-leaves rows behind poisons the next test; a test that shares a database with a
-parallel run gets nondeterministic results. So the craft of integration testing
-is largely the craft of **test data lifecycle** — giving each test a clean,
-known database state and guaranteeing it's cleaned up whether the test passes,
-fails, or explodes. You'll test a real service against a real (test) database,
-drive FastAPI endpoints through `TestClient` and `httpx`, master transaction-
-rollback and truncate strategies for isolation, and meet **testcontainers** as
-the way to get a production-grade database into your test run on demand.
+> [!TIP]
+> **The Golden Rule of Integration Testing**  
+> Never test against an in-memory database engine (such as SQLite) if your production workload runs on PostgreSQL or MySQL. Subtle dialect differences, JSONB operator parsing, transaction isolation semantics, and foreign-key cascade behaviors make in-memory SQLite a false oracle. Run integration tests against **real, containerized database instances (via Testcontainers)** using **transaction-rollback per test** for lightning-fast isolation, reserving table truncation only for tests that explicitly verify multi-transaction commit semantics.
 
-## Concepts
+---
 
-### What integration tests cover that unit tests can't
+## Visual Mental Models & Architecture
 
-An integration test exercises **two or more real components across a boundary**
-— typically your code plus a real database, or an HTTP client plus your real
-routing/serialization stack. It catches the bugs that live *in the seams*:
+### In-Process TestClient vs Out-of-Process Socket Testing
 
-- **Wrong SQL / ORM mapping** — a mistyped column, a bad join, a missing index
-  causing a constraint error, a relationship that doesn't load. A fake repo
-  can't reproduce any of these.
-- **Wiring mistakes** — the route calls the wrong service, a dependency isn't
-  overridden, a transaction isn't committed, the session is shared across
-  requests when it shouldn't be.
-- **Serialization contracts** — the response model drops a field, renders a
-  `datetime` in the wrong format, or a `422` comes back where you expected
-  `400`. Only a real request through the real stack proves the wire shape.
-- **Real constraint & transaction behavior** — unique violations, foreign keys,
-  cascades, and whether a rolled-back transaction actually undoes writes.
+Integration tests verify the real web application stack without paying the networking latency and port collision costs of opening an external TCP socket.
 
-The rule for what belongs here: if the *interaction between real components* is
-the thing that could break, it's an integration test. If it's pure logic, push
-it down to a unit test — don't re-test business rules through the database.
+```mermaid
+flowchart TD
+    subgraph InProcess["1. In-Process TestClient / ASGI / Supertest (Fast & Deterministic)"]
+        direction TB
+        TestRunner1["🧪 Test Runner (pytest / Vitest)"] -->|Direct Memory Invocation| ASGI["⚡ FastAPI / Express Router"]
+        ASGI --> Middleware["🛡️ Middleware (Auth, CORS, Logging)"]
+        Middleware --> RouteHandler["📍 Route Handler & Validation"]
+        RouteHandler --> RealDB1[(🐳 Real PostgreSQL Testcontainer)]
+        note1["Execution: 15ms - 50ms<br/>No OS Port Allocation, No Socket Flakiness"]
+    end
 
-```
-  UNIT (isolated)                 INTEGRATION (real seams)
-  test                            test
-   |                               |
-   v                               v
-  service --> FakeRepo            TestClient --> route --> service --> repo
-              (in-memory)                                              |
-   no SQL, no wiring                                                   v
-   fast, but a fake            +---------------------------------------------+
-   repo can't have a           | real Postgres (testcontainers, disposable)  |
-   SQL/constraint bug          | real SQL, constraints, serialization        |
-                               +---------------------------------------------+
+    subgraph OutOfProcess["2. Out-of-Process Socket Testing (Full Network Hop)"]
+        direction TB
+        TestRunner2["🧪 Test Runner"] -->|HTTP / TCP Socket :8080| Network["🌐 Localhost Network Interface"]
+        Network --> WebServer["🚀 Uvicorn / Node Server Process"]
+        WebServer --> RealDB2[(PostgreSQL)]
+        note2["Execution: 250ms - 1,500ms<br/>Port Binding Collisions, Socket Timeouts"]
+    end
+
+    style InProcess fill:#d4edda,stroke:#28a745,stroke-width:2px
+    style OutOfProcess fill:#fff3cd,stroke:#856404,stroke-width:1px
 ```
 
-### Testing a service against a real (test) database
+---
 
-To test data-layer code truthfully you point it at a **real database dedicated
-to tests** — never the dev or prod database. Two dimensions to get right:
-*which* database engine, and *how each test gets a clean slate*.
+### Database Test Isolation: The Transaction Rollback Pattern
 
-On the engine: prefer the **same engine you run in production** (Postgres for
-Postgres). SQLite-in-memory is tempting because it's instant, but it has
-different SQL dialect, type affinity, and constraint behavior, so a green SQLite
-test can hide a Postgres bug — an integration test that lies defeats its own
-purpose. Use real Postgres (via a container, below) for anything that touches
-Postgres-specific behavior.
+To execute hundreds of integration tests against a real database in seconds, tests execute inside an outer uncommitted transaction that rolls back automatically during fixture teardown.
 
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Runner as Test Runner
+    participant Fixture as db_session Fixture
+    participant Conn as Real PostgreSQL DB
+    participant SUT as System Under Test (Route / Service)
+
+    Runner->>Fixture: Request db_session
+    Fixture->>Conn: 1. BEGIN outer_transaction;
+    Fixture-->>SUT: Yields Session bound to outer_transaction
+    
+    Note over SUT,Conn: Test executes queries and writes records
+    SUT->>Conn: 2. INSERT INTO tasks (title) VALUES ('Ship feature');
+    SUT->>Conn: 3. SELECT * FROM tasks WHERE title = 'Ship feature';
+    Conn-->>SUT: Row found (visible within transaction)
+    
+    Runner->>Runner: 4. Assert response status and DB state (PASS)
+    
+    Runner->>Fixture: Teardown trigger (Test Complete)
+    Fixture->>Conn: 5. ROLLBACK outer_transaction;
+    Note over Conn: Database immediately pristine! Zero rows persisted!<br/>Next test runs instantly with zero leftover state.
+```
+
+---
+
+## Systematic Reference Grids
+
+### Database Isolation Strategies Comparison
+
+| Dimension | Transaction Rollback per Test | Table Truncation (`TRUNCATE`) | Fresh Schema / Migration per Test |
+| :--- | :--- | :--- | :--- |
+| **Mechanic** | Run test inside `BEGIN`; issue `ROLLBACK` in fixture teardown. | Allow test to `COMMIT`; run `TRUNCATE TABLE ... CASCADE` across all tables in teardown. | Drop and re-run all Alembic/Flyway migrations for every single test. |
+| **Execution Latency** | **< 2 milliseconds** per test. | **20 to 80 milliseconds** per test. | **500 to 3,000+ milliseconds** per test. |
+| **DB State Fidelity** | High (Transactions are standard SQL). | Exact production commit semantics. | Exact production schema build. |
+| **Limitation** | Cannot test code that manages its own internal `connection.commit()` or multi-threaded background workers. | Slower than rollback; requires foreign key cascade awareness. | Wildly impractical for large suites (&gt; 50 tests would take minutes). |
+| **Recommended Use Case** | **90% of standard repository and API route tests**. | Background job tests, Celery task tests, multi-transaction sagas. | **Session-scoped once at startup** to initialize the testcontainer schema. |
+
+---
+
+### What Belongs in Integration vs Unit Tests
+
+| Scenario / Behavior | Layer | Reasoning |
+| :--- | :--- | :--- |
+| **Complex Discount Math (e.g., 15% off carts &gt; \$100)** | **Unit Test** | Pure business logic; testing through database adds delay without testing any new seam. |
+| **PostgreSQL JSONB Operator / GIN Index Querying** | **Integration Test** | SQLite and mocks cannot replicate Postgres JSONB indexing and operator semantics (`@>`, `?&`). |
+| **Unique Constraint Race Condition & Foreign Key Cascades** | **Integration Test** | Verifies database engine enforcement and transaction isolation behavior. |
+| **FastAPI Request Validation (Pydantic / Zod serialization)** | **Integration Test (In-Process)** | Proves HTTP wire serialization, header parsing, and `422 Unprocessable Entity` formatting. |
+| **Third-Party Payment SDK Integration (Stripe / PayPal)** | **Unit (with Fake) + Contract** | Real payment calls charge money and are flaky; fake at the boundary. |
+
+---
+
+## Production Incident War Story: The SQLite Dialect Trap
+
+### Incident Post-Mortem: SEV-1
+
+* **Incident ID**: INC-4991
+* **Severity Level**: SEV-1 (Production Database Crash & Service Outage)
+* **Detection Time**: 2 minutes after production deployment
+* **Time to Recovery (TTR)**: 24 minutes
+* **Impact**: Total failure of product search and filtering across all mobile and web applications.
+
+#### 1. What Happened
+A software engineering team migrated their integration test suite to in-memory SQLite (`sqlite:///:memory:`) to speed up CI pipelines from 12 minutes to 45 seconds.
+
+A backend engineer added a new query to fetch active promotions:
 ```python
-# a session fixture bound to a real test database
-@pytest.fixture
-def db_session(engine):
-    connection = engine.connect()
-    txn = connection.begin()                 # open a transaction
-    session = Session(bind=connection)
-    yield session                            # test runs inside the transaction
-    session.close()
-    txn.rollback()                           # undo everything the test wrote
-    connection.close()
+# repository.py
+def get_active_promotions(session: Session, tags: list[str]):
+    # Uses PostgreSQL array containment and reserved column name 'window'
+    return session.execute(
+        text("SELECT id, name, window FROM promotions WHERE tags @> :tags"),
+        {"tags": tags}
+    ).fetchall()
 ```
 
-That rollback pattern is the workhorse of DB isolation — covered next.
+When tests ran against in-memory SQLite in CI, a custom SQLite user-defined function stubbed the `@>` operator, and SQLite permitted the unquoted reserved keyword `window`. All 350 integration tests passed green in 45 seconds.
 
-### Test isolation: rollback, truncate, and a fresh schema
+Upon deployment to production on PostgreSQL 16:
+1. PostgreSQL failed to parse `window` because it is a reserved SQL keyword for window functions, throwing a syntax error: `ERROR: syntax error at or near "window"`.
+2. PostgreSQL rejected the `@>` operator because the column was defined as a `VARCHAR` string instead of a native `VARCHAR[]` array in the production migration.
 
-Each integration test must start from a **known state** and leave **no trace**,
-or tests contaminate each other and order starts to matter. Three strategies,
-fastest to most thorough:
+Every search request failed with HTTP 500 Internal Server Error, taking down the entire product catalog.
 
-- **Transaction rollback per test** — begin a transaction before the test, run
-  the test inside it, `rollback()` after. Nothing is ever committed, so the DB
-  is pristine for the next test and cleanup is instant. Fast and clean; the
-  catch is code that manages its *own* commits/transactions needs care (nested/
-  savepoint transactions) so it doesn't defeat the outer rollback.
-- **Truncate tables between tests** — let the test commit, then `TRUNCATE` (or
-  delete) all tables in a teardown fixture. Slower than rollback but handles
-  code that commits internally, and closer to real runtime behavior.
-- **Fresh schema per run/module** — create the schema (and optionally reseed)
-  once per session or module, combined with one of the above per test. Creating
-  tables is expensive, so scope it wide (module 01's fixture scopes); the
-  per-test isolation stays narrow.
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Dev as Developer
+    participant CI as GitHub CI (SQLite in-memory)
+    participant Prod as Production Kubernetes (Postgres 16)
+    participant DB as Production PostgreSQL Primary
 
-The teardown must run **whether the test passes or fails** — that's exactly what
-a `yield` fixture guarantees (module 01). A test that only cleans up on success
-leaves the database dirty the moment it fails, cascading failures into unrelated
-tests.
+    Dev->>CI: Push code: SELECT id, name, window FROM ... WHERE tags @> :tags
+    Note over CI: Running on SQLite in-memory!<br/>SQLite allows 'window' as identifier!<br/>Custom stub passes @>!
+    CI-->>Dev: ✅ All 350 Integration Tests PASSED (45s)!
+    Dev->>Prod: Deploy to Production
+    Prod->>DB: Execute get_active_promotions()
+    Note over DB: 💥 PostgreSQL Syntax Error: 'window' is reserved keyword!<br/>Type Mismatch on @> operator!
+    DB--xProd: ERROR: 42601 syntax error at or near "window"
+    Prod--xDev: 💥 HTTP 500 across 100% of Catalog Searches!
+```
 
-### Testing FastAPI routes with TestClient and httpx
+#### 2. Root Cause Analysis
+1. **Engine Divergence (The SQLite Trap)**: Integration testing used SQLite while production operated PostgreSQL. SQLite's permissive type affinity and relaxed keyword grammar hid fatal PostgreSQL syntax and typing bugs.
+2. **False Confidence from Mocked Operators**: Stubbing database-specific operators in SQLite masked missing database migration types.
+3. **Absence of Ephemeral Containerized Parity**: The team prioritized test speed over architectural fidelity.
 
-FastAPI gives you an in-process way to make real HTTP requests against your app
-without binding a port: `TestClient` (Starlette's sync client, built on
-`httpx`) and, for async tests, `httpx.AsyncClient` with an ASGI transport. The
-request goes through your *actual* middleware, routing, validation,
-dependencies, and serialization — so this is a genuine integration test of the
-web layer, just without a network socket.
+#### 3. The Architectural Hardening & Resolution
+1. **Adoption of Testcontainers**: Replaced in-memory SQLite with containerized PostgreSQL (`testcontainers.postgres.PostgresContainer("postgres:16")`) running in Docker.
+2. **Transaction Rollback Fixtures**: Optimized PostgreSQL testcontainer execution using session-scoped containers with function-scoped transaction rollback, running the 350 tests in 8 seconds.
+3. **CI Architectural Ban on SQLite**: Added a CI pre-flight check failing any PR configuring `sqlite://` in backend integration test suites.
 
+---
+
+## Multi-Language Production Code Tabs: Real Integration Tests with Testcontainers
+
+The following implementations demonstrate production-grade integration testing:
+1. Spinning up a disposable PostgreSQL container (or ephemeral engine).
+2. Applying the **Transaction Rollback per Test** pattern.
+3. Driving HTTP routes via in-process test clients with dependency overrides.
+
+```
+### Language Tabs
+1. Python (FastAPI + SQLAlchemy + Testcontainers + TestClient)
+2. Go (net/http + testcontainers-go + pgx transaction rollback)
+3. Node.js / TypeScript (Express + testcontainers + pg + Supertest)
+4. C# (ASP.NET Core WebApplicationFactory + Testcontainers.PostgreSql)
+```
+
+### Python (pytest + Testcontainers + FastAPI)
 ```python
+import pytest
+from fastapi import FastAPI, Depends, HTTPException, status
 from fastapi.testclient import TestClient
-from app.main import app
-
-client = TestClient(app)
-
-def test_create_and_read_task():
-    r = client.post("/v1/tasks", json={"title": "write tests"})
-    assert r.status_code == 201
-    task_id = r.json()["id"]
-
-    r2 = client.get(f"/v1/tasks/{task_id}")
-    assert r2.status_code == 200
-    assert r2.json()["title"] == "write tests"
-```
-
-For async apps and async DB drivers you use the httpx `AsyncClient` with
-`ASGITransport` under `pytest-asyncio` so the whole path (including `async def`
-dependencies) runs on the event loop. Either way you assert on the real
-`status_code`, headers, and JSON body — the client's contract, not internals.
-
-### Wiring the test app to the test database (dependency overrides)
-
-The endpoint under test asks for a DB session via `Depends(get_db)`. In a test
-you don't want it opening a *production* session — you want it bound to your
-isolated test transaction. FastAPI's **dependency override** lets you swap the
-provider for the duration of the test:
-
-```python
-def override_get_db():
-    # yields the same transaction-scoped session your fixture set up
-    yield test_session
-
-app.dependency_overrides[get_db] = override_get_db
-# ... run requests via TestClient ...
-app.dependency_overrides.clear()     # always undo it afterward
-```
-
-This is the seam that connects the two halves of this module: the route runs
-for real, but its data dependency points at the test database with per-test
-isolation. (Module 04 goes deep on overrides for *external* services — payments,
-email — using the exact same mechanism.) The important discipline is
-**clearing overrides** after each test so they don't leak into others; a fixture
-with `yield` does this reliably.
-
-### Testcontainers: a real database, on demand, disposable
-
-Where does the "real test Postgres" come from? Hardcoding a shared database
-means tests fight each other and depend on someone's machine being set up
-right. **Testcontainers** is the pattern (and library) that starts a *real*
-Postgres (or Redis, or anything) in a throwaway Docker container at test time,
-hands your suite its connection URL, and destroys it when the run ends. You get
-production-fidelity behavior with zero shared state and nothing to install
-globally — the container is created fresh, used, and thrown away.
-
-```python
+from sqlalchemy import create_engine, Column, Integer, String, select
+from sqlalchemy.orm import declarative_base, sessionmaker, Session
 from testcontainers.postgres import PostgresContainer
 
+Base = declarative_base()
+
+class TaskModel(Base):
+    __tablename__ = "tasks"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    title = Column(String(100), unique=True, nullable=False)
+
+# App Setup
+app = FastAPI()
+
+def get_db():
+    raise NotImplementedError("Replaced by dependency override")
+
+@app.post("/v1/tasks", status_code=status.HTTP_201_CREATED)
+def create_task(title: str, db: Session = Depends(get_db)):
+    existing = db.execute(select(TaskModel).where(TaskModel.title == title)).scalar_one_or_none()
+    if existing:
+        raise HTTPException(status_code=409, detail="Task title already exists")
+    task = TaskModel(title=title)
+    db.add(task)
+    db.flush()
+    return {"id": task.id, "title": task.title}
+
+# ==========================================
+# TESTCONTAINER FIXTURE STACK
+# ==========================================
 @pytest.fixture(scope="session")
-def engine():
-    with PostgresContainer("postgres:16") as pg:   # real Postgres in Docker
-        eng = create_engine(pg.get_connection_url())
-        create_all(eng)                            # build schema once
-        yield eng                                  # torn down at session end
-```
+def postgres_engine():
+    with PostgresContainer("postgres:16-alpine") as postgres:
+        engine = create_engine(postgres.get_connection_url())
+        Base.metadata.create_all(bind=engine)
+        yield engine
+        engine.dispose()
 
-Because starting a container is expensive, you scope it `session` (module 01)
-and layer fast per-test rollback isolation on top. This is the bridge to CI
-(module 07 and track 13): the same container-based approach that gives you a
-clean DB locally gives your CI pipeline one too, with no external database to
-provision. The concept is the point here — a real, isolated, disposable
-dependency — more than any one library's API.
+@pytest.fixture
+def db_session(postgres_engine):
+    """Transaction rollback per test: guarantees complete isolation."""
+    connection = postgres_engine.connect()
+    transaction = connection.begin()
+    session = Session(bind=connection)
 
-## Command reference
+    yield session
 
-| Tool / construct | Purpose |
-|---|---|
-| `pip install httpx pytest-asyncio testcontainers[postgres] sqlalchemy` | Integration-testing toolkit |
-| `TestClient(app)` | In-process sync HTTP client through the real app |
-| `httpx.AsyncClient(transport=ASGITransport(app=app))` | Async in-process client |
-| `@pytest.mark.asyncio` | Run an `async def` test (pytest-asyncio) |
-| `app.dependency_overrides[dep] = fn` | Swap a `Depends` provider in tests |
-| `app.dependency_overrides.clear()` | Remove overrides (do this in teardown) |
-| `connection.begin()` / `txn.rollback()` | Per-test transaction isolation |
-| `TRUNCATE TABLE ... CASCADE` | Reset tables between committing tests |
-| `PostgresContainer("postgres:16")` | Spin up a disposable real Postgres |
-| `pytest -m "integration"` | Run only tests marked integration |
-| `pytest -m "not integration"` | Skip slow integration tests (fast inner loop) |
+    session.close()
+    transaction.rollback() # Rollback everything written during the test
+    connection.close()
 
-Marking integration tests so you can run the fast set alone (register the marker
-in `pyproject.toml` to avoid warnings):
-
-```toml
-[tool.pytest.ini_options]
-markers = ["integration: touches a real database or external service"]
-```
-
-```python
-@pytest.mark.integration
-def test_repo_persists_and_reads_back(db_session):
-    repo = TaskRepository(db_session)
-    created = repo.create(title="ship it")
-    fetched = repo.get(created.id)
-    assert fetched.title == "ship it"        # proves the real round-trip
-```
-
-A complete route-level integration test with overrides and rollback isolation:
-
-```python
-# conftest.py
 @pytest.fixture
 def client(db_session):
-    def _get_db():
-        yield db_session                      # the transaction-scoped session
-    app.dependency_overrides[get_db] = _get_db
-    with TestClient(app) as c:
-        yield c
-    app.dependency_overrides.clear()          # never leak the override
+    """Injects rollback-isolated session into FastAPI routing stack."""
+    def override_get_db():
+        yield db_session
 
-# test_tasks_api.py
-@pytest.mark.integration
-def test_create_returns_201_and_persists(client):
-    r = client.post("/v1/tasks", json={"title": "write tests"})
-    assert r.status_code == 201
-    assert r.headers["location"].endswith(f"/v1/tasks/{r.json()['id']}")
-```
-
-## Hands-on exercises
-
-Work in `testing-lab/`. You'll need Docker running for the testcontainers
-exercises. Bring in the layered FastAPI service (handlers → service →
-repository) you built in track 02.
-
-### 1. Prove a fake can lie
-
-Write a unit test of your `TaskRepository` using an *in-memory fake*, then a
-real SQL bug into the actual repository (e.g. a wrong column name in the query).
-Confirm the fake-based test still passes. Sit with that: your unit test is green
-and the data layer is broken. This is *why* the middle of the pyramid exists.
-
-### 2. Stand up a real test database with testcontainers
-
-Add a `session`-scoped `engine` fixture using `PostgresContainer("postgres:16")`
-that creates your schema once. Write one integration test that inserts a row via
-the real repository and reads it back, asserting the round-trip. Re-run the
-buggy repo from exercise 1 against this — now it fails, as it should.
-
-### 3. Per-test rollback isolation
-
-Add a `db_session` fixture that opens a transaction, yields a session, and rolls
-back in teardown. Write two tests that each insert a task with the *same* unique
-title. If isolation works, both pass independently (neither sees the other's
-row). Remove the rollback and watch the second fail on a unique-violation —
-that's the isolation you just built, proven.
-
-### 4. Drive a route with TestClient
-
-Wire a `client` fixture that overrides `get_db` to your test session and yields
-a `TestClient`. Write an integration test: `POST /v1/tasks` returns `201` with a
-`Location` header, then `GET` that location returns `200` with the same title.
-Assert on status codes, headers, and JSON body.
-
-### 5. Test the error paths through the real stack
-
-Add integration tests that a missing id returns `404`, an invalid body returns
-`422` (aggregated), and creating a duplicate title returns `409`. These prove
-your *real* validation and exception-handler wiring (track 02, module 06),
-not just the service in isolation.
-
-### 6. Async client variant
-
-If your app uses async endpoints/DB, write one test using
-`httpx.AsyncClient(transport=ASGITransport(app=app))` under
-`@pytest.mark.asyncio` that creates and reads a task. Confirm the async
-dependency path runs. Note the difference from the sync `TestClient` in a
-comment.
-
-### 7. Split fast from slow
-
-Mark every DB/route test `@pytest.mark.integration` and register the marker.
-Confirm `pytest -m "not integration"` runs only your fast unit tests (sub-second)
-and `pytest -m integration` runs the DB-backed ones. This is the split CI will
-use (module 07): fast tests on every push, slow ones gated.
-
-### 8. Diagnose and fix: the leaking, order-dependent suite
-
-These two tests pass when run together in this order, but `pytest -k
-test_lists_all_tasks` alone fails, and running them in reverse fails. Find every
-isolation problem and fix it.
-
-```python
-client = TestClient(app)   # module-level, shares the real dev DB via get_db
-
-def test_creates_a_task():
-    r = client.post("/v1/tasks", json={"title": "first"})
-    assert r.status_code == 201
-
-def test_lists_all_tasks():
-    r = client.get("/v1/tasks")
-    assert r.status_code == 200
-    assert len(r.json()["data"]) == 1     # assumes exactly the row above exists
-```
-
-<details>
-<summary>Solution</summary>
-
-Problems: **(1) No test database / no override** — `get_db` isn't overridden, so
-the tests hit whatever `get_db` points at (dev/prod), polluting real data and
-depending on its contents. **(2) No isolation** — nothing rolls back or
-truncates, so `test_creates_a_task` *commits* a row that `test_lists_all_tasks`
-then depends on; run alone or reversed, the row isn't there and the length
-assertion fails. **(3) Order dependence via shared state** — the second test's
-`len(...) == 1` assumes exactly the first test's row and nothing else, so it's
-coupled to run order and to a clean starting DB.
-
-Fix: bind to a testcontainer DB, override `get_db` to a rollback-isolated
-session via a fixture, and make each test self-contained (create its own data,
-assert on *its* data, not a global count).
-
-```python
-@pytest.fixture
-def client(db_session):                       # db_session = per-test rollback
-    app.dependency_overrides[get_db] = lambda: iter([db_session])
-    with TestClient(app) as c:
-        yield c
+    app.dependency_overrides[get_db] = override_get_db
+    with TestClient(app) as test_client:
+        yield test_client
     app.dependency_overrides.clear()
 
-def test_lists_only_its_own_tasks(client):
-    client.post("/v1/tasks", json={"title": "only one"})
-    r = client.get("/v1/tasks")
-    titles = [t["title"] for t in r.json()["data"]]
-    assert "only one" in titles              # asserts on its own row, not a count
+# ==========================================
+# INTEGRATION TESTS
+# ==========================================
+@pytest.mark.integration
+def test_create_task_persists_and_returns_201(client, db_session):
+    response = client.post("/v1/tasks?title=Deploy%20Service")
+    assert response.status_code == 201
+    assert response.json()["title"] == "Deploy Service"
+
+    # Verify directly against database
+    persisted = db_session.execute(select(TaskModel).where(TaskModel.title == "Deploy Service")).scalar_one()
+    assert persisted.id == response.json()["id"]
+
+@pytest.mark.integration
+def test_create_duplicate_task_returns_409(client):
+    # First create succeeds
+    res1 = client.post("/v1/tasks?title=Unique%20Job")
+    assert res1.status_code == 201
+
+    # Second create with duplicate title returns 409 Conflict
+    res2 = client.post("/v1/tasks?title=Unique%20Job")
+    assert res2.status_code == 409
 ```
 
-Now each test starts from a clean transaction, sees only what it created, and
-passes in any order or alone.
+### Go (testcontainers-go + pgx)
+```go
+package integration_test
 
-</details>
+import (
+	"context"
+	"database/sql"
+	"fmt"
+	"testing"
+	"time"
 
-## Independent challenge
+	_ "github.com/jackc/pgx/v5/stdlib"
+	"github.com/testcontainers/testcontainers-go"
+	"github.com/testcontainers/testcontainers-go/modules/postgres"
+	"github.com/testcontainers/testcontainers-go/wait"
+)
 
-No code given. Take the layered task/order API from
-**02-api-layer-and-request-handling (module 07, CRUD deep dive)** and give it a
-real integration-test suite backed by a **disposable Postgres from
-testcontainers**, not SQLite. Build the fixture stack: a `session`-scoped
-container+engine that creates the schema once, and a `function`-scoped
-transaction-rollback `db_session` layered on top for per-test isolation. Wire a
-`client` fixture that overrides the app's `get_db` to that session and clears
-the override in teardown. Then cover the CRUD contract *through the real stack*:
-create returns `201`+`Location` and persists; read returns the row; list
-paginates with a capped limit; a whitelisted sort works and an unknown sort
-field returns `400`; a duplicate returns `409`; a missing id returns `404`.
-Every test must be order-independent and leave the database clean — prove it by
-running the suite, then running it again reversed (`pytest -p no:randomly` off,
-or a shuffle plugin on) and getting the same result.
+var globalDB *sql.DB
+
+func TestMain(m *testing.M) {
+	ctx := context.Background()
+	// 1. Spin up real PostgreSQL container once per session
+	pgContainer, err := postgres.RunContainer(ctx,
+		testcontainers.WithImage("postgres:16-alpine"),
+		postgres.WithDatabase("testdb"),
+		postgres.WithUsername("postgres"),
+		postgres.WithPassword("password"),
+		testcontainers.WithWaitStrategy(
+			wait.ForLog("database system is ready to accept connections").
+				WithOccurrence(2).WithStartupTimeout(15*time.Second)),
+	)
+	if err != nil {
+		panic(fmt.Sprintf("failed to start container: %v", err))
+	}
+	defer pgContainer.Terminate(ctx)
+
+	connStr, _ := pgContainer.ConnectionString(ctx, "sslmode=disable")
+	globalDB, _ = sql.Open("pgx", connStr)
+	defer globalDB.Close()
+
+	// Initialize Schema
+	_, _ = globalDB.Exec(`CREATE TABLE tasks (id SERIAL PRIMARY KEY, title TEXT UNIQUE NOT NULL);`)
+
+	m.Run()
+}
+
+func TestTaskRepository_TransactionRollback(t *testing.T) {
+	ctx := context.Background()
+
+	// Begin outer transaction for test
+	tx, err := globalDB.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatalf("failed to begin tx: %v", err)
+	}
+	defer tx.Rollback() // Guarantees zero leftover rows
+
+	// Act: Insert row inside transaction
+	_, err = tx.ExecContext(ctx, "INSERT INTO tasks (title) VALUES ($1);", "Order Verification")
+	if err != nil {
+		t.Fatalf("expected insert to succeed, got: %v", err)
+	}
+
+	// Assert: Read back inside transaction
+	var count int
+	_ = tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM tasks WHERE title = $1;", "Order Verification").Scan(&count)
+	if count != 1 {
+		t.Errorf("expected count 1, got %d", count)
+	}
+	// On exit, tx.Rollback() restores DB to pristine state
+}
+```
+
+### Node.js / TypeScript (Supertest + Testcontainers)
+```typescript
+import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach } from 'vitest';
+import { PostgreSqlContainer, StartedPostgreSqlContainer } from '@testcontainers/postgresql';
+import { Pool, PoolClient } from 'pg';
+import express from 'express';
+import request from 'supertest';
+
+let container: StartedPostgreSqlContainer;
+let pool: Pool;
+let client: PoolClient;
+let app: express.Express;
+
+beforeAll(async () => {
+  // 1. Start disposable PostgreSQL testcontainer
+  container = await new PostgreSqlContainer('postgres:16-alpine').start();
+  pool = new Pool({ connectionString: container.getConnectionUri() });
+
+  await pool.query(`CREATE TABLE tasks (id SERIAL PRIMARY KEY, title VARCHAR(100) UNIQUE NOT NULL);`);
+
+  // 2. Initialize in-process Express app
+  app = express();
+  app.use(express.json());
+  app.post('/tasks', async (req, res) => {
+    try {
+      const result = await client.query('INSERT INTO tasks (title) VALUES ($1) RETURNING *;', [req.body.title]);
+      res.status(201).json(result.rows[0]);
+    } catch (err: any) {
+      if (err.code === '23505') return res.status(409).json({ error: 'Duplicate' });
+      res.status(500).json({ error: err.message });
+    }
+  });
+}, 30000);
+
+afterAll(async () => {
+  await pool.end();
+  await container.stop();
+});
+
+beforeEach(async () => {
+  // 3. Begin transaction before each test
+  client = await pool.connect();
+  await client.query('BEGIN');
+});
+
+afterEach(async () => {
+  // 4. Rollback transaction after each test
+  await client.query('ROLLBACK');
+  client.release();
+});
+
+describe('Tasks API Integration Tests', () => {
+  it('should persist task and return 201', async () => {
+    const res = await request(app).post('/tasks').send({ title: 'Containerized Test' });
+    expect(res.status).toBe(201);
+    expect(res.body.title).toBe('Containerized Test');
+  });
+
+  it('should reject duplicate titles with 409 Conflict', async () => {
+    await request(app).post('/tasks').send({ title: 'Unique Task' });
+    const res = await request(app).post('/tasks').send({ title: 'Unique Task' });
+    expect(res.status).toBe(409);
+  });
+});
+```
+
+### C# (ASP.NET Core WebApplicationFactory + Testcontainers)
+```csharp
+using System.Net;
+using System.Net.Http.Json;
+using Microsoft.AspNetCore.Mvc.Testing;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
+using Testcontainers.PostgreSql;
+using Xunit;
+
+public class TaskItem { public int Id { get; set; } public string Title { get; set; } = ""; }
+
+public class AppDbContext : DbContext
+{
+    public AppDbContext(DbContextOptions<AppDbContext> opts) : base(opts) { }
+    public DbSet<TaskItem> Tasks => Set<TaskItem>();
+}
+
+public class IntegrationTestFixture : IAsyncLifetime
+{
+    public PostgreSqlContainer Container { get; } = new PostgreSqlBuilder()
+        .WithImage("postgres:16-alpine")
+        .Build();
+
+    public async Task InitializeAsync() => await Container.StartAsync();
+    public async Task DisposeAsync() => await Container.DisposeAsync();
+}
+
+public class TaskApiTests : IClassFixture<IntegrationTestFixture>
+{
+    private readonly IntegrationTestFixture _fixture;
+
+    public TaskApiTests(IntegrationTestFixture fixture) => _fixture = fixture;
+
+    [Fact]
+    public async Task PostTask_Returns201AndPersists()
+    {
+        var factory = new WebApplicationFactory<Program>().WithWebHostBuilder(builder =>
+        {
+            builder.ConfigureServices(services =>
+            {
+                // Swap DbContext to Point to Postgres Container
+                services.AddDbContext<AppDbContext>(opts =>
+                    opts.UseNpgsql(_fixture.Container.GetConnectionString()));
+            });
+        });
+
+        var client = factory.CreateClient();
+        var response = await client.PostAsJsonAsync("/tasks", new { Title = "Ship dotnet API" });
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+    }
+}
+```
+
+---
+
+## Practical Hands-On Verification Workflows
+
+### 1. Execute Integration Tests via Pytest Markers
+
+Filter test execution to run fast unit tests by default, and execute the integration suite against Docker testcontainers when requested:
+
+```bash
+# Run ONLY unit tests (0 I/O, blazing fast)
+pytest -m "not integration" -v
+```
+
+**Expected Terminal Output:**
+```text
+collected 14 items / 2 deselected / 12 selected
+tests/test_pricing.py::test_discount_valid PASSED               [ 50%]
+tests/test_policy.py::test_password_policy PASSED               [100%]
+====================== 12 passed, 2 deselected in 0.08s =======================
+```
+
+```bash
+# Run ONLY containerized integration tests
+pytest -m "integration" -v
+```
+
+**Expected Terminal Output:**
+```text
+collected 14 items / 12 deselected / 2 selected
+tests/test_tasks_api.py::test_create_task_persists_and_returns_201 PASSED [ 50%]
+tests/test_tasks_api.py::test_create_duplicate_task_returns_409 PASSED    [100%]
+====================== 2 passed, 12 deselected in 1.45s =======================
+```
+
+---
+
+## Operational Validation Checkpoints (Scenario Quizzes)
 
 <details>
-<summary>Hint</summary>
+<summary><strong>Checkpoint 1: The Transaction Rollback Leaking Seam</strong></summary>
 
-The two hardest parts are scope and the override seam. Give the container/engine
-`scope="session"` (starting Postgres per test would be brutally slow) and build
-the schema in that fixture; give the rollback `db_session` `scope="function"` so
-each test is isolated. For the seam, your `get_db` override must yield the *same*
-session object your `db_session` fixture created and is rolling back — otherwise
-the route writes in a different transaction than the one you clean up, and the
-row leaks. Assert on your own created rows, never on global counts, to stay
-order-independent.
+**Scenario:** A developer implements transaction rollback per test. In their FastAPI route handler:
+```python
+@app.post("/tasks")
+def create_task(title: str, db: Session = Depends(get_db)):
+    task = TaskModel(title=title)
+    db.add(task)
+    db.commit() # Notice the explicit commit!
+    return task
+```
+When running the integration test suite, tests begin failing with duplicate key errors because the rollback fixture no longer cleans up the rows. Why did this occur, and how must database transaction fixtures be structured when application code calls `db.commit()`?
 
+**Answer:**
+- **The Cause**: The application code explicitly invoked `db.commit()`. In standard SQL, committing an active transaction terminates the transaction boundary and makes all changes permanent, rendering the outer fixture's subsequent `rollback()` call ineffective.
+- **The Fix**:
+  1. Use **Nested Transactions (Savepoints)** in SQLAlchemy / Hibernate:
+     ```python
+     @pytest.fixture
+     def db_session(engine):
+         connection = engine.connect()
+         trans = connection.begin()
+         session = Session(bind=connection, join_transaction_mode="create_savepoint")
+         yield session
+         session.close()
+         trans.rollback()
+         connection.close()
+     ```
+     With savepoints (`SAVEPOINT my_savepoint`), application `db.commit()` calls merely release the inner savepoint without committing the outer physical database transaction.
+  2. If savepoints are unsupported by your ORM, switch from the Rollback strategy to the **Table Truncation (`TRUNCATE`)** strategy in fixture teardown.
 </details>
-
-## Common mistakes & troubleshooting
-
-- **Testing against SQLite when you run Postgres.** Different dialect/constraint
-  behavior means green tests hide real bugs. Use a real Postgres (testcontainers)
-  for anything Postgres-specific.
-- **Sharing the dev/prod database with tests.** Pollutes real data and makes
-  results depend on its contents. Always a dedicated, disposable test DB.
-- **No per-test isolation.** Tests that commit and don't clean up contaminate
-  each other and make order matter. Use transaction-rollback (or truncate)
-  teardown that runs on pass *and* fail.
-- **Cleanup only on success.** A test that tears down at the end of the happy
-  path leaves the DB dirty when it fails. Put teardown after `yield` in a
-  fixture so it always runs.
-- **Forgetting to clear dependency overrides.** A leaked override changes the
-  behavior of later tests. Clear it in the fixture's teardown.
-- **Re-testing business rules through the database.** Slow and redundant — that
-  logic belongs in fast unit tests. Integration tests target the seams (SQL,
-  wiring, serialization), not rule permutations.
-- **Container starts per test.** Wildly slow. Scope the container `session`;
-  keep only the cheap rollback isolation per test.
-- **Asserting on global counts.** `len(rows) == 1` couples a test to a clean DB
-  and to run order. Assert on the specific data the test created.
-
-## Checkpoint quiz
-
-Write down your answer to each question before expanding it — checking without attempting first is the single easiest way to fool yourself into thinking you've learned this.
-
-1. Give three concrete bug classes an integration test catches that a
-   unit-with-fakes test structurally cannot.
-2. Why prefer a real Postgres over SQLite-in-memory for integration tests, even
-   though SQLite is faster and simpler?
-3. Describe the transaction-rollback isolation strategy and one situation where
-   truncate is the better choice.
-4. Why must test teardown run on failure as well as success, and what `pytest`
-   construct guarantees it?
-5. What does `TestClient` actually exercise, and why is a request through it a
-   genuine integration test even without a network socket?
-6. What is a FastAPI dependency override used for in integration tests, and what
-   must you always do after using one?
-7. What problem does testcontainers solve, and why do you scope the container
-   fixture `session` while keeping isolation `function`-scoped?
 
 <details>
-<summary>Answers</summary>
+<summary><strong>Checkpoint 2: The Shared Test Database Race Condition</strong></summary>
 
-1. Wrong SQL/ORM mapping (bad column, join, constraint) that a fake repo can't
-   reproduce; wiring mistakes (route→service, uncommitted transaction, session
-   sharing); and serialization/contract mismatches (dropped field, wrong status
-   code, bad datetime format) that only a real request through the real stack
-   reveals.
-2. Because SQLite has a different SQL dialect, type affinity, and constraint
-   behavior than Postgres, so a green SQLite test can hide a real Postgres bug —
-   an integration test that isn't faithful to production defeats its own purpose.
-3. Begin a transaction before the test, run the test inside it, and roll back in
-   teardown so nothing is ever committed and the next test starts clean;
-   instant and pristine. Truncate is better when the code under test manages its
-   own commits (which would defeat the outer rollback) or when you want behavior
-   closer to real commit semantics.
-4. Because a test that fails mid-way still may have written rows; if cleanup only
-   runs on success, a failure leaves the DB dirty and cascades into unrelated
-   tests. A `yield` fixture runs its post-`yield` teardown regardless of
-   pass/fail.
-5. It sends real HTTP requests in-process through the app's actual middleware,
-   routing, validation, dependencies, and serialization — everything but the
-   socket — so it verifies the real web-layer wiring and wire contract, which is
-   exactly an integration concern.
-6. It swaps a `Depends` provider (e.g. `get_db`) so the route runs for real but
-   its dependency points at the isolated test database (or a fake external
-   service). You must clear the override afterward (`dependency_overrides.clear()`,
-   ideally in fixture teardown) so it doesn't leak into other tests.
-7. It provides a real, production-fidelity database (or other service) in a
-   throwaway Docker container created at test time and destroyed after, avoiding
-   shared/global state. Starting a container is expensive so you do it once per
-   session; per-test isolation (rollback/truncate) is cheap and stays
-   function-scoped so tests don't contaminate each other.
+**Scenario:** An engineering team configures their CI runners to execute tests in parallel using `pytest -n auto` (running across 8 worker processes). All 8 processes point to a single static staging PostgreSQL database. The tests randomly fail with `UniqueViolation` and foreign-key missing errors. What architectural change resolves this flakiness?
 
+**Answer:**
+- **The Cause**: Multiple concurrent test workers are executing read, write, and truncate operations simultaneously against the exact same database tables. Worker 1 inserts a row with `id=10`, while Worker 2 truncates the table, causing Worker 1 to fail unexpectedly.
+- **The Resolution**:
+  1. **Dynamic Database Isolation per Worker**: When using testcontainers with parallel workers, each worker process must either spin up its own isolated container or create its own isolated database instance (e.g. `test_db_worker_1`, `test_db_worker_2`).
+  2. In pytest-xdist, use the `worker_id` fixture to dynamically assign and migrate a dedicated database schema per process: `create_database(f"test_db_{worker_id}")`.
 </details>
-
-## Cumulative review
-
-Closed-book. Don't reopen modules 00–03 while attempting these — the point is to
-find out what actually stuck.
-
-1. Draw the test pyramid and, for each layer, place these four tests: (a)
-   `total_with_discount([100], 10) == 90`; (b) a service `place_order` oversell
-   raising a domain error with a fake repo; (c) `POST /v1/tasks` through
-   `TestClient` returns `201` and the row is in Postgres; (d) a full browser-
-   driven signup flow. State each one's scope, speed, and roughly how many of it
-   you'd want.
-2. For test (b) above, name the test double you'd use for the repository and
-   justify it over the other three kinds; then say why the *same* behavior does
-   *not* warrant an integration test.
-3. You're TDD-ing the discount rule from test (a). Write the red→green→refactor
-   beats in words, including what "the simplest thing that passes" looks like on
-   the first green and where module 01's parametrize belongs.
-4. A colleague's unit suite reports 100% coverage and the app is broken in
-   production because of a bad SQL join. Explain, using the coverage-vs-
-   verification idea *and* the unit-vs-integration idea, how both facts are true
-   at once and what two changes fix it.
-5. Give the correct status code for each and name the module whose principle
-   dictates it: an aggregated invalid body; a missing resource id; a duplicate
-   unique title; a `datetime.now()`-dependent test that fails every afternoon
-   (trick — what *kind* of problem is this and where do you fix it?).
-6. Your integration suite passes when run whole but a single test fails in
-   isolation. List the two most likely root causes (one about the DB, one about
-   FastAPI wiring) and the fix for each.
-7. Explain why you'd run testcontainers Postgres instead of SQLite for
-   integration tests, and separately why you'd still keep the discount-rule test
-   as a pure unit test rather than exercising it through the database.
 
 <details>
-<summary>Answers</summary>
+<summary><strong>Checkpoint 3: The False Equivalence of Unit and Integration Tests</strong></summary>
 
-1. Base = unit: (a) and (b) — isolated, sub-millisecond, hundreds/thousands.
-   Middle = integration: (c) — real routing + real Postgres, medium speed, tens
-   to low hundreds. Tip = e2e: (d) — whole running system from outside, slow, a
-   handful.
-2. A **fake** in-memory repository (or a **stub** returning canned stock): you
-   verify the resulting behavior/error (state verification), which is less
-   brittle than a mock's interaction assertions and doesn't need the real DB.
-   It doesn't warrant an integration test because the oversell rule is pure
-   business logic in the (HTTP/DB-ignorant) service — testing it through the
-   database would be slow and redundant; integration tests target the seams,
-   not rule permutations.
-3. Red: write `assert total_with_discount([100], 10) == 90` first and watch it
-   fail (function/module missing). Green: simplest thing that passes — e.g.
-   `return int(sum(prices) * (100 - pct) / 100)` (even hardcoding for one case
-   is legitimate, triangulated by a second row). Refactor: with the suite green,
-   collapse the growing cases into a `@pytest.mark.parametrize` table and dedupe
-   — behavior unchanged.
-4. Coverage measures which lines *executed*, not whether anything was
-   *asserted*, and unit tests use fakes that can't contain a SQL bug — so a
-   fully-executed, fake-backed suite can be 100% green while the real join is
-   wrong. Fixes: (1) add meaningful assertions (don't chase the percentage), and
-   (2) add integration tests against a real (testcontainers) Postgres that
-   exercise the actual SQL.
-5. Aggregated invalid body → `422` (validation, track 02 / this track's unit-vs-
-   integration wiring). Missing id → `404`. Duplicate unique title → `409`. The
-   afternoon-failing test is not a status-code issue at all — it's a **flaky/
-   nondeterministic test** caused by reading the real clock; fix it by injecting/
-   controlling the clock (module 00's flakiness concept; module 04 controls it),
-   not by changing a status code.
-6. DB cause: no per-test isolation — an earlier test committed a row the failing
-   test depends on (or vice-versa); fix with transaction-rollback/truncate
-   teardown and asserting on own data, not global counts. Wiring cause: a leaked
-   or missing `dependency_overrides` (e.g. `get_db` not overridden, or not
-   cleared); fix by setting the override in a fixture and clearing it in
-   teardown.
-7. SQLite differs from Postgres in dialect, types, and constraints, so a green
-   SQLite test can hide a real Postgres bug — an unfaithful integration test is
-   worse than none. You keep the discount rule as a pure unit test because it's
-   logic with no I/O; running it through the DB adds slowness and flakiness
-   while testing nothing the seam-level tests should own.
+**Scenario:** A developer proposes: *"We have 100% unit test coverage using mock repositories for our User registration endpoint. Therefore, writing an integration test against a real PostgreSQL database is redundant waste."* Name three critical failure modes that only a real integration test can detect.
 
+**Answer:**
+1. **Schema Migration & Mapping Desynchronization**: A unit test with mocks cannot verify whether the SQLAlchemy/Entity Framework column mappings match the real PostgreSQL column names, types, or nullability constraints.
+2. **SQL Constraint Violations**: Uncaught foreign-key violations (`FOREIGN KEY constraint failed`), unique index collisions, and check constraints (`CHECK (age >= 18)`) are enforced strictly by the database engine and remain completely invisible to unit mocks.
+3. **Session Lifecycle & Transaction Commits**: A unit test cannot prove that the HTTP request handler properly acquired, committed, and closed the database connection session without leaking connections in the connection pool.
 </details>
 
-## Further reading & sources
+---
 
-- [FastAPI — Testing](https://fastapi.tiangolo.com/tutorial/testing/) - Official guide to `TestClient` for exercising routes in-process, as in this module.
-- [FastAPI — Testing a Database & dependency overrides](https://fastapi.tiangolo.com/advanced/testing-database/) - How to swap `get_db` with `dependency_overrides` to point routes at a test database.
-- [testcontainers-python documentation](https://testcontainers-python.readthedocs.io/en/latest/) - Docs for spinning up a disposable real Postgres container per test run.
-- [httpx — Async client & ASGI transport](https://www.python-httpx.org/async/) - Reference for the `AsyncClient` + `ASGITransport` path used for async integration tests.
-- [Martin Fowler — IntegrationTest](https://martinfowler.com/bliki/IntegrationTest.html) - On what "integration test" means and the seams it is meant to cover.
-- [SQLAlchemy — Joining a session into an external transaction](https://docs.sqlalchemy.org/en/20/orm/session_transaction.html#joining-a-session-into-an-external-transaction-such-as-for-test-suites) - The canonical transaction-rollback-per-test isolation pattern this module teaches.
+## Further Reading & Next Steps
 
-## Next
-
-[04-mocking-and-dependency-injection-for-testability](../04-mocking-and-dependency-injection-for-testability/README.md)
-— you've used fakes and dependency overrides to swap the *database*. Next you'll
-use the same tools to control *external* services — payment APIs, email
-providers, the clock — with mocks and FastAPI's override system, and learn the
-line between healthy mocking and over-mocking that makes tests mirror the code.
+* [Testcontainers Official Documentation](https://testcontainers.com/) - Multi-language libraries for containerized integration testing.
+* [FastAPI Documentation: Testing with Databases](https://fastapi.tiangolo.com/advanced/testing-database/) - Dependency overrides and transactional session wiring.
+* [Martin Fowler: Integration Testing](https://martinfowler.com/bliki/IntegrationTest.html) - Structural concepts and scope boundaries.
+* Next up: [04-mocking-and-dependency-injection-for-testability](../04-mocking-and-dependency-injection-for-testability/README.md) to control external services, third-party payment gateways, and the system clock.

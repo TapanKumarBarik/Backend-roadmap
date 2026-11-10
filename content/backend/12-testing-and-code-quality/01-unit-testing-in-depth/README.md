@@ -1,495 +1,548 @@
 # Module 01: Unit Testing in Depth
 
-## Why this matters
+> **Prerequisites**: [00-testing-fundamentals-and-the-test-pyramid](../00-testing-fundamentals-and-the-test-pyramid/README.md).  
+> **Estimated Reading Time**: 30 minutes  
+> **Target Audience**: Backend Software Engineers, Test Automation Specialists, and Technical Leads building robust, maintainable, and high-velocity unit test suites.
 
-In module 00 you wrote unit tests by hand — construct the object, call the
-method, assert. That works for five tests. At fifty, the cracks show: every
-test repeats the same three lines of setup, and each new input case means
-another near-identical copy-pasted function. Duplicated setup means that when
-the constructor signature changes you edit fifty tests; copy-pasted cases mean
-your "coverage" is really one test wearing forty hats, and a gap hides in the
-noise. The unit layer is the *base* of the pyramid — it's where most of your
-tests live — so the ergonomics of writing them well is not a nicety, it's what
-decides whether the suite stays maintainable or rots into something the team
-routes around.
+---
 
-`pytest` has two features that turn that grind into leverage: **fixtures**
-(reusable, composable setup/teardown with explicit dependencies) and
-**parametrization** (run one test body across many inputs, each reported
-separately). Get fluent with these and you write less test code that covers
-more, and a failure names the exact input that broke. This module also draws
-the line that trips people up most in practice — **pure functions vs. functions
-with side effects** — because that line decides *how* a thing can be tested, and
-it teaches you to read **coverage** correctly: as a map of what you *haven't*
-exercised, never as a score to maximize.
+> [!TIP]
+> **The Golden Rule of Unit Testing Depth**  
+> Architect software around the **Functional Core, Imperative Shell** pattern: isolate complex business decisions into pure, stateless domain functions that can be tested exhaustively via table-driven parametrization without mocks, and relegate I/O and state mutations to a thin outer shell. Treat code coverage as a **map of untested vulnerabilities**, never as a gamified vanity metric. Mandate **Branch Coverage** over Line Coverage, and remember that 100% line execution without rigorous assertions provides zero safety.
 
-## Concepts
+---
 
-### Fixtures: setup and teardown with explicit dependencies
+## Visual Mental Models & Architecture
 
-A **fixture** is a function that produces something a test needs — a
-constructed object, a fake repo, a temp directory — and `pytest` injects it
-into any test that names it as a parameter. Instead of repeating setup in every
-test, you write it once and *request* it:
+### The Functional Core, Imperative Shell
 
+Separating pure decision logic from side-effecting I/O drastically simplifies testing and collapses test suite maintenance overhead:
+
+```mermaid
+flowchart LR
+    subgraph ImperativeShell["Imperative Shell (Thin, Side-Effecting Outer Tier)"]
+        HTTPHandler["🌐 HTTP Controller / GraphQL Resolver"]
+        DBWriter["💾 Database / Redis I/O"]
+        EmailService["✉️ External Email / Stripe API"]
+    end
+
+    subgraph FunctionalCore["Functional Core (Pure Domain Logic - 0 Mocks Needed)"]
+        CalculateFees["🧮 calculateLateFee(balance, daysOverdue)<br/>• Pure mathematical transformation<br/>• Zero I/O, zero network, zero clock<br/>• 100% testable via Parametrized Tables"]
+    end
+
+    HTTPHandler -->|1. Parse Request| ImperativeShell
+    ImperativeShell -->|2. Pass raw data| CalculateFees
+    CalculateFees -->|3. Return calculated penalty DTO| ImperativeShell
+    ImperativeShell -->|4. Commit transaction & send notification| DBWriter
+    ImperativeShell --> EmailService
+
+    style FunctionalCore fill:#d4edda,stroke:#28a745,stroke-width:3px
+    style ImperativeShell fill:#fff3cd,stroke:#856404,stroke-width:2px
+```
+
+---
+
+### Fixture Dependency Graph and Lifecycle Execution
+
+Fixtures in modern test runners (`pytest`, xUnit, Vitest) form a directed acyclic graph (DAG), ensuring clean setup, dependency injection, and guaranteed teardown:
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Runner as Test Engine (pytest)
+    participant FixEngine as Session Fixture (db_engine)
+    participant FixTx as Function Fixture (db_tx)
+    participant Test as Test Execution (test_user_create)
+
+    Runner->>FixEngine: 1. Setup Session Fixture (create_engine)
+    FixEngine-->>Runner: Engine Ready
+    
+    Runner->>FixTx: 2. Setup Function Fixture (begin transaction)
+    FixTx-->>Test: Injects Isolated Transaction Connection
+    
+    Note over Test: Execute Arrange, Act, Assert<br/>Perform database writes within transaction
+    Test-->>Runner: Test Completed (PASS)
+
+    Runner->>FixTx: 3. Teardown: Code after 'yield'
+    Note over FixTx: Rollback Transaction!<br/>Database returns to pristine state
+    
+    Note over Runner,FixEngine: Subsequent tests reuse db_engine without re-allocating!
+```
+
+---
+
+## Systematic Reference Grids
+
+### Fixture Scope Hierarchy & Resource Lifecycle
+
+| Scope Name | Execution Frequency | Memory Lifecycle | Isolation Guarantee | Best Used For | Risk / Anti-Pattern |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **`function`** (Default) | Once per test function. | Instantiated and destroyed for every single test. | **Maximum Isolation**: Impossible for one test to pollute another. | In-memory fakes, transaction rollbacks, fresh entity models. | Heavy CPU/IO setup (e.g., spinning up a Docker container) will cause tests to crawl. |
+| **`class`** | Once per test class. | Shared across all methods inside a test class. | Medium: Methods within class share state. | Read-only fixtures shared across related scenarios. | Mutating class attributes will cause order-dependent test failures. |
+| **`module`** | Once per test file (`test_*.py`). | Reused for all test cases within the file. | Coarse: Shared across the whole module. | Building shared SQLite schemas, read-only seed data tables. | Leaks state if any test executes non-transactional SQL updates. |
+| **`session`** | Once per full test run. | Created at runner start; destroyed at process exit. | **Zero Isolation**: Global singleton. | Initializing Docker testcontainers, compiling Protobuf stubs. | **High Risk**: Storing mutable application data here breaks suite parallelization (`-n auto`). |
+
+---
+
+### Code Coverage Metrics: Capabilities & Blind Spots
+
+| Coverage Metric | What It Measures | What It Misses | False Sense of Security |
+| :--- | :--- | :--- | :--- |
+| **Line Coverage** | Percentage of code lines executed by at least one test. | Completely misses un-executed conditional branches (e.g., missing `else` statements or compound boolean logic). | **Extremely High**: An assertion-free test that executes lines achieves 100% line coverage while verifying zero behavior. |
+| **Branch Coverage** (`--cov-branch`) | Evaluates whether every boolean branch (`true` and `false` path) was traversed. | Misses state combination permutations (e.g. `if A and B` where only `(T,T)` and `(F,F)` are exercised). | **Medium**: Proves control flow branches were touched, but does not prove return values were validated. |
+| **Mutation Testing** (e.g. `mutmut`, Stryker) | Intentionally mutates source code (swapping `+` to `-`, changing `<` to `<=`) and verifies that tests fail ("kill the mutant"). | Computationally expensive; slow to run across massive codebases. | **Minimal**: True gold standard for asserting that test suites actually detect functional behavioral bugs. |
+
+---
+
+## Production Incident War Story: The 100% Coverage Illusion
+
+### Incident Post-Mortem: SEV-1
+
+* **Incident ID**: INC-7291
+* **Severity Level**: SEV-1 (Financial Calculation Defect)
+* **Detection Time**: 14 days after month-end financial reconciliation
+* **Time to Recovery (TTR)**: 3 hours (database ledger audit required 5 days)
+* **Impact**: \$1.2M in uncollected customer interest penalties; 84,000 invoices calculated with zero late fees.
+
+#### 1. What Happened
+A lending platform released an updated late-fee calculation module. In pull request reviews, the engineering team celebrated achieving **100% Line and Branch Coverage** on the new module:
+```python
+# fee_calculator.py
+def calculate_late_fee(balance: float, days_overdue: int, is_grace_period_exempt: bool) -> float:
+    fee = 0.0
+    if days_overdue > 30 and not is_grace_period_exempt:
+        # Business Requirement: 5% penalty, minimum $25 fee
+        calculated = balance * 0.05
+        fee = calculated if calculated > 25.0 else 25.0
+    return fee
+```
+
+The test file accompanying the PR exercised every line and branch:
+```python
+# test_fee_calculator.py - The Flawed Test Suite
+@pytest.mark.parametrize("balance, days, exempt", [
+    (1000.0, 45, False), # Triggers the inner calculation
+    (500.0, 10, False),  # Triggers days <= 30
+    (500.0, 45, True),   # Triggers is_exempt True
+])
+def test_calculate_late_fee_coverage(balance, days, exempt):
+    try:
+        calculate_late_fee(balance, days, exempt)
+    except Exception as e:
+        pytest.fail(f"Unexpected exception: {e}")
+```
+
+Notice that the test **asserted nothing** about the return value! It only asserted that the code executed without raising an unhandled exception.
+
+A developer subsequently refactored `fee_calculator.py` to fix a linter warning, accidentally inverting a condition:
+```python
+if days_overdue > 30 and is_grace_period_exempt: # BUG: 'not' was removed!
+```
+The test suite ran, all tests passed green, branch coverage remained at 100%, and the PR was auto-merged. In production, 84,000 overdue accounts were charged \$0.00 in late fees for an entire billing cycle.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Dev as Developer
+    participant Git as GitHub CI (100% Coverage Gate)
+    participant SUT as calculate_late_fee()
+    participant Billing as Monthly Billing Batch Job
+
+    Dev->>Git: Push inverted logic: if days > 30 and is_exempt
+    Git->>SUT: Run test_calculate_late_fee_coverage
+    Note over SUT: Tests execute all lines & branches!<br/>NO ASSERTIONS on return value!
+    SUT-->>Git: Execution completes without throwing!
+    Git-->>Dev: ✅ 100% Coverage Passed! Build Deployed!
+    Billing->>SUT: calculate_late_fee(balance=5000, days=45, exempt=False)
+    SUT-->>Billing: Returns $0.00 (Should be $250.00!)
+    Note over Billing: $1.2M in late fee penalties lost across 84,000 invoices!
+```
+
+#### 2. Root Cause Analysis
+1. **Assertion-Free Test Suite**: Tests were written to satisfy a mandated CI coverage target rather than to verify contractual behavior.
+2. **False Equivalence of Coverage with Quality**: CI checked only that lines were executed, not that test assertions validated outputs against boundary conditions.
+3. **Absence of Mutation Testing**: A simple mutation testing pass would have immediately caught that changing the boolean expression failed to break any test.
+
+#### 3. The Architectural Hardening & Resolution
+1. **Table-Driven Parametrization with Exact Expected Values**: Replaced assertion-free tests with explicit input-output assertion matrices checking every boundary condition.
+2. **Linter Rule: Reject Assertion-Free Tests**: Configured `flake8-assert` and ESLint `jest/expect-expect` to fail any test function that does not contain an assertion statement.
+3. **Mutation Testing in Nightly CI**: Integrated `mutmut` into nightly builds to verify that alterations to arithmetic and boolean operators kill mutants.
+
+---
+
+## Multi-Language Production Code Tabs: Table-Driven Parametrized Testing
+
+The following implementations demonstrate how to structure table-driven tests that cleanly test boundary conditions, edge cases, and exception paths without code duplication.
+
+```
+### Language Tabs
+1. Python (pytest.mark.parametrize with boundary cases)
+2. Go (Table-Driven Subtests with t.Run)
+3. Node.js / TypeScript (Vitest / Jest test.each)
+4. C# (xUnit [Theory] and [InlineData])
+```
+
+### Python (pytest)
 ```python
 import pytest
+from decimal import Decimal
 
-@pytest.fixture
-def svc():
-    return OrderService(FakeOrderRepo(stock={"sku-1": 10}))
+# ==========================================
+# 1. PURE FUNCTION UNDER TEST
+# ==========================================
+def calculate_discount(price_cents: int, discount_pct: int) -> int:
+    """Calculates discounted price in integer cents, rounding down."""
+    if price_cents < 0:
+        raise ValueError("Price cannot be negative")
+    if not (0 <= discount_pct <= 100):
+        raise ValueError("Discount percentage must be between 0 and 100")
+        
+    discount = (price_cents * discount_pct) // 100
+    return price_cents - discount
 
-def test_places_order(svc):          # names the fixture -> gets the object
-    order = svc.place_order(1, [Item("sku-1", 2)])
-    assert order["id"] == 1
+# ==========================================
+# 2. PARAMETRIZED VALID CASES
+# ==========================================
+@pytest.mark.parametrize(
+    "price, pct, expected, case_id",
+    [
+        (10000, 10, 9000, "normal_10_percent_discount"),
+        (10000, 0, 10000, "zero_discount_returns_original"),
+        (10000, 100, 0, "full_100_percent_discount_free"),
+        (99, 10, 90, "integer_floor_rounding_99_cents"),
+        (0, 50, 0, "zero_price_remains_zero"),
+    ],
+    ids=lambda case_id: case_id
+)
+def test_calculate_discount_valid_boundaries(price, pct, expected, case_id):
+    result = calculate_discount(price_cents=price, discount_pct=pct)
+    assert result == expected
 
-def test_rejects_oversell(svc):      # same setup, zero duplication
-    with pytest.raises(InsufficientStockError):
-        svc.place_order(1, [Item("sku-1", 99)])
+# ==========================================
+# 3. PARAMETRIZED EXCEPTION CASES
+# ==========================================
+@pytest.mark.parametrize(
+    "price, pct, match_err",
+    [
+        (-100, 10, "Price cannot be negative"),
+        (1000, -1, "Discount percentage must be between 0 and 100"),
+        (1000, 101, "Discount percentage must be between 0 and 100"),
+    ]
+)
+def test_calculate_discount_invalid_inputs(price, pct, match_err):
+    with pytest.raises(ValueError) as exc:
+        calculate_discount(price_cents=price, discount_pct=pct)
+    assert match_err in str(exc.value)
 ```
 
-Fixtures **compose** — a fixture can request other fixtures — so you build a
-dependency graph, not a pile of copy-paste. And they handle **teardown** via
-`yield`: everything before the `yield` is setup, everything after runs when the
-test finishes, pass *or* fail:
+### Go (Table-Driven Subtests)
+```go
+package pricing_test
 
-```python
-@pytest.fixture
-def temp_db():
-    conn = connect(":memory:")       # setup
-    yield conn                       # hand it to the test
-    conn.close()                     # teardown, always runs
+import (
+	"errors"
+	"testing"
+)
+
+// ==========================================
+// 1. PURE FUNCTION UNDER TEST
+// ==========================================
+var (
+	ErrNegativePrice   = errors.New("price cannot be negative")
+	ErrInvalidDiscount = errors.New("discount percentage must be between 0 and 100")
+)
+
+func CalculateDiscount(priceCents int, discountPct int) (int, error) {
+	if priceCents < 0 {
+		return 0, ErrNegativePrice
+	}
+	if discountPct < 0 || discountPct > 100 {
+		return 0, ErrInvalidDiscount
+	}
+	discount := (priceCents * discountPct) / 100
+	return priceCents - discount, nil
+}
+
+// ==========================================
+// 2. TABLE-DRIVEN UNIT TESTS
+// ==========================================
+func TestCalculateDiscount(t *testing.T) {
+	tests := []struct {
+		name        string
+		price       int
+		discount    int
+		expected    int
+		expectedErr error
+	}{
+		{
+			name:        "10% discount on 10000 cents",
+			price:       10000,
+			discount:    10,
+			expected:    9000,
+			expectedErr: nil,
+		},
+		{
+			name:        "0% discount retains full price",
+			price:       5000,
+			discount:    0,
+			expected:    5000,
+			expectedErr: nil,
+		},
+		{
+			name:        "100% discount results in 0",
+			price:       5000,
+			discount:    100,
+			expected:    0,
+			expectedErr: nil,
+		},
+		{
+			name:        "Negative price returns error",
+			price:       -500,
+			discount:    10,
+			expected:    0,
+			expectedErr: ErrNegativePrice,
+		},
+		{
+			name:        "Discount over 100% returns error",
+			price:       1000,
+			discount:    150,
+			expected:    0,
+			expectedErr: ErrInvalidDiscount,
+		},
+	}
+
+	for _, tc := range tests {
+		tc := tc // Capture range variable
+		t.Run(tc.name, func(t *testing.T) {
+			result, err := CalculateDiscount(tc.price, tc.discount)
+
+			if tc.expectedErr != nil {
+				if !errors.Is(err, tc.expectedErr) {
+					t.Fatalf("expected error %v, got %v", tc.expectedErr, err)
+				}
+				return
+			}
+
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if result != tc.expected {
+				t.Errorf("expected %d, got %d", tc.expected, result)
+			}
+		})
+	}
+}
 ```
 
-Fixtures live in the test file or, when shared across files, in `conftest.py`
-(auto-discovered per directory — no import needed). This is the same
-dependency-injection idea from track 02's `Depends`, applied to tests.
+### Node.js / TypeScript (Vitest / Jest)
+```typescript
+import { describe, it, expect } from 'vitest';
 
-### Fixture scope: function, class, module, session
+export function calculateDiscount(priceCents: number, discountPct: number): number {
+  if (priceCents < 0) throw new RangeError('Price cannot be negative');
+  if (discountPct < 0 || discountPct > 100) {
+    throw new RangeError('Discount percentage must be between 0 and 100');
+  }
+  const discount = Math.floor((priceCents * discountPct) / 100);
+  return priceCents - discount;
+}
 
-By default a fixture runs **once per test** (`scope="function"`) — maximum
-isolation, because each test gets a fresh object and can't be polluted by
-another. But some setup is expensive (starting a container, building a schema)
-and safe to share. `scope=` controls the reuse:
+describe('calculateDiscount Table-Driven Tests', () => {
+  it.each([
+    { price: 10000, pct: 10, expected: 9000, desc: '10% on 10000' },
+    { price: 5000, pct: 0, expected: 5000, desc: '0% discount' },
+    { price: 5000, pct: 100, expected: 0, desc: '100% free' },
+    { price: 99, pct: 10, expected: 90, desc: 'integer floor rounding' },
+    { price: 0, pct: 50, expected: 0, desc: 'zero price remains zero' },
+  ])('$desc: calculateDiscount($price, $pct) -> $expected', ({ price, pct, expected }) => {
+    expect(calculateDiscount(price, pct)).toBe(expected);
+  });
 
-```python
-@pytest.fixture(scope="session")     # built once for the whole test run
-def db_engine():
-    engine = create_engine(TEST_DB_URL)
-    yield engine
-    engine.dispose()
+  it.each([
+    { price: -100, pct: 10, errMsg: 'Price cannot be negative' },
+    { price: 1000, pct: -5, errMsg: 'Discount percentage must be between 0 and 100' },
+    { price: 1000, pct: 105, errMsg: 'Discount percentage must be between 0 and 100' },
+  ])('should throw RangeError for invalid input: price=$price, pct=$pct', ({ price, pct, errMsg }) => {
+    expect(() => calculateDiscount(price, pct)).toThrowError(errMsg);
+  });
+});
 ```
 
-Scopes, widest reuse to narrowest: `session` (once per `pytest` run) →
-`package` → `module` (once per file) → `class` → `function` (default). The
-tradeoff is **speed vs. isolation**: wider scope is faster but risks state
-leaking between tests. Rule of thumb — expensive, read-only, or externally-torn-
-down resources (an engine, a container) get a wide scope; anything a test
-*mutates* stays `function`-scoped so tests can't contaminate each other.
+### C# (xUnit Theory)
+```csharp
+using System;
+using Xunit;
 
-### Parametrization: one test, many inputs
+public static class DiscountCalculator
+{
+    public static int CalculateDiscount(int priceCents, int discountPct)
+    {
+        if (priceCents < 0) throw new ArgumentOutOfRangeException(nameof(priceCents), "Price cannot be negative");
+        if (discountPct < 0 || discountPct > 100) 
+            throw new ArgumentOutOfRangeException(nameof(discountPct), "Discount percentage must be between 0 and 100");
 
-Copy-pasting a test to change one input value is how coverage gaps hide.
-`@pytest.mark.parametrize` runs the *same* test body across a table of inputs,
-reporting each as its own test with the values in the name:
+        int discount = (priceCents * discountPct) / 100;
+        return priceCents - discount;
+    }
+}
 
-```python
-@pytest.mark.parametrize("prices, pct, expected", [
-    ([100, 50], 10, 135),
-    ([100], 0, 100),
-    ([], 50, 0),
-    ([100], 100, 0),
-])
-def test_total_with_discount(prices, pct, expected):
-    assert total_with_discount(prices, pct) == expected
+public class DiscountCalculatorTests
+{
+    [Theory]
+    [InlineData(10000, 10, 9000)]
+    [InlineData(5000, 0, 5000)]
+    [InlineData(5000, 100, 0)]
+    [InlineData(99, 10, 90)]
+    [InlineData(0, 50, 0)]
+    public void CalculateDiscount_ValidBoundaries_CalculatesCorrectly(int price, int pct, int expected)
+    {
+        int actual = DiscountCalculator.CalculateDiscount(price, pct);
+        Assert.Equal(expected, actual);
+    }
+
+    [Theory]
+    [InlineData(-50, 10)]
+    [InlineData(1000, -1)]
+    [InlineData(1000, 101)]
+    public void CalculateDiscount_InvalidBoundaries_ThrowsArgumentOutOfRangeException(int price, int pct)
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() => 
+            DiscountCalculator.CalculateDiscount(price, pct));
+    }
+}
 ```
 
-Four cases, one body. If the `pct=100` row breaks, `pytest` reports
-`test_total_with_discount[100-100-0]` — the failing input is right there in the
-name. This is the primary tool for covering **boundaries and edge cases**
-cheaply: empty input, zero, the max, one-past-the-max, negative. You can also
-parametrize the *expected exception*, mixing valid and invalid rows with
-`pytest.raises` inside, or stack multiple `parametrize` decorators to get the
-cartesian product.
+---
 
-### Pure functions vs. functions with side effects
+## Practical Hands-On Verification Workflows
 
-A **pure function** depends only on its arguments and returns a value with no
-observable effect on the outside world — same input, same output, always. Pure
-functions are the *easiest thing in software to test*: no setup, no doubles,
-just `assert f(input) == output`. Parametrization was made for them.
+### 1. Execute Branch Coverage Analysis via CLI
 
-A function with **side effects** reads or changes something outside itself:
-writes a row, sends an email, reads the clock, mutates a shared list, calls an
-API. You can't test it by return value alone — you have to either verify the
-*effect* (state verification: did the row get written to the fake?) or verify
-the *interaction* (did `send_email` get called?). The practical lesson is
-**separate the two**: keep the decision logic pure and push the side effect to
-the edges, so the hard-to-test part is a thin shell and the interesting logic is
-a pure function you test trivially.
+Run `pytest-cov` and inspect uncovered branches directly from the terminal:
 
-```
-   pure core (easy)              imperative shell (thin)
-  +-------------------+         +----------------------+
-  | penalty_for(acct) |  value  |  caller does the     |
-  | no I/O, no clock  |-------->|  side effect:        |----> emailer.send()
-  | same in->same out |         |  send email / write  |----> repo.save()
-  +-------------------+         +----------------------+
-   test by value                 test by interaction/state
-   (parametrize, no doubles)     (one small double)
+```bash
+pytest --cov=app --cov-branch --cov-report=term-missing
 ```
 
-```python
-# HARD to test: decision + side effect tangled
-def charge_if_overdue(account, emailer):
-    if account.balance < 0 and account.days_overdue > 30:
-        emailer.send(account.email, "Your account is overdue")
-        return account.balance * 1.05
+**Expected Terminal Output:**
+```text
+Name                Stmts   Miss Branch BrPart  Cover   Missing
+---------------------------------------------------------------
+app/__init__.py         0      0      0      0   100%
+app/pricing.py         12      0      6      0   100%
+app/services.py        24      1      8      1    94%   42->45, 48
+---------------------------------------------------------------
+TOTAL                  36      1     14      1    96%
+```
+*Notice column `BrPart`: identifies branches that only ever evaluated in one direction (e.g. `if` was executed, but `else` branch was never traversed).*
 
-# EASIER: pure decision, side effect at the edge
-def penalty_for(account) -> Decimal | None:                 # pure
-    if account.balance < 0 and account.days_overdue > 30:
-        return account.balance * Decimal("1.05")
-    return None
+---
+
+### 2. Inspecting Individual Parametrized Test Results
+
+```bash
+pytest -v -k "test_calculate_discount_valid_boundaries"
 ```
 
-Now `penalty_for` is tested with a parametrize table and no doubles at all;
-only the thin caller that actually sends the email needs an interaction test.
-
-### Coverage as a signal, not a target
-
-**Code coverage** measures which lines (or branches) your tests *executed* —
-`pytest-cov` runs the suite and reports the percentage plus exactly which lines
-were never hit. It's genuinely useful for one thing: **finding code you forgot
-to test**. An uncovered branch is a branch no test exercises, which is a real
-gap worth a look.
-
-The trap is treating the number as the *goal*. Coverage measures execution, not
-verification — a test with no assertions still "covers" every line it runs, and
-you can hit 100% while asserting nothing meaningful. Worse, mandating a high
-number (via a CI gate) incentivizes people to write execution-only tests that
-game the metric, actively degrading the suite. **Line coverage** also
-overstates safety: a line with an `if` counts as covered when executed once,
-even if you never tested the `else`; **branch coverage** (`--cov-branch`) is
-stricter because it wants both directions. Use coverage as a *map of the
-untested*, investigate the gaps with judgment (some uncovered code isn't worth
-testing), and never confuse "100% executed" with "correct."
-
-### Test naming, structure, and independence
-
-Because unit tests are numerous, their *names* are documentation — a failing
-test's name should tell you what promise broke without opening the file. Prefer
-`test_<unit>_<condition>_<expected>`: `test_place_order_oversell_raises`,
-`test_discount_zero_pct_returns_full_total`. Each test must be **independent**:
-it sets up its own state (via fixtures) and doesn't depend on running order or
-on side effects left by another test. Order-dependent tests are a classic
-source of "passes alone, fails in the suite" — `pytest -p no:randomly` vs.
-random ordering plugins exist precisely to surface that coupling. Keep tests
-small, isolated, and named for behavior, and the base of your pyramid stays
-trustworthy at scale.
-
-## Command reference
-
-| Command / construct | What it does |
-|---|---|
-| `@pytest.fixture` | Declare a reusable setup function |
-| `def test_x(myfix):` | Inject a fixture by parameter name |
-| `yield` in a fixture | Split setup (before) / teardown (after) |
-| `@pytest.fixture(scope="module")` | Reuse across a scope (function/class/module/session) |
-| `conftest.py` | Fixtures shared across files, auto-discovered |
-| `@pytest.mark.parametrize("a,b", [...])` | Run the body once per row |
-| `pytest.param(..., id="name")` | Give a parametrized case a readable id |
-| `pytest.param(..., marks=pytest.mark.xfail)` | Mark one row expected-to-fail |
-| `pytest --cov=app` | Report line coverage for the `app` package |
-| `pytest --cov=app --cov-branch` | Include branch coverage (stricter) |
-| `pytest --cov=app --cov-report=term-missing` | List the exact uncovered lines |
-| `pytest --cov-report=html` | Write a browsable HTML coverage report |
-| `tmp_path` (built-in fixture) | A unique temp `Path` per test |
-| `monkeypatch` (built-in fixture) | Safely patch attrs/env for one test |
-
-Coverage config in `pyproject.toml` (fail the build under a threshold, but see
-the mistakes section on why a *low* floor is healthier than a high mandate):
-
-```toml
-[tool.coverage.run]
-branch = true
-source = ["app"]
-
-[tool.coverage.report]
-show_missing = true
-skip_covered = true
-# fail_under = 80    # a floor, not an aspiration — see Common mistakes
+**Expected Terminal Output:**
+```text
+tests/test_pricing.py::test_calculate_discount_valid_boundaries[normal_10_percent_discount] PASSED    [ 20%]
+tests/test_pricing.py::test_calculate_discount_valid_boundaries[zero_discount_returns_original] PASSED [ 40%]
+tests/test_pricing.py::test_calculate_discount_valid_boundaries[full_100_percent_discount_free] PASSED [ 60%]
+tests/test_pricing.py::test_calculate_discount_valid_boundaries[integer_floor_rounding_99_cents] PASSED [ 80%]
+tests/test_pricing.py::test_calculate_discount_valid_boundaries[zero_price_remains_zero] PASSED       [100%]
 ```
 
-Composing fixtures and using a built-in one (`tmp_path`):
+---
 
-```python
-@pytest.fixture
-def repo():
-    return FakeOrderRepo(stock={"sku-1": 10})
-
-@pytest.fixture
-def svc(repo):                          # fixture depending on a fixture
-    return OrderService(repo)
-
-def test_writes_receipt_file(svc, tmp_path):
-    order = svc.place_order(1, [Item("sku-1", 2)])
-    path = tmp_path / "receipt.txt"     # unique temp dir, auto-cleaned
-    path.write_text(f"order {order['id']}")
-    assert path.read_text() == "order 1"
-```
-
-Parametrizing valid and invalid cases together:
-
-```python
-@pytest.mark.parametrize("pct, expectation", [
-    (0, does_not_raise(100)),
-    (10, does_not_raise(90)),
-    (150, pytest.raises(ValueError)),
-    (-1, pytest.raises(ValueError)),
-])
-def test_discount_validation(pct, expectation):
-    with expectation as expected:
-        result = total_with_discount([100], pct)
-        if expected is not None:
-            assert result == expected
-```
-
-## Hands-on exercises
-
-Work in the `testing-lab/` project from module 00.
-
-### 1. Extract setup into a fixture
-
-Take the two `OrderService` tests you wrote by hand in module 00 and refactor
-the repeated construction into a `@pytest.fixture` named `svc`. Both tests
-should now request `svc` as a parameter and contain zero setup lines. Run and
-confirm still green. Note how adding a third test now costs one line of setup.
-
-### 2. Add teardown with `yield`
-
-Write a fixture `temp_log` that creates a file in `tmp_path`, `yield`s its path
-to the test, and after the yield asserts/records that it deletes the file. Write
-a test that writes to it. Add a `print` before and after the `yield` and run
-with `pytest -s` to *see* setup run before the test and teardown after.
-
-### 3. Parametrize a pure function
-
-Rewrite your `total_with_discount` tests as a single
-`@pytest.mark.parametrize`ed test with at least six rows: empty list, single
-item, `pct=0`, `pct=100`, a normal case, and a rounding case. Run `pytest -v`
-and confirm each row shows as its own named test. Deliberately break one row's
-expected value and confirm the failure names the exact input.
-
-### 4. Parametrize the error cases too
-
-Add rows (or a second parametrized test) covering `pct=150` and `pct=-1`, each
-asserting `ValueError` via `pytest.raises`. Aim to have *all* validation
-branches of the function driven from parametrized tables, not hand-written
-duplicates.
-
-### 5. Separate a pure decision from its side effect
-
-Given a tangled function like `charge_if_overdue(account, emailer)` (decision +
-email in one), refactor it into a pure `penalty_for(account)` and a thin caller
-that sends the email. Write a *parametrized* unit test for `penalty_for` (in
-credit, overdue-but-not-30-days, overdue-past-30) with no doubles at all.
-Expected: the interesting logic is now testable without any emailer.
-
-### 6. Measure coverage and find a real gap
-
-Run `pytest --cov=app --cov-branch --cov-report=term-missing`. Read the
-"Missing" column. Find one genuinely untested branch (e.g. an `else` you never
-hit) and add a test for it. Re-run and watch that line leave the missing list.
-Write one sentence on *why* that branch mattered.
-
-### 7. Choose a fixture scope deliberately
-
-Add a fixture that simulates expensive setup (a `time.sleep(0.2)` "connect"
-that returns a shared object). Give it `scope="function"` and time the suite;
-switch to `scope="module"` and time again. Then answer in a comment: is this
-resource safe to share across tests, or would sharing let one test's mutation
-leak into another?
-
-### 8. Diagnose and fix: the metric got gamed
-
-This test file reports **100% coverage** of `pricing.py`, yet a real bug ships.
-Explain how both things are true, and fix the suite so the bug would be caught.
-
-```python
-# pricing.py
-def total_with_discount(prices, pct):
-    subtotal = sum(prices)
-    if pct < 0 or pct > 100:
-        raise ValueError("pct out of range")
-    return int(subtotal - subtotal * pct / 100)   # BUG: should floor per spec, ok here
-
-# test_pricing.py
-@pytest.mark.parametrize("prices, pct", [
-    ([100, 50], 10),
-    ([], 0),
-    ([100], 150),      # invalid
-])
-def test_total(prices, pct):
-    try:
-        total_with_discount(prices, pct)   # no assertion on the result
-    except ValueError:
-        pass                               # swallow, assert nothing
-```
+## Operational Validation Checkpoints (Scenario Quizzes)
 
 <details>
-<summary>Solution</summary>
+<summary><strong>Checkpoint 1: The Shared Mutable Fixture Bug</strong></summary>
 
-**How 100% coverage coexists with a shipped bug:** the three rows *execute*
-every line — the valid path, the empty path, and the `raise` path all run — so
-line (and even branch) coverage is 100%. But the test **asserts nothing**: it
-calls the function and either ignores the return value or swallows the
-exception. Coverage measures *execution*, not *verification*, so a bug in the
-computed value (or the wrong exception message) sails through with a green,
-"fully covered" suite.
-
-**Fix:** assert on outcomes, and separate valid from invalid cases so each has
-a real expectation.
-
+**Scenario:** A developer configures a shared test fixture with `scope="module"`:
 ```python
-@pytest.mark.parametrize("prices, pct, expected", [
-    ([100, 50], 10, 135),
-    ([], 0, 0),
-    ([100], 100, 0),
-])
-def test_total_valid(prices, pct, expected):
-    assert total_with_discount(prices, pct) == expected
-
-@pytest.mark.parametrize("pct", [150, -1])
-def test_total_rejects_bad_pct(pct):
-    with pytest.raises(ValueError):
-        total_with_discount([100], pct)
+@pytest.fixture(scope="module")
+def admin_user():
+    return User(id=1, name="Alice", roles=["ADMIN"])
 ```
+In `test_a`, the test verifies that removing a role revokes permissions:
+```python
+def test_a(admin_user):
+    admin_user.roles.clear()
+    assert len(admin_user.roles) == 0
+```
+In `test_b`, the test verifies that admin users can access the dashboard:
+```python
+def test_b(admin_user):
+    assert "ADMIN" in admin_user.roles
+```
+When running `pytest -k test_b`, the test passes. When running the entire suite together (`pytest`), `test_b` fails. Why did this occur, and what is the fix?
 
-The lesson: coverage tells you which lines you *ran*, never whether you
-*checked* the right thing. Chase assertions, not the percentage.
-
+**Answer:**
+- **The Cause**: `admin_user` has `scope="module"`, meaning the exact same in-memory Python object reference is shared across all tests in the file. `test_a` executed first and mutated the object (`admin_user.roles.clear()`), polluting the fixture. When `test_b` ran subsequently, the user had no roles.
+- **The Fix**:
+  1. Mutable domain entities must always use the default **`scope="function"`**, guaranteeing that each test receives a fresh, isolated instance.
+  2. Reserve `module` and `session` scopes strictly for **immutable or read-only resources** (e.g., database connection pools, compiled schemas).
 </details>
-
-## Independent challenge
-
-No code given. Return to the `OrderService` you unit-tested in **module 00
-(Testing Fundamentals and the Test Pyramid)** and level it up to the standards
-of this module. Replace all hand-written setup with a small graph of composed
-fixtures (a `repo` fixture feeding a `svc` fixture). Convert your happy-path and
-error tests into **parametrized** tables that cover the boundaries: empty
-order, exactly-enough stock, one-past stock, multiple line items. Add a *new*
-service method that has a side effect (e.g. it appends to an audit log passed
-in), then refactor so the *decision* is a pure function you parametrize and only
-the thin writer needs a state-verifying test. Finally run coverage with
-`--cov-branch --cov-report=term-missing`, drive it up by adding tests for any
-genuinely missing branch, and write one sentence justifying any line you chose
-to leave uncovered.
 
 <details>
-<summary>Hint</summary>
+<summary><strong>Checkpoint 2: The Limitation of 100% Line Coverage</strong></summary>
 
-For the boundary table, the highest-value rows are the *edges*: `qty` equal to
-stock (should pass), `qty` one greater (should raise), and an empty item list.
-Put the valid rows in one parametrized test asserting on the returned order and
-the invalid rows in another using `pytest.raises`. For the side-effecting
-method, follow exercise 5's shape — a pure `should_audit(...)`/`audit_entry(...)`
-you parametrize, plus one small test that the writer actually appends the entry
-to a fake list.
+**Scenario:** Consider the following authentication check:
+```python
+def is_authorized(user, resource):
+    if user.is_admin or (user.is_owner and resource.is_public):
+        return True
+    return False
+```
+A developer writes a single test: `assert is_authorized(admin_user, private_resource) is True`.
+What is the Line Coverage percentage of this function, what critical vulnerability is completely untested, and what coverage tool exposes the gap?
 
+**Answer:**
+- **Line Coverage**: **100%**. Lines 1, 2, and 3 are all executed during the single test invocation.
+- **Untested Vulnerability**: The compound condition `(user.is_owner and resource.is_public)` was never evaluated, nor was the default `return False` branch ever executed. If a bug allows non-owner users to access private resources, the test suite will remain 100% green.
+- **The Diagnostic Tool**: **Branch Coverage** (`--cov-branch`) will flag that `is_authorized` has partial branch execution (only 1 of 4 possible decision paths was taken). A table-driven test covering `(admin=F, owner=T, public=T)`, `(admin=F, owner=T, public=F)`, and `(admin=F, owner=F, public=F)` is required to achieve complete branch safety.
 </details>
-
-## Common mistakes & troubleshooting
-
-- **Duplicated setup instead of fixtures.** Every test rebuilding the same
-  object. Extract a fixture; put shared ones in `conftest.py`.
-- **Over-wide fixture scope on mutable state.** A `session`/`module` fixture
-  that tests mutate leaks state between tests ("passes alone, fails together").
-  Keep mutated resources `function`-scoped; reserve wide scope for expensive,
-  read-only, or externally-cleaned resources.
-- **Copy-pasted tests instead of parametrize.** Ten near-identical functions
-  where one parametrized table belongs — gaps hide in the duplication and the
-  failing input isn't obvious. Use `@pytest.mark.parametrize`.
-- **Testing side-effecting code by return value.** You can't; either verify the
-  effect/state or the interaction. Better: refactor the pure decision out and
-  test *that* directly.
-- **Treating coverage as a target.** Mandating a high percentage breeds
-  assertion-free tests that game it. Use coverage to *find* untested code, then
-  add meaningful assertions.
-- **Line coverage mistaken for branch coverage.** A 100% line-covered `if` may
-  never have run its `else`. Enable `--cov-branch` for the honest number.
-- **Order-dependent tests.** A test that only passes because an earlier one ran
-  first. Make each test set up its own state; consider a randomizing plugin to
-  surface hidden coupling.
-
-## Checkpoint quiz
-
-Write down your answer to each question before expanding it — checking without attempting first is the single easiest way to fool yourself into thinking you've learned this.
-
-1. What problem do fixtures solve, and how does a fixture handle teardown?
-2. What does `scope=` control on a fixture, and what's the tradeoff between a
-   wide scope and the default `function` scope? Which resources are safe to
-   widen?
-3. Why is parametrization better than copy-pasting a test for each input, and
-   what does it give you in the failure report?
-4. Define a pure function. Why is it the easiest kind of code to test, and what
-   design move makes side-effecting code easier to test?
-5. What does code coverage actually measure, and name two reasons a high
-   coverage number can be misleading.
-6. Line coverage says 100% but you suspect an untested branch. What's going on
-   and what do you turn on to get the honest picture?
-7. A test passes when run alone but fails when the whole suite runs. What's the
-   most likely cause and how do you prevent it?
 
 <details>
-<summary>Answers</summary>
+<summary><strong>Checkpoint 3: Testing Side Effects vs Pure Logic</strong></summary>
 
-1. Fixtures remove duplicated setup: you define reusable setup once and tests
-   request it by parameter name; they also compose (fixtures using fixtures).
-   Teardown uses `yield` — code before the yield is setup, code after runs when
-   the test finishes (pass or fail).
-2. `scope=` controls how often the fixture is (re)built — function/class/
-   module/package/session. Wider scope is faster (built fewer times) but risks
-   state leaking between tests; default `function` gives a fresh instance per
-   test (max isolation). Safe to widen: expensive, read-only, or
-   externally-torn-down resources (engines, containers). Keep mutated state
-   function-scoped.
-3. It runs one test body across a table of inputs with no duplication, so gaps
-   don't hide in copy-paste and boundaries are cheap to add; the failing input
-   appears in the test's reported name/id, pointing straight at the case.
-4. A pure function depends only on its arguments and returns a value with no
-   external effect. It's trivial to test (`assert f(in) == out`, no doubles).
-   For side-effecting code, extract the pure decision and push the effect to a
-   thin edge, so the logic is testable by value and only the shell needs an
-   interaction/state test.
-5. It measures which lines/branches the tests *executed* — not whether anything
-   was asserted. Misleading because: (a) assertion-free tests still "cover"
-   lines, so 100% can verify nothing; (b) line coverage counts an `if` as
-   covered without exercising its `else`, overstating safety; and mandating a
-   high number incentivizes gaming.
-6. A line-covered `if` may have run only one direction; the `else`/false branch
-   was never taken. Turn on branch coverage (`--cov-branch`) to require both
-   directions and reveal the untaken branch.
-7. Order dependence / shared mutable state — an earlier test left state a later
-   one relies on (or a wide-scoped fixture was mutated). Prevent it by making
-   each test set up its own state via function-scoped fixtures and avoiding
-   cross-test globals; randomized ordering surfaces the coupling.
+**Scenario:** A developer writes a function `send_payment_receipt(order)`:
+```python
+def send_payment_receipt(order, email_client):
+    if order.status == "PAID" and order.total > 100:
+        discount_coupon = "VIP20"
+        body = f"Thanks for your order! Use coupon {discount_coupon} for 20% off."
+        email_client.send(order.customer_email, body)
+```
+The developer complains that testing this function requires setting up complex mocks for `email_client` to verify whether the discount coupon is included in the string. How should this function be refactored according to the **Functional Core, Imperative Shell** principle?
 
+**Answer:**
+Refactor the function by separating the pure decision logic from the network side effect:
+1. **Functional Core (Pure Function)**:
+   ```python
+   def generate_receipt_content(status: str, total: float) -> Optional[str]:
+       if status == "PAID" and total > 100:
+           return "Thanks for your order! Use coupon VIP20 for 20% off."
+       return None
+   ```
+   *This pure function can now be tested across all boundary conditions (`total=100`, `total=100.01`, `status="PENDING"`) using a simple table-driven test without mocking `email_client`.*
+2. **Imperative Shell (Thin Side Effect Wrapper)**:
+   ```python
+   def send_payment_receipt(order, email_client):
+       body = generate_receipt_content(order.status, order.total)
+       if body:
+           email_client.send(order.customer_email, body)
+   ```
+   *Only a single interaction test is needed to verify that `email_client.send` is invoked when `body` is present.*
 </details>
 
-## Further reading & sources
+---
 
-- [pytest — How to use fixtures](https://docs.pytest.org/en/stable/how-to/fixtures.html) - The official guide to fixtures, composition, and `yield`-based teardown used throughout this module.
-- [pytest — Fixture scopes](https://docs.pytest.org/en/stable/how-to/fixtures.html#scope-sharing-fixtures-across-classes-modules-packages-or-session) - Reference for the function/module/session scopes and the speed-vs-isolation tradeoff.
-- [pytest — Parametrizing tests](https://docs.pytest.org/en/stable/how-to/parametrize.html) - Official docs for `@pytest.mark.parametrize`, the core edge-case tool of this module.
-- [pytest-cov documentation](https://pytest-cov.readthedocs.io/en/latest/) - The coverage plugin, including branch coverage and `term-missing`, used to find untested code.
-- [Martin Fowler — TestCoverage](https://martinfowler.com/bliki/TestCoverage.html) - Why coverage is a signal for finding untested code, never a target to maximize.
-- [Gary Bernhardt — Boundaries (functional core, imperative shell)](https://www.destroyallsoftware.com/talks/boundaries) - The talk behind separating a pure decision core from a thin side-effecting shell.
+## Further Reading & Next Steps
 
-## Next
-
-[02-test-driven-development-in-practice](../02-test-driven-development-in-practice/README.md)
-— you can now write clean, parametrized, well-covered unit tests *after* the
-code exists. Next you'll flip the order: write the failing test *first* and let
-red-green-refactor drive a small feature into existence, then learn honestly
-where TDD pays off and where it just slows you down.
+* [pytest Documentation: Fixture References & Scopes](https://docs.pytest.org/en/stable/how-to/fixtures.html) - Complete lifecycle hooks and composition.
+* [Gary Bernhardt: Boundaries (Functional Core, Imperative Shell)](https://www.destroyallsoftware.com/talks/boundaries) - Architectural foundation for isolatable testing.
+* [Martin Fowler: Test Coverage](https://martinfowler.com/bliki/TestCoverage.html) - Why coverage is a compass, not a target.
+* Next up: [02-test-driven-development-in-practice](../02-test-driven-development-in-practice/README.md) to practice the Red-Green-Refactor rhythm, triangulation techniques, and test-first API design.

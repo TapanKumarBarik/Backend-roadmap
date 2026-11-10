@@ -1,466 +1,608 @@
 # Module 00: Testing Fundamentals and the Test Pyramid
 
-## Why this matters
+> **Prerequisites**: Solid understanding of backend application architecture and service layers from [02-api-layer-and-request-handling](../../02-api-layer-and-request-handling/README.md).  
+> **Estimated Reading Time**: 30 minutes  
+> **Target Audience**: Backend Engineers, Platform Engineers, and Technical Leads building sustainable, rapid-feedback test automation suites for mission-critical systems.
 
-Every line of code you've written in the earlier tracks made a promise: this
-endpoint returns `201`, this validator rejects a future birth date, this
-service raises `InsufficientStockError`. Right now the only thing verifying
-those promises is *you*, manually, by poking the running app — and you only do
-it once, the day you write the code. The moment someone else (or you, three
-months later) changes a nearby line, those promises silently break and nobody
-finds out until a user does. **Automated tests are executable promises**: they
-state what the code should do, and they re-check it on every change, for free,
-forever. That's the entire value proposition — not "catching bugs" in some
-vague sense, but pinning down behavior so you can change code without fear.
+---
 
-The catch is that not all tests are equal. A test that spins up your whole
-app, a real database, and a real payment sandbox to check one validation rule
-is slow, flaky, and tells you almost nothing when it fails (which of the fifty
-moving parts broke?). A test that calls one pure function with three inputs is
-fast, stable, and points a laser at the fault. Most teams learn this the hard
-way, ending up with a slow, brittle suite nobody trusts. The **test pyramid**
-is the shape that avoids that: lots of small fast tests, fewer medium ones, a
-tiny number of big ones. This module gives you the vocabulary — unit,
-integration, e2e, and the four kinds of test doubles — and gets `pytest`
-running so every later module has a foundation to build on.
+> [!TIP]
+> **The Golden Rule of Test Suite Architecture**  
+> Push verification down to the lowest, fastest layer of the test pyramid that can definitively prove correctness. Unit tests must execute in single-digit milliseconds without touching the network, disk, or system clock. Prefer **State Verification** (using lightweight in-memory **Fakes** and **Stubs**) over fragile **Interaction Verification** (Mocks and Spies) whenever possible. Never let your test suite invert into an "ice-cream cone" where slow, flaky End-to-End (E2E) tests outnumber isolated unit tests.
 
-## Concepts
+---
 
-### What a test actually is (arrange–act–assert)
+## Visual Mental Models & Architecture
 
-A test is just a function that runs some code and *asserts* something is true
-about the result; if the assertion fails, the test fails. There's no magic. The
-universal shape is **Arrange–Act–Assert** (AAA): set up the inputs, perform the
-one action under test, then check the outcome. Keeping those three phases
-visually distinct is the single biggest readability win in testing.
+### The Test Pyramid vs The Inverted Ice-Cream Cone
 
-```python
-def test_discount_applies_to_total():
-    cart = Cart(items=[Item(price=100), Item(price=50)])   # arrange
-    total = cart.total_with_discount(pct=10)               # act
-    assert total == 135                                    # assert
+The test pyramid dictates the distribution of automated tests across your codebase. Inverting this pyramid creates a fragile, slow CI pipeline that degrades developer velocity and masks regressions.
+
+```mermaid
+flowchart TD
+    subgraph IdealPyramid["Ideal Test Pyramid (Fast, Cheap, Deterministic)"]
+        direction TB
+        E2E1["🔼 E2E Tests (5%)<br/>• Slow (Seconds to Minutes)<br/>• External browsers / real networks<br/>• Broadest scope, high flakiness"]
+        Int1["🔶 Integration Tests (20%)<br/>• Medium (100ms - 2s)<br/>• Real DB containers, TestClient, wiring<br/>• Verifies I/O & boundaries"]
+        Unit1["🟩 Unit Tests (75%)<br/>• Blazing Fast (< 5ms each)<br/>• In-memory fakes, pure functions<br/>• High precision root-cause isolation"]
+        
+        E2E1 --> Int1
+        Int1 --> Unit1
+    end
+
+    subgraph IceCreamCone["The Inverted Ice-Cream Cone Anti-Pattern"]
+        direction TB
+        E2E2["💥 70% E2E UI / Selenium Tests<br/>(Slow, flaky, 45-minute CI runs)"]
+        Int2["⚠️ 20% Integration Tests"]
+        Unit2["❌ 10% Unit Tests<br/>(Zero coverage of core domain edge cases)"]
+        
+        E2E2 --> Int2
+        Int2 --> Unit2
+    end
+
+    style IdealPyramid fill:#d4edda,stroke:#28a745,stroke-width:2px
+    style IceCreamCone fill:#f8d7da,stroke:#dc3545,stroke-width:2px
 ```
 
-One test should exercise *one* behavior and, ideally, have *one* logical
-reason to fail. A test that arranges five things, acts three times, and asserts
-on eight is really several tests wearing a trenchcoat — when it goes red you
-won't know which promise broke.
+---
 
-### The test pyramid: unit, integration, e2e
+### Taxonomy of Test Doubles: State vs Interaction Verification
 
-Tests differ in *scope* — how much of the system they exercise at once — and
-scope trades off against speed and stability. The **test pyramid** arranges the
-three main scopes by how many of each you should have:
+Gerard Meszaros' classic taxonomy categorizes the five distinct types of test doubles and their verification mechanisms:
 
-- **Unit tests** (the wide base) — exercise one small piece (a function, a
-  class, a service method) in isolation, with its collaborators replaced by
-  test doubles. Milliseconds each. You have hundreds or thousands. When one
-  fails, it names the exact broken piece.
-- **Integration tests** (the middle) — exercise several real pieces wired
-  together: a service against a *real* test database, a FastAPI route through
-  `TestClient`. Tens to low hundreds. Slower (they touch I/O), but they catch
-  the bugs unit tests can't — wrong SQL, a mis-wired dependency, a serialization
-  mismatch.
-- **End-to-end tests** (the narrow tip) — drive the whole running system from
-  the outside, as a real client would, across process boundaries. A handful.
-  Slow and the most prone to flakiness. They prove the assembled system works
-  at all, but they're a terrible place to test business-rule permutations.
+```mermaid
+flowchart TD
+    Doubles["🎭 Test Doubles (Generic Substitutes)"]
+    
+    Doubles --> StateVerify["📊 State Verification<br/>(Assert on return values & in-memory state)"]
+    Doubles --> InteractionVerify["🔍 Interaction Verification<br/>(Assert that specific calls & parameters occurred)"]
 
-```
-        /\        e2e         few, slow, high-confidence-in-the-whole
-       /  \
-      /----\      integration  some, medium speed, real wiring/IO
-     /      \
-    /--------\    unit          many, fast, isolated, precise failures
+    StateVerify --> Dummy["1. Dummy<br/>Passed around to satisfy method signatures;<br/>never actually inspected or used."]
+    StateVerify --> Stub["2. Stub<br/>Provides canned, hardcoded responses to invocations.<br/>Feeds input to the System Under Test (SUT)."]
+    StateVerify --> Fake["3. Fake<br/>Fully functional in-memory implementation<br/>(e.g., InMemoryOrderRepository using a Map)."]
+
+    InteractionVerify --> Spy["4. Spy<br/>Wraps a real or stubbed dependency;<br/>passively records invocation history for later assertions."]
+    InteractionVerify --> Mock["5. Mock<br/>Configured with strict upfront expectations<br/>(e.g., must be called exactly once with specific args)."]
+
+    style StateVerify fill:#cce5ff,stroke:#004085,stroke-width:2px
+    style InteractionVerify fill:#fff3cd,stroke:#856404,stroke-width:2px
 ```
 
-The shape matters because the wrong shape is expensive. An **inverted pyramid**
-(mostly e2e, few unit) — sometimes called the "ice-cream cone" — gives you a
-suite that's slow, flaky, and vague on failure. Push behavior coverage *down*
-to the fastest layer that can meaningfully test it.
+---
 
-### Test doubles: mock, stub, fake, spy
+## Systematic Reference Grids
 
-To test a unit *in isolation* you replace its real collaborators (the database,
-a payment API, an email sender) with stand-ins called **test doubles**. The
-word "mock" gets used for all of them colloquially, but the distinctions matter
-because they answer different questions:
+### Pyramid Layer Comparison Matrix
 
-- **Stub** — returns canned answers to calls. Used to *supply* input to the
-  code under test. "When `get_stock('sku-1')` is called, return `10`." You
-  assert on the code's output, not on the stub.
-- **Fake** — a real, working, lightweight implementation. An in-memory
-  dictionary standing in for a repository; SQLite standing in for Postgres. It
-  actually behaves, just without the production weight.
-- **Mock** — a double with *expectations* about how it's called. You assert on
-  the *interaction*: "`send_email` was called exactly once, with this address."
-  Used when the behavior under test *is* the side effect.
-- **Spy** — records the calls that happened so you can inspect them afterward,
-  without pre-set expectations. A "mock" you interrogate after the fact.
+| Dimension | Unit Tests | Integration Tests | End-to-End (E2E) Tests |
+| :--- | :--- | :--- | :--- |
+| **Primary Scope** | A single function, method, or domain entity class in complete isolation. | Multiple real collaborating units, database queries, wire serialization. | The entire assembled distributed system, from client UI/gateway to database. |
+| **Execution Latency** | **< 1 to 5 milliseconds** per test. | **50 milliseconds to 2 seconds** per test. | **5 to 60+ seconds** per test scenario. |
+| **Collaborators** | Replaced with test doubles (Fakes, Stubs). | Real test database (Testcontainers/SQLite), local HTTP client. | Live deployed services, real cloud infrastructure, message brokers. |
+| **Determinism** | **100% Deterministic** (No clock, network, or disk variance). | High (Dependent on DB transaction isolation). | **Prone to Flakiness** (Network latency, timeouts, async race conditions). |
+| **Root Cause Precision** | **Pinpoint**: Test failure names the exact broken line or logic branch. | **Moderate**: Identifies broken component boundary or query. | **Vague**: Failure shows "500 Internal Error" or timeout without identifying cause. |
+| **Recommended Proportion** | **70% to 80%** of total test count. | **15% to 25%** of total test count. | **5% to 10%** of total test count. |
 
-The key division is **state verification** (stub/fake — you check the resulting
-value or state) versus **interaction verification** (mock/spy — you check that
-a call happened). Reach for state verification first; it's less brittle. Use
-interaction verification only when the side effect *is* the thing you're
-testing (an email must be sent) — module 04 goes deep on this.
+---
 
-```
-              test doubles
-                   |
-      +------------+------------+
-      |                         |
- state verification       interaction verification
- (assert on result)       (assert a call happened)
-   prefer this first        use only when needed
-      |                         |
-   +--+---+                  +--+---+
-   |      |                  |      |
- stub    fake              mock    spy
- canned  working,        pre-set  records
- answer  in-memory       expects  calls
-```
+### The Five Test Doubles: Systematic Selection Matrix
 
-### Why isolate at all — the cost of I/O and nondeterminism
+| Double Type | Primary Intent | Internal State | Typical Assertion | When to Use |
+| :--- | :--- | :--- | :--- | :--- |
+| **Dummy** | Satisfy parameter list. | None. | None. | Method requires a parameter (e.g. `logger`, `context`) that is irrelevant to the test case. |
+| **Stub** | Feed canned input to SUT. | Hardcoded constants. | Assert on SUT return value. | Simulating external query results (e.g., `stockService.getStock() -> 10`). |
+| **Fake** | Working lightweight substitute. | In-memory map or array. | Assert on SUT state or Fake contents. | Simulating repositories, caches, or datastores without disk/database I/O. |
+| **Spy** | Inspect call records post-facto. | List of captured calls. | `assert spy.callCount == 1`. | Verifying telemetry metrics, audit logs, or optional notification side effects. |
+| **Mock** | Enforce mandatory call contract. | Pre-configured expectations. | `mock.verify()`. | Testing essential external side effects where failure to call constitutes a bug (e.g. `paymentGateway.charge()`). |
 
-Isolation isn't dogma; it buys two concrete things. **Speed**: a unit test that
-touches no network, disk, or clock runs in under a millisecond, so a thousand
-of them run in a second and you run them on every save. **Determinism**: real
-collaborators fail for reasons unrelated to your code — the DB is down, the
-payment sandbox is slow, `datetime.now()` is different every run. A test that
-fails intermittently for reasons outside the code under test is a **flaky
-test**, and flaky tests are worse than no test because they train the team to
-ignore red. Replacing I/O and nondeterminism (time, randomness) with doubles
-makes tests fast *and* stable. The tradeoff — doubles can drift from the real
-thing they impersonate — is exactly why the pyramid also keeps a layer of
-integration tests that use the real thing.
+---
 
-### What tests are for (and what they are not for)
+## Production Incident War Story: The 45-Minute CI Freeze
 
-Tests exist to let you **change code safely** — that's the north star. A good
-suite is a *regression net*: it lets you refactor, upgrade a dependency, or add
-a feature and get immediate, specific feedback if you broke a promise. Tests
-are also **design pressure**: code that's hard to test is usually hard to *use*
-(tangled dependencies, hidden global state), so the pain of testing is a signal
-to fix the design, not to skip the test.
+### Incident Post-Mortem: SEV-1
 
-What tests are *not*: they're not a proof of correctness (they check the cases
-you thought of), not a substitute for thinking, and not a metric to game.
-"100% of lines executed" says nothing about whether you *asserted* the right
-things. Treat tests as a tool for confidence and change-safety, and the rest of
-this track — coverage, TDD, mocking, contracts, CI — falls into place as ways
-to make that tool sharper.
+* **Incident ID**: INC-8012
+* **Severity Level**: SEV-1 (Critical Active Data Corruption)
+* **Detection Time**: 10 minutes after initial deployment
+* **Time to Recovery (TTR)**: 58 minutes
+* **Impact**: \$680,000 in double-charged customer accounts; hotfix deployment blocked for 45 minutes by failing E2E tests.
 
-### `pytest`: the tool you'll use for all of it
+#### 1. What Happened
+A billing bug in a payment processing microservice was inadvertently deployed to production at 09:15 AM. The bug caused users checking out with debit cards to be charged twice.
 
-Python ships with `unittest`, but the ecosystem standard is **`pytest`**: plain
-`assert` statements (no `self.assertEqual`), functions instead of classes,
-powerful fixtures and parametrization, and a rich plugin ecosystem
-(`pytest-cov`, `pytest-asyncio`, `pytest-mock`). A `pytest` test is just a
-function named `test_*` in a file named `test_*.py` containing `assert`s.
-`pytest` discovers and runs them, and when an `assert` fails it *introspects*
-the expression to show you the actual values — no manual failure messages
-needed.
+At 09:25 AM, SREs alerted engineering. A backend engineer wrote a one-line fix in the domain billing calculation logic at 09:32 AM.
 
-```python
-# test_math.py
-def test_addition():
-    assert 2 + 2 == 4
+However, the organization operated an **inverted test pyramid**:
+- The repository contained only 18 unit tests.
+- The CI pipeline ran 620 full-system End-to-End browser tests (using Selenium and Cypress against staging microservices and third-party payment sandboxes).
+
+When the engineer pushed the one-line hotfix, the CI pipeline required **45 minutes** to execute. Worse, during the run, 3 unrelated E2E tests failed due to a transient network timeout in the third-party staging sandbox. The CI pipeline rejected the build. The team was forced to manually bypass branch protection rules to deploy the hotfix, while 1,400 additional customer accounts were double-charged.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Customer as Billing Outage
+    participant Eng as Backend Engineer
+    participant Git as GitHub CI Pipeline
+    participant E2E as 620 E2E Selenium Tests
+    participant Sandbox as 3rd-Party Payment Sandbox
+    participant Prod as Production Kubernetes
+
+    Note over Customer: Double charges occurring ($15,000/min)!
+    Eng->>Git: Push 1-line Domain Hotfix (09:32 AM)
+    Git->>E2E: Launch CI Suite (Inverted Pyramid)
+    Note over E2E: Running 620 heavyweight tests...<br/>Takes 45 minutes!
+    E2E->>Sandbox: Flaky HTTP Sandbox Call (09:55 AM)
+    Sandbox--xE2E: 504 Gateway Timeout (Sandbox Flake)
+    E2E--xGit: ❌ CI Build FAILED (3 Flaky E2E Tests Failed)
+    Note over Eng,Git: Pipeline BLOCKED. Cannot release hotfix!<br/>Engineers scramble to bypass security gates!
+    Eng->>Prod: Manual Force Push to Production (10:13 AM)
 ```
 
-```
-$ pytest -q
-.                                                          [100%]
-1 passed in 0.01s
-```
+#### 2. Root Cause Analysis
+1. **Inverted Test Pyramid (Ice-Cream Cone)**: Business logic validation was tested exclusively via high-level E2E browser tests rather than fast, isolated unit tests.
+2. **Nondeterministic Third-Party Dependencies in CI**: E2E tests made network calls to volatile staging sandbox APIs, causing intermittent, false-positive test failures.
+3. **Absence of Fast Feedback Loop**: Engineers had no mechanism to verify domain correctness locally in seconds before pushing to CI.
 
-That's the whole loop: write `test_*` functions with `assert`s, run `pytest`,
-read the report. Everything else in this track is refinement.
+#### 3. The Architectural Hardening & Resolution
+1. **Pyramid Restructuring**: Re-architected the test suite into a true pyramid. Moved 500+ business rule validations out of E2E browser tests into **pure in-memory unit tests** executing in under 2 seconds.
+2. **Decoupled Staging from CI**: Prohibited all external network I/O in the primary pre-merge CI pipeline. Third-party sandboxes were replaced with deterministic in-memory stubs and WireMock fixtures.
+3. **Emergency Hotfix Fast-Path**: Created an isolated `unit-test-only` CI check capable of validating domain logic and promoting critical hotfixes in under 90 seconds.
 
-## Command reference
+---
 
-| Command / concept | What it does |
-|---|---|
-| `pip install pytest pytest-cov` | Install the runner and coverage plugin |
-| `pytest` | Discover and run every `test_*.py` / `*_test.py` |
-| `pytest -q` | Quiet output (one char per test) |
-| `pytest -v` | Verbose: one line per test with its name |
-| `pytest path/to/test_file.py` | Run one file |
-| `pytest test_file.py::test_name` | Run one specific test |
-| `pytest -k "discount and not tax"` | Run tests whose name matches an expression |
-| `pytest -x` | Stop at the first failure |
-| `pytest --lf` | Re-run only last-failed tests |
-| `pytest -s` | Don't capture stdout (let `print` through) |
-| `assert expr` | The assertion; `pytest` rewrites it to show values |
-| `pytest.raises(Error)` | Assert a block raises a given exception |
-| `conftest.py` | Shared fixtures/config, auto-discovered per directory |
+## Multi-Language Production Code Tabs: The AAA Pattern with In-Memory Fakes
 
-Standard project layout `pytest` expects:
+The following code tabs demonstrate the gold-standard **Arrange-Act-Assert (AAA)** pattern using an **in-memory Fake Repository** to test a domain `OrderService` without touching a database, network, or clock.
 
 ```
-myapp/
-  app/
-    __init__.py
-    services.py
-  tests/
-    __init__.py
-    conftest.py          # shared fixtures
-    test_services.py     # test_* files
-  pyproject.toml         # [tool.pytest.ini_options] lives here
+### Language Tabs
+1. Go (testing package with struct-based Fake)
+2. Node.js / TypeScript (Jest / Vitest with TypeScript Fake)
+3. Python (pytest with in-memory dict Fake)
+4. C# (xUnit with in-memory ConcurrentDictionary Fake)
 ```
 
-A minimal `pytest` config in `pyproject.toml` so discovery and imports behave:
+### Go
+```go
+package domain_test
 
-```toml
-[tool.pytest.ini_options]
-testpaths = ["tests"]
-python_files = ["test_*.py"]
-addopts = "-q"
+import (
+	"errors"
+	"testing"
+)
+
+// ==========================================
+// 1. DOMAIN UNDER TEST
+// ==========================================
+type Order struct {
+	ID     string
+	UserID string
+	Amount float64
+}
+
+type OrderRepository interface {
+	Save(order Order) error
+	FindByID(id string) (*Order, error)
+}
+
+var ErrOrderNotFound = errors.New("order not found")
+
+type OrderService struct {
+	repo OrderRepository
+}
+
+func (s *OrderService) CreateOrder(id, userID string, amount float64) error {
+	if amount <= 0 {
+		return errors.New("order amount must be strictly positive")
+	}
+	return s.repo.Save(Order{ID: id, UserID: userID, Amount: amount})
+}
+
+// ==========================================
+// 2. IN-MEMORY FAKE (Test Double)
+// ==========================================
+type FakeOrderRepository struct {
+	orders map[string]Order
+}
+
+func NewFakeOrderRepository() *FakeOrderRepository {
+	return &FakeOrderRepository{orders: make(map[string]Order)}
+}
+
+func (f *FakeOrderRepository) Save(order Order) error {
+	f.orders[order.ID] = order
+	return nil
+}
+
+func (f *FakeOrderRepository) FindByID(id string) (*Order, error) {
+	if order, exists := f.orders[id]; exists {
+		return &order, nil
+	}
+	return nil, ErrOrderNotFound
+}
+
+// ==========================================
+// 3. UNIT TESTS (Arrange - Act - Assert)
+// ==========================================
+func TestCreateOrder_ValidAmount_SavesSuccessfully(t *testing.T) {
+	// Arrange
+	fakeRepo := NewFakeOrderRepository()
+	service := &OrderService{repo: fakeRepo}
+
+	// Act
+	err := service.CreateOrder("ord_101", "usr_ada", 150.00)
+
+	// Assert
+	if err != nil {
+		t.Fatalf("expected no error, got: %v", err)
+	}
+
+	saved, err := fakeRepo.FindByID("ord_101")
+	if err != nil {
+		t.Fatalf("expected order to be persisted in fake, got error: %v", err)
+	}
+	if saved.Amount != 150.00 {
+		t.Errorf("expected amount 150.00, got %f", saved.Amount)
+	}
+}
+
+func TestCreateOrder_NegativeAmount_ReturnsError(t *testing.T) {
+	// Arrange
+	fakeRepo := NewFakeOrderRepository()
+	service := &OrderService{repo: fakeRepo}
+
+	// Act
+	err := service.CreateOrder("ord_102", "usr_ada", -25.00)
+
+	// Assert
+	if err == nil {
+		t.Fatal("expected error for negative amount, got nil")
+	}
+}
 ```
 
-Asserting an exception is raised (you'll use this constantly for domain errors):
+### Node.js / TypeScript (Vitest / Jest)
+```typescript
+import { describe, it, expect } from 'vitest';
 
+// ==========================================
+// 1. DOMAIN UNDER TEST
+// ==========================================
+export interface Order {
+  id: string;
+  userId: string;
+  amount: number;
+}
+
+export interface OrderRepository {
+  save(order: Order): Promise<void>;
+  findById(id: string): Promise<Order | null>;
+}
+
+export class OrderService {
+  constructor(private readonly repo: OrderRepository) {}
+
+  async createOrder(id: string, userId: string, amount: number): Promise<void> {
+    if (amount <= 0) {
+      throw new Error('Order amount must be strictly positive');
+    }
+    await this.repo.save({ id, userId, amount });
+  }
+}
+
+// ==========================================
+// 2. IN-MEMORY FAKE (Test Double)
+// ==========================================
+export class FakeOrderRepository implements OrderRepository {
+  private readonly store = new Map<string, Order>();
+
+  async save(order: Order): Promise<void> {
+    this.store.set(order.id, { ...order });
+  }
+
+  async findById(id: string): Promise<Order | null> {
+    return this.store.get(id) || null;
+  }
+}
+
+// ==========================================
+// 3. UNIT TESTS (Arrange - Act - Assert)
+// ==========================================
+describe('OrderService Unit Tests', () => {
+  it('should persist order when amount is valid (AAA Pattern)', async () => {
+    // Arrange
+    const fakeRepo = new FakeOrderRepository();
+    const service = new OrderService(fakeRepo);
+
+    // Act
+    await service.createOrder('ord_201', 'usr_turing', 249.99);
+
+    // Assert
+    const saved = await fakeRepo.findById('ord_201');
+    expect(saved).not.toBeNull();
+    expect(saved?.amount).toBe(249.99);
+    expect(saved?.userId).toBe('usr_turing');
+  });
+
+  it('should reject order creation when amount is zero or negative', async () => {
+    // Arrange
+    const fakeRepo = new FakeOrderRepository();
+    const service = new OrderService(fakeRepo);
+
+    // Act & Assert
+    await expect(service.createOrder('ord_202', 'usr_turing', 0)).rejects.toThrow(
+      'Order amount must be strictly positive'
+    );
+  });
+});
+```
+
+### Python (pytest)
 ```python
 import pytest
-from app.services import OrderService, InsufficientStockError
+from dataclasses import dataclass
+from typing import Optional, Dict
 
-def test_place_order_rejects_oversell():
-    svc = OrderService(FakeRepo(stock={"sku-1": 1}))     # arrange (fake double)
-    with pytest.raises(InsufficientStockError) as exc:   # act + assert
-        svc.place_order(user_id=1, items=[Item("sku-1", qty=5)])
-    assert exc.value.sku == "sku-1"                      # assert on the error
+# ==========================================
+# 1. DOMAIN UNDER TEST
+# ==========================================
+@dataclass
+class Order:
+    id: str
+    user_id: str
+    amount: float
+
+class InsufficientStockError(Exception):
+    def __init__(self, sku: str):
+        self.sku = sku
+        super().__init__(f"Insufficient stock for SKU: {sku}")
+
+class OrderService:
+    def __init__(self, repo):
+        self.repo = repo
+
+    def place_order(self, order_id: str, user_id: str, sku: str, qty: int, price: float) -> Order:
+        if qty <= 0:
+            raise ValueError("Quantity must be greater than zero")
+        
+        available_stock = self.repo.get_stock(sku)
+        if available_stock < qty:
+            raise InsufficientStockError(sku=sku)
+            
+        order = Order(id=order_id, user_id=user_id, amount=qty * price)
+        self.repo.save_order(order)
+        self.repo.decrement_stock(sku, qty)
+        return order
+
+# ==========================================
+# 2. IN-MEMORY FAKE (Test Double)
+# ==========================================
+class FakeOrderRepository:
+    def __init__(self, initial_stock: Optional[Dict[str, int]] = None):
+        self.stock = initial_stock or {}
+        self.orders: Dict[str, Order] = {}
+
+    def get_stock(self, sku: str) -> int:
+        return self.stock.get(sku, 0)
+
+    def decrement_stock(self, sku: str, qty: int):
+        self.stock[sku] -= qty
+
+    def save_order(self, order: Order):
+        self.orders[order.id] = order
+
+# ==========================================
+# 3. UNIT TESTS (Arrange - Act - Assert)
+# ==========================================
+def test_place_order_success_persists_order_and_decrements_stock():
+    # Arrange
+    fake_repo = FakeOrderRepository(initial_stock={"sku_ram": 10})
+    svc = OrderService(repo=fake_repo)
+
+    # Act
+    order = svc.place_order(order_id="ord_1", user_id="usr_grace", sku="sku_ram", qty=2, price=45.0)
+
+    # Assert
+    assert order.id == "ord_1"
+    assert order.amount == 90.0
+    assert fake_repo.get_stock("sku_ram") == 8
+    assert fake_repo.orders["ord_1"] == order
+
+def test_place_order_raises_insufficient_stock_when_oversold():
+    # Arrange
+    fake_repo = FakeOrderRepository(initial_stock={"sku_ram": 1})
+    svc = OrderService(repo=fake_repo)
+
+    # Act & Assert
+    with pytest.raises(InsufficientStockError) as exc_info:
+        svc.place_order(order_id="ord_2", user_id="usr_grace", sku="sku_ram", qty=5, price=45.0)
+    
+    assert exc_info.value.sku == "sku_ram"
 ```
 
-A stub vs. a fake, concretely:
+### C# (xUnit)
+```csharp
+using System;
+using System.Collections.Concurrent;
+using System.Threading.Tasks;
+using Xunit;
 
-```python
-# STUB: canned answer, used to feed the code under test
-class StubStockRepo:
-    def get_stock(self, sku): return 10          # always says 10
+// ==========================================
+// 1. DOMAIN UNDER TEST
+// ==========================================
+public record Order(string Id, string UserId, decimal Amount);
 
-# FAKE: a real, working, in-memory implementation
-class FakeOrderRepo:
-    def __init__(self): self._orders, self._next = {}, 1
-    def create_order(self, user_id, items):
-        oid = self._next; self._next += 1
-        self._orders[oid] = {"id": oid, "user_id": user_id}
-        return self._orders[oid]
-    def get(self, oid): return self._orders.get(oid)
+public interface IOrderRepository
+{
+    Task SaveAsync(Order order);
+    Task<Order?> FindByIdAsync(string id);
+}
+
+public class OrderService
+{
+    private readonly IOrderRepository _repo;
+    public OrderService(IOrderRepository repo) => _repo = repo;
+
+    public async Task CreateOrderAsync(string id, string userId, decimal amount)
+    {
+        if (amount <= 0)
+            throw new ArgumentException("Amount must be strictly positive", nameof(amount));
+
+        await _repo.SaveAsync(new Order(id, userId, amount));
+    }
+}
+
+// ==========================================
+// 2. IN-MEMORY FAKE (Test Double)
+// ==========================================
+public class FakeOrderRepository : IOrderRepository
+{
+    private readonly ConcurrentDictionary<string, Order> _store = new();
+
+    public Task SaveAsync(Order order)
+    {
+        _store[order.Id] = order;
+        return Task.CompletedTask;
+    }
+
+    public Task<Order?> FindByIdAsync(string id)
+    {
+        _store.TryGetValue(id, out var order);
+        return Task.FromResult(order);
+    }
+}
+
+// ==========================================
+// 3. UNIT TESTS (Arrange - Act - Assert)
+// ==========================================
+public class OrderServiceTests
+{
+    [Fact]
+    public async Task CreateOrderAsync_ValidParameters_PersistsOrderCorrectly()
+    {
+        // Arrange
+        var fakeRepo = new FakeOrderRepository();
+        var service = new OrderService(fakeRepo);
+
+        // Act
+        await service.CreateOrderAsync("ord_301", "usr_hamilton", 199.95m);
+
+        // Assert
+        var order = await fakeRepo.FindByIdAsync("ord_301");
+        Assert.NotNull(order);
+        Assert.Equal(199.95m, order.Amount);
+        Assert.Equal("usr_hamilton", order.UserId);
+    }
+
+    [Fact]
+    public async Task CreateOrderAsync_NegativeAmount_ThrowsArgumentException()
+    {
+        // Arrange
+        var fakeRepo = new FakeOrderRepository();
+        var service = new OrderService(fakeRepo);
+
+        // Act & Assert
+        await Assert.ThrowsAsync<ArgumentException>(() => 
+            service.CreateOrderAsync("ord_302", "usr_hamilton", -10.00m));
+    }
+}
 ```
 
-## Hands-on exercises
+---
 
-Create a fresh project folder `testing-lab/` with the layout above. You'll grow
-it across this whole track. Install `pytest` and `pytest-cov` into a virtualenv.
+## Practical Hands-On Verification Workflows
 
-### 1. Get `pytest` running
+### 1. Execute Unit Tests with Millisecond Feedback
 
-Write `tests/test_smoke.py` with a single `test_addition` asserting `2 + 2 ==
-4`. Run `pytest -q`. Expected: `1 passed`. Now change the assertion to `2 + 2
-== 5` and re-run. Read the failure output carefully — note how `pytest` shows
-you the actual left/right values without you writing a message. Change it back.
+Run the test suite across supported runtimes and verify that isolated unit tests execute in single-digit milliseconds:
 
-### 2. Write a pure function and unit-test it (AAA)
-
-Add `app/pricing.py` with `def total_with_discount(prices: list[int], pct:
-int) -> int` that sums prices and applies a percentage discount, rounding down.
-Write `tests/test_pricing.py` with a test that clearly shows the three AAA
-phases (blank line between arrange, act, assert). Add a second test for the
-`pct=0` case. Expected: both pass.
-
-### 3. Assert an exception with `pytest.raises`
-
-Extend `total_with_discount` to raise `ValueError` if `pct` is outside `0–100`.
-Write a test using `with pytest.raises(ValueError):` for `pct=150`. Then make
-it stricter: capture the exception and assert its message mentions the bad
-value. Expected: the test passes and pins the error contract.
-
-### 4. Build a stub and a fake
-
-In `app/services.py`, write a tiny `OrderService` whose `place_order` checks
-stock via an injected repo and raises `InsufficientStockError` on oversell.
-Write one test using the `StubStockRepo` (canned stock) to prove the oversell
-path, and one using a `FakeOrderRepo` to prove a successful order gets an id.
-Note in a comment which double you used and why.
-
-### 5. Classify the scope
-
-Look at the two tests you just wrote and the ones from exercises 2–3. For each,
-write a one-line comment labeling it **unit / integration / e2e** and justify
-it in a few words. Expected: all of them are unit tests — you replaced or
-avoided every real collaborator. Notice you have *zero* of the other two kinds
-so far; that's normal this early.
-
-### 6. Feel the flakiness
-
-Write a function `def greet_by_hour() -> str` that returns `"good morning"`
-before noon and `"good afternoon"` otherwise, reading `datetime.now()`
-directly. Write a test asserting it returns `"good morning"`. Run it. Now
-reason: this test passes or fails depending on *what time you run it*. That's a
-nondeterministic (flaky) test. Don't fix it yet — just write down *why* it's
-flaky and what collaborator you'd need to control. (Module 04 controls the
-clock; module 01 refactors for injectability.)
-
-### 7. Run subsets like you will in real life
-
-With five-plus tests now, practice the runner: `pytest -v` (see names),
-`pytest -k pricing` (only pricing tests), `pytest tests/test_pricing.py::
-test_total_with_discount`, and `pytest -x` after deliberately breaking one
-test. Expected: you can slice the suite three different ways from memory.
-
-### 8. Diagnose and fix: a test that tests nothing
-
-This test is green, but it's worthless. Explain *both* problems and fix them.
-
-```python
-def test_place_order():
-    svc = OrderService(FakeOrderRepo(stock={"sku-1": 10}))
-    order = svc.place_order(user_id=1, items=[Item("sku-1", qty=2)])
-    # (no assertions below)
-    svc.place_order(user_id=1, items=[Item("sku-1", qty=2)])
-    order2 = svc.place_order(user_id=2, items=[Item("sku-1", qty=1)])
+```bash
+# Python (pytest)
+pytest -v -k "test_place_order"
 ```
+
+**Expected Terminal Output:**
+```text
+============================= test session starts ==============================
+collected 2 items
+
+tests/test_services.py::test_place_order_success_persists_order_and_decrements_stock PASSED [ 50%]
+tests/test_services.py::test_place_order_raises_insufficient_stock_when_oversold PASSED    [100%]
+
+============================== 2 passed in 0.02s ===============================
+```
+
+```bash
+# Go
+go test -v -run TestCreateOrder ./...
+```
+
+**Expected Terminal Output:**
+```text
+=== RUN   TestCreateOrder_ValidAmount_SavesSuccessfully
+--- PASS: TestCreateOrder_ValidAmount_SavesSuccessfully (0.00s)
+=== RUN   TestCreateOrder_NegativeAmount_ReturnsError
+--- PASS: TestCreateOrder_NegativeAmount_ReturnsError (0.00s)
+PASS
+ok      domain_test    0.003s
+```
+
+---
+
+## Operational Validation Checkpoints (Scenario Quizzes)
 
 <details>
-<summary>Solution</summary>
+<summary><strong>Checkpoint 1: The Flaky Clock Anti-Pattern</strong></summary>
 
-Two problems. **(1) No assertion.** The test executes code but never checks
-anything, so it can only fail if the code *raises* — it verifies almost
-nothing. A test with no `assert` is a false sense of security. **(2) It tests
-three behaviors at once** (two different users, a repeated order) with no clear
-single reason to fail, and still asserts on none of them.
-
-Fix: split into focused tests, each asserting one promise.
-
+**Scenario:** A developer writes a unit test for a subscription renewal service:
 ```python
-def test_place_order_returns_created_order_with_id():
-    svc = OrderService(FakeOrderRepo(stock={"sku-1": 10}))
-    order = svc.place_order(user_id=1, items=[Item("sku-1", qty=2)])
-    assert order["id"] == 1
-    assert order["user_id"] == 1
-
-def test_place_order_rejects_oversell():
-    svc = OrderService(FakeOrderRepo(stock={"sku-1": 1}))
-    with pytest.raises(InsufficientStockError):
-        svc.place_order(user_id=1, items=[Item("sku-1", qty=5)])
+def test_renew_subscription_sets_expiration():
+    service = SubscriptionService()
+    sub = service.renew(user_id="usr_1")
+    expected = datetime.now() + timedelta(days=30)
+    assert sub.expires_at == expected
 ```
+This test passes on the developer's laptop but fails randomly in CI with errors like:
+`assert datetime(2026, 11, 10, 12, 0, 0, 104) == datetime(2026, 11, 10, 12, 0, 0, 102)`.
+Why is this test nondeterministic, and how do you achieve 100% determinism?
 
-The lesson: green is not the goal — *green with meaningful assertions* is. A
-test that can't fail for the right reason isn't protecting anything.
-
+**Answer:**
+- **The Cause**: The test directly invokes the host operating system clock (`datetime.now()`) in both the service and the test assertion. Microsecond execution delays between the two calls cause sub-second timestamp mismatches.
+- **The Architectural Fix**:
+  1. Inject a **Clock abstraction** (or use libraries like `freezegun` / `time-machine`).
+  2. The service accepts an explicit reference time or clock dependency: `service.renew(user_id, now=fixed_time)`.
+  3. In the unit test, freeze the clock to a constant instant (`fixed_time = datetime(2026, 11, 10, 12, 0, 0)`), ensuring the calculation yields identical results regardless of when or where the test executes.
 </details>
-
-## Independent challenge
-
-No code given. Take the `OrderService` layering you built in
-**02-api-layer-and-request-handling / module 06 (Handlers, Controllers, and
-Services)** — the HTTP-ignorant service that raises domain exceptions — and
-give it a real unit-test suite from scratch. Write a `FakeOrderRepository` (an
-in-memory fake, not a mock) and use it to test *every* branch of
-`place_order`: the empty-order rejection, the oversell rejection (asserting the
-error carries the right `sku`), and the happy path (asserting the returned
-order's fields). Every test must follow visible Arrange–Act–Assert, exercise
-exactly one behavior, and touch no web server, no real database, and no clock.
-Then classify each test's scope in a comment and confirm you've built a small
-pyramid *base* with nothing above it yet — that's the correct starting shape.
 
 <details>
-<summary>Hint</summary>
+<summary><strong>Checkpoint 2: Mocking vs Faking in Refactoring</strong></summary>
 
-The reason you *can* unit-test the service at all is the discipline from module
-06: it imports no FastAPI and takes plain arguments, so you construct it with
-your fake repo and call methods directly. For the oversell test, seed the fake
-with `stock={"sku-x": 0}` so the branch is forced; for the happy path, seed
-enough stock and assert on the returned dict's `id`/`user_id`. Use
-`pytest.raises(InsufficientStockError) as exc` and then `assert exc.value.sku
-== ...` to pin the error's payload, not just its type.
+**Scenario:** Team A tests their `UserService` by creating strict mocks for every internal database method call (`mockDb.expects('query').with('SELECT * FROM users WHERE id = ?')`). Team B tests their `UserService` using an in-memory `FakeUserRepository` that implements a clean interface.
+When the engineering team decides to replace raw SQL queries with a new ORM repository layer, what happens to Team A's tests compared to Team B's tests?
 
+**Answer:**
+- **Team A's tests suffer complete catastrophic breakage**: Because Team A used **Interaction Verification** tightly coupled to implementation details (raw SQL string parameters), changing the internal query mechanism breaks 100% of their unit tests, even though the external business behavior of `UserService` did not change.
+- **Team B's tests remain completely green and unaffected**: Team B used **State Verification** against a `FakeUserRepository` implementing a domain interface. As long as `UserService` continues to store and retrieve user models correctly, internal refactoring does not break a single test.
+- **The Rule**: *Test behavior, not implementation details. Prefer Fakes and state verification over strict query-level mocks.*
 </details>
-
-## Common mistakes & troubleshooting
-
-- **Tests with no assertions.** Code runs, nothing is checked; it only catches
-  crashes. Every test needs at least one meaningful `assert`.
-- **One test, many behaviors.** Multiple acts and asserts in one function; when
-  it fails you can't tell which promise broke. One behavior per test.
-- **Inverted pyramid.** Leaning on slow e2e tests for logic that a unit test
-  could pin. Push behavior coverage down to the fastest layer that can test it.
-- **Confusing the doubles.** Asserting on a stub's calls (that's a mock's job)
-  or building an elaborate mock when a simple fake would do. Prefer state
-  verification (stub/fake); reserve interaction verification (mock/spy) for
-  when the side effect *is* the behavior.
-- **Testing the clock / randomness directly.** `datetime.now()` and
-  `random.random()` inside code under test make flaky tests. Inject them so a
-  test can control them (module 04).
-- **`ModuleNotFoundError` in tests.** Usually a layout/`__init__.py` or
-  `testpaths`/`pythonpath` issue. Add `__init__.py` files and configure
-  `[tool.pytest.ini_options]`; run `pytest` from the project root.
-- **Chasing green instead of confidence.** A passing suite that asserts trivia
-  protects nothing. Ask of each test: "what real bug would this catch?"
-
-## Checkpoint quiz
-
-Write down your answer to each question before expanding it — checking without attempting first is the single easiest way to fool yourself into thinking you've learned this.
-
-1. What are the three phases of a well-structured test, and why keep them
-   visually distinct?
-2. Name the three layers of the test pyramid from base to tip, and for each
-   give its scope, relative speed, and roughly how many you should have.
-3. Why is an inverted pyramid (mostly e2e) a bad place to be? Give two concrete
-   symptoms.
-4. Distinguish a stub from a mock. Which verifies *state* and which verifies
-   *interaction*, and which should you reach for first?
-5. What is a fake, and when would you choose one over a stub?
-6. What two concrete things does isolating a unit from its real collaborators
-   buy you, and what's the tradeoff you accept?
-7. A test passes reliably in the morning and fails every afternoon. What kind
-   of test is this, what's the likely cause, and why is such a test worse than
-   having no test at all?
 
 <details>
-<summary>Answers</summary>
+<summary><strong>Checkpoint 3: The Danger of Test Slices in CI</strong></summary>
 
-1. Arrange (set up inputs/collaborators), Act (perform the one action under
-   test), Assert (check the outcome). Keeping them distinct makes the test
-   readable and makes each test exercise one behavior with one reason to fail.
-2. Unit (base): one small piece in isolation, fastest (ms), hundreds/thousands.
-   Integration (middle): several real pieces wired together incl. real test DB/
-   TestClient, medium speed, tens–low hundreds. E2e (tip): the whole running
-   system from outside, slowest, a handful.
-3. Because e2e tests are slow and the most flaky, and they give vague failures
-   (any of many parts could be the cause). Symptoms: a suite so slow nobody
-   runs it locally, and red builds that don't tell you what actually broke.
-4. A stub returns canned values to feed the code under test — you verify the
-   code's resulting **state/output**. A mock carries expectations about how
-   it's called — you verify the **interaction** (a call happened as expected).
-   Reach for stub/fake (state) first; it's less brittle.
-5. A fake is a real, lightweight, working implementation (in-memory repo,
-   SQLite for Postgres). Choose it over a stub when you need the collaborator to
-   actually *behave* across multiple calls (store then retrieve), not just
-   return one canned value.
-6. Speed (no I/O → sub-millisecond tests you run constantly) and determinism
-   (no external systems, clock, or randomness to fail for unrelated reasons).
-   The tradeoff: doubles can drift from the real thing, which is why you keep a
-   layer of integration tests that use the real collaborators.
-7. A flaky (nondeterministic) test; the likely cause is reading the real clock
-   (`datetime.now()`) inside the code. It's worse than no test because
-   intermittent red trains the team to ignore failures, eroding trust in the
-   whole suite.
+**Scenario:** A company’s monolithic CI suite takes 60 minutes. An engineering manager suggests: *"Let's only run unit tests in CI for pull requests, and only run integration and E2E tests once a week on Sunday night."* What critical failure modes does this strategy introduce?
 
+**Answer:**
+1. **Deferred Bug Discovery & TTR Escalation**: If integration tests (which verify database schema migrations, serialization, and SQL queries) only run on Sunday, a breaking change introduced on Tuesday will go unnoticed for 5 days. Identifying which of 200 merged commits caused the Sunday failure requires hours of Git bisecting.
+2. **Broken Mainline Branch**: The `main` branch will frequently enter broken, un-deployable states, blocking emergency production hotfixes.
+3. **The Sustainable Solution**: Retain fast unit tests (&le; 2 minutes) as a blocking PR check, run integration tests against ephemeral databases in parallel CI containers (&le; 5 minutes), and prune bloated, redundant E2E tests down to a focused synthetic smoke test suite (&le; 3 minutes).
 </details>
 
-## Further reading & sources
+---
 
-- [Martin Fowler — The Practical Test Pyramid](https://martinfowler.com/articles/practical-test-pyramid.html) - Ham Vocke's canonical write-up of the unit/integration/e2e shape this module is built around.
-- [Martin Fowler — TestPyramid](https://martinfowler.com/bliki/TestPyramid.html) - The short bliki entry that names the pyramid and warns against the inverted "ice-cream cone".
-- [Martin Fowler — Mocks Aren't Stubs](https://martinfowler.com/articles/mocksArentStubs.html) - The reference on the four test doubles and the state-vs-interaction verification split covered here.
-- [pytest — Get Started](https://docs.pytest.org/en/stable/getting-started.html) - Official docs for the runner you install and use for every test in this track.
-- [pytest — How to write and report assertions](https://docs.pytest.org/en/stable/how-to/assert.html) - How pytest's plain-`assert` introspection and `pytest.raises` (used in the exercises) work.
-- [xUnit Patterns — Four-Phase Test](http://xunitpatterns.com/Four%20Phase%20Test.html) - Gerard Meszaros on the Arrange–Act–Assert structure every test in this module follows.
+## Further Reading & Next Steps
 
-## Next
-
-[01-unit-testing-in-depth](../01-unit-testing-in-depth/README.md) — you can run
-a test and name the layers; now you'll get fluent at the unit layer itself:
-`pytest` fixtures for setup/teardown, parametrization to cover many cases
-without duplication, testing pure functions versus functions with side effects,
-and reading coverage as a signal rather than chasing it as a target.
+* [Martin Fowler: The Practical Test Pyramid](https://martinfowler.com/articles/practical-test-pyramid.html) - Structural guide to test distribution and scope.
+* [Martin Fowler: Mocks Aren't Stubs](https://martinfowler.com/articles/mocksArentStubs.html) - Canonical analysis of the five test doubles and verification styles.
+* [Gerard Meszaros: xUnit Test Patterns](http://xunitpatterns.com/) - The authoritative encyclopedia of test automation patterns and smells.
+* Next up: [01-unit-testing-in-depth](../01-unit-testing-in-depth/README.md) to master reusable fixtures, scope boundaries, test parametrization, and branch coverage analysis.

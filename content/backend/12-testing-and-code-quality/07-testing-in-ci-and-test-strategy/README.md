@@ -1,552 +1,459 @@
 # Module 07: Testing in CI and Test Strategy
 
-## Why this matters
+> **Prerequisites:** [00-testing-fundamentals-and-the-test-pyramid](../00-testing-fundamentals-and-the-test-pyramid/README.md) through [06-code-quality-and-static-analysis](../06-code-quality-and-static-analysis/README.md), familiarity with Git workflows, and basic containerization concepts.  
+> **Estimated Reading Time:** 30 minutes  
+> **Target Audience:** Senior backend engineers, DevOps/platform engineers, and engineering managers designing resilient CI verification pipelines and long-term testing strategies.
 
-A test that only runs when someone remembers to run it is barely a test. The
-whole value of the suite you've built — fast unit tests, DB-backed integration
-tests, a contract test, a critical e2e journey, plus ruff and mypy — is only
-realized when it runs **automatically, on every change, for everyone, before it
-merges**. That's **continuous integration (CI)**: a server that, on every push,
-checks out the code, installs dependencies, and runs your checks, blocking the
-merge if anything fails. Without it, "the tests pass" means "passed on someone's
-machine, at some point, maybe" — and the suite slowly rots as failures get
-ignored. With it, main stays green because nothing red can get in. This module
-covers the CI mechanics *briefly and on purpose* — **track 13
-(DevOps for Backend Engineers)** owns CI/CD in depth, and this module cross-
-references it rather than duplicating it — so we focus on the parts that are
-*about testing*: how to structure the pipeline around your pyramid layers.
+> [!TIP]
+> **Golden Rule of CI Test Strategy:** A test suite is a living production system with finite latency and trust budgets. Never mask non-deterministic failures with blanket automatic test retries—quarantine flaky tests visibly, isolate their root causes, and enforce fast, fail-fast gating lanes on every pull request while reserving slow end-to-end journeys for asynchronous scheduled pipelines.
 
-The larger subject here is **test strategy** — the judgment that ties this whole
-track together. A real codebase's suite is a living system with a budget: total
-runtime, flakiness, and maintenance all cost something, and you're constantly
-deciding where a new test should live, when a slow suite needs re-balancing, and
-what to do when a test flakes. Get this wrong and even a well-intentioned team
-ends up with a 40-minute, 8%-flaky suite nobody trusts — the exact failure the
-pyramid was invented to prevent. So this module is about running tests in CI,
-triaging flaky tests systematically (not with blanket retries), and steering the
-pyramid's shape deliberately as the codebase grows. It closes with the track's
-second cumulative review, closed-book over everything from module 00.
+---
 
-## Concepts
+## Visual Mental Models & Architecture
 
-### CI fundamentals for testing (the short version)
+### The Staged CI Pipeline: Gating Lane vs Informing Lane
 
-**Continuous integration** means every change is automatically built and
-verified against the shared codebase, frequently, so integration problems
-surface immediately instead of at a painful "merge day." For testing purposes,
-the mechanics reduce to: a **CI service** (GitHub Actions, GitLab CI, etc.)
-watches your repo; on each push/PR it runs a **pipeline** — a declarative list
-of steps: check out code, set up Python, install deps, run linters, run tests,
-report status. If any step fails, the pipeline is **red** and a
-**branch-protection rule** blocks merging. The result is an enforced invariant:
-*code that fails checks cannot reach main.*
+To keep development velocity high without compromising production stability, modern CI pipelines split validation into **fast, merge-blocking gating lanes** and **slow, non-blocking informing lanes**.
 
-```yaml
-# .github/workflows/ci.yml -- the testing-relevant skeleton (track 13 goes deep)
-name: ci
-on: [push, pull_request]
-jobs:
-  test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with: { python-version: "3.12" }
-      - run: pip install -e ".[dev]"
-      - run: ruff check .            # static analysis
-      - run: mypy app/
-      - run: pytest -m "not e2e" --cov=app --cov-report=term-missing
+```mermaid
+flowchart TD
+    subgraph PR_Trigger["Pull Request Lifecycle (Fast Gating Lane - Target: < 5 Minutes)"]
+        PR["Developer Submits PR"] --> Static["Stage 1: Cheap Static Checks\n(Ruff, mypy, ESLint, compiler)"]
+        Static -- Fail --> Block1["Block PR Immediately (< 30s)"]
+        Static -- Pass --> FastUnit["Stage 2: Parallelized Unit Tests\n(Mocks & Fakes, xdist / parallel)"]
+        FastUnit -- Fail --> Block2["Block PR (< 2m)"]
+        FastUnit -- Pass --> Integ["Stage 3: Integration Tests\n(Disposable Test DB, Transaction Rollback)"]
+        Integ -- Fail --> Block3["Block PR (< 5m)"]
+        Integ -- Pass --> BranchGate{"Branch Protection Rules\n(Enforce Green Gate)"}
+    end
+
+    BranchGate --> Merge["Merge PR to main"]
+
+    subgraph Main_Schedule["Post-Merge & Nightly (Informing / Heavy Lane)"]
+        Merge --> NightlyTrig["Nightly / Post-Merge Trigger"]
+        NightlyTrig --> E2E["Stage 4: End-to-End Journeys\n(Full Deployed Environment, Real Gateways)"]
+        NightlyTrig --> Contract["Stage 5: Schema Fuzzing & Contract Testing\n(Schemathesis, Pact)"]
+        NightlyTrig --> Quarantined["Stage 6: Flaky Quarantine Suite\n(Re-run 50x for Diagnostics)"]
+        
+        E2E -- Regression Detected --> Pager["Trigger On-Call Alert / Jira Defect"]
+        Contract -- Drift Detected --> Pager
+    end
 ```
 
-The two testing-specific ideas to carry into track 13: **the CI environment
-must be reproducible** (pinned dependencies, a clean checkout, services like
-Postgres provided by the pipeline — this is where testcontainers/CI service
-containers earn their keep, module 03), and **the pipeline should fail fast and
-loud** — cheap checks first, so a lint error doesn't wait behind a ten-minute
-e2e run to tell you about a missing import.
+---
 
-### Structuring the pipeline around the pyramid
+## Systematic Taxonomic Reference Grids
 
-Your pyramid layers have wildly different costs, so you don't run them all the
-same way. The strategy is **stage by speed and blast radius**, cheapest and most
-frequent first:
+### Pipeline Staging Matrix: Speed, Scope, and Enforcement
 
-- **On every push / pre-merge (must be fast):** static analysis (ruff, mypy) and
-  the full **unit** suite, plus the **integration** suite if it fits the time
-  budget (a few minutes). These gate the merge. The markers from modules 03/05
-  (`pytest -m "not e2e"`) are exactly what lets you run everything *but* the slow
-  tip here.
-- **On merge to main / nightly (can be slower):** the **e2e** journeys and any
-  long contract/fuzz runs. These are too slow and flaky to block every PR, but
-  they must run regularly against an integrated environment so a real systemic
-  break is caught within hours, not at release.
+| Pipeline Lane | Trigger Event | Included Layers | Max Latency Target | Merge Blocker? | Failure Action |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **Local Pre-Commit** | `git commit` | Formatter, linters, fast type checks | < 2 seconds | Yes (Local) | Aborts commit immediately |
+| **Fast Gating PR** | `git push` / PR open | Linters, type checks, unit tests, fast integration | < 5 minutes | **Yes (Authoritative)** | Blocks branch merge via branch protection |
+| **Merge to Main** | Push to `main` | Fast gating suite + smoke tests + container build | < 10 minutes | Yes (Deployment) | Halts staging deployment pipeline |
+| **Nightly / Scheduled** | Cron (02:00 UTC) | Full E2E journeys, chaos tests, contract fuzzing | 30 – 60 minutes | No (Informing) | Emits PagerDuty / Slack alert to on-call |
+| **Quarantine Lane** | Cron / Hourly | Marked flaky tests (`@flaky_quarantine`) | 15 minutes | No (Diagnostic) | Generates statistical flakiness metrics |
 
-This mirrors the pyramid directly: the wide, fast base runs constantly and
-gates; the narrow, slow tip runs less often and informs. **Fail fast** within a
-stage too — lint before tests, unit before integration — so the quickest signal
-comes first. The anti-pattern is running everything, always, in one giant
-serial job: PRs take twenty minutes, people batch changes to avoid the wait, and
-the flaky e2e tests block unrelated unit-only fixes.
+### The 4 Root Causes of Flaky Tests & Systematic Triage
 
-```
-  push / PR --> FAST GATING LANE  (branch protection: red blocks merge)
-     +------+    +------+    +------+    +-------------+
-     | ruff | -> | mypy | -> | unit | -> | integration |   fail fast: stop on first red
-     +------+    +------+    +------+    +-------------+
-      cheap  ---------------------------------> costlier
-                          |
-                     merge to main
-                          v
-  MAIN / NIGHTLY --> NON-GATING LANE  (informs, never blocks a PR)
-                     +--------------+   +---------------+
-                     | e2e journeys |   | contract fuzz |
-                     +--------------+   +---------------+
-```
+| Root Cause Category | Mechanism of Flakiness | Anti-Pattern "Fix" (Dangerous) | Architectural Resolution (Standard) |
+| :--- | :--- | :--- | :--- |
+| **1. Timing & Asynchrony** | Asserting before background worker/event completes | Arbitrary `time.sleep(2)` | Explicit condition polling with exponential backoff & timeout (`wait_for_condition`) |
+| **2. Shared State & Leakage** | Tests mutate shared DB rows, static globals, or file system | Re-running suite serially | Per-test transaction rollbacks, ephemeral schema isolation, clean fixture teardown |
+| **3. Nondeterministic Inputs** | System clock drift, unseeded `random()`, unsorted hash maps | Rerunning failed tests 3 times | Dependency injection for clock/time providers; explicit random seeds; stable sorting |
+| **4. External Dependencies** | Third-party API rate limits, network jitter, DNS drops | Ignoring failures when CI is red | Edge fakes, WireMock/Prism stubs, or mock contracts for external APIs |
 
-### Flaky tests: triage, don't tolerate
+---
 
-A **flaky test** passes and fails nondeterministically with no code change. Flaky
-tests are corrosive beyond their own failures: they train the team to ignore red
-("just re-run it"), and once "re-run it" is the reflex, a *real* failure gets
-re-run and merged too. So the discipline is a **triage process**, not tolerance:
+## Production War Stories: Incident Post-Mortem
 
-1. **Detect & quantify** — track which tests fail intermittently (CI can flag
-   re-run-passes). A test that fails ~5% of runs is a defect with a number, not
-   background noise.
-2. **Quarantine** — move a known-flaky test out of the merge-blocking lane
-   (mark it, run it non-gating) so it stops blocking honest work — but keep it
-   *visible*, never just delete or `skip` and forget.
-3. **Fix the root cause** — flakes have a small set of usual causes: *timing*
-   (fixed `sleep`, asserting before an async result lands → wait for a
-   condition), *shared state / order dependence* (tests colliding on a DB row or
-   global → isolate state, module 03), *nondeterminism* (real clock, `random`,
-   `uuid`, dict ordering → inject/control it, module 04), and *external
-   dependencies* (a live third party → fake at the edge, module 05).
-4. **De-quarantine** once fixed and stable.
+### SEV-1 Post-Mortem: The Blanket Retry That Hid a Double-Spend Race Condition
 
-The one thing you must **not** do is paper over flakes with **blanket automatic
-retries**. A global "retry failed tests 3×" turns a flaky test green *and* turns
-a genuine intermittent bug green — you've disabled your own detector. Retries can
-be a narrow, deliberate tool for a specific irreducibly-nondeterministic
-boundary, but as a blanket policy they hide exactly the bugs tests exist to
-find.
+#### Incident Overview
+* **Severity:** SEV-1 (Critical Financial Loss)
+* **Detection Time:** 6 days post-deployment
+* **Financial Impact:** \$1,240,000 in duplicate wallet payouts across 4,200 accounts
+* **Resolution Time:** 4 hours 15 minutes (Database rollback & distributed lock patch)
 
-### Test strategy for a growing codebase
+#### What Happened
+A backend payment service had a suite of 450 integration tests. During a sprint, an integration test verifying concurrent withdrawal transactions began failing intermittently in CI (~3% failure rate). Under pressure to meet a release deadline, an engineer configured the CI pipeline with a global retry flag: `pytest --reruns 3 --reruns-delay 1`.
 
-Early on, any tests are better than none. As a codebase grows, the suite becomes
-a system you must actively *steer*, against a budget of **total runtime,
-flakiness, and maintenance effort**. The guiding questions:
+The CI pipeline turned completely green. PRs merged cleanly.
 
-- **Where does a new test belong?** Default to the *lowest layer that can give
-  the confidence you need* (the pyramid's core rule). A business rule → unit. A
-  SQL/wiring/serialization concern → integration. Interface drift → contract. A
-  critical deployed-system journey → e2e. Resisting the pull to test everything
-  at the top is the single most important habit.
-- **Is the shape drifting?** Watch for the **ice-cream cone** creeping in (slow
-  suite, growing e2e count, rising flake rate). Re-balance by pushing coverage
-  down: replace three e2e rule-tests with three integration or unit tests that
-  give the same confidence faster.
-- **What's the suite's runtime trend?** If the pre-merge suite crosses a few
-  minutes, developers start avoiding it. Parallelize, split fast/slow lanes,
-  and cut redundant slow tests before the trend makes the suite unusable.
-- **Is coverage guiding or gaming?** Use coverage (module 01) to find untested
-  *risky* code, not to hit a mandated number that breeds assertion-free tests.
+In production, the intermittent failure was not a flaky test—it was a **real concurrency race condition** where two simultaneous withdrawal requests bypassed wallet balance validation due to missing row-level database locking (`SELECT ... FOR UPDATE`). In CI, the test had caught the race condition 3% of the time. The `--reruns 3` policy simply re-ran the test until it hit the 97% scenario where threads executed sequentially, hiding the defect and shipping it straight to production.
 
-Strategy is continuous, not one-time: every PR is a small decision about where a
-test goes, and every few months a look at runtime and flake trends to
-re-balance.
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Attacker as User / Bot
+    participant API as Payment API
+    participant Engine as Ledger Service
+    participant DB as Postgres (No Row Lock)
 
-### Balancing the pyramid layers in practice
-
-The pyramid is a *shape*, not exact ratios — the point is relative proportion:
-**many fast isolated tests, fewer integration tests, a handful of e2e.** In
-practice you balance three forces per candidate test:
-
-- **Confidence** — does this test catch a real, likely, costly bug? (If not,
-  it's noise regardless of layer.)
-- **Speed** — how much does it add to the suite's runtime, and how often does it
-  run? (A slow test on the pre-merge path is expensive; the same test nightly is
-  cheap.)
-- **Stability** — how likely is it to flake? (Higher layers flake more, which is
-  the tax you pay for their broader coverage.)
-
-The recurring decision is **push down**: whenever a bug could be caught at a
-lower layer, catch it there — faster, more stable, more precise on failure —
-and reserve each higher layer for the bugs *only it* can catch (wiring/SQL for
-integration, deployment/journeys for e2e, drift for contract). Do that
-consistently and the shape stays healthy on its own; skip it "just to be safe"
-repeatedly and you rebuild the cone one reasonable-seeming test at a time. A
-balanced pyramid isn't an accident — it's the cumulative result of answering
-"what's the fastest test that gives me this confidence?" every single time.
-
-## Command reference
-
-| Command / construct | Purpose |
-|---|---|
-| `pytest -m "not e2e"` | Pre-merge lane: everything but the slow tip |
-| `pytest -m e2e` | Post-merge / nightly lane: the slow journeys |
-| `pytest -n auto` (pytest-xdist) | Run tests in parallel across CPUs |
-| `pytest --durations=10` | Show the 10 slowest tests (find what to trim/parallelize) |
-| `pytest --lf` / `--ff` | Last-failed / failed-first — fast local triage |
-| `pytest -p no:randomly` vs `pytest-randomly` | Toggle random ordering to surface order-dependence |
-| `pytest --maxfail=1` | Fail fast in CI |
-| `@pytest.mark.flaky` / quarantine marker | Tag a known flake to run non-gating |
-| `@pytest.mark.skip(reason=...)` / `xfail` | Skip / expected-fail with a documented reason |
-| branch protection: "require CI to pass" | Enforce that red can't merge |
-| `ruff check . && mypy app/ && pytest` | The local pre-push mirror of CI |
-
-Splitting the pipeline into a gating fast lane and a nightly slow lane:
-
-```yaml
-jobs:
-  fast:                                   # every push/PR — gates the merge
-    steps:
-      - run: ruff check . && mypy app/
-      - run: pytest -m "not e2e" -n auto --maxfail=1 --cov=app
-  e2e:                                    # only on main / schedule — informs
-    if: github.ref == 'refs/heads/main'
-    steps:
-      - run: pytest -m e2e
+    Note over CI: In CI: Concurrency test failed 3% of runs.<br/>--reruns 3 re-executed until green and allowed merge!
+    
+    Attacker->>API: POST /withdraw ($500) [Request A]
+    Attacker->>API: POST /withdraw ($500) [Request B]
+    par Concurrent Execution
+        API->>Engine: Process Request A
+        Engine->>DB: Check balance ($500) -> OK
+        API->>Engine: Process Request B
+        Engine->>DB: Check balance ($500) -> OK (Race!)
+    end
+    Engine->>DB: Deduct $500 (Request A) -> Balance $0
+    Engine->>DB: Deduct $500 (Request B) -> Balance -$500 (Overdraft!)
+    Engine-->>Attacker: Payout $500 (Tx 1)
+    Engine-->>Attacker: Payout $500 (Tx 2)
+    Note over Attacker: Double spend successful! Total extracted: $1000 from $500 balance.
 ```
 
-Systematically finding the flaky/slow tests to triage:
+#### Root Cause Analysis
+1. **Masking Defects with Blanket Retries:** Global automatic retries treat all non-deterministic failures as harmless infrastructure glitches, destroying the test suite's ability to detect race conditions and timing flaws.
+2. **Missing Concurrency Hardening:** The ledger service relied on application-level balance checks without pessimistic row locking or database constraints.
+3. **Absence of Quarantine Discipline:** The team had no formal quarantine process to track and triage intermittent test failures to their underlying root causes.
 
+#### The Fix & Architectural Hardening
+1. **Banned Global Retries:** Stripped all global `--reruns` flags from CI pipelines.
+2. **Visible Quarantine Protocol:** Implemented a `@pytest.mark.flaky_quarantine` marker that isolates unstable tests into a separate diagnostic pipeline that does not gate PR merges but alerts the owning team.
+3. **Database Concurrency Protection:** Added pessimistic locking (`SELECT balance FROM wallets WHERE id = $1 FOR UPDATE`) and database check constraints (`balance >= 0`).
+
+---
+
+## Multi-Language Production Code Tabs
+
+The following code tabs illustrate production CI workflows and test suite configurations that enforce staged lanes, quarantine markers, and race detection.
+
+=== "Go"
+    ```yaml
+    # .github/workflows/ci.yml - Go Staged CI Pipeline
+    name: Go Test & Quality Gate
+    on: [push, pull_request]
+
+    jobs:
+      fast-gate:
+        name: Fast PR Gate
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+        steps:
+          - uses: actions/checkout@v4
+          - uses: actions/setup-go@v5
+            with:
+              go-version: '1.22'
+              cache: true
+
+          - name: Static Analysis
+            run: |
+              go vet ./...
+              # golangci-lint enforces styling, dead code, and complexity
+              curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin v1.59.1
+              golangci-lint run --timeout 2m
+
+          - name: Unit Tests with Race Detector (Fail Fast)
+            # -race detects data races; exclude slow e2e/integration tags
+            run: go test -v -race -timeout 2m -short ./...
+
+      nightly-e2e:
+        name: Nightly E2E & Quarantine Suite
+        if: github.event_name == 'schedule' || github.ref == 'refs/heads/main'
+        runs-on: ubuntu-latest
+        timeout-minutes: 20
+        steps:
+          - uses: actions/checkout@v4
+          - uses: actions/setup-go@v5
+            with:
+              go-version: '1.22'
+          - name: Run E2E Integration Suite
+            run: go test -v -tags=e2e -timeout 15m ./tests/e2e/...
+    ```
+
+=== "Node.js/TypeScript"
+    ```yaml
+    # .github/workflows/ci.yml - Node/TypeScript Staged CI Pipeline
+    name: Node.js CI Pipeline
+    on: [push, pull_request]
+
+    jobs:
+      fast-lane:
+        name: Fast Gating Lane (< 4m)
+        runs-on: ubuntu-latest
+        timeout-minutes: 6
+        steps:
+          - uses: actions/checkout@v4
+          - uses: actions/setup-node@v4
+            with:
+              node-version: 20
+              cache: 'npm'
+
+          - name: Install Pinned Dependencies
+            run: npm ci
+
+          - name: Lint & Typecheck
+            run: |
+              npm run lint
+              npx tsc --noEmit
+
+          - name: Parallel Unit Tests
+            # vitest / jest configured to exclude e2e and quarantine tests
+            run: npx vitest run --testPathIgnorePatterns=".*(e2e|quarantine).*" --bail=1 --coverage
+
+      informing-e2e:
+        name: Scheduled E2E & Flake Diagnostics
+        if: github.ref == 'refs/heads/main'
+        runs-on: ubuntu-latest
+        timeout-minutes: 25
+        steps:
+          - uses: actions/checkout@v4
+          - uses: actions/setup-node@v4
+            with:
+              node-version: 20
+          - run: npm ci
+          - name: Run E2E Test Suite
+            run: npm run test:e2e
+    ```
+
+=== "Python"
+    ```yaml
+    # .github/workflows/ci.yml - Python Fast Gating vs Nightly Lanes
+    name: Python CI Quality Gate
+    on: [push, pull_request]
+
+    jobs:
+      fast-gate:
+        name: Fast Gating Lane (< 4m)
+        runs-on: ubuntu-latest
+        timeout-minutes: 5
+        steps:
+          - uses: actions/checkout@v4
+          - uses: actions/setup-python@v5
+            with:
+              python-version: "3.12"
+              cache: "pip"
+
+          - name: Install Locked Dependencies
+            run: pip install -e ".[dev]"
+
+          - name: Stage 1 - Cheap Static Checks
+            run: |
+              ruff check .
+              ruff format --check .
+              mypy app/
+
+          - name: Stage 2 - Parallel Unit & Integration Tests
+            # Exclude e2e and quarantined tests; parallelize with xdist
+            run: |
+              pytest -m "not e2e and not flaky_quarantine" \
+                -n auto \
+                --maxfail=1 \
+                --durations=10 \
+                --cov=app \
+                --cov-report=term-missing
+
+      nightly-e2e:
+        name: Nightly E2E & Diagnostic Suite
+        if: github.ref == 'refs/heads/main' || github.event_name == 'schedule'
+        runs-on: ubuntu-latest
+        timeout-minutes: 30
+        steps:
+          - uses: actions/checkout@v4
+          - uses: actions/setup-python@v5
+            with:
+              python-version: "3.12"
+          - run: pip install -e ".[dev]"
+          - name: Run End-to-End Journeys
+            run: pytest -m "e2e" --durations=0
+          - name: Run Quarantined Flake Diagnostics (Non-Blocking)
+            continue-on-error: true
+            run: pytest -m "flaky_quarantine" --count=20
+    ```
+
+=== "C#"
+    ```yaml
+    # .github/workflows/ci.yml - .NET / C# Staged CI Pipeline
+    name: .NET CI Pipeline
+    on: [push, pull_request]
+
+    jobs:
+      fast-gate:
+        name: Fast PR Gate (< 5m)
+        runs-on: ubuntu-latest
+        timeout-minutes: 6
+        steps:
+          - uses: actions/checkout@v4
+          - uses: actions/setup-dotnet@v4
+            with:
+              dotnet-version: '8.0.x'
+
+          - name: Code Formatting & Roslyn Analyzers
+            run: |
+              dotnet format --verify-no-changes
+              dotnet build -c Release -warnaserror
+
+          - name: Fast Unit Tests
+            # Filter out slow E2E and Quarantined tests
+            run: |
+              dotnet test -c Release --no-build \
+                --filter "Category!=E2E&Category!=FlakyQuarantine" \
+                --logger "console;verbosity=normal"
+
+      nightly-e2e:
+        name: Nightly E2E Journeys
+        if: github.ref == 'refs/heads/main'
+        runs-on: ubuntu-latest
+        timeout-minutes: 30
+        steps:
+          - uses: actions/checkout@v4
+          - uses: actions/setup-dotnet@v4
+            with:
+              dotnet-version: '8.0.x'
+          - name: Run Full E2E Journeys
+            run: dotnet test -c Release --filter "Category=E2E"
+    ```
+
+---
+
+## Practical Hands-On Verification CLI Workflows
+
+### Triage and Elimination of Flaky Tests
+
+#### 1. Diagnosing Slow and Flaky Tests Locally
 ```bash
-pytest --durations=15                     # what's slow enough to move to nightly?
-pytest -p randomly --count=20 test_x.py   # re-run to expose intermittency (pytest-repeat)
+# Identify top 10 slowest tests in the suite
+pytest --durations=10
+
+# Stress-test an intermittent test by executing it 30 times in random order
+pytest -p randomly --count=30 tests/unit/test_order_processing.py
+
+# Run tests in parallel across all available CPU cores
+pytest -m "not e2e" -n auto
 ```
 
-Quarantining a flake without hiding it (visible, non-gating, tracked):
-
+#### 2. Marking and Quarantining a Flaky Test (`tests/conftest.py`)
 ```python
-@pytest.mark.flaky_quarantine   # a custom marker your CI runs but does NOT gate on
-def test_async_notification_arrives():
-    ...
-# CI fast lane runs:  pytest -m "not e2e and not flaky_quarantine"
-# a separate reported (non-blocking) job runs the quarantined ones, tracked to a fix
+# Quarantine marker declaration without hiding the test
+# tests/integration/test_async_webhook.py
+import pytest
+
+
+@pytest.mark.flaky_quarantine(
+    reason="Issue #482: Timing race condition in third-party webhook callback; assigned to @platform"
+)
+def test_async_webhook_arrival():
+    # Test logic remains intact and executable
+    pass
 ```
 
-## Hands-on exercises
+#### 3. Verification of Gating Separation
+```bash
+# Execute only fast gating tests (expected in PR CI)
+pytest -m "not e2e and not flaky_quarantine" -q
 
-Work in `testing-lab/`. You have unit, integration, contract, and e2e tests plus
-ruff/mypy from earlier modules.
-
-### 1. Write a minimal CI pipeline
-
-Create `.github/workflows/ci.yml` that checks out code, sets up Python, installs
-deps, and runs `ruff check`, `mypy`, and `pytest -m "not e2e"`. Push it (or run
-`act`/read it carefully if offline). Confirm the ordering puts the cheap checks
-first. Cross-reference: note which parts track 13 will expand.
-
-### 2. Make CI fail fast and loud
-
-Introduce a lint error and a failing unit test in one commit. Confirm the
-pipeline goes red at the *first* failing step and that the report tells you which
-step. Then reorder so tests run before lint and observe the worse feedback (you
-wait for tests to learn about a typo). Restore cheap-checks-first.
-
-### 3. Split fast and slow lanes
-
-Restructure into two jobs: a `fast` job (lint, mypy, `-m "not e2e"`) that gates
-every PR, and an `e2e` job that runs only on main. Time both. Write one sentence
-on why gating every PR on the e2e job would be a mistake.
-
-### 4. Parallelize and find the slow tests
-
-Add `pytest-xdist` and run the base suite with `-n auto`; compare wall-clock to
-serial. Run `pytest --durations=10` and identify your slowest tests. Decide for
-each: legitimately slow (integration/e2e → belongs in a slower lane) or an
-accidentally-slow unit test to fix.
-
-### 5. Reproduce and triage a real flake
-
-Take an integration test and reintroduce an isolation bug (shared row, no
-rollback — module 03). Run it 20× (`pytest-repeat`) to see intermittent
-failures. Triage it by the four-cause checklist, identify the cause (shared
-state), and fix the root cause. Confirm 20/20 green.
-
-### 6. Quarantine without hiding
-
-For a genuinely hard-to-stabilize test, add a `flaky_quarantine` marker, exclude
-it from the gating lane (`-m "not flaky_quarantine"`), and run it in a separate
-non-blocking job. Write the one-line tracking note ("quarantined <date>, cause
-suspected X, owner Y"). Confirm honest PRs no longer block on it.
-
-### 7. Place five new tests deliberately
-
-You're adding: (a) a new discount rule; (b) a new SQL query with a join; (c) a
-renamed response field; (d) a new critical checkout step; (e) a util that
-formats a date. For each, state the layer, the marker, and which CI lane it runs
-in — and justify with "the fastest test that gives the confidence."
-
-### 8. Diagnose and fix: the CI that lies green
-
-This pipeline is green on every PR, the team trusts it, yet broken code reaches
-production regularly. Find every strategic flaw and fix the pipeline + policy.
-
-```yaml
-jobs:
-  test:
-    steps:
-      - run: pip install -r requirements.txt        # unpinned versions
-      - run: pytest --reruns 3 -q                    # blanket 3x retry on ALL tests
-      # no ruff, no mypy
-      # no branch protection: merges allowed while red
-      # runs unit + integration + e2e together, serially, ~19 min
+# Execute quarantined diagnostics independently
+pytest -m "flaky_quarantine" -v
 ```
 
-<details>
-<summary>Solution</summary>
-
-Strategic flaws: **(1) Blanket `--reruns 3`** turns every flake green — including
-genuine intermittent bugs — so the suite has stopped detecting exactly what it
-exists to catch; broken-but-flaky code passes. **(2) No branch protection**
-means red never actually blocks a merge, so "green CI" is advisory, not enforced
-— broken code merges freely. **(3) No static analysis** (ruff/mypy), so the
-whole class of type holes and lint-catchable bugs from module 06 sails through.
-**(4) Unpinned dependencies** make the environment non-reproducible: it passes
-today and breaks tomorrow when a transitive dep changes, and "works on CI" isn't
-stable. **(5) One serial 19-minute job** mixing e2e in the gating path makes PRs
-slow and lets flaky e2e block unrelated fixes, pushing people to batch/bypass.
-
-Fixes: remove the blanket retry (quarantine specific flakes and fix root causes
-instead); pin dependencies (lockfile); add `ruff check` + `mypy` as gating
-steps; enable branch protection so red blocks merge; and split into a fast gating
-lane (`-m "not e2e" -n auto`, cheap checks first) plus a non-gating e2e lane on
-main.
-
-```yaml
-jobs:
-  fast:                                   # gates the merge (branch protection ON)
-    steps:
-      - run: pip install -e ".[dev]"      # from a lockfile / pinned
-      - run: ruff check . && mypy app/
-      - run: pytest -m "not e2e and not flaky_quarantine" -n auto --maxfail=1
-  e2e:
-    if: github.ref == 'refs/heads/main'
-    steps: [ { run: pytest -m e2e } ]     # informs, does not gate PRs
+**Expected Wire Output (Fast Gating Lane):**
+```text
+============================= test session starts ==============================
+platform linux -- Python 3.12.2, pytest-8.3.1, pluggy-1.5.0
+rootdir: /workspace/service
+configfile: pyproject.toml
+plugins: xdist-3.5.0, cov-5.0.0
+42 passed, 2 deselected in 1.48s
+======================== 42 passed, 2 deselected in 1.48s ========================
 ```
 
-The theme: a pipeline is only as honest as its weakest policy — retries and
-missing branch protection quietly convert "green" into "meaningless."
+---
 
+## Operational Validation Checkpoints (Scenario Quizzes)
+
+### Checkpoint 1: The Danger of Blanket CI Test Retries
+<details>
+<summary><strong>Scenario Assessment:</strong> A test suite has 1,200 tests. Four integration tests fail unpredictably once every 20-30 CI runs. A tech lead proposes adding <code>--reruns 3</code> to the CI test step to "prevent spurious build breaks and keep developer momentum high." Why is this practice unacceptable in high-reliability backend systems, and what is the proper engineering response?</summary>
+
+<strong>Answer:</strong>
+A blanket `--reruns 3` policy is dangerous because it **destroys the detection fidelity of the test suite**:
+1. **Concealing Real Production Defects:** Intermittent failures in integration suites are frequently caused by real race conditions, deadlocks, transaction isolation leaks, and unhandled async timeouts. Blanket retries rerun the code until lucky thread scheduling yields a passing run, allowing concurrency bugs to ship straight to production.
+2. **False Trust:** Engineers learn that green CI does not mean correct software, while red CI can simply be ignored or retried.
+3. **Severe CI Runtime Degradation:** When legitimate regressions occur, every failing test is rerun 3 times, tripling the execution time and causing CI runner starvation.
+
+**Proper Engineering Response:**
+1. **Quarantine Immediately:** Apply a custom `@pytest.mark.flaky_quarantine` marker to exclude the unstable tests from the merge-blocking PR gate.
+2. **Track with Ownership:** File a high-priority defect issue linked directly to the quarantine marker with an assigned engineer and SLA.
+3. **Execute in Diagnostic Lane:** Run quarantined tests in a non-blocking diagnostic CI job (e.g., repeating 50 times) to collect thread dumps, timing metrics, and logs.
+4. **Root-Cause Fix:** Fix the underlying cause (replace `sleep` with event polling, fix database isolation, inject deterministic clocks) and remove the quarantine marker.
 </details>
 
-## Independent challenge
+### Checkpoint 2: Structuring Fast Gating vs Nightly Informing Pipelines
+<details>
+<summary><strong>Scenario Assessment:</strong> An engineering team has 15 End-to-End (E2E) tests that provision real cloud infrastructure, initiate payments, and take 38 minutes to complete. These tests run on every pull request, causing massive developer frustration and leading teams to batch large PRs together. How should the team restructure its pipeline and test strategy?</summary>
 
-No code given. Take the full test suite you assembled across this track for the
-service from **05-e2e-and-contract-testing** — unit, integration, contract, one
-e2e journey — plus the `ruff`/`mypy` setup from **06-code-quality-and-static-
-analysis**, and design its complete CI + strategy. Build a two-lane pipeline: a
-**fast gating lane** (cheap static checks first, then unit + integration in
-parallel, marker-scoped to exclude e2e and any quarantine) that branch
-protection requires green before merge, and a **non-gating lane** (e2e +
-contract fuzz) that runs on main/nightly. Then do the strategy work: run
-`--durations` to find your slowest tests and place each in the right lane;
-deliberately introduce one flaky test, triage it through the four-cause
-checklist to a root-cause fix (no blanket retries); and write a one-page test
-strategy stating, for your service, where each *kind* of new test should live
-and how you'll watch the pyramid's shape (runtime + flake trend) over time. The
-deliverable is an enforced, correctly-staged pipeline plus a written strategy
-that would keep the suite healthy as the service grows.
+<strong>Answer:</strong>
+The team has built an inverted test pyramid (an "ice-cream cone") and misplaced its feedback loops:
+1. **Split into Staged Lanes:**
+   - **Fast Gating PR Lane (< 5 minutes):** Execute linters, type checkers (`mypy --strict`), unit tests with fakes, and fast integration tests using lightweight disposable test databases. This job runs on every push and gates the merge via branch protection.
+   - **Informing Nightly / Post-Merge Lane (30-40 minutes):** Move the heavy 38-minute E2E cloud journeys to a scheduled nightly pipeline and post-merge staging trigger. Regressions trigger alerts to the on-call engineer rather than blocking developers during routine PR authoring.
+2. **Push Verification Down:**
+   - Analyze the 15 E2E tests: most are likely validating business rules, validation errors, or edge cases that do not require full cloud infrastructure.
+   - Re-implement those edge scenarios as unit tests (for pure business logic) or integration tests with `TestClient` and mocks/fakes.
+   - Retain only 1 or 2 critical smoke journeys (e.g., complete user registration to paid checkout) in the top E2E tier.
+</details>
+
+### Checkpoint 3: Branch Protection Enforcement Mechanics
+<details>
+<summary><strong>Scenario Assessment:</strong> A company has a comprehensive GitHub Actions CI workflow that runs linters, unit tests, and security scans. However, junior engineers frequently merge code that breaks the staging environment because tests failed during their PR. When questioned, they say: "The tests were red, but we needed to get the hotfix out immediately." What architectural control is missing?</summary>
+
+<strong>Answer:</strong>
+The repository is missing **enforced Branch Protection Rules**:
+1. Without branch protection, CI is merely an **advisory reporter**; GitHub/GitLab will still allow developers with write access to click "Merge" even if every status check is red.
+2. **Architectural Hardening:**
+   - Configure Branch Protection on the default branch (`main` / `master`).
+   - Enable **"Require status checks to pass before merging"** and explicitly designate the fast gating CI job (e.g., `fast-gate`) as a **Required Status Check**.
+   - Enable **"Require branches to be up to date before merging"** to ensure code is validated against the latest HEAD of main.
+   - Enable **"Do not allow bypassing the above settings"** (even for repository administrators) to eliminate accidental or unauthorized overrides.
+</details>
+
+---
+
+## Cumulative Track Review
+
+*Test your understanding across the entirety of Track 12 (Modules 00 through 07) before undertaking the Capstone Project.*
 
 <details>
-<summary>Hint</summary>
+<summary><strong>1. Test Pyramid Layering & Doubles Selection:</strong> For each scenario, state its appropriate pyramid layer, the test double type to use (dummy, stub, spy, mock, fake), and its CI lane:</summary>
 
-The markers you added back in modules 03 and 05 (`integration`, `e2e`, and a
-`flaky_quarantine`) are the whole mechanism — the fast lane is just `pytest -m
-"not e2e and not flaky_quarantine"` and the slow lane is `-m e2e`; you don't need
-new machinery, just the right selection per job. When you triage the flake,
-resist reaching for `--reruns`; walk the four causes (timing → wait-for-
-condition, shared state → isolate, nondeterminism → inject/control, external →
-fake at the edge) and fix the actual one, because a blanket retry would also hide
-a real bug. For the strategy page, anchor every "where does it go" answer to the
-one question that keeps the pyramid balanced: *what's the fastest test that gives
-me this confidence?*
-
+1. **Email address format validation (`user@example.com`):** Unit test; no test double (pure function); Fast Gating PR lane.
+2. **Payment service charges third-party Stripe API exactly once on checkout:** Unit test; Mock with strict interface specification (`Mock(spec=PaymentGateway)`); Fast Gating PR lane.
+3. **Order repository persists line items into PostgreSQL with foreign key constraints:** Integration test; Disposable test container / real PostgreSQL instance; Fast Gating PR lane.
+4. **OpenAPI contract verification against schema drift:** Contract test (Schemathesis / Pact); Fast Gating PR lane or Nightly lane depending on execution time.
+5. **Full multi-step user onboarding and credit card payment journey:** End-to-End (E2E) test; Fake third-party edge adapters; Nightly / Scheduled Informing lane.
 </details>
-
-## Common mistakes & troubleshooting
-
-- **CI that doesn't actually gate.** Green without branch protection is advisory;
-  broken code still merges. Require the fast lane to pass before merge.
-- **One giant serial job.** Mixing e2e into the pre-merge path makes PRs slow and
-  lets flaky tip-tests block unrelated fixes. Split fast (gating) and slow
-  (informing) lanes.
-- **Cheap checks last.** Waiting for a ten-minute suite to learn about a lint
-  error wastes time. Fail fast: lint → types → unit → integration.
-- **Blanket test retries.** `--reruns` on everything turns real intermittent
-  bugs green and disables your detector. Quarantine specific flakes and fix root
-  causes.
-- **Ignoring flakes ("just re-run").** Trains the team to ignore red, so real
-  failures get merged. Triage systematically; a 5%-flaky test is a defect.
-- **Deleting/`skip`ping a flake and forgetting it.** Removes the coverage
-  silently. Quarantine *visibly*, tracked to a fix, then de-quarantine.
-- **Unpinned dependencies in CI.** Non-reproducible builds pass today, break
-  tomorrow. Pin/lock dependencies.
-- **Letting the cone grow "to be safe."** Every top-heavy addition slows and
-  destabilizes the suite. Always ask for the fastest layer that gives the
-  confidence, and re-balance when runtime/flake trends drift.
-
-## Checkpoint quiz
-
-Write down your answer to each question before expanding it — checking without attempting first is the single easiest way to fool yourself into thinking you've learned this.
-
-1. What invariant does CI plus branch protection actually enforce, and why is
-   "green CI" without branch protection close to meaningless?
-2. How should you stage the pipeline relative to your pyramid layers, and why
-   don't the e2e tests gate every PR?
-3. Why is "fail fast, cheap checks first" the right ordering within a stage?
-4. Define a flaky test and explain why blanket automatic retries are the wrong
-   response to flakiness.
-5. Name the four usual root causes of flaky tests and the corresponding fix for
-   each (referencing the module that covered it).
-6. When deciding where a new test belongs, what's the single guiding question,
-   and what shape drift are you guarding against?
-7. What three forces do you balance for each candidate test, and what's the
-   recurring decision that keeps the pyramid healthy?
 
 <details>
-<summary>Answers</summary>
+<summary><strong>2. Latent Defect Detection Across Pyramid Nets:</strong> How can a codebase have 100% statement test coverage, pass all unit tests, and yet fail in production due to a SQL syntax error and a null dereference?</summary>
 
-1. That code failing the required checks cannot reach main — every change is
-   verified before merge. Without branch protection, CI can be red and merges
-   still go through, so "green" is advisory only; nothing actually stops broken
-   code from landing.
-2. Cheapest/most-frequent first: static analysis + unit (+ integration if it
-   fits) run on every push and *gate* the merge; e2e (and long contract/fuzz
-   runs) run on merge-to-main/nightly and *inform*. E2e doesn't gate every PR
-   because it's slow and flake-prone — gating on it makes PRs slow and lets
-   tip-test flakiness block unrelated work.
-3. Because you want the quickest possible signal: a lint error or missing import
-   should fail in seconds, not after waiting behind a ten-minute test run. Cheap
-   checks first shortens feedback and saves compute.
-4. A test that passes/fails nondeterministically without a code change. Blanket
-   retries are wrong because they turn *both* harmless flakes and genuine
-   intermittent bugs green — disabling the very detector the suite is for — and
-   they train the team to trust re-runs.
-5. Timing (fixed sleeps / asserting before async results → wait for a condition,
-   module 05); shared state/order dependence (colliding DB rows/globals →
-   isolate state, module 03); nondeterminism (clock/random/uuid/ordering →
-   inject and control, module 04); external dependencies (live third parties →
-   fake at the edge, module 05).
-6. "What's the fastest/lowest-layer test that gives me the confidence I need?"
-   Default to that layer. You're guarding against the ice-cream cone — the suite
-   drifting top-heavy (slow, flaky) as people add high-level tests "to be safe."
-7. Confidence (does it catch a real, costly bug), speed (runtime × frequency),
-   and stability (flake likelihood). The recurring decision is *push down*: catch
-   each bug at the lowest layer that can, reserving higher layers only for bugs
-   solely they can catch.
-
+1. **Coverage vs Verification:** Unit tests mock out the database repository, so the real SQL query string is never parsed or executed by a real relational database engine during unit testing.
+2. **Missing Integration Net:** Without integration tests against real PostgreSQL, dialect-specific syntax bugs or constraint violations remain undetected until runtime.
+3. **Dynamic Typing Blind Spot:** If unit test fixtures always provide populated objects, dynamic attribute access (`user.profile.avatar_url`) executes fine in tests. Without static type checkers (`mypy --strict`, TypeScript `strictNullChecks`), the unhandled `None` path on optional fields crashes in production.
 </details>
-
-## Cumulative review
-
-Closed-book. Don't reopen modules 00–07 while attempting these — the point is to
-find out what actually stuck.
-
-1. For each test below, name its pyramid layer, the double(s) (if any) it should
-   use, and the CI lane it belongs in: (a) `slugify("A B") == "a-b"`; (b) a
-   service charges a payment gateway exactly once on checkout; (c) `POST /orders`
-   through `TestClient` against a real Postgres returns `201` and persists; (d)
-   schemathesis conformance over `/openapi.json`; (e) a real signup→purchase
-   journey against the running stack.
-2. You're building the discount rule from (a) with TDD. Give the red-green-
-   refactor beats in words, say what "simplest thing that passes" looks like on
-   the first green, and say where module 01's parametrize and a fixture enter.
-3. A unit suite is 100% covered and green; production breaks on a bad SQL join
-   *and* on an `AttributeError` from a `None`. Explain, using three separate
-   ideas from this track (coverage-vs-verification, unit-vs-integration, and
-   static analysis), how all three facts coexist, and give the specific fix each
-   idea prescribes.
-4. Give the correct status code and the layer you'd test it at for: an
-   aggregated invalid body; a missing id; a duplicate unique key; a declined
-   card. Then explain why none of these should be an e2e test.
-5. A test passes when the suite runs whole but fails alone (and vice-versa).
-   Give the two most likely root causes (one DB, one FastAPI wiring), the fix
-   for each, and which module covered it.
-6. Your CI is green on every PR yet broken code reaches prod. List four distinct
-   policy/pipeline flaws that produce "CI that lies green" and the fix for each.
-7. A teammate wants to add 30 e2e tests for business-rule permutations "to be
-   safe," and to set `--reruns 3` because a few flake. Make the case against
-   both, and say precisely where those 30 behaviors and those flakes should go
-   instead.
-8. Define, in one sentence each, the distinct job of: a stub, a fake, a mock, a
-   dependency override, a contract test, and a complexity metric — and name a
-   situation where each is the *right* tool.
 
 <details>
-<summary>Answers</summary>
+<summary><strong>3. The TDD Rhythm in Practice:</strong> Detail the Red-Green-Refactor cycle when adding a volume discount rule (10% off orders > $100):</summary>
 
-1. (a) Unit, no doubles, fast gating lane. (b) Unit, a mock-with-`spec` (the
-   exactly-once interaction is the contract) or a fake gateway, fast gating lane.
-   (c) Integration, real Postgres (testcontainers) + rollback isolation, gating
-   lane (if within budget). (d) Contract test, in-process against the app spec,
-   gating lane (cheap) or nightly if long. (e) E2e, real stack (fake externals at
-   the edge), non-gating main/nightly lane.
-2. Red: write `assert slugify("A B") == "a-b"` first, watch it fail (missing
-   function). Green: simplest thing — `return text.lower().replace(" ", "-")`.
-   Add a punctuation case (red), generalize with a regex (green). Refactor:
-   suite green, collapse cases into a `@pytest.mark.parametrize` table and, if
-   setup repeats, extract a fixture — behavior unchanged throughout.
-3. Coverage measures execution not assertions, so a fully-covered suite can
-   verify little → fix: add meaningful assertions, don't chase the number.
-   Unit-with-fakes can't contain a SQL bug → fix: add integration tests against
-   real Postgres. Neither tests nor coverage catch a type/`None` hole on an
-   untested path → fix: run mypy, which flags the possibly-`None` access
-   statically. All three coexist because each net catches different fish.
-4. Invalid body → `422`, integration (real validation wiring) or unit for the
-   rule. Missing id → `404`, integration. Duplicate key → `409`, integration
-   (real constraint). Declined card → `402`, integration with a fake gateway (or
-   unit on the service). None should be e2e because they're logic/wiring a faster
-   layer verifies deterministically; e2e is for critical deployed journeys, and
-   testing rule permutations there builds a slow, flaky cone.
-5. DB cause: no per-test isolation — an earlier test committed state the other
-   depends on (or global counts); fix with rollback/truncate teardown and
-   asserting on own data (module 03). Wiring cause: a leaked/missing
-   `dependency_overrides` (e.g. `get_db` not set or not cleared); fix by setting
-   it in a fixture and clearing it in teardown (modules 03/04).
-6. (i) No branch protection → red doesn't block; enable it. (ii) Blanket
-   `--reruns` → hides real intermittent bugs; quarantine specific flakes, fix
-   root cause. (iii) No ruff/mypy → type/lint bugs slip through; add them as
-   gating steps. (iv) Unpinned deps → non-reproducible builds; pin/lock.
-   (Also acceptable: e2e mixed into the gating serial job.)
-7. Against 30 e2e tests: each is slow and flake-prone, so they build an
-   ice-cream cone that's slow and untrustworthy, and business rules don't need
-   the real stack — put them in unit tests (pure rules) or integration tests
-   (`TestClient` + fake gateway + isolated DB), keeping only one/two critical
-   journeys at e2e. Against `--reruns 3`: it turns genuine intermittent bugs
-   green and disables detection — instead triage each flake to its root cause
-   (timing/state/nondeterminism/external) and fix it, quarantining visibly
-   meanwhile.
-8. Stub: returns canned values to feed the code under test — right when you need
-   to supply an input (canned stock level). Fake: a working lightweight
-   implementation — right when a collaborator must behave across calls (in-memory
-   repo). Mock: a double you assert interactions on — right when the side effect
-   *is* the behavior (charged exactly once). Dependency override: swaps a
-   `Depends` provider in tests — right for pointing a route at a test DB or fake
-   service. Contract test: verifies the running API matches its OpenAPI spec —
-   right for catching interface drift that breaks consumers. Complexity metric:
-   quantifies paths through a function — right for finding untestable/
-   unmaintainable code before it becomes a monster.
-
+1. **Red:** Write a failing test `test_order_discount_applied_above_threshold()` expecting a 10% discount on an order of $150. Run test; assert that it fails because the discount logic or function does not exist.
+2. **Green:** Implement the simplest possible production code to make the test pass (e.g., `if order.subtotal > 100: return order.subtotal * 0.10; return 0`). Run tests; verify green.
+3. **Refactor:** Parameterize the test using `@pytest.mark.parametrize` to cover boundary conditions ($99.99, $100.00, $100.01), extract magic numbers into domain constants, and ensure cyclomatic complexity remains low. All tests remain green throughout.
 </details>
 
-## Further reading & sources
+---
 
-- [GitHub Actions — Building and testing Python](https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-python) - Official guide to the CI pipeline skeleton this module sketches for a Python test suite.
-- [GitHub Docs — About protected branches](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-protected-branches/about-protected-branches) - Branch protection: the mechanism that makes "red can't merge" actually enforced.
-- [Martin Fowler — Continuous Integration](https://martinfowler.com/articles/continuousIntegration.html) - The foundational essay on what CI is and why every change is verified automatically.
-- [Martin Fowler — Eradicating Non-Determinism in Tests](https://martinfowler.com/articles/nonDeterminism.html) - The systematic approach to triaging flaky tests by root cause used in this module.
-- [Google Testing Blog — Flaky Tests at Google](https://testing.googleblog.com/2016/05/flaky-tests-at-google-and-how-we.html) - How a large org quantifies and quarantines flakes instead of tolerating them.
-- [pytest-xdist documentation](https://pytest-xdist.readthedocs.io/en/stable/) - Running the suite in parallel (`-n auto`) to keep the gating lane fast as it grows.
+## Summary & Further Study
 
-## Next
+- **Staged CI Lanes:** Split verification into fast, merge-blocking PR gates (< 5 min) and deep, non-blocking nightly suites.
+- **Flake Triage:** Never use blanket `--reruns`. Quarantine flaky tests visibly, diagnose the root cause (timing, state, nondeterminism, external), and repair the architecture.
+- **Branch Protection:** Enforce green required checks so broken code can never physically merge into production branches.
 
-[08-capstone-project](../08-capstone-project/README.md) — you've learned to test
-at every layer, drive features with TDD, mock at the boundaries, contract- and
-e2e-test the whole system, enforce static quality, and run it all in CI. The
-capstone puts it together: take a real FastAPI service and bring it to genuine
-test-pyramid coverage — unit tests with mocks, integration tests against a test
-database, one e2e/contract test, and lint + type checks passing — with no
-solution to peek at.
+### Further Reading
+- [Martin Fowler on Continuous Integration](https://martinfowler.com/articles/continuousIntegration.html)
+- [Martin Fowler on Eradicating Non-Determinism in Tests](https://martinfowler.com/articles/nonDeterminism.html)
+- [Google Testing Blog: Flaky Tests at Google](https://testing.googleblog.com/2016/05/flaky-tests-at-google-and-how-we.html)
+- [GitHub Actions Documentation: Managing Protected Branches](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-protected-branches)

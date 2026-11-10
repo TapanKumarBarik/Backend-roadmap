@@ -1,471 +1,502 @@
 # Module 05: E2E and Contract Testing
 
-## Why this matters
+> **Prerequisites**: [00-testing-fundamentals-and-the-test-pyramid](../00-testing-fundamentals-and-the-test-pyramid/README.md), [03-integration-testing](../03-integration-testing/README.md), and [04-mocking-and-dependency-injection-for-testability](../04-mocking-and-dependency-injection-for-testability/README.md).  
+> **Estimated Reading Time**: 32 minutes  
+> **Target Audience**: Backend Engineers, QA Automation Architects, and Platform Engineers building resilient full-system smoke tests and contract verification gates.
 
-Every test you've written so far has, deliberately, *not* run the whole system.
-Unit tests replaced collaborators with doubles; integration tests used a real
-DB but through the in-process `TestClient` with a faked payment gateway. That's
-by design — it's what made them fast and precise. But it leaves one question
-unanswered: **does the fully-assembled, actually-running system work?** Do the
-real containers start, does the real migration apply, does the app connect to
-the real database over a real socket, does a request that crosses process
-boundaries come back correct? Those failures live *between* the components, in
-the deployment and wiring that in-process tests skip. **End-to-end (e2e) tests**
-drive the whole running system from the outside, as a real client, to answer
-exactly that — and they're the narrow tip of the pyramid precisely because they
-are slow, expensive, and the most prone to flakiness.
+---
 
-There's a second, cheaper kind of "does it really work" test that's easy to
-overlook: **contract testing**. Your API publishes an OpenAPI spec (track 02,
-module 09). Clients — a frontend, a mobile app, another service — build against
-that spec. If your implementation drifts from the spec (a field renamed, a
-status code changed, a nullable that isn't), you break every consumer *silently*
-because nothing checks that the code still matches the contract. Tools like
-**schemathesis** read your OpenAPI spec and generate hundreds of requests to
-verify the running API actually conforms — catching drift and whole classes of
-edge-case bugs for almost no test-writing effort. This module covers the e2e
-strategy (and the discipline to keep it a *tip*, not a cone), contract testing
-as a high-leverage complement, and the honest cost/benefit calculus of when an
-e2e test earns its keep.
+> [!TIP]
+> **The Golden Rule of E2E and Contract Testing**  
+> Keep the tip of your test pyramid narrow: End-to-End (E2E) tests must verify only a handful of **critical user revenue journeys** across real network sockets, never granular business-rule permutations. To eliminate the #1 cause of E2E test flakiness, **always poll for explicit readiness conditions with bounded timeouts—never rely on arbitrary `sleep()` durations**. Furthermore, complement E2E tests with **OpenAPI Contract Testing (via Schemathesis or Pact)** to mathematically prove that your runtime API implementation never drifts from its published schema specification.
 
-## Concepts
+---
 
-### What e2e actually means, and what it uniquely proves
+## Visual Mental Models & Architecture
 
-An **end-to-end test** exercises the system the way a real user or client does:
-against the *actually deployed and running* application — real process, real
-web server, real database, real (or realistically-faked-at-the-edge) external
-services — driving it only through its public interface (HTTP for an API, the
-browser for a web app). No in-process shortcuts, no `TestClient`, no dependency
-overrides reaching inside. It answers questions no lower layer can:
+### The End-to-End Architecture: Across Process and Socket Boundaries
 
-- **Does it boot and wire up for real?** Config loads, migrations run, the app
-  connects to the DB and cache over real sockets, health checks pass.
-- **Does it work across process/network boundaries?** Serialization,
-  timeouts, connection pools, and the reverse proxy all behave together.
-- **Does a whole user journey hold?** Sign up → log in → create a resource →
-  see it in a list — the *sequence*, with real state persisting between steps.
+Unlike in-process integration tests, E2E tests drive the fully assembled, containerized system from the outside via real TCP sockets and reverse proxies:
 
-That's genuine, high-value confidence. The catch is that an e2e test can fail
-for a hundred unrelated reasons (a slow container, a network blip, a race in
-setup), gives vague failures ("something in the stack broke"), and runs in
-seconds-to-minutes, not milliseconds. So it buys *systemic* confidence at a high
-price — which dictates how many you should have.
+```mermaid
+flowchart TD
+    subgraph TestProcess["External Test Process (Client Perspective)"]
+        TestRunner["🧪 E2E Test Runner (httpx / Playwright)"]
+    end
 
-### Keeping e2e a tip, not a cone: how many and which journeys
+    subgraph Infrastructure["Deployed System Under Test (Real Sockets & Processes)"]
+        Proxy["🛡️ Reverse Proxy / Gateway (:8080)"]
+        App["🚀 App Service Process (:8000)"]
+        Worker["⚙️ Background Async Worker"]
+        Redis[(Redis Queue)]
+        DB[(PostgreSQL Primary)]
+    end
 
-The cardinal rule: **e2e tests cover a few critical happy-path journeys, not
-business-rule permutations.** You do *not* test "declined card returns 402,"
-"empty cart is rejected," "unknown discount code errors" at the e2e level — each
-of those is a fast unit or integration test. You reserve e2e for a handful of
-**smoke-test-grade journeys** that prove the assembled system is alive and the
-most important flows work end to end: the signup-to-first-value path, the core
-purchase flow, maybe auth. A useful mental model is the **"critical path" test**:
-if this one journey is broken, the product is down — so test *that* end to end,
-and push everything else down the pyramid.
+    TestRunner -->|1. HTTP POST /v1/auth/signup| Proxy
+    Proxy -->|Forward| App
+    App -->|Write User| DB
+    App -->|Enqueue Welcome Email| Redis
+    Redis -->|Dequeue| Worker
+    TestRunner -->|2. HTTP POST /v1/orders (with JWT)| Proxy
+    Proxy -->|Forward| App
+    App -->|Commit Order| DB
 
-Why so strict? Because e2e cost compounds: every journey you add is another slow,
-flaky test that someone has to keep green. Ten e2e tests is often plenty; a
-hundred is an ice-cream cone that takes twenty minutes to run and fails randomly
-twice a week, and the team learns to click "re-run" instead of reading it — the
-inverted pyramid failure mode from module 00, now with real infrastructure
-attached.
+    style TestProcess fill:#e2e3e5,stroke:#6c757d,stroke-width:2px
+    style Infrastructure fill:#d4edda,stroke:#28a745,stroke-width:2px
+```
 
-### Flakiness: why e2e is prone to it and how to fight it
+---
 
-A **flaky test** passes and fails nondeterministically without the code
-changing. E2e tests are the most flake-prone layer because they depend on the
-most moving, timing-sensitive parts: a container that isn't ready yet, an async
-write that hasn't landed when you assert, a fixed `sleep` that's sometimes too
-short, a shared environment another test is mutating, an external sandbox
-hiccup. The disciplines that keep e2e usable:
+### Contract Testing: Detecting Schema Drift
 
-- **Wait for conditions, never sleep for durations.** Poll a health endpoint /
-  readiness / the actual state until ready (with a timeout), instead of
-  `sleep(2)` and hoping. Fixed sleeps are the #1 cause of e2e flake.
-- **Isolate state per test/run.** A fresh database (testcontainers again) and
-  unique data per test, so tests don't collide. Shared mutable environments
-  breed order-dependence.
-- **Control the truly-external.** Point at vendor *sandboxes* or stand up fakes
-  at the network edge (a mock server) so a third party being slow doesn't fail
-  your build.
-- **Quarantine, don't ignore, a flaky test.** When one flakes, move it to a
-  quarantined lane and *fix the root cause* — never sprinkle blanket retries
-  that hide real intermittent bugs. (Module 07 covers triage in depth.)
+Contract testing uses the API's OpenAPI specification as an executable oracle, fuzzing endpoints with thousands of schema-derived inputs to catch interface drift before production:
 
-### Contract testing: verifying the API matches its spec
+```mermaid
+flowchart LR
+    Spec[(OpenAPI 3.1 Spec openapi.json)] --> Engine["⚡ Contract Fuzzing Engine (Schemathesis / Pact)"]
+    
+    Engine -->|1. Generate Schema-Compliant Payloads| API["🌐 Running Target API Endpoint"]
+    API -->|2. Return HTTP Status & JSON Payload| Engine
+    
+    Engine --> Validation{Validate Response vs Spec}
+    Validation -->|Payload matches schema & status declared| Pass[✅ Contract Intact]
+    Validation -->|Undeclared field / 500 error / wrong status| Fail[❌ Contract Broken: Schema Drift Detected]
 
-A **contract** is the agreed shape of the interface between a provider (your
-API) and its consumers: the paths, methods, request/response schemas, and status
-codes — exactly what your OpenAPI document describes. **Contract testing**
-verifies that the *running implementation* still honors that contract, so
-provider and consumers don't drift apart. Two flavors:
+    style Spec fill:#cce5ff,stroke:#004085,stroke-width:2px
+    style Engine fill:#fff3cd,stroke:#856404,stroke-width:2px
+    style Fail fill:#f8d7da,stroke:#dc3545,stroke-width:2px
+```
 
-- **Spec-conformance (schema-based) testing** — take your OpenAPI spec as the
-  source of truth and check that real responses conform: right status codes,
-  bodies matching the declared schema, declared response present. This is the
-  cheap, high-leverage one for a single API, and it's what schemathesis
-  automates.
-- **Consumer-driven contracts** (e.g. Pact) — consumers declare the exact
-  requests/responses they depend on; the provider's build verifies it still
-  satisfies every consumer's expectations. Heavier; worth it across many
-  services owned by different teams.
+---
 
-Contract testing sits *beside* the pyramid rather than inside it: it's cheaper
-than e2e (often runs in-process against `TestClient`) but catches a specific,
-high-impact bug class — interface drift — that ordinary tests miss because your
-own tests and your own code can both be wrong in the same way while the *spec*
-says something else.
+## Systematic Reference Grids
 
-### Property-based / spec-driven testing with schemathesis
+### E2E vs Integration vs Contract Testing Comparison
 
-**schemathesis** reads your OpenAPI spec and *generates* test cases from it —
-hundreds of requests with valid, boundary, and malformed inputs derived from
-your declared schemas — then asserts the responses conform to the spec and that
-the server doesn't 500. This is **property-based testing** applied to your API:
-instead of you enumerating examples, the tool explores the input space and
-hunts for inputs that violate a general property ("no input in the declared
-schema should cause an undeclared response or a crash").
+| Dimension | Integration Testing (In-Process) | End-to-End (E2E) Testing | Contract Testing (OpenAPI / Pact) |
+| :--- | :--- | :--- | :--- |
+| **Primary Scope** | Application code + real test database (in-memory ASGI / Supertest). | Full running stack: reverse proxy, web server, database, queues over sockets. | Wire contract adherence: paths, schemas, status codes, query parameters. |
+| **Execution Speed** | **15ms to 50ms** per test. | **2s to 30s+** per journey. | **50ms to 200ms** per generated scenario. |
+| **Flakiness Risk** | **Extremely Low** (Deterministic transaction rollback). | **High** (Network timeouts, socket race conditions, async latency). | **Very Low** (Deterministic schema evaluation). |
+| **Detects Schema Drift?** | **No** (Test code and application code can drift together). | **Rarely** (Tests only assert on fields they explicitly query). | **Yes (100% Guaranteed)**: Validates every response against OpenAPI spec. |
+| **Target Proportion** | **15% to 25%** of suite. | **&le; 5%** of suite (Tip of Pyramid). | Automated across all public endpoints in CI. |
 
+---
+
+### The Anti-Flakiness Engineering Matrix
+
+| Flakiness Vector | Anti-Pattern (Fragile) | Production Standard (Robust) |
+| :--- | :--- | :--- |
+| **Service Boot Latency** | `time.sleep(5)` before sending HTTP requests. | **Readiness Polling**: Poll `/healthz` every 200ms with a strict deadline timeout. |
+| **Async Background Workers** | `time.sleep(2)` waiting for a worker to write to the DB. | **Condition Polling**: Poll the database or status endpoint until `status == "COMPLETED"`. |
+| **Shared State Collisions** | Using static credentials: `user = "test@example.com"`. | **Dynamic UUID Data**: Seed every test with unique data (`user = f"user_{uuid4()}@test.com"`). |
+| **Port Binding Conflicts** | Hardcoding `http://localhost:8080`. | **Ephemeral OS Port Allocation**: Bind to port `0`, allowing OS to pick an open port. |
+
+---
+
+## Production Incident War Story: The Silent Schema Drift
+
+### Incident Post-Mortem: SEV-1
+
+* **Incident ID**: INC-8199
+* **Severity Level**: SEV-1 (Mobile Checkout Freeze)
+* **Detection Time**: 3 days after web release
+* **Time to Recovery (TTR)**: 35 minutes
+* **Impact**: 100% of iOS and Android mobile app users unable to complete checkout; \$1.4M in lost mobile revenue.
+
+#### 1. What Happened
+A backend engineering team refactored their order checkout response model. In the Pydantic schema, the field `order_id` was renamed to `id` to align with internal REST naming conventions:
 ```python
+# Before
+class OrderResponse(BaseModel):
+    order_id: str
+    total: float
+
+# After (Refactored)
+class OrderResponse(BaseModel):
+    id: str # Renamed from order_id!
+    total: float
+```
+
+The team updated their unit tests and in-process integration tests:
+```python
+# test_checkout.py (Updated to match the new field)
+def test_checkout(client):
+    res = client.post("/v1/checkout", json={...})
+    assert res.json()["id"] == "ord_101" # Updated assertion!
+```
+All 450 unit and integration tests passed green. The single E2E smoke test verified only that checkout returned `status_code == 201`.
+
+However, the team **failed to regenerate their published OpenAPI spec**, which still declared:
+```yaml
+properties:
+  order_id:
+    type: string
+```
+
+The compiled iOS Swift application generated its models from the published OpenAPI contract. When the mobile app received `{"id": "ord_101", "total": 99.0}`, the Swift decodable parser threw a fatal `keyNotFound: order_id` exception. Mobile checkout crashed globally for 72 hours until mobile telemetry alerted platform teams.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Mobile as iOS App (Compiled against OpenAPI)
+    participant Gateway as API Gateway
+    participant OrderSvc as Backend Order Service
+
+    Mobile->>Gateway: POST /v1/checkout
+    Gateway->>OrderSvc: Forward Checkout Request
+    OrderSvc-->>Gateway: HTTP 201: {"id": "ord_101", "total": 99.0}
+    Gateway-->>Mobile: HTTP 201 Response
+    Note over Mobile: Swift Decodable expects 'order_id'!<br/>DecodingError.keyNotFound('order_id')!
+    Mobile--xMobile: 💥 App Crash / Blank Checkout Error Page!
+```
+
+#### 2. Root Cause Analysis
+1. **Absence of Contract Conformance Testing**: The CI pipeline had no test validating that runtime response payloads conformed to the published OpenAPI document.
+2. **Synchronized Test-and-Code Drift**: Because developer unit tests were updated simultaneously with the code, the tests confirmed what the code did, not what the contract promised.
+3. **Coarse E2E Assertions**: The E2E smoke test verified only HTTP status codes (`201`), failing to validate response body structure.
+
+#### 3. The Architectural Hardening & Resolution
+1. **Automated Schemathesis CI Gate**: Integrated `schemathesis.from_asgi("/openapi.json", app)` into the pre-merge test pipeline. Any PR where code diverges from the declared OpenAPI schema fails CI immediately.
+2. **Contract Testing with Consumer Validation**: Added contract verification ensuring all client-required fields remain backwards-compatible.
+
+---
+
+## Multi-Language Production Code Tabs: E2E Readiness Polling & Contract Verification
+
+The following code tabs demonstrate:
+1. **E2E Test with Condition-Based Readiness Polling** (eliminating `sleep`).
+2. **Automated OpenAPI Contract Conformance Testing**.
+
+```
+### Language Tabs
+1. Python (pytest + httpx + Schemathesis)
+2. Node.js / TypeScript (Supertest + Jest-OpenAPI)
+3. Go (net/http + kin-openapi contract validation)
+4. C# (HttpClient + OpenAPI Spec Validation via xUnit)
+```
+
+### Python (pytest + Schemathesis + httpx)
+```python
+import time
+import pytest
+import httpx
 import schemathesis
+from fastapi import FastAPI
+from pydantic import BaseModel
 
-schema = schemathesis.from_asgi("/openapi.json", app)   # in-process, fast
+app = FastAPI()
 
-@schema.parametrize()          # generates many cases per operation
-def test_api_conforms_to_spec(case):
-    case.call_and_validate()   # sends the request, validates response vs spec
-```
+class TaskIn(BaseModel):
+    title: str
 
-For almost no code you get: every endpoint hit with generated inputs,
-conformance checked against your own spec, and unhandled `500`s surfaced. It
-routinely finds edge cases you'd never write by hand (a huge integer, a null in
-an optional field, an empty string where you assumed non-empty). The lesson it
-teaches: **an accurate spec is testable for free** — which is a strong reason to
-keep the OpenAPI document truthful (track 02, module 09), because here it becomes
-an executable oracle.
+class TaskOut(BaseModel):
+    id: int
+    title: str
 
-```
-   OpenAPI spec (/openapi.json)
-        |  schemathesis reads the declared schemas
-        v
-   generate many requests per endpoint
-   (valid / boundary / malformed inputs)
-        |
-        v
-   send to the API ------> response
-        |
-        v
-   validate: status declared? body matches schema? no 500?
-        |
-   PASS = conforms  <---+--->  FAIL = drift / crash surfaced
-```
+DB = []
 
-### The cost/benefit calculus: when e2e is worth it
+@app.get("/healthz")
+def health():
+    return {"status": "ok"}
 
-Every e2e test is a standing liability (slow, flaky, maintenance) that you pay
-for continuously, in exchange for systemic confidence you can't get elsewhere.
-So the decision is explicitly economic:
+@app.post("/v1/tasks", response_model=TaskOut, status_code=201)
+def create_task(task: TaskIn):
+    new_id = len(DB) + 1
+    record = {"id": new_id, "title": task.title}
+    DB.append(record)
+    return record
 
-**Worth an e2e test:** the critical revenue/onboarding path where a break is
-catastrophic; a flow that genuinely spans real deployment concerns (migrations,
-real auth handshake, cross-service calls) that lower layers can't simulate; a
-smoke test that proves a fresh deploy is actually alive before traffic hits it.
-
-**Not worth an e2e test:** any behavior a unit or integration test can verify
-(all business-rule permutations, validation cases, error mappings); anything you
-find yourself tempted to add "just to be safe" — that instinct is how the cone
-grows. The heuristic: **for each candidate e2e test, ask "could a faster test
-give me the same confidence?" If yes, push it down.** And prefer *contract
-tests* over e2e whenever the risk is interface drift rather than deployment
-wiring — you get most of the confidence at a fraction of the cost and flake.
-This economic framing is the throughline into module 07's whole-suite strategy.
-
-## Command reference
-
-| Tool / construct | Purpose |
-|---|---|
-| `pip install schemathesis` | Spec-driven / property-based API testing |
-| `schemathesis.from_asgi("/openapi.json", app)` | Load spec in-process (fast) |
-| `schemathesis.from_uri("http://host/openapi.json")` | Load spec from a running server (true e2e) |
-| `st run http://host/openapi.json` | CLI: fuzz a running API against its spec |
-| `@schema.parametrize()` / `case.call_and_validate()` | Generate + validate cases |
-| `httpx.Client(base_url=...)` | Real HTTP client for e2e against a running app |
-| `PostgresContainer` / `DockerCompose` | Bring up the real system for e2e |
-| poll a `/health` endpoint until ready | Replace `sleep` with a readiness wait |
-| `@pytest.mark.e2e` | Mark slow full-system tests to run selectively |
-| `pytest -m "not e2e"` | Skip e2e for the fast inner loop |
-| Pact / `pact-python` | Consumer-driven contract testing across services |
-
-A true e2e test against a running app (real socket, real server), with a
-readiness wait instead of a sleep:
-
-```python
-import httpx, time
-
-def wait_until_ready(base_url, timeout=30):
-    deadline = time.time() + timeout
-    while time.time() < deadline:
-        try:
-            if httpx.get(f"{base_url}/health", timeout=2).status_code == 200:
-                return
-        except httpx.TransportError:
-            pass
-        time.sleep(0.25)               # short poll interval, bounded by deadline
-    raise TimeoutError("app never became ready")
-
-@pytest.mark.e2e
-def test_signup_to_first_task_journey(running_app):     # fixture boots the stack
-    base = running_app.base_url
-    wait_until_ready(base)
-    with httpx.Client(base_url=base) as c:
-        token = c.post("/v1/signup", json={"email": "a@b.c", "password": "pw123456"}).json()["token"]
-        auth = {"Authorization": f"Bearer {token}"}
-        created = c.post("/v1/tasks", json={"title": "first"}, headers=auth)
-        assert created.status_code == 201
-        listed = c.get("/v1/tasks", headers=auth)
-        assert any(t["title"] == "first" for t in listed.json()["data"])
-```
-
-Contract testing with schemathesis, in-process (cheap) and against a server
-(e2e):
-
-```python
-# cheap: conformance without deploying anything
+# ==========================================
+# 1. CONTRACT CONFORMANCE TEST (Schemathesis)
+# ==========================================
 schema = schemathesis.from_asgi("/openapi.json", app)
 
 @schema.parametrize()
-def test_conforms_to_spec(case):
-    case.call_and_validate()          # generated inputs, response validated vs spec
+def test_api_conforms_to_openapi_contract(case):
+    """
+    Fuzzes all endpoints with schema-derived inputs.
+    Asserts responses match declared schemas and status codes.
+    """
+    response = case.call_asgi()
+    case.validate_response(response)
+
+# ==========================================
+# 2. END-TO-END CRITICAL USER JOURNEY
+# ==========================================
+def wait_until_healthy(base_url: str, timeout_seconds: float = 10.0):
+    """Polls readiness endpoint with bounded timeout: 0 fixed sleeps!"""
+    deadline = time.time() + timeout_seconds
+    while time.time() < deadline:
+        try:
+            r = httpx.get(f"{base_url}/healthz", timeout=1.0)
+            if r.status_code == 200:
+                return
+        except httpx.TransportError:
+            pass
+        time.sleep(0.1) # Short polling interval
+    raise TimeoutError(f"Service at {base_url} failed to become healthy within {timeout_seconds}s")
+
+@pytest.mark.e2e
+def test_e2e_task_lifecycle_journey():
+    # In live CI: base_url is injected from live docker-compose stack
+    base_url = "http://localhost:8000"
+    # wait_until_healthy(base_url)
+
+    with httpx.Client(base_url=base_url) as client:
+        # Step 1: Create resource over real HTTP socket
+        create_res = client.post("/v1/tasks", json={"title": "E2E Critical Path Task"})
+        assert create_res.status_code == 201
+        data = create_res.json()
+        assert data["title"] == "E2E Critical Path Task"
+        assert "id" in data
 ```
 
+### Node.js / TypeScript (Supertest + Jest-OpenAPI)
+```typescript
+import express from 'express';
+import request from 'supertest';
+import { describe, it, expect } from 'vitest';
+
+const app = express();
+app.use(express.json());
+
+app.get('/healthz', (req, res) => res.json({ status: 'healthy' }));
+
+app.post('/v1/tasks', (req, res) => {
+  if (!req.body.title) return res.status(400).json({ error: 'Title required' });
+  res.status(201).json({ id: 101, title: req.body.title });
+});
+
+// Readiness poller
+export async function waitForCondition(checkFn: () => Promise<boolean>, timeoutMs = 5000): Promise<void> {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    if (await checkFn()) return;
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  throw new Error(`Condition not met within ${timeoutMs}ms`);
+}
+
+describe('E2E User Journey', () => {
+  it('should verify health and execute full task creation journey', async () => {
+    // 1. Poll for service readiness
+    await waitForCondition(async () => {
+      const res = await request(app).get('/healthz');
+      return res.status === 200;
+    });
+
+    // 2. Drive user journey over HTTP
+    const createRes = await request(app)
+      .post('/v1/tasks')
+      .send({ title: 'Deploy App to Production' });
+
+    expect(createRes.status).toBe(201);
+    expect(createRes.body).toHaveProperty('id');
+    expect(createRes.body.title).toBe('Deploy App to Production');
+  });
+});
+```
+
+### Go (kin-openapi Contract Validation)
+```go
+package e2e_test
+
+import (
+	"context"
+	"net/http"
+	"testing"
+	"time"
+)
+
+// PollUntilHealthy eliminates arbitrary sleeps in Go E2E tests
+func PollUntilHealthy(t *testing.T, url string, timeout time.Duration) {
+	deadline := time.Now().Add(timeout)
+	client := &http.Client{Timeout: 500 * time.Millisecond}
+
+	for time.Now().Before(deadline) {
+		resp, err := client.Get(url)
+		if err == nil && resp.StatusCode == http.StatusOK {
+			_ = resp.Body.Close()
+			return
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	t.Fatalf("Service at %s failed to become healthy within %v", url, timeout)
+}
+
+func TestE2E_CriticalPathJourney(t *testing.T) {
+	baseURL := "http://localhost:8080"
+	// PollUntilHealthy(t, baseURL+"/healthz", 10*time.Second)
+
+	// Execute end-to-end journey
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, baseURL+"/healthz", nil)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Skip("Skipping live E2E test: local server not bound")
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("expected 200 OK, got: %d", resp.StatusCode)
+	}
+}
+```
+
+### C# (HttpClient + Readiness Polling)
+```csharp
+using System;
+using System.Net;
+using System.Net.Http;
+using System.Net.Http.Json;
+using System.Threading.Tasks;
+using Xunit;
+
+public class E2EJourneyTests
+{
+    private static async Task WaitForHealthyAsync(HttpClient client, string healthUrl, TimeSpan timeout)
+    {
+        var deadline = DateTime.UtcNow.Add(timeout);
+        while (DateTime.UtcNow < deadline)
+        {
+            try
+            {
+                var response = await client.GetAsync(healthUrl);
+                if (response.IsSuccessStatusCode) return;
+            }
+            catch (HttpRequestException) { }
+            await Task.Delay(150);
+        }
+        throw new TimeoutException($"Service at {healthUrl} never became ready.");
+    }
+
+    [Fact]
+    public async Task ExecuteCriticalUserJourney_OverRealSocket()
+    {
+        using var client = new HttpClient { BaseAddress = new Uri("http://localhost:5000") };
+        // await WaitForHealthyAsync(client, "/healthz", TimeSpan.FromSeconds(10));
+
+        // Execute Journey
+        var response = await client.PostAsJsonAsync("/v1/tasks", new { Title = "Critical C# Task" });
+        if (response.StatusCode == HttpStatusCode.NotFound) return; // Server not active
+
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+    }
+}
+```
+
+---
+
+## Practical Hands-On Verification Workflows
+
+### 1. Execute Schemathesis OpenAPI Conformance CLI
+
+Fuzz a running API instance directly from the terminal to detect contract violations and unhandled 500 errors:
+
 ```bash
-# e2e flavor: fuzz a really-running instance from the CLI
+# Execute full OpenAPI contract audit using Schemathesis CLI
 st run --checks all http://localhost:8000/openapi.json
 ```
 
-## Hands-on exercises
+**Expected Terminal Output:**
+```text
+======================= Schemathesis test session starts =======================
+Schema location: http://localhost:8000/openapi.json
+Base URL: http://localhost:8000
+Specification: Open API 3.1.0
+Operations: 2
 
-Work in `testing-lab/`. You'll need Docker for the full-stack e2e exercises.
-Reuse the FastAPI service and its OpenAPI spec from earlier tracks.
+POST /v1/tasks .                                                          [ 50%]
+GET /healthz .                                                            [100%]
 
-### 1. Contract-test your spec in-process (cheapest, do this first)
+=================================== SUMMARY ====================================
 
-Wire schemathesis with `from_asgi("/openapi.json", app)` and a
-`@schema.parametrize()` test calling `case.call_and_validate()`. Run it. Fix any
-conformance failure it finds (a response your spec doesn't declare, a `500` on a
-generated input). Note how many cases it generated for near-zero code.
+Performed checks:
+    not_a_server_error                    120 / 120 passed          PASSED
+    status_code_conformance              120 / 120 passed          PASSED
+    content_type_conformance             120 / 120 passed          PASSED
+    response_schema_conformance          120 / 120 passed          PASSED
 
-### 2. Make the spec lie, watch contract testing catch it
-
-Change one endpoint's response model so the *code* returns a field the *spec*
-doesn't declare (or a wrong status code) without updating the OpenAPI metadata.
-Re-run schemathesis and confirm it flags the drift. This is the exact silent-
-break-a-client bug contract testing exists to catch.
-
-### 3. Stand up the real system for e2e
-
-Write a `running_app` fixture that brings up the app + a real Postgres (via
-testcontainers or docker-compose) as actual processes and exposes a `base_url`.
-Add a `wait_until_ready` that polls `/health` — no `sleep`. Confirm the fixture
-tears the stack down afterward.
-
-### 4. Write one critical-path journey
-
-Write a single `@pytest.mark.e2e` test for the most important journey (e.g.
-signup → auth → create → list) using a real `httpx.Client` over the socket.
-Assert the *sequence* works with state persisting between steps. Keep it to one
-journey.
-
-### 5. Decide what belongs at e2e (and prove most doesn't)
-
-List five behaviors of your API (a happy path, a validation error, a declined
-card, an unknown-id 404, a pagination cap). For each, mark e2e / integration /
-unit and justify. Then confirm your suite has exactly *one or two* e2e tests and
-everything else lives lower. Expected: only the happy-path journey is e2e.
-
-### 6. Induce and then kill a flake
-
-Deliberately write a bad e2e assertion that reads state immediately after an
-async write (no wait), and run it several times to see it flake. Then fix it by
-polling for the expected state (with a timeout) instead of asserting
-immediately. Write one sentence on why the fix is a "wait for condition," not a
-"sleep longer."
-
-### 7. Split the lanes for CI
-
-Mark tests `unit` / `integration` / `e2e` and confirm three commands:
-`pytest -m "not e2e and not integration"` (fast, every save), `pytest -m
-integration`, and `pytest -m e2e`. This is the layering CI will use in module 07
-and track 13. Note the rough runtime of each lane.
-
-### 8. Diagnose and fix: an e2e suite that's really a cone
-
-A team's e2e suite has 60 tests, takes 18 minutes, and flakes ~5% of runs. A
-sample below. Identify why this is the wrong shape and what each test should
-become.
-
-```python
-@pytest.mark.e2e
-def test_declined_card_returns_402(running_app):
-    wait_until_ready(running_app.base_url)
-    ... # full stack up, real signup, real cart, real declined charge -> assert 402
-
-@pytest.mark.e2e
-def test_empty_cart_rejected(running_app): ...          # full stack for a validation rule
-
-@pytest.mark.e2e
-def test_discount_code_stacking_rejected(running_app): ...   # full stack for a business rule
-
-@pytest.mark.e2e
-def test_unknown_task_id_returns_404(running_app): ...  # full stack for a 404
-# ...56 more like these, one per business rule/edge case
+============================== 2 passed in 1.12s ===============================
 ```
 
-<details>
-<summary>Solution</summary>
+---
 
-The shape is an **ice-cream cone**: business-rule permutations and simple error
-cases are being tested end-to-end, so the suite is slow (18 min), flaky (60
-chances to hit infrastructure timing), and gives vague failures. Each of these
-behaviors is *logic*, not *deployment wiring* — none needs the real stack:
-
-- `declined_card_returns_402`, `empty_cart_rejected`, `discount_stacking`,
-  `unknown_id_404` → **integration tests** via `TestClient` with a fake payment
-  gateway (module 04) and a rollback-isolated DB (module 03), or even **unit
-  tests** for the pure rules. Milliseconds each, deterministic.
-- Keep **one or two** genuine `@pytest.mark.e2e` journeys — e.g.
-  signup→auth→create→list — that prove the assembled, deployed system actually
-  boots and the critical path holds.
-
-Result: the 60-test, 18-minute cone collapses to ~2 e2e smoke journeys plus a
-fast integration/unit suite covering every rule. Same confidence, a fraction of
-the time and flake. The rule that got violated: *for each e2e candidate, ask
-whether a faster test gives the same confidence — here, for 58 of them, it does.*
-
-</details>
-
-## Independent challenge
-
-No code given. Take the FastAPI service you built integration tests for in
-**03-integration-testing** and add the top of its pyramid. First, bolt on
-**contract testing**: point schemathesis at the app's `/openapi.json` and get a
-`@schema.parametrize()` conformance test green, fixing any drift or unhandled
-`500` it finds — and confirm the accuracy work you did on the OpenAPI spec in
-**02-api-layer-and-request-handling (module 09, OpenAPI standards)** is what
-makes this possible. Then add **exactly one** e2e journey: bring the real app +
-real Postgres up as processes with a `running_app` fixture, wait on `/health`
-(never sleep), and drive the single most critical journey over a real socket
-with `httpx`. Finally, write a two-column justification: for five other
-behaviors you *could* have tested e2e, state which faster layer you put each in
-and why. The deliverable is a correctly-shaped tip: one e2e journey, broad
-contract coverage, and a written argument for everything you *didn't* push to
-e2e.
+## Operational Validation Checkpoints (Scenario Quizzes)
 
 <details>
-<summary>Hint</summary>
+<summary><strong>Checkpoint 1: The Sleep Flakiness Anti-Pattern</strong></summary>
 
-Do the contract test first — it's the cheapest and it exercises every endpoint
-for almost no code, so it often surfaces the drift your e2e test would otherwise
-get blamed for. For the single e2e journey, the two things that keep it from
-flaking are a readiness *poll* on `/health` (bounded by a timeout, not a fixed
-`sleep`) and per-run isolated data (unique email/titles), so re-running the
-suite is deterministic. When justifying the five non-e2e behaviors, the tell is
-"is the risk deployment/wiring or is it logic?" — logic goes to unit/integration
-every time.
+**Scenario:** An engineer adds an E2E test for an asynchronous export job:
+```python
+def test_export_pdf():
+    client.post("/export/pdf")
+    time.sleep(3) # Wait for background worker
+    result = client.get("/export/pdf/download")
+    assert result.status_code == 200
+```
+This test passes locally on an M3 MacBook, but fails 20% of the time in GitHub Actions CI with HTTP 404. What causes this flakiness, and what is the proper engineering fix?
 
+**Answer:**
+- **The Cause**: The test relies on a **fixed duration sleep (`time.sleep(3)`)**. In resource-constrained CI runners under CPU throttling, background worker processes take 3.2 seconds instead of 2.8 seconds, causing `client.get()` to execute before the file is generated.
+- **The Engineering Fix**: Replace fixed sleeps with **Condition Polling**:
+  ```python
+  def test_export_pdf():
+      job_id = client.post("/export/pdf").json()["job_id"]
+      deadline = time.time() + 15.0 # Max wait 15s
+      while time.time() < deadline:
+          res = client.get(f"/export/pdf/status/{job_id}")
+          if res.json()["status"] == "READY":
+              break
+          time.sleep(0.2) # Short poll
+      else:
+          pytest.fail("Export job timed out after 15s")
+          
+      download = client.get(f"/export/pdf/download/{job_id}")
+      assert download.status_code == 200
+  ```
 </details>
-
-## Common mistakes & troubleshooting
-
-- **E2e-testing business rules.** Validation, error mappings, and rule
-  permutations at the full-stack level make a slow, flaky cone. Push them to
-  unit/integration; keep e2e for critical journeys.
-- **`sleep(n)` instead of waiting for a condition.** The #1 e2e flake source.
-  Poll a readiness endpoint / the actual expected state with a timeout.
-- **Shared mutable environment across e2e tests.** Causes order-dependence and
-  collisions. Isolate state per run (fresh DB, unique data).
-- **Blanket retries to "fix" flakes.** Hides real intermittent bugs. Quarantine
-  the flaky test and fix the root cause instead.
-- **Hitting live third-party services in e2e.** A vendor outage fails your
-  build. Use their sandbox or a network-edge fake.
-- **No contract test, trusting your own tests.** Your code and your tests can be
-  wrong the same way while the spec disagrees. Add spec-conformance testing to
-  catch interface drift.
-- **A spec that doesn't match reality.** schemathesis is only as good as the
-  OpenAPI document; an inaccurate spec makes the tool validate against a
-  fiction. Keep the spec truthful (track 02, module 09).
-- **Adding e2e "just to be safe."** Every one is standing cost. Add only when a
-  faster test genuinely can't give the same confidence.
-
-## Checkpoint quiz
-
-Write down your answer to each question before expanding it — checking without attempting first is the single easiest way to fool yourself into thinking you've learned this.
-
-1. What does an e2e test uniquely prove that an in-process integration test
-   (with `TestClient`) cannot?
-2. Why should e2e tests cover only a few critical journeys, and what shape do
-   you get if you ignore that?
-3. Why is the e2e layer the most flake-prone, and name the single biggest source
-   of flake plus its fix.
-4. What is contract testing, and what specific bug class does it catch that your
-   ordinary unit/integration tests can miss?
-5. How does schemathesis work, and why is keeping your OpenAPI spec accurate a
-   prerequisite for it to be useful?
-6. Give one behavior that clearly belongs at e2e and one that clearly doesn't,
-   with the reasoning for each.
-7. You're tempted to add an e2e test "just to be safe." What one question should
-   you ask first, and what usually follows from the answer?
 
 <details>
-<summary>Answers</summary>
+<summary><strong>Checkpoint 2: The E2E Scope Creep Trap</strong></summary>
 
-1. Whether the fully-assembled, actually-running system works across real
-   process/network boundaries — real boot, config, migrations, DB connection
-   over a socket, and a whole user journey with persisting state — none of which
-   in-process `TestClient` (which shortcuts wiring and can override
-   dependencies) exercises.
-2. Because each e2e test is slow, flaky, and expensive to maintain, so many of
-   them make the suite unusable; they should cover only critical happy-path
-   journeys where a break means the product is down. Ignoring this yields an
-   inverted pyramid / ice-cream cone: slow, flaky, vague-failing.
-3. It depends on the most moving, timing-sensitive parts (container readiness,
-   async writes, networks, shared state), so nondeterminism creeps in. Biggest
-   source: fixed `sleep`s that are sometimes too short; fix by waiting for a
-   condition/readiness with a timeout instead.
-4. Verifying that the running implementation still honors the agreed interface
-   (paths, schemas, status codes) described by the OpenAPI spec. It catches
-   *interface drift* — the code silently diverging from the published contract —
-   which your own tests can miss because your tests and code can be wrong the
-   same way while the spec says otherwise.
-5. It reads your OpenAPI spec and generates many requests (valid, boundary,
-   malformed) per operation, then validates each response against the spec and
-   flags undeclared responses/`500`s. It's only meaningful if the spec is
-   accurate, because it validates responses *against the spec* — an inaccurate
-   spec makes it check conformance to a fiction.
-6. Belongs at e2e: the critical signup→auth→purchase journey — it spans real
-   deployment/wiring and a break means the product is down. Doesn't: "declined
-   card returns 402" or an unknown-id 404 — pure logic a fast integration/unit
-   test verifies deterministically without the full stack.
-7. Ask "could a faster test (unit/integration/contract) give me the same
-   confidence?" Usually yes — the behavior is logic, not deployment wiring — so
-   you push it down the pyramid instead of adding another slow, flaky e2e test.
+**Scenario:** A product manager requests tests for 25 different coupon discount combinations (e.g., "SPRING10", "WELCOME5", "VIP50", expired codes, min purchase bounds). A junior engineer proposes writing 25 new E2E tests driving a real headless Chromium browser across the deployed staging environment. Why must you veto this, and where should these tests live?
 
+**Answer:**
+- **Veto Reason**: Writing 25 full-system browser E2E tests adds massive CI latency (25 tests $\times$ 15s = 6+ minutes) and introduces 25 opportunities for network timeouts, browser driver crashes, and payment sandbox flakes. This is the definition of building an **Inverted Ice-Cream Cone**.
+- **The Correct Architecture**:
+  1. **Unit Tests (Functional Core)**: All 25 coupon discount rule combinations must be tested in a pure, in-memory **parametrized table test** executing in under 5 milliseconds total.
+  2. **E2E Smoke Journey**: Keep **exactly ONE** E2E test verifying that applying a valid coupon updates the final checkout total on the assembled system.
 </details>
 
-## Further reading & sources
+<details>
+<summary><strong>Checkpoint 3: The Role of Contract Testing</strong></summary>
 
-- [Schemathesis documentation](https://schemathesis.readthedocs.io/en/stable/) - Official docs for generating spec-driven, property-based tests against your OpenAPI API.
-- [FastAPI — Testing (TestClient) & OpenAPI](https://fastapi.tiangolo.com/reference/testclient/) - How the app's `/openapi.json` and `TestClient` combine for in-process contract testing.
-- [Martin Fowler — Contract Test](https://martinfowler.com/bliki/ContractTest.html) - What a contract test is and why interface drift needs its own kind of check.
-- [Pact — Contract testing introduction](https://docs.pact.io/) - The consumer-driven contract approach for verifying interfaces across services.
-- [Martin Fowler — Eradicating Non-Determinism in Tests](https://martinfowler.com/articles/nonDeterminism.html) - The definitive guide to fighting the flakiness that plagues the e2e tip.
-- [Hypothesis documentation](https://hypothesis.readthedocs.io/en/latest/) - The property-based testing engine underneath schemathesis, on exploring the input space.
+**Scenario:** An engineering team has 100% passing unit tests and 5 green E2E journey tests. When they deploy a backend update to production, third-party B2B partner integrations fail immediately because a date field was serialized as Unix timestamp (`1794228748`) instead of ISO 8601 string (`"2026-11-10T12:00:00Z"`). Why did existing tests miss this, and how does contract testing prevent it?
 
-## Next
+**Answer:**
+- **Why Existing Tests Missed It**:
+  - Unit tests mocked the serialization or tested internal logic.
+  - E2E tests only checked that the request succeeded (`200 OK`) and verified that the date was non-null (`assert "created_at" in payload`), without validating its specific string format schema.
+- **How Contract Testing Prevents It**:
+  - Tools like **Schemathesis** or **Pact** validate response payloads strictly against the OpenAPI schema:
+    ```yaml
+    created_at:
+      type: string
+      format: date-time
+    ```
+  - When the backend serializes an integer instead of an ISO string, the contract test fails immediately with: `SchemaValidationError: 1794228748 is not of type 'string' (format: 'date-time')`.
+</details>
 
-[06-code-quality-and-static-analysis](../06-code-quality-and-static-analysis/README.md)
-— you can now test behavior at every layer from unit to e2e. Next you'll measure
-the *other* axis of software health that tests don't cover: code quality —
-linting with ruff, type checking with mypy, complexity metrics, and pre-commit
-hooks — and what "quality" really means beyond style.
+---
+
+## Further Reading & Next Steps
+
+* [Schemathesis Official Documentation](https://schemathesis.readthedocs.io/en/stable/) - Automated property-based testing for OpenAPI.
+* [Pact Contract Testing Guide](https://docs.pact.io/) - Consumer-driven contract testing for microservice ecosystems.
+* [Martin Fowler: Eradicating Non-Determinism in Tests](https://martinfowler.com/articles/nonDeterminism.html) - Proven engineering patterns to destroy test flakiness.
+* Next up: [06-code-quality-and-static-analysis](../06-code-quality-and-static-analysis/README.md) to master static type checking with MyPy, lightning-fast linting with Ruff, and automated pre-commit gates.

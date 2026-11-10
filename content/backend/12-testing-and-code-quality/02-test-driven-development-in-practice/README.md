@@ -1,439 +1,560 @@
-# Module 02: Test-Driven Development in Practice
+# Module 02: Test-Driven Development (TDD) in Practice
 
-## Why this matters
+> **Prerequisites**: [00-testing-fundamentals-and-the-test-pyramid](../00-testing-fundamentals-and-the-test-pyramid/README.md) and [01-unit-testing-in-depth](../01-unit-testing-in-depth/README.md).  
+> **Estimated Reading Time**: 32 minutes  
+> **Target Audience**: Software Engineers, Backend Developers, and Technical Architects seeking to master test-first engineering, interface design pressure, and rapid refactoring cycles.
 
-So far you've written tests *after* the code — you had a working
-`total_with_discount`, then you pinned its behavior. Test-driven development
-(TDD) inverts that: you write a *failing* test first, then write the minimum
-code to pass it, then clean up. It sounds like a small reordering, but it
-changes what the tests *are*. Tests written after the fact tend to confirm what
-the code already does (including its bugs); tests written first are a
-*specification you commit to before you know how you'll implement it*. That
-forces you to think about the interface — what the function is called, what it
-takes, what it returns, how it fails — from the caller's side, before
-implementation details can bias you. It's the difference between describing a
-house you already built and drawing the blueprint first.
+---
 
-TDD's second payoff is rhythm and safety. Working in tiny red-green-refactor
-loops means you're never more than a few minutes from a known-good state, you
-always know exactly what you're working on (the one failing test), and you
-build a regression net as a *side effect* of building the feature. But TDD is a
-technique, not a religion, and this module is honest about that: it genuinely
-shines for logic with clear input/output and clear rules, and it genuinely gets
-in the way for exploratory work, throwaway spikes, and code whose "correct
-behavior" you're still discovering. You'll do a real red-green-refactor cycle on
-a small feature end to end, then learn to tell the two situations apart so you
-apply TDD where it earns its keep.
+> [!TIP]
+> **The Golden Rule of Test-Driven Development**  
+> Never write a line of production code unless it is to make a **demonstrably failing test turn green**. A test you have not personally seen fail for the exact expected reason cannot be trusted. Write the **minimum code** necessary to pass the test—using **triangulation** to drive generalization only when forced by multiple distinct test assertions. Always execute the **Refactor** beat under a green suite, restructuring both implementation and test code without introducing new behavior.
 
-## Concepts
+---
 
-### Red-green-refactor: the core loop
+## Visual Mental Models & Architecture
 
-TDD is a three-beat cycle you repeat for every small increment of behavior:
+### The Red-Green-Refactor Rhythm
 
-1. **Red** — write one small test for a behavior that doesn't exist yet, and
-   run it. It **must fail**, and fail for the *right reason* (the behavior is
-   missing), not because of a typo or import error. A red test you've *seen
-   fail* is a test you trust; a test that was green from the start might be
-   asserting nothing.
-2. **Green** — write the **minimum** code to make that test (and all existing
-   tests) pass. Not the elegant version, not the general version — the smallest
-   thing that goes green. Hardcoding a return value to pass the first test is
-   legitimate; the next test will force you to generalize.
-3. **Refactor** — now that you're green, improve the code *and* the tests
-   (remove duplication, rename, extract) **without changing behavior**, running
-   the suite continuously to prove you didn't break anything. The passing tests
-   are what make refactoring safe.
+TDD is an iterative engineering rhythm designed to maintain constant forward momentum while keeping the codebase permanently in a known-good, deployable state.
 
-Then loop: pick the next tiny behavior, write the next red test. The discipline
-is doing these one at a time and running the tests at every beat.
+```mermaid
+stateDiagram-v2
+    [*] --> Red: 1. Write One Small Failing Test
+    Red --> VerifyRed: Run Suite & Verify Failure
+    VerifyRed --> Red: Fails due to typo/syntax? (Fix test)
+    VerifyRed --> Green: Fails for correct domain reason!
 
-```
-        +--------------------------------------+
-        |                                      |
-        v                                      |
-   [ RED ] ------> [ GREEN ] ------> [ REFACTOR ]
-   write one       minimum code      clean code + tests,
-   failing test    to pass it        behavior unchanged,
-   see it fail     (all green)       stay green
-        ^                                      |
-        |          next tiny behavior          |
-        +--------------------------------------+
+    Green --> VerifyGreen: 2. Write MINIMUM Code to Pass
+    VerifyGreen --> Green: Still failing? (Iterate minimally)
+    VerifyGreen --> Refactor: All tests pass green!
+
+    Refactor --> CleanCode: 3. Clean Duplication & Improve Design
+    CleanCode --> VerifyRefactor: Run Suite Continuously
+    VerifyRefactor --> CleanCode: Broke behavior? (Revert immediately!)
+    VerifyRefactor --> Red: Stayed green! Next tiny behavior.
+
+    note right of Red
+      You act as the FIRST CALLER of the API,
+      designing the interface from the outside.
+    end note
+    note right of Green
+      Resist building speculative features (YAGNI).
+      Hardcoding a return is valid at this stage.
+    end note
+    note right of Refactor
+      Never add new behavior during Refactor.
+      Refactor tests (fixtures, parametrization) too!
+    end note
 ```
 
-### Why write the test first — the design pressure
+---
 
-Writing the test first means you become the *first caller* of code that doesn't
-exist yet, and that's where the value is. You have to decide the name, the
-arguments, the return type, and the failure mode from the *outside*, based on
-what's convenient to use — not what's convenient to implement. Interfaces
-designed this way come out simpler and more usable, because awkwardness shows up
-immediately as an awkward test. Code that's hard to write a test for is code
-that's hard to *call*: too many dependencies to construct, hidden global state,
-a function that does five things. TDD surfaces those design problems at the
-cheapest possible moment — before the code exists — instead of after you've
-built around them. This is the "tests as design pressure" idea from module 00,
-turned into a working method.
+### The Triangulation Technique: Driving Generalization Honestly
 
-### One reason to fail, and the simplest thing that works
+Triangulation prevents developers from making premature algorithmic assumptions. By adding distinct assertions one at a time, the real generalized logic is forced into existence.
 
-Two disciplines keep TDD honest. First, **each test drives one behavior**, so
-when it's red you know exactly what you're building and when it's green you know
-exactly what you finished. A test that asserts three things forces three
-implementation decisions at once and muddies the loop. Second, **write the
-simplest code that passes** — resist implementing the whole feature to satisfy
-one test. This feels absurd at first ("I'll just return `True`?"), but it does
-two things: it keeps you from building unused generality (YAGNI), and it makes
-the *next* test do real work — each new test ratchets the implementation from
-specific toward general only as far as the tests demand. The tests, not your
-imagination, drive how general the code becomes.
+```mermaid
+flowchart TD
+    Step1["Step 1: Test 1 Assert: add(2, 2) == 4"] --> Code1["Impl 1: return 4 (Naive Hardcoded Constant)"]
+    Code1 --> Step2["Step 2: Test 2 Assert: add(2, 3) == 5 (Triangulation!)"]
+    Step2 --> Code2["Impl 2: return a + b<br/>(Only simple generalized logic that satisfies BOTH tests!)"]
+    
+    style Step1 fill:#ffcccc,stroke:#cc0000,stroke-width:2px
+    style Code1 fill:#ccffcc,stroke:#009900,stroke-width:2px
+    style Step2 fill:#ffcccc,stroke:#cc0000,stroke-width:2px
+    style Code2 fill:#d4edda,stroke:#28a745,stroke-width:3px
+```
 
-### The triangulation technique
+---
 
-When one test can be passed by an obviously-too-specific implementation
-(hardcode the answer), **triangulation** is how you force generality honestly:
-add a *second* test with different inputs so the hardcoded value can no longer
-satisfy both, and the simplest thing that passes both is the real logic.
+## Systematic Reference Grids
+
+### TDD (Test-First) vs Test-After Development
+
+| Dimension | Test-Driven Development (TDD) | Test-After Development |
+| :--- | :--- | :--- |
+| **API Interface Design** | Designed from the **caller's perspective**; produces minimal, ergonomic public APIs. | Biased by internal implementation details; often results in clunky, leaky interfaces. |
+| **Test Verification** | **Guaranteed valid**: Every test is observed failing before turning green. | **Unverified**: Tests frequently pass immediately, risking testing nothing or masking bugs. |
+| **Code Modularity** | Code is inherently modular and decoupled; tight coupling makes writing the test impossible. | Code often becomes tightly coupled to databases, global state, or framework singletons. |
+| **YAGNI Enforcement** | **High**: Developers only write code required to satisfy the failing test. | **Low**: Developers frequently write speculative, unused helper methods and parameters. |
+| **Refactoring Confidence** | **Total**: A rich regression suite is created as a natural side effect of development. | **Fragile**: Refactoring often avoided because test suite is incomplete or written hastily. |
+
+---
+
+### When to TDD vs When to Spike (Decision Matrix)
+
+| Problem Domain | Recommended Approach | Architectural Justification |
+| :--- | :--- | :--- |
+| **Complex Business Rules & Calculations** (e.g., Tax Brackets, Insurance Premiums, Pricing) | **Strict TDD** | Edge cases and boundary conditions are explicitly defined as discrete test specifications. |
+| **State Machines & Workflow Engines** (e.g., Order Status Transitions, Circuit Breakers) | **Strict TDD** | Verifies valid transitions, state invariants, and illegal transition rejections step by step. |
+| **Data Parsing & String Formatting** (e.g., Markdown parsers, slug generators, duration decoders) | **Strict TDD** | Perfect fit for triangulation and table-driven parametrization. |
+| **Exploratory Research / Unfamiliar 3rd-Party APIs** (e.g., "What does this new SDK return?") | **Spike First (No Tests)** | Requirements and data shapes are unknown; writing tests upfront produces throwaway churn. |
+| **Trivial Pass-Through Glue Code** (e.g., Forwarding a DTO from Controller to Service) | **Test-After or Skip Unit** | Zero branching or calculation logic; verified more effectively via Integration Tests. |
+
+---
+
+## Production Incident War Story: The Speculative Refactor Lockup
+
+### Incident Post-Mortem: SEV-1
+
+* **Incident ID**: INC-6104
+* **Severity Level**: SEV-1 (Database Thread Exhaustion & Deadlock)
+* **Detection Time**: 15 minutes after deployment
+* **Time to Recovery (TTR)**: 40 minutes (via rollback)
+* **Impact**: 100% of checkout operations frozen; 2,400 concurrent database locks blocked all warehouse fulfillment orders.
+
+#### 1. What Happened
+A backend team was tasked with adding a new promo code rule: *"If a user applies a code, calculate discounts based on cart item categories."*
+
+Instead of practicing TDD with tiny, incremental steps, the developer engaged in a "big-bang refactor":
+- Over 3 days, the developer restructured 1,800 lines of code across 14 files without running tests.
+- To make the system "flexible and future-proof," the developer introduced a complex abstract factory, generic visitor patterns, and an asynchronous event dispatcher with recursive database locks.
+- Once the code compiled, the developer wrote a few happy-path tests that passed immediately.
+
+In production under high concurrent load, two carts checking out with overlapping promo codes triggered recursive parent-child database locking, leading to catastrophic thread pool deadlocks across the PostgreSQL database.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor ShopperA as Shopper A (Checkout)
+    actor ShopperB as Shopper B (Checkout)
+    participant Engine as Over-Engineered Discount Engine
+    participant DB as Postgres Database
+
+    ShopperA->>Engine: Apply Promo "SUMMER"
+    ShopperB->>Engine: Apply Promo "SUMMER"
+    Note over Engine: Speculative Architecture executes recursive locks!
+    Engine->>DB: Lock User A Cart Row
+    Engine->>DB: Lock Promo Row "SUMMER"
+    Note over DB: Shopper B attempts concurrent promo lock!
+    Engine->>DB: Lock User B Cart Row
+    Engine->>DB: Lock Promo Row "SUMMER" (WAITING...)
+    Note over DB: 💥 Circular Lock Dependency! DEADLOCK DETECTED!
+    DB--xEngine: Error: deadlock detected (57P01)
+    Engine--xShopperA: 500 Internal Server Error
+    Engine--xShopperB: 500 Internal Server Error
+```
+
+#### 2. Root Cause Analysis
+1. **Speculative Over-Engineering (Violation of YAGNI)**: The developer introduced hundreds of lines of unrequested architectural complexity without a single failing test demanding it.
+2. **Missing Test-First Feedback Loop**: The developer worked for days disconnected from executable feedback, allowing subtle concurrency and ordering bugs to compound undetected.
+3. **Refactoring and Behavior Modification in One Big Bang**: Architectural restructuring was mixed with new business rules, making root-cause isolation impossible.
+
+#### 3. The Architectural Hardening & Resolution
+1. **Rollback & TDD Reconstruction**: Rolled back the PR. Rebuilt the feature strictly test-first in 4 hours using small, isolated red-green-refactor cycles.
+2. **Strict Incremental Pull Requests**: Mandated that PRs be limited to &le; 250 lines of code, with git commit histories clearly reflecting test-first commits (`test: add failing assertion for category discount`, followed by `feat: implement minimum category filter`).
+3. **Separation of Refactor from Feature Branches**: Teams are required to execute pure structural refactorings under a green test suite in separate, dedicated PRs before introducing new business logic.
+
+---
+
+## Multi-Language Production Code Tabs: Complete TDD Cycle
+
+The following examples demonstrate an end-to-end TDD progression building a **Password Policy Validator** from scratch, following the Red-Green-Refactor sequence.
+
+```
+### Language Tabs
+1. Python (pytest TDD Cycle)
+2. Go (testing package TDD Cycle)
+3. Node.js / TypeScript (Vitest TDD Cycle)
+4. C# (xUnit TDD Cycle)
+```
+
+### Python (pytest)
+
+#### Beat 1: The Red Phase (Write failing test first)
+```python
+# tests/test_password_policy.py
+import pytest
+from app.password_policy import validate_password
+
+def test_password_shorter_than_8_chars_returns_error():
+    # Act
+    errors = validate_password("Short1!")
+    # Assert
+    assert "Password must be at least 8 characters long" in errors
+```
+
+#### Beat 2: The Green Phase (Minimum code to pass)
+```python
+# app/password_policy.py
+def validate_password(password: str) -> list[str]:
+    # Minimum code necessary to turn test green
+    if len(password) < 8:
+        return ["Password must be at least 8 characters long"]
+    return []
+```
+
+#### Beat 3: Triangulation & The Refactor Phase
+We add rules for uppercase letters, numbers, and common passwords one test at a time, then refactor the implementation cleanly under green.
 
 ```python
-# Red 1
-def test_add_2_2(): assert add(2, 2) == 4
-# Green 1 (deliberately naive — it passes!)
-def add(a, b): return 4
-# Red 2 forces the issue
-def test_add_2_3(): assert add(2, 3) == 5
-# Green 2 — now the only simple thing that passes both is the real impl
-def add(a, b): return a + b
-```
+# app/password_policy.py (Final Refactored Architecture under 100% Green Suite)
+from typing import Callable, List, Tuple
 
-You won't literally hardcode every function, but triangulation is the mental
-model: when you're unsure of the general rule, add examples until the general
-rule is the *only* simple thing that fits. It's especially useful for logic with
-tricky boundaries — add the edge cases as tests and let them shape the code.
+COMMON_PASSWORDS = {"password123", "admin12345", "welcome123"}
 
-### TDD's tradeoffs: where it helps, where it hurts
+Rule = Tuple[Callable[[str], bool], str]
 
-TDD is not free and not universal. It **helps most** when: the requirements are
-clear enough to state as examples; the logic has real branching/rules (pricing,
-validation, state machines, parsers, algorithms); bugs are expensive; and you
-expect the code to be changed later (the regression net pays off). It **helps
-least, or actively slows you down**, when: you're *exploring* and don't yet know
-what correct looks like (a spike, a prototype, "what does this API even
-return?"); the code is a thin, logic-free wrapper (a one-line pass-through to a
-library); the thing is throwaway; or the behavior is dominated by external
-systems you'd have to heavily mock, where the test becomes a restatement of the
-implementation rather than a specification.
+RULES: List[Rule] = [
+    (lambda p: len(p) >= 8, "Password must be at least 8 characters long"),
+    (lambda p: any(c.isupper() for c in p), "Password must contain at least one uppercase letter"),
+    (lambda p: any(c.isdigit() for c in p), "Password must contain at least one numeric digit"),
+    (lambda p: p.lower() not in COMMON_PASSWORDS, "Password is too common and easily guessed"),
+]
 
-The honest practitioner's stance: **TDD for logic, spike-then-stabilize for the
-unknown.** When you don't know the shape yet, *spike* — write throwaway
-exploratory code with no tests to learn the domain — then throw it away and
-rebuild it test-first now that you know what "correct" means. Dogmatic
-"always/never" positions both cost you; the skill is reading the situation.
-
-### Refactoring under a green suite
-
-The third beat is the one people skip, and it's where the compounding value is.
-**Refactoring** means changing the *structure* of code without changing its
-*behavior* — and the only thing that lets you do that confidently is a green
-test suite that will go red the instant behavior changes. TDD builds that suite
-as you go, so refactoring becomes a safe, routine step rather than a scary
-rewrite. Crucially, you refactor the *tests* too: after green, dedupe setup into
-fixtures (module 01), collapse similar tests into a parametrized table, and
-rename tests to describe behavior. And you never refactor and change behavior in
-the same step — if the suite goes red during a refactor, you know it was the
-refactor, because you weren't also adding behavior.
-
-## Command reference
-
-| Command / practice | Purpose in the TDD loop |
-|---|---|
-| `pytest --lf` | Re-run only last-failed — your inner red→green loop |
-| `pytest -x` | Stop at first failure — stay focused on one red test |
-| `pytest -k <name>` | Run just the test you're driving right now |
-| `pytest -q` after every beat | Confirm red, then green, then still-green |
-| `pytest-watch` / `ptw` | Auto-run the suite on save (tight feedback) |
-| `@pytest.mark.xfail(reason=...)` | Mark a not-yet-implemented behavior red-on-purpose |
-| `git commit` on each green | Small safe checkpoints; easy to revert a bad refactor |
-| `assert` one behavior per test | Keep "one reason to fail" in the loop |
-
-A full red-green-refactor cycle for one behavior of a `slugify` feature:
-
-```python
-# --- RED: write the test first, run it, watch it fail ---
-# test_slug.py
-from app.slug import slugify
-
-def test_lowercases_and_hyphenates():
-    assert slugify("Hello World") == "hello-world"
-```
-
-```
-$ pytest -q
-E   ModuleNotFoundError: No module named 'app.slug'   # red for the right reason
+def validate_password(password: str) -> List[str]:
+    """Pure domain function driven entirely by TDD."""
+    return [message for predicate, message in RULES if not predicate(password)]
 ```
 
 ```python
-# --- GREEN: minimum code to pass ---
-# app/slug.py
-def slugify(text: str) -> str:
-    return text.lower().replace(" ", "-")
+# tests/test_password_policy.py (Refactored Parametrized Suite)
+import pytest
+from app.password_policy import validate_password
+
+@pytest.mark.parametrize(
+    "password, expected_error",
+    [
+        ("Abc1234", "Password must be at least 8 characters long"),
+        ("lowercase123!", "Password must contain at least one uppercase letter"),
+        ("NO_DIGITS_HERE!", "Password must contain at least one numeric digit"),
+        ("Password123", "Password is too common and easily guessed"),
+    ]
+)
+def test_validate_password_violations(password, expected_error):
+    errors = validate_password(password)
+    assert expected_error in errors
+
+def test_validate_password_valid_returns_empty_list():
+    assert validate_password("SuperSecret99!") == []
 ```
 
+---
+
+### Go (testing package)
+```go
+package security_test
+
+import (
+	"strings"
+	"testing"
+	"unicode"
+)
+
+// ==========================================
+// 1. REFACTORED DOMAIN ENGINE (Post-TDD)
+// ==========================================
+type Rule struct {
+	check   func(string) bool
+	message string
+}
+
+var commonPasswords = map[string]bool{
+	"password123": true,
+	"admin12345":  true,
+}
+
+var rules = []Rule{
+	{
+		check:   func(p string) bool { return len(p) >= 8 },
+		message: "Password must be at least 8 characters long",
+	},
+	{
+		check: func(p string) bool {
+			for _, r := range p {
+				if unicode.IsUpper(r) {
+					return true
+				}
+			}
+			return false
+		},
+		message: "Password must contain at least one uppercase letter",
+	},
+	{
+		check: func(p string) bool {
+			for _, r := range p {
+				if unicode.IsDigit(r) {
+					return true
+				}
+			}
+			return false
+		},
+		message: "Password must contain at least one numeric digit",
+	},
+	{
+		check:   func(p string) bool { return !commonPasswords[strings.ToLower(p)] },
+		message: "Password is too common and easily guessed",
+	},
+}
+
+func ValidatePassword(password string) []string {
+	var errors []string
+	for _, rule := range rules {
+		if !rule.check(password) {
+			errors = append(errors, rule.message)
+		}
+	}
+	return errors
+}
+
+// ==========================================
+// 2. TDD TEST SPECIFICATIONS
+// ==========================================
+func TestValidatePassword_Violations(t *testing.T) {
+	tests := []struct {
+		name          string
+		password      string
+		expectedError string
+	}{
+		{
+			name:          "Fails when length < 8",
+			password:      "Short1!",
+			expectedError: "Password must be at least 8 characters long",
+		},
+		{
+			name:          "Fails when uppercase missing",
+			password:      "lowercase123!",
+			expectedError: "Password must contain at least one uppercase letter",
+		},
+		{
+			name:          "Fails when numeric digit missing",
+			password:      "NoDigitsHere!",
+			expectedError: "Password must contain at least one numeric digit",
+		},
+		{
+			name:          "Fails when in common password list",
+			password:      "Password123",
+			expectedError: "Password is too common and easily guessed",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			errors := ValidatePassword(tc.password)
+			found := false
+			for _, err := range errors {
+				if err == tc.expectedError {
+					found = true
+					break
+				}
+			}
+			if !found {
+				t.Errorf("expected error %q not found in %v", tc.expectedError, errors)
+			}
+		})
+	}
+}
+
+func TestValidatePassword_ValidPassword_ReturnsNoErrors(t *testing.T) {
+	errors := ValidatePassword("StrongP@ssw0rd99")
+	if len(errors) != 0 {
+		t.Errorf("expected 0 errors, got: %v", errors)
+	}
+}
 ```
-$ pytest -q
-1 passed
+
+---
+
+### Node.js / TypeScript (Vitest / Jest)
+```typescript
+import { describe, it, expect } from 'vitest';
+
+// ==========================================
+// 1. REFACTORED DOMAIN ENGINE (Post-TDD)
+// ==========================================
+interface PasswordRule {
+  predicate: (p: string) => boolean;
+  message: string;
+}
+
+const COMMON_PASSWORDS = new Set(['password123', 'admin12345']);
+
+const RULES: PasswordRule[] = [
+  {
+    predicate: (p) => p.length >= 8,
+    message: 'Password must be at least 8 characters long',
+  },
+  {
+    predicate: (p) => /[A-Z]/.test(p),
+    message: 'Password must contain at least one uppercase letter',
+  },
+  {
+    predicate: (p) => /[0-9]/.test(p),
+    message: 'Password must contain at least one numeric digit',
+  },
+  {
+    predicate: (p) => !COMMON_PASSWORDS.has(p.toLowerCase()),
+    message: 'Password is too common and easily guessed',
+  },
+];
+
+export function validatePassword(password: string): string[] {
+  return RULES.filter((rule) => !rule.predicate(password)).map((rule) => rule.message);
+}
+
+// ==========================================
+// 2. TDD TEST SPECIFICATIONS
+// ==========================================
+describe('validatePassword TDD Specifications', () => {
+  it.each([
+    { pw: 'Short1!', expected: 'Password must be at least 8 characters long' },
+    { pw: 'lowercase123!', expected: 'Password must contain at least one uppercase letter' },
+    { pw: 'NODIGITSHERE!', expected: 'Password must contain at least one numeric digit' },
+    { pw: 'Password123', expected: 'Password is too common and easily guessed' },
+  ])('should report violation: $expected for input: $pw', ({ pw, expected }) => {
+    const violations = validatePassword(pw);
+    expect(violations).toContain(expected);
+  });
+
+  it('should return an empty list for a valid secure password', () => {
+    expect(validatePassword('SuperSecureP@ss99')).toHaveLength(0);
+  });
+});
 ```
 
-```python
-# --- RED again: drive the next behavior (strip punctuation) ---
-def test_strips_punctuation():
-    assert slugify("Hello, World!") == "hello-world"
+---
+
+### C# (xUnit)
+```csharp
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using Xunit;
+
+public class PasswordValidator
+{
+    private static readonly HashSet<string> CommonPasswords = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "password123", "admin12345"
+    };
+
+    private record Rule(Func<string, bool> Predicate, string Message);
+
+    private static readonly List<Rule> Rules = new()
+    {
+        new(p => p.Length >= 8, "Password must be at least 8 characters long"),
+        new(p => p.Any(char.IsUpper), "Password must contain at least one uppercase letter"),
+        new(p => p.Any(char.IsDigit), "Password must contain at least one numeric digit"),
+        new(p => !CommonPasswords.Contains(p), "Password is too common and easily guessed")
+    };
+
+    public static List<string> Validate(string password)
+    {
+        return Rules.Where(r => !r.Predicate(password)).Select(r => r.Message).ToList();
+    }
+}
+
+public class PasswordValidatorTests
+{
+    [Theory]
+    [InlineData("Short1!", "Password must be at least 8 characters long")]
+    [InlineData("lowercase123!", "Password must contain at least one uppercase letter")]
+    [InlineData("NO_DIGITS_HERE!", "Password must contain at least one numeric digit")]
+    [InlineData("Password123", "Password is too common and easily guessed")]
+    public void Validate_ViolatesRule_ReturnsExpectedError(string password, string expectedError)
+    {
+        var errors = PasswordValidator.Validate(password);
+        Assert.Contains(expectedError, errors);
+    }
+
+    [Fact]
+    public void Validate_CompliantPassword_ReturnsZeroErrors()
+    {
+        var errors = PasswordValidator.Validate("P@ssw0rd2026Secure!");
+        Assert.Empty(errors);
+    }
+}
 ```
 
-```python
-# --- GREEN: generalize just enough ---
-import re
-def slugify(text: str) -> str:
-    text = re.sub(r"[^\w\s-]", "", text.lower())
-    return re.sub(r"[\s]+", "-", text).strip("-")
+---
+
+## Practical Hands-On Verification Workflows
+
+### 1. Tight Feedback Loop: Re-Running Last Failed Test
+
+Execute only the test currently driving the Red beat:
+
+```bash
+# Run pytest re-running only failed tests
+pytest --lf -v
 ```
 
-```python
-# --- REFACTOR: no new behavior; collapse the tests into a table ---
-@pytest.mark.parametrize("raw, expected", [
-    ("Hello World", "hello-world"),
-    ("Hello, World!", "hello-world"),
-    ("  spaced  out  ", "spaced-out"),
-])
-def test_slugify(raw, expected):
-    assert slugify(raw) == expected     # suite stays green throughout
+**Expected Terminal Output During RED Phase:**
+```text
+============================= test session starts ==============================
+collected 2 items
+run-last-failure: rerun previous 1 failure
+
+tests/test_password_policy.py::test_password_shorter_than_8_chars_returns_error FAILED [100%]
+
+=================================== FAILURES ===================================
+_________________ test_password_shorter_than_8_chars_returns_error ______________
+
+    def test_password_shorter_than_8_chars_returns_error():
+>       errors = validate_password("Short1!")
+E       NameError: name 'validate_password' is not defined
+
+============================== 1 failed in 0.01s ===============================
 ```
+*Notice that the failure is expected and verified before writing `validate_password`.*
 
-## Hands-on exercises
+---
 
-Work in `testing-lab/`. For each exercise, actually *run the test and see it
-red before you make it green* — that's the part that's tempting to skip and the
-part that matters.
-
-### 1. Do one full cycle by the book
-
-Build `slugify` exactly as in the reference: write `test_lowercases_and_
-hyphenates` first, run it, **screenshot/note the red**, make it green with the
-one-liner, then add the punctuation test (red), generalize (green), then
-refactor the two tests into a parametrized table (stay green). Do not write
-punctuation handling before its test exists.
-
-### 2. Triangulate a rule you don't hardcode
-
-Build a `roman(n) -> str` converter test-first, starting from `roman(1) ==
-"I"`. Deliberately make the first test pass by `return "I"`. Add `roman(2) ==
-"II"`, then `roman(4) == "IV"`, then `roman(9) == "IX"`, letting each new test
-force more of the real algorithm. Notice how the edge cases (4, 9, 40) drive the
-design, not your upfront cleverness.
-
-### 3. Drive a small feature end to end
-
-TDD a `PasswordPolicy.validate(pw) -> list[str]` (returns a list of rule
-violations) with these rules, one test at a time, red first each time: min
-length 8, at least one digit, at least one uppercase, not in a small
-`COMMON_PASSWORDS` set. After all are green, refactor the rule checks into a
-clean structure without changing behavior. Expected: ~5 tests, each added red.
-
-### 4. Refactor under green
-
-Take your green `PasswordPolicy` and refactor the implementation from a pile of
-`if`s into a list of `(predicate, message)` rules iterated in a loop. Run the
-suite after *every* small edit. The suite must stay green the entire time — if
-it goes red, you changed behavior, so revert and try again.
-
-### 5. Spike, then stabilize
-
-Pick something you *don't* know the shape of — e.g. parsing a `"1h30m"`-style
-duration string into seconds. First **spike**: write throwaway code in a REPL/
-scratch file with no tests until you understand the cases (empty, `"45m"`,
-`"2h"`, `"1h30m"`, garbage). Then **delete the spike** and rebuild it
-test-first. Write one sentence on what the spike taught you that made the
-test-first version better.
-
-### 6. Decide TDD or not, and justify
-
-For each of these, write "TDD" or "spike-first" and one line of why: (a) a tax
-bracket calculator with published rules; (b) gluing together an unfamiliar
-third-party SDK you've never used; (c) a JSON-to-CSV exporter with clear
-mapping rules; (d) a one-line wrapper that forwards to `logging.info`; (e) a
-retry/backoff state machine. Expected: a, c, e → TDD; b, d → spike/skip.
-
-### 7. Diagnose and fix: TDD done wrong
-
-A teammate says they "did TDD" and shows you this. Identify every way it
-violates the discipline, and describe the correct sequence.
-
-```python
-# They wrote the full implementation first...
-def price_with_tax(cents: int, rate: float) -> int:
-    if cents < 0:
-        raise ValueError("negative")
-    return round(cents * (1 + rate))
-
-# ...then wrote this test afterward and it passed on the first run:
-def test_price_with_tax():
-    assert price_with_tax(1000, 0.1) == 1100
-    assert price_with_tax(0, 0.2) == 0
-    assert price_with_tax(-5, 0.1)  # expecting it to raise? no pytest.raises
-```
+## Operational Validation Checkpoints (Scenario Quizzes)
 
 <details>
-<summary>Solution</summary>
+<summary><strong>Checkpoint 1: The False Sense of Green</strong></summary>
 
-Violations: **(1) Code was written before the test** — the whole point of TDD
-is the test comes first and you *see it fail*; this test was green on its first
-run, so it never demonstrated it can fail and never drove the design. **(2) The
-test bundles three behaviors** (normal calc, zero, negative) into one function —
-no single reason to fail, and it drives nothing incrementally. **(3) The
-negative case is broken**: `price_with_tax(-5, 0.1)` is called as a bare
-expression with no `pytest.raises`, so it *actually raises `ValueError`* and
-fails the test the moment you reach that line — or if it didn't raise, the line
-asserts nothing. The "test" is confused about what it's checking.
-
-Correct sequence, test-first, one behavior per loop:
-
+**Scenario:** A developer is asked to add a feature to prevent users under age 18 from registering. The developer writes:
 ```python
-# Red 1
-def test_adds_tax(): assert price_with_tax(1000, 0.1) == 1100
-# Green 1: return round(cents * (1 + rate))
-# Red 2
-def test_zero_amount_is_zero(): assert price_with_tax(0, 0.2) == 0
-# (already green — fine, it confirms a boundary)
-# Red 3 — drive the negative rule into existence
-def test_negative_amount_raises():
-    with pytest.raises(ValueError):
-        price_with_tax(-5, 0.1)
-# Green 3: add the guard clause. Refactor if needed, suite stays green.
+def test_age_restriction():
+    assert register_user(birth_year=2015) != "SUCCESS"
 ```
+The developer runs the test, and it immediately passes green on the first run. The developer commits the code and marks the task complete. Why is this a dangerous violation of TDD principles?
 
-Each behavior added as its own red test, seen failing, then made green.
-
+**Answer:**
+- **The Violation**: The developer **never observed the test fail (skipped the RED beat)**.
+- **The Hidden Bug**: `register_user` might be returning `{"error": "Missing email parameter"}` or crashing with a validation exception, which satisfies `!= "SUCCESS"` purely by accident. The age restriction logic was never actually exercised or implemented.
+- **The Rule**: A test that passes on its first run proves nothing. You must write an assertion that specifies the exact failure reason (e.g. `assert result.error == "USER_UNDERAGE"`), observe it fail in red, and only then write the code to make it green.
 </details>
-
-## Independent challenge
-
-No code given. Build a small **shopping-cart discount engine**
-*entirely test-first* — no production line written before a failing test
-demands it. Requirements, to be introduced one red test at a time: a cart sums
-its line items; a `SAVE10` code takes 10% off; a `FREESHIP` code zeroes a flat
-shipping fee; percentage discounts never apply to shipping; two codes can't
-stack (the second is rejected); an unknown code raises a domain exception.
-Reach back to **module 01 (Unit Testing in Depth)** to keep the suite clean as
-it grows — extract the cart construction into a fixture and collapse the
-per-code cases into a parametrized table *during the refactor beat*, never
-while adding behavior. When you finish, you should have driven every rule into
-existence red-first, and be able to point at the exact commit where each rule
-turned green.
 
 <details>
-<summary>Hint</summary>
+<summary><strong>Checkpoint 2: Premature Generalization vs Triangulation</strong></summary>
 
-Keep each loop to one rule: write the smallest test (e.g. "empty cart totals
-0"), watch it fail, add the minimum code, then move on — don't build the
-discount-code machinery until a test for `SAVE10` forces it. The "no stacking"
-and "unknown code raises" rules are the ones people implement prematurely;
-resist until their red tests exist. Do the fixture extraction and the
-parametrize collapse strictly in the refactor beat with the suite green, so you
-always know a red came from behavior, not restructuring.
+**Scenario:** A developer begins building a tax calculation function for a single municipality:
+```python
+def test_calculates_standard_sales_tax():
+    assert calculate_tax(amount=100.0, state="CA") == 7.25
+```
+Before making this test pass, the developer designs a dynamic database-backed rules engine with XML configuration parsers and external geolocation APIs. Explain why this violates TDD's green beat discipline and how triangulation should be used instead.
 
+**Answer:**
+- **The Violation**: Violates the **YAGNI (You Aren't Gonna Need It)** principle and the Green beat rule ("write the minimum code to pass"). Building speculative architecture before tests demand it wastes time, introduces bugs, and delays feedback.
+- **The Correct TDD Approach**:
+  1. Pass Test 1 with the simplest possible code: `if state == "CA": return 7.25`.
+  2. Write Test 2 to **triangulate**: `assert calculate_tax(amount=100.0, state="NY") == 4.0`.
+  3. Only when multiple distinct tests demand lookup logic do you generalize to a dictionary or repository mapping. Let the tests pull the architecture into existence.
 </details>
-
-## Common mistakes & troubleshooting
-
-- **Writing code first, then a test that passes immediately.** That's
-  test-after wearing a TDD label — the test never proved it can fail. Write the
-  test first and *watch it go red*.
-- **A first test that's green from the start.** Means it asserts nothing real or
-  the behavior already existed. Make sure red is red for the right reason before
-  you write any implementation.
-- **Implementing the whole feature to pass one test.** Builds unused generality
-  and skips the ratchet. Write the simplest thing that passes; let the next test
-  force generality (triangulate).
-- **Skipping the refactor beat.** Green-green-green with no cleanup accretes
-  duplication and mess; the suite you were building to enable safe refactoring
-  never gets used for it. Refactor every cycle, under green.
-- **Refactoring and adding behavior in the same step.** When it breaks you won't
-  know which caused it. Separate the beats.
-- **TDD-ing a spike.** Test-driving code whose correct behavior you don't know
-  yet wastes effort on tests you'll throw away. Spike first (no tests), learn,
-  then rebuild test-first.
-- **Tests that mirror the implementation.** If the test just restates the code
-  line-for-line (heavy mocking of every internal call), it's not a spec, it's a
-  copy — it'll break on every refactor and catch no real bugs.
-
-## Checkpoint quiz
-
-Write down your answer to each question before expanding it — checking without attempting first is the single easiest way to fool yourself into thinking you've learned this.
-
-1. Name the three beats of the TDD loop and state the single most important
-   rule of each.
-2. Why must you *see the test fail* before making it pass? What does a
-   green-on-first-run test fail to prove?
-3. What is the "design pressure" argument for writing the test first — what does
-   being the first caller force you to decide?
-4. What is triangulation, and what problem does it solve during the green beat?
-5. Give two situations where TDD clearly helps and two where it clearly hurts,
-   with the reason in each case.
-6. What is a "spike," and what's the recommended way to combine spiking with
-   TDD when you don't yet know what correct looks like?
-7. Why must you never refactor and add behavior in the same step, and what makes
-   the refactor step safe at all?
 
 <details>
-<summary>Answers</summary>
+<summary><strong>Checkpoint 3: Refactoring vs Adding Features</strong></summary>
 
-1. Red: write one small failing test first and see it fail for the right
-   reason. Green: write the *minimum* code to pass (all) tests. Refactor:
-   improve structure of code and tests *without changing behavior*, staying
-   green.
-2. Because a test you've watched fail is one you trust to actually check the
-   behavior; a green-on-first-run test proves nothing — it might assert nothing,
-   or the behavior may already exist, so it can't demonstrate it would catch the
-   bug it's supposed to guard.
-3. Writing the test first makes you the first *caller* of code that doesn't
-   exist, forcing you to design the name, arguments, return type, and failure
-   mode from the outside (what's convenient to use), which yields simpler,
-   more usable interfaces and surfaces bad design immediately.
-4. Triangulation is adding a second (and more) example with different inputs so
-   an over-specific implementation (e.g. a hardcoded return) can no longer pass
-   all tests, forcing the general rule to emerge as the simplest thing that
-   fits. It solves "how do I honestly generalize" without guessing ahead of the
-   tests.
-5. Helps: clear-rule logic (pricing, validation, state machines) where examples
-   are easy to state; code you'll change later (the regression net pays off).
-   Hurts: exploratory/spike work where correct behavior is unknown; thin
-   logic-free wrappers or throwaway code where tests just restate the
-   implementation.
-6. A spike is throwaway exploratory code written with no tests to learn the
-   domain/API. When you don't know what correct looks like, spike first, learn,
-   then *delete the spike* and rebuild it test-first now that you can state the
-   behavior as tests.
-7. Because if you change structure and behavior at once and the suite goes red,
-   you can't tell which caused it. Refactoring is only safe *because* a green
-   suite will go red the instant behavior changes — so you keep behavior
-   changes (with their own new tests) in separate steps from pure restructuring.
+**Scenario:** During the Refactor phase of a payment service, a developer notices that international payments lack currency exchange rate conversion. The developer implements currency conversion directly while cleaning up the class methods. Why must behavior additions never occur during the Refactor phase?
 
+**Answer:**
+- **Refactoring Definition**: Changing the **internal structure** of code without altering its **observable external behavior**.
+- **The Failure Mode**: If you add new behavior (currency conversion) while simultaneously refactoring class methods, and the test suite turns red, it is impossible to determine whether the failure was caused by a regression in your refactoring or a bug in your new currency logic.
+- **The Discipline**: Keep the beats strictly isolated:
+  1. Complete the structural refactoring under green and commit.
+  2. Enter a brand-new TDD cycle: write a failing test for currency conversion (RED), make it pass (GREEN), and refactor (REFACTOR).
 </details>
 
-## Further reading & sources
+---
 
-- [Martin Fowler — Test Driven Development](https://martinfowler.com/bliki/TestDrivenDevelopment.html) - A concise definition of the red-green-refactor loop and what TDD is (and isn't).
-- [Kent Beck — Canon TDD](https://tidyfirst.substack.com/p/canon-tdd) - Kent Beck, TDD's originator, restating the exact discipline this module teaches.
-- [Martin Fowler — RefactoringMalapropism / Refactoring](https://refactoring.com/) - The reference on changing structure without changing behavior — the third TDD beat.
-- ["Is TDD Dead?" — Beck, Fowler, Hansson](https://martinfowler.com/articles/is-tdd-dead/) - The honest debate on where TDD helps and where it hurts, matching this module's tradeoffs section.
-- [Uncle Bob — The Three Rules of TDD](http://butunclebob.com/ArticlesUncleBob.TheThreeRulesOfTdd) - The tight "no production code without a failing test first" formulation.
-- [Kent Beck — Test-Driven Development by Example (book)](https://www.oreilly.com/library/view/test-driven-development/0321146530/) - The foundational book, including the triangulation technique used in this module.
+## Further Reading & Next Steps
 
-## Next
-
-[03-integration-testing](../03-integration-testing/README.md) — your unit tests
-and TDD loop work entirely with doubles, in isolation. Next you'll wire real
-pieces together: test a service against a *real* test database, drive FastAPI
-routes through `TestClient`/`httpx`, manage test data setup and teardown, and
-meet the testcontainers idea — plus the track's first cumulative review,
-closed-book over modules 00–03.
+* [Kent Beck: Test-Driven Development by Example](https://www.oreilly.com/library/view/test-driven-development/0321146530/) - The foundational text on TDD and triangulation.
+* [Martin Fowler: Refactoring](https://refactoring.com/) - The authoritative catalog of behavior-preserving structural improvements.
+* [Uncle Bob: The Three Rules of TDD](http://butunclebob.com/ArticlesUncleBob.TheThreeRulesOfTdd) - The strict laws of test-first discipline.
+* Next up: [03-integration-testing](../03-integration-testing/README.md) to leave the isolated unit layer and wire real components together using real test databases and containerized fixtures.

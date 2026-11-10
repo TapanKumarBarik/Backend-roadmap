@@ -1,484 +1,629 @@
 # Module 04: Mocking and Dependency Injection for Testability
 
-## Why this matters
+> **Prerequisites**: [00-testing-fundamentals-and-the-test-pyramid](../00-testing-fundamentals-and-the-test-pyramid/README.md), [01-unit-testing-in-depth](../01-unit-testing-in-depth/README.md), and [03-integration-testing](../03-integration-testing/README.md).  
+> **Estimated Reading Time**: 32 minutes  
+> **Target Audience**: Backend Engineers, Systems Architects, and Distributed Systems Developers seeking to decouple tests from third-party vendor APIs, eliminate test flakiness, and avoid the brittleness of over-mocking.
 
-In module 03 you swapped the *database* for an isolated test one using FastAPI's
-dependency-override system. But a real service depends on more than a database:
-it charges a card through Stripe, sends a receipt through SendGrid, reads the
-clock, calls a shipping API. You cannot — and must not — hit a real payment
-processor in your test suite. It's slow, it costs money, it's flaky when their
-sandbox is down, and it might actually *charge someone*. The whole point of a
-test is to be fast, free, deterministic, and safe to run a thousand times a day,
-and every real external call breaks all four of those. **Mocking** is how you
-replace those external collaborators with controllable stand-ins so you can test
-*your* logic — "when the charge succeeds, do we send the receipt; when it's
-declined, do we return `402` and *not* send one" — without touching anyone
-else's system.
+---
 
-The danger is the opposite extreme. Mocking is seductive: it's easy to mock
-*everything*, and a test where every collaborator is a mock stops testing your
-code and starts testing your *mocks*. Such tests mirror the implementation
-line-for-line, break on every refactor, and catch almost no real bugs — they're
-the "tests that mirror the implementation" warned about back in module 02. This
-module teaches both halves: the mechanics (FastAPI dependency overrides for
-your own seams; `unittest.mock`/`pytest-mock` and fakes for external SDKs;
-controlling time and randomness) *and* the judgment — mock at your
-architectural boundaries, prefer fakes over mocks, verify interactions only when
-the interaction *is* the behavior, and never mock what you don't own without a
-thin wrapper.
+> [!TIP]
+> **The Golden Rule of Mocking and Test Doubles**  
+> **Never mock what you do not own.** Never patch directly into third-party vendor SDK internals (such as `stripe.Charge.create`). Instead, wrap third-party APIs behind a thin domain interface (`PaymentGateway`) that you own and control, and inject lightweight, in-memory **Fakes** for 90% of your tests. Reserve **Interaction Mocks** strictly for cases where the side effect itself is the contract (e.g., verifying that a credit card is charged exactly once or that no email is dispatched upon failure). Always enforce strict interface specifications (`spec=` or typed interfaces) to prevent mocks from accepting invalid methods.
 
-## Concepts
+---
 
-### What to mock, and where — mock at the boundary
+## Visual Mental Models & Architecture
 
-The single most important mocking decision is *where*. Mock at your
-**architectural boundaries** — the seams where your code hands off to something
-external, slow, nondeterministic, or with side effects: the payment gateway,
-the email sender, the clock, an outbound HTTP call. Do **not** mock your own
-internal business logic, value objects, or pure functions — those are the thing
-under test, and replacing them with mocks means you test nothing.
+### Mocking at Architectural Boundaries: Wrapping External SDKs
 
-The clean way to make a boundary mockable is the layering from track 02: your
-service depends on an *interface* (`PaymentGateway`, `EmailSender`) that it
-receives by injection, and the real implementation wraps the vendor SDK. Then a
-test injects a fake or mock in its place. If you instead call `stripe.Charge.
-create(...)` directly inside your service, the boundary is buried and you're
-forced to patch deep inside a third-party library — brittle and painful. **Push
-external calls to the edges behind small interfaces**, and mocking becomes clean
-injection instead of invasive patching.
+Directly patching third-party libraries couples your test suite to a vendor's internal implementation details. Wrapping external SDKs behind an application-owned domain interface creates a clean, testable seam:
 
-### Mocks vs. fakes for external services — prefer fakes
+```mermaid
+flowchart TD
+    subgraph AntiPattern["❌ Anti-Pattern: Direct SDK Patching (Brittle & Leaky)"]
+        Service1[OrderService] -->|Direct Call| StripeSDK[stripe.Charge.create]
+        Test1[Unit Test] -.->|Monkeypatch Internal Method| StripeSDK
+        note1["Fragile: If Stripe SDK renames internal parameters,<br/>test passes green while production crashes!"]
+    end
 
-Recall the doubles taxonomy from module 00. For external services you'll mostly
-choose between a **fake** (a working in-memory implementation of the interface)
-and a **mock** (a double you assert interactions on). Reach for a **fake
-first**:
+    subgraph RecommendedPattern["✅ Golden Standard: Wrap Behind Domain Interface"]
+        Service2[OrderService] --> Interface[PaymentGateway Interface]
+        Interface -->|Production Impl| RealStripe[StripePaymentGateway Adapter]
+        Interface -->|Test Impl| FakeStripe[FakePaymentGateway In-Memory]
+        RealStripe --> StripeAPI[Stripe Cloud API]
+        note2["Robust: Service depends on an interface YOU own.<br/>Fast in-memory fake tests business behavior without network."]
+    end
 
+    style AntiPattern fill:#f8d7da,stroke:#dc3545,stroke-width:2px
+    style RecommendedPattern fill:#d4edda,stroke:#28a745,stroke-width:2px
+```
+
+---
+
+### Over-Mocking (Change Detector) vs Healthy State Verification
+
+```mermaid
+flowchart LR
+    subgraph OverMocking["Over-Mocking: Testing Implementation Steps"]
+        direction TB
+        OM_Test["Over-Mocked Test"]
+        OM_Test -->|Assert| Step1["assert service._calculate_tax called once"]
+        OM_Test -->|Assert| Step2["assert service._format_receipt called once"]
+        OM_Test -->|Assert| Step3["assert service._log called once"]
+        noteOM["💥 Change-Detector Smell: Any internal refactoring<br/>breaks the test even if business behavior is identical!"]
+    end
+
+    subgraph HealthyVerification["Healthy: Testing Behavioral Outcomes"]
+        direction TB
+        HV_Test["Healthy Behavior Test"]
+        HV_Test --> SUT["service.checkout(cart)"]
+        HV_Test -->|Assert Return Value| Result["assert order.total == $108.00"]
+        HV_Test -->|Assert Fake State| FakeState["assert fakeEmailer.sent == [receipt]"]
+        noteHV["🛡️ Resilient: You can completely refactor internal methods,<br/>and tests remain green as long as business outcomes hold!"]
+    end
+
+    style OverMocking fill:#fff3cd,stroke:#856404,stroke-width:2px
+    style HealthyVerification fill:#d1ecf1,stroke:#0c5460,stroke-width:2px
+```
+
+---
+
+## Systematic Reference Grids
+
+### Mocking Techniques & Tools Comparison
+
+| Tool / Strategy | Primary Intent | Scope & Layer | Tradeoff / Risk | Best Used For |
+| :--- | :--- | :--- | :--- | :--- |
+| **In-Memory Fakes** | High-fidelity state simulation without network/disk. | Service & Domain Boundaries. | Requires maintaining a simple fake class alongside real adapter. | Repositories, email senders, caching tiers, payment gateways. |
+| **`mocker.Mock(spec=Interface)`** | Verify strict interaction contracts (e.g. idempotency). | Boundary Interfaces. | Over-use makes tests brittle change-detectors. | Verifying negative side effects (e.g. `assert_not_called()`) and exactly-once constraints. |
+| **`respx` / WireMock** | Intercept outbound HTTP network calls at the transport level. | Outbound HTTP Clients (httpx / requests). | Requires matching URL and request patterns. | Testing third-party webhook dispatchers, REST microservice clients. |
+| **`freezegun` / `time-machine`** | Freeze and manipulate the system clock. | Operating System `datetime` calls. | Slight runtime overhead; must be reset after test. | Testing subscription expirations, JWT token TTLs, cron scheduler triggers. |
+| **`monkeypatch.setattr`** | Temporarily replace object attributes or environment variables. | Global Configuration / Environment. | Can leak across tests if not properly scoped and cleaned. | Testing configuration flags (`settings.FEATURE_X_ENABLED`). |
+
+---
+
+### Where to Patch: The Python Import Lookup Rule
+
+A universal pitfall in Python testing is patching where a function is **defined** rather than where it is **imported and used**:
+
+```mermaid
+flowchart TD
+    Def["Module A (datetime.py)<br/>def now(): ..."] 
+    Use["Module B (app/services.py)<br/>from datetime import now<br/>... now() ..."]
+    
+    Test["test_service.py"]
+    Test -.->|❌ Fails to intercept!| Def
+    Test -->|✅ Successfully intercepted!| Use
+
+    style Def fill:#f8d7da,stroke:#dc3545,stroke-width:2px
+    style Use fill:#d4edda,stroke:#28a745,stroke-width:2px
+```
+
+*Rule*: **Always patch `app.services.now`, NEVER `datetime.now`**, because `app.services` holds its own local namespace reference to the imported callable.
+
+---
+
+## Production Incident War Story: The Specless Mock Disaster
+
+### Incident Post-Mortem: SEV-1
+
+* **Incident ID**: INC-9210
+* **Severity Level**: SEV-1 (Financial Fraud Exploit)
+* **Detection Time**: 3 days after weekly release
+* **Time to Recovery (TTR)**: 45 minutes
+* **Impact**: \$840,000 in fraudulent transactions processed without fraud scoring; 400 specless mock tests passed green despite a broken signature.
+
+#### 1. What Happened
+An e-commerce platform integrated a third-party risk engine (`SiftFraudClient`). The internal wrapper interface originally defined:
 ```python
-class FakeEmailSender:                     # a fake: it actually "works"
-    def __init__(self): self.sent = []
-    def send(self, to, subject, body):
-        self.sent.append({"to": to, "subject": subject})   # records, no network
-
-def test_receipt_is_emailed_on_success():
-    emailer = FakeEmailSender()
-    svc = CheckoutService(payments=FakeGateway(ok=True), emailer=emailer)
-    svc.checkout(user, cart)
-    assert emailer.sent == [{"to": user.email, "subject": "Your receipt"}]  # state
+class FraudDetector(Protocol):
+    def evaluate_risk(self, user_id: str, ip_address: str, amount_cents: int) -> bool: ...
 ```
 
-A fake lets you verify *state/outcome* ("an email to this address was queued"),
-which is robust to refactors — you don't care *how* the code sent it, only that
-it did. Use a **mock with interaction assertions** only when the interaction
-itself is the contract and there's no observable state to check:
-
+In unit tests, developers used Python's default `unittest.mock.Mock()` without specifying a `spec`:
 ```python
-def test_charge_called_once_with_total(mocker):
-    gateway = mocker.Mock(spec=PaymentGateway)     # spec = only real methods
-    gateway.charge.return_value = ChargeResult(ok=True, id="ch_1")
-    CheckoutService(payments=gateway, emailer=FakeEmailSender()).checkout(user, cart)
-    gateway.charge.assert_called_once_with(amount=cart.total, currency="usd")
+# test_checkout.py - The Specless Mock Anti-Pattern
+def test_checkout_passes_fraud_check(mocker):
+    mock_fraud = mocker.Mock() # NO SPEC!
+    mock_fraud.evaluate_risk.return_value = True
+    svc = CheckoutService(fraud_detector=mock_fraud)
+    res = svc.checkout(user_id="usr_1", amount=5000)
+    assert res.status == "APPROVED"
 ```
 
-`spec=` matters: it makes the mock reject calls to methods that don't exist on
-the real interface, so a renamed method fails the test instead of silently
-passing against a mock that accepts *anything*.
+During an upgrade of the fraud SDK, a developer refactored the method name on the real adapter from `evaluate_risk` to `evaluate_transaction_risk`. 
 
-### FastAPI dependency overrides for external services
-
-The exact override mechanism you used for `get_db` in module 03 is how you
-inject fakes for *external* dependencies in route-level tests. Your endpoint
-declares its needs via `Depends(get_payment_gateway)`; the test swaps the
-provider:
-
+In `CheckoutService`, the developer updated the method call, but made a typo:
 ```python
-# app: the real provider wires the vendor SDK
-def get_payment_gateway() -> PaymentGateway:
-    return StripeGateway(api_key=settings.stripe_key)
-
-@router.post("/v1/checkout")
-def checkout(body: CheckoutIn, gw: PaymentGateway = Depends(get_payment_gateway)):
-    ...
-
-# test: override with a fake, exercise the real route + serialization
-def test_declined_card_returns_402(client_factory):
-    app.dependency_overrides[get_payment_gateway] = lambda: FakeGateway(ok=False)
-    client = client_factory()
-    r = client.post("/v1/checkout", json={...})
-    assert r.status_code == 402
-    app.dependency_overrides.clear()
+# checkout_service.py
+is_safe = self.fraud_detector.evaluate_trasaction_risk(user_id, ip, amount) # Typo in method name!
 ```
 
-This is the best of both worlds: the request runs through your **real** routing,
-validation, and serialization (a true integration test of the web layer), while
-the one genuinely-external dependency is faked. Because it's your DI seam, you
-never patch inside Stripe's library — you replace your own provider function.
+Because `mocker.Mock()` was specless, invoking `evaluate_trasaction_risk` on the mock dynamically synthesized a new Mock on the fly and returned truthy! All 400 unit tests passed green.
+
+In production, the real `SiftFraudClient` had no method named `evaluate_trasaction_risk`, throwing an `AttributeError`. An outer `try/except Exception` block swallowed the error and defaulted to "fail-open" for customer convenience. Fraudsters exploited the hole, draining \$840,000 in gift cards in 72 hours.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Dev as Developer
+    participant CI as GitHub CI (Specless Mocks)
+    participant Prod as Production Service
+    participant Sift as Real Fraud API
+
+    Dev->>CI: Push typo: evaluate_trasaction_risk()
+    Note over CI: Specless Mock accepts ANY method call!<br/>Synthesizes mock on the fly!
+    CI-->>Dev: ✅ 400 Tests PASSED! Build Approved!
+    Dev->>Prod: Deploy to Production
+    Prod->>Sift: Call evaluate_trasaction_risk()
+    Note over Sift: 💥 AttributeError: Method does not exist!
+    Note over Prod: Fallback catch block fails open!<br/>Fraud checks bypassed for 72 hours!
+```
+
+#### 2. Root Cause Analysis
+1. **Specless Mocking**: Mocks were instantiated without `spec=FraudDetector`. A specless mock accepts arbitrary nonexistent method names and arguments without validating against the interface.
+2. **Fail-Open Error Masking**: An unhandled exception handler silently swallowed API mismatches.
+3. **Absence of Type Checking in CI**: The test suite was not validated with `mypy --strict`.
+
+#### 3. The Architectural Hardening & Resolution
+1. **Mandatory Mock Spec Enforcement**: Enforced that all mock instances in tests must specify their interface: `mocker.Mock(spec=FraudDetector)` or `mocker.create_autospec(FraudDetector)`. Any call to a mistyped method immediately fails the test.
+2. **In-Memory Fakes Over Mocks**: Replaced 90% of mock instances with an in-memory `FakeFraudDetector` implementing the domain protocol.
+3. **Strict MyPy Static Analysis**: Integrated `mypy --strict` into pre-commit hooks, catching misspelled method calls during static analysis before tests even run.
+
+---
+
+## Multi-Language Production Code Tabs: Boundary Wrapping & Test Doubles
+
+The following implementations demonstrate:
+1. Wrapping third-party payment processing behind an application-owned `PaymentGateway` interface.
+2. Building an in-memory **Fake** for state verification.
+3. Implementing a strictly typed **Mock** to verify negative side effects (proving no charge occurs on validation failure).
 
 ```
-   route:  checkout(gw = Depends(get_payment_gateway))
-                              |
-         PRODUCTION           |           TEST (override)
-      get_payment_gateway() --+-- app.dependency_overrides[get_payment_gateway]
-              |                          = lambda: FakeGateway(ok=False)
-              v                                     |
-        StripeGateway                               v
-        -> real Stripe API                    FakeGateway
-        (money, slow, flaky)                  in-memory, no network,
-                                              deterministic 402 path
-   ...same real routing/validation/serialization runs either way...
+### Language Tabs
+1. Python (Protocol interface + pytest-mock spec + in-memory Fake)
+2. Go (Interface + in-memory struct Fake + testify mock)
+3. Node.js / TypeScript (Interface + in-memory Fake + Vitest vi.fn)
+4. C# (Interface + in-memory Fake + Moq with MockBehavior.Strict)
 ```
 
-### Controlling nondeterminism: time, randomness, IDs, network
-
-Back in module 00 you wrote a flaky `greet_by_hour()` that read `datetime.now()`
-directly. Nondeterministic inputs — the clock, `random`, `uuid4`, the network —
-must be brought under test control, and there are two styles:
-
-- **Inject them** (preferred): pass a `clock` / `id_generator` callable into the
-  code, so a test passes a fixed one. Same design move as any other dependency,
-  and no patching needed.
-- **Patch them** with `monkeypatch`/`mocker.patch` when injection isn't
-  practical: replace `app.services.datetime` or freeze time with a library like
-  `freezegun`. Patch **where the name is looked up**, not where it's defined —
-  patch `app.services.datetime`, not `datetime.datetime`, or the patch misses.
-
+### Python
 ```python
-def test_greeting_before_noon(mocker):
-    mocker.patch("app.services.now", return_value=datetime(2026, 1, 1, 9, 0))
-    assert greet() == "good morning"
-```
+import pytest
+from typing import Protocol, List, Tuple
+from dataclasses import dataclass
 
-For outbound HTTP specifically, prefer a mock transport / `respx` (for httpx) or
-a fake client over patching `requests` internals — you get to assert on the
-request you *would* have sent and control the response, deterministically.
+# ==========================================
+# 1. DOMAIN BOUNDARY INTERFACE (You own this)
+# ==========================================
+class CardDeclinedError(Exception):
+    pass
 
-### Over-mocking: the anti-pattern and how to avoid it
+@dataclass
+class ChargeResult:
+    transaction_id: str
+    amount_cents: int
 
-**Over-mocking** is mocking so much that the test no longer verifies real
-behavior — it verifies that your code calls your mocks in a particular order,
-which is just the implementation restated as assertions. Symptoms: mocking your
-*own* internal functions; a test with five `assert_called_with` and no state or
-output assertion; tests that break every time you refactor even though behavior
-is unchanged; mocks whose return values you have to keep in sync with the real
-code by hand. Such tests are **change-detectors, not behavior-verifiers** — they
-raise the cost of every refactor while catching few real bugs.
-
-Antidotes: **(1)** Mock only at real boundaries; let internal collaborators run
-for real. **(2)** Prefer fakes and state verification over mocks and interaction
-verification. **(3)** Assert on *outcomes* (return value, resulting state, HTTP
-response), reserving `assert_called` for when the side effect is the whole point
-(an email *must* be sent; a card *must not* be charged twice). **(4)** If a test
-needs to mock five things to run one method, treat that as a *design* signal —
-the unit has too many dependencies — not as a cue to write five mocks. Healthy
-mocking is a scalpel at the edges, not a blanket over the whole call graph.
-
-### Don't mock what you don't own — wrap it
-
-A subtle but load-bearing rule: **don't mock third-party types directly**. If
-you `mocker.patch("stripe.Charge.create")`, your test is coupled to Stripe's
-internal API shape, and it happily passes even if Stripe changed that shape in a
-way that breaks you — your mock encodes your *assumption* about their library,
-which nothing verifies. Instead, wrap the vendor behind your own thin interface
-(`PaymentGateway.charge(...)`), mock *that* (which you own and control), and
-cover the real wrapper with a small number of **integration/contract tests**
-against the vendor's sandbox (or a recorded interaction). This keeps the bulk of
-your suite fast and stable against an interface you control, while a thin,
-slower layer guards the actual third-party contract — a preview of the contract
-testing you'll formalize in module 05.
-
-## Command reference
-
-| Tool / construct | Purpose |
-|---|---|
-| `pip install pytest-mock freezegun respx` | Mocking, time-freezing, httpx mock transport |
-| `mocker.Mock(spec=Interface)` | A mock that only allows the real interface's methods |
-| `mock.return_value = x` | Canned return (stub behavior) |
-| `mock.side_effect = Exc()` / `[a, b]` | Raise, or return a sequence across calls |
-| `mock.assert_called_once_with(...)` | Interaction assertion (use sparingly) |
-| `mock.assert_not_called()` | Prove a side effect did *not* happen |
-| `mocker.patch("pkg.mod.name")` | Patch where the name is *used*, not defined |
-| `monkeypatch.setattr(obj, "attr", val)` | Built-in patching, auto-undone per test |
-| `monkeypatch.setenv("KEY", "v")` | Set env var for one test |
-| `app.dependency_overrides[dep] = fn` | Inject a fake external service into a route |
-| `freeze_time("2026-01-01")` | Deterministic `datetime.now()` |
-| `respx.mock` | Mock outbound httpx calls, assert on the request |
-
-Faking an external gateway behind your own interface (the recommended default):
-
-```python
-# app/payments.py  -- your interface + real impl
 class PaymentGateway(Protocol):
-    def charge(self, amount: int, currency: str) -> "ChargeResult": ...
+    def charge(self, amount_cents: int, currency: str) -> ChargeResult: ...
 
-class StripeGateway:                       # the ONLY place that imports stripe
-    def charge(self, amount, currency):
-        resp = stripe.Charge.create(amount=amount, currency=currency)
-        return ChargeResult(ok=resp.paid, id=resp.id)
+class EmailSender(Protocol):
+    def send_receipt(self, recipient: str, message: str) -> None: ...
 
-# tests/fakes.py
-class FakeGateway:
-    def __init__(self, ok=True): self.ok, self.charges = ok, []
-    def charge(self, amount, currency):
-        self.charges.append((amount, currency))
-        if not self.ok: raise CardDeclined()
-        return ChargeResult(ok=True, id="ch_fake")
+# ==========================================
+# 2. APPLICATION SERVICE
+# ==========================================
+class CheckoutService:
+    def __init__(self, payments: PaymentGateway, emailer: EmailSender):
+        self.payments = payments
+        self.emailer = emailer
+
+    def process_order(self, customer_email: str, amount_cents: int) -> ChargeResult:
+        if amount_cents <= 0:
+            raise ValueError("Amount must be strictly positive")
+            
+        # 1. Charge card via boundary interface
+        result = self.payments.charge(amount_cents=amount_cents, currency="USD")
+        
+        # 2. Dispatch receipt only on success
+        self.emailer.send_receipt(
+            recipient=customer_email,
+            message=f"Charge confirmed: {result.transaction_id}"
+        )
+        return result
+
+# ==========================================
+# 3. IN-MEMORY FAKES (State Verification)
+# ==========================================
+class FakePaymentGateway:
+    def __init__(self, should_succeed: bool = True):
+        self.should_succeed = should_succeed
+        self.charged_history: List[Tuple[int, str]] = []
+
+    def charge(self, amount_cents: int, currency: str) -> ChargeResult:
+        self.charged_history.append((amount_cents, currency))
+        if not self.should_succeed:
+            raise CardDeclinedError("Card was declined by issuing bank")
+        return ChargeResult(transaction_id=f"tx_{len(self.charged_history)}", amount_cents=amount_cents)
+
+class FakeEmailSender:
+    def __init__(self):
+        self.sent_emails: List[Tuple[str, str]] = []
+
+    def send_receipt(self, recipient: str, message: str) -> None:
+        self.sent_emails.append((recipient, message))
+
+# ==========================================
+# 4. UNIT TESTS (Fakes + Strict Spec Mock)
+# ==========================================
+def test_successful_checkout_records_payment_and_sends_email():
+    # Arrange (Using Fakes for State Verification)
+    fake_gateway = FakePaymentGateway(should_succeed=True)
+    fake_emailer = FakeEmailSender()
+    service = CheckoutService(payments=fake_gateway, emailer=fake_emailer)
+
+    # Act
+    result = service.process_order("ada@lovelace.org", 5000)
+
+    # Assert (Verify Behavioral State Outcomes)
+    assert result.amount_cents == 5000
+    assert fake_gateway.charged_history == [(5000, "USD")]
+    assert len(fake_emailer.sent_emails) == 1
+    assert fake_emailer.sent_emails[0][0] == "ada@lovelace.org"
+
+def test_declined_card_raises_error_and_sends_NO_email():
+    # Arrange
+    fake_gateway = FakePaymentGateway(should_succeed=False)
+    fake_emailer = FakeEmailSender()
+    service = CheckoutService(payments=fake_gateway, emailer=fake_emailer)
+
+    # Act & Assert
+    with pytest.raises(CardDeclinedError):
+        service.process_order("ada@lovelace.org", 5000)
+
+    # Negative side-effect verification: proving email was NOT sent
+    assert len(fake_emailer.sent_emails) == 0
+
+def test_zero_amount_validation_never_invokes_payment_gateway(mocker):
+    # Arrange: Using strict spec mock to prove interaction was NOT called
+    mock_gateway = mocker.Mock(spec=PaymentGateway)
+    mock_emailer = mocker.Mock(spec=EmailSender)
+    service = CheckoutService(payments=mock_gateway, emailer=mock_emailer)
+
+    # Act & Assert
+    with pytest.raises(ValueError):
+        service.process_order("ada@lovelace.org", 0)
+
+    # Enforce that payment gateway was never touched
+    mock_gateway.charge.assert_not_called()
+    mock_emailer.send_receipt.assert_not_called()
 ```
 
-Proving a side effect does *not* happen on the failure path (a real bug class):
+### Go
+```go
+package checkout_test
 
-```python
-def test_declined_charge_does_not_send_receipt():
-    emailer = FakeEmailSender()
-    svc = CheckoutService(payments=FakeGateway(ok=False), emailer=emailer)
-    with pytest.raises(CardDeclined):
-        svc.checkout(user, cart)
-    assert emailer.sent == []              # no receipt for a failed charge
+import (
+	"errors"
+	"testing"
+)
+
+// ==========================================
+// 1. BOUNDARY INTERFACES
+// ==========================================
+var ErrCardDeclined = errors.New("card declined")
+
+type PaymentGateway interface {
+	Charge(amountCents int, currency string) (string, error)
+}
+
+type EmailSender interface {
+	SendReceipt(to string, body string) error
+}
+
+type CheckoutService struct {
+	payments PaymentGateway
+	emailer  EmailSender
+}
+
+func (s *CheckoutService) ProcessOrder(email string, amountCents int) (string, error) {
+	if amountCents <= 0 {
+		return "", errors.New("amount must be positive")
+	}
+
+	txID, err := s.payments.Charge(amountCents, "USD")
+	if err != nil {
+		return "", err
+	}
+
+	_ = s.emailer.SendReceipt(email, "Charge confirmed: "+txID)
+	return txID, nil
+}
+
+// ==========================================
+// 2. IN-MEMORY FAKES
+// ==========================================
+type FakePaymentGateway struct {
+	ShouldSucceed bool
+	Charges       []int
+}
+
+func (f *FakePaymentGateway) Charge(amount int, curr string) (string, error) {
+	f.Charges = append(f.Charges, amount)
+	if !f.ShouldSucceed {
+		return "", ErrCardDeclined
+	}
+	return "tx_12345", nil
+}
+
+type FakeEmailSender struct {
+	SentMessages []string
+}
+
+func (f *FakeEmailSender) SendReceipt(to string, body string) error {
+	f.SentMessages = append(f.SentMessages, to)
+	return nil
+}
+
+// ==========================================
+// 3. UNIT TESTS
+// ==========================================
+func TestProcessOrder_Success_ChargesAndSendsReceipt(t *testing.T) {
+	fakePay := &FakePaymentGateway{ShouldSucceed: true}
+	fakeEmail := &FakeEmailSender{}
+	svc := &CheckoutService{payments: fakePay, emailer: fakeEmail}
+
+	txID, err := svc.ProcessOrder("alan@turing.org", 7500)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if txID != "tx_12345" {
+		t.Errorf("expected tx_12345, got %s", txID)
+	}
+	if len(fakePay.Charges) != 1 || fakePay.Charges[0] != 7500 {
+		t.Errorf("payment not recorded properly")
+	}
+	if len(fakeEmail.SentMessages) != 1 {
+		t.Errorf("expected 1 email to be sent")
+	}
+}
+
+func TestProcessOrder_Declined_DoesNotSendEmail(t *testing.T) {
+	fakePay := &FakePaymentGateway{ShouldSucceed: false}
+	fakeEmail := &FakeEmailSender{}
+	svc := &CheckoutService{payments: fakePay, emailer: fakeEmail}
+
+	_, err := svc.ProcessOrder("alan@turing.org", 7500)
+	if !errors.Is(err, ErrCardDeclined) {
+		t.Fatalf("expected ErrCardDeclined, got %v", err)
+	}
+
+	if len(fakeEmail.SentMessages) != 0 {
+		t.Errorf("expected NO email on declined card, got: %d", len(fakeEmail.SentMessages))
+	}
+}
 ```
 
-Mocking outbound HTTP with respx instead of patching library internals:
+### Node.js / TypeScript (Vitest)
+```typescript
+import { describe, it, expect, vi } from 'vitest';
+
+export interface PaymentGateway {
+  charge(amountCents: number, currency: string): Promise<{ transactionId: string }>;
+}
+
+export interface EmailSender {
+  sendReceipt(recipient: string, message: string): Promise<void>;
+}
+
+export class CheckoutService {
+  constructor(
+    private readonly payments: PaymentGateway,
+    private readonly emailer: EmailSender
+  ) {}
+
+  async processOrder(email: string, amountCents: number) {
+    if (amountCents <= 0) throw new Error('Amount must be positive');
+    const tx = await this.payments.charge(amountCents, 'USD');
+    await this.emailer.sendReceipt(email, `Paid: ${tx.transactionId}`);
+    return tx;
+  }
+}
+
+// In-Memory Fake
+export class FakePaymentGateway implements PaymentGateway {
+  public charges: number[] = [];
+  constructor(private shouldSucceed = true) {}
+
+  async charge(amountCents: number) {
+    this.charges.push(amountCents);
+    if (!this.shouldSucceed) throw new Error('CARD_DECLINED');
+    return { transactionId: 'tx_vitest_99' };
+  }
+}
+
+describe('CheckoutService Tests', () => {
+  it('should process payment and send email on success', async () => {
+    const fakePay = new FakePaymentGateway(true);
+    const fakeEmail: EmailSender = { sendReceipt: vi.fn() };
+    const svc = new CheckoutService(fakePay, fakeEmail);
+
+    const result = await svc.processOrder('grace@hopper.org', 3000);
+
+    expect(result.transactionId).toBe('tx_vitest_99');
+    expect(fakePay.charges).toEqual([3000]);
+    expect(fakeEmail.sendReceipt).toHaveBeenCalledWith('grace@hopper.org', 'Paid: tx_vitest_99');
+  });
+
+  it('should not dispatch email when payment fails', async () => {
+    const fakePay = new FakePaymentGateway(false);
+    const mockEmail: EmailSender = { sendReceipt: vi.fn() };
+    const svc = new CheckoutService(fakePay, mockEmail);
+
+    await expect(svc.processOrder('grace@hopper.org', 3000)).rejects.toThrow('CARD_DECLINED');
+    expect(mockEmail.sendReceipt).not.toHaveBeenCalled();
+  });
+});
+```
+
+### C# (xUnit + Moq with Strict Behavior)
+```csharp
+using System;
+using System.Collections.Generic;
+using System.Threading.Tasks;
+using Moq;
+using Xunit;
+
+public interface IPaymentGateway
+{
+    Task<string> ChargeAsync(int amountCents, string currency);
+}
+
+public interface IEmailSender
+{
+    Task SendReceiptAsync(string recipient, string message);
+}
+
+public class CheckoutService
+{
+    private readonly IPaymentGateway _payments;
+    private readonly IEmailSender _emailer;
+
+    public CheckoutService(IPaymentGateway payments, IEmailSender emailer)
+    {
+        _payments = payments;
+        _emailer = emailer;
+    }
+
+    public async Task<string> ProcessOrderAsync(string email, int amountCents)
+    {
+        if (amountCents <= 0) throw new ArgumentException("Amount must be positive");
+        var txId = await _payments.ChargeAsync(amountCents, "USD");
+        await _emailer.SendReceiptAsync(email, $"Receipt: {txId}");
+        return txId;
+    }
+}
+
+public class CheckoutServiceTests
+{
+    [Fact]
+    public async Task ProcessOrderAsync_NegativeAmount_NeverTouchesPaymentGateway()
+    {
+        // Arrange: Strict Mock throws if any unconfigured method is invoked
+        var mockGateway = new Mock<IPaymentGateway>(MockBehavior.Strict);
+        var mockEmailer = new Mock<IEmailSender>(MockBehavior.Strict);
+        var service = new CheckoutService(mockGateway.Object, mockEmailer.Object);
+
+        // Act & Assert
+        await Assert.ThrowsAsync<ArgumentException>(() => 
+            service.ProcessOrderAsync("ada@lovelace.org", -50));
+
+        // Verify zero interactions occurred
+        mockGateway.Verify(g => g.ChargeAsync(It.IsAny<int>(), It.IsAny<string>()), Times.Never);
+    }
+}
+```
+
+---
+
+## Practical Hands-On Verification Workflows
+
+### 1. Intercepting Outbound HTTP Requests via RESPX
+
+When writing unit tests for microservice clients, use `respx` to mock external HTTP requests at the transport layer without touching the network:
 
 ```python
+import pytest
+import httpx
+import respx
+
+class ShippingClient:
+    def __init__(self, base_url: str = "https://api.shipping-carrier.com"):
+        self.base_url = base_url
+
+    async def get_shipping_quote(self, zip_code: str) -> int:
+        async with httpx.AsyncClient(base_url=self.base_url) as client:
+            resp = await client.get(f"/rates/{zip_code}")
+            resp.raise_for_status()
+            return resp.json()["rate_cents"]
+
 @pytest.mark.asyncio
-async def test_fetches_shipping_rate(respx_mock):
-    respx_mock.get("https://ship.example/rate").respond(json={"cents": 599})
-    rate = await ShippingClient().get_rate(zip="94107")
-    assert rate == 599                     # deterministic, no network
+@respx.mock
+async def test_get_shipping_quote_intercepted():
+    # Configure respx to mock the exact HTTP route
+    route = respx.get("https://api.shipping-carrier.com/rates/90210").respond(
+        status_code=200,
+        json={"rate_cents": 1250, "carrier": "ExpressPost"}
+    )
+
+    client = ShippingClient()
+    rate = await client.get_shipping_quote("90210")
+
+    assert rate == 1250
+    assert route.called
+    assert route.call_count == 1
 ```
 
-## Hands-on exercises
+---
 
-Work in `testing-lab/`. Build a small `CheckoutService(payments, emailer)` that
-charges a card and, on success, sends a receipt.
+## Operational Validation Checkpoints (Scenario Quizzes)
 
-### 1. Introduce a boundary interface
+<details>
+<summary><strong>Checkpoint 1: The Leaky Dependency Override Anti-Pattern</strong></summary>
 
-Refactor any direct vendor call so `CheckoutService` depends on injected
-`PaymentGateway` and `EmailSender` interfaces, with a `StripeGateway`/
-`SmtpEmailSender` as the only modules importing the SDKs. Confirm the service
-imports no vendor library. This is the seam everything else here relies on.
-
-### 2. Fake the happy path (state verification)
-
-Write `FakeGateway(ok=True)` and `FakeEmailSender`. Test that a successful
-checkout returns a result *and* that the fake emailer recorded exactly one
-receipt to the right address. Assert on the recorded state, not on any mock
-call.
-
-### 3. Prove a negative side effect
-
-Write `FakeGateway(ok=False)` (raises `CardDeclined`). Test that checkout raises,
-and critically that `emailer.sent == []` — no receipt on a declined card. This
-"the side effect must *not* happen" assertion is one mocking does uniquely well.
-
-### 4. When interaction *is* the behavior, use a mock with `spec`
-
-Test that the gateway is charged **exactly once** with the cart total (guarding
-against a double-charge bug). Use `mocker.Mock(spec=PaymentGateway)` and
-`assert_called_once_with(...)`. Then rename `charge`→`capture` on the interface
-and watch the `spec`'d mock catch it; a spec-less mock would not.
-
-### 5. Control the clock
-
-Give the service a `created_at` from a `now` callable. Test with an injected
-fixed clock first, then achieve the same by `mocker.patch`ing the name *where
-it's used*. Deliberately patch `datetime.datetime` (the wrong place) and observe
-the patch miss — then fix the target.
-
-### 6. Override an external dependency at the route level
-
-Add `POST /v1/checkout` with `Depends(get_payment_gateway)`. Write two
-integration tests via `TestClient`: an approved card → `200`, a declined card →
-`402`, each by overriding the provider with a `FakeGateway`. Clear the override
-in teardown. The real routing/validation runs; only the vendor is faked.
-
-### 7. Mock outbound HTTP, not the library
-
-Add a `ShippingClient` that GETs a rate over httpx. Test it with `respx`,
-asserting both the returned rate *and* that the request went to the expected
-URL. Note why this beats `mocker.patch("httpx.get")` (you assert on the request
-you'd send, and stay off the network).
-
-### 8. Diagnose and fix: an over-mocked test
-
-This test is green and "thorough," but it's a change-detector that verifies
-almost no real behavior. Identify every over-mocking problem and rewrite it to
-verify outcomes.
-
+**Scenario:** A developer writes a route test using FastAPI `dependency_overrides`:
 ```python
-def test_checkout(mocker):
-    svc = CheckoutService(payments=mocker.Mock(), emailer=mocker.Mock())
-    mocker.patch.object(svc, "_calculate_total", return_value=100)   # mocks own logic
-    mocker.patch.object(svc, "_build_receipt", return_value="R")     # mocks own logic
-    svc.payments.charge.return_value = mocker.Mock(ok=True, id="x")
-    svc.checkout(user, cart)
-    svc.payments.charge.assert_called_once()
-    svc._calculate_total.assert_called_once()
-    svc._build_receipt.assert_called_once()
-    svc.emailer.send.assert_called_once()
+def test_admin_route():
+    app.dependency_overrides[get_current_user] = lambda: AdminUser(id=1)
+    client = TestClient(app)
+    response = client.get("/admin/metrics")
+    assert response.status_code == 200
 ```
+When running the full test suite, subsequent unauthenticated tests begin failing because they unexpectedly have admin privileges. Why did this occur, and how must dependency overrides be managed?
 
-<details>
-<summary>Solution</summary>
-
-Problems: **(1) It mocks the service's own internal methods** (`_calculate_
-total`, `_build_receipt`) — those are the logic under test, so the test verifies
-nothing about totals or receipt contents. **(2) Every assertion is an
-interaction assertion** (`assert_called_once`) with no check on any *outcome* —
-it verifies the code *calls itself in a certain order*, i.e. it restates the
-implementation. **(3) Mocks have no `spec`**, so a renamed method or wrong
-signature passes silently. **(4) It'll break on any refactor** (rename an
-internal method, inline it) even though behavior is unchanged — a
-change-detector, not a behavior-verifier.
-
-Fix: mock only the real boundaries (payments, emailer — ideally as fakes), let
-the internal logic run, and assert on outcomes.
-
-```python
-def test_successful_checkout_charges_total_and_emails_receipt():
-    gateway = FakeGateway(ok=True)
-    emailer = FakeEmailSender()
-    svc = CheckoutService(payments=gateway, emailer=emailer)
-
-    result = svc.checkout(user, cart)                # real total/receipt logic runs
-
-    assert result.paid is True
-    assert gateway.charges == [(cart.total, "usd")]  # charged the real computed total
-    assert emailer.sent[0]["to"] == user.email       # receipt actually queued
-```
-
-Now the internal calculation runs for real, the assertions are about outcomes,
-and a refactor that preserves behavior keeps the test green.
-
+**Answer:**
+- **The Cause**: `app.dependency_overrides` is a global dictionary stored on the FastAPI application instance. The developer modified the dictionary inside `test_admin_route` but never removed it. The override leaked into all subsequent tests executed in the same process.
+- **The Fix**: Always manage dependency overrides within a `pytest` fixture using the **Arrange/Teardown with `yield`** pattern:
+  ```python
+  @pytest.fixture
+  def admin_client():
+      app.dependency_overrides[get_current_user] = lambda: AdminUser(id=1)
+      with TestClient(app) as client:
+          yield client
+      app.dependency_overrides.clear() # Guaranteed teardown!
+  ```
 </details>
 
-## Independent challenge
-
-No code given. Return to the layered service from
-**02-api-layer-and-request-handling (module 06, Handlers, Controllers, and
-Services)** and add an external dependency to it — say an `OrderService` that,
-on placing an order, must **charge a payment gateway** and **send a
-confirmation email**, both injected as interfaces. Build fakes for both, and
-write a unit suite that covers: a successful order charges the gateway with the
-correct total and queues exactly one confirmation (state verification); a
-declined card raises the domain exception, is **not** persisted, and sends **no
-email** (negative side-effect assertion); and — only where the interaction is
-the contract — a mock-with-`spec` proving the gateway is charged exactly once
-(no double-charge). Then wire it into a route and add two `TestClient`
-integration tests using **dependency overrides** (approved → success, declined →
-`402`) exactly as in module 03. Nowhere should you mock the service's own
-internal methods or a vendor library directly.
-
 <details>
-<summary>Hint</summary>
+<summary><strong>Checkpoint 2: The Fallacy of Mocking Everything</strong></summary>
 
-The design that makes all of this clean is the module-06 rule pushed one step
-further: the service imports no vendor SDK and receives `PaymentGateway`/
-`EmailSender` as constructor arguments, so tests inject fakes with zero
-patching. For the "not persisted, no email" test, order the service so the
-charge happens *before* the write and email, then assert the fake repo is empty
-and `emailer.sent == []` after the raise. Use `Mock(spec=PaymentGateway)` only
-for the exactly-once charge assertion; use fakes and outcome assertions for
-everything else.
+**Scenario:** A developer tests a `TaxCalculator` service by creating mocks for `TaxRateTable`, `CurrencyConverter`, and `RoundingEngine`. Every test consists of 6 lines of `mock.return_value = ...` setup and assertions like `mock_engine.round.assert_called_once()`. What is wrong with this testing strategy, and what happens when the team refactors the rounding logic?
 
+**Answer:**
+- **The Failure Mode**: The test is an **Over-Mocked Change-Detector**. It does not test whether taxes are calculated correctly; it merely asserts that internal methods were called in a specific sequence.
+- **Brittleness**: If the team refactors `RoundingEngine` to use native integer math, the business behavior is identical, but 100% of the unit tests will break because their mocked interaction expectations were violated.
+- **The Fix**: `TaxRateTable`, `CurrencyConverter`, and `RoundingEngine` are internal domain collaborators, not external network boundaries! Do NOT mock them. Let them run as real, pure domain objects. Test `TaxCalculator` by passing inputs and asserting on the final computed decimal output.
 </details>
 
-## Common mistakes & troubleshooting
-
-- **Mocking your own internal logic.** Replacing the code under test with a mock
-  verifies nothing. Mock only external boundaries; let internal collaborators
-  run.
-- **All-interaction, no-outcome assertions.** A wall of `assert_called_with`
-  restates the implementation and breaks on refactor. Assert on outcomes; use
-  interaction assertions only when the side effect *is* the behavior.
-- **Mocks without `spec=`.** A specless mock accepts any method/args, so typos
-  and renames pass silently. Always `spec=` (or `autospec`) against the real
-  interface.
-- **Patching where a name is defined, not used.** `mocker.patch("datetime.
-  datetime")` misses a module that did `from datetime import datetime`. Patch
-  `app.module.datetime` — the lookup location.
-- **Mocking third-party libraries directly.** Couples tests to a vendor's
-  internal shape and encodes an unverified assumption. Wrap the vendor behind
-  your own interface, mock that, and contract-test the wrapper.
-- **Hitting real external services in tests.** Slow, flaky, costs money, may
-  cause real side effects. Fake them; reserve real calls for a tiny, isolated
-  contract-test layer.
-- **Needing five mocks to test one method.** A design smell (too many
-  dependencies), not a mocking task. Consider splitting the unit.
-- **Leaking overrides / patches.** An uncleared `dependency_overrides` or a
-  manual patch not undone corrupts later tests. Use fixtures / `monkeypatch` /
-  `mocker` which auto-undo, and clear overrides in teardown.
-
-## Checkpoint quiz
-
-Write down your answer to each question before expanding it — checking without attempting first is the single easiest way to fool yourself into thinking you've learned this.
-
-1. Where should you mock, and what should you *never* mock? Give the one-line
-   rule.
-2. Why prefer a fake over a mock for an email sender, and when is a mock with
-   interaction assertions actually the right call?
-3. What does `spec=` (or autospec) buy you, and what bug does a specless mock
-   let through?
-4. When patching the clock, why does `mocker.patch("app.services.datetime")`
-   work while `mocker.patch("datetime.datetime")` often doesn't?
-5. Define over-mocking and give two symptoms that a test has become a
-   change-detector rather than a behavior-verifier.
-6. Why is mocking a third-party library directly a trap, and what's the
-   recommended structure instead?
-7. A route charges a card via `Depends(get_payment_gateway)`. How do you test
-   the declined-card path returns `402` without touching the real gateway, and
-   what must you do afterward?
-
 <details>
-<summary>Answers</summary>
+<summary><strong>Checkpoint 3: The Danger of Mocking Third-Party Types</strong></summary>
 
-1. Mock at architectural boundaries — external, slow, nondeterministic, or
-   side-effecting collaborators (payment, email, clock, outbound HTTP). Never
-   mock your own internal business logic/pure functions; that's the thing under
-   test.
-2. A fake lets you verify the *outcome/state* (a receipt to the right address
-   was queued), which is robust to refactors because it doesn't care how the
-   email was sent. A mock with interaction assertions is right only when the
-   interaction itself is the contract and there's no observable state — e.g.
-   proving a card is charged exactly once, or that no email is sent on failure.
-3. `spec=` restricts the mock to the real interface's methods/signatures, so a
-   renamed or mistyped method fails the test. A specless mock accepts any
-   attribute/call, so such bugs pass silently against a mock that agrees with
-   anything.
-4. Because you patch where the name is *looked up*. If `app.services` did `from
-   datetime import datetime`, the name lives at `app.services.datetime`; patching
-   `datetime.datetime` changes the original module but not the already-imported
-   reference the service uses.
-5. Over-mocking is mocking so much that the test verifies your code calls your
-   mocks rather than verifying real behavior. Symptoms: mocking the code's own
-   internal methods; only `assert_called` assertions with no outcome/state
-   check; the test breaks on every behavior-preserving refactor.
-6. Directly mocking a vendor library couples the test to that library's internal
-   shape and encodes an assumption nothing verifies (it stays green even if the
-   real API changed). Instead wrap the vendor behind your own thin interface,
-   mock that interface in the bulk of tests, and cover the real wrapper with a
-   small number of contract/integration tests.
-7. Override the provider: `app.dependency_overrides[get_payment_gateway] =
-   lambda: FakeGateway(ok=False)`, then drive `POST /v1/checkout` via
-   `TestClient` and assert `402`. Afterward you must clear the override
-   (`dependency_overrides.clear()`, ideally in fixture teardown) so it doesn't
-   leak into other tests.
+**Scenario:** A developer writes: `mocker.patch("boto3.client")` to test an S3 file upload feature. Amazon releases a minor version update to Boto3 that deprecates an internal method. Why will the unit test suite continue to pass green in CI while the production deployment crashes?
 
+**Answer:**
+- **The Trap**: The developer **mocked what they do not own**. The test asserts against the developer's *assumption* of how Boto3 behaves, not against real AWS SDK behavior. Because the test intercepts the call before Boto3 code executes, changes to Boto3's real API signature are completely invisible to the test.
+- **The Architectural Fix**:
+  1. Wrap the S3 upload behind a domain interface: `BlobStorageService.upload(filename, data)`.
+  2. Implement an in-memory `FakeBlobStorageService` for unit tests.
+  3. Write a small, dedicated **integration contract test** against LocalStack or a real test S3 bucket using Testcontainers to verify that the real `S3BlobStorageAdapter` correctly speaks to the real AWS SDK.
 </details>
 
-## Further reading & sources
+---
 
-- [FastAPI — Testing Dependencies with Overrides](https://fastapi.tiangolo.com/advanced/testing-dependencies/) - The official `dependency_overrides` mechanism used to swap real external services for fakes.
-- [Python docs — unittest.mock](https://docs.python.org/3/library/unittest.mock.html) - The standard library reference for `Mock`, `spec`, `autospec`, and `assert_called` interaction checks.
-- [pytest-mock documentation](https://pytest-mock.readthedocs.io/en/latest/) - The `mocker` fixture wrapper this module uses, with auto-undo of patches per test.
-- [Martin Fowler — Mocks Aren't Stubs](https://martinfowler.com/articles/mocksArentStubs.html) - The classic argument for preferring state verification (fakes) over interaction verification (mocks).
-- ["Don't Mock What You Don't Own" — a summary](https://hynek.me/articles/what-to-mock-in-5-mins/) - Hynek Schlawack on mocking at your own boundaries and wrapping third-party libraries.
-- [RESPX documentation](https://lundberg.github.io/respx/) - Mocking outbound httpx calls so you assert on the request instead of patching library internals.
+## Further Reading & Next Steps
 
-## Next
-
-[05-e2e-and-contract-testing](../05-e2e-and-contract-testing/README.md) — you've
-faked external services to test your code in isolation. Next you'll zoom all the
-way out to end-to-end tests that drive the whole assembled system, and to
-*contract* testing that verifies your API actually matches its OpenAPI spec
-(schemathesis) — plus the hard question of when an e2e test's confidence is
-worth its cost and flakiness.
+* [Martin Fowler: Mocks Aren't Stubs](https://martinfowler.com/articles/mocksArentStubs.html) - Canonical thesis on state verification vs interaction verification.
+* [Hynek Schlawack: Don't Mock What You Don't Own](https://hynek.me/articles/what-to-mock-in-5-mins/) - Clear rules on wrapping third-party libraries.
+* [RESPX Documentation](https://lundberg.github.io/respx/) - Mocking HTTPX at the transport level.
+* Next up: [05-e2e-and-contract-testing](../05-e2e-and-contract-testing/README.md) to master full-system journeys, fight test flakiness, and enforce schema conformance with OpenAPI contract testing.
