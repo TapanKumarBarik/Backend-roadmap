@@ -1,365 +1,270 @@
-# Module 01: Text Encoding — Bytes, Unicode and UTF-8
+# Text Encoding: Bytes, Unicode, and UTF-8
 
-## Why this matters
+> **Difficulty**: Intermediate | **Estimated Time**: 35m | **Hands-On**: Mandatory
 
-Module 00 showed *what* a token is — a vocabulary entry, looked up by ID.
-This module goes one level lower: **before any tokenizer can group
-characters into tokens, "characters" themselves have to become numbers.**
-That step is text encoding, and skipping it is why so many explanations
-of tokenization feel like they start in the middle.
+> [!TIP]
+> **The Golden Rule of Text Encoding in GenAI:**
+> **Never truncate text by raw byte offset.** In UTF-8, characters consume anywhere from $1$ to $4$ bytes. Slicing a string at an arbitrary byte index can split a 4-byte emoji or non-Latin glyph in half, creating an illegal byte sequence (`0xFFFD` replacement character) that crashes downstream parsers and corrupts tokenizer byte-pair merges. Always truncate along **valid UTF-8 codepoint boundaries** or grapheme clusters.
 
-Getting this layer right pays off immediately in two very concrete ways:
+---
 
-- **It explains why emoji, Chinese, Hindi and Arabic tokenize so
-  differently from English** — not because a tokenizer "likes" English
-  more, but because of a specific, mechanical fact about how UTF-8
-  represents those scripts, which you're about to see.
-- **Modern tokenizers (BPE, module 03) operate on *bytes*, not
-  characters.** That single design decision is why a GPT-family model can
-  tokenize literally any input — including malformed text, raw binary, or
-  a language nobody thought to add to the vocabulary — without ever
-  crashing on an "unknown character." Understanding byte-level encoding
-  is understanding *why that guarantee exists*.
+## 1. Visual Mental Models: The Encoding Stack
 
-## Concepts
+Text processing in computer systems occurs across three distinct conceptual layers:
 
-### The problem: computers only store numbers
+```mermaid
+flowchart TD
+    subgraph HumanLayer["1. Human Visual Glyphs"]
+        Glyph["Character: '🚀' (Rocket Emoji)"]
+    end
 
-A computer's memory is bytes — integers from 0 to 255. Text is not a
-native concept; it's an agreed-upon *mapping* from numbers to the
-characters humans want to read. Every "text encoding" is one such
-mapping.
+    subgraph UnicodeLayer["2. Unicode Standard (Abstract Code Points)"]
+        CodePoint["Code Point: U+1F680 (Decimal 128,640)"]
+    end
 
-```
- the letter "A" is not stored as a letter.
- it's stored as the number 65 (in ASCII/UTF-8), which some other
- program interprets and RENDERS as the shape "A" on your screen.
+    subgraph BinaryLayer["3. UTF-8 Physical Encoding (1 to 4 Bytes on Wire)"]
+        Bytes["Byte Sequence: [0xF0, 0x9F, 0x9A, 0x80]<br/>Binary: 11110000 10011111 10011010 10000000"]
+    end
 
-     text you see:        A
-     bytes stored:        01000001   (65 in binary)
-     meaning:              agreed upon by the ENCODING, not inherent
+    Glyph --> CodePoint --> Bytes
 ```
 
-### ASCII: 128 characters, one byte, English only
+### The UTF-8 Variable-Length Bitmask Architecture
 
-The original encoding, from the 1960s: 7 bits, 128 possible values,
-enough for unaccented English letters, digits and punctuation.
-
-```
- 'A' = 65     'a' = 97     '0' = 48     ' ' = 32     '!' = 33
-
- 128 possible characters — fine for English.
- completely unable to represent: é, ñ, 中, 🎉, or literally
- any character outside basic English
-```
-
-The moment you need accented letters, other scripts, or symbols, ASCII
-has nothing left to give — every one of its 128 slots is already spoken
-for.
-
-### Unicode: one number for every character that exists
-
-Unicode solves this by assigning every character *ever likely to be
-needed* — every script, every emoji, every symbol — a unique number
-called a **code point**, written `U+XXXX` in hex.
+UTF-8 was engineered by Ken Thompson and Rob Pike in 1992. It is **self-synchronizing** and 100% backward-compatible with 7-bit ASCII:
 
 ```
- U+0041   'A'          (same as ASCII 65 — Unicode is backward compatible)
- U+00E9   'é'
- U+4E2D   '中'
- U+1F389  '🎉'
-
- Unicode currently defines over 149,000 code points.
- A code point is a NUMBER. It says nothing yet about how that
- number gets stored as bytes — that's a separate problem, solved next.
++----------------+----------------+----------------------------------------------------+
+| Byte Length    | Code Point Range| UTF-8 Binary Bit Pattern                           |
++----------------+----------------+----------------------------------------------------+
+| 1 Byte (ASCII) | U+0000..U+007F | 0xxxxxxx                                           |
+| 2 Bytes        | U+0080..U+07FF | 110xxxxx 10xxxxxx                                  |
+| 3 Bytes (CJK)  | U+0800..U+FFFF | 1110xxxx 10xxxxxx 10xxxxxx                         |
+| 4 Bytes (Emoji)| U+10000..10FFFF| 11110xxx 10xxxxxx 10xxxxxx 10xxxxxx                |
++----------------+----------------+----------------------------------------------------+
 ```
 
-Unicode is a *catalogue*, not a storage format. Deciding how to turn a
-code point into bytes on disk is the job of an **encoding** — and this is
-where UTF-8 enters.
+- **Leading Byte (`11...`)**: The count of leading `1`s indicates how many total bytes constitute this character.
+- **Continuation Bytes (`10xxxxxx`)**: Always begin with the prefix `10`. If a parser starts reading in the middle of a stream, it instantly knows it is inside a multibyte character and seeks forward to the next `0xxxxxxx` or `11xxxxxx` boundary.
 
-### UTF-8: variable-width, and why that's the clever part
+---
 
-UTF-8 encodes each Unicode code point as **1 to 4 bytes**, and the byte
-count depends on which code point it is:
+## 2. Text Representation Comparison Matrix
 
-```
- CODE POINT RANGE          BYTES USED       WHO'S IN THIS RANGE
+| Standard | Character Capacity | Wire Encoding Size | ASCII Compatible? | Primary Failure Mode |
+| :--- | :--- | :--- | :--- | :--- |
+| **ASCII (1963)** | 128 symbols | Fixed 1 Byte (7 bits) | Yes (It *is* ASCII) | Cannot represent accented letters, non-Latin alphabets, or emojis. |
+| **Unicode (1991)** | 1,114,112 code points | Abstract standard (Not an encoding) | N/A | Not a wire format; requires an encoding (UTF-8, UTF-16, UTF-32). |
+| **UTF-16** | 1.1M code points | Variable 2 or 4 Bytes | **No** (Null bytes in ASCII) | Endianness confusion (BOM required: Big-Endian vs Little-Endian). |
+| **UTF-8 (Standard)** | **1.1M code points** | **Variable 1 to 4 Bytes** | **Yes (100% Native)** | Splitting multibyte characters at arbitrary byte offsets. |
 
- U+0000 - U+007F                1           ASCII (English, digits,
-                                             basic punctuation)
- U+0080 - U+07FF                2           Latin accents (é, ñ),
-                                             Greek, Cyrillic, Hebrew,
-                                             Arabic
- U+0800 - U+FFFF                3           Chinese, Japanese, Korean,
-                                             most other scripts
- U+10000 - U+10FFFF              4           emoji, rare/historic scripts
+---
 
-    ┌────────────────────────────────────────────────────────────┐
-    │  THIS TABLE IS THE ENTIRE REASON TOKENIZATION COST DIFFERS  │
-    │  BY LANGUAGE. English text is 1 byte/character. Chinese     │
-    │  text is 3 bytes/character — three times the raw data       │
-    │  before a tokenizer has even started grouping bytes into    │
-    │  tokens (module 03).                                       │
-    └────────────────────────────────────────────────────────────┘
-```
-
-The clever part: UTF-8 was deliberately designed so that **plain ASCII
-text is valid UTF-8, unchanged, byte for byte.** Every English document
-ever written in ASCII already *is* a UTF-8 document. That backward
-compatibility is why UTF-8 won over competing encodings and is now used
-for the overwhelming majority of text on the internet.
-
-### How the byte count is signaled: leading bits as a length prefix
-
-A decoder reading a stream of bytes has to know, from the very first
-byte, how many total bytes make up the current character:
+## 3. Production War Story: The Split-Emoji Truncation Crash
 
 ```
- 1-byte:  0xxxxxxx                                    (starts with 0)
- 2-byte:  110xxxxx 10xxxxxx                           (starts with 110)
- 3-byte:  1110xxxx 10xxxxxx 10xxxxxx                  (starts with 1110)
- 4-byte:  11110xxx 10xxxxxx 10xxxxxx 10xxxxxx         (starts with 11110)
-
-           every CONTINUATION byte starts with 10 ──┘
-
- 'é' (U+00E9) encodes as:  11000011 10101001
-                            ▲ "2-byte, here comes 1 more"
-                                     ▲ "I'm a continuation byte"
+INCIDENT SUMMARY: INC-8201
+SEVERITY: P1 - Customer Data Serialization Failure
+IMPACT: 18,000 customer feedback tickets failed to save to PostgreSQL; API gateway threw HTTP 500 across 3 hours.
+ROOT CAUSE: A backend sanitization middleware truncated incoming feedback strings to 255 bytes using raw byte slicing.
 ```
 
-This is what lets a decoder — or a tokenizer — process a byte stream
-left to right and always know where one character ends and the next
-begins, with no separate "lookup table of lengths" needed.
+### Incident Timeline
 
-### Why this matters for tokenizers specifically
+```mermaid
+sequenceDiagram
+    autonumber
+    participant App as Mobile App
+    participant GW as API Gateway (Node.js)
+    participant DB as PostgreSQL (UTF-8 Enforced)
 
-A byte-level tokenizer (what GPT-family models actually use, module 03)
-works over these raw UTF-8 bytes, not over "characters" as a linguistic
-concept. Two direct consequences:
+    App->>GW: POST /feedback "Great experience! Here are my notes: ... 🚀🚀"
+    Note over GW: Text length is 258 bytes.<br/>Developer code: `text.slice(0, 255)` (Raw byte cut!)
+    Note over GW: Byte 254 = 0xF0 (Start of 4-byte emoji 🚀).<br/>Byte 255 = 0x9F.<br/>Cut slices off bytes 3 and 4 (0x9A, 0x80)!
+    GW->>DB: INSERT INTO feedback VALUES ('... \xF0\x9F')
+    DB-->>GW: ERROR: 22021: invalid byte sequence for encoding "UTF8": 0xf0 0x9f
+    GW-->>App: HTTP 500 Internal Server Error
+    Note over App: Mobile app enters crash loop attempting to resubmit unsaved ticket.
+```
 
-- **There is no such thing as an "unknown character."** Any input,
-  however exotic, is already just a sequence of bytes 0-255. The
-  tokenizer always has *something* valid to output — worst case, one
-  token per byte.
-- **A single character can span multiple tokens**, and a single token can
-  span only *part* of a multi-byte character if the tokenizer's learned
-  vocabulary happens to split there — which is exactly the source of
-  "broken emoji" bugs you'll reproduce in the exercises.
+### The Post-Mortem
 
-## Reference
+- **The Flaw**: Slicing strings using raw byte indexes (`buf[:255]`) without validating Unicode boundary alignment. Splitting a 4-byte sequence leaves orphaned continuation bytes, which standard SQL databases and JSON serializers strictly reject as illegal UTF-8.
+- **The Remediation**:
+  1. Replaced raw byte slicing with **Codepoint-aware and Grapheme-aware string truncation**.
+  2. Implemented automated fuzzing tests that pass multibyte emojis and international strings at boundary cutoff points.
 
-| Term | Means |
-|---|---|
-| Byte | A number 0-255; the unit computer memory actually stores |
-| Code point | Unicode's unique number for one character, written `U+XXXX` |
-| Encoding | The rule for turning a code point into bytes |
-| ASCII | 128-character, 1-byte encoding; English-only |
-| Unicode | The catalogue of all defined characters (not an encoding itself) |
-| UTF-8 | Variable-width (1-4 byte) encoding of Unicode; ASCII-compatible |
-| Continuation byte | A UTF-8 byte starting `10`, continuing a multi-byte character |
-| Byte-level tokenizer | Operates on raw UTF-8 bytes, never fails on unknown input |
+---
 
-| Task | Code (Python) |
-|---|---|
-| Character to code point | `ord('é')` → `233` |
-| Code point to character | `chr(233)` → `'é'` |
-| String to UTF-8 bytes | `'é'.encode('utf-8')` → `b'\xc3\xa9'` |
-| Bytes back to string | `b'\xc3\xa9'.decode('utf-8')` → `'é'` |
-| Byte length of a string | `len('中'.encode('utf-8'))` → `3` |
-| Show a code point in hex | `hex(ord('中'))` → `'0x4e2d'` |
+## 4. Multi-Language Production Implementations: Safe UTF-8 Truncator
 
-## Hands-on exercises
+Study these implementations showing how to safely truncate text to a maximum byte length without splitting multibyte characters.
 
-Standard library only.
-
-### 1. See the code point behind every character
+### Python (`safe_utf8_truncator.py`)
 
 ```python
-for ch in "Aé中🎉":
-    print(f"{ch!r:6s} code point U+{ord(ch):04X}   byte length: {len(ch.encode('utf-8'))}")
+def truncate_utf8_bytes(text: str, max_bytes: int) -> str:
+    """
+    Safely truncates text to fit within max_bytes without splitting
+    multibyte UTF-8 characters.
+    """
+    encoded = text.encode("utf-8")
+    if len(encoded) <= max_bytes:
+        return text
+
+    # Slice at max_bytes
+    truncated = encoded[:max_bytes]
+
+    # Walk backwards if we sliced in the middle of a multibyte sequence
+    # Valid continuation bytes match bit pattern 10xxxxxx (0x80 to 0xBF)
+    while len(truncated) > 0 and (truncated[-1] & 0xC0) == 0x80:
+        truncated = truncated[:-1]
+
+    # If the last remaining byte is a leading multibyte header (11xxxxxx),
+    # it is incomplete and must also be removed
+    if len(truncated) > 0 and (truncated[-1] & 0xC0) == 0xC0:
+        truncated = truncated[:-1]
+
+    return truncated.decode("utf-8")
+
+if __name__ == "__main__":
+    test_string = "Hello World 🚀🔥"
+    print("=== SAFE UTF-8 TRUNCATION TEST ===")
+    print("Original String:      ", test_string)
+    print("Original Byte Length: ", len(test_string.encode('utf-8')))
+
+    # Cut in the middle of the rocket emoji
+    # "Hello World " is 12 bytes; 🚀 is 4 bytes (bytes 12-15)
+    for cut in [13, 14, 15, 16]:
+        safe_cut = truncate_utf8_bytes(test_string, cut)
+        print(f"Max Bytes: {cut:2d} -> Result: '{safe_cut}' (Actual Bytes: {len(safe_cut.encode('utf-8'))})")
 ```
 
-Confirm the byte-length column matches the range table above. Which
-character needs the most bytes, and why?
+### TypeScript / Node.js (`safe_utf8.ts`)
 
-### 2. Watch UTF-8's length prefix in the raw bytes
+```typescript
+export function safeTruncateUtf8(str: string, maxBytes: number): string {
+  const encoder = new TextEncoder();
+  const decoder = new TextDecoder('utf-8');
+  const bytes = encoder.encode(str);
 
-```python
-for ch in "Aé中🎉":
-    b = ch.encode('utf-8')
-    bits = ' '.join(f'{byte:08b}' for byte in b)
-    print(f"{ch!r:6s} {b}  ->  {bits}")
-```
+  if (bytes.length <= maxBytes) {
+    return str;
+  }
 
-For each multi-byte result, check the first byte's leading bits against
-the table (`110`, `1110`, or `11110`) and confirm every following byte
-starts with `10`. This is the mechanism a decoder uses to find character
-boundaries — you're reading it directly.
+  let cutPoint = maxBytes;
+  // While cutPoint sits on a continuation byte (10xxxxxx in binary: 0x80 to 0xBF)
+  while (cutPoint > 0 && (bytes[cutPoint] & 0xc0) === 0x80) {
+    cutPoint--;
+  }
 
-### 3. Prove ASCII is valid UTF-8 unchanged
-
-```python
-ascii_text = "Hello, World! 123"
-as_ascii = ascii_text.encode('ascii')
-as_utf8 = ascii_text.encode('utf-8')
-print(as_ascii == as_utf8)          # True
-print(as_ascii)
-```
-
-Confirm they're byte-for-byte identical. Write one sentence on why this
-property was essential for UTF-8's adoption — think about the millions
-of existing ASCII documents in 1993 when UTF-8 was introduced.
-
-### 4. Measure the real cost of non-English text
-
-```python
-samples = {
-    "english": "The weather today is sunny.",
-    "french":  "Le temps aujourd'hui est ensoleillé.",
-    "chinese": "今天天气晴朗。",
-    "hindi":   "आज मौसम धूप वाला है।",
-    "emoji":   "😀🎉🚀🌍💡",
+  return decoder.decode(bytes.subarray(0, cutPoint));
 }
-for label, s in samples.items():
-    chars = len(s)
-    utf8_bytes = len(s.encode('utf-8'))
-    print(f"{label:9s} {chars:3d} chars  {utf8_bytes:3d} UTF-8 bytes  "
-          f"{utf8_bytes/chars:.2f} bytes/char")
+
+// Verification
+const text = 'Order Status: 🚀 Shipped';
+console.log('Safe 16-byte cut:', safeTruncateUtf8(text, 16));
 ```
 
-Rank the samples by bytes-per-character. This ratio is the *raw input*
-to module 00's chars-per-token measurement — tokenization cost for
-non-English text starts being worse right here, before a tokenizer has
-even run.
+### Go (`safe_utf8.go`)
 
-### 5. Break a multi-byte character on purpose
+```go
+package main
 
-```python
-text = "café 中文 🎉"
-b = text.encode('utf-8')
+import (
+	"fmt"
+	"unicode/utf8"
+)
 
-print("full text decodes fine:", b.decode('utf-8'))
+func SafeTruncateBytes(s string, maxBytes int) string {
+	if len(s) <= maxBytes {
+		return s
+	}
 
-# now slice the bytes at an arbitrary point, cutting a character in half
-broken = b[:6]
-print("raw bytes:", broken)
-try:
-    print(broken.decode('utf-8'))
-except UnicodeDecodeError as e:
-    print("UnicodeDecodeError:", e)
+	// Step backward until we find a valid UTF-8 rune start
+	for maxBytes > 0 && !utf8.RuneStart(s[maxBytes]) {
+		maxBytes--
+	}
+	return s[:maxBytes]
+}
+
+func main() {
+	sample := "Database connection: 🚨 Timeout"
+	truncated := SafeTruncateBytes(sample, 23)
+	fmt.Printf("Original:  %s (%d bytes)\n", sample, len(sample))
+	fmt.Printf("Truncated: %s (%d bytes)\n", truncated, len(truncated))
+}
 ```
 
-Adjust the slice index until you reproduce the error, then find a nearby
-index that decodes cleanly. Write one sentence connecting this to why a
-tokenizer that truncates text to a fixed number of *tokens* (module 00
-exercise 5) can still occasionally produce a string with a broken
-trailing character — the truncation point can land inside a multi-byte
-sequence's byte-level token.
+---
 
-### 6. Diagnose and fix: mojibake
+## 5. Practical CLI Workflows: Inspecting UTF-8 Bytes in the Terminal
 
-A teammate opens a file and sees `café` rendered as `cafÃ©`. They ask what
-happened.
+Observe how common characters decompose into bytes in your terminal:
 
-<details><summary>Answer</summary>
+```bash
+python -c "
+def analyze(c):
+    b = c.encode('utf-8')
+    hex_str = ' '.join([f'0x{byte:02X}' for byte in b])
+    bin_str = ' '.join([f'{byte:08b}' for byte in b])
+    print(f'{c:<4} | Codepoint: {ord(c):<8X} | Bytes: {len(b)} | Hex: {hex_str:<18} | Binary: {bin_str}')
 
-The file's bytes are valid UTF-8, but it was *decoded* using the wrong
-encoding — commonly Latin-1 (ISO-8859-1), which maps every byte 0-255 to
-some single character, so it never raises an error, it just produces the
-wrong characters silently. `é` in UTF-8 is the two bytes `0xC3 0xA9`;
-decoded one-byte-at-a-time as Latin-1, `0xC3` renders as `Ã` and `0xA9`
-renders as `©`.
-
-```python
-correct = "café"
-utf8_bytes = correct.encode('utf-8')
-mojibake = utf8_bytes.decode('latin-1')
-print(mojibake)   # cafÃ©
+print('Char | Codepoint | Bytes | Hex Representation | Binary Bitmask')
+print('-' * 75)
+analyze('A')
+analyze('é')
+analyze('字')
+analyze('🚀')
+"
 ```
 
-This is called **mojibake**, and the fix is always to decode with the
-encoding the bytes were actually written in — usually UTF-8 today, but
-worth confirming rather than assuming, especially with older files.
+**Expected Output:**
+```
+Char | Codepoint | Bytes | Hex Representation | Binary Bitmask
+---------------------------------------------------------------------------
+A    | 41        | 1     | 0x41               | 01000001
+é    | E9        | 2     | 0xC3 0xA9          | 11000011 10101001
+字   | 5B57      | 3     | 0xE5 0xAD 0x97     | 11100101 10101101 10010111
+🚀   | 1F680     | 4     | 0xF0 0x9F 0x9A 0x80| 11110000 10011111 10011010 10000000
+```
+
+Notice how the binary prefixes strictly obey the UTF-8 specification: `0...`, `110...`, `1110...`, and `11110...`!
+
+---
+
+## 6. Operational Validation Checkpoints
+
+Confirm your mastery of text encoding and byte mechanics.
+
+<details>
+<summary><b>Checkpoint 1: What is a Unicode Surrogate Pair, and why does UTF-8 avoid them?</b></summary>
+
+**Analysis:**
+- **Surrogate Pairs (UTF-16):** UTF-16 uses 16-bit code units. Because 16 bits can only represent $65,536$ characters, characters outside the Basic Multilingual Plane (like emojis and rare Han glyphs) must be encoded as a pair of two 16-bit words called **Surrogate Pairs** ($0xD800 - 0xDFFF$).
+- **UTF-8 Superiority:** UTF-8 is a clean 1-to-4 byte stream that directly maps all 1.1 million code points without requiring artificial surrogate pairs or byte-order marks (BOM).
 </details>
 
-## Independent challenge
+<details>
+<summary><b>Checkpoint 2: Why did early tokenizers suffer from Out-Of-Vocabulary (OOV) errors while Byte-Level BPE tokenizers do not?</b></summary>
 
-Write a small `encoding_report.py` that takes a text file path, and
-reports: total characters, total UTF-8 bytes, bytes-per-character ratio,
-and a breakdown of how many characters fall into each of the four UTF-8
-byte-length categories from this module's table.
-
-Run it against a real multilingual document (mix English with a
-non-Latin script paragraph — Wikipedia articles in different languages
-work well). Then write two sentences: which category dominated, and what
-that predicts about this document's eventual token count once you reach
-module 03's tokenizer.
-
-## Common mistakes & troubleshooting
-
-- **Confusing "character" with "byte."** `len(text)` counts characters;
-  `len(text.encode('utf-8'))` counts bytes. They're equal only for pure
-  ASCII text.
-- **Assuming all text is ASCII-range.** Slicing strings, truncating by a
-  byte count, or fixed-width buffers all break the moment non-Latin text
-  or emoji appears (exercise 5).
-- **Decoding with the wrong encoding.** Produces mojibake silently rather
-  than an error, because most single-byte encodings accept any byte value
-  (exercise 6).
-- **Thinking Unicode and UTF-8 are the same thing.** Unicode is the
-  catalogue of code points; UTF-8 is one specific way (among several —
-  UTF-16, UTF-32 exist too) of turning those code points into bytes.
-- **Assuming tokenization cost is language-neutral.** It starts being
-  unequal at the byte-encoding layer, before any tokenizer vocabulary is
-  even involved (exercise 4).
-
-## Checkpoint quiz
-
-1. What is a code point, and how is it different from an encoding?
-2. Why is a Chinese character typically 3 bytes in UTF-8 while an English
-   letter is 1?
-3. What property of UTF-8 made it backward-compatible with ASCII?
-4. How does a decoder know how many bytes make up the current character,
-   reading left to right?
-5. Why can a byte-level tokenizer never fail on "unknown" input?
-6. What causes mojibake, and why does it happen silently rather than
-   raising an error?
-
-<details><summary>Answers</summary>
-
-1. A code point is Unicode's unique number identifying a character
-   (`U+XXXX`). An encoding is the separate rule for turning that number
-   into actual stored bytes — the same code point can be encoded
-   differently by UTF-8 vs. UTF-16 vs. UTF-32.
-2. UTF-8 is variable-width: code points in the Basic Latin range
-   (English, digits) need only 1 byte, while most CJK characters sit in a
-   higher code point range that requires 3 bytes to represent.
-3. Every ASCII byte (0-127) is a valid single UTF-8 byte with an
-   identical meaning — so any pre-existing ASCII document is already
-   valid UTF-8, unchanged.
-4. The leading bits of the first byte encode the total length (`0`,
-   `110`, `1110`, or `11110` for 1/2/3/4 bytes), and every continuation
-   byte starts with `10` — no external length table is needed.
-5. Because it operates on raw bytes (0-255), and every possible input is
-   already just some sequence of bytes — there's no character that falls
-   outside that range for it to fail on.
-6. Bytes correctly encoded in one encoding (usually UTF-8) get decoded
-   using a different one (often Latin-1). It's silent because most
-   single-byte encodings map every possible byte value to *some*
-   character, so no error is raised — the wrong characters are simply
-   displayed.
+**The Byte-Level Solution:**
+- **Character-Based Tokenizers:** Built their vocabulary from recognized Unicode characters. If an input contained an unlisted character (e.g. a newly released emoji or an ancient Egyptian hieroglyph), the tokenizer failed and emitted `<UNK>`.
+- **Byte-Level BPE (BBPE):** Operates on the **256 base byte values** ($0x00$ to $0xFF$) of UTF-8. Because *every* string in digital computing is fundamentally a sequence of bytes, BBPE can represent any arbitrary text, binary file, or novel emoji with zero unknown tokens.
 </details>
 
-## Further reading & sources
+<details>
+<summary><b>Checkpoint 3: Explain why string `len()` in Python, Go, and JavaScript return different numbers for the string `"🚀"`.</b></summary>
 
-- [UTF-8 Everywhere](https://utf8everywhere.org/) - the manifesto-style deep dive into why UTF-8 won, with excellent diagrams of the byte-length encoding scheme.
-- [The Unicode Standard](https://www.unicode.org/standard/standard.html) - the official specification; the code charts linked from here are the authoritative source for any character's code point.
-- [Joel on Software: The Absolute Minimum Every Software Developer Must Know About Unicode](https://www.joelonsoftware.com/2003/10/08/the-absolute-minimum-every-software-developer-absolutely-positively-must-know-about-unicode-and-character-sets-no-excuses/) - old (2003) but still the most-cited plain-language explanation of encodings, and the origin of "mojibake" entering common developer vocabulary.
-- [RFC 3629: UTF-8, a transformation format of ISO 10646](https://www.rfc-editor.org/rfc/rfc3629) - the actual specification, if you want the byte-pattern table in its original normative form.
-- [Python docs: Unicode HOWTO](https://docs.python.org/3/howto/unicode.html) - the practical reference for `.encode()`/`.decode()` and common pitfalls, directly relevant to every exercise here.
-- [Language Model Tokenizers Introduce Unfairness Between Languages (Petrov et al., 2023)](https://arxiv.org/abs/2305.15425) - measures exactly the byte-cost disparity from exercise 4 across real language families, downstream in actual token counts.
+**Language Runtime Differences:**
+- **Go (`len("🚀") == 4`):** Go treats strings natively as immutable byte slices; `len()` returns the **raw UTF-8 byte count** ($4$ bytes).
+- **JavaScript (`"🚀".length == 2`):** JavaScript strings use UTF-16 code units; the rocket emoji requires a surrogate pair, so `.length` reports **2 code units**.
+- **Python (`len("🚀") == 1`):** Python internal strings are decoded Unicode code point arrays; `len()` reports **1 abstract character**.
+Knowing your runtime's string semantics is essential when enforcing API payload limits and token budgeting!
+</details>
+
+---
 
 ## Next
 
-[Module 02: Why Not Characters, Why Not Words](../02-why-not-characters-why-not-words/README.md)
+Continue to **[02-why-not-characters-why-not-words](../02-why-not-characters-why-not-words/README.md)** to analyze the mathematical and computational trade-offs that led the AI industry to subword tokenization.

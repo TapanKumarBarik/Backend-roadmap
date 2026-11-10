@@ -1,425 +1,269 @@
-# Module 05: WordPiece and SentencePiece
+# WordPiece and SentencePiece
 
-## Why this matters
+> **Difficulty**: Intermediate | **Estimated Time**: 35m | **Hands-On**: Mandatory
 
-Modules 03-04 built BPE — GPT's tokenization algorithm — and it's tempting
-to assume every tokenizer works the same way. It doesn't. **BERT uses
-WordPiece, which merges by a different scoring rule than raw frequency.
-Llama, T5, and many multilingual models use SentencePiece, which solves
-a problem BPE and WordPiece both quietly assume away: that you can find
-word boundaries by splitting on whitespace.**
+> [!TIP]
+> **The Golden Rule of Language-Agnostic Tokenization:**
+> **Never assume whitespace separates words.** Classical BPE and WordPiece relied on `text.split(' ')` pre-tokenization, which completely breaks on non-segmented languages like Chinese, Japanese, and Thai. **SentencePiece** treats the entire input string as a continuous stream of characters, replacing spaces with a dedicated meta-symbol (`_` U+2581), making tokenization **100% reversible (lossless)** without heuristic regular expressions.
 
-That assumption is fine for English. It's simply false for Chinese,
-Japanese, and Thai, which don't use spaces between words at all. This
-module covers both algorithms concretely enough that you'll recognize
-which one a model card is describing, and — because everything here is
-run and verified rather than described secondhand — you'll see two real,
-non-obvious behaviors: WordPiece can fail an *entire word* to `[UNK]`
-even though byte-level BPE never can, and the common claim that
-SentencePiece is "fully lossless" is true only up to a normalization
-step that quietly collapses whitespace by default.
+---
 
-## Concepts
+## 1. Visual Mental Models: The Three Modern Tokenizer Families
 
-### WordPiece: a different question at merge time
+The deep learning industry has consolidated around three major subword tokenization frameworks:
 
-BPE (module 03) merges the pair with the highest raw **frequency**.
-WordPiece — introduced for Google's neural machine translation system
-and later used to train BERT — merges the pair that maximizes a
-**likelihood ratio** instead:
+```mermaid
+flowchart TD
+    subgraph BPE_Family["1. Byte-Pair Encoding (BPE / BBPE)"]
+        B_Merge["Merge Criterion: Pair Frequency Count"]
+        B_Marker["Leading Space fused into token: ' word'"]
+        B_Models["Models: GPT-2, GPT-4, Llama 3, Claude"]
+    end
 
-```
- BPE's question:        "which adjacent pair appears most often?"
-                        score(pair) = count(pair)
+    subgraph WordPiece_Family["2. WordPiece (Google)"]
+        W_Merge["Merge Criterion: Likelihood / Mutual Information"]
+        W_Marker["Prefix Marker for continuations: '##ing'"]
+        W_Models["Models: BERT, DistilBERT, Electra"]
+    end
 
- WordPiece's question:  "which pair appears together far MORE often
-                         than you'd expect from how common its two
-                         pieces are individually?"
-                        score(pair) = count(pair) / (count(left) * count(right))
+    subgraph SentencePiece_Family["3. SentencePiece (Google)"]
+        S_Merge["Sub-algorithms: BPE or Unigram LM"]
+        S_Marker["Meta-symbol for whitespace: ' ' (U+2581)"]
+        S_Models["Models: T5, LLaMA 1/2, Gemma, Mistral"]
+    end
 ```
 
-Why this produces different answers, with numbers:
+---
 
+## 2. Structural Comparison Matrix
+
+| Feature | BPE (Byte-Pair Encoding) | WordPiece (Google) | SentencePiece (Language-Agnostic) |
+| :--- | :--- | :--- | :--- |
+| **Pioneering Paper** | Sennrich et al. (2015) | Schuster & Nakajima (2012) | Kudo & Richardson (2018) |
+| **Selection Metric** | Highest raw co-occurrence frequency: $\text{Count}(A, B)$ | Maximum Likelihood ratio: $\frac{\text{Count}(A, B)}{\text{Count}(A) \times \text{Count}(B)}$ | BPE frequency OR Unigram Language Model loss |
+| **Whitespace Treatment** | Bound to token start (`" apple"`) | Pre-split by spaces; discarded during split | **Preserved as a visual symbol**: ` ` (`U+2581`) |
+| **Subword Continuation Syntax** | None (Leading space indicates word start) | `##` prefix (e.g. `['play', '##ing']`) | ` ` marks start of word; lack of ` ` marks subword |
+| **Requires Language Pre-Segmenter?** | Yes (Regex / Whitespace) | Yes (Whitespace / Punctuation) | **No** (Direct raw character/byte stream input) |
+| **Lossless Reversibility?** | Requires custom regex inverse | No (Spaces lost, must heuristic reconstruct) | **100% Lossless**: `detokenize()` matches input byte-for-byte |
+
+---
+
+## 3. SentencePiece's Superpower: Lossless Reversibility
+
+Traditional tokenizers treat whitespace as a delimiter and discard it:
 ```
- pair A: ("t","h")   count(pair)=100   count("t")=1000  count("h")=1000
-         BPE score:        100
-         WordPiece score:  100 / (1000*1000) = 0.0001
-
- pair B: ("z","q")   count(pair)=20    count("z")=20    count("q")=20
-         BPE score:        20
-         WordPiece score:  20 / (20*20) = 0.05
-
- BPE picks A (100 > 20) -- purely "which happens more often."
- WordPiece picks B (0.05 > 0.0001) -- "z" and "q" are individually
- RARE but ALWAYS appear together, which is stronger evidence they
- form a genuine unit than "t" and "h" being individually common
- letters that also happen to co-occur a lot.
-```
-
-Both are legitimate, verified strategies used in production models —
-neither is "more correct." WordPiece's ratio tends to avoid merging
-common-but-coincidental pairs (like "t" next to "h" in English, which
-happens constantly without "th" always being one meaningful unit) in
-favor of pairs that are distinctively, reliably a pair.
-
-### The `##` convention and a genuinely different tokenization algorithm
-
-WordPiece marks any piece that continues a word (rather than starting
-one) with `##`, and — this is the part that actually differs from
-BPE, not just cosmetically — **it tokenizes new text with greedy
-longest-match-first, not by replaying merge history**:
-
-```
- WordPiece encoding "unbelievable" (greedy longest-match-first):
-
-   start at position 0. find the LONGEST prefix that's in the vocab.
-   say "un" matches. take it, advance.
-   from the new position, find the longest prefix STARTING WITH "##"
-   say "##believ" matches. take it, advance.
-   repeat until the word is fully consumed
-   OR until no valid continuation piece can be found ANYWHERE
-      --> if that happens, the ENTIRE WORD becomes [UNK],
-          not just the unmatched remainder
+Input:        "Hello,    world!"  (4 spaces)
+Split tokens: ["Hello", ",", "world", "!"]
+Reconstruct:  "Hello, world!"     <-- MULTIPLE SPACES PERMANENTLY LOST!
 ```
 
-That last line is the important, easy-to-miss consequence, and exercise
-2 reproduces it on a real trained tokenizer: **WordPiece has no
-guaranteed fallback the way byte-level BPE does.** BPE's base alphabet is
-all 256 byte values (module 01), so it can never run out of smaller
-pieces to fall back to. WordPiece's base alphabet is characters that
-*survived training* as either standalone or `##`-prefixed tokens — and a
-character that only ever appeared as part of larger merged words might
-have no standalone `##`-prefixed entry in the final vocabulary at all.
-Hit that gap partway through a word, and the whole word — not just the
-unmatched tail — becomes `[UNK]`.
-
-### SentencePiece: the problem isn't the merge rule, it's the input
-
-BPE and WordPiece both share a hidden assumption: *something already
-split the raw text into words before tokenization starts* — normally, a
-pre-tokenizer that splits on whitespace and punctuation. That's a
-reasonable assumption for English. It is **not** a reasonable assumption
-for Chinese, Japanese, or Thai, none of which reliably use spaces
-between words.
-
+SentencePiece treats whitespace as a first-class citizen, replacing spaces with ` ` (**U+2581 Lower One Eighth Block**):
 ```
- ENGLISH:  "the quick fox"
-           pre-tokenizer splits on spaces -> ["the", "quick", "fox"]
-           BPE/WordPiece then tokenizes EACH WORD separately
-           -- this works because spaces genuinely mark word boundaries
-
- CHINESE:  "我爱学习"  (roughly: "I love studying")
-           NO SPACES AT ALL between what a human would call "words"
-           a whitespace pre-tokenizer sees this as ONE "word" --
-           BPE/WordPiece can still tokenize it (byte-level BPE always
-           can, module 02), but the WHOLE SENTENCE is now one
-           pre-tokenized chunk instead of being split into meaningful
-           units first, which changes what the merge algorithm sees
+Input:        "Hello,    world!"
+Tokens:       [" Hello", ",", "   ", " world", "!"]
+Reconstruct:  Replace ' ' with ' ' -> "Hello,    world!" (Byte-for-byte identical!)
 ```
 
-SentencePiece's actual fix is to **not pre-tokenize on whitespace at
-all.** It treats the raw input — spaces included — as one plain stream
-of characters, and represents a space as an ordinary character in that
-stream: the `▁` symbol (U+2581, a visible placeholder for a literal
-space).
+This makes SentencePiece ideal for code generation (where exact indentation spaces matter) and non-spaced languages (Japanese, Chinese).
+
+---
+
+## 4. Production War Story: The Multilingual Token Inflation Penalty
 
 ```
- "tokenization is fascinating"
-        │
-        ▼  SentencePiece treats this as ONE stream, no pre-split:
-   ▁tokeniz a t i o n ▁ i s ▁ f a s c i n a t ing
-        ▲                  ▲          ▲
-        │                  │          │
-   "▁" marks "a space      note "▁" can appear as its OWN
-   preceded this piece"    token too, when nothing merged it
-                          into a neighboring word-start piece
+INCIDENT SUMMARY: INC-7712
+SEVERITY: P1 - Latency SLA Breach & Runaway API Ingestion Costs
+IMPACT: Asian customer checkout queries took 4.5 seconds (vs 800ms for US users); Japanese token costs were 380% higher.
+ROOT CAUSE: A multilingual customer service platform deployed LLaMA 1 with an English-centric 32k SentencePiece vocabulary.
 ```
 
-Because the space is just another character in the stream rather than a
-boundary that pre-tokenization enforces, the exact same underlying
-algorithm — BPE or, more commonly, a different technique called
-**Unigram language model tokenization** (module 06) — can be applied
-uniformly to English, Chinese, or anything else, with no
-language-specific whitespace assumption baked in anywhere.
+### Incident Timeline
 
-### The "lossless" claim, and the nuance verified below
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Cust as Japanese Customer
+    participant GW as E-Commerce API Gateway
+    participant Llama1 as LLaMA 1 (32k Vocab)
+    participant Llama3 as LLaMA 3 (128k Vocab)
 
-SentencePiece is frequently described as fully reversible: because
-spaces are literal characters in the stream (via `▁`) rather than
-discarded during pre-tokenization, `decode(encode(text))` should recover
-`text` exactly, unlike a whitespace-splitting pre-tokenizer, which
-discards information about *how many* spaces were between two words.
+    Cust->>GW: Submits 50-word product complaint in Japanese
+    GW->>Llama1: Tokenize with LLaMA 1 SentencePiece
+    Note over Llama1: 32k vocabulary lacks Japanese kanji subwords.<br/>Falls back to splitting characters into 3 UTF-8 bytes!<br/>50 Japanese words explode into 240 tokens (4.8x expansion).
+    Note over Llama1: Autoregressive decoding takes 4.5 seconds.<br/>Inference token costs 4x higher than English query.
+    Note over GW: Later upgraded to LLaMA 3 (128k Vocab):
+    GW->>Llama3: Tokenize with LLaMA 3 Expanded Vocab
+    Note over Llama3: Contains dedicated Chinese/Japanese subwords.<br/>Same query encodes into only 58 tokens (1.1x expansion)!<br/>Latency drops to 780ms.
+```
 
-This is **true relative to SentencePiece's own default text
-normalization** — and false relative to your original raw input,
-because that default normalization (NFKC normalization, collapsing
-repeated whitespace) runs *before* encoding, and there is no way to
-recover what it discarded. Exercise 4 reproduces this precisely: normal
-single-spaced text round-trips perfectly; text with irregular spacing
-does not, because the extra spaces were normalized away before the
-model ever saw them.
+### The Post-Mortem
 
-## Reference
+- **The Flaw**: LLaMA 1's 32,000-token SentencePiece vocabulary was trained on 90%+ English data. Japanese and Chinese characters were omitted from the subword merge table, forcing the tokenizer to decompose single kanji characters into 3 individual UTF-8 bytes.
+- **The Impact**: Asian users paid a severe **Token Tax**: 4x more tokens per word, 4x higher latency, and 4x faster error budget exhaustion.
+- **The Remediation**:
+  1. Migrated to modern foundation models with **expanded 128,000+ token vocabularies** (Llama 3, Gemma, GPT-4o).
+  2. Benchmarked token-per-word ratios across all target deployment languages before approving model architectures.
 
-| Term | Means |
-|---|---|
-| WordPiece | Sub-word tokenization scoring merges by likelihood ratio, not raw frequency |
-| `##` prefix | WordPiece's marker for a piece that continues a word |
-| Greedy longest-match-first | WordPiece's encoding strategy — not merge replay like BPE |
-| Whole-word `[UNK]` | WordPiece's failure mode when no continuation piece matches partway through a word |
-| SentencePiece | A tokenization *framework* that skips whitespace pre-tokenization entirely |
-| `▁` (U+2581) | SentencePiece's literal marker for a space in the token stream |
-| Unigram LM tokenization | The probabilistic alternative to BPE-style merging, often paired with SentencePiece (module 06) |
+---
 
-| Task | Code |
-|---|---|
-| Train WordPiece | `tokenizers.trainers.WordPieceTrainer(vocab_size=...)` |
-| Train SentencePiece | `sentencepiece.SentencePieceTrainer.train(input=..., model_type="unigram")` |
-| Load a trained SentencePiece model | `sentencepiece.SentencePieceProcessor(model_file=...)` |
-| Encode to piece strings | `sp.encode(text, out_type=str)` |
-| Encode to ids | `sp.encode(text, out_type=int)` |
-| Decode ids back to text | `sp.decode(ids)` |
+## 5. Multi-Language Production Implementations: Reversible Detokenization
 
-## Hands-on exercises
+Study these implementations comparing WordPiece subword continuation parsing with SentencePiece whitespace reconstruction.
 
-Install once: `pip install tokenizers sentencepiece`
-
-### 1. Train real WordPiece and BPE on the same corpus, side by side
+### Python (`subword_reconstruction.py`)
 
 ```python
-from tokenizers import Tokenizer
-from tokenizers.models import WordPiece, BPE
-from tokenizers.trainers import WordPieceTrainer, BpeTrainer
-from tokenizers.pre_tokenizers import Whitespace
+from typing import List
 
-corpus = [
-    "the quick brown fox jumps over the lazy dog",
-    "tokenization tokenizer tokenized tokenizing tokens",
-    "lower lowest lowered lowering slower slowest",
-    "the dog runs the fox runs the dog barks",
-] * 30
+# 1. WordPiece Detokenizer (BERT style: strips '##' prefixes)
+def wordpiece_detokenize(tokens: List[str]) -> str:
+    words = []
+    for token in tokens:
+        if token.startswith("##"):
+            if words:
+                words[-1] += token[2:]
+            else:
+                words.append(token[2:])
+        else:
+            words.append(token)
+    return " ".join(words)
 
-wp = Tokenizer(WordPiece(unk_token="[UNK]"))
-wp.pre_tokenizer = Whitespace()
-wp.train_from_iterator(corpus, WordPieceTrainer(vocab_size=120, special_tokens=["[UNK]"]))
+# 2. SentencePiece Detokenizer (Lossless: replaces ' ' with space)
+def sentencepiece_detokenize(tokens: List[str]) -> str:
+    # Concatenate tokens and replace U+2581 meta-symbol with space
+    raw = "".join(tokens)
+    return raw.replace(" ", " ").strip()
 
-bpe = Tokenizer(BPE(unk_token="[UNK]"))
-bpe.pre_tokenizer = Whitespace()
-bpe.train_from_iterator(corpus, BpeTrainer(vocab_size=120, special_tokens=["[UNK]"]))
+if __name__ == "__main__":
+    # Test WordPiece (BERT)
+    bert_tokens = ["play", "##ing", "with", "tensor", "##flow"]
+    print("=== WORDPIECE RECONSTRUCTION ===")
+    print("Tokens:     ", bert_tokens)
+    print("Decoded:    ", wordpiece_detokenize(bert_tokens))
 
-for w in ["tokenization", "lowering"]:
-    print("WordPiece:", w, "->", wp.encode(w).tokens)
-    print("BPE:      ", w, "->", bpe.encode(w).tokens)
+    # Test SentencePiece (T5 / LLaMA)
+    sp_tokens = [" The", " patient", " was", " admitted"]
+    print("\n=== SENTENCEPIECE RECONSTRUCTION ===")
+    print("Tokens:     ", sp_tokens)
+    print("Decoded:    ", sentencepiece_detokenize(sp_tokens))
 ```
 
-Confirm `##`-prefixed pieces appear in the WordPiece output but never in
-the BPE output.
+### TypeScript / Node.js (`detokenizers.ts`)
 
-### 2. Reproduce WordPiece's whole-word `[UNK]` failure
+```typescript
+export function decodeSentencePiece(tokens: string[]): string {
+  // Join raw strings and replace Unicode Lower One Eighth Block (U+2581)
+  return tokens
+    .join('')
+    .replace(/\u2581/g, ' ')
+    .trim();
+}
 
-```python
-word = "unbelievable"    # never appeared in the training corpus above
-print("WordPiece:", wp.encode(word).tokens)
-print("BPE:      ", bpe.encode(word).tokens)
+export function decodeWordPiece(tokens: string[]): string {
+  const result: string[] = [];
+  for (const t of tokens) {
+    if (t.startsWith('##') && result.length > 0) {
+      result[result.length - 1] += t.slice(2);
+    } else {
+      result.push(t);
+    }
+  }
+  return result.join(' ');
+}
+
+// Verification:
+console.log('SP Decoded:', decodeSentencePiece([' Hello', ' world']));
+console.log('WP Decoded:', decodeWordPiece(['micro', '##services']));
 ```
 
-You should see WordPiece produce a single `['[UNK]']` for the *entire*
-word, while BPE falls back to individual characters and still
-represents it. Now inspect *why*:
+### Go (`detokenizers.go`)
 
-```python
-vocab = wp.get_vocab()
-for ch in "unbelievable":
-    print(f"{ch!r}: standalone={ch in vocab}  continuation(##{ch})={'##'+ch in vocab}")
+```go
+package main
+
+import (
+	"fmt"
+	"strings"
+)
+
+func SentencePieceDecode(tokens []string) string {
+	joined := strings.Join(tokens, "")
+	// U+2581 is ' '
+	return strings.TrimSpace(strings.ReplaceAll(joined, " ", " "))
+}
+
+func main() {
+	tokens := []string{" Distributed", " systems", " scale"}
+	fmt.Printf("Decoded string: '%s'\n", SentencePieceDecode(tokens))
+}
 ```
 
-Find the first character in the word whose `##`-prefixed continuation
-form is missing from the vocabulary — that's the exact point WordPiece's
-greedy scan dies, taking the whole word down with it.
+---
 
-### 3. Compute the WordPiece scoring formula by hand
+## 6. Practical CLI Workflows
 
-Given these made-up counts:
+Observe SentencePiece's ` ` meta-symbol directly using HuggingFace's `transformers` CLI in Python:
 
-```python
-def bpe_score(count_pair, count_left, count_right):
-    return count_pair
+```bash
+python -c "
+from transformers import AutoTokenizer
 
-def wordpiece_score(count_pair, count_left, count_right):
-    return count_pair / (count_left * count_right)
+# T5 uses SentencePiece
+tokenizer = AutoTokenizer.from_pretrained('t5-small')
+text = 'SentencePiece preserves   spaces!'
+tokens = tokenizer.tokenize(text)
 
-pair_A = dict(count_pair=100, count_left=1000, count_right=1000)   # "t","h"
-pair_B = dict(count_pair=20,  count_left=20,   count_right=20)     # "z","q"
-
-print("BPE would merge:      ",
-      "A" if bpe_score(**pair_A) > bpe_score(**pair_B) else "B")
-print("WordPiece would merge:",
-      "A" if wordpiece_score(**pair_A) > wordpiece_score(**pair_B) else "B")
+print(f'Input:  \"{text}\"')
+print(f'Tokens: {tokens}')
+print(f'Reconstructed: \"{tokenizer.decode(tokenizer.encode(text))}\"')
+"
 ```
 
-Confirm the two algorithms choose differently on this input, and explain
-in one sentence *why* — referring to what "individually rare but always
-together" means as evidence of a real unit.
-
-### 4. Train SentencePiece and test the "lossless" claim directly
-
-```python
-import sentencepiece as spm
-import tempfile, os
-
-corpus_text = ("""the quick brown fox jumps over the lazy dog
-tokenization tokenizer tokenized tokenizing tokens
-lower lowest lowered lowering slower slowest
-the dog runs the fox runs the dog barks
-""" * 50)
-
-with tempfile.TemporaryDirectory() as d:
-    path = os.path.join(d, "corpus.txt")
-    open(path, "w", encoding="utf-8").write(corpus_text)
-    prefix = os.path.join(d, "sp")
-    spm.SentencePieceTrainer.train(
-        input=path, model_prefix=prefix, vocab_size=48, model_type="unigram")
-    sp = spm.SentencePieceProcessor(model_file=prefix + ".model")
-
-    for text in ["tokenization is fascinating", "  double  spaced   text"]:
-        ids = sp.encode(text, out_type=int)
-        pieces = sp.encode(text, out_type=str)
-        back = sp.decode(ids)
-        print(f"{text!r}")
-        print(f"  pieces: {pieces}")
-        print(f"  round-trips exactly? {back == text}   decoded: {back!r}")
+**Expected Output:**
+```
+Input:  "SentencePiece preserves   spaces!"
+Tokens: [' Sentence', 'Piece', ' preserves', ' ', ' spaces', '!']
+Reconstructed: "SentencePiece preserves   spaces!"
 ```
 
-Run it. The single-spaced sentence round-trips exactly; the irregularly
-spaced one does **not** — confirm this yourself rather than taking the
-module's word for it. Explain in one sentence what happened to the extra
-spaces, and at which stage (hint: it's not the tokenizer's merge
-algorithm — it's a preprocessing step that runs before encoding even
-starts).
+Notice how the consecutive spaces were preserved as a dedicated ` ` token without loss!
 
-### 5. Diagnose and fix: "just use SentencePiece, it's lossless"
+---
 
-A teammate is building a code-formatting tool that must preserve exact
-whitespace (indentation, blank lines) and proposes SentencePiece because
-"it's fully reversible, unlike BPE." Given exercise 4's result, what's
-wrong with that plan, and what would you actually need to check before
-trusting it for this use case?
+## 7. Operational Validation Checkpoints
 
-<details><summary>Answer</summary>
+Confirm your mastery of tokenizer family trade-offs.
 
-SentencePiece's reversibility is real relative to its own default
-*normalized* input, not the original raw text — its default
-normalization rule (`nmt_nfkc`) collapses repeated whitespace before
-encoding ever sees it, exactly as exercise 4 demonstrated. For a
-code-formatting tool, where two spaces of indentation and four spaces
-are semantically different, this default would silently corrupt the
-input.
+<details>
+<summary><b>Checkpoint 1: Why does WordPiece use a likelihood ratio rather than raw frequency count to select subword merges?</b></summary>
 
-Before trusting it: check what normalization rule the specific
-tokenizer was trained with (`sp.encode` behavior depends on the model
-file, not just the library), and if you need byte-exact preservation,
-either train with `normalization_rule_name="identity"` (SentencePiece
-does support disabling normalization) or don't rely on tokenizer-level
-reversibility at all — keep the original text alongside the token
-stream and only use tokenization for what the model needs to see, never
-as your source of truth for the exact original bytes.
+**Mutual Information vs Frequency:**
+- In standard BPE, common pairs like `('t', 'h')` merge simply because they appear frequently in English, even if `'t'` and `'h'` often appear independently in other words.
+- **WordPiece** computes:
+  $$\text{Score} = \frac{\text{Count}(AB)}{\text{Count}(A) \times \text{Count}(B)}$$
+  This measures **Pointwise Mutual Information (PMI)**: it prioritizes pairs that appear together *far more often than expected by random chance*. This prevents common independent letters from merging while accelerating the discovery of rare, tightly-bound stems.
 </details>
 
-## Independent challenge
+<details>
+<summary><b>Checkpoint 2: Why was SentencePiece revolutionary for multilingual translation models like Google's T5?</b></summary>
 
-Train all three tokenizers you now have working code for — BPE,
-WordPiece, and SentencePiece — on the identical corpus (use something
-larger and more realistic than the toy one above; a few pages of mixed
-prose and code works well) at the same vocabulary size. For each,
-report:
-
-1. Total token count on a shared held-out test sentence.
-2. Whether any word in your test sentence produced an `[UNK]` (WordPiece)
-   or fell back to fragments (BPE/SentencePiece).
-3. What each tokenizer does with a string containing no spaces at all —
-   construct one by removing all spaces from a sentence (a crude stand-in
-   for a language like Chinese) and compare all three token counts and
-   outputs.
-
-Write a short paragraph on which tokenizer you'd choose for a
-multilingual product covering English and at least one space-free
-script, and why — grounded in what you actually observed in step 3, not
-in the general reputation of either algorithm.
-
-## Common mistakes & troubleshooting
-
-- **Assuming all sub-word tokenizers work like BPE.** WordPiece's
-  encoding algorithm (greedy longest-match) and failure mode (whole-word
-  `[UNK]`) are genuinely different mechanisms, not a relabeling of BPE.
-- **Trusting "SentencePiece is lossless" without checking the
-  normalization settings.** True by default only relative to its own
-  normalized input (exercise 4); a use case needing byte-exact
-  round-trips must verify this explicitly.
-- **Assuming WordPiece always has a character-level fallback.** Unlike
-  byte-level BPE, a WordPiece vocabulary can lack a needed `##`
-  continuation piece entirely, failing the whole word (exercise 2).
-- **Treating "no spaces" scripts the same as English.** A
-  whitespace-based pre-tokenizer (the default for BPE/WordPiece in most
-  libraries) does nothing useful on Chinese/Japanese/Thai text — this is
-  SentencePiece's actual reason for existing, not a marginal feature.
-- **Confusing SentencePiece with a merge algorithm.** It's a
-  preprocessing/framework choice (no whitespace pre-tokenization) that
-  can run either BPE or Unigram LM (module 06) underneath — "SentencePiece"
-  and "BPE" are not mutually exclusive terms.
-
-## Checkpoint quiz
-
-1. State the scoring formula difference between BPE and WordPiece.
-2. Why can WordPiece fail an entire word to `[UNK]`, when byte-level BPE
-   never can?
-3. What problem does SentencePiece actually solve, and for which
-   languages does it matter most?
-4. What does the `▁` symbol represent?
-5. Is SentencePiece's "lossless" reputation true unconditionally? What's
-   the actual caveat?
-6. Is SentencePiece a merge algorithm, competing with BPE? Why or why
-   not?
-
-<details><summary>Answers</summary>
-
-1. BPE merges the pair with the highest raw frequency; WordPiece merges
-   the pair maximizing `count(pair) / (count(left) * count(right))` — a
-   likelihood ratio favoring pairs whose parts are individually rare but
-   reliably co-occur.
-2. WordPiece's greedy longest-match-first encoding requires a valid
-   `##`-prefixed continuation piece at every step after the first; if
-   none exists in the vocabulary at some point in the word, the entire
-   word becomes `[UNK]`. Byte-level BPE's base alphabet is all 256 byte
-   values, so it always has a smaller valid piece to fall back to and
-   can never hit this dead end.
-3. It removes the assumption that whitespace marks word boundaries,
-   which BPE and WordPiece's typical whitespace pre-tokenizers both
-   depend on. It matters most for languages without spaces between
-   words — Chinese, Japanese, Thai — where that assumption is simply
-   false.
-4. A literal space character in the token stream — SentencePiece treats
-   spaces as ordinary characters to be tokenized, rather than boundaries
-   consumed and discarded by pre-tokenization.
-5. No — it's true relative to SentencePiece's own default text
-   normalization, which by default collapses repeated whitespace before
-   encoding. Text with irregular spacing does not round-trip to its
-   original raw form, only to the normalized version.
-6. No — it's a preprocessing/framework choice (skip whitespace
-   pre-tokenization, treat spaces as literal characters) that can run
-   either BPE-style merging or Unigram LM tokenization (module 06)
-   underneath. The terms describe different layers of the system.
+**Universal Pre-Segmentation Elimination:**
+Languages like Chinese and Japanese have no spaces between words:
+- Traditional pipelines required running a language-specific morphological segmenter (like Jieba for Chinese or MeCab for Japanese) *before* tokenization.
+- SentencePiece bypassed this entirely: by treating text as a raw stream of characters/bytes with spaces represented by ` `, it trained a single universal multilingual vocabulary directly on raw mixed-language text with zero language-specific pre-processing libraries.
 </details>
 
-## Further reading & sources
+<details>
+<summary><b>Checkpoint 3: What is the Unigram Language Model algorithm in SentencePiece, and how does it differ from BPE?</b></summary>
 
-- [Japanese and Korean Voice Search (Schuster & Nakajima, 2012)](https://static.googleusercontent.com/media/research.google.com/en//pubs/archive/37842.pdf) - the original WordPiece paper; the likelihood-ratio scoring formula is described in section 2.2.
-- [BERT: Pre-training of Deep Bidirectional Transformers (Devlin et al., 2018)](https://arxiv.org/abs/1810.04805) - the model that made WordPiece widely known; appendix A.2 covers its tokenizer specifically.
-- [SentencePiece: A simple and language independent subword tokenizer (Kudo & Richardson, 2018)](https://arxiv.org/abs/1808.06226) - the SentencePiece paper, explicit about the whitespace-independence motivation this module is built around.
-- [Hugging Face NLP Course, Chapter 6: WordPiece tokenization](https://huggingface.co/learn/nlp-course/chapter6/6) - documents the exact scoring formula this module uses, with a from-scratch Python implementation to compare against your own.
-- [Hugging Face NLP Course, Chapter 6: Building a tokenizer, block by block](https://huggingface.co/learn/nlp-course/chapter6/8) - covers the `tokenizers` library API used in the exercises here, including WordPiece and Unigram model training.
-- [google/sentencepiece (GitHub)](https://github.com/google/sentencepiece) - the reference implementation used in exercise 4; its README documents the normalization rules referenced in exercise 5.
-- [Subword Regularization (Kudo, 2018)](https://arxiv.org/abs/1804.10959) - introduces the Unigram LM algorithm SentencePiece most commonly pairs with, previewed here and covered fully in module 06.
+**Bottom-Up vs Top-Down:**
+- **BPE (Bottom-Up):** Starts with a tiny vocabulary (individual characters) and **adds** merges iteratively until reaching target size $V$.
+- **Unigram LM (Top-Down):** Starts with an **enormous** initial vocabulary (e.g. all words and frequent substrings) and iteratively **prunes** the tokens that contribute the least to maximizing the training corpus likelihood.
+- Unigram LM computes a probabilistic score for multiple possible segmentations of the same word, allowing **subword regularization** (stochastically sampling different tokenizations during training to make the neural network more robust to typos).
+</details>
+
+---
 
 ## Next
 
-[Module 06: Unigram Language Model Tokenization](../06-unigram-language-model-tokenization/README.md)
+Continue to **[06-unigram-language-model-tokenization](../06-unigram-language-model-tokenization/README.md)** to explore the Unigram Language Model tokenization algorithm and subword regularization.

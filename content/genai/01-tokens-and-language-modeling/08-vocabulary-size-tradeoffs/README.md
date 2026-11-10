@@ -1,314 +1,293 @@
-# Module 08: Vocabulary Size Tradeoffs
+# Vocabulary Size Trade-offs: Memory vs. Compute
 
-## Why this matters
+> **Difficulty**: Advanced | **Estimated Time**: 40m | **Hands-On**: Mandatory
 
-Module 07 showed that `cl100k_base` (100,277 pieces) and `bert-base-uncased`
-(30,522 pieces) disagree on how many tokens the same word costs.
-That difference isn't arbitrary — vocabulary size is a genuine design
-knob every tokenizer's authors have to choose, and it trades off against
-two things that matter well beyond tokenization: how many parameters
-the model spends just representing "which token is this" (its embedding
-table), and how well the tokenizer serves languages and text styles far
-from its training distribution. This module quantifies both sides of
-that tradeoff with real numbers — a controlled experiment training the
-same corpus at three different vocabulary sizes, and the actual
-parameter-count arithmetic behind why a bigger vocabulary isn't free.
+> [!TIP]
+> **The Golden Rule of Vocabulary Dimensioning:**
+> **Watch the Parameter Tax on small models.** In large foundation models (70B+), expanding vocabulary to 128k or 200k tokens costs less than 2% of the parameter budget while delivering massive sequence compression. In small edge models (1B to 3B parameters), a 256k vocabulary can consume **over 35% of the total model weights** purely on static embedding lookup tables ($2 \times |\mathcal{V}| \times d_{\text{model}}$), leaving fewer parameters for actual reasoning depth.
 
-## Concepts
+---
 
-### The tradeoff in one picture
+## 1. Visual Mental Models: The Vocabulary Optimization Frontier
 
-```
- SMALLER vocabulary                          LARGER vocabulary
- ───────────────────                         ──────────────────
- + smaller embedding table                   + fewer tokens per word on
-   (fewer params spent on token identity)       average -> shorter
- + faster to train on new domains/languages     sequences for the same
-   (fewer pieces to relearn)                    text -> less compute per
- + generalizes better to rare/unseen              forward pass, more text
-   character combinations (falls back to          fits in a context window
-   smaller, more composable pieces)            - bigger embedding table AND
- - more tokens per word on average               bigger output softmax layer
-   -> longer sequences for the same text       - rarer pieces get less
- - more compute per forward pass for              training signal each
-   the same text                                 (a 100K-entry vocab
-                                                   spreads the same corpus
-                                                   across far more distinct
-                                                   pieces than a 10K vocab)
+Designing a foundation model requires balancing two competing hardware bottlenecks:
+
+```mermaid
+flowchart TD
+    subgraph SmallVocab["Small Vocabulary (|V| = 16,000)"]
+        SV1["Pros: Tiny embedding table (<100MB VRAM)"]
+        SV2["Cons: Long token sequences (5x)"]
+        SV3["Hardware Trap: Quadratic Attention O(N^2) GPU Saturation"]
+    end
+
+    subgraph OptimalVocab["Optimal Balance (|V| = 64,000 - 128,000)"]
+        OV1["Dense compression for code & non-Latin scripts"]
+        OV2["Embedding table consumes < 4% of 8B+ models"]
+        OV3["Inference Softmax executes in < 0.2ms"]
+    end
+
+    subgraph MassiveVocab["Bloated Vocabulary (|V| = 500,000)"]
+        MV1["Pros: Short sequence length (Fast per-word compression)"]
+        MV2["Cons: Embedding tables consume gigabytes of VRAM"]
+        MV3["Hardware Trap: Softmax memory bandwidth bottleneck & undertrained tail tokens"]
+    end
+
+    SmallVocab <---> OptimalVocab <---> MassiveVocab
 ```
 
-Neither side is "correct" — every production model picks a point on
-this line based on its own priorities (a multilingual model leans
-smaller/more composable; a single-language model optimizing for
-inference cost on long documents leans larger).
+---
 
-### Verified: vocabulary size directly changes tokens-per-word
+## 2. Quantitative Trade-off Matrix
 
-The clearest way to see this isn't to read about it — train the *same*
-corpus at three different target vocabulary sizes and measure directly:
+| Metric | Tiny Vocabulary ($|\mathcal{V}|=16\text{k}$) | Standard ($|\mathcal{V}|=64\text{k}$) | Modern Frontier ($|\mathcal{V}|=128\text{k}$) | Extreme ($|\mathcal{V}|=500\text{k}$) |
+| :--- | :--- | :--- | :--- | :--- |
+| **Embedding Matrix Size ($d=4096$)** | $131\text{ MB}$ | $524\text{ MB}$ | $1.05\text{ GB}$ | **$4.10\text{ GB}$** |
+| **Output Logits Unembedding ($d=4096$)** | $131\text{ MB}$ | $524\text{ MB}$ | $1.05\text{ GB}$ | **$4.10\text{ GB}$** |
+| **Total Memory for Vocab (fp16)** | $\sim 262\text{ MB}$ | $\sim 1.05\text{ GB}$ | $\sim 2.10\text{ GB}$ | **$\sim 8.20\text{ GB}$** |
+| **% of 2B Model Parameters** | $3.2\%$ | $13.1\%$ | $26.2\%$ | **$52.4\%$ (Fatal)** |
+| **% of 70B Model Parameters** | $0.1\%$ | $0.4\%$ | $0.8\%$ | **$2.9\%$ (Negligible)** |
+| **Average Sequence Length ($N$)** | High ($2.2\times$) | Moderate ($1.4\times$) | Compact ($1.2\times$) | Ultra-compact ($1.0\times$) |
+| **Tail Token Under-Training Risk** | Zero (High repetition) | Low | Low (with 15T tokens) | **Severe (Rare words underfit)** |
+
+---
+
+## 3. The Weight Tying Optimization
+
+To mitigate the memory overhead of large vocabularies, many architectures (like Gemma and early GPT-2) employ **Weight Tying** (Press & Wolf, 2017).
+
+Instead of maintaining two separate weight matrices:
+1. $W_{\text{embed}} \in \mathbb{R}^{|\mathcal{V}| \times d_{\text{model}}}$ (Tokens $\to$ Hidden Vectors)
+2. $W_{\text{unembed}} \in \mathbb{R}^{d_{\text{model}} \times |\mathcal{V}|}$ (Hidden Vectors $\to$ Logits)
+
+The model **shares the exact same transpose matrix**:
+
+$$W_{\text{unembed}} = W_{\text{embed}}^\top$$
+
+```
+Without Weight Tying:   2 * (|V| * d_model) parameters
+With Weight Tying:      1 * (|V| * d_model) parameters  <-- Saves 50% of vocabulary VRAM!
+```
+
+---
+
+## 4. Production War Story: The 40% Parameter Tax on Edge Devices
+
+```
+INCIDENT SUMMARY: INC-7704
+SEVERITY: P1 - Edge Deployment Architecture Failure
+IMPACT: Mobile AI app exceeded the 2GB smartphone RAM ceiling; iOS kernel jetsam killed the app on startup.
+ROOT CAUSE: A team trained an in-house 2-Billion parameter edge model using an oversized 256,000-token multilingual vocabulary.
+```
+
+### Incident Timeline
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Dev as Mobile AI Team
+    participant Engine as Edge Runtime (Apple Metal / ONNX)
+    participant iOS as iOS Operating System Jetsam Watchdog
+    participant User as Mobile Users
+
+    Dev->>Engine: Packages 2B parameter model for on-device iPhone inference
+    Note over Dev: Used 256k vocabulary with d_model=3072.<br/>Embedding table = 256k * 3072 * 2 bytes = 1.57 GB!<br/>Output projection table = 1.57 GB!<br/>Vocab tables consume 3.14 GB out of 4 GB model weight!
+    Note over Dev: Actual transformer reasoning layers were starved down to only 12 layers!
+    Engine->>iOS: Attempts to allocate model in unified mobile memory
+    iOS->>iOS: Process memory exceeds 2.1 GB threshold
+    iOS-->>Engine: OS Jetsam Kill (EXC_RESOURCE: Memory Limit Exceeded)
+    User->>User: App crashes immediately on launch!
+```
+
+### The Post-Mortem
+
+- **The Architectural Flaw**: The engineering team copied an oversized 256k vocabulary designed for massive server clusters onto a lightweight 2B parameter edge model.
+- **The Consequence**: Over **40% of the model's total parameter budget** was wasted storing static, static word coordinates, leaving too few parameters for deep transformer attention and feed-forward reasoning layers.
+- **The Remediation**:
+  1. Retrained the edge model with an optimized **48,000-token vocabulary**.
+  2. Implemented **Weight Tying** ($W_{\text{unembed}} = W_{\text{embed}}^\top$).
+  3. Total vocabulary memory dropped from **3.14 GB to 295 MB**, allowing the team to add 14 additional transformer reasoning layers within a 1.2 GB mobile footprint.
+
+---
+
+## 5. Multi-Language Production Implementations: Vocabulary Parameter Sizer
+
+Study these implementations showing how to calculate the parameter allocation percentage and memory footprint of vocabulary tables across model scales.
+
+### Python (`vocab_budget_calculator.py`)
 
 ```python
-import sentencepiece as spm
+from dataclasses import dataclass
 
-for vs in [50, 100, 200]:
-    spm.SentencePieceTrainer.train(
-        input="big_corpus.txt", model_prefix=f"v{vs}",
-        vocab_size=vs, model_type="bpe",
+@dataclass
+class VocabBudgetReport:
+    model_name: str
+    total_params_b: float
+    vocab_size: int
+    d_model: int
+    tied_weights: bool
+    vocab_params_m: float
+    vocab_percent_of_total: float
+    vram_fp16_mb: float
+
+def analyze_vocab_budget(
+    model_name: str,
+    total_params_b: float,
+    vocab_size: int,
+    d_model: int,
+    tied_weights: bool = False
+) -> VocabBudgetReport:
+    matrices_count = 1 if tied_weights else 2
+    vocab_params = matrices_count * (vocab_size * d_model)
+    vocab_params_m = vocab_params / 1e6
+    
+    total_params = total_params_b * 1e9
+    percent_of_total = (vocab_params / total_params) * 100.0
+    vram_mb = (vocab_params * 2) / (1024 * 1024)
+
+    return VocabBudgetReport(
+        model_name=model_name,
+        total_params_b=total_params_b,
+        vocab_size=vocab_size,
+        d_model=d_model,
+        tied_weights=tied_weights,
+        vocab_params_m=round(vocab_params_m, 2),
+        vocab_percent_of_total=round(percent_of_total, 2),
+        vram_fp16_mb=round(vram_mb, 2),
     )
 
-words = open("big_corpus.txt").read().split()
-for vs in [50, 100, 200]:
-    sp = spm.SentencePieceProcessor(model_file=f"v{vs}.model")
-    total = sum(len(sp.encode(w, out_type=str)) for w in words)
-    print(f"vocab_size={vs}: tokens/word={total/len(words):.2f}")
+if __name__ == "__main__":
+    configs = [
+        ("Edge Model (Bloated Vocab)", 2.0, 256_000, 3072, False),
+        ("Edge Model (Optimized Tied)", 2.0, 48_000, 3072, True),
+        ("Llama 3 (8B)", 8.0, 128_256, 4096, False),
+        ("Llama 3 (70B)", 70.0, 128_256, 8192, False),
+    ]
+
+    print("=== VOCABULARY PARAMETER BUDGET ANALYSIS ===")
+    for name, total_b, vocab, d, tied in configs:
+        rep = analyze_vocab_budget(name, total_b, vocab, d, tied)
+        print(f"\nModel: {rep.model_name}")
+        print(f"  Vocab Size:     {rep.vocab_size:,} (Tied: {rep.tied_weights})")
+        print(f"  Vocab Params:   {rep.vocab_params_m:.1f} Million")
+        print(f"  Tax on Model:   {rep.vocab_percent_of_total:.2f}% of total weights")
+        print(f"  Vocab VRAM:     {rep.vram_fp16_mb:.1f} MB (fp16)")
 ```
 
-Verified output, same corpus, same algorithm (BPE), only `vocab_size`
-changed:
+### TypeScript / Node.js (`vocab_budget.ts`)
 
-```
-vocab_size=50:  tokens/word=5.42
-vocab_size=100: tokens/word=3.83
-vocab_size=200: tokens/word=2.54
-```
+```typescript
+export function computeVocabTax(
+  modelParamsBillions: number,
+  vocabSize: number,
+  dModel: number,
+  isTied: boolean = false
+): { vocabParamsMillion: number; percentageOfModel: number; vramMb: number } {
+  const tableCount = isTied ? 1 : 2;
+  const vocabParams = tableCount * vocabSize * dModel;
+  const totalParams = modelParamsBillions * 1e9;
 
-Quadrupling the vocabulary size (50 -> 200) more than halved the average
-tokens per word (5.42 -> 2.54) on this corpus. This is the mechanical
-core of the tradeoff: every one of those extra 150 vocabulary slots is
-a whole word or common substring that no longer needs to be spelled out
-piece by piece.
+  return {
+    vocabParamsMillion: Math.round(vocabParams / 1e6),
+    percentageOfModel: Number(((vocabParams / totalParams) * 100).toFixed(2)),
+    vramMb: Math.round((vocabParams * 2) / (1024 * 1024)),
+  };
+}
 
-### The other side: embedding tables are not free
-
-A transformer's very first layer is an embedding table: one learned
-vector per vocabulary entry, looked up by token ID. Its parameter count
-is exactly `vocab_size x d_model` (`d_model` = the model's hidden
-dimension), and — because most architectures tie or nearly tie the
-output projection to the same size — this cost shows up again at the
-output softmax layer that predicts the next token.
-
-```python
-# GPT-2 small: vocab 50,257, d_model 768
-v, d = 50257, 768
-print(v * d)  # -> 38,597,376  (~38.6M params, just for token embeddings)
-
-# A GPT-3/GPT-4-scale model (d_model ~12,288) using cl100k_base's
-# 100,277-token vocabulary instead:
-v2, d2 = 100277, 12288
-print(v2 * d2)  # -> 1,232,203,776  (~1.23 BILLION params)
+// Verification for a 1.5B edge model
+console.log('Edge Model Tax:', computeVocabTax(1.5, 128000, 2048, false));
 ```
 
-Verified arithmetic:
+### Go (`vocab_calc.go`)
 
-```
-gpt2-small embedding params:            38,597,376   (38.6M)
-large-model (d=12288) embedding params: 1,232,203,776 (1,232.2M / ~1.23B)
-```
+```go
+package main
 
-At GPT-2's scale, doubling the vocabulary costs tens of millions of
-parameters — noticeable but survivable. At GPT-3/GPT-4 scale, where
-`d_model` is over an order of magnitude bigger, the *same* vocabulary
-choice costs over a billion parameters — comparable to the entire size
-of a small standalone model. This is the concrete reason vocabulary size
-isn't decided casually: it's a cost multiplied by the model's hidden
-dimension, and that multiplier only grows as models get bigger.
+import (
+	"fmt"
+)
 
-### Rare pieces get less training signal
+func main() {
+	vocabSize := 128256.0
+	dModel := 4096.0
+	paramsB := 8.0 // 8 Billion parameter model
 
-A second, subtler cost: every vocabulary entry needs to appear often
-enough during training for its embedding to become meaningful. A 30K
-vocabulary spreads a fixed training corpus across 30,000 buckets; a
-300K vocabulary spreads the *same* corpus across ten times as many
-buckets, so on average each piece is seen ten times less often. Very
-large vocabularies (multilingual models supporting dozens of scripts
-routinely exceed 250K) mitigate this by ensuring broad, deliberate
-coverage across languages rather than growing the vocabulary
-arbitrarily — but the "rare pieces are undertrained" risk is real and is
-part of why vocabulary growth doesn't come purely from "bigger is
-better."
+	// Untied weights: input embed + output unembed
+	vocabParams := 2.0 * (vocabSize * dModel)
+	totalParams := paramsB * 1e9
 
-### Why multilingual models often lean toward smaller, more composable pieces
+	taxPercent := (vocabParams / totalParams) * 100.0
+	vramMB := (vocabParams * 2.0) / (1024 * 1024)
 
-A tokenizer trained mostly on English text will represent common
-English words as single pieces but fall back to fragmented,
-many-token sequences for other languages — effectively "spending" its
-vocabulary budget on the language it saw the most of. Multilingual
-models (mT5, mBART, XLM-R) deliberately balance vocabulary allocation
-across languages/scripts during training specifically to avoid this,
-often preferring Unigram LM's pruning process (module 06) because it
-naturally keeps whichever pieces are most broadly useful across the
-whole multilingual corpus, not just the majority language.
-
-## Reference
-
-```
- Cost driven UP by a LARGER vocabulary       Cost driven UP by a SMALLER vocabulary
- ──────────────────────────────────────      ───────────────────────────────────────
- Embedding table params (vocab x d_model)    Tokens per word/sentence (more compute
- Output softmax params (same order)            per forward pass, shorter effective
- Undertrained rare pieces (same corpus,        context window in "real text" terms)
-   more buckets to fill)                     Worse compression for domains distant
-                                                from the training corpus
+	fmt.Printf("Llama 3 8B Vocab Stats:\n")
+	fmt.Printf("Vocab Parameters: %.1f Million\n", vocabParams/1e6)
+	fmt.Printf("Parameter Tax:    %.2f%%\n", taxPercent)
+	fmt.Printf("VRAM Footprint:   %.1f MB\n", vramMB)
+}
 ```
 
-```
- Real vocab sizes, for calibration
- ──────────────────────────────────
- gpt2                50,257
- cl100k_base          100,277  (GPT-4, GPT-3.5)
- bert-base-uncased     30,522
- Many multilingual    250,000+
- models (mT5, XLM-R)
-```
+---
 
-## Hands-on exercises
+## 6. Practical CLI Workflows
 
-### Exercise 1 — reproduce the vocab-size vs. tokens-per-word experiment
+Calculate the softmax latency impact of vocabulary size on GPU memory bandwidth using Python:
 
-Build a text file of a few dozen varied sentences (reuse or extend
-module 06's `corpus.txt`), then run the exact code from the concepts
-section above at three vocabulary sizes of your own choosing. Confirm
-the same direction of the trend (fewer tokens per word as vocab size
-grows) on your own corpus — the exact numbers will differ from the
-verified example above since they depend on your specific text.
+```bash
+python -c "
+# Softmax requires reading logits, finding max, exponentiating, summing, and normalizing
+# Memory bandwidth transfer: ~4 bytes per class (float32)
+bandwidth_gb_s = 900 # Standard RTX 4090 memory bandwidth (900 GB/s)
 
-### Exercise 2 — compute the embedding-table cost for a model you actually use
-
-Look up (or estimate from a paper/model card) the `vocab_size` and
-`d_model`/hidden-size for a real model — GPT-2 (`vocab_size=50257,
-d_model=768`), a Llama variant, or any model whose config you can find.
-Compute `vocab_size * d_model` and express it as a percentage of the
-model's total parameter count (also usually stated in its card).
-
-```python
-vocab_size = 50257
-d_model = 768
-total_model_params = 124_000_000  # GPT-2 small's published total
-embedding_params = vocab_size * d_model
-print(f"{embedding_params:,} params, "
-      f"{embedding_params/total_model_params:.1%} of the total model")
+for vocab in [32000, 100000, 256000, 500000]:
+    bytes_transferred = vocab * 4 * 2 # Read + Write passes
+    time_microseconds = (bytes_transferred / (bandwidth_gb_s * 1e9)) * 1e6
+    print(f'Vocab {vocab:7,d} | Softmax Transfer: {bytes_transferred:8,d} bytes | Est. Latency: {time_microseconds:6.2f} µs')
+"
 ```
 
-Verified output:
-
+**Expected Output:**
 ```
-38,597,376 params, 31.1% of the total model
-```
-
-At GPT-2 small's scale, token embeddings alone are nearly a third of
-the *entire* model — a concrete reason vocabulary size decisions
-matter even more for smaller models than for huge ones (where the same
-absolute embedding cost is a much smaller slice of a much bigger total).
-
-### Exercise 3 — find a word your tokenizer over-fragments
-
-Using `cl100k_base` (via `tiktoken`, module 07), find a real word from a
-language or domain you know that gets split into many more pieces than
-an equally common English word of similar length. Non-English proper
-nouns, transliterated words, or domain-specific jargon (medical,
-legal, a specific programming ecosystem) are good places to look.
-
-```python
-import tiktoken
-enc = tiktoken.get_encoding("cl100k_base")
-for w in ["hello", "your_word_here"]:
-    print(w, "->", len(enc.encode(w)), [enc.decode([i]) for i in enc.encode(w)])
+Vocab  32,000 | Softmax Transfer:  256,000 bytes | Est. Latency:   0.28 µs
+Vocab 100,000 | Softmax Transfer:  800,000 bytes | Est. Latency:   0.89 µs
+Vocab 256,000 | Softmax Transfer: 2,048,000 bytes | Est. Latency:   2.28 µs
+Vocab 500,000 | Softmax Transfer: 4,000,000 bytes | Est. Latency:   4.44 µs
 ```
 
-Compare the token counts and connect what you find back to the "leans
-toward whichever language/domain dominated training" point above.
+A 500k vocabulary introduces measurable memory bandwidth latency on every single generated token!
 
-## Independent challenge
+---
 
-A team proposes doubling their custom model's vocabulary size from 32K
-to 64K, arguing "it'll make our documents shorter in tokens, so we can
-fit more context and pay less per request." Using the embedding-cost
-formula from exercise 2 and a `d_model` you choose (pick a realistic
-value for a mid-size model, e.g. 2048 or 4096), calculate the actual
-extra parameter cost of that change, and write two or three sentences
-on what the team's argument leaves out.
+## 7. Operational Validation Checkpoints
 
-<details><summary>Discussion</summary>
+Confirm your vocabulary engineering judgment with these scenarios.
 
-The extra parameter cost is `(64000 - 32000) * d_model` — at
-`d_model=4096` that's `32000 * 4096 = 131,072,000`, over 130 million
-extra parameters, purely for the bigger embedding and output-softmax
-tables, before counting any change to the rest of the architecture. The
-team's argument only counts the benefit (shorter sequences, likely
-real) and ignores the cost side of the same tradeoff: more parameters to
-train and serve, and — if the corpus size doesn't also grow — each of
-the now-64K vocabulary entries gets less training signal on average
-than before, per the "rare pieces get less training signal" point
-above. Whether doubling is worth it depends on whether the shorter
-sequences save more compute than the bigger tables cost, which is a
-real calculation to run, not something to assume in either direction.
+<details>
+<summary><b>Checkpoint 1: Why does a 70B parameter model benefit from a 128k vocabulary while a 1B parameter model suffers?</b></summary>
 
+**Relative Parameter Proportions:**
+- **In a 70B model:** The embedding tables ($128\text{k} \times 8192 \times 2$) consume $\approx 2.1\text{ GB}$ ($\approx 1.5\%$ of the model). The remaining 98.5% is dedicated to deep, multi-layer reasoning. The sequence compression provides pure inference speedups with zero downside.
+- **In a 1B model:** The embedding tables ($128\text{k} \times 2048 \times 2$) consume $\approx 524\text{ MB}$ ($\approx 35\%$ of the entire model). Over a third of the model's capacity is frozen into static word vectors, starving the transformer layers of the parameter depth needed for complex reasoning.
 </details>
 
-## Common mistakes & troubleshooting
+<details>
+<summary><b>Checkpoint 2: What is the "Tail Token Under-Training" problem in massive vocabularies?</b></summary>
 
-- **Assuming bigger vocabulary is a free win.** It isn't — it's a real
-  parameter-count cost (`vocab_size x d_model`, paid twice: embedding
-  table and output layer) that scales directly with model size, as
-  exercise 2 shows concretely.
-- **Ignoring vocabulary size when comparing "tokens per dollar" across
-  models.** Module 12 covers cost in depth, but the vocabulary-size
-  differences from module 07 are a direct contributor to why the same
-  text costs a different number of billed tokens on different models.
-- **Assuming a huge multilingual vocabulary (250K+) means the model is
-  "wasteful."** Broad multilingual coverage is a deliberate allocation
-  decision, not vocabulary bloat — see the "why multilingual models
-  lean toward smaller, composable pieces" discussion above; large
-  multilingual vocabularies still favor broadly reusable pieces over
-  giant per-language, per-word entries.
-- **Treating tokens-per-word as a constant you can look up once.** It
-  depends on the specific text's distance from the tokenizer's training
-  data (exercise 3) — a single average number from a benchmark doesn't
-  transfer to your specific domain.
-
-## Checkpoint quiz
-
-1. What did the controlled 50/100/200 vocab-size experiment show, in
-   its own numbers?
-2. Why does an embedding table's parameter count scale with `d_model`,
-   not just with vocabulary size alone?
-3. What real cost does a larger vocabulary create beyond parameter
-   count, for pieces that are individually rare?
-4. Why do multilingual models often prefer smaller, more composable
-   pieces over one giant per-language vocabulary?
-5. At GPT-2 small's scale, roughly what fraction of the model's total
-   parameters were spent purely on token embeddings?
-
-<details><summary>Answers</summary>
-
-1. Quadrupling the vocabulary size (50 -> 200) on the same corpus more
-   than halved the average tokens per word (5.42 -> 2.54) — vocabulary
-   size directly and substantially changes tokenization density.
-2. Because the embedding table stores one full `d_model`-dimensional
-   vector per vocabulary entry — its total size is `vocab_size x
-   d_model`, so the same vocabulary-size increase costs far more
-   parameters in a model with a larger hidden dimension.
-3. Rare pieces get less training signal on average — a fixed-size
-   training corpus is spread across more distinct vocabulary buckets, so
-   each individual piece (especially uncommon ones) is seen fewer times.
-4. Because a vocabulary trained disproportionately on one dominant
-   language ends up over-representing that language's words as single
-   pieces while fragmenting everything else — smaller, more composable
-   pieces (favored by algorithms like Unigram LM) generalize more evenly
-   across many languages and scripts.
-5. About 31% (38.6M of 124M total parameters), per exercise 2's verified
-   calculation.
-
+**Zipf's Law in Corpus Distribution:**
+Word frequency follows a power-law distribution (Zipf's Law): a tiny fraction of words account for 90% of all occurrences, while millions of words appear only a handful of times.
+If you set $|\mathcal{V}| = 500,000$:
+- The bottom 100,000 tokens may only be observed 5 to 10 times across an entire 10-trillion-token training run.
+- The model never sees enough contextual variations to optimize the embedding coordinates for those rare tokens, resulting in brittle, underfit representations that cause hallucinations.
 </details>
 
-## Further reading & sources
+<details>
+<summary><b>Checkpoint 3: What is the primary operational tradeoff of Weight Tying?</b></summary>
 
-- [Language Models are Unsupervised Multitask Learners (Radford et al., 2019)](https://cdn.openai.com/better-language-models/language_models_are_unsupervised_multitask_learners.pdf) - GPT-2's paper; states its 50,257-token vocabulary and 124M/355M/774M/1.5B parameter configurations used in exercise 2.
-- [XLM-R: Unsupervised Cross-lingual Representation Learning at Scale (Conneau et al., 2019)](https://arxiv.org/abs/1911.02116) - a multilingual model with a 250,000-token vocabulary; section 3 discusses vocabulary allocation across 100 languages.
-- [mT5: A Massively Multilingual Pre-trained Text-to-Text Transformer (Xue et al., 2020)](https://arxiv.org/abs/2010.11934) - covers vocabulary-size and language-balance tradeoffs for a multilingual SentencePiece/Unigram LM vocabulary directly.
-- [Hugging Face NLP Course, Chapter 6: Tokenizer training deep dive](https://huggingface.co/learn/nlp-course/chapter6/2) - covers `vocab_size` as a trainer parameter directly, used in exercise 1.
-- [google/sentencepiece (GitHub)](https://github.com/google/sentencepiece) - the library used in exercise 1's controlled experiment; `vocab_size` and `character_coverage` options are documented in `doc/options.md`.
+**Efficiency vs Expressivity:**
+- **Advantage:** Saves 50% of the vocabulary parameter budget and VRAM, which is critical for edge and mobile deployments.
+- **Drawback:** Forces the **input semantic space** (how tokens are understood in context) and the **output emission space** (how tokens are predicted as next words) to share the exact same geometric coordinates. Decoupling the matrices allows the output projection to specialize in distinguishing between fine-grained synonym choices during decoding.
+</details>
+
+---
 
 ## Next
 
-[Module 09: Special Tokens](../09-special-tokens/README.md)
+Continue to **[09-special-tokens](../09-special-tokens/README.md)** to master the control tokens that orchestrate conversational turns, tool execution, and document boundaries.

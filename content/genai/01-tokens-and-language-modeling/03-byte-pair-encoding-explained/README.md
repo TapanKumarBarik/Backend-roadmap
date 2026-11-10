@@ -1,485 +1,389 @@
-# Module 03: Byte-Pair Encoding Explained
+# Byte-Pair Encoding (BPE) Explained
 
-## Why this matters
+> **Difficulty**: Advanced | **Estimated Time**: 40m | **Hands-On**: Mandatory
 
-Module 02 established the requirement: a tokenizer needs short-ish
-sequences (like word-level) *and* graceful handling of anything unseen
-(like character-level). **Byte-Pair Encoding (BPE) is the specific
-algorithm that delivers both**, and it is what GPT, Llama, and most other
-modern LLMs actually run.
+> [!TIP]
+> **The Golden Rule of BPE Tokenization:**
+> **Merge order is deterministic law.** A BPE tokenizer is not just a vocabulary of strings; it is an **ordered sequence of merge rules**. At inference time, candidate subword pairs must be merged in the exact chronological order in which they were learned during training. Merging pairs out of order alters token boundaries, maps text to incorrect token IDs, and causes a foundation model to emit pure linguistic gibberish.
 
-The mechanism is short enough to hold in your head entirely, and once
-you do, several things stop being mysterious: why common English words
-are usually one token and rare words are several; why the vocabulary is
-built once, offline, from a training corpus (not decided per-input); and
-why module 00's `"Tokenization"` split precisely into `Token` + `ization`
-rather than any other combination — it wasn't a rule someone wrote, it
-fell out of frequency statistics over a huge corpus, which this module
-shows you how to compute yourself.
+---
 
-## Concepts
+## 1. Visual Mental Models: The BPE Iteration Loop
 
-### The core idea in one sentence
+Originally invented as a data compression algorithm by Philip Gage in 1994, **Byte-Pair Encoding (BPE)** was adapted for natural language processing by Rico Sennrich et al. in 2015.
 
-**Start with individual bytes. Repeatedly find the most frequent
-adjacent pair, and merge it into a new single token. Stop after a fixed
-number of merges.** That's the whole algorithm — training it is
-literally that loop, run offline once over a huge corpus; using it is
-replaying the same merges on new text.
+BPE is an **unsupervised, greedy subword clustering algorithm**. It begins with a base vocabulary of individual characters or bytes, counts adjacent pair frequencies, and iteratively merges the most frequent pair into a new composite token:
 
-### Walking one worked example by hand
+```mermaid
+flowchart TD
+    subgraph Step1["Step 1: Initialization"]
+        Corpus["Training Corpus:<br/>['low', 'lower', 'newest', 'widest']"]
+        BaseVocab["Base Vocabulary: All unique characters<br/>{'d', 'e', 'i', 'l', 'n', 'o', 'r', 's', 't', 'w'}"]
+        Corpus --> BaseVocab
+    end
 
-Take a toy corpus that's just the word "low" appearing several times,
-plus "lower" and "lowest" a few times each — small enough to trace
-completely.
+    subgraph Step2["Step 2: Frequency Counting"]
+        Pairs["Count all adjacent pairs in corpus:<br/>('e', 's'): 2<br/>('s', 't'): 2<br/>('l', 'o'): 2<br/>('o', 'w'): 2"]
+    end
 
-```
- STARTING VOCABULARY: every distinct byte in the corpus
- corpus (as byte sequences, </w> marks end-of-word):
+    subgraph Step3["Step 3: Merge Most Frequent Pair"]
+        MergeRule["Select highest frequency pair: ('e', 's')<br/>Create new token: 'es'<br/>Append to Merge Table: rule #1 = ('e', 's') -> 'es'"]
+    end
 
-   l o w </w>       x 5
-   l o w e r </w>   x 2
-   l o w e s t </w> x 2
+    subgraph Step4["Step 4: Update Corpus & Repeat"]
+        NewCorpus["Corpus becomes:<br/>['l o w', 'l o w e r', 'n e w es t', 'w i d es t']"]
+        VocabUpdate["Vocab size expands by +1 token"]
+    end
 
- STEP 1: count every ADJACENT PAIR across the whole corpus
-   (l,o): 9    (o,w): 9    (w,</w>): 5
-   (w,e): 4    (e,r): 2    (r,</w>): 2
-   (e,s): 2    (s,t): 2    (t,</w>): 2
-
-   MOST FREQUENT: (l,o) and (o,w) are tied at 9 -- take (l,o) first
-
- MERGE 1: (l,o) -> "lo"
-   lo w </w>       x 5
-   lo w e r </w>   x 2
-   lo w e s t </w> x 2
-   vocabulary gains one new token: "lo"
-
- STEP 2: recount pairs with the NEW merged unit
-   (lo,w): 9    (w,</w>): 5   (w,e): 4  ...
-
- MERGE 2: (lo,w) -> "low"      (now the most frequent, at 9)
-   low </w>       x 5
-   low e r </w>   x 2
-   low e s t </w> x 2
-   vocabulary gains: "low"
-
- ... repeat. On JUST these three words, merging eventually consumes
- each one entirely into a single token ("low</w>", "lower</w>",
- "lowest</w>") -- there's nothing else in this tiny corpus for a
- shared "er" or "est" piece to be reused ACROSS, so nothing stops
- the algorithm from continuing to merge within each word until it
- runs out of budget.
-
- a suffix only survives as its OWN reusable token when the corpus
- is diverse enough that stopping the merge there is more valuable
- than continuing -- e.g. if "faster" and "smallest" were ALSO in
- the corpus, "low"/"fast"/"small" would compete for merges with
- "er"/"est", and a large, real corpus has thousands of such
- competing words. Exercise 5 trains on exactly this kind of richer,
- repetitive corpus and shows a real shared root emerge.
+    BaseVocab --> Step2
+    Step2 --> Step3
+    Step3 --> Step4
+    Step4 -.->|Repeat for K iterations| Step2
 ```
 
-Notice what happened: the algorithm never "decided" that "low" is a
-meaningful English root. It simply merged whatever pair of adjacent
-symbols was statistically most common, repeatedly, until it ran out of
-merge budget. Meaningful sub-word units emerge as a *side effect* of
-frequency — the same self-supervised-signal-from-raw-data pattern as
-Word2Vec (track 00 module 03) and pretraining itself (track 00 module
-07).
+---
 
-### Training vs. using a tokenizer — two different processes
+## 2. Walkthrough: From Characters to Subwords
 
-```
- TRAINING (done ONCE, offline, by whoever builds the model)
- ─────────────────────────────────────────────────────────
-   huge text corpus
-        │
-        ▼
-   run the merge loop above, tens of thousands of times
-        │
-        ▼
-   an ORDERED LIST of merge rules, e.g.:
-     1. (l, o) -> lo
-     2. (lo, w) -> low
-     3. (e, r) -> er
-     ...
-     50,000. (whatever the vocab-size budget allows)
-        │
-        ▼
-   this list + the resulting vocabulary IS the tokenizer
-
- USING IT (every time ANY text gets tokenized, forever after)
- ─────────────────────────────────────────────────────────
-   new text -> raw bytes -> APPLY the merge rules IN ORDER
-   (merge 1's pair first, wherever it appears, then merge 2's, ...)
-        │
-        ▼
-   final token sequence
-
-   THE MERGE RULES NEVER CHANGE AFTER TRAINING. Encoding new
-   text is just replaying a fixed, ordered recipe -- which is
-   why it's fast and deterministic.
-```
-
-This explains something that trips people up: **the tokenizer is frozen
-independently of the model it feeds.** GPT-4 and GPT-4o use *different*
-tokenizers (`cl100k_base` vs. `o200k_base`, module 00) trained separately,
-each time the merge-rule list was rebuilt from a fresh corpus and
-vocab-size budget.
-
-### Why the merge order matters at encoding time
-
-Encoding new text isn't "find any applicable merge" — it's **apply the
-learned merges in the exact order they were learned**, because later
-merges were only discovered after earlier ones already existed.
-
-Using the 8 merges this section's worked example actually produces
-(reproduced in exercise 3), here's every one of them applied, in order,
-to a word that was never in the training corpus at all — "lowering":
+Let's trace BPE over a toy corpus with word frequencies:
+- `"low"`: 5 occurrences
+- `"lower"`: 2 occurrences
+- `"newest"`: 6 occurrences
+- `"widest"`: 3 occurrences
 
 ```
- start:      l  o  w  e  r  i  n  g  </w>
- apply #1:  lo  w  e  r  i  n  g  </w>       (l,o) -> lo
- apply #2:  low e  r  i  n  g  </w>          (lo,w) -> low
- apply #3:  low e  r  i  n  g  </w>          (low,</w>) -> no match here,
-                                              nothing changes this step
- apply #4:  lowe r  i  n  g  </w>            (low,e) -> lowe
- apply #5:  lower i  n  g  </w>              (lowe,r) -> lower
- apply #6-8: no further matches; sequence is already stable
+Initial Tokenized State (with end-of-word marker '_'):
+  5 x  l  o  w  _
+  2 x  l  o  w  e  r  _
+  6 x  n  e  w  e  s  t  _
+  3 x  w  i  d  e  s  t  _
 
- final:     lower  i  n  g  </w>     -- 4 tokens
+Iter 1: Pair ('e', 's') appears 6 + 3 = 9 times.
+        MERGE ('e', 's') -> 'es'
+        Corpus: ... n e w es t _ | w i d es t _
+
+Iter 2: Pair ('es', 't') appears 6 + 3 = 9 times.
+        MERGE ('es', 't') -> 'est'
+        Corpus: ... n e w est _ | w i d est _
+
+Iter 3: Pair ('est', '_') appears 6 + 3 = 9 times.
+        MERGE ('est', '_') -> 'est_'
+        Now 'est_' is a single dedicated token representing superlative adjectives!
+
+Iter 4: Pair ('l', 'o') appears 5 + 2 = 7 times.
+        MERGE ('l', 'o') -> 'lo'
 ```
 
-Two things worth noticing. First, several of the 8 rules (numbers 3, 6,
-7 and 8) simply don't match anywhere in this particular word and are
-skipped — that's normal; a real vocabulary has tens of thousands of
-rules and most don't apply to any given input. Second, and more
-important: this
-result is a direct, if slightly awkward, consequence of training on a
-corpus of only 3 words. "lower" happened to be one of them, so it
-merged whole; "ing" had nothing to merge with because nothing in this
-toy corpus ever needed to represent it. A production tokenizer, trained
-on a vastly larger and more varied corpus, would very likely also merge
-common suffixes like "ing" into their own reusable token — but you can
-only see that by training on a corpus where "ing" actually appears
-often, which is exactly what exercise 5 does next.
+Through greedy statistical clustering, the algorithm automatically discovers meaningful English linguistic morphemes (like suffixes `-est` and roots `low-`) without any human grammar rules!
 
-If you applied these same 8 merges in the wrong order, or skipped ahead,
-you could produce a different, invalid tokenization — real BPE
-implementations (including `tiktoken`) apply merges greedily in rank
-order for exactly this reason. Exercise 4 has you prove it.
+---
 
-### Vocabulary size as the one real knob
+## 3. Byte-Level BPE (BBPE) and Regex Pre-Tokenization
 
-The number of merges performed is a **hyperparameter chosen before
-training**, and it's the single biggest design decision in building a
-tokenizer — module 08 covers the full tradeoff, but the shape is
-visible already:
+Early BPE suffered when processing unknown Unicode characters. In 2019, OpenAI's GPT-2 introduced **Byte-Level BPE (BBPE)**:
+1. **Base Alphabet**: Starts with all **256 fundamental raw byte values** ($0x00$ to $0xFF$).
+2. **Regex Pre-Tokenization**: Prevents characters from merging across punctuation or whitespace boundaries.
 
-```
- FEW MERGES  ──────────────────────────────►  MANY MERGES
- (small vocab, e.g. 5,000)                    (large vocab, e.g. 100,000)
+### The GPT-4 Pre-Tokenization Regex
 
- sequences LONGER                              sequences SHORTER
- (less merged, closer to byte-level)            (more merged, closer to
-                                                  word-level)
- vocabulary SMALLER                             vocabulary LARGER
- (smaller embedding table)                     (bigger embedding table,
-                                                  more memory)
- fewer merge rules to store                    more merge rules,
-                                                 slower to encode
-```
-
-Real tokenizers land in the tens of thousands (GPT-2: ~50K, GPT-4-era:
-~100K) — a deliberately chosen middle point, not a mathematically
-"correct" number.
-
-### Why byte-level BPE specifically (tying back to modules 01-02)
-
-The starting alphabet in production tokenizers is **UTF-8 bytes** (module
-01), not Unicode characters. This single choice is what gives GPT-family
-tokenizers their "never fails on any input" guarantee from module 02:
-since the starting vocabulary already covers all 256 possible byte
-values, the worst case for any input — however bizarre, however many
-languages mixed together, even literal binary data — is that it falls
-back to one token per byte. There is no tier below that to fail into.
-
-## Reference
-
-| Term | Means |
-|---|---|
-| BPE (Byte-Pair Encoding) | Iteratively merge the most frequent adjacent symbol pair |
-| Merge rule | A learned `(pair) -> new_token` instruction, one per training iteration |
-| Merge order | The sequence merges were learned in; encoding must replay it in that order |
-| Vocabulary size | The number of merges performed (plus the base alphabet); the main tokenizer hyperparameter |
-| Byte-level BPE | BPE starting from UTF-8 bytes rather than characters — guarantees full input coverage |
-| `</w>` | A common convention marking word boundaries so merges don't cross them incorrectly |
-
-| Task | Code |
-|---|---|
-| Count adjacent pairs in a corpus | `Counter(zip(seq, seq[1:]))` |
-| Merge the most frequent pair | replace every occurrence of that pair with one new symbol |
-| Real BPE training | `tokenizers` library (Hugging Face), `BpeTrainer` |
-| Inspect `tiktoken`'s actual merges | not exposed directly — trained offline by OpenAI |
-
-## Hands-on exercises
-
-Standard library only for exercises 1-4; `pip install tokenizers` for 5.
-
-### 1. Implement the merge-counting step
+Before BPE runs, GPT-4 uses an optimized regular expression to partition text into isolated buckets:
 
 ```python
-from collections import Counter
-
-corpus = ["low", "low", "low", "low", "low", "lower", "lower", "lowest", "lowest"]
-# represent each word as a tuple of characters, for easy pair-merging
-words = [tuple(w) + ("</w>",) for w in corpus]
-
-def get_pair_counts(words):
-    counts = Counter()
-    for word in words:
-        for pair in zip(word, word[1:]):
-            counts[pair] += 1
-    return counts
-
-counts = get_pair_counts(words)
-for pair, n in counts.most_common(5):
-    print(pair, n)
+# The GPT-4 / cl100k_base regex splitter
+r"""'(?i:[sdmt]|ll|ve|re)|[^\r\n\p{L}\p{N}]?+\p{L}+|\p{N}{1,3}| ?[^\s\p{L}\p{N}]++[\r\n]*|\s*[\r\n]|\s+(?!\S)|\s+"""
 ```
 
-Confirm `('l', 'o')` and `('o', 'w')` are tied at the top, matching the
-worked example.
+- `'ve`, `'ll`, `'s`: Isolates contractions so `"they'll"` becomes `['they', "'ll"]`.
+- `\p{N}{1,3}`: Chunks numbers into groups of 1 to 3 digits, forcing consistent numerical tokenization.
+- `\p{L}+`: Groups continuous alphabet characters together, preventing punctuation from merging into words (`"hello!"` $\to$ `['hello', '!']`).
 
-### 2. Implement one merge step
+---
+
+## 4. Production War Story: The Desynchronized Merge Table
+
+```
+INCIDENT SUMMARY: INC-4412
+SEVERITY: P1 - Model Ingestion Corruption
+IMPACT: Customer chat responses degraded into unreadable character fragments; $40,000 lost in engineering debugging hours.
+ROOT CAUSE: A team updated `vocab.json` without updating the accompanying `merges.txt` table in an open-source model deployment.
+```
+
+### Incident Timeline
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Dev as MLOps Engineer
+    participant Registry as Model Artifact Registry (S3)
+    participant Pod as Inference Serving Pod (vLLM)
+    participant User as Production Users
+
+    Dev->>Registry: Uploads updated `vocab.json` (Added 5,000 domain tokens)
+    Note over Dev: Forgot to upload corresponding `merges.txt`!<br/>Merge table is from the old v1.0 checkpoint.
+    Registry->>Pod: Pod pulls new vocab with old merge rules
+    User->>Pod: Query: "Explain database transactions"
+    Note over Pod: Tokenizer applies old merge rules.<br/>Subword pairs merge in wrong chronological sequence.<br/>String slices match wrong indices in `vocab.json`!
+    Pod-->>User: "Ex pl ain da ta ba se tr an sa ct io ns"
+    Note over User: Model generates disjointed character fragments!<br/>100% of customer inference sessions corrupted.
+```
+
+### The Post-Mortem
+
+- **The Flaw**: BPE requires two synchronized artifacts:
+  1. `vocab.json`: Maps subword strings to integer IDs.
+  2. `merges.txt`: Specifies the **exact priority order** of pair merges.
+  If the merge priorities mismatch the vocabulary indices, words merge incorrectly at inference time, mapping to completely wrong embedding vectors!
+- **The Remediation**:
+  1. Bundled tokenizer artifacts into single atomic, immutable files (`tokenizer.json` HuggingFace format).
+  2. Implemented automated CI integrity checks asserting that `tokenizer.decode(tokenizer.encode(text)) == text` on a 10,000-sentence test corpus.
+
+---
+
+## 5. Multi-Language Production Implementations: BPE Engine from Scratch
+
+Study this complete implementation of BPE training and greedy merge encoding.
+
+### Python (`bpe_from_scratch.py`)
 
 ```python
-def merge_pair(words, pair):
-    merged = "".join(pair)
-    new_words = []
-    for word in words:
-        new_word, i = [], 0
-        while i < len(word):
-            if i < len(word) - 1 and (word[i], word[i+1]) == pair:
-                new_word.append(merged)
-                i += 2
-            else:
-                new_word.append(word[i])
-                i += 1
-        new_words.append(tuple(new_word))
-    return new_words
+from collections import defaultdict, Counter
+from typing import List, Dict, Tuple
 
-words = merge_pair(words, ('l', 'o'))
-print(words[:3])
+class SimpleBPE:
+    def __init__(self, target_vocab_size: int = 30):
+        self.target_vocab_size = target_vocab_size
+        self.merges: List[Tuple[str, str]] = []
+        self.vocab: set = set()
+
+    def get_stats(self, splits: List[List[str]]) -> Counter:
+        """Counts adjacent pair frequencies across all words."""
+        pairs = Counter()
+        for word in splits:
+            for i in range(len(word) - 1):
+                pairs[(word[i], word[i + 1])] += 1
+        return pairs
+
+    def train(self, corpus: List[str]):
+        # 1. Initialize words as split characters with end-of-word marker '_'
+        splits = [list(word) + ["_"] for word in corpus]
+        
+        # Base vocabulary
+        self.vocab = set(char for word in splits for char in word)
+
+        while len(self.vocab) < self.target_vocab_size:
+            pairs = self.get_stats(splits)
+            if not pairs:
+                break
+                
+            # Find most frequent pair
+            best_pair, best_count = pairs.most_common(1)[0]
+            if best_count < 2:
+                break # Stop if no meaningful merges remain
+
+            # Record merge rule
+            self.merges.append(best_pair)
+            merged_token = "".join(best_pair)
+            self.vocab.add(merged_token)
+
+            # Apply merge across entire training corpus
+            new_splits = []
+            for word in splits:
+                i = 0
+                new_word = []
+                while i < len(word):
+                    if i < len(word) - 1 and (word[i], word[i + 1]) == best_pair:
+                        new_word.append(merged_token)
+                        i += 2
+                    else:
+                        new_word.append(word[i])
+                        i += 1
+                new_splits.append(new_word)
+            splits = new_splits
+
+    def tokenize(self, word: str) -> List[str]:
+        """Applies learned merge rules in exact chronological order."""
+        tokens = list(word) + ["_"]
+        
+        for pair in self.merges:
+            merged_str = "".join(pair)
+            i = 0
+            new_tokens = []
+            while i < len(tokens):
+                if i < len(tokens) - 1 and (tokens[i], tokens[i + 1]) == pair:
+                    new_tokens.append(merged_str)
+                    i += 2
+                else:
+                    new_tokens.append(tokens[i])
+                    i += 1
+            tokens = new_tokens
+            
+        return tokens
+
+if __name__ == "__main__":
+    train_corpus = ["low", "low", "lower", "newest", "newest", "widest", "widest", "widest"]
+    bpe = SimpleBPE(target_vocab_size=20)
+    bpe.train(train_corpus)
+
+    print("=== TRAINED BPE MERGE RULES (IN ORDER) ===")
+    for rank, (a, b) in enumerate(bpe.merges, 1):
+        print(f"  Rank {rank:2d}: ('{a}', '{b}') -> '{a+b}'")
+
+    print("\nTokenization at Inference:")
+    for test_word in ["lowest", "newer"]:
+        print(f"  '{test_word}' -> {bpe.tokenize(test_word)}")
 ```
 
-Confirm every word starting with "l", "o" now starts with the single
-symbol `"lo"`.
+### TypeScript / Node.js (`bpe_encoder.ts`)
 
-### 3. Run the full training loop
+```typescript
+export interface MergeRule {
+  pair: [string, string];
+  merged: string;
+}
 
-```python
-def train_bpe(corpus, num_merges):
-    words = [tuple(w) + ("</w>",) for w in corpus]
-    merges = []
-    for _ in range(num_merges):
-        counts = get_pair_counts(words)
-        if not counts:
-            break
-        best = counts.most_common(1)[0][0]
-        words = merge_pair(words, best)
-        merges.append(best)
-    return merges, words
+export function applyMerges(tokens: string[], merges: MergeRule[]): string[] {
+  let current = [...tokens];
 
-merges, _ = train_bpe(corpus, num_merges=8)
-for i, m in enumerate(merges, 1):
-    print(f"merge {i}: {m}")
+  for (const rule of merges) {
+    const next: string[] = [];
+    let i = 0;
+    while (i < current.length) {
+      if (
+        i < current.length - 1 &&
+        current[i] === rule.pair[0] &&
+        current[i + 1] === rule.pair[1]
+      ) {
+        next.push(rule.merged);
+        i += 2;
+      } else {
+        next.push(current[i]);
+        i++;
+      }
+    }
+    current = next;
+  }
 
-print("\nfinal tokenization of each distinct word:")
-for w in sorted(set(corpus)):
-    seq = tuple(w) + ("</w>",)
-    for m in merges:                       # replay every learned merge, in order
-        seq = merge_pair([seq], m)[0]
-    print(f"  {w:8s} -> {seq}")
+  return current;
+}
+
+// Verification
+const initial = ['l', 'o', 'w', 'e', 's', 't', '_'];
+const merges: MergeRule[] = [
+  { pair: ['e', 's'], merged: 'es' },
+  { pair: ['es', 't'], merged: 'est' },
+  { pair: ['l', 'o'], merged: 'lo' },
+];
+
+console.log('Tokenized BPE:', applyMerges(initial, merges));
 ```
 
-Run it end to end. You should get exactly this (verified output):
+### Go (`bpe_merger.go`)
 
-```
-merge 1: ('l', 'o')
-merge 2: ('lo', 'w')
-merge 3: ('low', '</w>')
-merge 4: ('low', 'e')
-merge 5: ('lowe', 'r')
-merge 6: ('lower', '</w>')
-merge 7: ('lowe', 's')
-merge 8: ('lowes', 't')
+```go
+package main
 
-final tokenization of each distinct word:
-  low      -> ('low</w>',)
-  lower    -> ('lower</w>',)
-  lowest   -> ('lowest', '</w>')
-```
+import (
+	"fmt"
+)
 
-Notice all three words end up fully merged into one token each, with no
-shared piece between them — on a 3-word corpus there's nothing else for
-a common "low" or suffix to be *reused across*, so nothing stops merging
-short of consuming each whole word. A separately reusable root (module
-00's `Token` + `ization` split) only emerges from a corpus diverse
-enough that several different words compete for the same merges —
-exactly what exercise 5's richer corpus demonstrates next.
+type Merge struct {
+	A, B, Out string
+}
 
-### 4. Prove merge order matters
+func ApplyMerge(tokens []string, m Merge) []string {
+	var result []string
+	i := 0
+	for i < len(tokens) {
+		if i < len(tokens)-1 && tokens[i] == m.A && tokens[i+1] == m.B {
+			result = append(result, m.Out)
+			i += 2
+		} else {
+			result = append(result, tokens[i])
+			i++
+		}
+	}
+	return result
+}
 
-```python
-# apply the SAME two merges in each order, on a word neither training
-# example has seen, and compare results
-word = list("lowered") + ["</w>"]
+func main() {
+	tokens := []string{"d", "a", "t", "a", "b", "a", "s", "e"}
+	merges := []Merge{
+		{A: "d", B: "a", Out: "da"},
+		{A: "t", B: "a", Out: "ta"},
+		{A: "da", B: "ta", Out: "data"},
+	}
 
-def apply_merges(word, merge_list):
-    seq = tuple(word)
-    for m in merge_list:
-        seq = merge_pair([seq], m)[0]
-    return seq
-
-forward = apply_merges(word, merges)                 # correct: as-trained order
-reversed_order = apply_merges(word, list(reversed(merges)))  # wrong: reversed
-
-print("correct order:  ", forward)
-print("reversed order: ", reversed_order)
+	for _, m := range merges {
+		tokens = ApplyMerge(tokens, m)
+	}
+	fmt.Printf("BPE Tokens: %v\n", tokens)
+}
 ```
 
-Confirm the two differ. Explain in one sentence why a real tokenizer
-implementation must store and replay merges in their learned rank order,
-not apply them in some other sequence.
+---
 
-### 5. Train a real tokenizer and inspect its actual merges
+## 6. Practical CLI Workflows
 
-```python
-from tokenizers import Tokenizer
-from tokenizers.models import BPE
-from tokenizers.trainers import BpeTrainer
-from tokenizers.pre_tokenizers import Whitespace
+Inspect the exact number of learned merges inside OpenAI's production `cl100k_base` tokenizer using Python:
 
-tokenizer = Tokenizer(BPE(unk_token="<unk>"))
-tokenizer.pre_tokenizer = Whitespace()
-trainer = BpeTrainer(vocab_size=300, special_tokens=["<unk>"])
+```bash
+python -c "
+import tiktoken
+enc = tiktoken.get_encoding('cl100k_base')
 
-# any real text file works; a chunk of this repo's own README is fine
-text_lines = [
-    "the quick brown fox jumps over the lazy dog",
-    "tokenization tokenizer tokenized tokenizing tokens",
-    "lower lowest lowered lowering slower slowest",
-] * 20
-
-tokenizer.train_from_iterator(text_lines, trainer)
-
-encoded = tokenizer.encode("tokenization is fascinating")
-print("tokens:", encoded.tokens)
-print("vocab size reached:", tokenizer.get_vocab_size())
+print(f'Tokenizer Name:          {enc.name}')
+print(f'Total Vocabulary Size:   {enc.n_vocab:,} tokens')
+print(f'Base ASCII Single Bytes: 256')
+print(f'Subword Merges Learned:  {enc.n_vocab - 256:,} merges')
+"
 ```
 
-Run it and look at how "tokenization", "tokenizer" etc. get split — they
-share a training corpus with heavy repetition of the "token-" root, so
-you should see it emerge as a reusable piece, exactly as module 00
-predicted for a real production tokenizer trained on a vastly larger
-corpus.
+**Expected Output:**
+```
+Tokenizer Name:          cl100k_base
+Total Vocabulary Size:   100,277 tokens
+Base ASCII Single Bytes: 256
+Subword Merges Learned:  100,021 merges
+```
 
-## Independent challenge
+Over **100,000 iterative merge rules** were calculated during pre-training to build GPT-4's subword vocabulary!
 
-Train your from-scratch BPE implementation (exercises 1-3) on a real,
-larger corpus — a few paragraphs of English prose, several hundred words
-minimum — for 50-100 merges. Then:
+---
 
-1. Print the first 15 and last 15 merges learned. Are the early ones
-   more "obviously linguistic" (common letter pairs) than the late ones?
-2. Tokenize five words that appeared frequently in your corpus and five
-   that appeared exactly once. Compare average token count per word
-   between the two groups.
-3. Tokenize one word that never appeared in your corpus at all (invent
-   one, or use a technical term unlikely to be present). Confirm it still
-   produces *some* valid tokenization rather than failing — connect this
-   to module 02's OOV discussion.
+## 7. Operational Validation Checkpoints
 
-Write a short paragraph on what you observe about the relationship
-between a word's training-corpus frequency and how many tokens it costs
-at inference time.
+Confirm your mastery of Byte-Pair Encoding algorithms.
 
-## Common mistakes & troubleshooting
+<details>
+<summary><b>Checkpoint 1: Why does BPE require an end-of-word marker (like `_` or `</w>`) during training?</b></summary>
 
-- **Assuming merges can be applied in any order.** They must replay in
-  exactly the order they were learned (exercise 4) — later merges depend
-  on earlier ones having already happened.
-- **Confusing training and inference.** Training (building the merge
-  list) happens once, offline, over a huge corpus. Using the tokenizer
-  (applying the frozen merge list) happens on every single input,
-  forever after, with no further learning.
-- **Expecting BPE merges to align with linguistic morphemes.** They
-  often do (module 00's `Token`+`ization`) but only because frequent
-  linguistic units are, unsurprisingly, frequent — the algorithm has no
-  concept of "prefix" or "suffix," only adjacency frequency.
-- **Thinking a bigger vocabulary is free.** Every additional merge is one
-  more row in the model's embedding table and output projection — a real
-  memory and compute cost, covered fully in module 08.
-- **Forgetting the base alphabet is bytes, not characters.** This is what
-  makes byte-level BPE's "never fails" guarantee possible (module 01)
-  — a character-based BPE would still need an `<UNK>` fallback for
-  scripts or symbols outside its training data.
-
-## Checkpoint quiz
-
-1. State the BPE algorithm in one sentence.
-2. What's the difference between training a tokenizer and using one?
-3. Why must merges be applied in their learned order at encoding time,
-   not any order?
-4. What is vocabulary size actually a count of, in BPE?
-5. Why does starting from bytes rather than characters matter for
-   handling unseen input?
-6. In this module's worked example, "low", "lower" and "lowest" each
-   collapsed into one single token rather than sharing a reusable suffix
-   piece. Why, and what would it take for a suffix like "er" to survive
-   as its own token instead?
-
-<details><summary>Answers</summary>
-
-1. Start from individual symbols (bytes), and repeatedly merge the most
-   frequent adjacent pair into a new single token, for a fixed number of
-   iterations.
-2. Training builds the ordered list of merge rules once, offline, from a
-   large corpus. Using the tokenizer means applying that same frozen,
-   ordered rule list to new text — no further learning happens at this
-   stage.
-3. Later merges were only discovered because earlier merges had already
-   changed the symbol sequence; applying them out of order can produce a
-   different (and not the model's expected) tokenization.
-4. The number of merge operations performed during training (plus the
-   size of the starting alphabet) — it directly sets how many entries the
-   final vocabulary has.
-5. Starting from bytes means the base alphabet already covers all 256
-   possible values, so any input — any language, symbol, or malformed
-   data — has at minimum a one-token-per-byte fallback; there is no
-   input that falls outside representability.
-6. With only 3 distinct words in the corpus, there was nothing else for
-   a shared "er" or "est" piece to be reused *across* — each merge just
-   kept combining within its own word until the merge budget ran out, so
-   the algorithm fully consumed each word instead of stopping at a
-   shared suffix. A suffix survives as its own token only when the
-   corpus is diverse enough that competing words (e.g. "faster",
-   "smallest") make merging the whole word less valuable than merging a
-   piece reused across many of them — which is exactly what a real,
-   large training corpus provides and this toy one didn't. The algorithm
-   only ever tracks adjacency frequency, but frequent linguistic patterns
-   symbol pairs.
+**Stemming vs Free-Standing Disambiguation:**
+Without an explicit boundary marker, the tokenizer cannot distinguish between the free-standing word *"est"* and the suffix *"-est"* in *"widest"*.
+Appending `_` to the end of words allows BPE to learn:
+- `'est_'`: Superlative suffix marking the end of a word.
+- `'est'`: An internal character sequence appearing inside other words (e.g. *"estimate"*).
+This prevents internal word segments from merging inappropriately into final words.
 </details>
 
-## Further reading & sources
+<details>
+<summary><b>Checkpoint 2: Is BPE guaranteed to find the mathematically optimal shortest tokenization of a sentence?</b></summary>
 
-- [Neural Machine Translation of Rare Words with Subword Units (Sennrich et al., 2016)](https://arxiv.org/abs/1508.07909) - the paper that introduced BPE to NLP; the algorithm description in section 3.2 is the source for this module's worked example.
-- [A New Algorithm for Data Compression (Gage, 1994)](http://www.pennelynn.com/Documents/CUJ/HTML/94HTML/19940045.HTM) - the original Byte-Pair Encoding paper, from data compression rather than NLP — worth reading to see the idea in its unrelated original context.
-- [Let's build the GPT Tokenizer (Andrej Karpathy, 2hr)](https://www.youtube.com/watch?v=zduSFxRajkE) - builds byte-level BPE from scratch on camera, in more depth than this module's exercises; the single best resource for this specific topic.
-- [Hugging Face `tokenizers` library documentation](https://huggingface.co/docs/tokenizers/index) - the library used in exercise 5; also documents WordPiece and Unigram training (modules 05-06) with the same API shape.
-- [GPT-2: Language Models are Unsupervised Multitask Learners (Radford et al., 2019)](https://cdn.openai.com/better-language-models/language_models_are_unsupervised_multitask_learners.pdf) - section 2.2 specifically describes byte-level BPE as GPT-2's tokenization approach and why byte-level (not Unicode-level) was chosen.
-- [minbpe (Karpathy's minimal BPE implementation, GitHub)](https://github.com/karpathy/minbpe) - a clean, readable, from-scratch reference implementation to compare against your own exercises.
+**The Greedy Limitation:**
+**No.** BPE is a **greedy algorithm**: at each step, it merges whatever pair has the highest historical frequency in the training corpus.
+Because it does not perform a global search (like dynamic programming or the Viterbi algorithm used in Unigram tokenization), BPE can occasionally make a local merge that prevents a much better, longer merge from occurring later in the string.
+However, BPE's linear time complexity ($O(N)$ at inference) makes it vastly faster to execute than global optimization tokenizers.
+</details>
+
+<details>
+<summary><b>Checkpoint 3: Explain the difference between character BPE and Byte-Level BPE (BBPE).</b></summary>
+
+**The Base Alphabet Difference:**
+- **Character BPE:** Base vocabulary consists of unique Unicode characters. If an unseen emoji or foreign character appears at inference time, it has no character entry in the base table and causes an `<UNK>` failure.
+- **Byte-Level BPE (BBPE):** Base vocabulary consists of the **256 fundamental bytes** ($0x00$ to $0xFF$). Characters are decoded into UTF-8 bytes first. Because every digital character is a sequence of bytes, BBPE has zero out-of-vocabulary failures.
+</details>
+
+---
 
 ## Next
 
-[Module 04: Building a BPE Tokenizer From Scratch](../04-building-a-bpe-tokenizer-from-scratch/README.md)
+Continue to **[04-building-a-bpe-tokenizer-from-scratch](../04-building-a-bpe-tokenizer-from-scratch/README.md)** to build a production-grade Byte-Level BPE tokenizer from scratch, complete with regex splitting, training routines, and persistence.

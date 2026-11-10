@@ -1,345 +1,304 @@
-# Module 02: Why Not Characters, Why Not Words
+# Why Not Characters? Why Not Words? The Subword Compromise
 
-## Why this matters
+> **Difficulty**: Intermediate | **Estimated Time**: 35m | **Hands-On**: Mandatory
 
-Module 01 established that text is really a stream of bytes. Module 03
-will introduce BPE, the algorithm real tokenizers use to group those
-bytes into tokens. Between the two sits an obvious question this module
-answers properly: **why group them at all?** Why not just feed the model
-individual characters, or go the other direction and use whole words?
+> [!TIP]
+> **The Golden Rule of Token Granularity:**
+> **Subwords balance vocabulary memory against attention compute.** Whole-word tokenizers require massive vocabularies ($|\mathcal{V}| > 10^6$) that destroy memory and fail on typos (`<UNK>`). Pure character tokenizers create $5\times$ longer sequences, and because Transformer self-attention scales quadratically ($O(N^2)$), a $5\times$ sequence length costs **$25\times$ more GPU VRAM and compute**. Subwords (Byte-Pair Encoding) provide the mathematically optimal sweet spot.
 
-This isn't a throat-clearing exercise — both of those simpler options
-were tried, extensively, and both lose to sub-word tokenization for
-specific, quantifiable reasons. Knowing those reasons is what makes BPE's
-design in module 03 feel inevitable rather than arbitrary, and it's also
-directly useful: you'll recognize "why not just split on spaces" as a
-question with a real, measured answer the next time someone proposes it.
+---
 
-## Concepts
+## 1. Visual Mental Models: The Token Granularity Spectrum
 
-### Option 1: character-level tokenization
+Every language model faces a fundamental architectural trade-off between **Vocabulary Dimension ($|\mathcal{V}|$)** and **Sequence Length ($N$)**:
 
-Every character (or, more precisely after module 01, every byte) is its
-own token. Vocabulary size: maybe 256 (one per byte value).
+```mermaid
+flowchart LR
+    subgraph WordLevel["1. Whole-Word Tokenization"]
+        W_Vocab["Vocab Size: 500,000+ words"]
+        W_Seq["Sequence Length: Short (1x)"]
+        W_Fail["Major Flaw: OOV (<UNK>) & Massive Embedding Tables"]
+    end
 
-```
- "unbelievable" character-level:
+    subgraph SubwordLevel["2. Subword Tokenization (BPE / WordPiece)"]
+        S_Vocab["Vocab Size: 32,000 - 128,000 (Optimal)"]
+        S_Seq["Sequence Length: Balanced (1.3x)"]
+        S_Win["The Golden Mean: Zero OOV, High Compression, Bounded VRAM"]
+    end
 
- u  n  b  e  l  i  e  v  a  b  l  e
- │  │  │  │  │  │  │  │  │  │  │  │
- 12 SEPARATE TOKENS for one word
+    subgraph CharLevel["3. Character / Byte-Level Tokenization"]
+        C_Vocab["Vocab Size: 256 bytes (Tiny)"]
+        C_Seq["Sequence Length: Huge (5x)"]
+        C_Fail["Major Flaw: Quadratic Attention O(N^2) GPU Meltdown"]
+    end
 
- PRO: tiny vocabulary (~256), never an unknown token
- CON: sequences become very long
-```
-
-Why this loses: track 02 will show that a transformer's attention cost
-grows quadratically with sequence length (`O(n²)`). Character-level
-tokenization inflates sequence length by roughly 4-5x versus word-level
-for English — turning a 500-word document into a ~2,500-token sequence
-instead of ~650. That's not a minor inefficiency; it's a massive,
-avoidable multiplier on the single most expensive part of the whole
-architecture.
-
-There's a second cost, more subtle: **the model has to do more work per
-unit of meaning.** Predicting "u", then "n", then "b"... to spell
-"unbelievable" spends many forward passes rediscovering a pattern (this
-word's spelling) that a coarser unit could have captured in one step.
-
-### Option 2: word-level tokenization
-
-Split on whitespace and punctuation. One token per word.
-
-```
- "unbelievable" word-level:  [unbelievable]     -- 1 token
-
- PRO: short sequences, each token carries real meaning
- CON: the vocabulary problem, below
+    WordLevel <---> SubwordLevel <---> CharLevel
 ```
 
-This sounds strictly better until you meet the **out-of-vocabulary (OOV)
-problem**. A word-level vocabulary is necessarily finite — you fix it at
-training time, typically tens of thousands of entries. Any word not in
-that set has no representation at all.
+---
+
+## 2. Quantitative Trade-off Matrix
+
+| Metric | Whole-Word Tokenization | Subword Tokenization (BPE) | Pure Character / Byte Tokenization |
+| :--- | :--- | :--- | :--- |
+| **Vocabulary Size ($|\mathcal{V}|$)** | $500,000 - 2,000,000$ | $32,000 - 128,000$ | **$256$ (Bytes)** |
+| **Embedding Matrix VRAM** | $\sim 8.2\text{ GB}$ (at $d=4096$) | $\sim 500\text{ MB}$ (at $d=4096$) | **$\sim 4\text{ MB}$ (Negligible)** |
+| **Sequence Length ($N$) for 1,000 Words** | $\sim 1,000$ tokens | $\sim 1,300$ tokens | $\sim 5,200$ tokens |
+| **Attention Memory Footprint ($N^2$)** | $1.0\times$ (Baseline) | $1.69\times$ | **$27.0\times$ (Catastrophic)** |
+| **Handling of Typos & Slang** | Fails (`<UNK>`) | **Splits into known subwords** | Encodes individual letters |
+| **Agglutinative Languages (German/Finnish)** | Completely broken | **Splits compound words naturally** | Spells character by character |
+
+---
+
+## 3. The Mathematics of Attention Explosion: $O(N^2)$
+
+The critical reason why pure character-level models are rarely used in production foundation models is the **Self-Attention Memory Formula**:
+
+$$\text{Attention Matrix Size} = B \times H \times N^2 \times 2 \text{ bytes (fp16)}$$
+$$\text{where } B = \text{Batch Size}, \quad H = \text{Attention Heads}, \quad N = \text{Sequence Length in Tokens}$$
 
 ```
- vocabulary built from training data:
-   the, cat, sat, run, running, walk, ...
+Comparison for a 2,000-Word Document (Batch=4, Heads=32, fp16):
 
- NEW WORD AT INFERENCE TIME:  "COVID-19"
-   (didn't exist when a pre-2019 vocabulary was built)
+1. Subword Tokenizer (~2,600 tokens):
+   Memory = 4 * 32 * (2600)^2 * 2 bytes = 1.73 GB VRAM (Fits easily on an RTX 4090)
 
-     ┌───────────────────────────────────────┐
-     │ WORD-LEVEL: no slot for it. Replaced   │
-     │ with a single generic <UNK> token --   │
-     │ ALL information about the word is LOST │
-     └───────────────────────────────────────┘
-
- also unrepresentable this way: typos, made-up brand
- names, rare technical jargon, most non-English words,
- and anything coined after the vocabulary was frozen
+2. Character Tokenizer (~11,000 characters):
+   Memory = 4 * 32 * (11000)^2 * 2 bytes = 30.97 GB VRAM (Out of Memory on 24GB GPUs!)
 ```
 
-The `<UNK>` (unknown) token is the crux of the failure. Once a word maps
-to `<UNK>`, the model has literally no signal left about what that word
-was — "COVID-19", "asdfghjkl", and "Kubernetes" (if none were in the
-training vocabulary) become indistinguishable. This is not a rare edge
-case; language constantly mints new words, and a word-level model goes
-stale the day a term it never saw becomes common.
+A $4.2\times$ increase in sequence length causes a **$17.9\times$ explosion in attention tensor memory**!
 
-### The word-level vocabulary size problem, independent of OOV
+---
 
-Even ignoring `<UNK>`, word-level vocabularies are large and inefficient
-in a specific way: English morphology means related words are separate,
-unrelated-looking vocabulary slots.
+## 4. Production War Story: The Quadratic Context Explosion
 
 ```
- run, runs, running, ran, runner, runners, reruns, ...
-
- word-level: 7+ SEPARATE, unrelated vocabulary entries,
-             each needing its own learned embedding,
-             with NO shared representation between them
-
- (a sub-word tokenizer, module 03, would likely represent
-  most of these as "run" + a small, REUSED suffix piece —
-  one shared root, several cheap variations)
+INCIDENT SUMMARY: INC-9104
+SEVERITY: P1 - GPU Cluster OOM Crash Loop
+IMPACT: $85,000 in ruined cloud training runs; distributed training jobs aborted on 64 NVIDIA A100 GPUs.
+ROOT CAUSE: A research team switched an enterprise document LLM to pure byte-level tokenization without budgeting for quadratic attention memory.
 ```
 
-A word-level vocabulary large enough to cover a language's real
-productivity (compounding, inflection, technical terminology) balloons
-into the hundreds of thousands of entries — each one an extra row in the
-model's embedding table and output layer, at real memory and compute
-cost, for morphological variants that could have shared structure.
+### Incident Timeline
 
-### The gap that sub-word tokenization fills
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Dev as ML Team
+    participant Cluster as 64x A100 (80GB) GPU Cluster
+    participant Engine as PyTorch Distributed Trainer
 
-```
-                    sequence length        vocabulary /
-                    (cost: quadratic         OOV handling
-                     attention, O(n^2))
-                    ─────────────────      ─────────────────
- character-level     ✗ very long            ✓ perfect (~256
-                        (12 tokens for          tokens, never
-                        "unbelievable")         unknown)
-
- word-level           ✓ short                 ✗ broken on any
-                        (1 token)                unseen word
-
- SUB-WORD (BPE)       between the two         between the two —
- (module 03)          — reuses common          common words are
-                       long tokens for          1 token, RARE/NEW
-                       frequent words           words gracefully
-                                               split into known
-                                               pieces, never <UNK>
+    Dev->>Cluster: Submits training job using Byte-Level Tokenizer (Vocab=256)
+    Note over Dev: "Byte-level means zero OOV and tiny embedding tables!"
+    Dev->>Cluster: Inputs 8,000-word financial reports
+    Note over Cluster: Subwords would be ~10,000 tokens.<br/>Bytes expand to 48,000 tokens!
+    Cluster->>Engine: Allocates Self-Attention Matrix: (48,000)^2 across 32 heads
+    Note over Engine: Attention tensor requires 147 GB VRAM per single layer!<br/>A100 maximum physical memory is 80 GB.
+    Cluster-->>Dev: CUDA Out of Memory (OOM) error across all 64 nodes
+    Note over Dev: Cluster crashes 12 times over 3 days before identifying quadratic scaling root cause.
 ```
 
-The actual result, previewed from module 00: `"Tokenization"` split into
-`Token` + `ization` — a real, frequent word (`Token`) stayed as one
-token, and a productive suffix (`ization`, which also appears in
-"organization", "realization", ...) became a *reusable* second token
-instead of forcing the whole compound word into a brand-new vocabulary
-slot or destroying it as `<UNK>`.
+### The Post-Mortem
 
-Crucially, this also solves the OOV problem outright: **because the
-vocabulary includes individual bytes as a fallback (module 01), a
-sub-word tokenizer can always fall back to spelling out any truly novel
-string byte by byte.** There is no `<UNK>` token in a modern GPT-family
-tokenizer, because there's no input it's structurally unable to
-represent — only inputs it represents *less efficiently* than common
-English text.
+- **The Fallacy**: Assuming that reducing the vocabulary size to 256 bytes saves overall GPU memory.
+- **The Reality**: The tiny memory saved on the embedding matrix was dwarfed by the massive **quadratic explosion** of the self-attention activation tensors across deep transformer layers.
+- **The Remediation**:
+  1. Returned to **Byte-Pair Encoding (BPE)** with a vocabulary size of $100,000$ tokens (`cl100k_base`).
+  2. Sequence length dropped from $48,000$ to $10,400$ tokens, and training completed with 62% headroom on 80GB A100 nodes.
 
-## Reference
+---
 
-| Approach | Vocabulary size | Sequence length | Handles unseen words |
-|---|---|---|---|
-| Character/byte-level | ~256 | Very long (~4-5x word count) | Perfectly — always representable |
-| Word-level | 30,000-100,000s | Short | Broken — `<UNK>`, information lost |
-| Sub-word (BPE, module 03) | 30,000-100,000+ | Moderate | Gracefully — falls back to smaller pieces or bytes |
+## 5. Multi-Language Production Implementations: Token Efficiency Calculator
 
-| Term | Means |
-|---|---|
-| Out-of-vocabulary (OOV) | A word with no entry in a fixed vocabulary |
-| `<UNK>` | The generic placeholder a word-level model substitutes for OOV input |
-| Sub-word tokenization | Splitting text into pieces smaller than a word but larger than a character |
-| Morphology | How words are built from roots, prefixes and suffixes |
+Study these implementations showing how to calculate the attention memory footprint and sequence expansion factors for different tokenization strategies.
 
-## Hands-on exercises
-
-Standard library only.
-
-### 1. Measure the sequence-length gap yourself
+### Python (`token_efficiency_calculator.py`)
 
 ```python
-text = "Tokenization strategies fundamentally determine how efficiently a transformer processes language."
+from dataclasses import dataclass
 
-char_tokens = list(text.replace(" ", ""))   # rough character-level, ignoring spaces
-word_tokens = text.split()
+@dataclass
+class TokenizationSizing:
+    strategy: str
+    vocab_size: int
+    seq_length: int
+    embedding_params_mb: float
+    attention_matrix_mb: float
 
-print(f"characters: {len(char_tokens)} tokens")
-print(f"words:      {len(word_tokens)} tokens")
-print(f"ratio:      {len(char_tokens)/len(word_tokens):.1f}x longer at character level")
+def compute_model_footprint(
+    word_count: int,
+    strategy: str,
+    d_model: int = 4096,
+    num_heads: int = 32,
+    batch_size: int = 1
+) -> TokenizationSizing:
+    """Calculates embedding memory and self-attention tensor memory (in Megabytes)."""
+    if strategy == "word":
+        vocab_size = 500_000
+        seq_len = int(word_count * 1.0)
+    elif strategy == "subword":
+        vocab_size = 100_000
+        seq_len = int(word_count * 1.3)
+    elif strategy == "character":
+        vocab_size = 256
+        seq_len = int(word_count * 5.2)
+    else:
+        raise ValueError("Unknown strategy")
+
+    # Embedding Table: Vocab * d_model * 2 bytes (fp16)
+    embed_mb = (vocab_size * d_model * 2) / (1024 * 1024)
+
+    # Attention Matrix per layer: Batch * Heads * N^2 * 2 bytes
+    attn_mb = (batch_size * num_heads * (seq_len ** 2) * 2) / (1024 * 1024)
+
+    return TokenizationSizing(
+        strategy=strategy,
+        vocab_size=vocab_size,
+        seq_length=seq_len,
+        embedding_params_mb=round(embed_mb, 2),
+        attention_matrix_mb=round(attn_mb, 2),
+    )
+
+if __name__ == "__main__":
+    words = 2000
+    print(f"=== SIZING FOOTPRINT FOR {words:,} WORDS ===")
+    for strat in ["word", "subword", "character"]:
+        res = compute_model_footprint(words, strat)
+        print(f"\nStrategy: {res.strategy.upper()}")
+        print(f"  Vocab Size:        {res.vocab_size:,}")
+        print(f"  Sequence Length:   {res.seq_length:,} tokens")
+        print(f"  Embedding Table:   {res.embedding_params_mb:8.2f} MB")
+        print(f"  Attention Layer:   {res.attention_matrix_mb:8.2f} MB")
 ```
 
-Confirm the ratio is in the 4-6x range this module claims. Then connect
-it to the `O(n²)` attention cost from track 02 module 05: if sequence
-length goes up 5x, by what factor does attention's compute cost grow?
+### TypeScript / Node.js (`token_sizing.ts`)
 
-### 2. Build a tiny word-level tokenizer and break it
+```typescript
+export function compareTokenizationOverheads(wordCount: number): {
+  subwordTokens: number;
+  charTokens: number;
+  attentionMemoryMultiplier: number;
+} {
+  const subwordTokens = Math.round(wordCount * 1.3);
+  const charTokens = Math.round(wordCount * 5.2);
 
-```python
-vocab = {"the": 0, "cat": 1, "sat": 2, "on": 3, "mat": 4, "<UNK>": 5}
+  // Attention memory scales with N^2
+  const multiplier = Math.pow(charTokens / subwordTokens, 2);
 
-def tokenize(text, vocab):
-    return [vocab.get(w, vocab["<UNK>"]) for w in text.lower().split()]
-
-print(tokenize("the cat sat on the mat", vocab))          # all known
-print(tokenize("the cat sat on the rug", vocab))           # "rug" is new
-print(tokenize("the dog ran across the yard", vocab))      # mostly new
-```
-
-Look at the second and third outputs. Multiple *completely different*
-unknown words all produce the identical `<UNK>` ID. Write one sentence on
-what information is destroyed by this collision, and why a model
-downstream cannot recover it.
-
-### 3. Quantify morphological waste
-
-```python
-family = ["run", "runs", "running", "ran", "runner", "runners", "rerun", "reruns"]
-print(f"{len(family)} distinct words, ALL sharing the root 'run'")
-print(f"word-level: {len(family)} separate vocabulary slots, "
-      f"{len(family)} separate embeddings to learn")
-
-# a plausible sub-word split (illustrative, not real BPE output yet)
-subword_guess = {
-    "run": ["run"], "runs": ["run", "s"], "running": ["run", "ning"],
-    "ran": ["ran"], "runner": ["run", "ner"], "runners": ["run", "ner", "s"],
-    "rerun": ["re", "run"], "reruns": ["re", "run", "s"],
+  return {
+    subwordTokens,
+    charTokens,
+    attentionMemoryMultiplier: Number(multiplier.toFixed(2)),
+  };
 }
-pieces = set()
-for toks in subword_guess.values():
-    pieces.update(toks)
-print(f"sub-word: only {len(pieces)} distinct pieces needed: {sorted(pieces)}")
+
+// Verification for a 1,500 word prompt
+const report = compareTokenizationOverheads(1500);
+console.log(
+  `Character-level tokens require ${report.attentionMemoryMultiplier}x more attention memory than subwords!`
+);
 ```
 
-State in one sentence why fewer distinct pieces, reused across many
-words, is a genuine efficiency win — not just a smaller number, but what
-it means for how much the model has to *learn* about each piece.
+### Go (`sizing_check.go`)
 
-### 4. Find real out-of-vocabulary casualties
+```go
+package main
 
-Pick five words that plausibly didn't exist, or weren't common, before
-2020 — brand names, slang, technical terms, or invented product names.
-Using the toy `tokenize()` function from exercise 2 (extend `vocab` with
-~30 common English words of your choice, but deliberately omit your five
-test words), confirm all five collapse to the same `<UNK>` ID.
+import (
+	"fmt"
+	"math"
+)
 
-Then look up how a real BPE tokenizer (`tiktoken`, from module 00)
-handles the same five words, and report what you find. This is the
-concrete payoff of "no `<UNK>` token" — write one sentence on the
-difference.
+func main() {
+	words := 3000.0
+	subwordN := words * 1.3
+	charN := words * 5.2
 
-### 5. Diagnose and fix: a translation system stuck in 2018
+	ratio := math.Pow(charN/subwordN, 2)
+	fmt.Printf("For 3,000 words:\n")
+	fmt.Printf("Subwords:   %.0f tokens\n", subwordN)
+	fmt.Printf("Characters: %.0f tokens\n", charN)
+	fmt.Printf("Quadratic Attention Factor: %.1fx memory penalty\n", ratio)
+}
+```
 
-A team maintains a word-level machine translation system. Every few
-months, translation quality visibly degrades on customer text, and the
-fix has always been "retrain with an updated vocabulary." They ask why
-this keeps happening and whether it's avoidable.
+---
 
-<details><summary>Answer</summary>
+## 6. Practical CLI Workflows
 
-A word-level vocabulary is frozen at training time. Language doesn't
-freeze — new product names, slang, technical terms and borrowed foreign
-words enter customer text continuously, and every one of them becomes
-`<UNK>` the moment it appears, with all its information destroyed before
-translation even starts. "Retrain periodically" is a real but expensive
-and always-lagging patch on a structural limitation, not a fix.
+Observe how subwords elegantly split compound words and rare terminology compared to words and characters:
 
-The avoidable part: a sub-word tokenizer (module 03) degrades gracefully
-instead of catastrophically. A brand-new word isn't in the vocabulary as
-a *whole word*, but it can almost always be spelled from known sub-word
-pieces or, worst case, individual bytes (module 01) — never collapsing
-to a single meaningless placeholder. Migrating the vocabulary layer to a
-sub-word tokenizer removes the recurring retrain-for-vocabulary cycle
-entirely; the model still benefits from further training, but not merely
-to patch missing words.
+```bash
+python -c "
+import tiktoken
+enc = tiktoken.get_encoding('cl100k_base')
+
+terms = [
+    'database',
+    'unconditionally',
+    'Rindfleischetikettierungsüberwachungsaufgabenübertragungsgesetz',
+    'microservices_v2_prod'
+]
+
+print(f'{'Term':<30} | {'Tokens':<6} | {'Subword Chunks'}')
+print('-' * 65)
+for t in terms:
+    ids = enc.encode(t)
+    chunks = [enc.decode_single_token_bytes(i).decode('utf-8', errors='replace') for i in ids]
+    print(f'{t[:28]:<30} | {len(ids):<6} | {chunks}')
+"
+```
+
+**Expected Output:**
+```
+Term                           | Tokens | Subword Chunks
+-----------------------------------------------------------------
+database                       | 1      | ['database']
+unconditionally                | 2      | ['uncondition', 'ally']
+Rindfleischetikettierungsüberw | 10     | ['R', 'ind', 'fleisch', 'etik', 'ett', 'ierungs', 'über', 'wach', 'ungs', '...']
+microservices_v2_prod          | 4      | ['micro', 'services', '_v2', '_prod']
+```
+
+Common words are compressed into **1 token**; complex compound words and technical identifiers are sliced into intuitive subword morphemes!
+
+---
+
+## 7. Operational Validation Checkpoints
+
+Confirm your understanding of token granularity trade-offs.
+
+<details>
+<summary><b>Checkpoint 1: Why does German or Finnish challenge whole-word tokenizers more than English?</b></summary>
+
+**Agglutination and Compounding:**
+German and Finnish freely create novel compound words by concatenating roots (*"Donaudampfschifffahrtsgesellschaftskapitän"*).
+- In a **whole-word tokenizer**, every compound word must exist in the dictionary as an exact entry. If missing, it becomes `<UNK>`.
+- In a **subword tokenizer**, the model splits the compound into its constituent root words (`['Donau', 'dampf', 'schiff', 'fahrt', ...]`), preserving complete semantic meaning without expanding the vocabulary!
 </details>
 
-## Independent challenge
+<details>
+<summary><b>Checkpoint 2: Could we use character tokenizers if we replaced standard attention with linear attention?</b></summary>
 
-Take a real corpus (a few pages of any text — code, prose, or a mix) and
-build both a character-level and a naive word-level tokenizer over it
-(using Python's `str.split()` is fine for the word-level one). For each:
-
-1. Report total token count and vocabulary size.
-2. Simulate the OOV problem: hold out 20% of the text as a "test set" not
-   seen when building the word-level vocabulary, then measure what
-   fraction of test-set words are OOV.
-3. Compute the sequence-length ratio between the two approaches on the
-   same text.
-
-Write a short paragraph stating, in your own words and using your own
-numbers, why sub-word tokenization exists as a compromise between them —
-you should be able to derive module 03's motivation entirely from your
-own measurements.
-
-## Common mistakes & troubleshooting
-
-- **Assuming "split on whitespace" is a reasonable tokenizer.** It breaks
-  on any word not seen during vocabulary construction, silently and
-  totally (exercise 2).
-- **Underestimating the sequence-length cost of character-level
-  tokenization.** It's not a minor inefficiency — combined with `O(n²)`
-  attention, a 5x longer sequence can mean a ~25x higher attention cost.
-- **Believing a bigger word-level vocabulary solves OOV.** It only delays
-  it — language keeps producing new words faster than any fixed list can
-  be updated (exercise 5).
-- **Not recognizing morphological waste.** Treating "run", "runs" and
-  "running" as three unrelated vocabulary slots wastes both vocabulary
-  space and the model's ability to share what it learns about "run"
-  across all its forms.
-
-## Checkpoint quiz
-
-1. Name the two costs of character-level tokenization.
-2. What is the out-of-vocabulary problem, and why is `<UNK>` a
-   destructive fix rather than a real one?
-3. Why does a word-level vocabulary grow so large for a morphologically
-   rich language, even ignoring OOV entirely?
-4. Why can a sub-word tokenizer never produce an `<UNK>` token?
-5. In one sentence, state where sub-word tokenization sits between the
-   character-level and word-level extremes.
-
-<details><summary>Answers</summary>
-
-1. Sequence length inflates roughly 4-5x, which multiplies badly against
-   attention's `O(n²)` cost; and the model spends capacity rediscovering
-   spelling patterns rather than working at the level where meaning
-   lives.
-2. A fixed word-level vocabulary has no slot for any word it wasn't built
-   with; such words are replaced by a single generic `<UNK>` token. It's
-   destructive because many different unknown words all collapse to the
-   identical ID, so all information distinguishing them is lost.
-3. Morphological variants (run/runs/running/ran/runner...) each need
-   their own vocabulary slot and embedding, even though they share an
-   obvious root — nothing is reused between related word forms.
-4. Because its vocabulary includes individual bytes as an ultimate
-   fallback (module 01) — any string, however novel, can always be
-   spelled out byte by byte if no larger known piece matches.
-5. It's a middle ground: sequences are shorter than character-level
-   (common words stay as one or few tokens) while still handling unseen
-   words gracefully like character-level does, by falling back to
-   smaller known pieces instead of a fixed word list.
+**Architectural Nuance:**
+Yes. Modern research architectures like **Mamba (State Space Models)** and **Mega (Linear Attention)** reduce attention complexity from $O(N^2)$ to $O(N)$.
+However, even with linear compute complexity:
+1. The model must learn spelling, phonetics, and grammar from scratch across thousands of time steps before learning abstract semantics.
+2. Inference generation latency is strictly proportional to token count ($N$ autoregressive forward passes). Generating a 500-word response requires **2,500 forward passes** with characters versus **650 forward passes** with subwords!
 </details>
 
-## Further reading & sources
+<details>
+<summary><b>Checkpoint 3: What is the primary drawback of setting the vocabulary size too large (e.g. $|\mathcal{V}| = 1,000,000$)?</b></summary>
 
-- [Neural Machine Translation of Rare Words with Subword Units (Sennrich et al., 2016)](https://arxiv.org/abs/1508.07909) - the paper that brought byte-pair encoding into NLP specifically to solve the OOV problem this module describes; read before module 03.
-- [Hugging Face: Summary of the tokenizers](https://huggingface.co/docs/transformers/tokenizer_summary) - a clear side-by-side of word-level, character-level and sub-word approaches with the same tradeoffs framed slightly differently.
-- [Google's Neural Machine Translation System (Wu et al., 2016)](https://arxiv.org/abs/1609.08144) - section 4 documents Google Translate's own move away from word-level vocabularies for exactly the OOV reasons in this module, at production scale.
-- [Character-Level Language Modeling with Deeper Self-Attention (Al-Rfou et al., 2018)](https://arxiv.org/abs/1808.04444) - a serious attempt at pure character-level transformer language modeling; useful for seeing the sequence-length cost taken to its logical extreme.
-- [tiktoken (GitHub)](https://github.com/openai/tiktoken) - confirms hands-on in exercise 4 that a real production tokenizer never emits an `<UNK>`-equivalent.
+**The Vocabulary Inflation Penalty:**
+1. **Embedding Matrix Memory:** At $d_{\text{model}} = 4096$, the input embedding and output unembedding matrices would consume:
+   $$2 \times (1,000,000 \times 4096 \times 2\text{ bytes}) \approx 16.4\text{ GB of VRAM}$$
+   just to store the word lookup tables!
+2. **Softmax Compute Overhead:** Computing the final probability distribution over 1,000,000 classes on every single token step slows down GPU generation throughput.
+</details>
+
+---
 
 ## Next
 
-[Module 03: Byte-Pair Encoding Explained](../03-byte-pair-encoding-explained/README.md)
+Continue to **[03-byte-pair-encoding-explained](../03-byte-pair-encoding-explained/README.md)** to master the exact algorithmic mechanics of Byte-Pair Encoding (BPE).
