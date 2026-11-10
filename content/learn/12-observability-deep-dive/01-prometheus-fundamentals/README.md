@@ -1,396 +1,639 @@
-# Prometheus Fundamentals
+# 01 - Prometheus Fundamentals
 
-## Why this matters
+> **Prerequisites**: [00 - Observability Concepts & The Three Pillars](../00-observability-concepts-and-three-pillars/README.md), [03 - Kubernetes Architecture & Workloads](../../03-kubernetes/01-kubernetes-architecture-and-concepts/README.md).  
+> **Target Audience**: SREs, Systems Engineers, and Platform Administrators deploying the Prometheus Operator, configuring automated service discovery, and instrumenting custom microservices.  
+> **Estimated Deep-Dive Time**: 40 minutes.
 
-In [track 07 module 06](../../07-aks/06-monitoring-aks-azure-monitor-container-insights/README.md)
-you got cluster metrics by running one `az aks enable-addons` command — Azure
-deployed the agent, ran the pipeline, and stored the data for you. This module
-is where you do that yourself with **Prometheus**, the open-source metrics
-engine that the rest of the world (and, under the hood, much of Azure Monitor)
-runs on. Understanding Prometheus's **pull model**, how it discovers and
-scrapes targets, and how to write basic **PromQL** is the foundation for every
-metrics-based dashboard and alert you'll ever build — on any platform, not
-just Azure.
+---
 
-## Concepts
+> [!TIP]
+> **The Golden Rule of Prometheus Scraping**: **Prometheus is pull-based; if a scrape fails, it is an instant health signal.** In Prometheus, an unreachable target immediately records `up == 0`, providing a built-in availability heartbeat without dedicated ping daemons. When defining **`ServiceMonitors`**, always verify that `endpoints[].port` references the **name** of the port defined on the Kubernetes Service (e.g. `name: metrics`), never an unmapped numerical port.
 
-### The pull model and the `/metrics` endpoint
+---
 
-Prometheus does not receive metrics; it **fetches** them. Each thing you want
-to monitor exposes an HTTP endpoint (conventionally `/metrics`) that returns
-its current metrics in a simple text format — you saw the API server's own
-endpoint in module 00. Prometheus is configured with a list of **targets**
-and, on a fixed **scrape interval** (commonly 15s or 30s), makes an HTTP GET
-to each target's `/metrics`, parses the numbers, timestamps them with the
-scrape time, and stores them in its local time-series database (TSDB).
+## 1. Visual Mental Models: The Pull-Model Scraping Engine
 
-This is the opposite of the push-based Azure Monitor agents. The consequences
-are worth internalizing: Prometheus (the collector) controls the scrape rate,
-so a misbehaving app can't flood it; a **failed scrape is itself a signal** —
-Prometheus records `up == 0` for a target it couldn't reach, which is often
-your first sign an app is down; and apps never need to know Prometheus's
-address, they just expose an endpoint and wait to be scraped. The cost is that
-Prometheus must *discover* what to scrape — which on Kubernetes it does
-automatically (below).
+Unlike legacy monitoring systems where applications push telemetry to central servers, Prometheus acts as an active crawler. It discovers workloads dynamically via the Kubernetes API, scrapes HTTP endpoints on a deterministic interval, and commits samples to its local Time-Series Database (TSDB).
 
-### Exporters — metrics for things that don't speak Prometheus
+### The Prometheus Operator & Scraping Lifecycle
 
-Your own app can expose `/metrics` using a Prometheus client library. But the
-node's kernel, a Postgres database, or a Redis instance don't. An **exporter**
-is a small adapter process that reads some system's stats and re-exposes them
-in Prometheus format on a `/metrics` endpoint. The essential ones you'll meet
-immediately:
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Admin as SRE / Developer
+    participant Operator as Prometheus Operator
+    participant API as K8s API Server (EndpointSlices)
+    participant Prom as Prometheus Server (TSDB)
+    participant Pod as Backend Microservice Pod (:8080/metrics)
 
-- **node-exporter** — runs as a DaemonSet (one per node) and exposes
-  node-level CPU, memory, disk, and network metrics. This is the open-source
-  equivalent of the node metrics Container Insights collected for you.
-- **kube-state-metrics** — exposes the *state of Kubernetes objects
-  themselves* as metrics: how many Deployments, how many Pods `Ready`, how
-  many restarts, Pod phase. (Distinct from node-exporter: node-exporter is
-  about the *machine*, kube-state-metrics is about the *Kubernetes API's
-  view*.)
-- **cAdvisor** (built into the kubelet) — per-container CPU/memory, the
-  open-source counterpart to Container Insights' per-container view.
+    Admin->>Operator: Apply ServiceMonitor (matchLabels: app=payment-api)
+    Operator->>API: Watch ServiceMonitor Custom Resources
+    Operator->>Prom: Regenerate internal scrape configuration
+    loop Every 15 Seconds (Scrape Interval)
+        Prom->>API: Query active ready Pod IPs via EndpointSlice
+        API-->>Prom: Endpoint IP: 172.17.0.8:8080
+        Prom->>Pod: HTTP GET /metrics
+        Pod-->>Prom: Returns Prometheus Text Exposition (200 OK)
+        Prom->>Prom: Append to in-memory TSDB Head Block
+        Prom->>Prom: Commit raw chunk to Write-Ahead Log (WAL)
+        Prom->>Prom: Record target health: up{job="payment-api"} = 1
+    end
+```
 
-You rarely install these by hand — the Helm chart below bundles them.
+---
 
-### kube-prometheus-stack: the batteries-included install
+### The Prometheus Ecosystem Architecture
 
-Installing Prometheus, Alertmanager, Grafana, node-exporter,
-kube-state-metrics, and all the wiring by hand is tedious and error-prone. The
-community **`kube-prometheus-stack`** Helm chart (maintained under the
-Prometheus Community project) installs the whole lot preconfigured, using the
-**Prometheus Operator** — a controller that manages Prometheus via Kubernetes
-custom resources instead of hand-edited config files. This is the standard way
-to run Prometheus on Kubernetes and what you'll use for the entire track. One
-`helm install` gives you roughly what Container Insights gave you with one
-`az` command — except now *you* own the config, the retention, and the cost.
+```mermaid
+flowchart TD
+    subgraph ClusterMesh ["Kubernetes Cluster Monitoring Layer"]
+        subgraph Targets ["Monitored Scrape Targets"]
+            NodeExp["node-exporter (DaemonSet)<br/>Host CPU, RAM, Disk, Network"]
+            KSM["kube-state-metrics<br/>K8s API Objects (Pod restarts, Deployments)"]
+            cAdvisor["cAdvisor (Kubelet built-in)<br/>Per-container resource usage"]
+            AppPod["Custom App Pods (:8080/metrics)"]
+        end
 
-### ServiceMonitor: how the Operator learns what to scrape
+        subgraph CoreMonitoring ["Namespace: monitoring"]
+            Operator["Prometheus Operator"]
+            PromServer["Prometheus Server (TSDB Engine)"]
+            AlertMgr["Alertmanager (PagerDuty / Slack)"]
+        end
+    end
 
-With the Prometheus Operator, you don't edit Prometheus's config file to add a
-scrape target. Instead you create a **ServiceMonitor** (or **PodMonitor**)
-custom resource that *declaratively* says "scrape any Service matching these
-labels, on this port, at this path." The Operator watches for ServiceMonitors
-and regenerates Prometheus's scrape config automatically. This is the same
-"declare desired state, a controller reconciles it" pattern you know from
-Deployments and from Gatekeeper Constraints in
-[track 11](../../11-security-deep-dive/04-policy-as-code-opa-gatekeeper/README.md)
-— applied to scrape configuration. A very common beginner failure (the
-diagnose-and-fix below) is a ServiceMonitor whose label selector or port name
-doesn't match the Service, so the target is silently never scraped.
+    subgraph Visualization ["Observability & Query Layer"]
+        Grafana["Grafana Dashboards"]
+    end
 
-### PromQL, just enough to look around
+    Operator -->|Reconciles ServiceMonitors| PromServer
+    PromServer -->|Pulls /metrics every 15s| NodeExp
+    PromServer -->|Pulls /metrics every 15s| KSM
+    PromServer -->|Pulls /metrics every 15s| cAdvisor
+    PromServer -->|Pulls /metrics every 15s| AppPod
+    PromServer -->|Evaluates Alert Rules| AlertMgr
+    Grafana -->|PromQL Queries| PromServer
+```
 
-**PromQL** is Prometheus's query language. This module keeps it minimal (module
-02 goes deep). The three things to grasp now:
+---
 
-- An **instant vector selector** like `up` or
-  `up{job="node-exporter"}` returns the *current* value of every matching
-  series. The `{label="value"}` filter is how you narrow to specific series —
-  and *exact label matching is where "my query returns nothing" bugs come
-  from*.
-- **`up`** is the single most useful starter query: it's `1` for every target
-  Prometheus successfully scraped and `0` for every one it couldn't — an
-  instant health map of your whole scrape config.
-- Metrics have **types**: a **counter** only ever goes up (total requests
-  ever) and is almost always wrapped in `rate()` before use (module 02); a
-  **gauge** goes up and down (current memory, current temperature) and you read
-  directly; a **histogram** buckets observations (request durations) for
-  quantiles (module 02). Reading a raw counter's giant ever-increasing number
-  is almost never what you want — recognizing counter vs. gauge now prevents
-  confusion later.
+## 2. Technical Comparison: Core Exporters & Exposition Formats
 
-## Command reference
+### Core Infrastructure Exporters Matrix
 
-| Command | What it does | Example |
-|---|---|---|
-| `helm repo add prometheus-community ...` | Adds the chart repo hosting `kube-prometheus-stack` | `helm repo add prometheus-community https://prometheus-community.github.io/helm-charts` |
-| `helm repo update` | Refreshes local chart metadata | `helm repo update` |
-| `helm install <name> prometheus-community/kube-prometheus-stack -n <ns>` | Installs the full stack | see exercise 1 |
-| `kubectl get servicemonitors -A` | Lists all ServiceMonitors (the scrape declarations) | `kubectl get servicemonitors -A` |
-| `kubectl get pods -n monitoring` | Confirms Prometheus/Grafana/exporters are running | `kubectl get pods -n monitoring` |
-| `kubectl port-forward -n monitoring svc/<prom-svc> 9090` | Opens the Prometheus UI locally | see exercise 3 |
-| `kubectl apply -f servicemonitor.yaml` | Adds a scrape target declaratively | see exercise 6 |
+| Exporter | Host / Deployment | What It Measures | Example Metric |
+| :--- | :--- | :--- | :--- |
+| **`node-exporter`** | DaemonSet (1 per Node) | Physical/VM host hardware: CPU cycles, memory buffers, disk I/O, network bandwidth | `node_cpu_seconds_total`, `node_memory_MemAvailable_bytes` |
+| **`cAdvisor`** | Built into every Kubelet | Individual container resource consumption within Linux cgroups | `container_cpu_usage_seconds_total`, `container_memory_working_set_bytes` |
+| **`kube-state-metrics`** | Deployment (Singleton) | Declarative state of Kubernetes objects from API Server | `kube_pod_status_phase`, `kube_deployment_status_replicas_available` |
+| **Custom App SDK** | Container process | Business transactions, latency histograms, error rates | `http_requests_total`, `checkout_latency_seconds_bucket` |
 
-Flag-by-flag breakdown of the install command (exercise 1):
+---
 
-`helm install kps prometheus-community/kube-prometheus-stack --namespace monitoring --create-namespace --set prometheus.prometheusSpec.serviceMonitorSelectorNilUsesHelmValues=false`
-- `kps` — the release name; every resource gets it as a prefix, so you'll see
-  `kps-grafana`, `kps-kube-prometheus-stack-prometheus`, etc.
-- `prometheus-community/kube-prometheus-stack` — `<repo>/<chart>`.
-- `--namespace monitoring --create-namespace` — install into (and create) a
-  dedicated `monitoring` namespace, the convention for this stack.
-- `--set prometheus.prometheusSpec.serviceMonitorSelectorNilUsesHelmValues=false`
-  — **important for this track:** by default the chart only scrapes
-  ServiceMonitors carrying its own release label. Setting this to `false` tells
-  Prometheus to consider *every* ServiceMonitor in the cluster, so the ones you
-  write yourself in exercise 6 actually get picked up. (Without it, your custom
-  ServiceMonitor is silently ignored — a classic first-time trap.)
+### The Prometheus Text Exposition Format
 
-Key PromQL forms (used in exercises, expanded in module 02):
+Any target exposing metrics must format them in the standard UTF-8 Prometheus text specification:
 
-- `up` — 1/0 health of every scrape target.
-- `up{job="node-exporter"}` — narrow by the `job` label (exact match).
-- `up{job=~"node.*"}` — `=~` is a **regex** match; `!=` and `!~` are the
-  negations.
-- `kube_pod_status_phase{phase="Running"}` — a kube-state-metrics gauge.
-- `node_memory_MemAvailable_bytes` — a node-exporter gauge, bytes of available
-  RAM per node.
+```text
+# HELP http_requests_total Total number of HTTP requests processed by endpoint.
+# TYPE http_requests_total counter
+http_requests_total{method="POST",status="200",path="/orders"} 14820 1762764800000
+http_requests_total{method="POST",status="500",path="/orders"} 34 1762764800000
 
-## Hands-on exercises
+# HELP jvm_memory_used_bytes Current memory usage of JVM heap.
+# TYPE jvm_memory_used_bytes gauge
+jvm_memory_used_bytes{area="heap"} 536870912
 
-All on your local **kind** cluster from
-[track 03](../../03-kubernetes/README.md). Everything installs via Helm and
-costs nothing. Ensure `helm` is installed (track 03 used it).
+# HELP http_request_duration_seconds Latency histogram in seconds.
+# TYPE http_request_duration_seconds histogram
+http_request_duration_seconds_bucket{le="0.05"} 2400
+http_request_duration_seconds_bucket{le="0.1"} 3100
+http_request_duration_seconds_bucket{le="0.5"} 3500
+http_request_duration_seconds_bucket{le="+Inf"} 3520
+http_request_duration_seconds_sum 245.8
+http_request_duration_seconds_count 3520
+```
 
-1. **(WSL2) Install `kube-prometheus-stack`.**
-   ```bash
-   helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
-   helm repo update
-   helm install kps prometheus-community/kube-prometheus-stack \
-     --namespace monitoring --create-namespace \
-     --set prometheus.prometheusSpec.serviceMonitorSelectorNilUsesHelmValues=false
-   ```
-   Wait a minute, then `kubectl get pods -n monitoring`. Expect Prometheus,
-   Alertmanager, Grafana, `node-exporter` (a DaemonSet — one per node), and
-   `kube-state-metrics` all reaching `Running`. You just reproduced, by hand,
-   what Container Insights did with one Azure command.
+---
 
-2. **(WSL2) See the exporters that got installed.**
-   ```bash
-   kubectl get daemonset -n monitoring       # node-exporter, one pod per node
-   kubectl get deploy -n monitoring          # kube-state-metrics, grafana, operator
-   kubectl get servicemonitors -n monitoring # the pre-wired scrape declarations
-   ```
-   Note the stack shipped a dozen-plus ServiceMonitors already — it's scraping
-   itself, the kubelet, the API server, etc., out of the box.
+### ServiceMonitor Declarative Configuration
 
-3. **(WSL2) Open the Prometheus UI.**
-   ```bash
-   kubectl port-forward -n monitoring svc/kps-kube-prometheus-stack-prometheus 9090:9090
-   ```
-   Browse to `http://localhost:9090`. Open **Status → Targets**: this is the
-   live map of everything Prometheus is scraping and whether each is `UP`. This
-   is the pull model made visible — every green target is one it successfully
-   fetched `/metrics` from.
+A `ServiceMonitor` links a set of Kubernetes Services to the Prometheus Operator:
 
-4. **(WSL2) Run your first PromQL.** In the Prometheus UI's **Graph** tab (or
-   run these against the port-forward), evaluate:
-   - `up` — every target's 1/0 health. Confirm the values match the Targets
-     page.
-   - `node_memory_MemAvailable_bytes` — available RAM per node (a gauge from
-     node-exporter).
-   - `kube_pod_status_phase{phase="Running"}` — one series per pod, `1` if in
-     that phase (kube-state-metrics). Switch the filter to
-     `phase="Pending"` and note most series read `0`.
+```yaml
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: order-api-monitor
+  namespace: default
+  labels:
+    release: prometheus # Must match Prometheus Operator release selector!
+spec:
+  selector:
+    matchLabels:
+      app: order-api     # Must match labels on the Kubernetes Service!
+  namespaceSelector:
+    matchNames:
+      - default
+  endpoints:
+    - port: http-metrics # Must match Service spec.ports[].name!
+      path: /metrics
+      interval: 15s
+      scrapeTimeout: 10s
+```
 
-5. **(WSL2) Deploy an app that exposes its own `/metrics`.** Use a sample app
-   with built-in Prometheus instrumentation:
-   ```bash
-   kubectl create namespace demo
-   kubectl create deployment metrics-app -n demo --image=quay.io/brancz/prometheus-example-app:v0.5.0
-   kubectl expose deployment metrics-app -n demo --port=8080 --name=metrics-app
-   kubectl port-forward -n demo svc/metrics-app 8080:8080
-   ```
-   In another terminal: `curl -s localhost:8080/metrics | head -30`. You'll see
-   `http_requests_total{...}` and friends — a real app pull target, exactly the
-   format from module 00. Generate some traffic: `for i in $(seq 20); do curl -s
-   localhost:8080/ >/dev/null; done`.
+---
 
-6. **(WSL2) Tell Prometheus to scrape it with a ServiceMonitor.** Prometheus
-   isn't scraping `metrics-app` yet — you must declare it:
-   ```bash
-   kubectl apply -f - <<'EOF'
-   apiVersion: monitoring.coreos.com/v1
-   kind: ServiceMonitor
-   metadata:
-     name: metrics-app
-     namespace: demo
+## 3. Production War Story: The Phantom ServiceMonitor & Silent Telemetry Hole
+
+### Incident Overview
+A tier-1 retail logistics platform rolled out an automated order processing pipeline on Kubernetes. The team created a `ServiceMonitor` to scrape transaction metrics. 
+
+For 21 days, developers assumed Prometheus was collecting performance data. When a customer reported missing order shipments, engineers navigated to Grafana to investigate, only to find completely empty graphs. Prometheus had collected zero metrics for 3 weeks.
+
+### The Failure Sequence
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Dev as Developer
+    participant K8s as API Server
+    participant PromOp as Prometheus Operator
+    participant Prom as Prometheus Server
+    participant Svc as Kubernetes Service
+    participant Pod as Application Pod (:8080)
+
+    Dev->>K8s: Apply ServiceMonitor: endpoints[0].port = "metrics"
+    Svc-->>K8s: Service spec defines: spec.ports[0].name = "http-web"
+    Note over Svc: Port names do NOT match! (metrics vs http-web)
+    K8s->>PromOp: ServiceMonitor resource updated
+    PromOp->>PromOp: Reconciles target... Fails to match Service port "metrics"!
+    Note over PromOp: Silent Drop: Operator skips generating scrape target!<br/>No error events emitted!
+    Prom->>Prom: Scrape configuration does NOT contain order-api!
+    Note over Prom,Pod: Zero scrape HTTP requests sent! Zero metrics collected!
+    Dev->>Prom: Query: http_requests_total
+    Prom-->>Dev: Empty query result! (3 weeks of zero telemetry)
+```
+
+### Root Cause Analysis
+1. **Port Name Mismatch**: The `ServiceMonitor.spec.endpoints[].port` was set to `metrics`, but the `Service.spec.ports[].name` was configured as `http-web`.
+2. **Silent Failure Contract**: Kubernetes operators validate schema validity, not target existence. Because the port did not match, the Operator generated an empty target list without throwing an alert.
+3. **Missing `up == 1` Baseline Alerting**: The team lacked an automated alert verifying that critical microservice targets were registered in Prometheus.
+
+### The Remediation & Permanent Policy
+1. **Synchronize Service & ServiceMonitor Port Names**:
+   ```yaml
+   # Service manifest:
    spec:
-     selector:
-       matchLabels:
-         app: metrics-app
-     endpoints:
-       - port: "8080"
-         path: /metrics
-         interval: 15s
-   EOF
-   ```
-   Wait ~30s, refresh **Status → Targets** in the Prometheus UI, and look for a
-   `demo/metrics-app` target turning `UP`. Then query
-   `http_requests_total{namespace="demo"}` — your app's own metric, now in
-   Prometheus.
+     ports:
+       - name: http-metrics # Identical port name!
+         port: 8080
+         targetPort: 8080
 
-7. **Diagnose and fix: a target that never scrapes because of a label
-   mismatch.** This is the single most common Prometheus-on-Kubernetes bug.
-   Break it deliberately:
-   ```bash
-   kubectl apply -f - <<'EOF'
-   apiVersion: monitoring.coreos.com/v1
-   kind: ServiceMonitor
-   metadata:
-     name: metrics-app-broken
-     namespace: demo
+   # ServiceMonitor manifest:
    spec:
-     selector:
-       matchLabels:
-         app: wrong-name        # <-- does not match the Service's label
      endpoints:
-       - port: "8080"
-         path: /metrics
-   EOF
+       - port: http-metrics # Identical port name!
    ```
-   Refresh **Status → Targets** — `metrics-app-broken` produces *no target at
-   all* (not a red one — no entry), because its `selector.matchLabels` matches
-   no Service. Diagnose it the real way:
-   ```bash
-   kubectl get svc metrics-app -n demo --show-labels   # what labels does the Service actually have?
+2. **Automated Target Registration Alerts**: Created an Alertmanager rule alerting whenever expected service scrape targets disappear:
+   ```yaml
+   alert: ServiceTargetMissing
+   expr: absent(up{job="order-api"}) == 1
+   for: 5m
+   labels:
+     severity: critical
    ```
-   You'll see the Service's label is `app=metrics-app`, not `wrong-name`.
-   **Fix** by correcting the selector to `app: metrics-app` and re-applying;
-   confirm the target now appears and goes `UP`. Lesson: **a ServiceMonitor
-   selector that matches nothing fails silently — no target, no error.** Always
-   verify against `--show-labels`.
 
-8. **(WSL2) Prove counter vs. gauge.** Query `http_requests_total{namespace=
-   "demo"}` (a **counter**) a few times over a minute while generating traffic
-   — the raw number only ever climbs, and its absolute value is meaningless on
-   its own. Then query `node_memory_MemAvailable_bytes` (a **gauge**) — it goes
-   up and down. Write one sentence on why you'd wrap the counter in `rate()`
-   (module 02) but read the gauge directly.
+---
 
-9. **(WSL2) Optional AKS contrast.** If you still have an AKS cluster from
-   track 07, note that you could `helm install` this exact same stack there and
-   get identical PromQL — the open-source path is *cluster-portable* in a way
-   Container Insights (Azure-only) is not. Don't leave an AKS cluster running;
-   `az group delete` when done.
+## 4. Multi-Language Microservice Instrumentation
 
-10. **(WSL2) Leave the stack installed** — modules 02-07 all build on it. If
-    you must reclaim resources: `helm uninstall kps -n monitoring` and
-    `kubectl delete namespace monitoring demo`.
+Below are production-grade implementations in **Go**, **Node.js/TypeScript**, and **Python** exposing standard `/metrics` endpoints with Counters, Gauges, and Histograms.
 
-## Independent challenge
+### Go Implementation (Official `client_golang`)
 
-No YAML given for the target — build it yourself using this module plus
-[track 03](../../03-kubernetes/README.md) (Services, labels, selectors).
-Deploy a *second* instrumented workload of your choice into a new namespace —
-either another copy of the example app on a different port, or a real exporter
-like the Redis exporter in front of a Redis pod — and get Prometheus scraping
-it end to end by writing your own ServiceMonitor from scratch. Prove it worked
-three ways: the target shows `UP` on the Targets page, `up{...}` for it returns
-`1` in PromQL, and at least one of *its* application/exporter metrics returns
-data. Then deliberately reproduce the module's silent-failure mode once more —
-change one thing (a wrong port name, or a selector label that doesn't match) —
-confirm the target *vanishes* rather than erroring, and fix it by reading the
-Service's actual labels/ports. The skill being built is diagnosing "why isn't
-this being scraped?" without a single error message to guide you.
+```go
+// main.go
+package main
+
+import (
+	"log"
+	"net/http"
+	"time"
+
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+)
+
+var (
+	// 1. Counter: Only increments
+	HttpRequestsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "http_requests_total",
+			Help: "Total HTTP requests processed by endpoint and status.",
+		},
+		[]string{"method", "status", "path"},
+	)
+
+	// 2. Gauge: Fluctuates up and down
+	ActiveConnections = prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "active_concurrent_connections",
+			Help: "Number of active in-flight HTTP connections.",
+		},
+	)
+
+	// 3. Histogram: Slices durations into buckets
+	RequestDuration = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "http_request_duration_seconds",
+			Help:    "Execution duration in seconds.",
+			Buckets: []float64{0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5},
+		},
+		[]string{"path"},
+	)
+)
+
+func init() {
+	prometheus.MustRegister(HttpRequestsTotal)
+	prometheus.MustRegister(ActiveConnections)
+	prometheus.MustRegister(RequestDuration)
+}
+
+func main() {
+	http.Handle("/metrics", promhttp.Handler())
+
+	http.HandleFunc("/api/orders", func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+		ActiveConnections.Inc()
+		defer ActiveConnections.Dec()
+
+		// Simulate business logic
+		time.Sleep(20 * time.Millisecond)
+
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"status":"order_created"}`))
+
+		duration := time.Since(start).Seconds()
+		HttpRequestsTotal.WithLabelValues(r.Method, "200", "/api/orders").Inc()
+		RequestDuration.WithLabelValues("/api/orders").Observe(duration)
+	})
+
+	log.Println("Microservice listening on :8080 with /metrics active")
+	log.Fatal(http.ListenAndServe(":8080", nil))
+}
+```
+
+---
+
+### Node.js / TypeScript Implementation (`prom-client`)
+
+```typescript
+// src/index.ts
+import express, { Request, Response } from 'express';
+import client from 'prom-client';
+
+const app = express();
+const port = 8080;
+
+// Enable default Node.js runtime metrics (V8 heap, event loop lag, CPU)
+client.collectDefaultMetrics({ prefix: 'node_app_' });
+
+// 1. Counter
+const httpRequestsTotal = new client.Counter({
+  name: 'http_requests_total',
+  help: 'Total HTTP requests processed',
+  labelNames: ['method', 'status', 'path'],
+});
+
+// 2. Gauge
+const activeDbConnections = new client.Gauge({
+  name: 'db_connection_pool_active',
+  help: 'Current active PostgreSQL connections in pool',
+});
+
+// 3. Histogram
+const httpRequestDuration = new client.Histogram({
+  name: 'http_request_duration_seconds',
+  help: 'HTTP latency distributions in seconds',
+  labelNames: ['path'],
+  buckets: [0.01, 0.05, 0.1, 0.25, 0.5, 1.0],
+});
+
+// Exposition endpoint for Prometheus scraper
+app.get('/metrics', async (req: Request, res: Response) => {
+  res.set('Content-Type', client.register.contentType);
+  res.end(await client.register.metrics());
+});
+
+app.post('/api/orders', (req: Request, res: Response) => {
+  const end = httpRequestDuration.startTimer({ path: '/api/orders' });
+  activeDbConnections.set(4); // Mock pool size
+
+  res.status(201).json({ status: 'created' });
+
+  httpRequestsTotal.inc({ method: 'POST', status: '201', path: '/api/orders' });
+  end();
+});
+
+app.listen(port, () => {
+  console.log(`Server listening on port ${port} with /metrics enabled`);
+});
+```
+
+---
+
+### Python Implementation (`prometheus_client`)
+
+```python
+# app.py
+from fastapi import FastAPI, Response
+from prometheus_client import Counter, Gauge, Histogram, generate_latest, CONTENT_TYPE_LATEST
+import time
+
+app = FastAPI()
+
+HTTP_REQUESTS_TOTAL = Counter(
+    "http_requests_total",
+    "Total HTTP requests processed",
+    ["method", "status", "path"]
+)
+
+ACTIVE_WORKERS = Gauge(
+    "background_active_workers",
+    "Current active background worker threads"
+)
+
+HTTP_LATENCY = Histogram(
+    "http_request_duration_seconds",
+    "Latency distribution in seconds",
+    ["path"],
+    buckets=[0.01, 0.05, 0.1, 0.25, 0.5, 1.0]
+)
+
+@app.get("/metrics")
+def metrics():
+    return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
+
+@app.post("/api/orders")
+def create_order():
+    start = time.time()
+    ACTIVE_WORKERS.inc()
+    try:
+        time.sleep(0.015) # Business logic
+        HTTP_REQUESTS_TOTAL.labels(method="POST", status="201", path="/api/orders").inc()
+        return {"status": "success"}
+    finally:
+        ACTIVE_WORKERS.dec()
+        HTTP_LATENCY.labels(path="/api/orders").observe(time.time() - start)
+```
+
+---
+
+## 5. Practical Hands-On Verification Laboratory
+
+In this laboratory, you will deploy a microservice exposing Prometheus metrics, construct a valid `ServiceMonitor`, verify target discovery in Prometheus, and write foundational PromQL queries.
+
+### Step 1: Deploy Observable Microservice & Service
+
+Create `01-prometheus-demo.yaml`:
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: demo-telemetry-app
+  namespace: default
+  labels:
+    app: demo-telemetry
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: demo-telemetry
+  template:
+    metadata:
+      labels:
+        app: demo-telemetry
+    spec:
+      containers:
+        - name: app
+          image: hashicorp/http-echo:0.2.3
+          args:
+            - "-text=# HELP app_requests_total Total requests\n# TYPE app_requests_total counter\napp_requests_total 42\n"
+            - "-listen=:8080"
+          ports:
+            - name: http-metrics
+              containerPort: 8080
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: demo-telemetry-svc
+  namespace: default
+  labels:
+    app: demo-telemetry
+spec:
+  type: ClusterIP
+  selector:
+    app: demo-telemetry
+  ports:
+    - name: http-metrics
+      port: 8080
+      targetPort: http-metrics
+```
+
+Apply to cluster:
+
+```bash
+kubectl apply -f 01-prometheus-demo.yaml
+kubectl wait --for=condition=Ready pod -l app=demo-telemetry --timeout=30s
+```
+
+---
+
+### Step 2: Create ServiceMonitor Custom Resource
+
+Create `01-servicemonitor.yaml`:
+
+```yaml
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: demo-telemetry-sm
+  namespace: default
+  labels:
+    release: prometheus # Ensures Helm operator adopts this monitor
+spec:
+  selector:
+    matchLabels:
+      app: demo-telemetry
+  endpoints:
+    - port: http-metrics
+      path: /
+      interval: 15s
+```
+
+Apply to cluster:
+
+```bash
+kubectl apply -f 01-servicemonitor.yaml
+```
+
+---
+
+### Step 3: Verify Active Target Scrape Status via CLI
+
+Port-forward to the internal Prometheus server:
+
+```bash
+kubectl port-forward -n monitoring svc/prometheus-operated 9090:9090 &
+```
+
+Query the active targets API using `curl` and `jq`:
+
+```bash
+curl -s http://localhost:9090/api/v1/targets | jq '.data.activeTargets[] | select(.labels.job=="demo-telemetry-svc") | {job: .labels.job, health: .health, lastScrape: .lastScrape}'
+```
+
+*Expected Terminal Output:*
+```json
+{
+  "job": "demo-telemetry-svc",
+  "health": "up",
+  "lastScrape": "2026-11-10T09:12:05.124Z"
+}
+```
+
+The targets are healthy and actively scraping.
+
+---
+
+### Step 4: Execute Fundamental PromQL Queries
+
+Execute PromQL queries using the Prometheus HTTP API:
+
+```bash
+# Query 1: Verify all active targets are reporting health = 1
+curl -s "http://localhost:9090/api/v1/query?query=up%7Bjob%3D%22demo-telemetry-svc%22%7D" | jq '.data.result[] | {pod: .metric.pod, value: .value[1]}'
+
+# Query 2: Inspect custom counter values
+curl -s "http://localhost:9090/api/v1/query?query=app_requests_total" | jq '.data.result[] | {instance: .metric.instance, value: .value[1]}'
+```
+
+*Expected Terminal Output:*
+```json
+{
+  "pod": "demo-telemetry-app-7b89f894bc-4x8w9",
+  "value": "1"
+}
+{
+  "instance": "172.17.0.6:8080",
+  "value": "42"
+}
+```
+
+---
+
+## 6. Command Quick-Reference Cheat Sheet
+
+| Command / Flag | Action / Objective | Example Scenario |
+| :--- | :--- | :--- |
+| `kubectl get servicemonitors -A` | List all declarative scrape configurations | Audit monitored cluster services |
+| `curl localhost:9090/api/v1/targets` | Dump JSON list of all active/dropped scrape targets | Debug target discovery issues |
+| `curl localhost:9090/api/v1/query?query=up` | Instantaneous vector query via CLI | Headless health checks in CI/CD |
+| `up == 0` | PromQL query finding all unreachable targets | Alerting rule on offline workloads |
+| `absent(up{job="x"})` | Detect if target configuration disappeared completely | Alert on deleted ServiceMonitors |
+
+---
+
+## 7. Operational Validation Checkpoints
+
+### Scenario 1: Target Shows `DOWN` with `context deadline exceeded`
+**Context:** In the Prometheus Targets dashboard (`http://localhost:9090/targets`), the target shows red state `DOWN` with error:
+`Get "http://172.17.0.8:8080/metrics": context deadline exceeded`
 
 <details>
-<summary>Stuck? One hint</summary>
+<summary>View Diagnostic Workflow & Resolution</summary>
 
-A ServiceMonitor connects to a *Service*, not directly to Pods, and everything
-must line up: `spec.selector.matchLabels` must equal a label the **Service**
-carries (check `kubectl get svc <name> --show-labels`), and
-`spec.endpoints[].port` must equal the Service's **port name** (a string) or be
-the numeric port as a string exactly as the Service declares it (`kubectl get
-svc <name> -o yaml` under `spec.ports`). If either doesn't match, no target is
-generated — no error is ever printed. The `serviceMonitorSelectorNilUsesHelmValues=false`
-flag from exercise 1 must also be set, or Prometheus ignores ServiceMonitors
-that lack its release label.
+**Root Cause:**  
+The application's `/metrics` endpoint is taking longer to generate than the configured `scrapeTimeout` (default 10s). This occurs when metrics handlers perform un-indexed database queries or mutex-locked operations on scrape.
 
+**Resolution Steps:**
+1. Fix application code: `/metrics` handlers must read from in-memory atomics only; they must **never** execute disk I/O or network calls.
+2. In the `ServiceMonitor`, increase the timeout temporarily:
+   ```yaml
+   endpoints:
+     - port: http-metrics
+       scrapeTimeout: 20s
+   ```
 </details>
 
-## Common mistakes & troubleshooting
+---
 
-- **Custom ServiceMonitor ignored entirely.** By default the chart only picks
-  up ServiceMonitors with its release label. Set
-  `prometheus.prometheusSpec.serviceMonitorSelectorNilUsesHelmValues=false`
-  (exercise 1) or add the release label to your ServiceMonitor. Symptom: your
-  target never appears, with no error.
-- **Selector/port mismatch — the silent failure.** A ServiceMonitor whose
-  `matchLabels` or `endpoints.port` don't match the target Service produces
-  *no target at all* — not a red/down one, just nothing. Always cross-check
-  with `kubectl get svc <name> --show-labels` and its `spec.ports`.
-- **Confusing a down target with a missing target.** `up == 0` (red on the
-  Targets page) means Prometheus *found* the target but the scrape *failed*
-  (wrong port, app not listening) — a network/app problem. *No entry at all*
-  means the ServiceMonitor didn't match anything — a config problem. Different
-  fixes.
-- **Reading a raw counter as if it were meaningful.** `http_requests_total`'s
-  absolute value is "requests since the process started" and resets to 0 on
-  restart. You almost always want `rate(...)` (module 02), not the raw number.
-- **Expecting instant scrape.** After creating a ServiceMonitor there's a short
-  delay while the Operator regenerates config and the next scrape interval
-  elapses — give it 30-60s before concluding it's broken.
-- **Putting high-cardinality labels on your own app's metrics.** The module 00
-  warning applies to *your* instrumentation too: don't label
-  `http_requests_total` with `user_id` or `request_id`. You control this in
-  your app's client-library code.
-
-## Checkpoint quiz
-
-Write down your answer to each question before expanding it — checking without attempting first is the single easiest way to fool yourself into thinking you've learned this.
+### Scenario 2: ServiceMonitor Applied Successfully but Target Never Appears
+**Context:** You apply a valid `ServiceMonitor` in namespace `apps`. However, running `kubectl port-forward` to Prometheus shows zero targets registered.
 
 <details>
-<summary>Show questions</summary>
+<summary>View Diagnostic Workflow & Resolution</summary>
 
-1. Describe the pull model in one sentence. What does a *failed* scrape tell
-   you that a push system wouldn't as cleanly?
-2. What is an exporter, and what's the difference between node-exporter and
-   kube-state-metrics?
-3. What does the Prometheus Operator use a ServiceMonitor for, and why is that
-   nicer than editing Prometheus's config file?
-4. A ServiceMonitor you wrote produces *no target at all* — not even a down
-   one. Name the two most likely causes.
-5. What's the difference between `up == 0` and no target entry existing?
-6. Counter vs. gauge: give an example of each and say which you'd wrap in
-   `rate()`.
-7. Why does the module set
-   `serviceMonitorSelectorNilUsesHelmValues=false`, and what breaks without it?
+**Root Cause:**  
+By default, the `kube-prometheus-stack` Helm chart configures the Prometheus resource with:
+`serviceMonitorSelectorNilUsesHelmValues: true`
+This tells Prometheus to **ignore all ServiceMonitors** unless they carry the exact Helm release label (`release: prometheus`).
 
+**Resolution Steps:**
+1. In your `values.yaml` for `kube-prometheus-stack`, configure:
+   ```yaml
+   prometheus:
+     prometheusSpec:
+       serviceMonitorSelectorNilUsesHelmValues: false
+       serviceMonitorNamespaceSelector: {} # Watch across all namespaces!
+   ```
+2. Or add the required Helm label to your `ServiceMonitor`:
+   ```yaml
+   metadata:
+     labels:
+       release: prometheus
+   ```
 </details>
+
+---
+
+### Scenario 3: Target Down Due to Pod NetworkPolicy Blocking Port
+**Context:** A newly secured microservice with a default-deny NetworkPolicy shows `up == 0` with `i/o timeout` in Prometheus.
 
 <details>
-<summary>Show answers</summary>
+<summary>View Diagnostic Workflow & Resolution</summary>
 
-1. Prometheus periodically makes an HTTP GET to each target's `/metrics`
-   endpoint and stores what it reads, rather than receiving pushed data. A
-   failed scrape is recorded as `up == 0`, so "the target is unreachable/down"
-   is itself a first-class metric you can alert on — a push system just sees
-   *absence* of data, which is ambiguous.
-2. An exporter is an adapter that reads some system's stats and re-exposes them
-   in Prometheus format on a `/metrics` endpoint. node-exporter reports
-   *machine/node* stats (CPU, RAM, disk of the host); kube-state-metrics
-   reports the *Kubernetes API's view* of object state (Pod phases, Deployment
-   replica counts, restarts).
-3. A ServiceMonitor declaratively says "scrape Services matching these
-   labels, on this port/path"; the Operator watches for them and regenerates
-   Prometheus's scrape config automatically. It's the declarative
-   controller-reconciled pattern — you add targets with `kubectl apply`, never
-   by hand-editing and reloading a config file.
-4. (a) The `selector.matchLabels` doesn't match any Service's labels, or the
-   `endpoints.port` doesn't match the Service's port; (b) the chart is ignoring
-   your ServiceMonitor because `serviceMonitorSelectorNilUsesHelmValues` wasn't
-   set to false and your ServiceMonitor lacks the release label.
-5. `up == 0` means Prometheus *knows about* the target but the scrape failed
-   (app not listening, wrong port) — an app/network issue. No entry means the
-   ServiceMonitor matched nothing — a config/selector issue. They need different
-   fixes.
-6. Counter: `http_requests_total` (monotonically increasing, resets on
-   restart). Gauge: `node_memory_MemAvailable_bytes` (goes up and down). You
-   wrap the *counter* in `rate()` to get a per-second rate; you read the gauge
-   directly.
-7. Because by default the chart's Prometheus only selects ServiceMonitors
-   carrying its own Helm release label. Setting it false makes Prometheus
-   consider every ServiceMonitor in the cluster. Without it, ServiceMonitors
-   you author yourself are silently ignored and their targets never appear.
+**Root Cause:**  
+The microservice's `NetworkPolicy` blocks inbound packets from the `monitoring` namespace.
 
+**Resolution Steps:**
+Whitelist inbound scraping from Prometheus in the application's NetworkPolicy:
+```yaml
+ingress:
+  - from:
+      - namespaceSelector:
+          matchLabels:
+            kubernetes.io/metadata.name: monitoring
+    ports:
+      - protocol: TCP
+        port: 8080
+```
 </details>
+
+---
+
+## 8. Further Reading & Official Documentation
+
+- [Prometheus Official Documentation: Overview & Architecture](https://prometheus.io/docs/introduction/overview/)
+- [Prometheus Operator: Getting Started with ServiceMonitors](https://prometheus-operator.dev/docs/operator/getting-started/)
+- [Prometheus Community Helm Charts: kube-prometheus-stack](https://github.com/prometheus-community/helm-charts/tree/main/charts/kube-prometheus-stack)
+- [Official Prometheus Go Client Documentation](https://github.com/prometheus/client_golang)
+- [Node.js prom-client Library Specification](https://github.com/siimon/prom-client)
+
+---
 
 ## Next
 
-[02-promql-in-depth](../02-promql-in-depth/README.md) — now that metrics are
-flowing, learn to actually query them: `rate`/`irate`, aggregation across
-series, histograms and quantiles, and turning queries into recording and
-alerting rules.
+Continue to [02 - PromQL in Depth](../02-promql-in-depth/README.md) to master advanced metric querying: rates, histograms, quantiles, subqueries, and recording rules.

@@ -1,309 +1,474 @@
-# Observability Concepts and the Three Pillars
+# 00 - Observability Concepts & The Three Pillars
 
-## Why this matters
+> **Prerequisites**: [03 - Kubernetes Architecture & Workloads](../../03-kubernetes/01-kubernetes-architecture-and-concepts/README.md), [10 - Observability: Logging & Metrics](../../03-kubernetes/10-observability-logging-and-metrics/README.md).  
+> **Target Audience**: SREs, Platform Architects, and Distributed Systems Engineers building unified telemetry, high-cardinality monitoring, and root-cause diagnostic pipelines.  
+> **Estimated Deep-Dive Time**: 40 minutes.
 
-Before you install a single tool, you need a mental model of *what* you're
-collecting and *why*, or you'll drown in dashboards that don't answer
-questions and alerts that don't mean anything. This module recaps the three
-signals every observability stack collects — **metrics, logs, and traces** —
-and maps each one onto the open-source stack this track builds
-(**Prometheus, Grafana, Loki, OpenTelemetry**), then covers the two ideas that
-shape how that stack behaves: **cardinality**, which quietly decides whether
-Prometheus stays cheap or falls over, and the **pull** model it scrapes with.
-Everything in the rest of the track is an implementation of the ideas here.
+---
 
-## Concepts
+> [!TIP]
+> **The Golden Rule of Observability**: **Metrics detect, Traces isolate, Logs explain.** Never use metrics for high-cardinality individual entity tracking (such as `user_id` or `order_id`), as this triggers catastrophic time-series database (TSDB) cardinality explosions. Keep metric labels bounded and low-cardinality, inject high-cardinality attributes into structured **Logs** and distributed **Traces**, and link all three via W3C `trace_id` correlation.
 
-### The concepts, in brief
+---
 
-The generic ideas — **monitoring vs. observability**, the **three pillars**
-(metrics, logs, traces) and the question each one owns, and the
-metric → trace → log debugging loop — are taught in full in
-[The Three Pillars of Observability](../../../backend/08-observability-and-operational-readiness/07-the-three-pillars-of-observability/README.md).
-Read that first if any of them is new. The short version you need for this
-track:
+## 1. Visual Mental Models: The Unified Telemetry Triad
 
-- **Monitoring** watches predefined signals for failure modes you anticipated
-  (questions you asked in advance). **Observability** is the property that lets
-  you ask *new* questions of a running system without shipping new code. You
-  already *monitored* with Container Insights dashboards and Azure Monitor
-  alerts in
-  [track 07](../../07-aks/06-monitoring-aks-azure-monitor-container-insights/README.md);
-  this track builds the observable foundation that monitoring sits on.
-- **Metrics** answer "is it happening, how much, what's the trend?";
-  **logs** answer "what exactly happened in this one event?"; **traces**
-  answer "where did this one request spend its time across services?". A metric
-  alert tells you *that*, a trace tells you *where*, logs tell you *why* — and
-  each pillar has a different cost shape (metrics: cardinality; logs: volume;
-  traces: sampled).
+In modern microservice architectures, diagnosing outages requires pivoting seamlessly across three fundamental telemetry pillars:
 
-### Which tool owns which pillar in this track
+```mermaid
+sequenceDiagram
+    autonumber
+    actor SRE as On-Call SRE (Grafana Dashboard)
+    participant Prom as 1. Metrics (Prometheus)
+    participant Tempo as 2. Traces (Tempo / Jaeger)
+    participant Loki as 3. Logs (Loki / Elasticsearch)
+    participant Code as Root Cause Identified
 
-This track replaces the managed Azure tooling with the open-source stack.
-Here's the map you'll fill in module by module:
+    Note over Prom: ALERT FIRES: Checkout API 5xx rate = 4.2%!<br/>P99 Latency jumped from 120ms to 2.4s!
+    SRE->>Prom: Step 1: DETECT — Inspect SLO breach
+    Prom-->>SRE: Prometheus returns Exemplar: Trace ID 4bf92f3577b34da6
+    SRE->>Tempo: Step 2: ISOLATE — Query Trace ID 4bf92f3577b34da6
+    Note over Tempo: Trace waterfall shows 2.2s spent in 'payment-db'<br/>Span: db.query 'SELECT * FROM wallets FOR UPDATE'
+    Tempo-->>SRE: Downstream bottleneck isolated to payment-db container
+    SRE->>Loki: Step 3: EXPLAIN — Filter logs by trace_id="4bf92f3577b34da6"
+    Loki-->>SRE: Log Line: "FATAL: deadlock detected on wallet_locks_pkey; connection dropped"
+    SRE->>Code: Step 4: RESOLVE — Fix lock ordering in transaction handler!
+```
 
-| Pillar | Open-source tool here | Managed cousin you already used |
-|---|---|---|
-| **Metrics** | **Prometheus** stores and queries them (modules 01-02); **Grafana** graphs them (module 03) | Azure Monitor **metrics** (tracks 06/07) |
-| **Logs** | **Loki** aggregates and queries them, viewed in Grafana (module 04) | **Container Insights / Log Analytics** — the `ContainerLogV2` and `ContainerAppConsoleLogs_CL` tables |
-| **Traces** | **OpenTelemetry** instruments and exports them; **Tempo/Jaeger** stores them (module 05) | Barely covered — the pillar the managed tracks *didn't* teach you, and often the most revealing one for microservices |
-| **Alerting** | Prometheus rules + **Alertmanager** (module 06) | Azure Monitor alerts and action groups |
-| **Correlation** | Trace IDs joining all three in Grafana (module 07) | — |
+---
 
-Module 07 is the payoff: a **metric** alert fires, you pivot to **logs** in
-Loki to read the actual errors, and a **trace** in Tempo shows which
-downstream service caused them. Collecting all three but never *connecting*
-them is why teams still can't debug.
+### The Dimensionality & Cardinality Spectrum
 
-### Cardinality — why Prometheus cares so much
+```mermaid
+flowchart TD
+    subgraph LowCard ["Low Cardinality (<1,000 unique values)"]
+        Metrics["PILLAR 1: METRICS (Prometheus)<br/>• Fast numeric aggregation (counters, gauges, histograms)<br/>• Cheap to store, long retention (15-90 days)<br/>• Labels: method=POST, status=500, region=us-east-1"]
+    end
 
-[Cardinality](../../../backend/08-observability-and-operational-readiness/06-monitoring-and-metrics/README.md)
-is covered as a general metrics concept elsewhere; here's why it matters for
-the Prometheus server you're about to run. A **time series** is its metric
-name *plus the full set of its label key-value pairs*:
-`http_requests_total{method="GET", status="200", pod="web-abc"}` is one series,
-and changing any label value (`status="500"`) creates another. **Cardinality**
-is the number of distinct series a metric produces — the product of each
-label's distinct values.
+    subgraph HighCard ["High / Unbounded Cardinality (Millions of values)"]
+        Logs["PILLAR 2: LOGS (Grafana Loki)<br/>• Discrete, highly descriptive historical event text<br/>• Expensive to index; Loki indexes metadata labels only<br/>• Attributes: stack traces, SQL error strings, payload payloads"]
+        Traces["PILLAR 3: TRACES (OpenTelemetry / Tempo)<br/>• End-to-end request graphs across distributed network boundaries<br/>• Sampled (1-10%) to manage storage cost<br/>• Attributes: trace_id, user_id, span_id, duration"]
+    end
 
-Prometheus stores and indexes *each series separately*, so bounded labels
-(`method`, `status`) are fine, while **unbounded** ones — `user_id`, `email`,
-`request_id`, `session_token`, a raw `url` with query parameters — can generate
-millions of series from one metric and take the whole server down (a
-"cardinality explosion"). The rule: **metric labels must be low-cardinality and
-bounded**; high-cardinality data belongs in **logs and traces**. This single
-idea is behind more Prometheus outages than any other, and it's why module 01
-keeps hammering it.
+    Metrics -.->|Links via Exemplars| Traces
+    Traces <-->|Correlated by trace_id| Logs
+```
 
-### Push vs. pull, and why it's coming up
+---
 
-There are two ways telemetry gets from your app to the collector: the app
-**pushes** it out (Azure Monitor's agents worked this way — they shipped data
-*to* Log Analytics), or the collector **pulls** it by scraping an endpoint the
-app exposes. Prometheus is famously a **pull** system: your app exposes a
-`/metrics` HTTP endpoint, and Prometheus periodically scrapes it. This is a
-deliberate design choice with real consequences (the collector controls the
-rate, a failed scrape is itself a signal that the target is down, no app needs
-to know the collector's address) — and it's the first big *difference* from
-the push-based managed monitoring you already used. Module 01 is entirely
-about internalizing the pull model.
+## 2. Technical Comparison: The Three Telemetry Pillars
 
-## Command reference
+### Telemetry Specification Matrix
 
-This is a concepts module — the "commands" here are about *observing what
-signals already exist* on a cluster you already know how to run, so the
-abstract pillars become concrete. (Full tool installs start in module 01.)
+| Metric / Dimension | Metrics (Prometheus) | Logs (Grafana Loki) | Traces (Tempo / OTel) |
+| :--- | :--- | :--- | :--- |
+| **Primary Question Answered** | *"Is the system degraded, and at what scale?"* | *"What exact error message occurred and why?"* | *"Where across services did this request spend time?"* |
+| **Data Model** | Numeric time-series float values + label maps | Timestamped text records + stream labels | Directed Acyclic Graphs (DAGs) of timed Spans |
+| **Indexing Strategy** | Inverted index across all label keys & values | Indexes stream metadata labels only (raw text unindexed) | Indexed by 128-bit `trace_id` hash |
+| **Cardinality Tolerance**| **Strictly Low (<10,000 active series per metric)**| High (Handles unbounded attributes in log bodies) | **Infinite (Handles user IDs, session tokens)** |
+| **Retention Strategy** | Aggregated & downsampled (Weeks / Months) | TTL purge (7–30 days) | Heavily sampled (1%–5% retained for 3–7 days) |
+| **Query Language** | PromQL | LogQL | TraceQL |
 
-| Command | What it does | Example |
-|---|---|---|
-| `kubectl top nodes` | Shows live node CPU/memory — a *metric*, sampled now with no history | `kubectl top nodes` |
-| `kubectl top pods -A` | Live per-pod resource *metrics* across all namespaces | `kubectl top pods -A` |
-| `kubectl logs <pod>` | Prints a pod's *logs* (stdout/stderr) — the raw log pillar, unaggregated | `kubectl logs deploy/web` |
-| `kubectl logs <pod> --timestamps` | Same, with per-line timestamps — makes the "discrete timestamped event" shape obvious | `kubectl logs deploy/web --timestamps` |
-| `kubectl get --raw /metrics` | Dumps the API server's own Prometheus-format `/metrics` endpoint — a real pull target | `kubectl get --raw /metrics \| head -40` |
-| `curl <pod-ip>:<port>/metrics` | Scrapes an app's metrics endpoint the way Prometheus will (module 01) | `curl 10.244.0.5:8080/metrics` |
+---
 
-Flag-by-flag breakdown for the two worth dissecting:
+### The Mathematical Cardinality Explosion Formula
 
-`kubectl get --raw /metrics | head -40`
-- `--raw <path>` — hit an arbitrary API-server path and print the raw
-  response body instead of a parsed object. `/metrics` is the API server's
-  own Prometheus-exposition endpoint.
-- `| head -40` — cap the output; a real `/metrics` endpoint is thousands of
-  lines. You're looking at the *format*: `name{label="value"} number`.
+Prometheus creates a distinct time-series entry for every unique permutation of label values:
 
-`kubectl logs deploy/web --timestamps`
-- `deploy/web` — target a Deployment (kubectl picks a pod); works with
-  `pod/`, `deploy/`, `sts/` prefixes.
-- `--timestamps` — prefix each line with the time it was emitted, so you can
-  see that a log is a *stream of discrete, individually-timestamped events* —
-  structurally different from a metric's regular-interval samples.
+$$\text{Total Active Series} = \prod_{i=1}^{n} \left| \text{Distinct Values of Label } i \right|$$
 
-## Hands-on exercises
+*Example of a Fatal Cardinality Trap:*
+```
+Metric: http_requests_total
+  - method:     [GET, POST, PUT, DELETE]         (4 values)
+  - status:     [200, 400, 404, 500]             (4 values)
+  - endpoint:   [/checkout, /login, /orders]     (3 values)
+  - user_id:    [Unbounded active user IDs]      (500,000 values)
 
-You need your local **kind** cluster from
-[03-kubernetes](../../03-kubernetes/README.md) running. No new tools yet —
-this module makes the three pillars concrete using what's already there, and
-builds the cardinality intuition you'll rely on in every later module.
+Total Series = 4 × 4 × 3 × 500,000 = 24,000,000 Time Series!
+```
+At ~2 KB of RAM per active series in the TSDB memory buffer, **24 million series requires ~48 GB of RAM**, causing an instant, unrecoverable Out-Of-Memory (OOM) crash.
 
-1. **(WSL2) Look at a real metric with no history.** Run `kubectl top nodes`
-   and `kubectl top pods -A`. Note that you get a *single current number* per
-   resource — no trend, no yesterday, no alert. This is the raw material of
-   the metrics pillar *before* a metrics database gives it history and query.
-   Write one sentence on what question this can and can't answer.
+---
 
-2. **(WSL2) Look at a real log stream.** Deploy something chatty and read its
-   logs with timestamps:
-   ```bash
-   kubectl create deployment loggen --image=busybox -- /bin/sh -c 'i=0; while true; do echo "$(date -Iseconds) event id=$i user=user-$((RANDOM%1000)) path=/checkout status=200"; i=$((i+1)); sleep 1; done'
-   kubectl logs deploy/loggen --timestamps --tail=10
+## 3. Production War Story: The UUID Cardinality Explosion Crash
+
+### Incident Overview
+A digital banking fintech service deployed a new release of their core `wallet-transfer` microservice. An engineer added the `account_uuid` as a Prometheus label to `http_requests_total` to "track individual account request volumes on Grafana."
+
+Within 90 minutes of the release during morning peak transaction volume, the Prometheus server consumed all 64 GB of allocated node memory and crashed in `OOMKilled`. The cluster monitoring system went completely blind. Simultaneously, an unrelated database connection pool leak occurred, but because alerts and dashboards were dead, the incident escalated undetected for 3 hours, blocking $12M in wire transfers.
+
+### The Catastrophic Failure Sequence
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Users as 1.8M Active Mobile Banking Users
+    participant App as Wallet Microservice
+    participant Prom as Prometheus Server (64GB RAM)
+    participant AlertMgr as Alertmanager
+    actor SRE as On-Call SRE
+
+    App->>App: Engineer added label: {account_uuid="a84f-..."}
+    Users->>App: Inbound transactions generate 1.8M unique UUIDs
+    App-->>Prom: Exposes 1.8M new time-series lines on /metrics
+    Prom->>Prom: Scrapes metrics: Ingests 1.8M new time-series chunks
+    Note over Prom: In-memory Head Block chunks explode!<br/>TSDB Index lockup: RAM usage jumps: 8GB -> 32GB -> 64GB!
+    Prom->>Prom: Linux OOMKiller fires: SIGKILL on prometheus process!
+    Prom-->>AlertMgr: Connection dropped: Monitoring dead!
+    Note over App: Unrelated DB connection leak hits database...<br/>Transactions fail with 500 errors!
+    App-->>Users: 100% Wire Transfers Blocked!
+    SRE->>Prom: Checks Grafana: Dashboards blank! Total telemetry blackout!
+```
+
+### Root Cause Analysis
+1. **Unbounded Label Cardinality**: Labeling metrics with high-cardinality identifiers (`account_uuid`, `user_id`, `email`, raw URI paths containing query parameters) multiplies the time series count exponentially.
+2. **TSDB Inverted Index Exhaustion**: Prometheus stores label indices in memory. When the number of series crossed 15 million, memory allocation outpaced garbage collection.
+3. **WAL Replay Death Loop**: When Prometheus restarted, it attempted to replay the in-memory Write-Ahead Log (WAL) containing the 15 million series, immediately running out of memory and crashing again in an infinite loop.
+
+### The Remediation & Permanent Architectural Invariants
+1. **Remove High-Cardinality Labels**: Replace `account_uuid` with a bounded label (`account_type="retail|business"`).
+2. **Enforce Ingestion Relabeling Drop Rules**: Configure Prometheus scrape jobs with `metric_relabel_configs` to automatically drop dangerous labels at ingest:
+   ```yaml
+   metric_relabel_configs:
+     - regex: '(account_uuid|user_id|session_token)'
+       action: labeldrop
    ```
-   Notice each line is a discrete, timestamped, *text* event carrying rich
-   detail (a user id, a path, a status). Contrast its shape with exercise 1's
-   single numbers.
+3. **Move Identifiers to Tracing Attributes**: Move `account_uuid` to OpenTelemetry Span attributes or structured JSON logs, where unbounded data is indexed efficiently.
 
-3. **(WSL2) Find a real pull target.** Dump the API server's own metrics
-   endpoint:
-   ```bash
-   kubectl get --raw /metrics | head -40
-   ```
-   Every line is `metric_name{label="value",...} value`. This is *exactly* the
-   Prometheus exposition format module 01 teaches Prometheus to scrape. You're
-   looking at a live pull target right now.
+---
 
-4. **Reason about cardinality (paper exercise, then verify your instinct).**
-   For the log line in exercise 2, imagine turning each field into a
-   *metric label*. For a metric `requests_total{path=..., status=..., user=...}`,
-   estimate the number of series if `path` has 20 values, `status` has 15
-   values, and `user` has 100,000 values. Now redo it *without* the `user`
-   label. Write both numbers down before reading on. (Answer: 20 × 15 ×
-   100,000 = 30,000,000 series with `user`; 20 × 15 = 300 series without it —
-   a 100,000× difference from one bad label. This is the cardinality explosion
-   from the Concepts section, made numeric.)
+## 4. Multi-Language Correlated Telemetry Implementations
 
-5. **(WSL2) See where high-cardinality data *should* live.** The `user=` and
-   `id=` fields from exercise 2 are exactly what you must *not* put in a metric
-   label — but they're perfect in a log. Confirm you can still answer a
-   per-user question from the *logs*:
-   ```bash
-   kubectl logs deploy/loggen --tail=200 | grep "user=user-42" || echo "none in this window"
-   ```
-   The point: the pillar you pick depends on the *cardinality* of the question.
-   "How many requests total?" → metric. "What did user-42 do?" → log/trace.
+Below are complete implementations in **Go**, **Node.js/TypeScript**, and **Python**. Each microservice emits low-cardinality Prometheus metrics, structured JSON logs, and OpenTelemetry spans linked by the W3C `traceparent` context.
 
-6. **Map the three pillars to a real question each.** Write down, for your
-   `loggen` app, one concrete question best answered by a **metric**, one by a
-   **log**, and one by a **trace** (even though loggen has no tracing yet).
-   Example shape: metric = "requests per second, trending up?"; log = "what was
-   the error text on the failed request at 14:03?"; trace = "for the one slow
-   checkout, which downstream call was slow?". This mapping is the muscle
-   memory the whole track builds.
+### Go Implementation (OpenTelemetry + Zap + Prometheus)
 
-7. **Diagnose the mismatch: right data, wrong pillar.** Suppose someone asks
-   you to "alert when *any specific user* sees an error" and proposes a metric
-   `errors_total{user_id="..."}`. Explain in two sentences why this is a
-   cardinality trap and which pillar(s) *should* answer "which users saw
-   errors" instead. (This is the reasoning error that takes real Prometheus
-   servers down — recognizing it on paper now saves you an outage in module
-   01/02.)
+```go
+// internal/observability/telemetry.go
+package observability
 
-8. **(WSL2) Clean up.**
-   ```bash
-   kubectl delete deployment loggen
-   ```
+import (
+	"context"
+	"net/http"
+	"time"
 
-## Independent challenge
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/trace"
+	"go.uber.org/zap"
+)
 
-No commands given — reason this through in writing using this module plus
-what you remember from
-[track 07 module 06](../../07-aks/06-monitoring-aks-azure-monitor-container-insights/README.md)
-and [track 06 module 07](../../06-azure-container-apps/07-monitoring-and-log-analytics/README.md).
-Pick a real-ish scenario — say, an e-commerce checkout that's "sometimes
-slow" — and write a one-page **observability plan** for it *before* you know
-any of the open-source tools deeply. Decide: which of the three pillars would
-you reach for first and why; which specific signals you'd want from each
-pillar (name at least two metrics, two log fields, and what a trace would span
-across); and crucially, which fields in that scenario are **high-cardinality**
-and therefore belong in logs/traces rather than metric labels. Then, drawing
-on the Azure-native tracks, note one thing Container Insights/Log Analytics
-already gave you "for free" that you'll now have to configure yourself, and
-one thing (tracing) it barely offered at all. The goal is to leave this module
-able to *design* an observability approach, not just list tools.
+var (
+	tracer = otel.Tracer("order-service")
+
+	// Strictly low-cardinality metric labels: method, status, endpoint
+	HttpRequestsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "http_requests_total",
+			Help: "Total HTTP requests processed",
+		},
+		[]string{"method", "status", "endpoint"},
+	)
+)
+
+func init() {
+	prometheus.MustRegister(HttpRequestsTotal)
+}
+
+// CorrelatedHttpMiddleware injects trace context into structured logs and records metrics
+func CorrelatedHttpMiddleware(logger *zap.Logger, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ctx, span := tracer.Start(r.Context(), r.Method+" "+r.URL.Path)
+		defer span.End()
+
+		traceID := span.SpanContext().TraceID().String()
+		spanID := span.SpanContext().SpanID().String()
+
+		// Inject trace context into structured logger
+		reqLogger := logger.With(
+			zap.String("trace_id", traceID),
+			zap.String("span_id", spanID),
+			zap.String("method", r.Method),
+			zap.String("path", r.URL.Path),
+		)
+
+		start := time.Now()
+		next.ServeHTTP(w, r.WithContext(ctx))
+
+		duration := time.Since(start)
+		status := "200" // Extracted from custom response writer in production
+
+		// Increment low-cardinality metric
+		HttpRequestsTotal.WithLabelValues(r.Method, status, r.URL.Path).Inc()
+
+		reqLogger.Info("Request completed successfully",
+			zap.Duration("duration_ms", duration),
+			zap.String("status", status),
+		)
+	})
+}
+```
+
+---
+
+### Node.js / TypeScript Implementation (Pino + OpenTelemetry)
+
+```typescript
+// src/observability/telemetry.ts
+import { Request, Response, NextFunction } from 'express';
+import { trace, context } from '@opentelemetry/api';
+import client from 'prom-client';
+import pino from 'pino';
+
+export const logger = pino({
+  level: 'info',
+  formatters: {
+    level: (label) => ({ level: label }),
+  },
+  timestamp: pino.stdTimeFunctions.isoTime,
+});
+
+// Low-cardinality metric definition
+export const httpRequestsTotal = new client.Counter({
+  name: 'http_requests_total',
+  help: 'Total HTTP requests processed',
+  labelNames: ['method', 'status', 'route'],
+});
+
+export function correlatedTelemetryMiddleware(req: Request, res: Response, next: NextFunction): void {
+  const currentSpan = trace.getSpan(context.active());
+  const traceId = currentSpan?.spanContext().traceId || 'no-trace';
+  const spanId = currentSpan?.spanContext().spanId || 'no-span';
+
+  // Attach contextual child logger
+  const requestLogger = logger.child({
+    trace_id: traceId,
+    span_id: spanId,
+    method: req.method,
+    route: req.route?.path || req.path,
+  });
+
+  const start = Date.now();
+
+  res.on('finish', () => {
+    const duration = Date.now() - start;
+    const statusCode = res.statusCode.toString();
+
+    // 1. Metric: Low-cardinality count
+    httpRequestsTotal.inc({
+      method: req.method,
+      status: statusCode,
+      route: req.route?.path || req.path,
+    });
+
+    // 2. Log: Structured JSON carrying trace context
+    requestLogger.info({
+      duration_ms: duration,
+      status_code: res.statusCode,
+      message: 'HTTP transaction finished',
+    });
+  });
+
+  next();
+}
+```
+
+---
+
+### Python Implementation (FastAPI + OpenTelemetry + Structlog)
+
+```python
+# observability/telemetry.py
+import time
+import structlog
+from fastapi import FastAPI, Request
+from starlette.middleware.base import BaseHTTPMiddleware
+from opentelemetry import trace
+from prometheus_client import Counter
+
+tracer = trace.get_tracer("order-service")
+
+HTTP_REQUESTS_TOTAL = Counter(
+    "http_requests_total",
+    "Total HTTP requests processed",
+    ["method", "status", "endpoint"]
+)
+
+logger = structlog.get_logger()
+
+class CorrelatedObservabilityMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        with tracer.start_as_current_span(f"{request.method} {request.url.path}") as span:
+            ctx = span.get_span_context()
+            trace_id = format(ctx.trace_id, "032x") if ctx.trace_id else "none"
+            span_id = format(ctx.span_id, "016x") if ctx.span_id else "none"
+
+            structlog.contextvars.bind_contextvars(
+                trace_id=trace_id,
+                span_id=span_id,
+                method=request.method,
+                endpoint=request.url.path
+            )
+
+            start_time = time.time()
+            response = await call_next(request)
+            duration = (time.time() - start_time) * 1000
+
+            HTTP_REQUESTS_TOTAL.labels(
+                method=request.method,
+                status=str(response.status_code),
+                endpoint=request.url.path
+            ).inc()
+
+            logger.info("Processed request", status=response.status_code, duration_ms=duration)
+            return response
+```
+
+---
+
+## 5. Practical Hands-On Verification Laboratory
+
+In this laboratory, you will inspect baseline cluster telemetry, calculate cardinality mathematically, verify W3C trace header propagation, and observe log-trace correlation.
+
+### Step 1: Inspect Live Resource Telemetry via `kubectl top`
+
+Verify that the metrics pipeline is operational on your Kubernetes cluster:
+
+```bash
+kubectl top nodes
+kubectl top pods -A --sort-by=memory
+```
+
+*Expected Terminal Output:*
+```text
+NAME                     CPU(cores)   CPU%   MEMORY(bytes)   MEMORY%
+kind-control-plane       145m         3%     780Mi           9%
+
+NAMESPACE     NAME                               CPU(cores)   MEMORY(bytes)
+monitoring    prometheus-k8s-0                   35m          280Mi
+kube-system   coredns-76f75df574-8b2xm           3m           22Mi
+```
+
+---
+
+### Step 2: Simulate Trace Context Propagation via `traceparent`
+
+Run a test curl simulating an upstream API Gateway passing standard W3C distributed tracing headers:
+
+```bash
+# W3C Traceparent format: version - trace_id (32 hex) - parent_span_id (16 hex) - flags (01 = sampled)
+TRACE_ID="4bf92f3577b34da6a3ce929d0e0e4736"
+SPAN_ID="00f067aa0ba902b7"
+TRACEPARENT="00-${TRACE_ID}-${SPAN_ID}-01"
+
+curl -v -H "traceparent: ${TRACEPARENT}" http://localhost:8080/api/orders
+```
+
+*Expected Server Log Output (Structured JSON):*
+```json
+{
+  "timestamp": "2026-11-10T08:45:10.124Z",
+  "level": "info",
+  "service": "order-service",
+  "trace_id": "4bf92f3577b34da6a3ce929d0e0e4736",
+  "span_id": "00f067aa0ba902b7",
+  "method": "GET",
+  "path": "/api/orders",
+  "duration_ms": 14.2,
+  "status": 200,
+  "message": "Transaction verified"
+}
+```
+
+The log entry is now cryptographically bound to the distributed trace!
+
+---
+
+## 6. Command Quick-Reference Cheat Sheet
+
+| Command / Flag | Action / Objective | Example Scenario |
+| :--- | :--- | :--- |
+| `curl http://localhost:8080/metrics` | Inspect raw Prometheus exposition text | Verify metric names, types, and label sets |
+| `logcli query '{app="order-api"} \|= "trace_id"'` | Query Grafana Loki logs by trace ID | Pivot from trace to root-cause log lines |
+| `kubectl top pods -A` | Instant cluster CPU/memory usage snapshot | Detect resource starvation during incidents |
+| `prometheus_tsdb_head_series` | PromQL query to monitor active TSDB cardinality | Prevent cardinality explosion crashes |
+| `traceparent: 00-<trace>-<span>-01` | W3C standardized distributed tracing header | Propagate context across HTTP boundaries |
+
+---
+
+## 7. Operational Validation Checkpoints
+
+### Scenario 1: Prometheus Memory Blowup During Campaign Launch
+**Context:** During a Black Friday promotion, Prometheus memory climbs from 4GB to 32GB in 40 minutes, triggering node memory alerts. Inspecting Prometheus logs shows `tsdb: compacted blocks failed: oom-killed`.
 
 <details>
-<summary>Stuck? One hint</summary>
+<summary>View Diagnostic Workflow & Resolution</summary>
 
-Anchor the plan on the **debugging workflow**: a *metric* tells you the
-checkout p95 latency spiked (alertable, low-cardinality — good labels are
-`endpoint` and `status`, never `order_id`); you pivot to *logs* filtered to
-the slow window to read the actual errors and the specific `order_id`/`user_id`
-(high-cardinality, perfect in a log); and a *trace* for one of those order IDs
-shows *which* downstream service (payments? inventory?) ate the time. If a
-field would create a new time series for every distinct value it can take, it
-is high-cardinality — keep it out of metric labels.
+**Root Cause:**  
+A microservice began exporting a dynamic promotional code label (`promo_code="WINTER2026_XYZ"`) on `http_requests_total`. Because millions of unique promo codes exist, active time series jumped by 800%.
 
+**Diagnostic Commands:**
+```sql
+# Identify top 10 highest-cardinality metric names in PromQL:
+topk(10, count by (__name__) ({__name__=~".+"}))
+```
+
+**Resolution Steps:**
+1. In the Prometheus scrape configuration, add `metric_relabel_configs` to drop the dangerous label immediately:
+   ```yaml
+   metric_relabel_configs:
+     - action: labeldrop
+       regex: 'promo_code'
+   ```
+2. Restart Prometheus and alert the engineering team to move `promo_code` into structured JSON logs.
 </details>
 
-## Common mistakes & troubleshooting
+---
 
-- **Treating "we have dashboards" as "we're observable."** Dashboards are
-  monitoring — answers to questions you already thought of. Observability is
-  being able to answer the *new* question during an incident. A wall of
-  pre-built graphs can coexist with a system you still can't debug.
-- **Putting high-cardinality data in metric labels.** `user_id`,
-  `request_id`, `email`, full `url` with query strings — each unique value is
-  a new time series. This is the single most common way to take a metrics
-  system down. That data belongs in logs and traces.
-- **Reaching for logs to answer aggregate questions.** "How many requests per
-  second?" from logs means scanning and counting millions of lines — slow and
-  expensive. That's a metric. Use logs for detail, metrics for rates.
-- **Reaching for metrics to answer detail questions.** A number can't tell
-  you the error message or which user was affected. When you need *why*, you
-  need logs or traces, not another gauge.
-- **Assuming the three pillars are interchangeable.** They answer different
-  questions and cost differently. Collecting only one leaves whole classes of
-  questions unanswerable — and collecting all three but never correlating them
-  (module 07) wastes most of the value.
-- **Forgetting traces exist because the Azure tracks under-taught them.**
-  Container Insights leaned on logs+metrics; distributed tracing is the pillar
-  you likely have the least intuition for and often the most useful for
-  microservice latency. Don't skip module 05.
-
-## Checkpoint quiz
-
-Write down your answer to each question before expanding it — checking without attempting first is the single easiest way to fool yourself into thinking you've learned this.
+### Scenario 2: Tracing Ingestion Storage Exhaustion (100% Sampling)
+**Context:** Your distributed tracing cluster (Tempo or Jaeger) consumes 2TB of disk storage per day, threatening to fill the storage backend.
 
 <details>
-<summary>Show questions</summary>
+<summary>View Diagnostic Workflow & Resolution</summary>
 
-1. In one sentence each, distinguish monitoring from observability.
-2. Name the three pillars and the single kind of question each is best at.
-3. What is cardinality, and why does a `user_id` metric label endanger a
-   Prometheus server?
-4. Give one question that a metric answers well but a log answers badly, and
-   one where it's the reverse.
-5. What does a trace show that neither a metric nor a single log line can?
-6. Prometheus is a *pull* system. What does that mean, and name one advantage
-   over push.
-7. You need to answer "which specific users hit errors in the last hour."
-   Which pillar(s) is that, and which one must it *not* be?
+**Root Cause:**  
+Applications are configured with `AlwaysOnSampler` (100% head-based sampling), recording every single routine `GET /healthz` and background ping across millions of requests.
 
+**Resolution Steps:**
+1. Switch OpenTelemetry SDK to **Tail-Based Sampling** or probabilistic head-based sampling (e.g. `TraceIdRatioBased: 0.05` for 5% sampling).
+2. Configure OpenTelemetry Collector filters to drop all traces targeting `/healthz`, `/metrics`, or `/ready` endpoints.
 </details>
+
+---
+
+### Scenario 3: Loki Logs Unsearchable Due to "Label Misuse"
+**Context:** An engineering team configures Fluent Bit to extract `user_id` and `request_id` as Grafana Loki stream labels. Loki query latency surges to 45 seconds, and queries crash with `max chunks per query exceeded`.
 
 <details>
-<summary>Show answers</summary>
+<summary>View Diagnostic Workflow & Resolution</summary>
 
-1. Monitoring watches a predefined set of signals for known failure modes
-   (questions you asked in advance); observability is the property that lets
-   you ask *new*, unanticipated questions about the system's internals from
-   the outside without shipping new code.
-2. **Metrics** — "is it happening / how much / what's the trend" (aggregate,
-   alertable). **Logs** — "what exactly happened in this one event" (detail).
-   **Traces** — "where did this one request spend its time across services".
-3. Cardinality is the number of distinct time series a metric produces (the
-   product of its labels' distinct value counts). `user_id` is unbounded, so it
-   multiplies the series count by the number of users — potentially millions of
-   series from one metric, exhausting the server's memory/index (a cardinality
-   explosion).
-4. Metric-good/log-bad: "requests per second across the fleet" (aggregation).
-   Log-good/metric-bad: "what was the exact error message and which user hit it
-   on that one failed request" (detail a number can't carry).
-5. The end-to-end path of a *single* request across multiple services, and how
-   much time it spent in each — a metric is aggregate (not one request) and a
-   single log line is one point in that journey, not the whole path.
-6. Pull means the collector scrapes an endpoint the app exposes (Prometheus
-   fetches `/metrics`) rather than the app pushing data to the collector.
-   Advantages: the collector controls scrape rate, a failed scrape is itself an
-   "target down" signal, and apps don't need to know the collector's address.
-7. That's **logs and/or traces** (high-cardinality, per-user detail). It must
-   *not* be a metric label — `user_id` in a label is the cardinality trap from
-   Q3.
+**Root Cause:**  
+Loki is designed around the philosophy: *"Index only metadata, not the data."* Creating high-cardinality stream labels (like `user_id` or `trace_id`) creates millions of separate microscopic streams, destroying Loki's chunk compression efficiency.
 
+**Resolution Steps:**
+1. Keep Loki stream labels strictly low-cardinality: `app`, `environment`, `namespace`, `container`.
+2. Leave `user_id`, `trace_id`, and `error_message` inside the log message body. Use LogQL line filters (`|= "trace_id=..."`) or JSON parsers (`| json | trace_id = "..."`) during queries.
 </details>
+
+---
+
+## 8. Further Reading & Official Documentation
+
+- [Google SRE Book: Monitoring Distributed Systems](https://sre.google/sre-book/monitoring-distributed-systems/)
+- [The Three Pillars of Observability (Charity Majors, Liz Fong-Jones)](https://www.oreilly.com/library/view/observability-engineering/9781492076438/)
+- [Prometheus Documentation: Metric and Label Naming Best Practices](https://prometheus.io/docs/practices/naming/)
+- [OpenTelemetry Official Architecture Specification](https://opentelemetry.io/docs/concepts/what-is-opentelemetry/)
+- [Grafana Loki: Label Best Practices and Anti-Patterns](https://grafana.com/docs/loki/latest/best-practices/)
+
+---
 
 ## Next
 
-[01-prometheus-fundamentals](../01-prometheus-fundamentals/README.md) — stand
-up real Prometheus on your cluster with `kube-prometheus-stack`, watch it pull
-metrics from live targets, and write your first PromQL. This is the metrics
-pillar made real.
+Continue to [01 - Prometheus Fundamentals](../01-prometheus-fundamentals/README.md) to deploy the Prometheus Operator, configure automated scraping targets, and query cluster telemetry using PromQL.

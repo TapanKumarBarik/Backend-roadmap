@@ -1,346 +1,428 @@
 # Alerting and On-Call Basics
 
-## Why this matters
+> **Difficulty**: Intermediate | **Estimated Time**: 35m | **Hands-On**: Mandatory
 
-A dashboard nobody's looking at at 3am is worthless — the point of metrics is
-that they can *page a human* when something's wrong, without anyone watching.
-You already wrote an *alerting rule* in [module 02](../02-promql-in-depth/README.md)
-(the PromQL condition that fires); this module is about everything *after* it
-fires: **Alertmanager**, which routes, groups, deduplicates, and silences
-alerts, and the human discipline of writing alerts that are *actionable* rather
-than *noisy*. In [track 07](../../07-aks/06-monitoring-aks-azure-monitor-container-insights/README.md)
-Azure Monitor did routing through action groups; here you own the routing tree
-yourself. Getting this wrong causes **alert fatigue** — the failure mode where
-so many alerts fire that people ignore all of them, including the real one — so
-this module is as much judgment as configuration.
+> [!TIP]
+> **The Golden Rule of Actionable Alerting:**
+> **Alert on symptoms, not causes.** Never wake an on-call engineer at 3:00 AM because "CPU usage is 85%" or "Disk read IOPS spiked". Page humans only when **user-visible symptoms or SLOs are actively degrading** (e.g., HTTP 5xx error rate > 2%, p99 latency > 1.5s, or pending checkout queue backlog growing monotonically). Automate cause remediation with autoscalers and self-healing pods.
 
-## Concepts
+---
 
-### Prometheus fires, Alertmanager decides what to do about it
+## 1. Architecture & Visual Mental Models
 
-A clean division of labor: **Prometheus** evaluates alerting rules and, when a
-rule's condition holds for its `for:` duration, sends a firing alert to
-**Alertmanager**. Alertmanager doesn't evaluate any PromQL — it takes the
-already-firing alerts and handles **routing** (which team/receiver gets it),
-**grouping** (bundle related alerts into one notification), **inhibition**
-(suppress alerts made redundant by a bigger one), and **silencing** (mute known
-issues). The `kube-prometheus-stack` you installed already includes
-Alertmanager. This separation is why the same alert can go to different places
-without touching the PromQL: you edit Alertmanager's routing, not the rule.
+The alerting pipeline cleanly separates **detection** from **notification**. Prometheus handles metric evaluation; Alertmanager handles notification routing, deduplication, and suppression.
 
-### Routing, grouping, and the notification you actually receive
+```mermaid
+flowchart TD
+    subgraph PrometheusEngine["Prometheus Engine"]
+        MetricDB[("TSDB Metrics")]
+        RuleWorker["Prometheus Rule Evaluator<br/>(Every 15s evaluation_interval)"]
+        Pending["State: PENDING<br/>(Waiting for 'for: 5m' window)"]
+        Firing["State: FIRING<br/>(Threshold sustained)"]
+        
+        MetricDB --> RuleWorker
+        RuleWorker -->|Threshold breached| Pending
+        Pending -->|Condition holds > 5m| Firing
+    end
 
-Alertmanager's config is a **routing tree**. Every alert carries **labels**
-(the `labels:` you set on the rule — `severity: warning`, `team: payments`);
-the route tree matches on those labels to pick a **receiver** (email, Slack,
-PagerDuty, a webhook). Two mechanisms make the difference between a useful page
-and a storm:
+    subgraph AlertmanagerCluster["Alertmanager Cluster"]
+        API["Alertmanager Ingestion API<br/>(HTTP :9093/api/v2/alerts)"]
+        Dedup["Deduplication & Grouping Engine<br/>group_by: [alertname, cluster, service]"]
+        Inhibit{"Inhibition Rules Engine<br/>Is higher-severity alert active?"}
+        Silence{"Silence Matcher<br/>Is alert muted by maintenance window?"}
+        Router["Routing Tree<br/>(Match labels: severity, team)"]
+        
+        Firing -->|POST /api/v2/alerts| API
+        API --> Dedup
+        Dedup --> Inhibit
+        Inhibit -->|Not suppressed| Silence
+        Silence -->|Not silenced| Router
+    end
 
-- **Grouping** (`group_by`) — bundle alerts sharing given labels into a
-  *single* notification. If 40 pods of one service all fire `HighErrorRate`,
-  `group_by: [alertname, service]` sends *one* grouped alert ("HighErrorRate,
-  service=checkout, 40 instances"), not 40 pages. This is the primary defense
-  against a single incident becoming a pager flood.
-- **Timing** (`group_wait`, `group_interval`, `repeat_interval`) — wait a few
-  seconds to collect related alerts before sending (so the group is complete),
-  how long before adding newly-firing members to an existing group, and how
-  often to re-notify about a still-firing alert. Tuning these trades
-  responsiveness against noise.
+    subgraph Receivers["Notification Endpoints"]
+        Router -->|severity: page| PagerDuty["PagerDuty / Opsgenie (SMS / Phone)"]
+        Router -->|severity: ticket| Jira["Jira / Linear (Auto-ticket)"]
+        Router -->|severity: warn| Slack["Slack / Discord Webhook"]
+    end
+```
 
-### Silencing and inhibition — muting on purpose
+### The State Transition: Inactive $\to$ Pending $\to$ Firing
 
-Not every firing alert should page. **Silencing** is a temporary, explicit mute
-you create (via label matchers, with an expiry) for a *known* issue — you're
-doing planned maintenance on `service=billing`, so you silence its alerts for
-two hours so the real work doesn't drown in expected noise. **Inhibition** is
-automatic: a rule that says "if this bigger alert is firing, suppress these
-smaller ones" — e.g. if `ClusterDown` is firing, don't also page for every
-individual `TargetDown` it obviously caused. Both exist to keep the signal
-clean; a silence is manual and time-boxed, inhibition is a standing rule. The
-discipline: **silence known noise explicitly rather than deleting the alert
-that keeps crying wolf** (which loses it for the day it matters).
+```mermaid
+stateDiagram-v2
+    [*] --> Inactive: Metric within normal bounds
+    Inactive --> Pending: PromQL threshold breached (Expr == true)
+    Pending --> Inactive: Metric recovers before `for:` duration expires (Flapping suppressed)
+    Pending --> Firing: Threshold breached continuously for duration of `for: 5m`
+    Firing --> Inactive: Metric drops below threshold (Alertmanager sends 'Resolved' message)
+```
 
-### What makes an alert good vs. noisy
+---
 
-This is the judgment half, and it matters more than the config. A good alert
-is:
+## 2. Alert Routing, Grouping, and Timing Mechanics
 
-- **Actionable** — when it fires, there's something a human should *do*. If the
-  only response is "acknowledge and move on," it shouldn't page. This is the
-  single biggest filter.
-- **Symptom-based, not cause-based** — alert on what users feel ("error ratio
-  > 5%", "p99 latency > 1s"), not on every possible internal cause ("CPU >
-  80%"). High CPU that isn't hurting anyone is not an incident; alerting on it
-  trains people to ignore the pager. (This is the SLO-driven thinking track 20
-  formalizes.)
-- **Correctly thresholded and debounced** — a `for:` duration so a momentary
-  blip doesn't page, a threshold that can actually be crossed (module 02's
-  never-fires trap) but isn't so tight it fires constantly.
-- **Routed by severity** — `critical` pages a human now; `warning` goes to a
-  ticket/Slack channel to look at during business hours. Not everything
-  deserves a phone call at 3am.
+When 100 pods in a microservice crash simultaneously due to a bad configuration push, an unconfigured alert pipeline sends 100 immediate notifications. Alertmanager prevents this through **Grouping** and **Timing parameters**.
 
-### Alert fatigue — the failure mode the whole module fights
+```
+                           Timeline of a Grouped Alert
+   T = 0s         T = 25s (group_wait)      T = 5m 25s (group_interval)
+     |                      |                            |
+     +-- Pod A crashes      |                            |
+     +-- Pod B crashes      |                            |
+     +-- Pod C crashes ---->| SENDS NOTIFICATION 1:      |
+                            | "3 pods failing in demo"   |
+                            |                            +-- Pod D crashes
+                            |                            +-- Pod E crashes ----> SENDS NOTIFICATION 2:
+                            |                                                    "5 pods failing in demo"
+```
 
-**Alert fatigue** is what happens when alerts are noisy, non-actionable, or
-duplicated: people become desensitized and start ignoring *all* of them,
-including the one real page in the flood. It's the leading cause of missed
-incidents on mature teams — not too few alerts, too many *bad* ones. Every
-concept above (grouping, symptom-based alerting, severity routing, silencing
-known issues) is a weapon against it. The mental test for any new alert:
-**"when this fires at 3am, will the on-call engineer know exactly what to do,
-and is it worth waking them?"** If not, make it a `warning` (ticket, not page)
-or delete it. A page that can be ignored is worse than no page.
+| Timing Parameter | Default | Production Recommendation | Purpose |
+| :--- | :--- | :--- | :--- |
+| **`group_wait`** | `30s` | `10s` - `30s` | Buffer time to wait before sending the initial notification. Allows related sibling alerts from the same incident to arrive and group together into a single message. |
+| **`group_interval`** | `5m` | `5m` - `10m` | Minimum time to wait before sending an update when *new* alerts join an already-firing group. Prevents noisy notification updates. |
+| **`repeat_interval`** | `4h` | `3h` - `12h` | Cooldown period before resending an identical, unchanged notification for an alert that remains actively firing. Prevents notification flooding during prolonged outages. |
 
-## Command reference
+---
 
-| Command / config key | What it does | Example |
-|---|---|---|
-| `kubectl port-forward -n monitoring svc/...alertmanager 9093` | Opens the Alertmanager UI | see exercise 2 |
-| Prometheus UI **Alerts** tab | Shows rules and their state (Inactive/Pending/Firing) | exercise 1 |
-| Alertmanager `route` | The routing tree: match labels → receiver | see below |
-| Alertmanager `group_by` | Labels to bundle alerts by into one notification | `group_by: [alertname, namespace]` |
-| Alertmanager `receivers` | Notification destinations (webhook/email/Slack) | see below |
-| Alertmanager `inhibit_rules` | Suppress alerts when a bigger one fires | see below |
-| UI: Alertmanager **Silences → New Silence** | Temporarily mute matching alerts | exercise 5 |
+## 3. Symptom-Based vs. Cause-Based Alerting Matrix
 
-Alertmanager config anatomy (edited via the `AlertmanagerConfig` CR or the
-chart's `alertmanager.config` values):
+| Alert Type | Metric Used | On-Call Impact | Recommended Action |
+| :--- | :--- | :--- | :--- |
+| **Anti-Pattern (Cause)** | `node_cpu_utilization > 85%` | High noise; pages engineers during scheduled batch jobs or normal load spikes when users experience zero impact. | Demote to dashboard metric; scale horizontally via Horizontal Pod Autoscaler (HPA). |
+| **Anti-Pattern (Cause)** | `kube_pod_container_status_restarts_total > 0` | Wakes engineer for a single transient crash loop on a 50-replica service with active self-healing. | Set threshold to `rate(...) > 0.5` across multiple pods or demote to warning. |
+| **Best Practice (Symptom)** | `http_requests_total{status=~"5.."}[5m] / http_requests_total[5m] > 0.02` | High actionable value; user traffic is failing at >2% error budget burn rate. | **Page immediately**. Direct engineer to runbook and triage deployment. |
+| **Best Practice (Symptom)** | `histogram_quantile(0.99, rate(http_request_duration_seconds_bucket[5m])) > 2.0` | High actionable value; user checkout flow is stalling at p99 > 2 seconds. | **Page immediately**. Trace latency bottleneck across database and upstream APIs. |
+
+---
+
+## 4. Production War Story: The 3:15 AM Pager Storm
+
+```
+INCIDENT SUMMARY: INC-7719
+SEVERITY: P1 - Operational Meltdown
+IMPACT: 2,240 SMS notifications fired in 8 minutes; 45 engineers paged simultaneously; on-call engineer silenced all alerts globally, causing an unmonitored database corruption outage 40 minutes later.
+ROOT CAUSE: Alertmanager route lacked group_by and inhibition rules during an AWS Availability Zone network partition.
+```
+
+### Incident Timeline
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant AZ as AWS AZ us-east-1a
+    participant Prom as Prometheus
+    participant AM as Alertmanager (Unconfigured)
+    participant Eng as 45 On-Call Engineers
+
+    AZ->>AZ: Physical Top-of-Rack switch fails
+    Note over AZ: 30 Kubernetes nodes lose network connectivity.<br/>180 Pods become unreachable simultaneously.
+    Prom->>AM: Fires 30 x NodeDown alerts
+    Prom->>AM: Fires 180 x PodDown alerts
+    Prom->>AM: Fires 180 x KubeletLivenessProbeFailed alerts
+    Note over AM: Lacks group_by and inhibition rules!<br/>Treats every alert as an independent page.
+    AM->>Eng: 2,240 PagerDuty SMS & automated phone calls blast engineers
+    Note over Eng: Phones lock up with notifications.<br/>Mass panic across Slack channels.
+    Eng->>AM: Engineer executes emergency global silence (regex: .*)
+    Note over AM: ALL alerts muted for 12 hours.
+    Note over AZ: 40 minutes later, primary PostgreSQL disk fills up.<br/>Zero alerts fire. Silent production database corruption occurs.
+```
+
+### The Post-Mortem
+
+- **The Flaw**: Every alert rule had `group_by: []` (empty grouping), and no **Inhibition Rules** were defined between node infrastructure and pod workloads.
+- **The Failure Mode**: When a single node died, instead of receiving one notification ("Node 14 down, 20 pods impacted"), engineers received 21 distinct high-priority phone calls. The sheer volume overwhelmed on-call engineers, triggering human error (blanket global alert silencing).
+- **The Remediation**:
+  1. Configured global grouping: `group_by: ['alertname', 'cluster', 'service', 'namespace']`.
+  2. Implemented mandatory **Inhibition Rules**:
+     ```yaml
+     # If NodeDown is firing, inhibit all PodDown alerts on that specific node:
+     inhibit_rules:
+       - source_match:
+           alertname: 'NodeDown'
+         target_match:
+           alertname: 'PodDown'
+         equal: ['node', 'cluster']
+     ```
+  3. Established runbook links and strict SLO-based page criteria.
+
+---
+
+## 5. Production Alertmanager & PrometheusRule Configurations
+
+Here are production-grade declarative specifications for Prometheus alerting rules and Alertmanager routing trees.
+
+### Declarative Alerting Rules (`PrometheusRule` Custom Resource)
 
 ```yaml
-route:
-  receiver: default            # fallback receiver
-  group_by: [alertname, namespace]
-  group_wait: 30s              # collect related alerts before first send
-  group_interval: 5m           # how often to add new members to a group
-  repeat_interval: 4h          # how often to re-page a still-firing alert
-  routes:                      # sub-routes matched top-down
-    - matchers: [severity="critical"]
-      receiver: pager
-    - matchers: [severity="warning"]
-      receiver: slack
-receivers:
-  - name: default
-  - name: pager
-    webhook_configs: [{url: "http://example/pager"}]
-  - name: slack
-    webhook_configs: [{url: "http://example/slack"}]
-inhibit_rules:
-  - source_matchers: [severity="critical"]
-    target_matchers: [severity="warning"]
-    equal: [namespace]         # mute warnings in a namespace when it has a critical
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: api-service-slo-alerts
+  namespace: monitoring
+  labels:
+    role: alert-rules
+    prometheus: kps-prometheus
+spec:
+  groups:
+    - name: api-service.rules
+      rules:
+        # Symptom 1: High Error Rate (SLO Breach)
+        - alert: APIHighErrorRate
+          expr: |
+            sum by (namespace, service) (rate(http_requests_total{status=~"5.."}[5m]))
+            /
+            sum by (namespace, service) (rate(http_requests_total[5m])) > 0.05
+          for: 3m
+          labels:
+            severity: page
+            team: checkout
+            tier: api
+          annotations:
+            summary: "High HTTP 5xx error rate in {{ $labels.service }}"
+            description: "Service {{ $labels.service }} in namespace {{ $labels.namespace }} is experiencing a {{ $value | humanizePercentage }} error rate over the last 5 minutes."
+            runbook_url: "https://wiki.internal/ops/runbooks/api-high-error-rate"
+
+        # Symptom 2: High Latency Degradation
+        - alert: APIP99LatencyBreach
+          expr: |
+            histogram_quantile(0.99, sum by (le, namespace, service) (rate(http_request_duration_seconds_bucket[5m]))) > 1.5
+          for: 5m
+          labels:
+            severity: warning
+            team: checkout
+            tier: api
+          annotations:
+            summary: "P99 latency breach in {{ $labels.service }}"
+            description: "P99 latency for {{ $labels.service }} has exceeded 1.5s (current value: {{ $value | humanizeDuration }})."
+            runbook_url: "https://wiki.internal/ops/runbooks/api-high-latency"
 ```
-- `route.group_by` — the labels that define one notification group; the
-  anti-flood control.
-- `route.group_wait/group_interval/repeat_interval` — the timing knobs trading
-  speed vs. noise.
-- `route.routes[].matchers` — label-based sub-routing; `severity="critical"` →
-  pager, `warning` → Slack. Matched top-to-bottom, first match wins (unless
-  `continue: true`).
-- `inhibit_rules` — when a `critical` fires, suppress the `warning`s it would
-  obviously cause in the same `namespace` — dedup across severity.
 
-## Hands-on exercises
+### Complete Alertmanager Routing & Inhibition Tree (`alertmanager.yaml`)
 
-Continue on the **kind** cluster with `kube-prometheus-stack`. You'll reuse the
-`DemoHighErrorRatio` rule from [module 02](../02-promql-in-depth/README.md).
+```yaml
+global:
+  resolve_timeout: 5m
+  slack_api_url: "https://hooks.slack.com/services/T00/B00/X00"
 
-1. **(WSL2) See the alerting pipeline end to end.** Port-forward Prometheus
-   (`svc/kps-kube-prometheus-stack-prometheus 9090`) and open its **Alerts**
-   tab. Find `DemoHighErrorRatio` and note its state (`Inactive` if no errors).
-   This is the *evaluation* side (Prometheus). Now port-forward Alertmanager:
-   ```bash
-   kubectl port-forward -n monitoring svc/kps-kube-prometheus-stack-alertmanager 9093:9093
-   ```
-   Open `http://localhost:9093` — the *routing* side. Nothing's firing yet;
-   you'll change that.
+# Root Route: Default catching tree
+route:
+  receiver: "slack-default"
+  group_by: ["alertname", "cluster", "service", "namespace"]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
 
-2. **(WSL2) Force an alert to actually fire.** Drive real 5xx errors so
-   `DemoHighErrorRatio` crosses its threshold. If the example app has an error
-   endpoint, hammer it; otherwise deploy a workload that returns 500s, or
-   temporarily lower the rule's threshold to something the current error rate
-   exceeds. Drive traffic, wait past the `for:` duration, and watch the alert go
-   `Inactive → Pending → Firing` in the Prometheus **Alerts** tab, then appear
-   in the **Alertmanager** UI. You just watched the full pipeline fire — the
-   opposite of module 02's never-fires trap.
+  # Child Routes: Specialized matchers
+  routes:
+    # Critical Pager Alerts -> PagerDuty
+    - matchers:
+        - severity = page
+      receiver: "pagerduty-oncall"
+      continue: true # Also mirror to Slack channel below
 
-3. **(WSL2) Configure grouping and severity routing.** Edit the chart's
-   Alertmanager config (via `helm upgrade ... --set` or an
-   `AlertmanagerConfig`/values file) to add `group_by: [alertname, namespace]`
-   and two sub-routes: `severity="critical"` → one receiver, `severity="warning"`
-   → another. Use a simple webhook receiver you can watch — run a throwaway
-   sink:
-   ```bash
-   kubectl run webhook-sink -n monitoring --image=mendhak/http-https-echo --port=8080
-   kubectl expose pod webhook-sink -n monitoring --port=8080
-   ```
-   Point a receiver's `webhook_configs.url` at
-   `http://webhook-sink:8080`. Re-fire the alert and confirm it's delivered to
-   the sink (`kubectl logs -n monitoring webhook-sink`) — and that because it's
-   `severity: warning`, it took the warning route.
+    # Team-Specific Routing
+    - matchers:
+        - team = checkout
+      receiver: "slack-checkout-team"
 
-4. **(WSL2) Prove grouping collapses a flood.** Scale the demo app up and make
-   *several* pods error simultaneously so multiple alert instances fire. With
-   `group_by: [alertname, namespace]`, confirm Alertmanager sends **one grouped
-   notification** covering all of them, not one per pod. This is the core
-   anti-fatigue mechanism, demonstrated.
+    # Warning / Ticket Routing
+    - matchers:
+        - severity = warning
+      receiver: "slack-warnings"
 
-5. **(WSL2) Create a silence.** In the Alertmanager UI, **Silences → New
-   Silence**, match `alertname="DemoHighErrorRatio"`, set a 1-hour expiry and a
-   comment ("planned load test"). Re-fire the condition and confirm **no
-   notification is sent** while the silence is active, but the alert still shows
-   as firing (silenced, not gone). Then expire/remove the silence and confirm
-   notifications resume. This is muting-on-purpose vs. deleting the alert.
+# Inhibition: Suppress noisy alerts when parent infrastructure fails
+inhibit_rules:
+  # When an entire node is down, suppress all pod and container alerts on that node
+  - source_matchers:
+      - alertname = "NodeDown"
+    target_matchers:
+      - alertname =~ "PodDown|ContainerOOMKilled|KubeletLivenessProbeFailed"
+    equal: ["node"]
 
-6. **Diagnose and fix: an alert that never pages because of a routing/label
-   mismatch.** A subtle, real failure: the alert *fires* in Prometheus but
-   nobody's notified. Reproduce by giving the rule `labels: {severity:
-   critical}` while your route only has a sub-route for `severity="warning"`
-   (and a `default` receiver that goes nowhere useful, or a matcher typo like
-   `severity="crtical"`). Fire it: the Prometheus **Alerts** tab shows
-   **Firing**, but the webhook sink gets **nothing**. Diagnose the real way — in
-   the Alertmanager UI the alert *is present* but you trace the routing tree and
-   see it fell through to the wrong/dead receiver because no `matchers` matched
-   its labels. **Fix** by aligning the rule's `severity` label with a route
-   matcher (or fixing the typo). Lesson: **"firing in Prometheus" ≠ "someone
-   got paged" — the label on the rule must match a route matcher, or the alert
-   fires into the void.** This is the alerting cousin of every silent
-   selector-mismatch in this track (ServiceMonitor, LogQL, trace context).
+  # When a service is 100% down, suppress latency warnings for that service
+  - source_matchers:
+      - alertname = "ServiceUnavailable"
+    target_matchers:
+      - alertname = "APIP99LatencyBreach"
+    equal: ["service", "namespace"]
 
-7. **(WSL2) Write down the good-vs-noisy judgment.** For three candidate
-   alerts — (a) `node CPU > 80%`, (b) `checkout error ratio > 5% for 10m`, (c)
-   `a pod restarted once` — decide for each: page, ticket, or neither, and why.
-   (Reference answer: (a) neither/ticket — cause not symptom, high CPU that
-   isn't hurting users isn't an incident; (b) page — user-facing symptom,
-   actionable; (c) neither — one restart is normal noise. Alert on symptoms
-   users feel.)
+receivers:
+  - name: "slack-default"
+    slack_configs:
+      - channel: "#alerts-general"
+        send_resolved: true
+        title: '[{{ .Status | toUpper }}] {{ .GroupLabels.alertname }} ({{ .CommonLabels.namespace }})'
+        text: >-
+          {{ range .Alerts }}
+            *Alert:* {{ .Annotations.summary }}
+            *Description:* {{ .Annotations.description }}
+            *Runbook:* <{{ .Annotations.runbook_url }}|Runbook Link>
+          {{ end }}
 
-8. **(WSL2) Clean up the test bits** (keep the stack):
-   ```bash
-   kubectl delete pod webhook-sink -n monitoring; kubectl delete svc webhook-sink -n monitoring
-   ```
-   Revert the rule's threshold/severity if you changed them for testing.
+  - name: "slack-checkout-team"
+    slack_configs:
+      - channel: "#alerts-checkout"
+        send_resolved: true
 
-## Independent challenge
+  - name: "slack-warnings"
+    slack_configs:
+      - channel: "#alerts-low-priority"
+        send_resolved: false
 
-No config given — write it yourself using this module plus
-[module 02](../02-promql-in-depth/README.md) (authoring the rule) and
-[module 00](../00-observability-concepts-and-three-pillars/README.md)
-(symptom vs. cause thinking). Design a *small, deliberately curated* alerting
-setup for the demo app — no more than **three** alerting rules — where every
-alert is **symptom-based and actionable**, each carries a `severity` label, and
-the Alertmanager routing sends `critical` to one receiver and `warning` to
-another, with sensible `group_by`. Then *prove the whole thing works*: force
-the `critical` alert's condition, watch it travel rule → firing → routed →
-delivered to the correct receiver, and separately create a time-boxed silence
-for it and confirm the notification stops. Finally, write one paragraph
-justifying *why you chose those three alerts and rejected others* — this
-written justification is the actual deliverable, because curating *what not to
-alert on* is the skill that prevents alert fatigue. Draw explicitly on the RED
-(Rate/Errors/Duration) shape from module 03's dashboard.
+  - name: "pagerduty-oncall"
+    pagerduty_configs:
+      - service_key: "YOUR-PAGERDUTY-INTEGRATION-KEY"
+        severity: "critical"
+        send_resolved: true
+```
+
+---
+
+## 6. Practical Hands-On Verification CLI Workflows
+
+Follow this exercise to fire a live test alert on your `kind` cluster and inspect it using the Alertmanager CLI (`amtool`) and HTTP API.
+
+### Step 1: Forward the Alertmanager Web Service
+
+Forward Alertmanager port `9093` to your local environment:
+
+```bash
+kubectl port-forward -n monitoring svc/kps-alertmanager 9093:9093 &
+```
+
+Verify Alertmanager is healthy:
+
+```bash
+curl -s http://localhost:9093/api/v2/status | grep -o '"clusterStatus":"ready"'
+```
+
+**Expected Output:**
+```
+"clusterStatus":"ready"
+```
+
+### Step 2: Inject a Synthetic Firing Alert via HTTP API
+
+Use `curl` to push a firing alert directly to Alertmanager's v2 API:
+
+```bash
+curl -X POST http://localhost:9093/api/v2/alerts \
+  -H "Content-Type: application/json" \
+  -d '[
+    {
+      "labels": {
+        "alertname": "SyntheticCheckoutFailure",
+        "severity": "page",
+        "team": "checkout",
+        "service": "order-processor",
+        "namespace": "demo"
+      },
+      "annotations": {
+        "summary": "Simulated critical failure for on-call verification",
+        "description": "Order processor transaction success dropped below 90%",
+        "runbook_url": "https://wiki.internal/ops/checkout-runbook"
+      },
+      "generatorURL": "http://prometheus.local/test"
+    }
+  ]'
+```
+
+Verify that the alert is registered as active:
+
+```bash
+curl -s http://localhost:9093/api/v2/alerts | grep -E '"alertname":"SyntheticCheckoutFailure"'
+```
+
+**Expected Output:**
+```
+      "alertname": "SyntheticCheckoutFailure",
+```
+
+### Step 3: Create a Maintenance Silence via CLI
+
+During planned maintenance or bug remediation, silence the alert for 1 hour so the on-call pager does not fire:
+
+```bash
+curl -X POST http://localhost:9093/api/v2/silences \
+  -H "Content-Type: application/json" \
+  -d '{
+    "matchers": [
+      {
+        "name": "alertname",
+        "value": "SyntheticCheckoutFailure",
+        "isRegex": false,
+        "isEqual": true
+      }
+    ],
+    "startsAt": "'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'",
+    "endsAt": "'"$(date -u -d '+1 hour' +%Y-%m-%dT%H:%M:%SZ)"'",
+    "createdBy": "oncall-engineer",
+    "comment": "Silencing synthetic alert during pipeline verification"
+  }'
+```
+
+**Expected Output:**
+```json
+{"silenceID":"9b3e1572-18ad-4d87-9bb3-938749a21b3f"}
+```
+
+Verify that the active alert now transitions to state `silenced`:
+
+```bash
+curl -s http://localhost:9093/api/v2/alerts | grep -B 2 -A 5 "SyntheticCheckoutFailure"
+```
+
+---
+
+## 7. Operational Validation Checkpoints
+
+Test your incident handling and alert design readiness with these scenarios.
 
 <details>
-<summary>Stuck? One hint</summary>
+<summary><b>Checkpoint 1: Why did 30 pods crashing trigger 30 individual Slack messages, and how do you fix it?</b></summary>
 
-Three good alerts for a web service are almost always the RED symptoms: high
-**error ratio** (5xx fraction, `critical`), high **latency** (p99 over a
-threshold, `warning` or `critical`), and **traffic gone to zero** when you
-expect some (`== 0` for a duration — the corrected version of module 02's
-never-fires trap). Reject cause-based alerts (CPU, memory, restart counts)
-unless they're the *only* signal of a user-facing problem. For routing, the
-rule's `labels.severity` must exactly match a route `matchers` entry (module
-06's exercise-6 trap) or it pages nobody; test the bad path by mismatching them
-on purpose first.
+**Scenario:** A worker node crashed, taking down 30 pods. Instead of one summary notification, the `#alerts` channel received 30 individual messages within 10 seconds.
 
-</details>
+**Analysis & Root Cause:**
+The Alertmanager route was missing the `group_by` directive or had `group_wait` set to `0s`. When `group_wait` is `0s`, Alertmanager dispatches each incoming alert immediately without buffering.
 
-## Common mistakes & troubleshooting
-
-- **Firing ≠ paged.** An alert can be `Firing` in Prometheus yet notify no one
-  because its labels match no route (or match a dead receiver). Trace the
-  routing tree in the Alertmanager UI; align the rule's `severity` label with a
-  route matcher.
-- **No grouping → pager flood.** Without `group_by`, one incident affecting 40
-  pods sends 40 notifications. Group by `alertname` + a service/namespace label
-  so one incident is one notification.
-- **Cause-based alerts.** Paging on CPU/memory/restart counts that aren't
-  hurting users trains people to ignore the pager. Alert on user-facing
-  *symptoms* (errors, latency, availability).
-- **Deleting a noisy alert instead of silencing it.** If an alert keeps crying
-  wolf during known work, create a time-boxed **silence**; deleting the rule
-  loses it for the day it matters.
-- **Everything is `critical`.** If every alert pages at 3am, none of them mean
-  anything. Reserve `critical`/page for actionable user-facing incidents; route
-  `warning` to a ticket/Slack channel.
-- **No `for:` duration.** Alerting on an instantaneous condition flaps on every
-  blip. Use a `for:` so a momentary spike doesn't page (module 02).
-- **Untested routing.** A routing tree you never fired an alert through is a
-  guess. Force each severity path once and confirm it lands where you intended.
-
-## Checkpoint quiz
-
-Write down your answer to each question before expanding it — checking without attempting first is the single easiest way to fool yourself into thinking you've learned this.
-
-<details>
-<summary>Show questions</summary>
-
-1. What's the division of labor between Prometheus and Alertmanager for
-   alerting?
-2. What does `group_by` do, and what failure does it prevent?
-3. Silencing vs. inhibition — how do they differ and when do you use each?
-4. Give the three-part test for whether something should be a paging alert.
-5. Why is a symptom-based alert (error ratio) usually better than a cause-based
-   one (high CPU)?
-6. An alert shows `Firing` in Prometheus but no one is notified. What's the most
-   likely cause and where do you diagnose it?
-7. What is alert fatigue, and name two concrete mechanisms in this module that
-   fight it.
-
+**Production Fix:**
+1. Configure `group_by` to cluster related alerts:
+   ```yaml
+   group_by: ['alertname', 'namespace', 'service']
+   ```
+2. Set `group_wait: 30s`. Alertmanager will hold the first alert for 30 seconds, collect all other 29 failing pod alerts, and dispatch a single aggregated notification: `"30 instances of PodDown firing in namespace prod"`.
 </details>
 
 <details>
-<summary>Show answers</summary>
+<summary><b>Checkpoint 2: What is the exact operational lifecycle difference between `group_wait`, `group_interval`, and `repeat_interval`?</b></summary>
 
-1. Prometheus evaluates the alerting rules (the PromQL + `for:`) and sends
-   firing alerts to Alertmanager; Alertmanager evaluates no PromQL — it handles
-   routing, grouping, deduplication/inhibition, and silencing of the alerts it
-   receives.
-2. `group_by` bundles alerts sharing the given labels into a single
-   notification; it prevents a pager flood where one incident affecting many
-   pods sends one notification per pod.
-3. A **silence** is a manual, time-boxed mute you create for a known issue (via
-   label matchers with an expiry); **inhibition** is a standing rule that
-   automatically suppresses smaller alerts when a bigger related one is firing.
-   Silence for planned/known noise now; inhibition for "the big alert obviously
-   causes these small ones."
-4. When it fires: (1) is there something a human must *do* (actionable), (2) is
-   it a user-facing symptom worth acting on, and (3) is it worth waking someone
-   *now* (else make it a `warning`/ticket). If any answer is no, it shouldn't
-   page.
-5. Because a symptom (elevated errors/latency) means users are actually being
-   hurt and there's something to do; high CPU that isn't degrading anything is
-   not an incident, and paging on it desensitizes people to the pager (and it's
-   the SLO thinking track 20 formalizes).
-6. Its labels don't match any route (or match a dead/wrong receiver) — e.g. a
-   `severity` label with no matching route matcher, or a matcher typo. Diagnose
-   in the Alertmanager UI by tracing the routing tree; the alert is present but
-   routes to nowhere useful. Fix by aligning the rule's labels with a route
-   matcher.
-7. Alert fatigue is desensitization from too many noisy/non-actionable/
-   duplicated alerts, causing people to ignore all of them including the real
-   one. Fighters: grouping (`group_by`) to collapse floods, symptom-based
-   alerting, severity routing (page vs. ticket), and silencing known noise —
-   any two.
-
+**Operational Timeline:**
+1. **`group_wait` (e.g. 30s):** Initial pause upon the *first* alert in a group. It allows all sibling alerts from the same root incident to arrive before publishing the initial message.
+2. **`group_interval` (e.g. 5m):** The rate-limit on updates. If a 31st pod crashes 1 minute after the initial notification, Alertmanager waits until the `group_interval` expires before sending an updated batch notification.
+3. **`repeat_interval` (e.g. 4h):** The reminder cooldown. If the same 31 pods remain crashed for hours with no new alerts added or resolved, Alertmanager stays completely silent until `repeat_interval` elapses, at which point it sends a reminder notification to the on-call engineer.
 </details>
 
-## Further reading & sources
+<details>
+<summary><b>Checkpoint 3: How does an Alertmanager Inhibition Rule prevent paging during network switch failures?</b></summary>
 
-- [Alerting Without Fatigue](../../../backend/08-observability-and-operational-readiness/08-alerting-without-fatigue/README.md) - tool-agnostic alerting philosophy: SLO and burn-rate alerting, symptom vs cause, actionable pages.
+**Scenario:** A Top-of-Rack network switch fails. All 20 worker nodes in the rack lose connectivity.
+
+**Mechanism:**
+1. Prometheus fires `RackSwitchDown{rack="R10"}` and 20 instances of `NodeUnreachable{rack="R10"}`.
+2. An inhibition rule matches:
+   ```yaml
+   inhibit_rules:
+     - source_matchers: [alertname = "RackSwitchDown"]
+       target_matchers: [alertname = "NodeUnreachable"]
+       equal: ["rack"]
+   ```
+3. Alertmanager suppresses all 20 `NodeUnreachable` notifications as long as `RackSwitchDown` is actively firing. The on-call network engineer receives one page for the switch, and the compute team is not spammed with 20 phantom node alerts.
+4. **Resolution Transition:** Once the switch recovers and `RackSwitchDown` resolves, the inhibition rule deactivates automatically. If any individual node remains down after the switch is healthy, its alert immediately uninhibits and notifies the team.
+</details>
+
+---
 
 ## Next
 
-[07-correlating-the-three-pillars](../07-correlating-the-three-pillars/README.md)
-— you can now collect all three pillars and alert on them. The final skill is
-the payoff: using a trace ID to jump from a metric spike to the exact logs to
-the specific trace, turning three separate tools into one debugging flow.
+Continue to **[07-correlating-the-three-pillars](../07-correlating-the-three-pillars/README.md)** to connect metrics, logs, and traces into a single unified incident troubleshooting workflow.

@@ -1,303 +1,518 @@
-# Grafana: Dashboards and Visualization
+# 03 - Grafana: Dashboards and Visualization
 
-## Why this matters
+> **Prerequisites**: [01 - Prometheus Fundamentals](../01-prometheus-fundamentals/README.md), [02 - PromQL in Depth](../02-promql-in-depth/README.md).  
+> **Target Audience**: SREs, Systems Architects, and DevOps Engineers engineering actionable, high-performance operational dashboards, templated variable chains, and declarative Dashboards-as-Code.  
+> **Estimated Deep-Dive Time**: 40 minutes.
 
-PromQL in the Prometheus UI is fine for one-off queries, but nobody watches a
-query box during an incident — they watch a **dashboard**. In
-[track 07](../../07-aks/06-monitoring-aks-azure-monitor-container-insights/README.md)
-the Container Insights workbooks were built and styled for you; here you build
-the dashboards yourself in **Grafana**, the open-source visualization layer
-that sits on top of Prometheus (and, later, Loki and Tempo — one pane of glass
-for all three pillars). Learning to build a *good* dashboard — the right panels
-on real PromQL, variables that make one dashboard serve many services, and
-knowing when to just import a community board — is the difference between a
-wall of pretty graphs and something that actually answers questions fast.
+---
 
-## Concepts
+> [!TIP]
+> **The Golden Rule of Dashboard Architecture**: **Organize by intent, not by infrastructure.** Structure your operational dashboards around the **RED Method (Rate, Errors, Duration)** at the top for customer-facing services, and the **USE Method (Utilization, Saturation, Errors)** at the bottom for underlying infrastructure. Never click-build permanent production dashboards in the web UI; treat dashboards as version-controlled **JSON artifacts deployed via Kubernetes ConfigMaps and GitOps**.
 
-### Data sources — Grafana queries, it doesn't store
+---
 
-Grafana stores *no metrics of its own*. It's a query-and-visualize front end
-that connects to **data sources**: Prometheus for metrics, Loki for logs
-(module 04), Tempo for traces (module 05). The `kube-prometheus-stack` you
-installed already wired Grafana to its Prometheus as the default data source,
-so you can build panels immediately. The key mental model: **a Grafana panel
-is a saved PromQL (or LogQL, or TraceQL) query plus a choice of how to draw
-it.** Everything you learned in module 02 is what goes in the query box; this
-module is about the *drawing* and the *organizing*.
+## 1. Visual Mental Models: The Unified Pane of Glass
 
-### Panels and visualization types — match the viz to the question
+Grafana stores no telemetry of its own; it acts as a high-performance query dispatcher and rendering engine querying disparate data sources simultaneously:
 
-A **panel** is one visualization of one or more queries. The type you pick
-should match the *shape* of the question:
+```mermaid
+sequenceDiagram
+    autonumber
+    actor SRE as Engineer / Browser
+    participant Grafana as Grafana UI & Server
+    participant Prom as Prometheus (Metrics)
+    participant Loki as Grafana Loki (Logs)
+    participant Tempo as Grafana Tempo (Traces)
 
-- **Time series** (line graph) — the default for anything trending over time:
-  request rate, latency, CPU. 90% of panels.
-- **Stat / gauge** — a single current number (or number vs. threshold): "error
-  rate right now", "pods ready". Good for at-a-glance status tiles.
-- **Bar gauge / table** — comparing a value *across* a label dimension (top-10
-  slowest endpoints, per-namespace request counts).
-- **Heatmap** — histogram buckets over time, the natural way to *see* a latency
-  distribution shift (the visual counterpart to `histogram_quantile`).
+    SRE->>Grafana: Opens Dashboard (Variables: namespace="prod", pod="order-api-x")
+    Grafana->>Grafana: Evaluates Template Variables in Parallel
+    par Query Metrics
+        Grafana->>Prom: Query: rate(http_requests_total{pod="order-api-x"}[$__rate_interval])
+        Prom-->>Grafana: Return time series vector
+    and Query Logs
+        Grafana->>Loki: Query: {pod="order-api-x"} |= "error"
+        Loki-->>Grafana: Return timestamped log streams
+    and Query Traces
+        Grafana->>Tempo: Query: traceId="4bf92f3577b34da6"
+        Tempo-->>Grafana: Return Span DAG
+    end
+    Grafana-->>SRE: Renders unified multi-panel dashboard with synchronized time range!
+```
 
-Choosing a stat panel for a trend, or a giant table where a graph would do, is
-the most common "technically correct but useless" dashboard mistake. Match the
-viz to whether the question is "what's the trend", "what's the value now", or
-"how do parts compare".
+---
 
-### Variables and templating — one dashboard, many targets
+### Dashboard Information Architecture: The RED Method
 
-A dashboard hard-coded to `namespace="demo"` is useless for your other 20
-namespaces. **Template variables** fix this: you define a variable like
-`$namespace` whose values are populated by a query
-(`label_values(kube_pod_info, namespace)`), Grafana renders a dropdown at the
-top of the dashboard, and your panels use `namespace="$namespace"` instead of a
-literal. Now *one* dashboard serves every namespace, switchable from a dropdown.
-This is the single biggest force-multiplier in Grafana — the same "parameterize
-the reusable thing" idea as a Gatekeeper ConstraintTemplate's parameters
-(track 11) or a Terraform variable (track 09), applied to dashboards. Variables
-can also be **multi-value** and **`All`**, and chain (a `$pod` variable filtered
-by the chosen `$namespace`).
+To reduce cognitive overload during high-stress production incidents, layout panels vertically according to diagnostic priority:
 
-### Importing community dashboards — don't build what exists
+```mermaid
+flowchart TD
+    subgraph Row1 ["TIER 1: At-a-Glance Executive Health (Stat Panels)"]
+        Stat1["Service Availability<br/>99.98% (Target 99.9%)"]
+        Stat2["Live Traffic Rate<br/>12,450 req/sec"]
+        Stat3["Current Error Ratio<br/>0.04% (<0.5%)"]
+        Stat4["P99 Latency<br/>84ms (<200ms)"]
+    end
 
-For common systems (Kubernetes cluster health, node-exporter, NGINX, Postgres)
-excellent dashboards already exist on **grafana.com/dashboards**, each with a
-numeric ID you paste into Grafana's import screen. `kube-prometheus-stack` even
-ships a set pre-loaded. The discipline: **import a community dashboard for
-standard/off-the-shelf systems, build your own only for *your* app's custom
-metrics.** Reinventing the Kubernetes-cluster dashboard by hand is wasted
-effort; a dashboard for *your* business metrics (`orders_total`,
-`checkout_duration`) is something only you can build. Imported dashboards also
-teach you PromQL — open their panels and read the queries.
+    subgraph Row2 ["TIER 2: The RED Method (Time Series Panels)"]
+        RED1["RATE: Inbound Request Throughput (req/s by endpoint)"]
+        RED2["ERRORS: 4xx & 5xx HTTP Error Rate (by status code)"]
+        RED3["DURATION: P50, P90, P99 Latency Distribution & Heatmaps"]
+    end
 
-### Dashboards as code (a forward glance to GitOps)
+    subgraph Row3 ["TIER 3: The USE Method (Underlying Infrastructure)"]
+        USE1["UTILIZATION: Container CPU & Memory vs Requests/Limits"]
+        USE2["SATURATION: JVM Garbage Collection & Go Goroutine Counts"]
+        USE3["ERRORS: Network Drops, Conntrack Table Full, Pod Restarts"]
+    end
 
-Clicking a dashboard together in the UI is how you *learn*, but a
-click-built dashboard lives only in Grafana's database and vanishes if the pod
-is recreated. Grafana dashboards are ultimately **JSON**, which means they can
-be version-controlled and provisioned declaratively — exactly the
-config-as-code discipline from [track 10](../../10-cicd-and-gitops/README.md).
-`kube-prometheus-stack` provisions its dashboards from ConfigMaps this way. You
-won't do a full GitOps dashboard pipeline here, but internalize now that the
-*real* home for a dashboard you care about is a JSON file in Git, not a
-hand-clicked artifact in one Grafana instance — a click-built board is a draft,
-not a deliverable.
+    Row1 --> Row2 --> Row3
+```
 
-## Command reference
+---
 
-Grafana is mostly a web UI, so this is a mix of access commands and
-UI-navigation "where do I click" reference.
+## 2. Technical Comparison: Panel Visualization Types
 
-| Command / UI path | What it does | Example |
-|---|---|---|
-| `kubectl get secret ... grafana` | Retrieves the auto-generated admin password | see exercise 1 |
-| `kubectl port-forward -n monitoring svc/kps-grafana 3000:80` | Opens Grafana locally | see exercise 1 |
-| UI: **Connections → Data sources** | Lists/adds data sources (Prometheus is pre-wired) | — |
-| UI: **Dashboards → New → New dashboard → Add visualization** | Starts a panel; pick data source, enter PromQL | exercise 3 |
-| UI: **Dashboard settings → Variables** | Define template variables (`$namespace`, `$pod`) | exercise 5 |
-| UI: **Dashboards → New → Import** | Import by grafana.com ID or JSON | exercise 6 |
-| `label_values(metric, label)` | Grafana variable query: list a label's values | `label_values(kube_pod_info, namespace)` |
+### Visualization Selection Matrix
 
-Flag-by-flag breakdown of the two commands worth dissecting:
+| Visualization Type | Data Shape Expected | Best Used For | Anti-Pattern Warning |
+| :--- | :--- | :--- | :--- |
+| **Time Series** | Vector with multiple timestamp samples | Tracking throughput, CPU%, latency trends over time | Do not use for current singleton values (use Stat) |
+| **Stat** | Single scalar or current vector sample | High-level KPI status tiles, SLO error budget remaining | Avoid plotting 50 series into one tile |
+| **Bar Gauge** | Categorical series with current value | Comparing CPU across 10 worker nodes | Do not use for long-term historical trending |
+| **Heatmap** | Histogram bucket distribution (`le`) | Visualizing multi-modal latency distributions & tail spikes | Requires `sum by (le)` buckets |
+| **Logs** | Chronological text streams | Live log tails correlated with metric spikes | Never query unbounded broad time ranges without label filters |
+| **Node Graph** | Directed Acyclic Graph (Edges & Nodes) | Visualizing microservice call DAGs and network latency | Requires distributed tracing backend (Tempo) |
 
-`kubectl get secret -n monitoring kps-grafana -o jsonpath='{.data.admin-password}' | base64 -d`
-- `kps-grafana` — the Secret the chart created for Grafana's admin creds.
-- `-o jsonpath='{.data.admin-password}'` — extract just the password field
-  (Secret data is base64).
-- `| base64 -d` — decode it. The default username is `admin`.
+---
 
-Variable query `label_values(kube_pod_info, namespace)`
-- `label_values(<metric>, <label>)` — a Grafana-specific templating function
-  (not PromQL) that returns the distinct values of `<label>` across series of
-  `<metric>`. Here: every namespace that has pods — the dropdown's options.
-- Use `label_values(kube_pod_info{namespace="$namespace"}, pod)` for a *chained*
-  `$pod` variable that only lists pods in the selected namespace.
+### Template Variables Syntax Reference
 
-## Hands-on exercises
+Grafana variables transform static dashboards into dynamic, reusable templates:
 
-Continue on the **kind** cluster with `kube-prometheus-stack`, the demo app,
-and the recording rule from
-[module 02](../02-promql-in-depth/README.md). Generate some traffic first so
-panels have data (`for i in $(seq 500); do curl -s localhost:8080/ >/dev/null;
-done` against the port-forwarded `metrics-app`).
+```text
+# 1. Query all available namespaces:
+label_values(kube_pod_info, namespace)
 
-1. **(WSL2) Log into Grafana.**
-   ```bash
-   kubectl get secret -n monitoring kps-grafana -o jsonpath='{.data.admin-password}' | base64 -d; echo
-   kubectl port-forward -n monitoring svc/kps-grafana 3000:80
+# 2. Chained variable: Query pods belonging strictly to selected $namespace:
+label_values(kube_pod_info{namespace="$namespace"}, pod)
+
+# 3. Query all endpoints for a specific service:
+label_values(http_requests_total{service="order-api"}, path)
+
+# 4. Built-in Dynamic Variables:
+$__interval          # Dynamically chosen range (e.g. 15s or 1m) based on panel width
+$__rate_interval     # Guarantees range is at least (4 * scrape_interval) to prevent empty rate()
+$__range             # Current dashboard full time range (e.g. 6h or 24h)
+```
+
+---
+
+## 3. Production War Story: The Dashboard UI Freeze & Database Denial-of-Service
+
+### Incident Overview
+A global payment processing platform experienced a major latency degradation during morning market opening. To monitor the incident, 45 engineers and managers opened the "Payment Processing Master Dashboard."
+
+The dashboard contained 32 individual panels. Several panels executed raw unaggregated PromQL queries over 24-hour windows with auto-refresh set to `5s`. Within 2 minutes of the engineers opening their browsers, the Prometheus server was hit with over 1,200 complex PromQL queries per minute. Prometheus thread pool saturated, memory surged from 8GB to 64GB, and the server locked up completely, blinding both the incident response team and the automated Kubernetes autoscaler.
+
+### The Catastrophic Failure Sequence
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Team as 45 Incident Responders
+    participant Browser as 45 Grafana Browser Tabs
+    participant Grafana as Grafana Web Server
+    participant Prom as Prometheus TSDB (Thread Pool: 20)
+    participant Alert as PagerDuty Alerts
+
+    Team->>Browser: Open "Master Dashboard" (Auto-Refresh: 5s, Window: 24h)
+    Note over Browser: 45 users x 32 panels = 1,440 queries every 5 seconds!<br/>Queries lack 'sum by' and compute raw un-indexed rates!
+    Browser->>Grafana: Dispatch 288 req/sec PromQL stream
+    Grafana->>Prom: Query TSDB
+    Note over Prom: All 20 query execution threads blocked!<br/>In-memory chunk reader exhausted -> CPU 100%!
+    Prom-->>Grafana: HTTP 504 Gateway Timeout
+    Grafana-->>Browser: Dashboards display: "Query Timeout: Server Overloaded"
+    Note over Prom,Alert: Alert evaluation loop freezes!<br/>Prometheus cannot evaluate active firing alerts!
+    Team-->>Team: Total Incident Blindness: Telemetry self-inflicted blackout!
+```
+
+### Root Cause Analysis
+1. **Unbounded Auto-Refresh Rates**: The dashboard enabled a default refresh rate of `5s`. With 45 concurrent browser sessions, this generated an accidental Distributed Denial of Service (DDoS) against the monitoring backend.
+2. **Missing Pre-Computed Recording Rules**: Complex panels evaluated heavy multi-hour quantile regressions on the fly rather than querying pre-computed recording rules (`job:http_request_duration:p99`).
+3. **No Max Concurrent Query Limits**: Grafana's Prometheus data source lacked rate limits, forwarding every raw browser query directly to the TSDB.
+
+### The Remediation & Permanent Hardening Rules
+1. **Enforce Minimum Dashboard Refresh**: Set minimum auto-refresh to `30s` or `1m` across all shared team dashboards:
+   ```json
+   "refresh": "1m"
    ```
-   Browse to `http://localhost:3000`, log in as `admin` with that password.
+2. **Replace Heavy Queries with Recording Rules**: Replace live raw metric queries with pre-computed recording rules (from module 02).
+3. **Configure Query Concurrency Limits**: In the Prometheus data source configuration, set `Max concurrent queries: 10` and enable query caching in Grafana.
 
-2. **(WSL2) Confirm the data source.** Go to **Connections → Data sources** and
-   confirm a **Prometheus** data source exists and its **Test** button passes.
-   This is the pre-wired connection; note Grafana stores nothing itself — it's
-   querying the Prometheus you installed in module 01.
+---
 
-3. **(WSL2) Build your first panel on real PromQL.** **Dashboards → New → New
-   dashboard → Add visualization**, pick the Prometheus data source, and in the
-   query box enter
-   `sum by (code) (rate(http_requests_total{namespace="demo"}[5m]))`. Set the
-   visualization to **Time series**. You should see request rate split by
-   status code — the module 02 query, now drawn. Give the panel a title
-   ("Demo app request rate by status").
+## 4. Multi-Language Dashboards-as-Code Implementations
 
-4. **(WSL2) Add a stat panel and a latency panel.** Add two more panels to the
-   same dashboard:
-   - A **Stat** panel showing current total rate:
-     `sum(rate(http_requests_total{namespace="demo"}[5m]))`.
-   - A **Time series** panel for p95 latency:
-     `histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket{namespace="demo"}[5m])))`.
-   Save the dashboard ("Demo app"). You now have a multi-panel board on your
-   own app's real metrics — a capstone requirement.
+Production dashboards should never be created exclusively in the web UI. Below are automated Dashboard-as-Code generators in **Go**, **TypeScript**, and **Python** outputting version-controlled, production-ready Grafana JSON.
 
-5. **(WSL2) Add a `$namespace` variable and templatize.** **Dashboard settings
-   → Variables → New variable**: name `namespace`, type *Query*, data source
-   Prometheus, query `label_values(kube_pod_info, namespace)`. Save. A dropdown
-   appears at the top. Now edit each panel's query, replacing
-   `namespace="demo"` with `namespace="$namespace"`. Switch the dropdown to
-   `monitoring` and watch the panels re-target a different namespace with no
-   query rewriting. This is the reusability payoff.
+### Go Implementation (Grafana Foundation SDK)
 
-6. **(WSL2) Import a community dashboard.** **Dashboards → New → Import**, enter
-   ID **1860** (the popular "Node Exporter Full" board), select your Prometheus
-   data source, and import. Explore it — CPU, memory, disk, network per node,
-   all pre-built. Open one panel's edit view and read its PromQL: you're
-   learning query patterns from a board you didn't have to write. Note the
-   discipline: you'd *never* hand-build this; you *would* hand-build panel 3/4's
-   app-specific board.
+```go
+// cmd/gen-dashboard/main.go
+package main
 
-7. **Diagnose and fix: a panel showing "No data" because of a label that
-   doesn't exist.** Add a panel with a subtly wrong query:
-   `sum by (code) (rate(http_requests_total{namespace="demo",status="200"}[5m]))`.
-   It shows **No data**. The bug: this app labels status as **`code`**, not
-   `status`, so `status="200"` matches no series. Diagnose it the real way —
-   in the Prometheus UI (or Grafana's Explore), run
-   `http_requests_total{namespace="demo"}` and *read the actual label names* on
-   the returned series. **Fix** the query to use `code="200"`. Lesson (straight
-   from module 02's "binary op returns nothing"): **"No data" is almost always
-   a label name/value mismatch, not a broken data source** — verify labels
-   against real series, don't guess.
+import (
+	"encoding/json"
+	"fmt"
+	"log"
+	"os"
 
-8. **(WSL2) Use Explore to prototype before building panels.** Open **Explore**
-   (compass icon), pick Prometheus, and iterate on a query live before
-   committing it to a panel. This is the fastest debug loop — build the query in
-   Explore, confirm it returns data, *then* paste it into a panel. Adopt this
-   habit; it prevents the exercise-7 confusion.
+	"github.com/grafana/grafana-foundation-sdk/go/common"
+	"github.com/grafana/grafana-foundation-sdk/go/dashboard"
+	"github.com/grafana/grafana-foundation-sdk/go/timeseries"
+)
 
-9. **(WSL2) Export your dashboard as JSON.** **Dashboard settings → JSON
-   Model** (or the share/export menu). Copy the JSON. This is what "dashboards
-   as code" means — this file could live in Git and be provisioned
-   automatically (track 10's config-as-code idea). Note it's a plain,
-   version-controllable artifact, not locked inside Grafana.
+func main() {
+	builder := dashboard.NewDashboardBuilder("Order Service RED Dashboard").
+		Uid("order-service-red").
+		Tags([]string{"production", "red-method", "backend"}).
+		Refresh("30s").
+		Time("now-1h", "now")
 
-## Independent challenge
+	// Panel 1: Inbound Request Rate (Time Series)
+	ratePanel := timeseries.NewPanelBuilder().
+		Title("HTTP Inbound Throughput (Rate)").
+		Description("Per-second request rate partitioned by status code").
+		Unit("reqps").
+		WithTarget(common.NewDataqueryBuilder().
+			Expr(`sum by (status) (rate(http_requests_total{service="order-api"}[$__rate_interval]))`).
+			LegendFormat("{{status}}"))
 
-No panel specs given — design the board yourself using this module plus
-[module 02](../02-promql-in-depth/README.md) (the queries) and
-[module 01](../01-prometheus-fundamentals/README.md) (which metrics exist).
-Build a single, reusable **"service health" dashboard** for the demo app (or
-any workload you scrape) with at least four panels that together answer the
-questions an on-call engineer actually asks: *is it up, how much traffic, how
-many errors, how slow.* Requirements: at least one panel must use a **rate**,
-one must use a **ratio** (error fraction), one must show a **quantile**
-(p95/p99 latency), and the whole dashboard must be driven by a **`$namespace`
-template variable** so switching the dropdown re-targets every panel. Then find
-and import one relevant **community dashboard** for a system you *didn't* write
-(node-exporter, kube-state, or the cluster), and in a sentence justify why you
-built the first board by hand but imported the second. The skill is composing a
-dashboard that answers questions in the order an incident unfolds, not just
-displaying whatever metrics happen to exist.
+	builder.WithPanel(ratePanel)
+
+	builtDashboard, err := builder.Build()
+	if err != nil {
+		log.Fatalf("Failed to build dashboard: %v", err)
+	}
+
+	data, err := json.MarshalIndent(builtDashboard, "", "  ")
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	if err := os.WriteFile("order-service-dashboard.json", data, 0644); err != nil {
+		log.Fatal(err)
+	}
+
+	fmt.Println("Successfully generated order-service-dashboard.json")
+}
+```
+
+---
+
+### Node.js / TypeScript Implementation (Grafana Schema)
+
+```typescript
+// scripts/generateDashboard.ts
+import fs from 'node:fs';
+
+export interface GrafanaDashboard {
+  title: string;
+  uid: string;
+  tags: string[];
+  timezone: string;
+  schemaVersion: number;
+  refresh: string;
+  panels: Array<Record<string, unknown>>;
+}
+
+export function buildRedDashboard(serviceName: string): GrafanaDashboard {
+  return {
+    title: `${serviceName} Operational Telemetry`,
+    uid: `${serviceName}-ops-board`,
+    tags: ['production', 'red', serviceName],
+    timezone: 'utc',
+    schemaVersion: 38,
+    refresh: '1m',
+    panels: [
+      {
+        id: 1,
+        type: 'timeseries',
+        title: 'Throughput (Requests/sec)',
+        gridPos: { h: 8, w: 12, x: 0, y: 0 },
+        targets: [
+          {
+            expr: `sum by (status) (rate(http_requests_total{service="${serviceName}"}[$__rate_interval]))`,
+            legendFormat: 'Status {{status}}',
+          },
+        ],
+      },
+      {
+        id: 2,
+        type: 'timeseries',
+        title: 'P99 Latency (Seconds)',
+        gridPos: { h: 8, w: 12, x: 12, y: 0 },
+        targets: [
+          {
+            expr: `histogram_quantile(0.99, sum by (le) (rate(http_request_duration_seconds_bucket{service="${serviceName}"}[$__rate_interval])))`,
+            legendFormat: 'P99 Latency',
+          },
+        ],
+      },
+    ],
+  };
+}
+
+const dashboardJson = JSON.stringify(buildRedDashboard('payment-api'), null, 2);
+fs.writeFileSync('payment-api-dashboard.json', dashboardJson, 'utf8');
+console.log('Generated payment-api-dashboard.json');
+```
+
+---
+
+### Python Implementation (`grafanalib`)
+
+```python
+# scripts/gen_dashboard.py
+from grafanalib.core import (
+    Dashboard, TimeSeries, Target, GridPos,
+    OPS_FORMAT, SECONDS_FORMAT, SHORT_FORMAT
+)
+from grafanalib._gen import DashboardEncoder
+import json
+
+def generate_dashboard(service_name: str) -> Dashboard:
+    return Dashboard(
+        title=f"{service_name.title()} Service RED Telemetry",
+        uid=f"{service_name}-red-v1",
+        tags=["production", "sre", service_name],
+        timezone="utc",
+        refresh="1m",
+        panels=[
+            TimeSeries(
+                title="HTTP Request Rate (req/sec)",
+                dataSource="Prometheus",
+                targets=[
+                    Target(
+                        expr=f'sum by (status) (rate(http_requests_total{{service="{service_name}"}}[$__rate_interval]))',
+                        legendFormat="{{status}}",
+                    ),
+                ],
+                unit=OPS_FORMAT,
+                gridPos=GridPos(h=8, w=12, x=0, y=0),
+            ),
+            TimeSeries(
+                title="P99 Response Time",
+                dataSource="Prometheus",
+                targets=[
+                    Target(
+                        expr=f'histogram_quantile(0.99, sum by (le) (rate(http_request_duration_seconds_bucket{{service="{service_name}"}}[$__rate_interval])))',
+                        legendFormat="P99",
+                    ),
+                ],
+                unit=SECONDS_FORMAT,
+                gridPos=GridPos(h=8, w=12, x=12, y=0),
+            ),
+        ],
+    ).auto_panel_ids()
+
+if __name__ == "__main__":
+    board = generate_dashboard("order-service")
+    with open("order-service-dashboard.json", "w") as f:
+        json.dump(board.to_json_data(), f, sort_keys=True, indent=2, cls=DashboardEncoder)
+    print("Generated order-service-dashboard.json")
+```
+
+---
+
+## 5. Practical Hands-On Verification Laboratory
+
+In this laboratory, you will configure a Grafana dashboard declaratively using a Kubernetes `ConfigMap` sidecar, verify automatic dashboard loading, and inspect template variable bindings.
+
+### Step 1: Create Declarative Dashboard ConfigMap
+
+Save as `03-dashboard-configmap.yaml`:
+
+```yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: order-service-grafana-dashboard
+  namespace: monitoring
+  labels:
+    grafana_dashboard: "1" # Sidecar watches for this label!
+data:
+  order-service.json: |
+    {
+      "annotations": { "list": [] },
+      "editable": false,
+      "fiscalYearStartMonth": 0,
+      "graphTooltip": 1,
+      "id": null,
+      "links": [],
+      "liveNow": false,
+      "panels": [
+        {
+          "type": "stat",
+          "title": "Cluster Pod Health Status",
+          "gridPos": { "h": 6, "w": 6, "x": 0, "y": 0 },
+          "targets": [
+            {
+              "expr": "sum(up)",
+              "legendFormat": "Healthy Targets"
+            }
+          ]
+        },
+        {
+          "type": "timeseries",
+          "title": "Throughput by Method",
+          "gridPos": { "h": 6, "w": 18, "x": 6, "y": 0 },
+          "targets": [
+            {
+              "expr": "sum by (method) (rate(http_requests_total[$__rate_interval]))",
+              "legendFormat": "{{method}}"
+            }
+          ]
+        }
+      ],
+      "refresh": "1m",
+      "schemaVersion": 38,
+      "style": "dark",
+      "tags": ["kubernetes", "production"],
+      "time": { "from": "now-1h", "to": "now" },
+      "timepicker": {},
+      "timezone": "browser",
+      "title": "Declarative Order Platform Telemetry",
+      "uid": "decl-order-platform",
+      "version": 1
+    }
+```
+
+Apply to cluster:
+
+```bash
+kubectl apply -f 03-dashboard-configmap.yaml
+```
+
+---
+
+### Step 2: Verify Grafana Sidecar Auto-Import
+
+Inspect the Grafana sidecar container logs to verify it discovered the ConfigMap:
+
+```bash
+kubectl logs -n monitoring -l app.kubernetes.io/name=grafana -c grafana-sc-dashboard --tail=10
+```
+
+*Expected Terminal Output:*
+```text
+[INFO] ConfigMap "order-service-grafana-dashboard" found in namespace "monitoring"
+[INFO] File "order-service.json" written to "/tmp/dashboards/order-service.json"
+[INFO] Reloading Grafana dashboard provisioning... Done.
+```
+
+---
+
+### Step 3: Verify Dashboard via Grafana REST API
+
+Query the live Grafana API to confirm the dashboard exists:
+
+```bash
+kubectl port-forward -n monitoring svc/prometheus-grafana 3000:80 &
+
+# Query dashboard metadata by UID
+curl -s -u admin:prom-operator http://localhost:3000/api/dashboards/uid/decl-order-platform | jq '{title: .dashboard.title, panelsCount: (.dashboard.panels | length)}'
+```
+
+*Expected Terminal Output:*
+```json
+{
+  "title": "Declarative Order Platform Telemetry",
+  "panelsCount": 2
+}
+```
+
+---
+
+## 6. Command Quick-Reference Cheat Sheet
+
+| UI Path / Command | Objective / Action | Example Scenario |
+| :--- | :--- | :--- |
+| `kubectl port-forward -n monitoring svc/kps-grafana 3000:80` | Forward local port to cluster Grafana | Local development and UI review |
+| `label_values(metric, label)` | Populate template variable dropdown from Prometheus | Namespace and Pod selector filters |
+| `grafana_dashboard: "1"` | Kubernetes ConfigMap label triggering sidecar reload | GitOps Dashboards-as-Code delivery |
+| `$__rate_interval` | Optimal dynamic range window for `rate()` queries | Prevent `No Data` gaps on zoom out |
+| `curl -u admin:pass http://.../api/dashboards/db` | Programmatically export or create dashboards | Automated CI/CD dashboard publishing |
+
+---
+
+## 7. Operational Validation Checkpoints
+
+### Scenario 1: Panel Displays `No Data` When Zooming Out
+**Context:** A time-series panel querying `rate(http_requests_total[30s])` works fine on a 15-minute window. However, when the user zooms out to `Last 7 Days`, every graph line disappears, displaying `No Data`.
 
 <details>
-<summary>Stuck? One hint</summary>
+<summary>View Diagnostic Workflow & Resolution</summary>
 
-Lay the four panels out in the order you'd read them during a page: a top
-**Stat** row for "is it up / current error rate" (single numbers with
-threshold coloring), then **Time series** rows below for the trends (request
-rate by `code`, error ratio, p95 latency) — same layout every good RED-method
-(Rate/Errors/Duration) dashboard uses. Build every query in **Explore** first
-to confirm it returns data, and use `namespace="$namespace"` everywhere from
-the start rather than hard-coding then retrofitting. For the variable's option
-list, `label_values(kube_pod_info, namespace)` is the reusable query.
+**Root Cause:**  
+When viewing a 7-day range, Grafana downsamples the graph step to 15 minutes per pixel. A static 30-second window (`[30s]`) leaves gigantic 14.5-minute uncalculated voids between graph points, causing the visualization renderer to drop the line.
 
+**Resolution Steps:**
+Replace static time windows with Grafana’s built-in `$__rate_interval` variable:
+```sql
+rate(http_requests_total[$__rate_interval])
+```
+`$__rate_interval` automatically scales with the graph resolution, guaranteeing continuous, gap-free rendering across seconds or months.
 </details>
 
-## Common mistakes & troubleshooting
+---
 
-- **"No data" panic.** Almost always a label name/value mismatch or a time
-  range with no samples — not a broken Grafana. Verify the exact query returns
-  data in **Explore**/the Prometheus UI and read the *real* label names on the
-  series before assuming anything is broken.
-- **Wrong visualization for the question.** A trend in a Stat panel, or a giant
-  table where a graph belongs. Match the viz to "trend vs. current value vs.
-  comparison across a dimension".
-- **Hard-coded namespaces/labels.** A dashboard pinned to one namespace serves
-  one namespace. Templatize with variables from the start — retrofitting later
-  means editing every panel.
-- **Rebuilding what exists.** Hand-building a Kubernetes/node-exporter
-  dashboard that's a free community import is wasted effort. Import standard
-  boards; hand-build only *your* app's custom metrics.
-- **Treating a click-built dashboard as durable.** It lives only in Grafana's
-  DB and can be lost. Export the JSON and keep the ones you care about in Git
-  (dashboards as code).
-- **Ignoring the data source when importing.** Community dashboards prompt for
-  which Prometheus data source to bind to — pick yours, or every panel shows
-  No data despite the queries being correct.
-
-## Checkpoint quiz
-
-Write down your answer to each question before expanding it — checking without attempting first is the single easiest way to fool yourself into thinking you've learned this.
+### Scenario 2: Chained Variable `$pod` Fails to Update on `$namespace` Selection
+**Context:** When users select a different namespace in the `$namespace` dropdown, the `$pod` dropdown continues displaying pods from the previous namespace.
 
 <details>
-<summary>Show questions</summary>
+<summary>View Diagnostic Workflow & Resolution</summary>
 
-1. Where do Grafana's metrics actually live? What is a Grafana panel, reduced
-   to its essentials?
-2. Give the right visualization type for: (a) request rate over time, (b) "pods
-   ready right now", (c) comparing latency across the top 10 endpoints.
-3. What problem do template variables solve, and what's the Grafana function
-   that populates a variable's dropdown from a label?
-4. When should you import a community dashboard vs. build your own?
-5. A panel shows "No data" but the data source tests fine. What's the most
-   likely cause and how do you confirm it?
-6. Why is a click-built dashboard considered a draft rather than a deliverable,
-   and what's the durable form?
-7. Why build queries in **Explore** before putting them in a panel?
+**Root Cause:**  
+The `$pod` variable query is not scoped to `$namespace`, or the variable refresh policy is set to `On Dashboard Load` rather than `On Time Range Change` or `On Variable Change`.
 
+**Resolution Steps:**
+1. Update the variable query to incorporate the parent variable:
+   ```sql
+   label_values(kube_pod_info{namespace="$namespace"}, pod)
+   ```
+2. In the variable configuration settings, set **Refresh** to `On variable value change`.
 </details>
+
+---
+
+### Scenario 3: Manually Edited Dashboard Reverts on Pod Restart
+**Context:** An engineer adds 4 new panels in the Grafana UI and saves the dashboard. When the Grafana Pod is rescheduled, the changes are gone.
 
 <details>
-<summary>Show answers</summary>
+<summary>View Diagnostic Workflow & Resolution</summary>
 
-1. In the **data source** (Prometheus/Loki/Tempo) — Grafana stores no metrics
-   itself; it queries and visualizes. A panel is a saved query (PromQL/LogQL/
-   TraceQL) plus a choice of how to draw it.
-2. (a) Time series (line graph); (b) Stat or gauge (single current number);
-   (c) Bar gauge or table (comparison across a label dimension).
-3. They let one dashboard serve many targets (namespaces, pods, services) via a
-   dropdown instead of hard-coded labels. `label_values(<metric>, <label>)`
-   populates the dropdown with that label's distinct values.
-4. Import for standard/off-the-shelf systems (Kubernetes, node-exporter,
-   Postgres) where a good board already exists; build your own only for *your*
-   application's custom/business metrics that no community board could know
-   about.
-5. A label name/value mismatch in the query (or a time range with no data) —
-   the query matches no series. Confirm by running the bare metric in Explore/
-   the Prometheus UI and reading the *actual* label names, then fixing the
-   query.
-6. Because it lives only in that one Grafana instance's database and is lost if
-   the pod is recreated; the durable form is the dashboard's **JSON**,
-   version-controlled in Git and provisioned as code (track 10 discipline).
-7. Explore is a fast live query loop — you confirm the query returns the right
-   data before committing it to a panel, avoiding the "No data" confusion of
-   pasting an untested query straight into a dashboard.
+**Root Cause:**  
+The dashboard was provisioned via a Kubernetes `ConfigMap`. Grafana treats provisioned dashboards as read-only or overwrites local sqlite modifications whenever the provisioning sidecar restarts.
 
+**Resolution Steps:**
+1. After modifying a dashboard in the UI, export the JSON via **Dashboard Settings -> JSON Model**.
+2. Commit the exported JSON into your GitOps repository or update the underlying Kubernetes `ConfigMap`.
 </details>
+
+---
+
+## 8. Further Reading & Official Documentation
+
+- [Grafana Official Documentation: Best Practices for Designing Dashboards](https://grafana.com/docs/grafana/latest/dashboards/build-dashboards/best-practices/)
+- [The RED Method: How to Instrument Your Services](https://grafana.com/blog/2018/08/02/the-red-method-how-to-instrument-your-services/)
+- [Grafana Community Dashboard Directory](https://grafana.com/grafana/dashboards/)
+- [Grafana Sidecar Provisioning in Kubernetes](https://github.com/grafana/helm-charts/tree/main/charts/grafana#sidecar-for-dashboards)
+- [Grafana Foundation SDK (Go & TypeScript)](https://github.com/grafana/grafana-foundation-sdk)
+
+---
 
 ## Next
 
-[04-logging-and-log-aggregation-loki](../04-logging-and-log-aggregation-loki/README.md)
-— you've built out the metrics pillar end to end (collect → query → visualize).
-Now add the second pillar: centralized logs with Loki, viewable in this same
-Grafana, and the labels-vs-full-text tradeoff that makes Loki cheap.
+Continue to [04 - Logging and Log Aggregation with Loki](../04-logging-and-log-aggregation-loki/README.md) to add the second pillar of observability: indexing structured logs with Grafana Loki and querying error streams using LogQL.

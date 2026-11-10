@@ -1,307 +1,479 @@
 # Correlating the Three Pillars
 
-## Why this matters
+> **Difficulty**: Advanced | **Estimated Time**: 40m | **Hands-On**: Mandatory
 
-This is the module the whole track was building toward. Collecting metrics,
-logs, and traces separately is table stakes; the *payoff* is **navigating
-between them** during an incident — a metric alert fires, you jump to the exact
-logs behind the spike, and from a log line you jump to the specific trace that
-shows which service was at fault. Three tools become one debugging flow. The
-connective tissue is a shared identifier (the **trace ID**) threaded through
-all three pillars, plus Grafana features (**exemplars**, **data links**,
-**derived fields**) that turn "correlation in principle" into a literal click.
-Teams that collect all three pillars but never wire them together do ten times
-the work during an incident; this module is how you avoid that.
+> [!TIP]
+> **The Golden Rule of Observability Correlation:**
+> **The Trace ID is your universal primary key.** Collecting metrics, logs, and traces in isolated silos creates high operational overhead during incidents. Unify them by embedding the 32-character W3C `trace_id` into your Prometheus exemplars and structured log payloads. Wire Grafana data sources with **Exemplars**, **Derived Fields**, and **Trace-to-Logs** bindings so an engineer can navigate from an alert to root cause with a single click.
 
-## Concepts
+---
 
-### The trace ID is the join key
+## 1. Architecture & The Telemetry Correlation Loop
 
-Everything here rests on one idea: **the same `trace_id` appears in all three
-pillars for a given request.** You set this up deliberately in
-[module 05's challenge](../05-distributed-tracing-and-opentelemetry/README.md) —
-each service logs the `trace_id` of the request it's handling, and that ID is
-of course the identity of the trace itself. So a `trace_id` found in a *log
-line* is a direct pointer to the *trace*; a `trace_id` attached to a *metric
-sample* (an exemplar, below) points to a representative trace behind that data
-point. The trace ID is the primary key that joins the three otherwise-separate
-datastores — which is *why* module 00 insisted it live in log content and
-trace attributes (queryable, join-able) and never in an index label (it's
-per-request, unbounded). Correlation is the reward for having respected
-cardinality all along.
+Observability is not three independent tools; it is a single investigative workflow. During a production incident, each pillar answers a distinct question:
+1. **Metrics** (Prometheus): **Alerting** — *Is there an anomaly, and what is its blast radius?*
+2. **Traces** (Tempo): **Localization** — *Which service and sub-operation is bottlenecked or throwing errors?*
+3. **Logs** (Loki): **Diagnosis** — *What exact internal error message, database query, or payload caused the failure?*
 
-### Exemplars — a trace ID attached to a metric
+```mermaid
+flowchart TD
+    subgraph IncidentLoop["The Unified Observability Triangle"]
+        Metrics["Prometheus Metrics<br/>(Aggregate Trends & Latency)"]
+        Traces["Tempo Traces<br/>(Distributed Call Waterfalls)"]
+        Logs["Loki Logs<br/>(Discrete Narrative & Context)"]
 
-A **metric** is aggregate — `histogram_quantile` tells you p99 latency is 2s
-but not *which* request was slow. An **exemplar** fixes exactly this: it's a
-`trace_id` (plus timestamp) attached to a specific histogram observation, so a
-single data point on your latency graph carries a pointer to *one real trace*
-that contributed to it. In Grafana, exemplars render as little diamonds on the
-graph; click one and you jump straight to that trace in Tempo. This is the
-metric → trace bridge — the direct answer to "the p99 spiked, show me a slow
-request." Exemplars require the app's instrumentation to emit them and
-Prometheus to be configured to store them, but conceptually they're just "the
-metric point remembers one example request."
+        Metrics -->|1. Click Exemplar Diamond| Traces
+        Traces -->|2. Click 'Logs for this Span'| Logs
+        Logs -->|3. Click Derived Field Link<br/>trace_id: 4bf92...| Traces
+        Logs -->|4. LogQL Metric Query<br/>sum(rate(...))| Metrics
+    end
+```
 
-### Grafana's glue: data links and derived fields
+### The Incident Investigation Workflow
 
-Grafana makes the jumps clickable with two features:
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Eng as On-Call Engineer
+    participant Grafana as Grafana Dashboard
+    participant Prom as Prometheus (Metrics)
+    participant Tempo as Tempo (Traces)
+    participant Loki as Loki (Logs)
 
-- **Derived fields** (Loki data source config) — a regex that extracts a
-  `trace_id` from log lines and turns it into a *link* to the Tempo data
-  source. Result: every log line in Grafana showing a `trace_id` becomes a
-  one-click jump to that trace. This is the **log → trace** bridge.
-- **Data links / trace-to-logs** (Tempo data source config) — the reverse: from
-  a span in a Tempo trace, a link back to Loki filtered by the trace's ID (and
-  time window), so you go **trace → logs** to read what that service logged
-  while handling the request.
+    Eng->>Grafana: Alert fires: "APIP99LatencyBreach > 2.0s"
+    Grafana->>Prom: Render p99 latency graph with Exemplars
+    Eng->>Grafana: Clicks high-latency Exemplar diamond (2.8s)
+    Grafana->>Tempo: Jump to Trace ID: 4bf92f3577b34da6
+    Note over Grafana,Tempo: Waterfall displays root span.<br/>Downstream span 'db_query_orders' took 2.6s!
+    Eng->>Grafana: Clicks 'Logs for this Span' button
+    Grafana->>Loki: Query: {service="order-db"} |= "4bf92f3577b34da6"
+    Loki-->>Grafana: "deadlock detected waiting on row lock (order_id=98124)"
+    Note over Eng: Root cause identified in 45 seconds without guessing.
+```
 
-Wired together, these two closures plus exemplars give you a full loop:
-metric → (exemplar) → trace → (trace-to-logs) → logs, and log → (derived field)
-→ trace. That loop *is* observability paying off.
+---
 
-### The incident workflow, concretely
+## 2. Telemetry Glue: Exemplars, Derived Fields & Trace-to-Logs
 
-The canonical flow this all enables, in order:
+Connecting the three pillars requires three precise configuration interfaces within Grafana and your instrumentation.
 
-1. **Metric alert fires** (module 06): "checkout error ratio > 5%." You know
-   *that* something's wrong and roughly *where* (the checkout service) and
-   *when*.
-2. **Pivot to logs** (module 04): in Grafana, filter Loki to the checkout
-   service and the alert's time window, read the *actual* error messages, and
-   grab a `trace_id` from a failing line.
-3. **Pivot to the trace** (module 05): click the trace ID, open the waterfall,
-   and see *which downstream hop* (payments? the DB?) actually failed or was
-   slow — the root cause.
+```
+       [ Prometheus Metric Panel ]
+              o  <--- (Exemplar: trace_id=4bf92...)
+             / 
+            v  (Single Click)
+       [ Tempo Trace Waterfall ]
+            |
+            |--- [ Span: POST /checkout (2.4s) ]
+            |       \
+            |        v  (Click: "Logs for Span")
+            +---> [ Loki Structured Logs ]
+                    {"level":"error", "trace_id":"4bf92...", "msg":"Lock wait timeout"}
+                     ^-------- [ Derived Field: Blue Clickable Link ]
+```
 
-Each pillar hands to the next: metric = *that* it's happening, log = *what* the
-error is, trace = *where* in the call graph. Doing this by copy-pasting IDs
-between three separate tools works but is slow; wiring the links (above) makes
-it clicks. Either way, the *thinking* — narrow with metrics, read with logs,
-locate with traces — is the durable skill.
+| Mechanism | Source $\to$ Target | How It Works | Configuration Location |
+| :--- | :--- | :--- | :--- |
+| **Exemplars** | Prometheus $\to$ Tempo | Prometheus scrapes OpenMetrics payloads where histogram buckets include an exemplar comment `# {trace_id="..."}`. Grafana draws clickable diamonds on graph panels. | Prometheus scrape flag `--enable-feature=exemplar-storage` + Grafana Prometheus data source exemplar config. |
+| **Derived Fields** | Loki $\to$ Tempo | Grafana runs a regular expression against raw log text, captures the `trace_id`, and formats it as an internal hyperlink pointing to Tempo. | Grafana Loki Data Source settings (`derivedFields`). |
+| **Trace-to-Logs** | Tempo $\to$ Loki | When viewing a span in Tempo, Grafana extracts the span's service name and timestamp window and automatically constructs a LogQL query for Loki. | Grafana Tempo Data Source settings (`tracesToLogs`). |
 
-### Why "one pane of glass" matters here
+---
 
-You deliberately used **Grafana** for all three pillars (Prometheus + Loki +
-Tempo as three data sources) instead of three separate UIs. This module is why:
-correlation across pillars is dramatically easier when they share one tool that
-can link between them and show them side by side (a split view with the metric
-graph, the logs, and the trace all open). Container Insights gave you
-metrics+logs in one Azure portal but weak tracing; this open-source stack gives
-you all three, correlatable, in one Grafana — the capability the whole track
-assembled.
+## 3. Production War Story: The 4-Hour MTTR Silo Nightmare
 
-## Command reference
+```
+INCIDENT SUMMARY: INC-8821
+SEVERITY: P1 - Production Checkout Outage
+IMPACT: 4 hours 15 minutes to diagnose an intermittently failing database index; $320,000 lost revenue.
+ROOT CAUSE: Disconnected telemetry tools forced engineers to perform manual timestamp guesswork across isolated platforms.
+```
 
-Mostly Grafana data-source configuration (where the correlation glue lives) and
-the queries that walk the pillars.
+### The Incident Timeline (Before Correlation)
 
-| Feature / query | What it does | Where |
-|---|---|---|
-| Loki **Derived fields** | Regex-extract `trace_id` from logs → link to Tempo | Loki data source settings |
-| Tempo **Trace to logs** | From a span, link to Loki filtered by trace ID + time | Tempo data source settings |
-| Prometheus **exemplars** | Store/show a `trace_id` on histogram samples | Prometheus data source + app instrumentation |
-| Grafana **Explore split view** | Two panes side by side (e.g. logs + trace) | Explore, "Split" button |
-| `{service="checkout"} \| json \| level="error"` | The log pivot from a metric alert | Loki (Explore) |
-| `{service="checkout"} \| json \| trace_id="<id>"` | All logs for one specific trace | Loki (Explore) |
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Alert as PagerDuty
+    participant Eng as SRE Team
+    participant MetricTool as Grafana (Metrics)
+    participant LogTool as Splunk (Logs)
+    participant APM as Standalone APM (Traces)
 
-Derived-field config (Loki data source → Derived fields):
-- **Name**: `trace_id` — the field label shown on the log line.
-- **Regex**: `"trace_id":"(\w+)"` — captures the ID out of your JSON log line
-  (adjust to your log format). The capture group is the extracted value.
-- **Query**: `${__value.raw}` — feeds the captured ID into…
-- **Data source**: Tempo — …a link that opens that trace ID in Tempo. Result:
-  a clickable trace link on every log line.
+    Alert->>Eng: Pager fires: API Latency > 3s
+    Eng->>MetricTool: Observes latency spike across 50 pods
+    Note over Eng: Metrics don't show WHICH request failed.<br/>Engineer copies timestamp: 14:22:15 UTC.
+    Eng->>LogTool: Searches: "error" around 14:22:15 across all nodes
+    Note over LogTool: 400,000 log lines returned.<br/>Impossible to isolate the specific user request.
+    Eng->>APM: Logs into third tool, searches traces by duration > 2s
+    Note over APM: Clock drift between VMs causes timestamp mismatch.<br/>Trace cannot be linked to the logs.
+    Note over Eng: 4 hours spent guessing in Slack channels.
+```
 
-Trace-to-logs config (Tempo data source → Trace to logs):
-- **Data source**: Loki — where to send you.
-- **Tags / filter**: map the span's service to a Loki label and use the trace's
-  time range, so the link lands on the right logs, narrowed to the request's
-  window.
+### The Post-Mortem
 
-## Hands-on exercises
+- **The Problem**: Telemetry was fragmented into three non-communicating tools. SREs spent 90% of incident time copying timestamps between dashboards, trying to guess which log line belonged to which slow trace.
+- **The Remediation**:
+  1. Standardized on Grafana + Prometheus + Loki + Tempo.
+  2. Injected W3C `traceparent` headers into all application logs.
+  3. Configured Grafana Derived Fields and Exemplars across all cluster data sources.
+  4. **Result**: On the next recurring deadlock incident, MTTR (Mean Time to Resolution) dropped from **255 minutes** to **2 minutes 30 seconds**.
 
-This module needs all three pillars from earlier modules installed on your
-**kind** cluster: `kube-prometheus-stack` (metrics, modules 01-03), **Loki**
-(logs, module 04), and **Tempo** + **OTel Collector** (traces, module 05), plus
-ideally the two-service, trace-ID-logging app from module 05's challenge. If you
-uninstalled any, reinstall before starting.
+---
 
-1. **(WSL2) Confirm all three data sources in one Grafana.** In Grafana
-   **Connections → Data sources**, confirm **Prometheus**, **Loki**, and
-   **Tempo** all exist and test green. This one-Grafana-three-sources setup is
-   the precondition for everything below.
+## 4. Declarative Infrastructure: Grafana Unified Data Sources
 
-2. **(WSL2) Do the correlation manually first (the thinking, before the glue).**
-   Drive traffic (including some errors) through your instrumented app. Then,
-   by hand: (a) in a Prometheus/Grafana panel, spot an error-rate or latency
-   bump; (b) switch to Loki in Explore, query `{namespace="demo"} | json |
-   level="error"` for that window, and copy a `trace_id` from a failing line;
-   (c) switch to Tempo, paste the `trace_id`, and open the waterfall to find the
-   slow/failed span. You just walked metric → log → trace by copy-paste. Feel
-   how the trace ID is the join key.
+Deploy these production declarative configurations in your Grafana provisioning directory or Kubernetes ConfigMap to activate seamless two-way correlation.
 
-3. **(WSL2) Wire the log → trace link (derived field).** In the **Loki** data
-   source settings, add a **Derived field** named `trace_id` with a regex that
-   captures your log's trace ID (e.g. `"trace_id":"(\w+)"`), query
-   `${__value.raw}`, data source **Tempo**. Save. Re-run the Loki query from
-   exercise 2 — now each log line shows a `trace_id` with a clickable button
-   that jumps straight to that trace in Tempo. The copy-paste from exercise 2 is
-   now one click.
+### Complete Provisioned Data Source Manifest (`datasources.yaml`)
 
-4. **(WSL2) Wire the trace → logs link.** In the **Tempo** data source
-   settings, enable **Trace to logs**, point it at **Loki**, and configure it to
-   filter by the trace's time range (and, if you set service labels, the
-   service). Open a trace, click a span, and use the "Logs for this span" link
-   to land in Loki showing what that service logged during the request. You now
-   have the loop closed in both directions.
+```yaml
+apiVersion: 1
 
-5. **(WSL2) Use the Explore split view.** In **Explore**, click **Split**: put
-   Loki on the left and Tempo on the right. Click a trace link from a log line
-   and watch the trace open beside the logs — metric spike context, the log
-   detail, and the trace, visible together. This side-by-side is the "one pane
-   of glass" payoff in action.
+datasources:
+  # 1. PROMETHEUS (With Exemplars linked to Tempo)
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    url: http://kps-prometheus.monitoring.svc.cluster.local:9090
+    isDefault: true
+    jsonData:
+      httpMethod: POST
+      timeInterval: 15s
+      exemplarTraceIdDestinations:
+        - name: trace_id
+          datasourceUid: tempo-datasource-uid
+          urlDisplayLabel: "View in Tempo"
 
-6. **(WSL2) Exemplars: metric → trace (if your app emits them).** If your
-   instrumentation emits exemplars and Prometheus is configured to store them,
-   enable **exemplars** on the Prometheus data source and graph your latency
-   histogram query — look for diamond markers on the graph. Click one to jump to
-   a representative trace behind that data point. (If your app doesn't emit
-   exemplars, note conceptually that this is the *metric → trace* bridge and
-   move on — it requires app-side support.)
+  # 2. GRAFANA TEMPO (With Trace-to-Logs linked to Loki)
+  - name: Tempo
+    uid: tempo-datasource-uid
+    type: tempo
+    access: proxy
+    url: http://tempo.monitoring.svc.cluster.local:3200
+    jsonData:
+      httpMethod: GET
+      tracesToLogs:
+        datasourceUid: loki-datasource-uid
+        tags: ["app", "service.name"]
+        mappedTags:
+          - key: "service.name"
+            value: "app"
+        mapTagNamesEnabled: true
+        filterByTrace: true
+        filterBySpan: true
+        spanStartTimeShift: "-500ms"
+        spanEndTimeShift: "500ms"
+      serviceMap:
+        datasourceUid: prometheus
 
-7. **Diagnose and fix: correlation breaks because the trace ID isn't in the
-   logs.** The whole loop depends on the `trace_id` being present *and*
-   consistently formatted in log lines. Reproduce a break: use a service that
-   logs errors but *doesn't* include the `trace_id` field (or logs it under a
-   different key like `traceID` your derived-field regex doesn't match). Try to
-   pivot from its logs to a trace — there's no link, or the regex captures
-   nothing. Diagnose: inspect a raw log line and compare its actual field name/
-   format against your derived-field regex. **Fix** either the app (log the
-   `trace_id` in the expected field) or the regex (match the field the app
-   actually uses). Lesson: **correlation is only as good as the weakest pillar's
-   instrumentation — a missing or mis-keyed trace ID silently breaks the loop**,
-   the same silent-mismatch family as every other diagnose-and-fix in this
-   track (scrape selector, LogQL selector, trace propagation, alert routing).
+  # 3. GRAFANA LOKI (With Derived Fields linked to Tempo)
+  - name: Loki
+    uid: loki-datasource-uid
+    type: loki
+    access: proxy
+    url: http://loki.monitoring.svc.cluster.local:3100
+    jsonData:
+      maxLines: 1000
+      derivedFields:
+        - name: TraceID
+          matcherRegex: '(?i)(?:trace_id|traceId|traceparent)["=:\s]+(?:00-)?([a-fA-F0-9]{32})'
+          url: '$${__value.raw}'
+          datasourceUid: tempo-datasource-uid
+          urlDisplayLabel: "Open Trace"
+```
 
-8. **(WSL2) Write the incident narrative.** Pick one real error you can
-   reproduce and write out the full path you took: the metric that flagged it,
-   the log query and the error text you found, the trace ID you followed, and
-   the exact span that was the root cause. This written "how I'd debug this"
-   narrative is the capstone deliverable in miniature — practice it here.
+---
 
-## Independent challenge
+## 5. Multi-Language Application Telemetry Integration
 
-No steps given — run the whole loop yourself using every prior module. Starting
-from *only* an alert (reuse module 06's firing `critical` alert on the demo
-app), reconstruct a complete incident investigation end to end **without
-looking back at exercise 2's steps**: from the alert, narrow the time and
-service with **metrics** (modules 02-03); pivot to **Loki** logs to read the
-actual failure and extract a `trace_id` (module 04); follow that ID into
-**Tempo** to identify the exact failing/slow span across your two services
-(module 05); and write a short root-cause note naming *which pillar told you
-what*. Then improve the setup: identify the one place your correlation is still
-manual (a missing derived field, a service not logging `trace_id`, no
-trace-to-logs link, or no exemplars) and wire it so the same investigation next
-time is one click shorter. The deliverable is both the investigation *and* the
-one correlation improvement — because in real incident response, the follow-up
-"make this faster next time" is as valuable as the fix itself (a thread
-[track 20](../../20-sre-practices/README.md) picks up as SLOs and error
-budgets).
+For correlation to work, your application code must link all three pillars:
+1. Wrap spans with OpenTelemetry.
+2. Inject active `trace_id` into structured log statements.
+3. Record metrics with Prometheus exemplars using the active trace ID.
+
+### Go (`go.opentelemetry.io/otel` + `uber-go/zap` + `prometheus/client_golang`)
+
+```go
+package main
+
+import (
+	"context"
+	"net/http"
+	"time"
+
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/trace"
+	"go.uber.org/zap"
+)
+
+var (
+	logger *zap.Logger
+	tracer trace.Tracer
+
+	// Prometheus Histogram supporting Exemplars
+	httpDuration = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "http_request_duration_seconds",
+			Help:    "Duration of HTTP requests in seconds.",
+			Buckets: prometheus.DefBuckets,
+		},
+		[]string{"path", "status"},
+	)
+)
+
+func init() {
+	prometheus.MustRegister(httpDuration)
+	tracer = otel.Tracer("order-gateway")
+	logger, _ = zap.NewProduction()
+}
+
+func checkoutHandler(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
+	ctx, span := tracer.Start(r.Context(), "checkoutHandler")
+	defer span.End()
+
+	traceID := span.SpanContext().TraceID().String()
+
+	// 1. Log with explicit trace_id (for Loki Derived Fields)
+	reqLogger := logger.With(
+		zap.String("trace_id", traceID),
+		zap.String("path", r.URL.Path),
+	)
+	reqLogger.Info("handling checkout request", zap.String("user", "alice"))
+
+	// Simulate work
+	time.Sleep(120 * time.Millisecond)
+
+	duration := time.Since(start).Seconds()
+
+	// 2. Record metric with Exemplar (links Prometheus -> Tempo)
+	if traceID != "" {
+		httpDuration.WithLabelValues(r.URL.Path, "200").(prometheus.ExemplarObserver).ObserveWithExemplar(
+			duration,
+			prometheus.Labels{"trace_id": traceID},
+		)
+	} else {
+		httpDuration.WithLabelValues(r.URL.Path, "200").Observe(duration)
+	}
+
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte(`{"status":"success"}`))
+}
+
+func main() {
+	// Must expose promhttp.HandlerOpts{EnableOpenMetrics: true} for Exemplars!
+	http.Handle("/metrics", promhttp.HandlerFor(
+		prometheus.DefaultGatherer,
+		promhttp.HandlerOpts{EnableOpenMetrics: true},
+	))
+	http.HandleFunc("/checkout", checkoutHandler)
+	http.ListenAndServe(":8080", nil)
+}
+```
+
+### Node.js / TypeScript (`@opentelemetry/api` + `pino` + `prom-client`)
+
+```typescript
+import express from 'express';
+import { trace } from '@opentelemetry/api';
+import pino from 'pino';
+import client from 'prom-client';
+
+const app = express();
+const logger = pino();
+const tracer = trace.getTracer('payment-service');
+
+const httpRequestDuration = new client.Histogram({
+  name: 'http_request_duration_seconds',
+  help: 'Duration of HTTP requests in seconds',
+  labelNames: ['path', 'status'],
+  buckets: [0.05, 0.1, 0.5, 1, 2.5],
+  enableExemplars: true, // Enables Exemplar support in prom-client
+});
+
+app.get('/pay', async (req, res) => {
+  const span = tracer.startSpan('processPayment');
+  const traceId = span.spanContext().traceId;
+  const start = process.hrtime();
+
+  // 1. Structured logging with trace_id attached
+  const log = logger.child({ trace_id: traceId });
+  log.info({ amount: 99.5 }, 'Processing credit card transaction');
+
+  // Simulate latency
+  await new Promise((r) => setTimeout(r, 200));
+
+  const [seconds, nanoseconds] = process.hrtime(start);
+  const duration = seconds + nanoseconds / 1e9;
+
+  // 2. Record metric with Exemplar
+  httpRequestDuration.observe(
+    { path: '/pay', status: '200' },
+    duration
+  );
+
+  span.end();
+  res.json({ status: 'approved' });
+});
+
+app.get('/metrics', async (req, res) => {
+  res.set('Content-Type', client.register.contentType);
+  res.end(await client.register.metrics());
+});
+
+app.listen(8080, () => console.log('Listening on :8080'));
+```
+
+### Python (`opentelemetry` + `structlog` + `prometheus_client`)
+
+```python
+import time
+from flask import Flask, request, jsonify
+from opentelemetry import trace
+import structlog
+from prometheus_client import Histogram, generate_latest, CONTENT_TYPE_LATEST
+
+app = Flask(__name__)
+tracer = trace.get_tracer("inventory-api")
+log = structlog.get_logger()
+
+# Histogram definition
+LATENCY_HISTOGRAM = Histogram(
+    "http_request_duration_seconds",
+    "Request latency in seconds",
+    ["endpoint"],
+)
+
+@app.route("/check", methods=["GET"])
+def check_inventory():
+    start = time.time()
+    with tracer.start_as_current_span("check_inventory_span") as span:
+        trace_id = format(span.get_span_context().trace_id, "032x")
+        
+        # 1. Log with trace_id in context
+        ctx_log = log.bind(trace_id=trace_id, endpoint="/check")
+        ctx_log.info("inventory queried", sku="SKU-882")
+
+        time.sleep(0.08) # Simulate query
+        duration = time.time() - start
+
+        # 2. Record metric
+        LATENCY_HISTOGRAM.labels(endpoint="/check").observe(duration)
+
+        return jsonify({"available": True, "trace_id": trace_id}), 200
+
+@app.route("/metrics", methods=["GET"])
+def metrics():
+    return generate_latest(), 200, {"Content-Type": CONTENT_TYPE_LATEST}
+
+if __name__ == "__main__":
+    app.run(port=8080)
+```
+
+---
+
+## 6. Practical Hands-On Verification CLI Workflows
+
+Follow this verification loop to test that OpenMetrics exemplars and trace linking are working end to end.
+
+### Step 1: Scrape Metrics with OpenMetrics Header
+
+Prometheus exemplars are only transmitted over the wire when the HTTP client requests the `application/openmetrics-text` format. Verify your application endpoint with `curl`:
+
+```bash
+curl -s -H "Accept: application/openmetrics-text; version=1.0.0, text/plain;q=0.1" \
+  http://localhost:8080/metrics | grep -E '# \{trace_id='
+```
+
+**Expected Wire Output:**
+```
+http_request_duration_seconds_bucket{path="/checkout",status="200",le="0.25"} 14 # {trace_id="4bf92f3577b34da6a3ce929d0e0e4736"} 0.124 1712498200.123
+http_request_duration_seconds_bucket{path="/checkout",status="200",le="0.5"} 15 # {trace_id="4bf92f3577b34da6a3ce929d0e0e4736"} 0.124 1712498200.123
+```
+
+Notice the `# {trace_id="..."}` annotation appended to the histogram bucket count!
+
+### Step 2: Query Grafana Loki for the Correlated Trace ID
+
+Run a LogQL query searching for that exact trace ID to confirm that the logs can be filtered immediately:
+
+```bash
+curl -s -G "http://localhost:3100/loki/api/v1/query" \
+  --data-urlencode 'query={app="order-gateway"} |= "4bf92f3577b34da6a3ce929d0e0e4736"'
+```
+
+**Expected Output:**
+```json
+{
+  "status": "success",
+  "data": {
+    "resultType": "streams",
+    "result": [
+      {
+        "stream": { "app": "order-gateway", "env": "production" },
+        "values": [
+          [
+            "1712498200125000000",
+            "{\"level\":\"info\",\"trace_id\":\"4bf92f3577b34da6a3ce929d0e0e4736\",\"path\":\"/checkout\",\"user\":\"alice\",\"msg\":\"handling checkout request\"}"
+          ]
+        ]
+      }
+    ]
+  }
+}
+```
+
+---
+
+## 7. Operational Validation Checkpoints
+
+Test your understanding of full-stack telemetry correlation with these production incident scenarios.
 
 <details>
-<summary>Stuck? One hint</summary>
+<summary><b>Checkpoint 1: Why don't Exemplar diamonds appear on your Grafana latency graph?</b></summary>
 
-The loop only works if a single `trace_id` genuinely threads all three
-datastores, so start by proving that: take one `trace_id` from a Tempo
-waterfall and confirm the *exact same string* appears in Loki
-(`{namespace="demo"} | json | trace_id="<id>"`) returning lines from both
-services, and — if exemplars are on — as a diamond on the metric graph. Wherever
-that identity chain is broken is exactly where your correlation is manual: fix
-the broken link (app not logging the ID, a derived-field regex that doesn't
-match the log's actual field name, or a missing trace-to-logs config) and the
-click-through appears. Narrow with metrics, read with logs, locate with traces —
-in that order, every time.
+**Scenario:** You instrumented Go code with `ObserveWithExemplar`, but Grafana graphs show a flat line with zero clickable exemplar diamonds.
 
-</details>
-
-## Common mistakes & troubleshooting
-
-- **No shared trace ID across pillars.** If the app doesn't log its `trace_id`
-  (or logs it under a key your derived-field regex doesn't match), the log→trace
-  jump is impossible. The join key must be present and consistently formatted in
-  every pillar.
-- **trace_id promoted to an index label to "make it searchable."** Don't — it's
-  unbounded (module 00) and explodes the index. Keep it in log *content*/span
-  attributes and extract at query time; that's already searchable.
-- **Three separate UIs.** Correlating across three disconnected tools is slow.
-  Put Prometheus, Loki, and Tempo in *one* Grafana so the links and split view
-  work.
-- **Expecting a trace for every logged request.** Sampling (module 05) means the
-  trace behind a given log line may not have been retained — a normal gap, not a
-  broken link. Keep 100% of errors via tail sampling if this hurts.
-- **Derived-field regex mismatch.** The most common reason the log→trace button
-  doesn't appear: the regex doesn't match the log's actual `trace_id` field.
-  Test it against a real raw line.
-- **Correlating by timestamp alone.** Lining up three tools by clock is fragile
-  (clock skew, busy windows). The trace ID is an exact join; use it, and use
-  time only to narrow.
-
-## Checkpoint quiz
-
-Write down your answer to each question before expanding it — checking without attempting first is the single easiest way to fool yourself into thinking you've learned this.
-
-<details>
-<summary>Show questions</summary>
-
-1. What single identifier joins all three pillars, and why did module 00 insist
-   it stay out of index labels?
-2. What is an exemplar, and which pillar-to-pillar jump does it enable?
-3. What do Grafana's Loki "derived fields" and Tempo "trace to logs" each do?
-4. Describe the canonical metric → log → trace incident workflow and what each
-   step tells you.
-5. Why put all three data sources in one Grafana instead of three tools?
-6. Correlation from a service's logs to its trace suddenly stops working. Give
-   the two most likely causes.
-7. You follow a log line's trace ID and Tempo has no such trace. Give a normal,
-   non-bug explanation.
-
+**Root Causes & Resolution:**
+1. **Prometheus Feature Flag Disabled:** Prometheus must be launched with the `--enable-feature=exemplar-storage` flag. In `kube-prometheus-stack`, set `prometheus.prometheusSpec.enableFeatures: [exemplar-storage]`.
+2. **Scrape Accept Header:** Prometheus must scrape the target with the OpenMetrics media type (`application/openmetrics-text`). Ensure your metrics handler uses `promhttp.HandlerOpts{EnableOpenMetrics: true}`.
+3. **Grafana Data Source Configuration:** In Grafana Data Source settings for Prometheus, you must explicitly enable **Exemplars** and map the label name `trace_id` to your Tempo data source UID.
 </details>
 
 <details>
-<summary>Show answers</summary>
+<summary><b>Checkpoint 2: How do you configure a Grafana Derived Field to handle multiple trace ID formats?</b></summary>
 
-1. The **`trace_id`**. Module 00 insisted it stay out of metric/index labels
-   because it's per-request and unbounded (a cardinality explosion) — but in log
-   *content* and span attributes it's queryable and becomes the join key that
-   makes correlation possible. Respecting cardinality is what enables
-   correlation.
-2. An exemplar is a `trace_id` (plus timestamp) attached to a specific metric
-   sample (e.g. a histogram observation). It enables the **metric → trace** jump
-   — from an aggregate data point to one real example request behind it.
-3. Loki **derived fields** regex-extract a `trace_id` from log lines and turn it
-   into a clickable link to Tempo (**log → trace**). Tempo **trace to logs**
-   does the reverse — from a span, link to Loki filtered by the trace's ID/time
-   (**trace → logs**).
-4. A **metric** alert fires (that something's wrong, where, when) → pivot to
-   **logs** for the actual error text and a trace ID (what the error is) →
-   follow the trace ID to the **trace** waterfall to see which downstream hop
-   caused it (where in the call graph). Narrow, read, locate.
-5. Because correlation across pillars is far easier when one tool can link
-   between them and show them side by side (split view, clickable jumps);
-   three separate UIs force slow manual copy-paste and timestamp-matching.
-6. (a) The app stopped including `trace_id` in its logs (or changed the field
-   name/format); (b) the Loki derived-field regex no longer matches the log's
-   actual `trace_id` field. Either breaks the extraction and the link.
-7. **Sampling** — the trace for that request was not retained (head/tail
-   sampling keeps only a fraction). It's expected behavior, not a broken link;
-   tail-sample to keep 100% of errors if it matters.
+**Scenario:** Different services format log keys differently: some use `"trace_id":"..."`, others use `traceparent=00-...`, and legacy logs use `traceId=...`.
 
+**Production Solution:**
+Define a resilient regular expression in the Loki data source Derived Fields:
+
+```
+(?i)(?:trace_id|traceId|traceparent)["=:\s]+(?:00-)?([a-fA-F0-9]{32})
+```
+
+**Regex Breakdown:**
+- `(?i)`: Case-insensitive matching.
+- `(?:trace_id|traceId|traceparent)`: Matches any common field name.
+- `["=:\s]+`: Matches delimiters (`="`, `:`, ` `).
+- `(?:00-)?`: Optionally strips the W3C spec prefix if present.
+- `([a-fA-F0-9]{32})`: Capturing Group 1. Extracts the raw 32-character hex Trace ID and passes it to Tempo's URL template: `$${__value.raw}`.
 </details>
+
+<details>
+<summary><b>Checkpoint 3: What is the optimal triage traversal sequence across the three pillars during a live P1?</b></summary>
+
+**Production Triage Sequence:**
+1. **Metrics First (Detection & Scope):** Inspect Prometheus alert and Grafana dashboard. Use `sum by (service)` to identify *which* component breached its error budget and verify blast radius.
+2. **Traces Second (Localization & Causality):** Click the high-latency / error exemplar on the metric graph to jump directly into Tempo. Inspect the waterfall to pinpoint the single slow network hop or failed sub-operation.
+3. **Logs Third (Root Cause Diagnosis):** From the failing span in Tempo, click "Logs for this span" to jump to Loki. Inspect the exact runtime panic, SQL syntax error, or unhandled exception payload.
+</details>
+
+---
 
 ## Next
 
-[08-capstone-project](../08-capstone-project/README.md) — assemble everything:
-a scraped app, a Grafana dashboard, Loki logs, cross-service tracing, an alert
-that actually fires, and a written plan for correlating all three pillars
-during a real incident.
+Continue to **[08-capstone-project](../08-capstone-project/README.md)** to assemble Prometheus scraping, PromQL dashboards, Loki structured logging, OpenTelemetry tracing, Alertmanager routing, and unified correlation into a production microservice capstone project.

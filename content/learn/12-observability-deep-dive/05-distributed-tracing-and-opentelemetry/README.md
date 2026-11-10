@@ -1,448 +1,513 @@
 # Distributed Tracing and OpenTelemetry
 
-## Why this matters
+> **Difficulty**: Advanced | **Estimated Time**: 40m | **Hands-On**: Mandatory
 
-This is the pillar the Azure-native tracks barely touched. Metrics told you
-*request latency spiked*; logs told you *what one service logged* — but when a
-single checkout request fans out across an API gateway, an orders service, and
-a database, neither tells you **where the time actually went**. Distributed
-**tracing** does: it follows one request across every service and shows you the
-exact hop that was slow or failed. **OpenTelemetry (OTel)** is the
-vendor-neutral standard for producing that data — the CNCF project that
-replaced a pile of competing formats — and it's the least-familiar and often
-most-revealing pillar for anyone running microservices. This module gets a
-real trace flowing across two services and into Grafana.
+> [!TIP]
+> **The Golden Rule of Distributed Tracing:**
+> **Context propagation is sacred.** If a single microservice, background queue worker, or proxy drops the W3C `traceparent` header, the causal chain breaks and your distributed trace fragments into isolated orphan spans. Auto-instrument your HTTP clients and server middlewares to pass headers automatically, and inject trace context explicitly into asynchronous message broker headers (Kafka, RabbitMQ, SQS).
 
-## Concepts
+---
 
-### Spans and traces — the anatomy
+## 1. Architecture & Visual Mental Models
 
-A **span** is a single timed operation: "handle HTTP GET /checkout", "query
-the orders DB", "call the payments service". Each span has a name, a start and
-end time (so a duration), and key-value **attributes** (http.method,
-db.statement, http.status_code). A **trace** is a tree of spans representing
-*one request's* full journey: a **root span** (the initial request) with
-**child spans** for each downstream operation it triggered, nested by
-parent-child relationships. Rendered on a timeline (a "waterfall"), a trace
-shows you visually that the request spent 5ms in the gateway, then 800ms
-blocked on the database — the "where did the time go" answer metrics and logs
-can't give. This is the high-cardinality pillar from module 00 made concrete:
-each trace is tied to a specific `trace_id`, exactly the kind of per-request
-identifier you keep *out* of metric labels.
+In monolithic systems, a stack trace records function calls in a single process memory space. In distributed microservice architectures, a single user click triggers a cascade of asynchronous network calls across gateways, services, caches, and databases.
 
-### Trace context propagation — the thing that actually makes it work
+Distributed tracing assigns a globally unique identifier (**Trace ID**) to the originating request and carries it through every network hop, recording execution time and metadata for every sub-operation as a **Span**.
 
-The magic and the fragility of tracing both live here. For spans from
-different services to join into *one* trace, each service must pass a **trace
-context** — a `trace_id` (shared by every span in the trace) and the current
-`span_id` (the parent for the next hop) — to the next service, almost always as
-an HTTP header. The standard is **W3C Trace Context**, a header named
-`traceparent`. When service A calls service B, A injects `traceparent` into the
-outgoing request; B extracts it and makes its spans children of A's. **If any
-service fails to propagate that header, the trace breaks into two disconnected
-traces** — B starts a brand-new root instead of continuing A's. This is the
-single most common tracing bug and the diagnose-and-fix below: a missing span
-because context wasn't propagated. Auto-instrumentation usually handles
-propagation for you; manual or mixed setups are where it breaks.
+```mermaid
+flowchart TD
+    Client(["User / Client Browser"]) -->|POST /checkout<br/>traceparent: 00-4bf92...| Gateway["API Gateway<br/>(Root Span)"]
 
-### Instrumentation — auto, manual, and where spans come from
+    subgraph ServiceMesh["Microservice Topology"]
+        Gateway -->|HTTP GET /inventory<br/>Inject traceparent| OrderSvc["Order Service<br/>(Child Span A)"]
+        Gateway -->|HTTP POST /charge<br/>Inject traceparent| PaymentSvc["Payment Service<br/>(Child Span B)"]
+        PaymentSvc -->|gRPC /fraud-check| FraudSvc["Fraud Service<br/>(Child Span C)"]
+        OrderSvc -->|SQL INSERT| DB[(PostgreSQL)]
+    end
 
-Spans have to be *created* somewhere. Two ways:
+    subgraph OTelTelemetry["OTel Ingestion Pipeline"]
+        OrderSvc -->|OTLP / gRPC :4317| Collector["OpenTelemetry Collector<br/>(Batch + Memory Limiter)"]
+        PaymentSvc -->|OTLP / gRPC :4317| Collector
+        Gateway -->|OTLP / gRPC :4317| Collector
+        Collector -->|OTLP Push| Tempo[(Grafana Tempo / Jaeger<br/>Object Storage)]
+    end
 
-- **Auto-instrumentation** — an OTel library/agent for your language hooks
-  into common frameworks (HTTP servers, clients, DB drivers) and emits spans
-  *and propagates context* automatically, with little or no code change. This
-  is how you get value fast.
-- **Manual instrumentation** — you call the OTel SDK in your own code to start
-  and end spans around business logic the auto-instrumentation can't see
-  ("scored the fraud model"), and add custom attributes.
+    Grafana["Grafana Explore / Tracing UI"] -->|Query Trace ID| Tempo
+```
 
-Real systems use both: auto for the plumbing (HTTP/DB), manual for the
-domain-specific spans that make a trace actually explain your business logic.
+### Trace Waterfall & Span Hierarchy
 
-### The OpenTelemetry Collector — the pipeline in the middle
+```mermaid
+gantt
+    title Distributed Trace Waterfall (Trace ID: 4bf92f3577b34da6)
+    dateFormat X
+    axisFormat %s ms
 
-Apps *could* send traces straight to a tracing backend, but the standard
-architecture puts an **OpenTelemetry Collector** in between: a vendor-neutral
-service that **receives** telemetry (via OTLP, the OTel protocol), **processes**
-it (batching, sampling, dropping, adding attributes), and **exports** it to one
-or more backends (Tempo, Jaeger, or a cloud vendor). Its config is three
-pipelines of `receivers → processors → exporters`. Why bother? It decouples
-your apps from the backend (switch Tempo→Jaeger by editing the Collector, not
-every app), centralizes **sampling** (below) and cost control, and can process
-all three signals — traces, metrics, *and* logs — through one component. It's
-the same "put a configurable pipeline between producers and storage" role that
-Promtail/Alloy played for logs, generalized.
+    section API Gateway
+    POST /checkout (Root Span)       :active, span1, 0, 850
 
-### Sampling — you can't afford to keep every trace
+    section Order Service
+    Process Order                    :crit, span2, 50, 400
+    DB: INSERT INTO orders           :span3, 120, 380
 
-Traces are the heaviest pillar (module 00): one per request, each with many
-spans. At scale you can't store them all, so you **sample** — keep a fraction.
-**Head sampling** decides at the start of the trace (e.g. keep 10% at random) —
-cheap but might drop the interesting slow/errored traces. **Tail sampling**
-decides *after* the trace completes, so you can keep 100% of errors and slow
-traces and 1% of the boring fast ones — smarter, done in the Collector,
-costlier to run. The tradeoff to remember: **sampling is why a specific request
-you're hunting might have no trace** — a normal, expected consequence, not a
-bug, and a real gotcha when correlating in module 07.
+    section Payment Service
+    POST /charge                     :active, span4, 450, 820
+    gRPC: Fraud Inspection           :span5, 480, 620
+    Stripe API Call (External)       :span6, 630, 810
+```
 
-### Tempo vs. Jaeger — the backend
+---
 
-Something has to store and let you *view* traces. **Grafana Tempo** is the
-Loki-of-traces: cheap object-storage backend, and it renders traces *inside the
-same Grafana* you use for metrics and logs (ideal for this track's one-pane
-goal). **Jaeger** is the older, standalone, CNCF tracing UI — excellent and
-common, but a separate UI. This module uses Tempo as primary (to keep one
-Grafana) and notes Jaeger as the well-known alternative, the same "pick one,
-know the other exists" split as Loki-vs-ELK in module 04.
+## 2. Anatomy of W3C Trace Context
 
-## Command reference
+The W3C Trace Context specification defines the standard HTTP wire format for passing tracing metadata across service boundaries without vendor lock-in.
 
-| Command / config key | What it does | Example |
-|---|---|---|
-| `helm install tempo grafana/tempo` | Installs the Tempo tracing backend | see exercise 1 |
-| `helm install otel-collector open-telemetry/opentelemetry-collector` | Installs the OTel Collector | see exercise 2 |
-| `OTEL_EXPORTER_OTLP_ENDPOINT` | Env var telling an app where to send OTLP telemetry | `http://otel-collector:4317` |
-| `OTEL_SERVICE_NAME` | Env var naming the service in its spans | `orders` |
-| `traceparent` header | W3C Trace Context — carries `trace_id`/`span_id` between services | (HTTP header) |
-| UI: Grafana **Explore → Tempo → Search** | Find and view traces (waterfall) | exercise 4 |
+```
+                  W3C traceparent Header Format
+  00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01
+  -- -------------------------------- ---------------- --
+  ^                 ^                         ^         ^
+  |                 |                         |         |
+Version      Trace ID (16 bytes)      Parent ID (8 bytes) Trace Flags
+(Current: 00) (Hexadecimal 32 chars)   (Span ID 16 chars)  (01 = Sampled)
+```
 
-Collector config anatomy (the three sections you'll edit in exercise 2):
+| Field | Size | Example | Purpose |
+| :--- | :--- | :--- | :--- |
+| **Version** | 2 Hex Chars | `00` | Currently fixed at `00`. Forward-compatible for future spec extensions. |
+| **Trace ID** | 32 Hex Chars | `4bf92f3577b34da6a3ce929d0e0e4736` | Global request identifier. Remains identical across every hop in the request tree. |
+| **Parent ID (Span ID)** | 16 Hex Chars | `00f067aa0ba902b7` | Identifies the immediate parent span that invoked the downstream call. |
+| **Trace Flags** | 2 Hex Chars | `01` | Bitmask controls. `01` indicates the trace was recorded (**Sampled**). `00` means unsampled. |
+
+---
+
+## 3. Sampling Strategies: Head vs. Tail Sampling
+
+Collecting 100% of traces in high-throughput systems (e.g., 50,000 requests/sec) exhausts network bandwidth and object storage capacity. Choosing the right sampling mechanism is a critical architecture decision.
+
+```mermaid
+flowchart LR
+    subgraph HeadSampling["Head-Based Sampling (SDK / Root Node)"]
+        Req1["Request 1"] -->|Random 1% Check| S1{Sampled?}
+        S1 -->|Yes| Trace1["Record Full Trace"]
+        S1 -->|No 99%| Drop1["Discard Immediately"]
+    end
+
+    subgraph TailSampling["Tail-Based Sampling (OTel Collector)"]
+        Req2["All Requests (100%)"] --> Buffer["Collector Memory Buffer"]
+        Buffer --> Eval{Inspect Trace Result}
+        Eval -->|HTTP 5xx Error| Keep["Export Trace (100% Errors)"]
+        Eval -->|Latency > 1500ms| Keep
+        Eval -->|HTTP 200 OK & Fast| Drop2["Sample at 0.5% & Discard"]
+    end
+```
+
+| Feature | Head-Based Sampling | Tail-Based Sampling |
+| :--- | :--- | :--- |
+| **Decision Point** | At the root service when the request enters the system | At the OpenTelemetry Collector after the entire trace completes |
+| **Compute / Memory Cost** | Minimal; spans are dropped at the SDK tier | Higher; Collector must buffer spans in memory for 5-30 seconds |
+| **Anomaly Capture Rate** | Low; a 1% sample rate misses 99% of rare 500 errors | Near 100%; Collector keeps every trace that ended in an error or latency anomaly |
+| **Implementation Complexity** | Simple configuration flag in OTel SDK (`RatioBasedSampler`) | Requires running OTel Collector cluster with `tail_sampling` processor |
+
+---
+
+## 4. Production War Story: The 100% Tracing Storage Avalanche
+
+```
+INCIDENT SUMMARY: INC-9304
+SEVERITY: P1 - Infrastructure Degradation
+IMPACT: $65,000 unbudgeted Cloud Storage bill and cluster-wide crash of Tempo ingesters.
+DURATION: 6 hours 20 minutes
+ROOT CAUSE: A default AlwaysOnSampler in a high-QPS service generated 4TB of trace chunks per hour during a product launch.
+```
+
+### Incident Timeline
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant App as Checkout Service (50k QPS)
+    participant OTel as OpenTelemetry Collector
+    participant Tempo as Grafana Tempo Cluster
+    participant Storage as Cloud Object Storage
+
+    App->>App: Deployed with sampler: AlwaysOn (100%)
+    App->>OTel: Emits 50,000 traces/sec (400,000 spans/sec)
+    OTel->>Tempo: Ingests 4.2 GB/sec over gRPC
+    Note over Tempo: Ingester memory explodes to 98%.<br/>Disk compaction queues fill up completely.
+    Tempo->>Storage: Writes 4 TB/hour to S3
+    Note over Tempo: Ingesters crash under WAL pressure.<br/>Grafana trace exploration fails.
+    Storage-->>App: AWS CloudWatch alerts on massive data transfer costs
+```
+
+### The Post-Mortem
+
+- **The Flaw**: A junior developer initialized the tracer with `sdktrace.WithSampler(sdktrace.AlwaysSample())` for local testing and merged it to production.
+- **The Impact**: Under peak launch traffic (50,000 QPS), the service generated over 1.4 billion spans in 4 hours. The Tempo cluster ran out of memory, compacted chunks saturated the local NVMe disks, and storage egress fees exceeded monthly budgets.
+- **The Remediation**:
+  1. Configured head-based parent-based ratio sampling at the application layer:
+     ```go
+     sdktrace.WithSampler(sdktrace.ParentBased(sdktrace.TraceIDRatioBased(0.01))) // 1% of normal traffic
+     ```
+  2. Deployed an OpenTelemetry Collector `tail_sampling` processor rule to capture 100% of errors (`status.code == ERROR`) and slow requests (`duration > 1s`), while dropping healthy traces down to a 0.5% baseline.
+
+---
+
+## 5. Multi-Language Production Context Propagation
+
+To guarantee traces travel across network calls, services must inject context into outgoing HTTP headers and extract context from incoming headers.
+
+### Go (`go.opentelemetry.io/otel`)
+
+```go
+package main
+
+import (
+	"context"
+	"fmt"
+	"net/http"
+
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/propagation"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	semconv "go.opentelemetry.io/otel/semconv/v1.24.0"
+	"go.opentelemetry.io/otel/trace"
+)
+
+var tracer trace.Tracer
+
+func initTracer() *sdktrace.TracerProvider {
+	// Register W3C TraceContext propagator globally
+	otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(
+		propagation.TraceContext{},
+		propagation.Baggage{},
+	))
+
+	tp := sdktrace.NewTracerProvider(
+		sdktrace.WithSampler(sdktrace.ParentBased(sdktrace.TraceIDRatioBased(0.05))),
+	)
+	otel.SetTracerProvider(tp)
+	tracer = tp.Tracer("order-service")
+	return tp
+}
+
+// Inbound Middleware: Extracts W3C traceparent from incoming request
+func traceMiddleware(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		propagator := otel.GetTextMapPropagator()
+		ctx := propagator.Extract(r.Context(), propagation.HeaderCarrier(r.Header))
+
+		ctx, span := tracer.Start(ctx, fmt.Sprintf("HTTP %s %s", r.Method, r.URL.Path),
+			trace.WithAttributes(
+				semconv.HTTPMethodKey.String(r.Method),
+				semconv.HTTPRouteKey.String(r.URL.Path),
+			),
+		)
+		defer span.End()
+
+		next(w, r.WithContext(ctx))
+	}
+}
+
+// Outbound Client: Injects W3C traceparent into downstream call
+func callPaymentService(ctx context.Context, amount int) error {
+	ctx, span := tracer.Start(ctx, "CallPaymentGateway",
+		trace.WithAttributes(attribute.Int("payment.amount", amount)),
+	)
+	defer span.End()
+
+	req, _ := http.NewRequestWithContext(ctx, "POST", "http://payment-service:8080/charge", nil)
+	
+	// Inject trace context into outbound HTTP headers
+	otel.GetTextMapPropagator().Inject(ctx, propagation.HeaderCarrier(req.Header))
+
+	// Execute HTTP request
+	client := &http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		span.RecordError(err)
+		return err
+	}
+	defer resp.Body.Close()
+	return nil
+}
+```
+
+### Node.js / TypeScript (`@opentelemetry/api`)
+
+```typescript
+import { context, propagation, trace, SpanStatusCode } from '@opentelemetry/api';
+import http from 'http';
+import axios from 'axios';
+
+const tracer = trace.getTracer('frontend-service', '1.0.0');
+
+const server = http.createServer(async (req, res) => {
+  // 1. Extract inbound W3C traceparent from headers
+  const extractedContext = propagation.extract(context.active(), req.headers);
+
+  // 2. Start Child Span tied to extracted context
+  await context.with(extractedContext, async () => {
+    const span = tracer.startSpan(`HTTP ${req.method} ${req.url}`);
+    span.setAttribute('http.target', req.url || '/');
+
+    try {
+      // 3. Inject trace context into outbound Axios call to backend
+      const outboundHeaders: Record<string, string> = {};
+      propagation.inject(context.active(), outboundHeaders);
+
+      const backendResponse = await axios.get('http://backend-service:8080/data', {
+        headers: outboundHeaders,
+      });
+
+      span.setStatus({ code: SpanStatusCode.OK });
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ result: backendResponse.data }));
+    } catch (err: any) {
+      span.recordError(err);
+      span.setStatus({ code: SpanStatusCode.ERROR, message: err.message });
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: err.message }));
+    } finally {
+      span.end();
+    }
+  });
+});
+
+server.listen(3000, () => console.log('Server running on :3000'));
+```
+
+### Python (`opentelemetry`)
+
+```python
+import requests
+from flask import Flask, request, jsonify
+from opentelemetry import trace, propagate
+from opentelemetry.trace import Status, StatusCode
+from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
+
+app = Flask(__name__)
+tracer = trace.get_tracer("inventory-service")
+
+@app.route("/items/<item_id>", methods=["GET"])
+def get_item(item_id: str):
+    # 1. Extract context from incoming WSGI headers
+    carrier = dict(request.headers)
+    ctx = TraceContextTextMapPropagator().extract(carrier=carrier)
+
+    # 2. Start span as child of extracted context
+    with tracer.start_as_current_span("inspect_inventory", context=ctx) as span:
+        span.set_attribute("inventory.item_id", item_id)
+        
+        # 3. Propagate context down to Database Service
+        outbound_headers = {}
+        TraceContextTextMapPropagator().inject(carrier=outbound_headers)
+
+        try:
+            resp = requests.get(
+                f"http://db-service:8081/stock/{item_id}",
+                headers=outbound_headers,
+                timeout=2.0
+            )
+            span.set_status(Status(StatusCode.OK))
+            return jsonify(resp.json()), 200
+        except Exception as e:
+            span.record_error(e)
+            span.set_status(Status(StatusCode.ERROR, str(e)))
+            return jsonify({"error": "database_unreachable"}), 502
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=8080)
+```
+
+---
+
+## 6. Practical Hands-On Verification CLI Workflows
+
+Follow this exercise on your `kind` cluster to install Grafana Tempo and observe a distributed trace traveling across services.
+
+### Step 1: Install Grafana Tempo via Helm
+
+```bash
+# Add Grafana Helm repository
+helm repo add grafana https://grafana.github.io/helm-charts
+helm repo update
+
+# Install minimal Tempo cluster into monitoring namespace
+helm install tempo grafana/tempo \
+  --namespace monitoring \
+  --set tempo.receivers.otlp.protocols.http.endpoint="0.0.0.0:4318" \
+  --set tempo.receivers.otlp.protocols.grpc.endpoint="0.0.0.0:4317"
+```
+
+Verify the Tempo pod is running:
+
+```bash
+kubectl get pods -n monitoring -l app.kubernetes.io/name=tempo
+```
+
+**Expected Output:**
+```
+NAME                     READY   STATUS    RESTARTS   AGE
+tempo-74bc84fc65-m8k9q   1/1     Running   0          35s
+```
+
+### Step 2: Emit a Synthetic Two-Span Distributed Trace via OTLP/HTTP
+
+Execute a test pod that sends an OTLP JSON payload directly to Tempo at `:4318/v1/traces`:
+
+```bash
+kubectl run otel-trace-emitter --rm -i --restart=Never --image=curlimages/curl -- \
+  curl -s -X POST "http://tempo.monitoring.svc.cluster.local:4318/v1/traces" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "resourceSpans": [{
+      "resource": {
+        "attributes": [
+          {"key": "service.name", "value": {"stringValue": "checkout-api"}},
+          {"key": "host.name", "value": {"stringValue": "node-prod-01"}}
+        ]
+      },
+      "scopeSpans": [{
+        "spans": [
+          {
+            "traceId": "4bf92f3577b34da6a3ce929d0e0e4736",
+            "spanId": "00f067aa0ba902b7",
+            "name": "POST /checkout",
+            "kind": 1,
+            "startTimeUnixNano": "1712498200000000000",
+            "endTimeUnixNano": "1712498200850000000",
+            "status": {"code": 1}
+          },
+          {
+            "traceId": "4bf92f3577b34da6a3ce929d0e0e4736",
+            "spanId": "5fb397be34d23b0f",
+            "parentSpanId": "00f067aa0ba902b7",
+            "name": "SELECT FROM accounts",
+            "kind": 3,
+            "startTimeUnixNano": "1712498200100000000",
+            "endTimeUnixNano": "1712498200450000000",
+            "status": {"code": 1}
+          }
+        ]
+      }]
+    }]
+  }'
+```
+
+### Step 3: Query Tempo for the Ingested Trace
+
+Verify that Tempo successfully indexed the trace ID `4bf92f3577b34da6a3ce929d0e0e4736`:
+
+```bash
+kubectl run tempo-fetcher --rm -i --restart=Never --image=curlimages/curl -- \
+  curl -s "http://tempo.monitoring.svc.cluster.local:3200/api/traces/4bf92f3577b34da6a3ce929d0e0e4736"
+```
+
+**Expected Output:**
+```json
+{
+  "batches": [
+    {
+      "resource": {
+        "attributes": [
+          {"key": "service.name", "value": {"stringValue": "checkout-api"}}
+        ]
+      },
+      "scopeSpans": [
+        {
+          "spans": [
+            {
+              "traceId": "4bf92f3577b34da6a3ce929d0e0e4736",
+              "spanId": "00f067aa0ba902b7",
+              "name": "POST /checkout"
+            },
+            {
+              "traceId": "4bf92f3577b34da6a3ce929d0e0e4736",
+              "spanId": "5fb397be34d23b0f",
+              "parentSpanId": "00f067aa0ba902b7",
+              "name": "SELECT FROM accounts"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
+The parent-child relationship (`parentSpanId == 00f067aa0ba902b7`) is intact and viewable as an interactive waterfall in Grafana Tempo!
+
+---
+
+## 7. Operational Validation Checkpoints
+
+Test your understanding of distributed tracing with these real-world production incident scenarios.
+
+<details>
+<summary><b>Checkpoint 1: Why does a trace terminate at the API Gateway instead of continuing downstream?</b></summary>
+
+**Scenario:** Grafana shows a root span for `POST /orders` from the gateway, but zero child spans appear for the Order Service or Database, even though the order completed successfully.
+
+**Analysis & Troubleshooting Flow:**
+1. **Verify Context Propagation Headers:** Inspect the outbound request from the gateway using an ingress access log or network tap. Check if the `traceparent` HTTP header is present.
+2. **Inspect Downstream HTTP Client Configuration:** In modern microservices, developers often use raw HTTP clients (e.g. `http.Get` in Go or standard `fetch()` in Node.js) instead of an instrumented client. Raw HTTP clients omit the `traceparent` header.
+3. **Verify OpenTelemetry Tracer Registration:** Check if `otel.SetTextMapPropagator(...)` was invoked during application initialization. If the global propagator is unset, context injection is a silent no-op.
+</details>
+
+<details>
+<summary><b>Checkpoint 2: How do you configure Tail-Based Sampling in the OpenTelemetry Collector to capture errors?</b></summary>
+
+**Scenario:** Your billing service processes 20,000 QPS. You cannot afford to store all traces, but you must retain 100% of failed HTTP 5xx transactions.
+
+**Production Solution:**
+Configure an OpenTelemetry Collector with the `tail_sampling` processor:
 
 ```yaml
-receivers:            # how telemetry gets IN
-  otlp:
-    protocols:
-      grpc: {}        # listen for OTLP/gRPC on :4317
-      http: {}        # and OTLP/HTTP on :4318
-processors:           # what happens in the MIDDLE
-  batch: {}           # group spans before export (efficiency)
-exporters:            # where telemetry goes OUT
-  otlp/tempo:
-    endpoint: tempo:4317
-    tls: {insecure: true}
+processors:
+  tail_sampling:
+    decision_wait: 10s
+    num_traces: 50000
+    expected_new_traces_per_sec: 2000
+    policies:
+      # Policy 1: Always keep errors
+      - name: drop_errors_policy
+        type: status_code
+        status_code: { status_codes: [ ERROR ] }
+      # Policy 2: Always keep slow transactions (> 2s)
+      - name: latency_policy
+        type: numeric_attribute
+        numeric_attribute: { key: "http.status_code", value_condition: { greater_than_or_equal: 500 } }
+      # Policy 3: Sample 1% of remaining successful traces
+      - name: probabilistic_policy
+        type: probabilistic
+        probabilistic: { sampling_percentage: 1.0 }
+
 service:
   pipelines:
-    traces:           # wire receivers -> processors -> exporters
+    traces:
       receivers: [otlp]
-      processors: [batch]
-      exporters: [otlp/tempo]
+      processors: [memory_limiter, tail_sampling, batch]
+      exporters: [tempo]
 ```
-- `receivers.otlp.protocols.grpc/http` — the Collector accepts OTLP on 4317
-  (gRPC) and 4318 (HTTP); your apps point `OTEL_EXPORTER_OTLP_ENDPOINT` here.
-- `processors.batch` — batches spans to reduce export overhead; add
-  `tail_sampling` here for smart sampling.
-- `exporters.otlp/tempo.endpoint` — where processed traces are shipped
-  (Tempo). Swap this one line to send to Jaeger instead — the decoupling
-  payoff.
-- `service.pipelines.traces` — nothing is active until it's wired into a
-  pipeline; a receiver/exporter defined but not referenced here does nothing
-  (the ServiceMonitor-style "declared but not selected" trap, again).
-
-## Hands-on exercises
-
-Continue on the **kind** cluster with `kube-prometheus-stack`, Grafana, and
-Loki from modules 01-04.
-
-1. **(WSL2) Install Tempo.**
-   ```bash
-   helm repo add grafana https://grafana.github.io/helm-charts   # (already added in module 04)
-   helm repo update
-   helm install tempo grafana/tempo --namespace monitoring
-   kubectl get pods -n monitoring | grep tempo
-   ```
-   Expect a `tempo` pod `Running`. This is your trace store — the Loki-of-traces.
-
-2. **(WSL2) Install the OpenTelemetry Collector.**
-   ```bash
-   helm repo add open-telemetry https://open-telemetry.github.io/opentelemetry-helm-charts
-   helm repo update
-   helm install otel-collector open-telemetry/opentelemetry-collector \
-     --namespace monitoring \
-     --set mode=deployment \
-     --set image.repository=otel/opentelemetry-collector-contrib \
-     --set-string 'config.exporters.otlp/tempo.endpoint=tempo:4317' \
-     --set-string 'config.exporters.otlp/tempo.tls.insecure=true' \
-     --set 'config.service.pipelines.traces.exporters={otlp/tempo}'
-   kubectl get pods -n monitoring | grep otel-collector
-   ```
-   (If the `--set` overrides are fiddly on your Helm version, install with a
-   `-f values.yaml` file containing the Collector config from the Command
-   reference — the point is a Collector receiving OTLP on 4317 and exporting to
-   Tempo.) Verify the pod is `Running` and check its logs for
-   "Everything is ready".
-
-3. **(WSL2) Deploy two services that call each other, auto-instrumented.** Use
-   the OpenTelemetry demo's simplest pair, or this minimal two-hop setup where a
-   `frontend` calls a `backend`, both auto-instrumented to emit OTLP to the
-   Collector. The essential wiring on *each* Deployment is the env:
-   ```bash
-   #   OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector-opentelemetry-collector:4317
-   #   OTEL_SERVICE_NAME=frontend   (and =backend on the other)
-   ```
-   Deploy both into the `demo` namespace, expose the `frontend`, and drive
-   traffic through it so the frontend calls the backend on each request. (Any
-   pre-instrumented sample two-service app works; the OpenTelemetry Community
-   "astronomy shop" demo is the canonical one but heavy — a two-pod HTTP
-   caller/callee is enough.)
-
-4. **(WSL2) View your first trace.** Add Tempo as a Grafana data source
-   (**Connections → Data sources → Tempo**, URL `http://tempo:3100`). In
-   **Explore**, pick Tempo, click **Search**, and open a recent trace. You
-   should see a **waterfall**: a root span from `frontend` with a *child* span
-   from `backend` nested under it — one request, two services, joined. That
-   join only happened because the trace context propagated.
-
-5. **Diagnose and fix: a missing span because context wasn't propagated.** This
-   is *the* tracing bug. Reproduce it: on the `frontend`, make it call the
-   `backend` in a way that **doesn't** forward the `traceparent` header — e.g.
-   set `OTEL_PROPAGATORS=none` on the frontend, or (if manually instrumented)
-   have it build the outbound request without injecting context. Drive traffic,
-   then search Tempo again. Now you see **two separate traces** — a `frontend`
-   root with no child, and a `backend` root standing alone — instead of one
-   joined trace. Diagnose: inspect the outbound request and confirm no
-   `traceparent` header is present (the backend had nothing to continue, so it
-   started a new root). **Fix** by restoring propagation (remove
-   `OTEL_PROPAGATORS=none` / re-enable context injection); confirm the trace
-   rejoins into one waterfall with the `backend` span nested under `frontend`.
-   Lesson: **a broken trace is almost always a propagation problem — one hop
-   didn't pass `traceparent`.**
-
-6. **(WSL2) Inspect span attributes.** Open a joined trace and expand the spans.
-   Note the attributes auto-instrumentation attached: `http.method`,
-   `http.route`, `http.status_code`, durations. These are what let you filter
-   traces ("show me traces where `http.status_code=500`") — the trace pillar's
-   version of structured detail.
-
-7. **(WSL2) Add a manual span (if your sample app is one you can edit).** Wrap
-   a bit of "business logic" in a manual span with a custom attribute (e.g.
-   `order.value`). Re-run and find it nested in the waterfall. This is the
-   auto+manual combination — auto for the HTTP plumbing, manual for the
-   domain-specific step that explains *your* system.
-
-8. **(WSL2) Understand sampling.** In the Collector config, note there's no
-   tail-sampling processor yet, so you're keeping everything (fine at this
-   volume). Read the `processors` section and identify where a `tail_sampling`
-   processor (keep 100% of errors, 10% of the rest) would go and why that
-   belongs in the *Collector*, not each app. Write one sentence on why a
-   specific request might have *no* trace once sampling is on (module 07 gotcha).
-
-9. **(WSL2) Note the Jaeger alternative.** You used Tempo for the one-Grafana
-   payoff. In a sentence, note when you'd pick Jaeger instead (you want its
-   standalone, tracing-specialized UI, or you're in an ecosystem already
-   standardized on it) — the same "know the alternative" discipline as ELK in
-   module 04.
-
-10. **(WSL2) Leave Tempo and the Collector installed** for module 07. To
-    reclaim: `helm uninstall tempo otel-collector -n monitoring`.
-
-## Independent challenge
-
-No full app given — assemble it yourself using this module plus
-[module 04](../04-logging-and-log-aggregation-loki/README.md) (structured
-logging) and [module 00](../00-observability-concepts-and-three-pillars/README.md)
-(why trace_id is high-cardinality). Stand up a **two-service** request path of
-your choosing (frontend → backend, or api → worker) where a request to the
-first triggers a call to the second, instrument both with OpenTelemetry
-pointing at your Collector, and prove you get **one joined trace** spanning both
-services with the child span nested correctly. Then do the hard part: make each
-service *also* log (structured JSON) the `trace_id` of the request it's
-handling, so the same identifier appears in both the trace *and* the logs. This
-is the deliberate setup for module 07's correlation — verify by picking a
-`trace_id` from a Tempo waterfall and finding that exact ID in the Loki logs of
-*both* services. The skill is producing telemetry that's already correlatable
-across pillars, which is 90% of what makes an incident debuggable.
-
-<details>
-<summary>Stuck? One hint</summary>
-
-The join depends entirely on the `traceparent` header surviving the
-frontend→backend hop — if you get two disconnected traces, propagation is off
-(exercise 5). To get the `trace_id` into your logs, most OTel SDKs expose the
-current span context to your logging code; pull `span.get_span_context().trace_id`
-(or your language's equivalent) and add it as a `trace_id` field in the
-structured log line. Then in Loki, `{namespace="demo"} | json |
-trace_id="<the-id-from-tempo>"` should return lines from *both* services —
-`trace_id` lives in log *content*, never a Loki label (module 04's cardinality
-rule), because it's as high-cardinality as identifiers get.
-
-</details>
-
-## Common mistakes & troubleshooting
-
-- **Broken trace = broken propagation.** Two disconnected traces where you
-  expected one almost always means a hop didn't forward `traceparent`. Check the
-  outbound request headers first; suspect `OTEL_PROPAGATORS`, a hand-built HTTP
-  client that skips injection, or a proxy stripping the header.
-- **Nothing in Tempo at all.** Check the chain end to end: app env
-  `OTEL_EXPORTER_OTLP_ENDPOINT` points at the Collector's 4317; the Collector's
-  `traces` pipeline actually references the OTLP receiver *and* the Tempo
-  exporter (declared-but-not-wired does nothing); Tempo is reachable from the
-  Collector.
-- **trace_id in a metric or Loki label.** It's the highest-cardinality value
-  there is — one per request. It belongs in trace data and in *log content*,
-  never an indexed label (modules 00/04).
-- **Expecting every request to have a trace.** Once sampling is on, a specific
-  request may legitimately have no stored trace. That's sampling working, not a
-  bug — but it's a real surprise when correlating (module 07).
-- **Only auto-instrumenting.** Auto covers HTTP/DB plumbing but not your
-  business logic; a trace with no domain spans can't explain *why* your specific
-  operation was slow. Add manual spans for the steps that matter.
-- **Sending traces straight to the backend, skipping the Collector.** Works for
-  a demo, but you lose central sampling/cost control and couple every app to the
-  backend. Route through the Collector.
-
-## Checkpoint quiz
-
-Write down your answer to each question before expanding it — checking without attempting first is the single easiest way to fool yourself into thinking you've learned this.
-
-<details>
-<summary>Show questions</summary>
-
-1. Define span and trace, and describe what a trace waterfall shows you that
-   metrics and logs can't.
-2. What is trace context propagation, which header carries it, and what happens
-   if one service fails to propagate it?
-3. Auto- vs. manual instrumentation — what does each cover, and why do real
-   systems use both?
-4. What are the three sections of an OTel Collector pipeline, and what's the
-   benefit of routing through a Collector instead of app→backend directly?
-5. Head vs. tail sampling — the difference, and why tail sampling is smarter for
-   catching problems?
-6. Why might a specific request you're investigating have no stored trace, and
-   is that a bug?
-7. Where does a `trace_id` belong across the three pillars, and where must it
-   *not* go?
-
 </details>
 
 <details>
-<summary>Show answers</summary>
+<summary><b>Checkpoint 3: Explain the structure of the W3C `traceparent` header and the role of the sampled flag.</b></summary>
 
-1. A span is one timed operation (name, start/end, attributes); a trace is the
-   tree of spans for a single request across services. The waterfall shows
-   *where the time went* — which service/hop of one request was slow or failed —
-   which an aggregate metric (not one request) and a single log line (one point,
-   not the path) can't show.
-2. Propagation is passing the trace context (`trace_id` + current `span_id`)
-   from one service to the next, carried in the W3C `traceparent` HTTP header.
-   If a service fails to propagate it, the trace breaks in two — the downstream
-   service starts a new root span instead of continuing the trace.
-3. Auto-instrumentation covers common framework plumbing (HTTP servers/clients,
-   DB drivers) and propagation with little code change; manual instrumentation
-   adds spans around your own business logic with custom attributes. Both,
-   because auto gives fast coverage of the plumbing while manual explains the
-   domain-specific steps auto can't see.
-4. `receivers` (how telemetry gets in — OTLP), `processors` (batching,
-   sampling, attributes), `exporters` (where it goes — Tempo/Jaeger), wired
-   together in a `service.pipelines` entry. Routing through the Collector
-   decouples apps from the backend, centralizes sampling/cost control, and can
-   handle all three signals in one place.
-5. Head sampling decides at the start of the trace (cheap, random, may drop the
-   interesting ones); tail sampling decides after the trace completes, so it can
-   keep 100% of errored/slow traces and a small fraction of normal ones — better
-   for catching problems, at higher cost, done in the Collector.
-6. Because sampling deliberately keeps only a fraction of traces, so that
-   particular request may not have been retained. It's expected behavior, not a
-   bug — but a real gotcha when you try to correlate a specific request in
-   module 07.
-7. In the **trace** data and in **log content** (as a field). It must *not* be
-   a metric label or a Loki index label — it's the highest-cardinality value
-   there is (one per request) and would explode either index.
+**Header Format:** `00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01`
 
+**Components:**
+1. `00`: Spec version.
+2. `4bf92f3577b34da6a3ce929d0e0e4736`: 16-byte (32 hex character) globally unique Trace ID.
+3. `00f067aa0ba902b7`: 8-byte (16 hex character) Span ID of the caller (Parent Span).
+4. `01`: Trace Flags bitmask.
+   - Bit 0 (`01`): **Sampled bit**. Signals to all downstream microservices that the root span was chosen for recording. Downstream services observe this flag and automatically record their own child spans, guaranteeing the entire trace tree remains complete without each service independently rolling dice.
 </details>
 
-## Cumulative review
-
-Closed book. Cover the answers and write each out before checking. These mix
-everything so far across all three pillars — concepts (00), Prometheus/PromQL
-(01-02), Grafana (03), Loki (04), and tracing (05).
-
-1. For an e-commerce checkout, name one signal you'd collect from each pillar,
-   and for each state whether `order_id` should appear in it and why.
-2. A `histogram_quantile` p95 panel in Grafana shows "No data". Give two
-   independent causes — one PromQL (module 02), one Grafana/label (module 03) —
-   and how you'd tell them apart.
-3. You put `user_id` as a label in three places by mistake: a Prometheus
-   metric, a Loki stream label, and… where does it *actually* belong? Explain
-   the single underlying rule that governs all three.
-4. Write the LogQL to compute the per-service error-line rate over 5m from JSON
-   logs, and say why this can sit on the same Grafana dashboard as a Prometheus
-   panel.
-5. A trace shows the `frontend` span with no `backend` child, and separately a
-   lone `backend` trace. What's the cause and the fix?
-6. Distinguish `up == 0` (module 01), a Loki empty-selector result (module 04),
-   and a broken trace (module 05) — what do these three "nothing showed up"
-   failures have in common conceptually?
-7. Why do you wrap a counter in `rate()` but read a gauge directly, and give one
-   example metric of each type from the stack you installed.
-8. An on-call engineer sees a latency-spike metric alert. Describe the ideal
-   metric → logs → trace path they'd follow and which tool serves each step.
-9. You need to keep 100% of errored requests' traces but only 5% of normal
-   ones, without your app code deciding. What feature, in which component,
-   achieves this?
-10. Name one thing Container Insights/Log Analytics (track 07) did for you
-    automatically that you had to configure by hand in this track, and one
-    capability this open-source stack has that the Azure-native monitoring
-    barely offered.
-
-<details>
-<summary>Show answers</summary>
-
-1. **Metric**: request rate / p95 latency for `/checkout` (labels `endpoint`,
-   `status`) — `order_id` must **not** appear (unbounded → cardinality
-   explosion). **Log**: a structured line per checkout with `order_id` in the
-   content — `order_id` **belongs** here (queryable detail). **Trace**: the
-   checkout's span tree, tied to a `trace_id`, with `order_id` as a span
-   attribute — belongs here too. High-cardinality detail lives in logs/traces,
-   never metric/index labels.
-2. PromQL cause: the query aggregated away `le` (`sum` without `by (le)`), so
-   `histogram_quantile` returns nothing. Grafana/label cause: a wrong label
-   name/value (e.g. `status` vs `code`) so the selector matches no series. Tell
-   apart by running the bare `..._bucket` metric in Explore — if it returns
-   data, the bug is in your `by (le)`/aggregation; if the bare metric also
-   returns nothing, it's the label/selector.
-3. It belongs in **log content and trace attributes**, not any index label. The
-   one rule: **only low-cardinality, bounded values may be indexed labels**
-   (metric labels *or* Loki stream labels); unbounded per-entity identifiers go
-   in content, extracted at query time. Same rule, three surfaces.
-4. `sum by (service) (rate({namespace="demo"} | json | level="error" [5m]))`.
-   It can share a Grafana dashboard because LogQL can produce a metric (a rate)
-   from logs, and Grafana panels each choose their own data source, so a
-   Loki-derived rate panel sits next to a Prometheus panel.
-5. The `frontend` didn't propagate the `traceparent` header to the `backend`,
-   so the backend started a new root trace instead of a child span. Fix: restore
-   context propagation (re-enable the propagator / inject context into the
-   outbound request) so the trace rejoins.
-6. `up == 0` = scrape reached but failed; Loki empty selector = labels matched
-   no stream; broken trace = context not propagated. Conceptually all three are
-   **"the thing you expected to match didn't match"** — a selector/label/context
-   mismatch that fails *silently* with no error, requiring you to verify against
-   what actually exists.
-7. A counter only increases and resets on restart, so its raw value is
-   meaningless — `rate()` gives the useful per-second change; a gauge already
-   represents a current level you read directly. Counter example:
-   `http_requests_total`; gauge: `node_memory_MemAvailable_bytes` (or
-   `kube_pod_status_phase`).
-8. See the spike in a **Prometheus/Grafana** metric panel → pivot to **Loki**
-   logs filtered to the same service/time window to read the actual errors and
-   grab a `trace_id` → open that `trace_id` in **Tempo** to see which downstream
-   hop caused it. Metric = *that* it happened, log = *what*, trace = *where*.
-9. **Tail sampling**, configured as a processor in the **OpenTelemetry
-   Collector** — it decides after the trace completes, so it can keep all errors
-   and a small fraction of normal traces without any app-code involvement.
-10. Automatic-for-you in track 07: the log-shipping agent and pipeline
-    (Container Insights deployed it with one command; here you install Promtail/
-    Alloy + Loki and wire ServiceMonitors yourself). Under-offered by Azure-
-    native monitoring: **distributed tracing** across services (OpenTelemetry +
-    Tempo), which Container Insights barely provided.
-
-</details>
+---
 
 ## Next
 
-[06-alerting-and-on-call-basics](../06-alerting-and-on-call-basics/README.md)
-— all three pillars are collecting now. Time to make them *page you*: how
-Alertmanager routes and groups alerts, what separates a good alert from a
-noisy one, and how to avoid the alert fatigue that makes teams ignore the
-pager.
+Continue to **[06-alerting-and-on-call-basics](../06-alerting-and-on-call-basics/README.md)** to bridge telemetry to human operational response: routing, deduplicating, and silencing alerts with Alertmanager.
