@@ -135,8 +135,8 @@ const KINDS = {
   }
 };
 
-/** The steps that find a block's network address, in the block-size way for a prefix that falls inside an octet and in one line for one that does not. */
-function networkSteps(d) {
+/** The steps that find a block's network address (`d` is what describe() returns), in the block-size way for a prefix that falls inside an octet and in one line for one that does not. */
+export function networkSteps(d) {
   const boundary = boundaryOctet(d.prefix);
   const mask = d.text.mask;
   if (!boundary) {
@@ -163,6 +163,12 @@ export function makeQuestion(level, random) {
 export function round(seed, level = 1, count = 10) {
   const random = rng(`${seed}|${level}`);
   return Array.from({ length: count }, (_, i) => ({ number: i + 1, ...makeQuestion(level, random) }));
+}
+
+/** The puzzle of the day: ten questions that climb from easy to hard, the same for everyone on a given seed (see dailySeed). */
+export function dailyRound(seed, mix = [[1, 3], [2, 3], [3, 2], [4, 2]]) {
+  const questions = mix.flatMap(([level, count]) => round(seed, level, count));
+  return questions.map((q, i) => ({ ...q, number: i + 1 }));
 }
 
 /** Whether what was typed is the answer. Forgiving about spaces, a leading slash, "yes"/"y", commas in numbers and the form of an address. */

@@ -312,7 +312,8 @@
     "studioDraft": "docs.studioDraft.",
     "dismissedNotices": "docs.dismissedNotices",
     "readingPrefs": "docs.readingPrefs",
-    "areaPick": "docs.areaPick"
+    "areaPick": "docs.areaPick",
+    "netlab": "docs.netlab"
   },
   "assistant": {
     "maxInputChars": 12000,
@@ -446,7 +447,19 @@
         "name": "challenge",
         "path": "/design-lab/hld/chat-application/",
         "height": 1300
+      },
+      {
+        "name": "tool-subnet",
+        "path": "/tools/subnet/",
+        "height": 1500
       }
     ]
-  }
+  },
+  "tools": [
+    {
+      "id": "subnet",
+      "url": "/tools/subnet/",
+      "entry": "tools/subnet/index.html"
+    }
+  ]
 }

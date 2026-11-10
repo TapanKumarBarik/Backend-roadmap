@@ -307,6 +307,9 @@ for (const listing of listings) {
   urls.push({ url: listing.url });
 }
 
+// The tools are pages of their own, built by Vite from their HTML (site.config.json -> tools); only the sitemap is written here.
+for (const tool of config.tools || []) urls.push({ url: tool.url });
+
 const newest = urls.map((u) => u.lastmod).filter(Boolean).sort().at(-1);
 if (newest) urls[0].lastmod = newest;
 fs.writeFileSync(path.join(DIST, 'sitemap.xml'),

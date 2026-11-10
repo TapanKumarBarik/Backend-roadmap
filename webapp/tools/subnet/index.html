@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en" data-theme="auto">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Subnet Calculator and CIDR Practice · %SITE_NAME%</title>
+<meta name="description" content="Free subnet calculator: network, broadcast and host range from any CIDR block, with the working shown. Then practise subnetting with endless questions and a daily puzzle.">
+<link rel="canonical" href="%SITE_URL%/tools/subnet/">
+<link rel="icon" type="image/svg+xml" href="/favicon.svg">
+<meta name="theme-color" content="#111111">
+<meta property="og:site_name" content="%SITE_NAME%">
+<meta property="og:type" content="website">
+<meta property="og:url" content="%SITE_URL%/tools/subnet/">
+<meta property="og:title" content="Subnet Calculator and CIDR Practice">
+<meta property="og:description" content="Type a CIDR block, see the network, broadcast and hosts with the working. Then play the daily subnetting puzzle.">
+<meta property="og:image" content="%SITE_SOCIAL_IMAGE%">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="%SITE_SOCIAL_IMAGE%">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"WebApplication","name":"Subnet calculator and CIDR practice","url":"%SITE_URL%/tools/subnet/","applicationCategory":"EducationalApplication","operatingSystem":"Any","offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},"isAccessibleForFree":true}</script>
+</head>
+<body class="tool">
+<header class="tool-top">
+  <a class="tool-brand" href="/">%SITE_NAME%</a>
+  <nav aria-label="Related">
+    <a href="/system-design/02-networking-from-zero/">Networking course</a>
+    <a href="/practice/">Practice</a>
+    <a href="/videos/">Videos</a>
+  </nav>
+</header>
+
+<main class="tool-main">
+  <h1>Subnet calculator and CIDR practice</h1>
+  <p class="tool-lead">Type a block like <code>10.0.5.40/29</code> to see its network and broadcast address, its host range and its mask, with the working written out. Then practise on endless questions, or play the puzzle of the day.</p>
+
+  <section aria-labelledby="calc-h" class="tool-card">
+    <h2 id="calc-h">Calculator</h2>
+    <form id="calc" novalidate>
+      <label for="cidr">Address and prefix</label>
+      <div class="tool-row">
+        <input id="cidr" name="cidr" type="text" inputmode="text" autocomplete="off" spellcheck="false" value="192.168.1.130/26" aria-describedby="calc-problem">
+        <button type="submit" class="tool-btn tool-btn--primary">Calculate</button>
+      </div>
+      <p id="calc-problem" class="tool-problem" role="alert" hidden></p>
+    </form>
+    <div id="calc-out" aria-live="polite"></div>
+  </section>
+
+  <section aria-labelledby="hand-h" class="tool-prose">
+    <h2 id="hand-h">How to work it out by hand</h2>
+    <p>A prefix like <code>/26</code> says the first 26 of the address&rsquo;s 32 bits name the network, and the other 6 are for hosts. That leaves 2<sup>6</sup> = 64 addresses in the block, of which the first (the network address) and the last (the broadcast address) are not given to hosts, so 62 are usable.</p>
+    <p>To find the block of <code>192.168.1.130/26</code>, use the block size. The mask is <code>255.255.255.192</code>, so the block size in the last octet is 256 &minus; 192 = 64. The blocks start at 0, 64, 128 and 192. The address ends in 130, which lies in the block that starts at 128: network <code>192.168.1.128</code>, broadcast <code>192.168.1.191</code>, hosts <code>.129</code> to <code>.190</code>.</p>
+    <p>The calculator shows the same working for any block you type.</p>
+  </section>
+
+  <section aria-labelledby="drill-h" class="tool-card">
+    <h2 id="drill-h">Practice</h2>
+    <p id="streak" class="tool-streak"></p>
+    <div id="menu" class="tool-menu">
+      <div>
+        <button type="button" id="daily" class="tool-btn tool-btn--primary">Play today&rsquo;s puzzle</button>
+        <p id="daily-note" class="tool-note"></p>
+      </div>
+      <div class="tool-row">
+        <label for="level" class="tool-inline">Level</label>
+        <select id="level"></select>
+        <button type="button" id="start" class="tool-btn">Start a round</button>
+      </div>
+    </div>
+
+    <form id="drill" novalidate hidden>
+      <p id="progress" class="tool-note"></p>
+      <p id="prompt" class="tool-prompt"></p>
+      <label for="answer" class="tool-sr">Your answer</label>
+      <div class="tool-row">
+        <input id="answer" name="answer" type="text" autocomplete="off" spellcheck="false" autocapitalize="off">
+        <button type="submit" id="go" class="tool-btn tool-btn--primary">Check</button>
+      </div>
+      <div id="feedback" role="status" aria-live="polite"></div>
+    </form>
+
+    <div id="result" hidden>
+      <p id="score" class="tool-score"></p>
+      <p id="share-text" class="tool-note"></p>
+      <div class="tool-row">
+        <button type="button" id="share" class="tool-btn tool-btn--primary">Copy my result</button>
+        <button type="button" id="again" class="tool-btn">Play again</button>
+        <button type="button" id="harder" class="tool-btn">Try the next level</button>
+      </div>
+      <p id="share-note" class="tool-note" role="status"></p>
+    </div>
+  </section>
+
+  <section aria-labelledby="more-h" class="tool-prose">
+    <h2 id="more-h">Learn it properly</h2>
+    <p>These lessons explain addresses, masks and subnets from the start, with diagrams: <a href="/system-design/02-networking-from-zero/03-ip-addresses/">IP addresses</a> in Networking from Zero, and <a href="/learn/04-networking-fundamentals/01-ip-addressing-and-subnetting/">IP addressing and subnetting</a> in the Linux to Cloud course. Planning address space for a cloud network is the same arithmetic: two networks that overlap cannot be peered.</p>
+  </section>
+</main>
+
+<script type="module" src="/src/tools/subnet.js"></script>
+</body>
+</html>

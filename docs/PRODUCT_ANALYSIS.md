@@ -401,7 +401,9 @@ Updated as work is done. The first column follows the numbering in "The daily lo
 | One navigation, the "today" screen, the first-visit home page, onboarding | Not started here: another session is editing `App.jsx`, `Landing.jsx`, `TopBar.jsx`, `MainColumn.jsx`, `landing.css` and `global.css` at the same time, and these items live in those files. Start when that work is committed |
 | Email (sign-up, welcome, streak reminder, weekly digest) | Not started. Needs a decision and an account for a sender (Resend or Cloudflare Email) and consent wording; I will not set up an external service without that |
 | Events table and return-rate view | Not started. A new migration (0008, after the drill's 0007), applied by hand |
-| Quiz one question at a time, Practice recommendations | Not started |
+| Quiz one question at a time | **Done**, 2026-11-10 |
+| Practice recommendations | Not started |
+| Network Lab: subnet calculator, drills and a daily puzzle at `/tools/subnet/` (an idea from the owner; it gives the daily hook and search traffic for "subnet calculator" and "CIDR" with no server cost) | **Built**, 2026-11-10; further tools (TCP handshake ordering, ports, DNS records) and a link from the navigation are not done, the navigation being in the files another session is editing |
 | Rubrics and AI feedback for design challenges; the paid tier | Not started; see "What to charge for" |
 
 ## A 90-day order of work

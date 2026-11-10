@@ -1,7 +1,7 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { existsSync, readFileSync, statSync } from 'node:fs';
-import { extname, join, normalize } from 'node:path';
+import { extname, join, normalize, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const repoRoot = join(fileURLToPath(new URL('.', import.meta.url)), '..');
@@ -78,7 +78,14 @@ export default defineConfig({
   build: {
     outDir: distDir,
     emptyOutDir: true,
-    assetsDir: 'assets'
+    assetsDir: 'assets',
+    // The app, and the small tools that are pages of their own (site.config.json -> tools): each an HTML entry that ends up at its own address in dist/.
+    rollupOptions: {
+      input: {
+        main: resolve(repoRoot, 'webapp/index.html'),
+        ...Object.fromEntries((siteConfig.tools || []).map((tool) => [`tool-${tool.id}`, resolve(repoRoot, 'webapp', tool.entry)]))
+      }
+    }
   },
   // /api goes to `wrangler pages dev` (see docs/LOCAL-SETUP.md) in both modes.
   server: {

@@ -86,6 +86,12 @@ if one stops answering, loses its canonical address or gains `noindex`; see [URL
 each with its module. The module page shows its video under the title, with chapters that start the player at that point; the sidebar
 marks the module; the Videos screen and the home page list them. A video not public yet is not shown. [VIDEOS.md](VIDEOS.md).
 
+**Tools** are small pages of their own, not screens of the app: the subnet calculator and drills at `/tools/subnet/`. Each is an HTML entry under
+`webapp/tools/<name>/index.html` with plain-DOM script in `webapp/src/tools/` (no React, so it is small and quick), built as an extra entry of the same
+Vite build and listed in `site.config.json -> tools` (which also puts it in the sitemap). The logic is pure and tested in `webapp/src/lib/netlab/`
+(`cidr.js` the arithmetic, `questions.js` seeded questions with their working and an answer checker, `session.js` the streak). Everything is checked in the
+browser, so there is no server and no cost. The puzzle of the day is made from the UTC date, so it is the same for everyone.
+
 **PDF notes** are files in `webapp/public/notes/system-design/` (one per lesson, plus a bundle per phase), served as they are and linked
 from the lesson.
 
@@ -185,6 +191,7 @@ To add a page, add an entry there. Look at it after a UI change; use git, not ol
 | add a curriculum | a folder in `content/`; its name in `content.curricula` **and** an entry in `content.areas` (same order); a tag in `scripts/lib/tag-vocabulary.mjs`; `npm run check` |
 | add an image | [IMAGES.md](IMAGES.md) |
 | add a video | `npm run videos:sync`, then give it a `"module"` in `content/videos.json`; `npm run check` ([VIDEOS.md](VIDEOS.md)) |
+| add a tool page | an HTML entry in `webapp/tools/<name>/`, its script in `webapp/src/tools/`, an entry in `site.config.json -> tools`, a test in `tests/e2e/tools.e2e.mjs` and a line in `tests/e2e/audit.e2e.mjs` |
 | add a PDF note | a file in `webapp/public/notes/system-design/`, and a link from the lesson |
 | add or fix a quiz, exercise, interview set or design challenge | a file in `content/practice/` or `content/design-lab/`, then `npm run practice:build` ([PRACTICE.md](PRACTICE.md)); or an admin, in the browser |
 | change a learning path | `content/paths.json`, then `npm run check:paths` |
