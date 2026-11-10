@@ -1,649 +1,360 @@
-# Module 09: Behavioral Patterns II
+# Module 09: Behavioral Design Patterns II — Chain of Responsibility, Iterator, Mediator, Memento, and Visitor
 
-## Why this matters
+> **Prerequisites:** Module 02 (OOP Foundations), Module 08 (Behavioral Patterns I).  
+> **Estimated Reading Time:** 25 minutes  
+> **Target Audience:** Backend Developers, Software Engineers, Low-Level Design Candidates.
 
-This module finishes the pattern catalog: Iterator, Chain of
-Responsibility, Mediator, Memento, and Visitor. After this, you have all
-22 patterns this track covers (of the GoF's 23 — only Interpreter, which
-is genuinely rare outside building parsers/DSLs, is skipped) as concrete
-vocabulary. Every classic problem starting at module 12 will reuse this
-entire catalog freely — you'll be expected to recognize "oh, this needs a
-Chain of Responsibility" the same way you'd recognize a sorting problem
-needs a sort, not derive it from scratch under interview pressure.
+> [!TIP]
+> **The Golden Rule of Advanced Behavioral Patterns:** Structure complex object communication to prevent $O(N^2)$ direct coupling. Use **Chain of Responsibility** for sequential processing pipelines that can short-circuit early (like HTTP middleware); use **Mediator** to eliminate chaotic many-to-many mesh communication by routing through a central coordinator; use **Iterator** to traverse collections without exposing memory layouts; and use **Visitor** to add new operations to complex object structures without modifying their classes.
 
-## Concepts
+---
 
-### Iterator — walk a collection without exposing its internals
+## 1. Architectural Mental Model: Advanced Collaboration Topologies
 
-**Problem it solves:** let calling code step through a collection's
-elements one at a time, without knowing or caring whether it's backed by
-an array, a linked list, or something more exotic.
+These five patterns complete the GoF behavioral catalog by decoupling coordination, traversal, state capture, and algorithm dispatch:
 
-{{tabs}}
-{{tab Python}}
-```python
-class BookShelf:
-    def __init__(self):
-        self._books = []
+```mermaid
+flowchart TD
+    subgraph CoR["1. Chain of Responsibility (Sequential Filtering)"]
+        Req["HTTP Request"] --> H1["AuthHandler"]
+        H1 -->|Passes| H2["RateLimitHandler"]
+        H2 -->|Passes| H3["ValidationHandler"]
+        H3 -->|Passes| H4["BusinessHandler"]
+        H2 -.->|Exceeded| Block["Short-Circuit (429 Too Many Requests)"]
+    end
 
-    def add(self, book):
-        self._books.append(book)
+    subgraph MediatorPattern["2. Mediator Pattern (Decoupling Many-to-Many)"]
+        Colleague1["AirPlane A"] <--> Med["AirTrafficControl (Mediator)"]
+        Colleague2["AirPlane B"] <--> Med
+        Colleague3["Runway C"] <--> Med
+        NoteM["Colleagues talk ONLY to the Mediator, eliminating direct N*N mesh coupling!"]
+    end
 
-    def __iter__(self):                  # Python's iteration protocol — makes BookShelf directly iterable
-        return iter(self._books)
-
-shelf = BookShelf()
-shelf.add("Dune")
-shelf.add("Neuromancer")
-
-for book in shelf:                        # 'for' works because __iter__ exists — no exposed internals
-    print(book)
+    classDef pattern fill:#e1f5fe,stroke:#0288d1,stroke-width:2px;
+    class H1,H2,H3,H4,Med pattern;
 ```
 
-Python's iteration protocol (`__iter__`/`__next__`, or the simpler
-`yield`-based generator form) *is* the Iterator pattern, built into the
-language — you rarely hand-write a separate Iterator class in Python;
-you implement the protocol on your own collection instead:
+---
 
-```python
-class BookShelf:
-    def __init__(self):
-        self._books = []
-    def add(self, book):
-        self._books.append(book)
-    def __iter__(self):
-        for book in self._books:          # a generator-based iterator — even less ceremony
-            yield book
+## 2. Taxonomic Reference: Behavioral Patterns II Comparison
+
+| Pattern | Architectural Intent | Flow Mechanics | Production Use Case |
+| :--- | :--- | :--- | :--- |
+| **Chain of Responsibility** | Avoid coupling sender of a request to its receiver by allowing more than one object to handle it. | Sequential linked handlers; each can handle and pass, or **short-circuit**. | Web middleware (Express, ASP.NET Core pipelines), approval workflows. |
+| **Iterator** | Access elements of an aggregate object sequentially without exposing underlying representation. | Exposes `has_next()` and `next()` cursor interface. | Traversing B-trees, linked lists, paginated database result sets. |
+| **Mediator** | Define an object that encapsulates how a set of objects interact to prevent chaotic dependencies. | Central hub dispatches events between peers ("Colleagues"). | CQRS dispatchers (MediatR in .NET), chat room servers, flight controllers. |
+| **Memento** | Capture and externalize an object's internal state without violating encapsulation for rollback. | Originator creates Memento; Caretaker stores mementos and restores state. | Undo/Redo managers, transactional database state rollbacks. |
+| **Visitor** | Represent an operation to be performed on elements of an object structure without modifying classes. | **Double-dispatch:** Element calls `visitor.visit(this)`. | Abstract Syntax Tree (AST) compilers, tax calculators on heterogeneous shopping carts. |
+
+---
+
+## 3. Systematic Breakdown: Chain of Responsibility vs. Decorator
+
+Because both patterns wrap or link objects together, candidates often confuse them in system design interviews:
+
 ```
-{{tab C#}}
+  ┌───────────┬─────────────────────────────────┬────────────────────────────────────────┐
+  │ Pattern   │ Execution Guarantee             │ Primary Purpose                        │
+  ├───────────┼─────────────────────────────────┼────────────────────────────────────────┤
+  │ Decorator │ **ALL layers MUST execute**     │ Augmenting behavior (e.g. gzip + log). │
+  │ Chain of  │ Handlers can **SHORT-CIRCUIT**  │ Filtering / Gatekeeping. If auth fails,│
+  │ Respons.  │ and abort the rest of the chain │ subsequent handlers are never invoked! │
+  └───────────┴─────────────────────────────────┴────────────────────────────────────────┘
+```
+
+---
+
+## 4. Production War Story: The Chain of Responsibility Silent Hang Outage
+
+```mermaid
+sequenceDiagram
+    actor Client as Mobile API Client
+    participant Auth as AuthHandler (Link 1)
+    participant Rate as RateLimitHandler (Link 2)
+    participant Next as BusinessHandler (Link 3)
+
+    Client->>Auth: POST /api/v1/checkout
+    Auth->>Rate: Handle(request)
+    Note over Rate: Rate limit exceeded for client IP!
+    Note over Rate: Bug: Developer wrote log message, but forgot to call _next.Handle() OR return response!
+    Note over Rate: Execution falls through into empty return!
+    Note over Client: Client socket waits indefinitely for HTTP response!
+    Note over Client,Rate: After 2,000 hanging requests, web server worker threads exhaust!
+    Note over Auth: 💥 HTTP 504 Gateway Timeout across 100% of API endpoints!
+```
+
+### The Incident
+During an API gateway rollout, an engineering team added an IP-based rate limiter using the Chain of Responsibility pattern. When a burst of requests exceeded the threshold, the gateway did not return `HTTP 429`. 
+
+Instead, the requests hung indefinitely until client connections timed out after 60 seconds. Within 4 minutes, all 2,000 thread pool workers in the gateway were blocked, causing a total blackout for all API services.
+
+### The Post-Mortem Data
+* **Severity:** SEV-1 (Platform Worker Thread Exhaustion)
+* **Mean Time to Detect (MTTD):** 10 minutes
+* **Mean Time to Resolution (MTTR):** 25 minutes
+
+### The Root Cause
+The rate-limiting handler in the Chain of Responsibility contained a control-flow bug:
 ```csharp
-public class BookShelf : IEnumerable<string> {   // implements C#'s iteration interface directly
-    private List<string> _books = new List<string>();
-
-    public void Add(string book) => _books.Add(book);
-
-    public IEnumerator<string> GetEnumerator() => _books.GetEnumerator();
-    System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => GetEnumerator();
-}
-
-var shelf = new BookShelf();
-shelf.Add("Dune");
-shelf.Add("Neuromancer");
-
-foreach (var book in shelf) {             // 'foreach' works because IEnumerable<T> is implemented
-    Console.WriteLine(book);
-}
-```
-
-C# also has `yield return`, which lets you write a custom iteration
-sequence without manually implementing `IEnumerator<T>`'s
-`MoveNext()`/`Current` machinery:
-
-```csharp
-public IEnumerable<string> LongTitlesOnly() {
-    foreach (var book in _books) {
-        if (book.Length > 5) yield return book;   // the compiler builds the enumerator for you
+public class RateLimitHandler : BaseHandler {
+    public override void Handle(Request req) {
+        if (IsRateLimited(req)) {
+            LogRateLimit(req);
+            // 💥 BUG: Forgot to write HTTP 429 response OR call base.Handle(req)!
+            // Request falls off the edge without a response!
+        } else {
+            base.Handle(req);
+        }
     }
 }
 ```
-{{/tabs}}
+Because the handler neither forwarded the request to `_next.Handle()` nor sent an HTTP response to the client socket, the client thread remained blocked waiting on the socket.
 
-**The honest takeaway**: both languages have made Iterator a
-first-class, built-in protocol precisely because it's *that* useful — in
-real code you almost always implement `__iter__`/`IEnumerable<T>` on your
-own type rather than hand-rolling a separate custom Iterator class from
-scratch. Knowing this *is* the pattern (not "avoiding" it) is the actual
-interview-relevant knowledge.
+### The Fix & Hardening
+1. **Explicit Pipeline Response Types:** Handlers must return an explicit `Result` or `Response` object, forcing the compiler to verify that every code branch returns a value.
+2. **Gateway Request Timeouts:** Enforce hard 15-second socket timeouts on all incoming gateway connections.
 
-### Chain of Responsibility — pass a request along a chain until someone handles it
+---
 
-**Problem it solves:** a request may need to be handled by one of
-several possible handlers, and the sender shouldn't need to know which
-one, or how many there are.
+## 5. Multi-Language Production Code: Chain of Responsibility & Mediator Patterns
 
-{{tabs}}
-{{tab Python}}
+### Python (Chain of Responsibility Pipeline)
 ```python
+from __future__ import annotations
 from abc import ABC, abstractmethod
+from typing import Optional
 
-class Approver(ABC):
+class HttpRequest:
+    def __init__(self, path: str, token: Optional[str] = None):
+        self.path = path
+        self.token = token
+        self.is_authorized = False
+
+class Handler(ABC):
     def __init__(self):
-        self._next: Approver | None = None
+        self._next_handler: Optional[Handler] = None
 
-    def set_next(self, next_approver: "Approver") -> "Approver":
-        self._next = next_approver
-        return next_approver           # returning it lets you chain .set_next() calls too
+    def set_next(self, handler: Handler) -> Handler:
+        self._next_handler = handler
+        return handler
 
     @abstractmethod
-    def approve(self, amount: float): ...
+    def handle(self, request: HttpRequest) -> bool:
+        if self._next_handler:
+            return self._next_handler.handle(request)
+        return True
 
-class TeamLead(Approver):
-    def approve(self, amount):
-        if amount <= 1000:
-            print(f"TeamLead approved {amount}")
-        elif self._next:
-            self._next.approve(amount)      # can't handle it — pass it along the chain
-        else:
-            print("No one could approve this")
+class AuthenticationHandler(Handler):
+    def handle(self, request: HttpRequest) -> bool:
+        if not request.token or request.token != "secret-token-xyz":
+            print("❌ [Auth] Invalid token! Short-circuiting chain.")
+            return False
+        print("✅ [Auth] Token valid.")
+        request.is_authorized = True
+        return super().handle(request)
 
-class Manager(Approver):
-    def approve(self, amount):
-        if amount <= 10000:
-            print(f"Manager approved {amount}")
-        elif self._next:
-            self._next.approve(amount)
-        else:
-            print("No one could approve this")
+class RouteHandler(Handler):
+    def handle(self, request: HttpRequest) -> bool:
+        print(f"🚀 [Route] Request served at {request.path}")
+        return super().handle(request)
 
-class Director(Approver):
-    def approve(self, amount):
-        print(f"Director approved {amount}")   # the end of the chain — handles everything left
+if __name__ == "__main__":
+    chain = AuthenticationHandler()
+    chain.set_next(RouteHandler())
 
-lead = TeamLead()
-lead.set_next(Manager()).set_next(Director())
-
-lead.approve(500)      # TeamLead approved 500
-lead.approve(5000)     # Manager approved 5000
-lead.approve(50000)    # Director approved 50000 — the CALLER never chose which approver handled it
+    # Test 1: Unauthorized
+    chain.handle(HttpRequest("/orders", token="invalid"))
+    # Test 2: Authorized
+    chain.handle(HttpRequest("/orders", token="secret-token-xyz"))
 ```
-{{tab C#}}
-```csharp
-public abstract class Approver {
-    protected Approver Next;
 
-    public Approver SetNext(Approver next) {
-        Next = next;
-        return next;                   // returning it lets you chain .SetNext() calls too
+### C# (.NET) — The Mediator Pattern (In-Process CQRS Dispatcher)
+```csharp
+using System;
+using System.Collections.Generic;
+
+// Request Contract
+public interface IRequest<TResponse> { }
+
+// Handler Contract
+public interface IRequestHandler<TRequest, TResponse> where TRequest : IRequest<TResponse>
+{
+    TResponse Handle(TRequest request);
+}
+
+// The Central Mediator
+public class Mediator
+{
+    private readonly Dictionary<Type, object> _handlers = new();
+
+    public void RegisterHandler<TRequest, TResponse>(IRequestHandler<TRequest, TResponse> handler)
+        where TRequest : IRequest<TResponse>
+    {
+        _handlers[typeof(TRequest)] = handler;
     }
 
-    public abstract void Approve(double amount);
-}
+    public TResponse Send<TResponse>(IRequest<TResponse> request)
+    {
+        var requestType = request.GetType();
+        if (!_handlers.TryGetValue(requestType, out var handler))
+            throw new InvalidOperationException($"No handler registered for {requestType.Name}");
 
-public class TeamLead : Approver {
-    public override void Approve(double amount) {
-        if (amount <= 1000) Console.WriteLine($"TeamLead approved {amount}");
-        else if (Next != null) Next.Approve(amount);   // can't handle it — pass it along the chain
-        else Console.WriteLine("No one could approve this");
+        var typedHandler = (IRequestHandler<IRequest<TResponse>, TResponse>)handler;
+        return typedHandler.Handle(request);
     }
 }
-
-public class Manager : Approver {
-    public override void Approve(double amount) {
-        if (amount <= 10000) Console.WriteLine($"Manager approved {amount}");
-        else if (Next != null) Next.Approve(amount);
-        else Console.WriteLine("No one could approve this");
-    }
-}
-
-public class Director : Approver {
-    public override void Approve(double amount) =>
-        Console.WriteLine($"Director approved {amount}");   // end of the chain — handles everything left
-}
-
-var lead = new TeamLead();
-lead.SetNext(new Manager()).SetNext(new Director());
-
-lead.Approve(500);      // TeamLead approved 500
-lead.Approve(5000);     // Manager approved 5000
-lead.Approve(50000);    // Director approved 50000 — the CALLER never chose which approver handled it
 ```
-{{/tabs}}
 
-**A real design risk, named up front**: if the last handler in the chain
-doesn't unconditionally handle whatever's left (like `Director` does
-above), a request that no handler recognizes silently vanishes with no
-error and no log — always design an explicit fallback/terminal handler,
-covered again in Common Mistakes.
+### Go (Iterator Pattern)
+```go
+package main
 
-### Mediator — centralize chaotic many-to-many communication
+import "fmt"
 
-**Problem it solves:** when many objects need to talk to *each other*
-directly, the web of references between them becomes unmanageable (every
-object coupled to every other). A Mediator centralizes that
-communication through one object, so participants only ever talk to
-*it*.
-
-{{tabs}}
-{{tab Python}}
-```python
-class ChatRoom:                       # the MEDIATOR
-    def show_message(self, sender: str, message: str):
-        print(f"[{sender}]: {message}")
-
-class User:
-    def __init__(self, name: str, chat_room: ChatRoom):
-        self.name = name
-        self.chat_room = chat_room     # User knows only the mediator — NOT every other User directly
-
-    def send(self, message: str):
-        self.chat_room.show_message(self.name, message)
-
-room = ChatRoom()
-alice = User("Alice", room)
-bob = User("Bob", room)
-
-alice.send("hey Bob!")   # [Alice]: hey Bob!
-bob.send("hey Alice!")   # [Bob]: hey Alice! — Alice and Bob never hold a reference to EACH OTHER
-```
-{{tab C#}}
-```csharp
-public class ChatRoom {               // the MEDIATOR
-    public void ShowMessage(string sender, string message) =>
-        Console.WriteLine($"[{sender}]: {message}");
+type IntIterator struct {
+	data  []int
+	index int
 }
 
-public class User {
-    private readonly string _name;
-    private readonly ChatRoom _chatRoom;   // User knows only the mediator — NOT every other User directly
-
-    public User(string name, ChatRoom chatRoom) { _name = name; _chatRoom = chatRoom; }
-
-    public void Send(string message) => _chatRoom.ShowMessage(_name, message);
+func (it *IntIterator) HasNext() bool {
+	return it.index < len(it.data)
 }
 
-var room = new ChatRoom();
-var alice = new User("Alice", room);
-var bob = new User("Bob", room);
-
-alice.Send("hey Bob!");   // [Alice]: hey Bob!
-bob.Send("hey Alice!");   // [Bob]: hey Alice! — Alice and Bob never hold a reference to EACH OTHER
-```
-{{/tabs}}
-
-Notice the resemblance to Observer (module 08) — both centralize
-communication through one object. The difference: Observer is a
-one-directional broadcast (subject → many observers, observers don't
-talk back through it to each other); Mediator is specifically about
-coordinating communication **between peers** that would otherwise need
-direct references to each other.
-
-### Memento — capture and restore state, without exposing internals
-
-**Problem it solves:** you want undo/snapshot capability, without the
-object whose state is being saved having to expose its private internals
-to whoever manages the snapshots.
-
-{{tabs}}
-{{tab Python}}
-```python
-class EditorMemento:                  # an opaque snapshot — its contents are private to Editor
-    def __init__(self, content):
-        self._content = content       # single underscore: "only Editor should read this" (module 01 convention)
-
-class Editor:                         # the ORIGINATOR
-    def __init__(self):
-        self.content = ""
-
-    def type_text(self, text):
-        self.content += text
-
-    def save(self) -> EditorMemento:
-        return EditorMemento(self.content)
-
-    def restore(self, memento: EditorMemento):
-        self.content = memento._content    # Editor is the only one that reaches into the memento
-
-class History:                        # the CARETAKER — stores mementos, never reads/uses their content
-    def __init__(self):
-        self._snapshots = []
-
-    def push(self, memento):
-        self._snapshots.append(memento)
-
-    def pop(self):
-        return self._snapshots.pop() if self._snapshots else None
-
-editor = Editor()
-history = History()
-
-editor.type_text("Hello")
-history.push(editor.save())          # snapshot BEFORE the next change
-editor.type_text(", world")
-print(editor.content)                 # Hello, world
-
-editor.restore(history.pop())        # undo back to the snapshot
-print(editor.content)                 # Hello
-```
-{{tab C#}}
-```csharp
-public class EditorMemento {          // an opaque snapshot — its contents are private to Editor
-    public string Content { get; }    // internal-ish by convention; real code often makes this internal
-    public EditorMemento(string content) { Content = content; }
+func (it *IntIterator) Next() (int, bool) {
+	if !it.HasNext() {
+		return 0, false
+	}
+	val := it.data[it.index]
+	it.index++
+	return val, true
 }
 
-public class Editor {                 // the ORIGINATOR
-    public string Content = "";
-
-    public void TypeText(string text) => Content += text;
-
-    public EditorMemento Save() => new EditorMemento(Content);
-
-    public void Restore(EditorMemento memento) => Content = memento.Content;
-}
-
-public class History {                // the CARETAKER — stores mementos, never reads/uses their content
-    private Stack<EditorMemento> _snapshots = new Stack<EditorMemento>();
-
-    public void Push(EditorMemento memento) => _snapshots.Push(memento);
-    public EditorMemento Pop() => _snapshots.Count > 0 ? _snapshots.Pop() : null;
-}
-
-var editor = new Editor();
-var history = new History();
-
-editor.TypeText("Hello");
-history.Push(editor.Save());          // snapshot BEFORE the next change
-editor.TypeText(", world");
-Console.WriteLine(editor.Content);    // Hello, world
-
-editor.Restore(history.Pop());        // undo back to the snapshot
-Console.WriteLine(editor.Content);    // Hello
-```
-{{/tabs}}
-
-The **caretaker** (`History`) deliberately never inspects or manipulates
-a memento's contents — it just stores and returns opaque snapshots. Only
-the **originator** (`Editor`) knows how to create and consume them. This
-is what keeps Memento from breaking encapsulation the way exposing raw
-internal state to an external undo-stack would.
-
-### Visitor — add new operations to a class hierarchy without modifying it
-
-**Problem it solves:** you have a stable hierarchy of related classes
-(from module 02's `Shape` example) and want to add a *new operation*
-across all of them (export to JSON, compute total cost, render as text)
-without editing every existing class each time.
-
-{{tabs}}
-{{tab Python}}
-```python
-from abc import ABC, abstractmethod
-
-class ShapeVisitor(ABC):
-    @abstractmethod
-    def visit_circle(self, circle: "Circle"): ...
-    @abstractmethod
-    def visit_rectangle(self, rectangle: "Rectangle"): ...
-
-class Shape(ABC):
-    @abstractmethod
-    def accept(self, visitor: ShapeVisitor): ...   # "double dispatch" entry point
-
-class Circle(Shape):
-    def __init__(self, radius): self.radius = radius
-    def accept(self, visitor): return visitor.visit_circle(self)   # calls back with ITS OWN concrete type
-
-class Rectangle(Shape):
-    def __init__(self, w, h): self.width, self.height = w, h
-    def accept(self, visitor): return visitor.visit_rectangle(self)
-
-class AreaVisitor(ShapeVisitor):               # a NEW operation, zero changes to Circle/Rectangle
-    def visit_circle(self, circle): return 3.14159 * circle.radius ** 2
-    def visit_rectangle(self, rectangle): return rectangle.width * rectangle.height
-
-class JsonExportVisitor(ShapeVisitor):          # ANOTHER new operation, still zero changes to Shape classes
-    def visit_circle(self, circle): return f'{{"type": "circle", "radius": {circle.radius}}}'
-    def visit_rectangle(self, rectangle): return f'{{"type": "rectangle", "w": {rectangle.width}, "h": {rectangle.height}}}'
-
-shapes = [Circle(5), Rectangle(3, 4)]
-area_visitor = AreaVisitor()
-for shape in shapes:
-    print(shape.accept(area_visitor))    # 78.53975 then 12 — NEW behavior, Circle/Rectangle never edited
-```
-{{tab C#}}
-```csharp
-public interface IShapeVisitor {
-    double VisitCircle(Circle circle);
-    double VisitRectangle(Rectangle rectangle);
-}
-
-public interface IShape {
-    double Accept(IShapeVisitor visitor);   // "double dispatch" entry point
-}
-
-public class Circle : IShape {
-    public double Radius;
-    public Circle(double radius) { Radius = radius; }
-    public double Accept(IShapeVisitor visitor) => visitor.VisitCircle(this);   // calls back with ITS OWN type
-}
-
-public class Rectangle : IShape {
-    public double Width, Height;
-    public Rectangle(double w, double h) { Width = w; Height = h; }
-    public double Accept(IShapeVisitor visitor) => visitor.VisitRectangle(this);
-}
-
-public class AreaVisitor : IShapeVisitor {          // a NEW operation, zero changes to Circle/Rectangle
-    public double VisitCircle(Circle circle) => Math.PI * circle.Radius * circle.Radius;
-    public double VisitRectangle(Rectangle rectangle) => rectangle.Width * rectangle.Height;
-}
-
-var shapes = new List<IShape> { new Circle(5), new Rectangle(3, 4) };
-var areaVisitor = new AreaVisitor();
-foreach (var shape in shapes) {
-    Console.WriteLine(shape.Accept(areaVisitor));   // 78.53... then 12 — NEW behavior, classes never edited
+func main() {
+	it := &IntIterator{data: []int{10, 20, 30, 40}}
+	for it.HasNext() {
+		val, _ := it.Next()
+		fmt.Printf("Iterated: %d\n", val)
+	}
 }
 ```
-{{/tabs}}
 
-**The honest tradeoff, named explicitly** (this is a real, famous
-tension in OOP called **the expression problem**): Visitor makes adding
-new *operations* easy (a new visitor class, zero changes to the
-hierarchy) but makes adding a new *element type* to the hierarchy hard
-(every existing visitor must be updated with a new `visit_X` method,
-or it won't compile/won't handle the new type). This is the *exact
-opposite* tradeoff of ordinary polymorphism (module 02), where adding a
-new subclass is easy but adding a new operation means touching every
-subclass. Choose Visitor specifically when the hierarchy is stable and
-operations are what keeps growing — not the reverse.
+### TypeScript / Node.js (Visitor Pattern: AST / Calculation)
+```typescript
+interface ShapeVisitor {
+  visitCircle(circle: Circle): number;
+  visitRectangle(rect: Rectangle): number;
+}
 
-## Hands-on exercises
+interface Shape {
+  accept(visitor: ShapeVisitor): number;
+}
 
-### 1. Iterator
+class Circle implements Shape {
+  constructor(public readonly radius: number) {}
+  accept(visitor: ShapeVisitor): number { return visitor.visitCircle(this); }
+}
 
-Implement a custom `Playlist` (reusing the idea from module 01's
-exercises) that implements the iteration protocol (`__iter__` /
-`IEnumerable<string>`) so it can be used directly in a `for`/`foreach`
-loop. Then add a second iteration method that only yields songs longer
-than 3 minutes (using `yield` in both languages).
+class Rectangle implements Shape {
+  constructor(public readonly width: number, public readonly height: number) {}
+  accept(visitor: ShapeVisitor): number { return visitor.visitRectangle(this); }
+}
 
-### 2. Chain of Responsibility
+// Concrete Visitor adding Area Calculation without touching Shape classes!
+class AreaCalculatorVisitor implements ShapeVisitor {
+  visitCircle(circle: Circle): number {
+    return Math.PI * circle.radius * circle.radius;
+  }
+  visitRectangle(rect: Rectangle): number {
+    return rect.width * rect.height;
+  }
+}
+```
 
-Build a support-ticket escalation chain: `Level1Support` handles
-"simple" tickets, `Level2Support` handles "technical" tickets,
-`Level3Support` (the terminal handler) handles everything else. Send
-several tickets of different categories through the chain starting at
-`Level1Support`, and confirm each lands with the right handler.
+---
 
-### 3. Mediator
+## 6. Practical Hands-On Verification CLI Workflows
 
-Build an `AirTrafficControl` mediator through which `Airplane` objects
-request permission to land — the mediator should only allow one plane
-to land at a time (queue the rest), without any `Airplane` holding a
-reference to any other `Airplane`.
+Verify Visitor double-dispatch in your Ubuntu terminal:
 
-### 4. Memento
+### Workflow 1: Execute Visitor Pattern Double Dispatch
+```bash
+python3 -c '
+class OrderItem:
+    def __init__(self, price: float): self.price = price
+    def accept(self, visitor): visitor.visit_order_item(self)
 
-Extend the `Editor`/`History` example to support **redo** as well as
-undo — you'll need a second stack, and to think carefully about when
-each stack gets pushed/cleared (hint: a new edit after an undo should
-usually clear the redo stack).
+class SubscriptionItem:
+    def __init__(self, monthly: float): self.monthly = monthly
+    def accept(self, visitor): visitor.visit_subscription(self)
 
-### 5. Visitor
+class TaxCalculatorVisitor:
+    def __init__(self): self.total_tax = 0.0
+    def visit_order_item(self, item): self.total_tax += item.price * 0.08
+    def visit_subscription(self, item): self.total_tax += item.monthly * 0.02
 
-Add a third visitor, `PerimeterVisitor`, to the `Circle`/`Rectangle`
-hierarchy from the Visitor section, computing each shape's perimeter.
-Confirm you didn't need to touch `Circle` or `Rectangle` at all to add
-it.
+cart = [OrderItem(100.0), SubscriptionItem(50.0)]
+calc = TaxCalculatorVisitor()
+for item in cart:
+    item.accept(calc) # Double dispatch
 
-## Independent challenge
+print("Calculated Tax:", calc.total_tax)
+assert calc.total_tax == 9.0
+print("✅ Visitor double-dispatch verified.")
+'
+```
+**Expected Output:**
+```text
+Calculated Tax: 9.0
+✅ Visitor double-dispatch verified.
+```
 
-No code given.
+---
 
-**Task:** Design a small **document editor core**, combining three
-patterns from this module: a `Document` holding an ordered collection of
-`Element`s (paragraphs and images, say) that supports **Iterator**-style
-iteration (implement the language's native iteration protocol, per this
-module's Iterator section) including a filtered iteration that skips
-empty paragraphs; at least two **Visitor**s operating on that same
-element hierarchy without modifying `Element`/its subclasses — a
-`WordCountVisitor` and an `HtmlExportVisitor`; and **Memento**-based
-undo for edits to the document (adding or removing an element), with a
-`History` caretaker that never inspects a memento's actual contents.
+## 7. Operational Validation Checkpoint
 
 <details>
-<summary>Hint</summary>
+<summary><strong>Question 1: Mediator vs. Observer Architecture</strong></summary>
 
-Keep `Element`'s hierarchy genuinely stable for this exercise (this is
-exactly when Visitor is the right call, per this module's tradeoff
-discussion) — paragraph and image are enough element types; resist
-adding a third mid-exercise just to test something, since every visitor
-would then need updating. The `Document`'s memento should snapshot the
-*entire* list of elements (e.g., a copy of the list) at each save point —
-watch for the same shallow-vs-deep-copy question from module 06's
-Prototype pattern: if `Element`s themselves are mutable, a shallow list
-copy might not be enough to protect a snapshot from later mutation.
+**Scenario:** In an interview, the candidate is asked to design an Airport Air Traffic Control system. 
+Why is the **Mediator Pattern** a superior architectural choice over raw **Observer Pattern** for airplane coordination?
 
+**Answer:**
+With the **Observer Pattern**, planes would observe other planes directly. If Plane A changes altitude, it must notify Plane B, Plane C, and Plane D. As traffic scales to 50 planes, this creates a chaotic $O(N^2)$ direct communication mesh where planes must know about each other.
+
+With the **Mediator Pattern**, planes communicate **exclusively with the AirTrafficControl Mediator**. The Mediator centralizes coordination, evaluates flight paths, and resolves conflicts. The individual planes (Colleagues) are completely decoupled from each other.
 </details>
-
-## Common mistakes & troubleshooting
-
-- **Hand-rolling a custom Iterator class when the language's built-in
-  protocol already does the job.** In both Python and C#, implementing
-  `__iter__`/`IEnumerable<T>` directly on your own collection type is
-  the idiomatic approach — reach for a separate, bespoke Iterator class
-  only when you have a genuinely unusual traversal need the built-in
-  protocol can't express.
-- **A Chain of Responsibility with no guaranteed terminal handler.** If
-  the last handler in the chain doesn't unconditionally handle whatever
-  reaches it, an unrecognized request silently disappears with no error
-  — always design an explicit fallback (as `Director` does above), or
-  have the chain itself raise/throw if nothing handled the request.
-- **A Mediator that absorbs so much logic it becomes its own SRP
-  violation** (module 04) — a "God Mediator" that knows every detail of
-  every participant's behavior, not just how to route messages between
-  them, has just recreated the tight coupling problem in a new,
-  centralized location instead of actually solving it.
-- **A Memento whose contents are fully exposed (public, mutable
-  fields).** If the caretaker (or anyone else) can read and modify a
-  memento's internals directly, you've lost the actual point of the
-  pattern — encapsulation of the snapshot. Keep the memento's state
-  accessible only to its originator (via a convention or actual access
-  modifier, per module 01).
-- **Reaching for Visitor when the element hierarchy is still actively
-  growing.** Per the expression-problem tradeoff explained above, adding
-  a new element type means updating every existing visitor — fine for
-  a stable hierarchy with growing operations, painful and error-prone
-  (easy to forget a visitor) for a hierarchy that's still evolving.
-
-## Checkpoint quiz
-
-1. Why do you rarely hand-write a separate "Iterator class" in either
-   Python or C# for ordinary collections?
-2. In the Chain of Responsibility example, what specifically happens if
-   you remove `Director` and someone calls `lead.approve(50000)`?
-3. What's the key difference between Observer (module 08) and Mediator
-   — both centralize communication through one object?
-4. Why does `History` (the Memento caretaker) never read a memento's
-   actual content?
-5. What's "the expression problem," and which side of it does Visitor
-   optimize for?
-6. If you added a `Triangle` to the `Shape` hierarchy in the Visitor
-   example, what specifically would you need to update, and how many
-   places?
 
 <details>
-<summary>Answers</summary>
+<summary><strong>Question 2: Memento Pattern and Encapsulation</strong></summary>
 
-1. Because both languages provide a first-class, built-in iteration
-   protocol (`__iter__`/`__next__` or generators in Python;
-   `IEnumerable<T>`/`yield return` in C#) — implementing that protocol
-   directly on your own type *is* applying the Iterator pattern; a
-   separate bespoke Iterator class is only needed for unusual traversal
-   logic the built-in protocol can't express.
-2. `Manager.approve` calls `self._next.approve(amount)`/`Next.Approve()`,
-   but `_next`/`Next` is `None`/`null` since nothing was chained after
-   `Manager` — this hits the `else` branch and prints "No one could
-   approve this" (in Python/C# as written) rather than crashing, but the
-   request genuinely goes unhandled — exactly the silent-drop risk named
-   in this module.
-3. Observer is a one-directional broadcast: a subject notifies many
-   observers, but observers don't communicate with *each other* through
-   it. Mediator specifically coordinates two-way communication *between
-   peers* that would otherwise need direct references to each other.
-4. Because the caretaker's whole job is to store and return opaque
-   snapshots without understanding or manipulating their contents — only
-   the originator (`Editor`) knows how to create and consume a memento's
-   actual state, keeping that state encapsulated.
-5. The expression problem is the tension between adding new *types* to
-   a hierarchy easily versus adding new *operations* over that hierarchy
-   easily — ordinary polymorphism optimizes for easy new types (hard to
-   add new operations without touching every class); Visitor optimizes
-   for the opposite: easy new operations (new visitor classes), at the
-   cost of needing to update every existing visitor when a new type is
-   added.
-6. You'd need to add a `visit_triangle`/`VisitTriangle` method to the
-   `ShapeVisitor`/`IShapeVisitor` interface itself, and then implement
-   it in *every* existing concrete visitor (`AreaVisitor`,
-   `JsonExportVisitor`, and any others) — one interface change plus one
-   update per existing visitor class, which is exactly the cost Visitor
-   trades away in exchange for easy new operations.
+**Scenario:** A text editor needs an Undo feature. A junior developer proposes: "We will make all internal fields of the `Document` class public so the `HistoryManager` can take copies of them and restore them."
 
+Why does the **Memento Pattern** achieve undo without violating encapsulation?
+
+**Answer:**
+Making fields public violates **Encapsulation**: external classes become tightly coupled to the document's private internal representation.
+
+The **Memento Pattern** solves this using a **wide vs. narrow interface**:
+* The `Memento` object stores the snapshot.
+* The `Originator` (the `Document`) has access to the **wide interface** (can read and write internal state to the memento).
+* The `Caretaker` (the `HistoryManager`) sees only a **narrow interface** (a black-box token that it can store in a stack and pass back to the Document). The Caretaker cannot read, modify, or inspect the private state inside the memento.
 </details>
 
-## Interview questions
+<details>
+<summary><strong>Question 3: Why the Visitor Pattern Requires Double Dispatch</strong></summary>
 
-1. **"When would you use Chain of Responsibility over a simple
-   if/elif/else chain?"**
-   When the set of possible handlers is open-ended, configurable, or
-   needs to be assembled/reordered independently of the calling code
-   (e.g., middleware pipelines, approval hierarchies that vary by
-   organization) — a hard-coded `if`/`elif` chain requires editing the
-   same function for every new case (an OCP violation, module 04);
-   Chain of Responsibility lets you add a new handler as a new class,
-   inserted into the chain, with zero changes elsewhere.
-2. **"What's the difference between Observer and Mediator? They both
-   seem to centralize communication."**
-   Observer is one-directional: a subject broadcasts state changes to
-   subscribed observers, who don't talk back through it to each other.
-   Mediator specifically exists to coordinate two-way communication
-   *between peers* (like chat users, or air traffic control coordinating
-   planes) who would otherwise need direct references to one another.
-3. **"How does the Memento pattern preserve encapsulation, compared to
-   just exposing an object's internal state directly for an undo
-   stack?"**
-   The memento is an opaque object whose contents only the originator
-   (the object being snapshotted) can create or read — the caretaker
-   managing the history of mementos never inspects or manipulates their
-   contents, so the object's internal representation stays hidden from
-   everything except itself.
-4. **"What's the tradeoff of the Visitor pattern?"**
-   It makes adding new *operations* over a class hierarchy easy (a new
-   visitor, zero changes to existing classes) but makes adding a new
-   *class* to that hierarchy expensive (every existing visitor needs a
-   new method) — the "expression problem" tradeoff, opposite to
-   ordinary polymorphism. Use it when the hierarchy is stable and
-   operations are what keeps growing.
-5. **"Is implementing `IEnumerable<T>`/`__iter__` on your own class
-   'using the Iterator pattern,' or is that something different?"**
-   It genuinely is the Iterator pattern — both languages made it a
-   first-class built-in protocol precisely because the pattern is so
-   broadly useful; you're expected to use the built-in protocol on your
-   own types rather than hand-rolling a separate custom Iterator class
-   in ordinary code.
+**Scenario:** In languages like Java or C#, why can't a caller simply invoke `visitor.visit(element)` directly? Why must `element.accept(visitor)` be used?
 
-## Further reading & sources
+**Answer:**
+Languages like Java, C#, and C++ support **Single Dispatch** on the receiver: the method called depends only on the runtime type of the object on the left-hand side of the dot (`obj.method()`), while method arguments are bound using **compile-time static types**.
 
-- [Refactoring.Guru: Behavioral Patterns](https://refactoring.guru/design-patterns/behavioral-patterns) - clear diagrams and multi-language examples, including all five patterns in this module.
-- [Python: Iterator Types](https://docs.python.org/3/library/stdtypes.html#iterator-types) - official reference for `__iter__`/`__next__` and generators.
-- [Microsoft Learn: Iterators (C#)](https://learn.microsoft.com/en-us/dotnet/csharp/iterators) - official reference for `IEnumerable<T>` and `yield return`.
-- [The Expression Problem (Wikipedia)](https://en.wikipedia.org/wiki/Expression_problem) - the formal statement of the tradeoff Visitor sits on one side of.
-- [Gang of Four: *Design Patterns*](https://en.wikipedia.org/wiki/Design_Patterns) - the original source of all five patterns in this module.
+If you pass a base reference `Element e = new ConcreteElement()`, calling `visitor.visit(e)` binds to `visit(Element)` at compile time! 
 
-## Next
+By calling `e.accept(visitor)`, the runtime executes the virtual method on the concrete element (`ConcreteElement.accept`), which then calls `visitor.visit(this)` where `this` is statically known as `ConcreteElement`. This is **Double Dispatch**.
+</details>
 
-[10-concurrency-safe-design](../10-concurrency-safe-design/README.md) —
-with the full pattern catalog in hand, we cover designing for
-concurrency: a properly thread-safe Singleton, producer-consumer
-pipelines, immutability as a concurrency strategy, and where locks
-actually belong in a design.
+---
+
+## Next Step
+
+Now that you have mastered all 22 core design patterns, proceed to **[10 · Concurrency-Safe Low-Level Design](../10-concurrency-safe-design/README.md)** to master race conditions, deadlocks, lock-free atomics, and thread-safe data structures.

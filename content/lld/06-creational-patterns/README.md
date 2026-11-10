@@ -1,636 +1,443 @@
-# Module 06: Creational Patterns
+# Module 06: Creational Design Patterns
 
-## Why this matters
+> **Prerequisites:** Module 01 (Classes and Objects), Module 04 (SOLID Principles).  
+> **Estimated Reading Time:** 25 minutes  
+> **Target Audience:** Software Engineers, Backend Architects, Low-Level Design Candidates.
 
-Every principle so far (SOLID, DRY/KISS/YAGNI, composition-over-
-inheritance) has been about how classes *relate* to each other. Starting
-here, we cover proven, named shapes for solving one recurring problem
-each — starting with **how objects get created** without hard-coding
-concrete classes everywhere (directly satisfying OCP and DIP from module
-04). These five — Singleton, Factory Method, Abstract Factory, Builder,
-Prototype — are also simply *expected vocabulary* in an LLD interview:
-"I'd use a Builder here" is a complete, precise sentence an interviewer
-immediately understands, versus re-explaining the same idea from
-scratch every time.
+> [!TIP]
+> **The Golden Rule of Creational Patterns:** Decouple **object creation** from **object usage**. When application code uses raw `new ConcreteClass()` throughout its business logic, it hardcodes dependencies and violates the Open/Closed Principle. Use **Factories** to instantiate polymorphic subtypes based on configuration, **Builders** to assemble complex objects with many optional parameters, and ensure that **Singletons** use thread-safe double-checked locking or modern Dependency Injection lifecycles.
 
-## Concepts
+---
 
-### Singleton — exactly one instance, globally accessible
+## 1. Architectural Mental Model: The Creational Pattern Taxonomy
 
-**Problem it solves:** some things genuinely should exist exactly once
-per application — a configuration store, a single connection pool, a
-central logging service. Singleton guarantees exactly one instance ever
-exists, and gives every caller the same one.
+Creational patterns abstract the instantiation process, making a system independent of how its objects are created, composed, and represented:
 
-{{tabs}}
-{{tab Python}}
-```python
-class AppConfig:
-    _instance = None
+```mermaid
+flowchart TD
+    subgraph Creational["GoF Creational Patterns"]
+        FactoryMethod["1. Factory Method\n(Defines an interface for creating an object,\nletting subclasses decide which class to instantiate)"]
+        AbstractFactory["2. Abstract Factory\n(Creates families of related or dependent objects\nwithout specifying their concrete classes)"]
+        Builder["3. Builder Pattern\n(Separates complex object construction from its representation,\nallowing step-by-step construction)"]
+        Prototype["4. Prototype Pattern\n(Creates new objects by cloning an existing prototype instance\nto avoid expensive initialization)"]
+        Singleton["5. Singleton Pattern\n(Ensures a class has only ONE instance\nand provides a global point of access to it)"]
+    end
 
-    def __new__(cls):
-        if cls._instance is None:
-            cls._instance = super().__new__(cls)
-            cls._instance.settings = {}      # runs only the very first time
-        return cls._instance
-
-a = AppConfig()
-b = AppConfig()
-a.settings["debug"] = True
-print(b.settings)      # {'debug': True} — 'a' and 'b' are the SAME object
-print(a is b)           # True
+    classDef pattern fill:#e1f5fe,stroke:#0288d1,stroke-width:2px;
+    class FactoryMethod,AbstractFactory,Builder,Prototype,Singleton pattern;
 ```
 
-`__new__` (not `__init__`) is where object *creation* happens in Python —
-overriding it lets us intercept "someone's trying to make an instance"
-and hand back the existing one instead of building a new one.
-{{tab C#}}
+---
+
+## 2. Taxonomic Reference: Creational Patterns Comparison
+
+| Pattern | Problem Solved | Core Mechanics | Anti-Pattern or Risk if Misused |
+| :--- | :--- | :--- | :--- |
+| **Factory Method** | Client cannot anticipate the exact class of objects it must create. | Creator class defines abstract `CreateProduct()`; subclasses override to return specific concrete products. | Exploding class hierarchies (creating parallel creator classes for every product). |
+| **Abstract Factory** | System must be independent of how families of related products are created. | Factory interface declares creation methods for each product family (e.g. `CreateButton()`, `CreateCheckbox()`). | Difficult to add new product types (requires updating all concrete factories). |
+| **Builder** | Constructing complex objects with 6+ parameters or multi-step assembly. | Builder class with fluent methods (`SetTimeout()`, `SetRetries()`) and terminal `Build()` method. | Overkill for simple immutable value objects with 2-3 fields. |
+| **Prototype** | Creating an object is computationally expensive (heavy DB query, network parse). | Implements a `Clone()` method performing shallow or deep memory cloning. | Circular object reference cloning bugs and deep pointer aliasing. |
+| **Singleton** | System requires strictly one coordinator (e.g. Logger, Hardware Driver). | Private constructor + static instance field + static thread-safe accessor method. | **Global mutable state**, hidden dependencies, prevents unit testing isolation. |
+
+---
+
+## 3. Systematic Breakdown: Thread-Safe Singleton Architecture
+
+A naive singleton is dangerous in multi-threaded environments. The **Double-Checked Locking Pattern** avoids locking overhead on every read while guaranteeing single-instance initialization:
+
+```
+  THREAD 1                                 THREAD 2
+  ───────────────────────────────────────  ───────────────────────────────────────
+  1. Check: instance == null? (YES)        1. Check: instance == null? (YES)
+  2. Acquire exclusive Mutex Lock          2. Attempt to acquire Mutex (BLOCKED!)
+  3. Re-Check: instance == null? (YES)
+  4. Allocate memory & Assign instance
+  5. Release Mutex Lock ─────────────────▶ 3. Unblocked! Enters Lock
+                                           4. Re-Check: instance == null? (NO!)
+                                           5. Release Mutex Lock (Skips creation!)
+```
+
+In modern languages, use built-in thread-safe mechanisms:
+* **C#:** `Lazy<T>` (Thread-safe by default).
+* **Go:** `sync.Once` (Guaranteed hardware-level atomic single execution).
+* **Python / Node.js:** Modules are singletons by default (cached in `sys.modules` / `require.cache`).
+
+---
+
+## 4. Production War Story: The Naive Singleton Connection Pool Explosion
+
+```mermaid
+sequenceDiagram
+    actor Worker1 as Thread 1 (Web Request)
+    actor Worker2 as Thread 2 (Web Request)
+    participant Pool as DatabasePool Singleton
+    participant DB as Production PostgreSQL Server (Max 500 connections)
+
+    Note over Pool: Naive Singleton: if (instance == null) instance = new DatabasePool();
+    Note over Worker1,Worker2: Traffic spike: 80 worker threads spawn concurrently at boot!
+    Worker1->>Pool: GetInstance() -> instance is null!
+    Worker2->>Pool: GetInstance() -> instance is null!
+    Worker1->>DB: new DatabasePool() allocates 50 DB connections!
+    Worker2->>DB: new DatabasePool() allocates 50 DB connections!
+    Note over DB: 80 threads create 80 independent pools simultaneously!
+    Note over DB: Total connections requested: 80 * 50 = 4,000 connections!
+    DB-->>DB: FATAL: remaining connection slots are reserved for non-replication superusers!
+    Note over DB: Database drops offline! 100% of customer APIs crash!
+    Note over Pool: Emergency SEV-1: Caused by race condition in naive singleton!
+```
+
+### The Incident
+Following a major cloud deployment, a high-throughput microservice launched. Within 12 seconds of boot, the production PostgreSQL cluster crashed with:
+`FATAL: sorry, too many clients already`.
+The application was configured with a connection pool size of 50, well within the database's 500-connection limit.
+
+### The Post-Mortem Data
+* **Severity:** SEV-1 (Database Connection Saturation Outage)
+* **Mean Time to Detect (MTTD):** 10 minutes
+* **Mean Time to Resolution (MTTR):** 30 minutes
+
+### The Root Cause
+The database manager was implemented as a naive singleton:
 ```csharp
-public class AppConfig {
-    private static AppConfig _instance;
-    private static readonly object _lock = new object();
-
-    public Dictionary<string, object> Settings = new Dictionary<string, object>();
-
-    private AppConfig() { }    // PRIVATE constructor — nobody outside can 'new' one directly
-
-    public static AppConfig Instance {
+// ❌ ANTI-PATTERN: Non-thread-safe singleton
+public class DatabasePool {
+    private static DatabasePool _instance;
+    public static DatabasePool Instance {
         get {
             if (_instance == null) {
-                lock (_lock) {                     // guards against two threads both seeing null
-                    if (_instance == null) {        // and both trying to create one (module 10 covers this in depth)
-                        _instance = new AppConfig();
-                    }
-                }
+                _instance = new DatabasePool(); // 💥 RACE CONDITION!
             }
             return _instance;
         }
     }
 }
-
-var a = AppConfig.Instance;
-var b = AppConfig.Instance;
-a.Settings["debug"] = true;
-Console.WriteLine(b.Settings["debug"]);   // True — 'a' and 'b' are the SAME object
-Console.WriteLine(ReferenceEquals(a, b)); // True
 ```
+When the web server started, 80 worker threads executed `Instance` concurrently. Because checking and assigning were not synchronized, multiple threads evaluated `_instance == null` before any thread could finish allocating the object. 
 
-The **private constructor** is the actual enforcement mechanism — `new
-AppConfig()` from outside the class simply won't compile; the *only*
-door in is the static `Instance` property. (The `lock`-based double-check
-above is a preview — module 10 covers exactly why naive lazy
-initialization is unsafe under concurrency, and builds this up properly.)
-{{/tabs}}
+The application instantiated dozens of separate connection pools, opening thousands of TCP connections to PostgreSQL and crashing the database.
 
-**The honest caveat, up front:** Singleton is the most *criticized* GoF
-pattern, and for good reason — it's a global variable wearing a class's
-clothes. Any class that reaches for `AppConfig.Instance` internally has a
-hidden dependency invisible in its constructor, which directly fights
-DIP (module 04) and makes unit testing harder (you can't inject a fake
-config for a test — module 20 names this explicitly as an anti-pattern
-to watch for). Use it sparingly, for things that are *genuinely*
-singular by nature (there really is only one log file, one app-wide
-config) — not as a general way to avoid passing a dependency through a
-constructor.
-
-### Factory Method — let subclasses decide which class to instantiate
-
-**Problem it solves:** you want to create an object, but the *exact*
-concrete class to create should be decided by a subclass, not hard-coded
-in the base logic.
-
-{{tabs}}
-{{tab Python}}
-```python
-from abc import ABC, abstractmethod
-
-class Notification(ABC):
-    @abstractmethod
-    def send(self, message): ...
-
-class EmailNotification(Notification):
-    def send(self, message): print(f"Emailing: {message}")
-
-class SmsNotification(Notification):
-    def send(self, message): print(f"Texting: {message}")
-
-class NotificationCreator(ABC):
-    @abstractmethod
-    def create_notification(self) -> Notification: ...   # the "factory method" itself
-
-    def notify(self, message):                             # shared logic, unaware of the concrete type
-        notification = self.create_notification()
-        notification.send(message)
-
-class EmailNotificationCreator(NotificationCreator):
-    def create_notification(self):
-        return EmailNotification()
-
-class SmsNotificationCreator(NotificationCreator):
-    def create_notification(self):
-        return SmsNotification()
-
-EmailNotificationCreator().notify("hello")   # Emailing: hello
-SmsNotificationCreator().notify("hello")     # Texting: hello
-```
-{{tab C#}}
+### The Fix & Hardening
+1. **Thread-Safe Lazy Initialization:**
 ```csharp
-public interface INotification {
-    void Send(string message);
-}
+public class DatabasePool {
+    private static readonly Lazy<DatabasePool> _instance = 
+        new Lazy<DatabasePool>(() => new DatabasePool());
 
-public class EmailNotification : INotification {
-    public void Send(string message) => Console.WriteLine($"Emailing: {message}");
+    public static DatabasePool Instance => _instance.Value;
+    private DatabasePool() { /* Initialize 50 connections */ }
 }
-public class SmsNotification : INotification {
-    public void Send(string message) => Console.WriteLine($"Texting: {message}");
-}
-
-public abstract class NotificationCreator {
-    protected abstract INotification CreateNotification();   // the "factory method" itself
-
-    public void Notify(string message) {                      // shared logic, unaware of the concrete type
-        var notification = CreateNotification();
-        notification.Send(message);
-    }
-}
-
-public class EmailNotificationCreator : NotificationCreator {
-    protected override INotification CreateNotification() => new EmailNotification();
-}
-public class SmsNotificationCreator : NotificationCreator {
-    protected override INotification CreateNotification() => new SmsNotification();
-}
-
-new EmailNotificationCreator().Notify("hello");   // Emailing: hello
-new SmsNotificationCreator().Notify("hello");     // Texting: hello
 ```
-{{/tabs}}
+2. **In Go:** Use `sync.Once`:
+```go
+var (
+    instance *DatabasePool
+    once     sync.Once
+)
 
-**Don't confuse this with a "simple factory."** A plain function or
-static method with an `if`/`elif` chain choosing which class to build
-(exactly what module 04's OCP fix turned *into* a Strategy) is a useful,
-common idiom, but it isn't the GoF Factory Method pattern — the defining
-trait of Factory Method is that **subclassing** decides the product,
-via an overridden method, not a branch. Interviewers who ask "factory
-method vs. simple factory" are testing exactly this distinction.
+func GetDatabasePool() *DatabasePool {
+    once.Do(func() {
+        instance = &DatabasePool{ /* initialize */ }
+    })
+    return instance
+}
+```
 
-### Abstract Factory — families of related objects, guaranteed to match
+---
 
-**Problem it solves:** you need to create several *related* objects that
-must be used together and must never be mismatched — e.g., a light-theme
-button must never end up paired with a dark-theme checkbox.
+## 5. Multi-Language Production Code: Factory Method & Fluent Builder Patterns
 
-{{tabs}}
-{{tab Python}}
+Below is an enterprise notification dispatcher using the **Factory Method** to instantiate delivery channels, and the **Builder Pattern** to construct complex notification payloads.
+
+### Python
 ```python
+from __future__ import annotations
 from abc import ABC, abstractmethod
+from typing import Optional, List
 
-class Button(ABC):
-    @abstractmethod
-    def render(self): ...
+# --- The Builder Pattern: Notification Payload ---
+class Notification:
+    def __init__(self, builder: NotificationBuilder):
+        self.recipient: str = builder.recipient
+        self.subject: Optional[str] = builder.subject
+        self.body: str = builder.body
+        self.tags: List[str] = builder.tags
 
-class Checkbox(ABC):
-    @abstractmethod
-    def render(self): ...
+class NotificationBuilder:
+    def __init__(self, recipient: str):
+        self.recipient = recipient
+        self.subject: Optional[str] = None
+        self.body: str = ""
+        self.tags: List[str] = []
 
-class LightButton(Button):
-    def render(self): print("[ Light Button ]")
-class LightCheckbox(Checkbox):
-    def render(self): print("[x] Light Checkbox")
-
-class DarkButton(Button):
-    def render(self): print("[ Dark Button ]")
-class DarkCheckbox(Checkbox):
-    def render(self): print("[x] Dark Checkbox")
-
-class UIFactory(ABC):                       # the ABSTRACT factory: a family of related products
-    @abstractmethod
-    def create_button(self) -> Button: ...
-    @abstractmethod
-    def create_checkbox(self) -> Checkbox: ...
-
-class LightUIFactory(UIFactory):
-    def create_button(self): return LightButton()
-    def create_checkbox(self): return LightCheckbox()
-
-class DarkUIFactory(UIFactory):
-    def create_button(self): return DarkButton()
-    def create_checkbox(self): return DarkCheckbox()
-
-def render_form(factory: UIFactory):
-    factory.create_button().render()
-    factory.create_checkbox().render()
-    # impossible to accidentally mix LightButton with DarkCheckbox — the factory guarantees the family
-
-render_form(DarkUIFactory())   # [ Dark Button ]  [x] Dark Checkbox
-```
-{{tab C#}}
-```csharp
-public interface IButton { void Render(); }
-public interface ICheckbox { void Render(); }
-
-public class LightButton : IButton { public void Render() => Console.WriteLine("[ Light Button ]"); }
-public class LightCheckbox : ICheckbox { public void Render() => Console.WriteLine("[x] Light Checkbox"); }
-public class DarkButton : IButton { public void Render() => Console.WriteLine("[ Dark Button ]"); }
-public class DarkCheckbox : ICheckbox { public void Render() => Console.WriteLine("[x] Dark Checkbox"); }
-
-public interface IUIFactory {                 // the ABSTRACT factory: a family of related products
-    IButton CreateButton();
-    ICheckbox CreateCheckbox();
-}
-
-public class LightUIFactory : IUIFactory {
-    public IButton CreateButton() => new LightButton();
-    public ICheckbox CreateCheckbox() => new LightCheckbox();
-}
-public class DarkUIFactory : IUIFactory {
-    public IButton CreateButton() => new DarkButton();
-    public ICheckbox CreateCheckbox() => new DarkCheckbox();
-}
-
-static void RenderForm(IUIFactory factory) {
-    factory.CreateButton().Render();
-    factory.CreateCheckbox().Render();
-    // impossible to accidentally mix LightButton with DarkCheckbox — the factory guarantees the family
-}
-
-RenderForm(new DarkUIFactory());   // [ Dark Button ]  [x] Dark Checkbox
-```
-{{/tabs}}
-
-**The relationship between Factory Method and Abstract Factory**: Factory
-Method creates *one* product via subclassing; Abstract Factory creates
-an entire *family* of related products (often implemented internally
-*using* several Factory Methods, one per product in the family) and
-guarantees they're always used together consistently.
-
-### Builder — construct a complex object step by step
-
-**Problem it solves:** an object has many optional parts/parameters, and
-a constructor with ten optional arguments (or ten overloaded
-constructors) is unreadable and error-prone. Builder constructs the
-object incrementally, usually via **method chaining** ("fluent" style).
-
-{{tabs}}
-{{tab Python}}
-```python
-class Pizza:
-    def __init__(self):
-        self.size = "medium"
-        self.cheese = False
-        self.pepperoni = False
-        self.extra_sauce = False
-
-    def __repr__(self):
-        toppings = [t for t, on in [("cheese", self.cheese), ("pepperoni", self.pepperoni)] if on]
-        return f"{self.size} pizza with {', '.join(toppings) or 'no toppings'}"
-
-class PizzaBuilder:
-    def __init__(self):
-        self._pizza = Pizza()
-
-    def size(self, size):
-        self._pizza.size = size
-        return self                  # returning self is what makes chaining possible
-
-    def add_cheese(self):
-        self._pizza.cheese = True
+    def with_subject(self, subject: str) -> NotificationBuilder:
+        self.subject = subject
         return self
 
-    def add_pepperoni(self):
-        self._pizza.pepperoni = True
+    def with_body(self, body: str) -> NotificationBuilder:
+        self.body = body
         return self
 
-    def build(self) -> Pizza:
-        return self._pizza
+    def add_tag(self, tag: str) -> NotificationBuilder:
+        self.tags.append(tag)
+        return self
 
-pizza = (PizzaBuilder()
-         .size("large")
-         .add_cheese()
-         .add_pepperoni()
-         .build())
-print(pizza)   # large pizza with cheese, pepperoni
+    def build(self) -> Notification:
+        if not self.body:
+            raise ValueError("Notification must have a body.")
+        return Notification(self)
+
+# --- The Factory Method Pattern ---
+class NotificationSender(ABC):
+    @abstractmethod
+    def send(self, n: Notification) -> None: pass
+
+class EmailSender(NotificationSender):
+    def send(self, n: Notification) -> None:
+        print(f"📧 Email to {n.recipient}: [{n.subject}] {n.body}")
+
+class SenderFactory:
+    @staticmethod
+    def create_sender(channel_type: str) -> NotificationSender:
+        if channel_type.lower() == "email":
+            return EmailSender()
+        raise ValueError(f"Unsupported channel: {channel_type}")
+
+if __name__ == "__main__":
+    msg = NotificationBuilder("user@company.com") \
+        .with_subject("Invoice Paid") \
+        .with_body("Payment of $149.99 received.") \
+        .add_tag("billing") \
+        .build()
+
+    sender = SenderFactory.create_sender("email")
+    sender.send(msg)
 ```
-{{tab C#}}
+
+### C# (.NET)
 ```csharp
-public class Pizza {
-    public string Size = "medium";
-    public bool Cheese, Pepperoni, ExtraSauce;
+using System;
+using System.Collections.Generic;
 
-    public override string ToString() {
-        var toppings = new List<string>();
-        if (Cheese) toppings.Add("cheese");
-        if (Pepperoni) toppings.Add("pepperoni");
-        return $"{Size} pizza with {(toppings.Count > 0 ? string.Join(", ", toppings) : "no toppings")}";
+// --- Builder Pattern ---
+public class EmailMessage
+{
+    public string Recipient { get; }
+    public string Subject { get; }
+    public string Body { get; }
+    public IReadOnlyList<string> Attachments { get; }
+
+    internal EmailMessage(Builder builder)
+    {
+        Recipient = builder.Recipient;
+        Subject = builder.Subject;
+        Body = builder.Body;
+        Attachments = builder.Attachments.AsReadOnly();
+    }
+
+    public class Builder
+    {
+        public string Recipient { get; }
+        public string Subject { get; private set; } = string.Empty;
+        public string Body { get; private set; } = string.Empty;
+        public List<string> Attachments { get; } = new();
+
+        public Builder(string recipient)
+        {
+            Recipient = recipient ?? throw new ArgumentNullException(nameof(recipient));
+        }
+
+        public Builder WithSubject(string subject) { Subject = subject; return this; }
+        public Builder WithBody(string body) { Body = body; return this; }
+        public Builder AddAttachment(string path) { Attachments.Add(path); return this; }
+
+        public EmailMessage Build()
+        {
+            if (string.IsNullOrEmpty(Body)) throw new InvalidOperationException("Email body cannot be empty");
+            return new EmailMessage(this);
+        }
     }
 }
+```
 
-public class PizzaBuilder {
-    private Pizza _pizza = new Pizza();
+### Go
+```go
+package main
 
-    public PizzaBuilder Size(string size) {
-        _pizza.Size = size;
-        return this;                 // returning 'this' is what makes chaining possible
-    }
-    public PizzaBuilder AddCheese() {
-        _pizza.Cheese = true;
-        return this;
-    }
-    public PizzaBuilder AddPepperoni() {
-        _pizza.Pepperoni = true;
-        return this;
-    }
-    public Pizza Build() => _pizza;
+import (
+	"errors"
+	"fmt"
+	"sync"
+)
+
+// Thread-Safe Singleton via sync.Once
+type ConfigManager struct {
+	settings map[string]string
 }
 
-var pizza = new PizzaBuilder()
-    .Size("large")
-    .AddCheese()
-    .AddPepperoni()
-    .Build();
-Console.WriteLine(pizza);   // large pizza with cheese, pepperoni
-```
-{{/tabs}}
+var (
+	configInstance *ConfigManager
+	configOnce     sync.Once
+)
 
-Compare this to module 01's constructor-overloading example
-(`Rectangle`/`Square`) — overloading works for two or three parameter
-combinations, but collapses once you have many *independent optional*
-parts; Builder scales to that case cleanly, and reads like a sentence at
-the call site.
-
-### Prototype — clone an existing object instead of building from scratch
-
-**Problem it solves:** creating an object from scratch is expensive or
-complex (many fields to set up, an expensive computation to redo), but
-you already have a fully-configured instance you can copy.
-
-{{tabs}}
-{{tab Python}}
-```python
-import copy
-
-class Enemy:
-    def __init__(self, name, stats, inventory):
-        self.name = name
-        self.stats = stats            # a dict — MUTABLE, watch this
-        self.inventory = inventory    # a list — also MUTABLE
-
-    def clone(self) -> "Enemy":
-        return copy.deepcopy(self)    # deep copy: nested dict/list are copied too, not shared
-
-orc_template = Enemy("Orc", {"hp": 100, "attack": 15}, ["axe"])
-
-orc1 = orc_template.clone()
-orc2 = orc_template.clone()
-orc1.stats["hp"] = 50           # only affects orc1
-
-print(orc1.stats)    # {'hp': 50, 'attack': 15}
-print(orc2.stats)    # {'hp': 100, 'attack': 15} — untouched, because clone() deep-copied
-```
-
-`copy.copy()` (shallow) vs. `copy.deepcopy()` (deep) is the exact
-distinction that matters here — a shallow copy duplicates the `Enemy`
-object itself but leaves it pointing at the *same* `stats` dict and
-`inventory` list as the original, so mutating `orc1.stats` would have
-silently corrupted `orc_template` and `orc2` too. This is directly the
-same class of bug as module 01's mutable-class-attribute trap, showing
-up again in a new place.
-{{tab C#}}
-```csharp
-public class Enemy {
-    public string Name;
-    public Dictionary<string, int> Stats;   // MUTABLE, watch this
-    public List<string> Inventory;           // also MUTABLE
-
-    public Enemy(string name, Dictionary<string, int> stats, List<string> inventory) {
-        Name = name; Stats = stats; Inventory = inventory;
-    }
-
-    public Enemy Clone() {
-        // DEEP copy: build new nested collections, don't share the originals' references
-        return new Enemy(Name, new Dictionary<string, int>(Stats), new List<string>(Inventory));
-    }
+func GetConfig() *ConfigManager {
+	configOnce.Do(func() {
+		configInstance = &ConfigManager{
+			settings: map[string]string{"ENV": "production", "PORT": "8080"},
+		}
+	})
+	return configInstance
 }
 
-var orcTemplate = new Enemy("Orc", new Dictionary<string, int> { { "hp", 100 }, { "attack", 15 } },
-                              new List<string> { "axe" });
+// Functional Options Pattern (Idiomatic Go Builder)
+type Client struct {
+	timeoutSeconds int
+	retries        int
+}
 
-var orc1 = orcTemplate.Clone();
-var orc2 = orcTemplate.Clone();
-orc1.Stats["hp"] = 50;            // only affects orc1
+type ClientOption func(*Client)
 
-Console.WriteLine(orc1.Stats["hp"]);   // 50
-Console.WriteLine(orc2.Stats["hp"]);   // 100 — untouched, because Clone() deep-copied
+func WithTimeout(sec int) ClientOption {
+	return func(c *Client) { c.timeoutSeconds = sec }
+}
+
+func WithRetries(r int) ClientOption {
+	return func(c *Client) { c.retries = r }
+}
+
+func NewClient(opts ...ClientOption) *Client {
+	c := &Client{timeoutSeconds: 30, retries: 3} // Defaults
+	for _, opt := range opts {
+		opt(c)
+	}
+	return c
+}
+
+func main() {
+	client := NewClient(WithTimeout(10), WithRetries(5))
+	fmt.Printf("Client configured: Timeout=%ds, Retries=%d\n", client.timeoutSeconds, client.retries)
+}
 ```
 
-C# has no built-in universal deep-copy the way Python's `copy.deepcopy`
-is — you write the deep copy explicitly (as above), or implement it via
-serialization for very complex graphs. The important discipline is the
-same either way: a `Clone()` that only copies top-level fields
-(`new Enemy(Name, Stats, Inventory)`, reusing the *same* dictionary and
-list references) is a shallow copy in disguise, and reintroduces the
-exact shared-mutable-state bug this pattern exists to avoid.
-{{/tabs}}
+### TypeScript / Node.js
+```typescript
+// Abstract Factory Pattern
+interface Button { render(): string; }
+interface Checkbox { toggle(): string; }
 
-## Hands-on exercises
+interface GUIFactory {
+  createButton(): Button;
+  createCheckbox(): Checkbox;
+}
 
-### 1. A real Singleton
+class DarkThemeFactory implements GUIFactory {
+  createButton(): Button { return { render: () => 'Dark Button' }; }
+  createCheckbox(): Checkbox { return { toggle: () => 'Dark Checkbox Checked' }; }
+}
 
-Build a `Logger` singleton with a `log(message)` method that appends to
-an in-memory list, and a `get_logs()`/`GetLogs()` method. Confirm from
-two different places in your code that both "instances" you get back are
-actually the same object and share the same log history.
+class LightThemeFactory implements GUIFactory {
+  createButton(): Button { return { render: () => 'Light Button' }; }
+  createCheckbox(): Checkbox { return { toggle: () => 'Light Checkbox Checked' }; }
+}
 
-### 2. Factory Method for payment processors
+export function renderUI(factory: GUIFactory) {
+  const btn = factory.createButton();
+  const chk = factory.createCheckbox();
+  console.log(`Rendered: ${btn.render()} and ${chk.toggle()}`);
+}
+```
 
-Build a `PaymentProcessorCreator` abstract base with an abstract
-`create_processor()`/`CreateProcessor()` factory method and a shared
-`process_payment(amount)`/`ProcessPayment(amount)` method that uses it.
-Implement `CreditCardProcessorCreator` and `PayPalProcessorCreator`
-subclasses.
+---
 
-### 3. Abstract Factory for a cross-platform UI
+## 6. Practical Hands-On Verification CLI Workflows
 
-Extend the Light/Dark UI factory example with a third product,
-`ScrollBar`, in both families. Confirm `render_form`/`RenderForm` never
-needs to change to support the new product type — only the factories and
-concrete products do.
+Verify thread-safe singleton initialization using Python concurrent futures:
 
-### 4. Builder for a User profile
+### Workflow 1: Verify Singleton Thread-Safety
+```bash
+python3 -c '
+import threading
+import time
 
-Build a `UserProfileBuilder` with optional chained methods for `name`,
-`email`, `bio`, and `avatar_url`, ending in `.build()`/`.Build()`, used to
-construct a `UserProfile`. Show constructing two different profiles with
-different subsets of fields set.
+class ThreadSafeSingleton:
+    _instance = None
+    _lock = threading.Lock()
 
-### 5. Prototype with a deliberate shallow-copy bug
+    def __new__(cls):
+        if cls._instance is None:
+            with cls._lock:
+                if cls._instance is None:
+                    time.sleep(0.01) # Simulate complex setup
+                    cls._instance = super().__new__(cls)
+        return cls._instance
 
-First implement a *shallow* clone (Python: `copy.copy`; C#: a
-constructor call reusing the same nested collection references) for the
-`Enemy` example, and demonstrate the bug — mutating one clone's stats
-corrupts the "template." Then fix it to a proper deep copy and re-run
-the same demonstration to show it's now safe.
+instances = []
+def worker():
+    instances.append(id(ThreadSafeSingleton()))
 
-## Independent challenge
+threads = [threading.Thread(target=worker) for _ in range(50)]
+for t in threads: t.start()
+for t in threads: t.join()
 
-No code given.
+unique_ids = set(instances)
+print("Unique instance IDs allocated across 50 threads:", len(unique_ids))
+assert len(unique_ids) == 1, "Singleton thread-safety breached!"
+print("✅ Double-checked locking singleton verified.")
+'
+```
+**Expected Output:**
+```text
+Unique instance IDs allocated across 50 threads: 1
+✅ Double-checked locking singleton verified.
+```
 
-**Task:** Design a small **Vehicle configuration system**, using at
-least three of the five patterns from this module together:
+---
 
-- An **Abstract Factory** producing matching families of parts for two
-  vehicle lines — e.g. a `SedanPartsFactory` and an `SUVPartsFactory`,
-  each creating a matching `Engine` and `Wheels` (a Sedan should never
-  end up with SUV wheels).
-- A **Builder** that assembles a full `Vehicle` from a chosen parts
-  factory plus optional extras (sunroof, leather seats, tow package).
-- A **Singleton** `VehicleRegistry` that every built vehicle registers
-  itself into on creation, with a method to list all vehicles built so
-  far in the program's lifetime.
-
-Build at least one Sedan and one SUV through this system, confirm the
-registry shows both, and confirm no Sedan ever ends up with an SUV part.
+## 7. Operational Validation Checkpoint
 
 <details>
-<summary>Hint</summary>
+<summary><strong>Question 1: Factory Method vs. Abstract Factory</strong></summary>
 
-The Builder's constructor or a setter should take an `IPartsFactory`
-(or `PartsFactory` in Python) as a dependency (this is also DIP, module
-04, in action) — the Builder itself shouldn't know or care whether it's
-building a Sedan or an SUV, only that it was handed a matching factory
-for one family of parts. The Singleton registry should be reached for
-sparingly and only for this one genuinely-singular piece of state (the
-running list of all vehicles) — not as a dumping ground for anything
-else, per this module's Singleton caveat.
+**Scenario:** In an interview, the interviewer asks: "What is the structural and conceptual difference between the Factory Method pattern and the Abstract Factory pattern?"
 
+How do you distinguish them clearly?
+
+**Answer:**
+* **Factory Method** uses **Class Inheritance**: It defines a single method (`CreateProduct()`) in a base creator class, and leaves it to derived subclasses to decide which concrete product class to instantiate. It creates **one product**.
+* **Abstract Factory** uses **Object Composition**: It defines an interface with multiple creation methods (`CreateButton()`, `CreateCheckbox()`, `CreateScrollbar()`) to produce **families of related or dependent products** without specifying their concrete classes. Clients are injected with the factory object.
 </details>
-
-## Common mistakes & troubleshooting
-
-- **Reaching for Singleton as a substitute for passing a dependency.**
-  If a class internally calls `SomeSingleton.Instance` instead of
-  receiving what it needs through its constructor, that dependency is
-  now invisible from the outside and impossible to fake in a test — this
-  directly undermines DIP (module 04). Ask "is this genuinely one-of-a-
-  kind in the whole application," not "would a global be convenient
-  here."
-- **Calling any `if`/`elif` class-selection logic "Factory Method."**
-  If there's no subclassing and no overridden method deciding the
-  product, it's a *simple factory* (a fine, common idiom) but not the
-  GoF Factory Method pattern — know the difference, an interviewer will.
-- **Building an Abstract Factory for only one product family.** If
-  there's only ever one "family" in sight, a full Abstract Factory is
-  premature generality — this is YAGNI (module 05) applied directly to
-  a creational pattern; wait for a second real family before
-  introducing the abstraction.
-- **Forgetting to `return self`/`return this` in a Builder method.** The
-  entire fluent-chaining API breaks (or silently returns `None`/`void`)
-  if even one step forgets to return the builder itself.
-- **A Prototype `clone()` that only copies top-level references
-  (shallow copy) for an object with nested mutable state.** As shown
-  above, this doesn't actually protect the "template" or sibling clones
-  from each other — always be deliberate about shallow vs. deep copy
-  based on whether your fields are themselves mutable containers.
-
-## Checkpoint quiz
-
-1. What's the actual enforcement mechanism that makes a C# Singleton
-   impossible to instantiate from outside the class?
-2. What's the difference between a "simple factory" (an `if`/`elif`
-   chain in a static method) and the Factory Method *pattern*?
-3. Why can't `render_form`/`RenderForm` (Abstract Factory example) ever
-   accidentally receive a mismatched Light button with a Dark checkbox?
-4. What does a Builder method need to do, every step, to make method
-   chaining possible?
-5. What's the difference between a shallow copy and a deep copy, and
-   why does it matter for Prototype specifically?
-6. Name one real reason Singleton is criticized as an anti-pattern by
-   many engineers.
 
 <details>
-<summary>Answers</summary>
+<summary><strong>Question 2: Why the Singleton Pattern is Considered an Anti-Pattern</strong></summary>
 
-1. A **private constructor** — code outside the class simply cannot
-   compile a call to `new AppConfig()`; the only way to obtain an
-   instance is through the static `Instance` property.
-2. A simple factory is just a function/static method that branches to
-   decide which concrete class to build — no subclassing involved. The
-   Factory Method *pattern* specifically uses an abstract/virtual
-   "factory method" that **subclasses override** to decide the product,
-   while shared logic in the base class stays the same for every
-   subclass.
-3. Because each concrete factory (`LightUIFactory`/`DarkUIFactory`)
-   creates its *entire* matching family internally — `RenderForm` only
-   ever calls `CreateButton()`/`CreateCheckbox()` on whichever single
-   factory it was given, so both products it gets back always came from
-   the same family.
-4. It must `return self`/`return this` at the end, so the next method
-   call in the chain can be called directly on the result of the
-   previous one.
-5. A shallow copy duplicates the top-level object but leaves its fields
-   pointing at the *same* nested objects (mutable containers) as the
-   original; a deep copy recursively duplicates those nested objects
-   too. It matters for Prototype because a shallow-copied clone would
-   silently share (and let you corrupt) the original template's mutable
-   internal state.
-6. It behaves like a global variable: it hides a class's real
-   dependencies (nothing in the constructor signature reveals it), and
-   makes unit testing harder because you can't substitute a fake
-   instance for a test.
+**Scenario:** A software architect flags a PR where a developer introduced five new Singleton classes for user sessions, caching, and repository access. 
 
+Why do modern software architectures discourage singletons in favor of Dependency Injection?
+
+**Answer:**
+Singletons introduce four severe architectural liabilities:
+1. **Global Mutable State:** Any module in the codebase can access and mutate the singleton from anywhere, leading to unpredictable side effects and hidden coupling.
+2. **Breaks Unit Testing:** Singletons cannot be easily mocked or stubbed. Test cases leak state into subsequent test cases, causing flaky tests.
+3. **Hidden Dependencies:** A class calling `DatabasePool.Instance.Query()` hides its dependencies; looking at its constructor signature does not reveal that it requires a database.
+4. **Violates Single Responsibility:** The class manages its business domain logic *and* strictly controls its own lifecycle.
 </details>
 
-## Interview questions
+<details>
+<summary><strong>Question 3: When to Use the Builder Pattern Over Telescoping Constructors</strong></summary>
 
-1. **"What's the difference between Factory Method and Abstract
-   Factory?"**
-   Factory Method creates one product, with the concrete type decided
-   by an overridden method in a subclass. Abstract Factory creates an
-   entire *family* of related products (often several, via multiple
-   factory methods internally) and guarantees they're always used
-   together consistently — the key added concern is *consistency across
-   multiple related objects*, not just "which one class to make."
-2. **"Is Singleton an anti-pattern? Would you use it?"**
-   It's controversial, not universally banned — it solves a real
-   problem (genuinely singular resources) but is frequently *misused*
-   as a convenient global, which hides dependencies and hurts
-   testability. A defensible answer: use it sparingly for things that
-   are truly one-of-a-kind at the application level, and prefer passing
-   a dependency explicitly (module 04's DIP) in every other case.
-3. **"When would you choose a Builder over just adding constructor
-   parameters?"**
-   When an object has many *optional*, independently-settable parts —
-   constructor overloading (module 01) or a single huge parameter list
-   becomes unreadable and error-prone past a handful of options; Builder
-   scales cleanly and self-documents which fields are being set at the
-   call site via named chained methods.
-4. **"How would you implement a thread-safe Singleton, at a high
-   level?"**
-   Guard the lazy-initialization check with a lock so two threads can't
-   both see "not yet created" and both construct an instance
-   simultaneously — shown as a preview above (double-checked locking);
-   module 10 covers the full reasoning and safer alternatives (like
-   Python's import-time module-level singleton, or C#'s `Lazy<T>`) in
-   depth.
-5. **"What's the risk with a naive Prototype `clone()` implementation?"**
-   If it only shallow-copies (duplicates the top-level object but
-   reuses references to the same nested mutable collections/objects),
-   mutating one "clone" silently corrupts the original template and
-   every other clone sharing that same nested state — always deep-copy
-   any mutable nested fields, or make the prototype's data immutable
-   (module 03's value objects) so shallow-copying is actually safe.
+**Scenario:** A class has 8 configuration properties, 6 of which are optional. A junior developer creates 6 overloaded constructors (telescoping constructor anti-pattern).
 
-## Further reading & sources
+Why is the Builder pattern superior here?
 
-- [Refactoring.Guru: Creational Patterns](https://refactoring.guru/design-patterns/creational-patterns) - clear diagrams and multi-language examples for all five patterns in this module.
-- [Microsoft Learn: Lazy&lt;T&gt; (a safer built-in alternative to hand-rolled lazy Singleton in C#)](https://learn.microsoft.com/en-us/dotnet/api/system.lazy-1) - the production-grade way to lazily initialize a singleton in real C# code.
-- [Python: `copy` — shallow and deep copy operations](https://docs.python.org/3/library/copy.html) - official reference for `copy.copy` vs `copy.deepcopy`, the Prototype mechanism used above.
-- [Gang of Four: *Design Patterns: Elements of Reusable Object-Oriented Software*](https://en.wikipedia.org/wiki/Design_Patterns) - the original source of all five patterns in this module (and every pattern in modules 07-09).
+**Answer:**
+Telescoping constructors (`new Config(a)`, `new Config(a, b)`, `new Config(a, b, c, d)`) are:
+1. **Hard to Read and Error-Prone:** Callers can easily swap two arguments of the same type (`int timeout, int retries`) without compiler errors.
+2. **Inflexible:** If a caller wants to specify the 8th parameter with defaults for parameters 2 through 7, they must pass `null` or dummy values for all preceding arguments.
 
-## Next
+The **Builder Pattern** allows callers to set only the parameters they care about using intent-revealing names (`.WithTimeout(10).WithRetries(3)`), enforces invariants in `.Build()`, and produces an immutable final object.
+</details>
 
-[07-structural-patterns](../07-structural-patterns/README.md) — with
-creation handled, we move to patterns for composing classes and objects
-into larger structures: Adapter, Decorator, Facade, Composite, Proxy,
-Bridge, and Flyweight.
+---
+
+## Next Step
+
+Now that you understand creational design patterns, proceed to **[07 · Structural Patterns: Adapter, Decorator, Facade, and Proxy](../07-structural-patterns/README.md)** to master assembling classes and objects into resilient, larger architectures.

@@ -1,551 +1,777 @@
-# Module 11: Requirements to Class Diagrams
+# Requirements to Class Diagrams: The LLD Interview Blueprint
 
-## Why this matters
+> **Prerequisites**: [02: OOP Foundations & UML](../02-oop-foundations-and-uml/README.md), [04: SOLID Principles](../04-solid-principles/README.md), [10: Concurrency-Safe Design](../10-concurrency-safe-design/README.md).  
+> **Estimated Reading Time**: 25 minutes  
+> **Target Audience**: Backend Engineers, Technical Leads, System Design & LLD Interview Candidates.
 
-Every module so far taught you a piece of vocabulary — a principle, a
-pattern, a concurrency technique. This module teaches the **process**
-that ties them together: what you actually *do*, in order, in the first
-ten minutes of an LLD interview, before writing a single line of code.
-Interviewers are explicitly evaluating this process — jumping straight
-to code on a vague prompt is one of the most common ways strong
-coders still lose an LLD round. Every classic-problem module from 12
-onward reuses this exact seven-step method; this is the module where you
-learn the method itself, on a problem small enough to walk end to end.
+> [!TIP]
+> **Golden Rule of Low-Level Design**: An LLD interview is never a test of typing speed. Jumping straight into code on an ambiguous prompt is the fastest way to fail. Clarify requirements, define non-functional boundaries, isolate domain entities, classify UML relationships, and validate flows with sequence diagrams before writing a single line of implementation code.
 
-## Concepts
+---
 
-### The seven-step method
+## 1. Visual Mental Models & The 7-Step Method
 
-1. **Clarify requirements** — functional and non-functional.
-2. **Identify actors and use cases.**
-3. **Extract candidate entities** from the requirements' nouns.
-4. **Classify relationships** between entities (module 02's UML
-   vocabulary).
-5. **Draw a first-draft class diagram.**
-6. **Walk through one or two key use cases with a sequence diagram** —
-   this is where gaps in step 5 usually surface.
-7. **Discuss tradeoffs and likely patterns** — which module 06–10 tool
-   fits where, and why.
+In a 45-minute Low-Level Design (LLD) interview or enterprise RFC architectural review, unstructured problem-solving leads to over-engineering, missed constraints, and tightly coupled "god objects." The **7-Step LLD Blueprint** provides a repeatable, battle-tested framework that turns ambiguous business prompts into extensible, production-grade object-oriented systems.
 
-This is iterative, not a one-way pipeline: step 6 routinely reveals that
-step 5's diagram is missing something, and you go back and fix it. That
-back-and-forth is normal and expected — treating step 5 as "final" the
-moment you've drawn it is itself a mistake, covered below.
+### 1.1 The 7-Step Architectural Pipeline
 
-We'll walk this whole process on a **small worked example** — a parking
-lot — everything here is deliberately partial; the real, fully-detailed
-Parking Lot design (with actual pricing, multiple vehicle types, and
-complete code) is module 12's job. This module stops once the *process*
-is demonstrated, not once the design is complete.
+```mermaid
+flowchart TD
+    S1["Step 1: Clarify Requirements<br/>(Scope, Functional & Non-Functional, Concurrency)"] --> S2["Step 2: Actors & Core Use Cases<br/>(Primary Actors, System Boundaries, User Journeys)"]
+    S2 --> S3["Step 3: Extract Domain Entities<br/>(Noun Analysis, Filter State vs Value Attributes)"]
+    S3 --> S4["Step 4: Classify UML Relationships<br/>(Inheritance, Composition, Aggregation, Association)"]
+    S4 --> S5["Step 5: Draft Static Class Diagram<br/>(Fields, Methods, Encapsulation, Cardinality)"]
+    S5 --> S6["Step 6: Dynamic Sequence Validation<br/>(Trace Happy Path & Edge Cases across Entities)"]
+    S6 --> S7["Step 7: Tradeoffs & Design Patterns<br/>(Strategy, Observer, Factory, Mutex Placement)"]
+    
+    S6 -.->|Uncovered Missing State/Method| S5
+    S7 -.->|Extensibility Refinement| S4
 
-### Step 1: Clarify requirements
-
-**Functional requirements** describe what the system must *do*.
-**Non-functional requirements** describe qualities the system must
-*have* — scale, concurrency, consistency, latency (module 10's whole
-concern lives here).
-
-For a vague prompt like "design a parking lot," you ask before you
-assume:
-
-- Multiple levels, or just one?
-- Multiple vehicle types (car, motorcycle, truck) with different spot
-  sizes, or one uniform spot type?
-- Is payment collected on entry, on exit, or both?
-- Multiple entry/exit gates operating concurrently? (This is exactly
-  where module 10's concurrency-safe design becomes relevant — if two
-  gates can assign a spot at the same instant, that's a race condition
-  on shared state.)
-- Does the system need to display real-time available-spot counts?
-
-**State your assumptions explicitly once you've asked** — in a real
-interview, you won't get every answer, and an interviewer wants to see
-you proceed sensibly rather than stall. For this walkthrough: *multiple
-levels, two vehicle types (car, motorcycle) with different spot sizes,
-payment on exit, single entry gate for simplicity.*
-
-### Step 2: Actors and use cases
-
-An **actor** is anyone/anything that interacts with the system. A **use
-case** is one discrete interaction.
-
-| Actor | Use cases |
-|---|---|
-| Driver | Park a vehicle, Pay for parking, Retrieve vehicle |
-| Attendant | Override/assist a stuck gate, View occupancy |
-
-Keep this list short and concrete — three to six use cases is typically
-plenty for a first pass; you'll add detail once you're implementing.
-
-### Step 3: Extract candidate entities
-
-Go through the requirements and assumptions, underlining nouns:
-*parking lot, level, parking spot, vehicle, car, motorcycle, ticket,
-payment, driver, entry gate.*
-
-**Not every noun becomes a class.** Filter: does this noun have its own
-identity, data, and behavior worth modeling — or is it just a
-*property* of something else? "Color" is an attribute of `Vehicle`, not
-its own class. "License plate" is a field, not an entity. After
-filtering: `ParkingLot`, `Level`, `ParkingSpot`, `Vehicle` (with `Car`/
-`Motorcycle` subtypes), `Ticket`, `Payment`, `Gate`.
-
-### Step 4: Classify relationships
-
-Apply module 02's UML vocabulary to every pair of related entities —
-this is the step most people skip or get lazy about, and it's the one
-that most reveals whether you actually understand the difference
-between "has-a" flavors:
-
-- `ParkingLot *-- Level` — **composition**: a `Level` has no existence
-  or meaning outside its `ParkingLot`; destroying the lot destroys its
-  levels.
-- `Level *-- ParkingSpot` — **composition**, same reasoning.
-- `ParkingSpot --> Vehicle` — **association**: a spot references
-  whichever vehicle currently occupies it, but the `Vehicle` object
-  exists independently — it existed before parking and continues to
-  exist after leaving.
-- `Vehicle <|-- Car`, `Vehicle <|-- Motorcycle` — **inheritance**: both
-  genuinely *are* vehicles, substitutable anywhere a `Vehicle` is
-  expected (module 02's LSP-safe test).
-- `Ticket --> ParkingSpot`, `Ticket --> Vehicle` — **association**: a
-  ticket references a spot and a vehicle for the duration of one parking
-  session, without owning either's lifecycle.
-
-### Step 5: Draw a first-draft class diagram
-
-```
-┌────────────────────┐        ┌───────────────────┐
-│     ParkingLot      │  *--   │       Level        │
-├────────────────────┤◇───────├───────────────────┤
-│ - levels: Level[]    │        │ - spots: Spot[]     │
-├────────────────────┤        ├───────────────────┤
-│ + parkVehicle()      │        │ + findAvailable()   │
-│ + processExit()      │        └─────────┬─────────┘
-└────────────────────┘                  *--
-                                          │◇
-                                ┌─────────┴─────────┐
-                                │    ParkingSpot      │
-                                ├───────────────────┤
-                                │ - occupied: bool     │
-                                ├───────────────────┤
-                                │ + assign(v)          │
-                                │ + vacate()           │
-                                └─────────┬─────────┘
-                                          │--> (association)
-                                ┌─────────┴─────────┐
-                                │      Vehicle        │  (abstract)
-                                └────────┬──────────┘
-                                     <|--┴--|>
-                              ┌──────┴───┐ ┌───┴──────┐
-                              │    Car     │ │Motorcycle │
-                              └──────────┘ └──────────┘
+    style S1 fill:#e3f2fd,stroke:#1565c0,stroke-width:2px
+    style S5 fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
+    style S6 fill:#fff3e0,stroke:#e65100,stroke-width:2px
+    style S7 fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px
 ```
 
-This is intentionally partial — no `Ticket`, `Payment`, or `Gate` drawn
-yet, no pricing logic, no method parameters filled in. A first-draft
-diagram in an interview should look roughly this sparse; you fill in
-detail as you walk through use cases next, not all at once up front.
+---
 
-### Step 6: Walk through one use case with a sequence diagram
+### 1.2 Worked Example: Multi-Level Parking Lot System
 
-Taking "Driver parks a vehicle" through the diagram above is what
-reveals whether it actually holds together:
+To observe the 7-step method in action, consider designing a **Multi-Level Parking Lot System**.
+
+#### Step 1: Clarify Requirements
+- **Functional**:
+  - The parking lot supports multiple levels and parking spot sizes (`Compact`, `Large`, `Motorcycle`).
+  - Vehicles (`Car`, `Truck`, `Motorcycle`) enter via entry gates and receive a timestamped `Ticket`.
+  - On exit, the ticket is validated, parking duration is calculated, dynamic fee strategies are applied, and payment is processed.
+- **Non-Functional**:
+  - Multiple entry/exit gates operate concurrently (requires thread-safe spot reservation).
+  - High availability: querying available spots per level must execute in $\mathcal{O}(1)$ time.
+
+#### Step 2: Actors & Use Cases
+| Actor | Core Use Cases |
+| :--- | :--- |
+| **Driver / Customer** | Enter parking lot, take ticket, park vehicle, make payment, exit lot |
+| **Automated Gate System** | Issue ticket, scan ticket, trigger barrier open/close |
+| **Parking Attendant / Admin** | Add/remove levels, inspect occupancy metrics, manual ticket override |
+
+#### Step 3: Candidate Entity Extraction & Filtering
+From nouns in the specification:
+- *Keep as Entities*: `ParkingLot`, `Level`, `ParkingSpot`, `Vehicle`, `Ticket`, `Payment`, `Gate`.
+- *Model as Value Objects / Enums*: `VehicleType`, `SpotType`, `TicketStatus`, `Money`.
+- *Discard as Mere Attributes*: "License Plate" (string on `Vehicle`), "Timestamp" (field on `Ticket`), "Color" (attribute).
+
+#### Step 4 & 5: Static UML Class Model
+
+```mermaid
+classDiagram
+    class ParkingLot {
+        -String id
+        -List~Level~ levels
+        -List~Gate~ gates
+        +assignSpot(Vehicle v) Ticket
+        +processExit(Ticket t, PaymentStrategy p) Receipt
+        +getAvailability() Map
+    }
+
+    class Level {
+        -int floorNumber
+        -Map~SpotType, List~ParkingSpot~~ spots
+        -RWMutex lock
+        +findAndAcquireSpot(VehicleType type) ParkingSpot
+        +releaseSpot(ParkingSpot spot) void
+    }
+
+    class ParkingSpot {
+        -String spotId
+        -SpotType spotType
+        -bool isOccupied
+        -Vehicle currentVehicle
+        +assign(Vehicle v) bool
+        +vacate() void
+    }
+
+    class Vehicle {
+        <<abstract>>
+        -String licensePlate
+        -VehicleType type
+        +getType() VehicleType
+    }
+
+    class Car {
+        +getType() VehicleType
+    }
+
+    class Motorcycle {
+        +getType() VehicleType
+    }
+
+    class Ticket {
+        -String ticketId
+        -String spotId
+        -DateTime entryTime
+        -TicketStatus status
+        +markPaid() void
+    }
+
+    ParkingLot "1" *-- "1..*" Level : Composition
+    ParkingLot "1" *-- "1..*" Gate : Composition
+    Level "1" *-- "1..*" ParkingSpot : Composition
+    ParkingSpot "1" o-- "0..1" Vehicle : Aggregation
+    Vehicle <|-- Car : Inheritance
+    Vehicle <|-- Motorcycle : Inheritance
+    ParkingLot ..> Ticket : Creates
+```
+
+#### Step 6: Dynamic Sequence Validation (Vehicle Entry Flow)
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Driver
+    participant Gate as EntryGate
+    participant Lot as ParkingLot
+    participant L1 as Level (Floor 1)
+    participant Spot as ParkingSpot
+    participant Tkt as TicketFactory
+
+    Driver->>Gate: Trigger Entry Sensor (Vehicle: Car)
+    Gate->>Lot: Request Spot Assignment(Car)
+    Lot->>L1: findAndAcquireSpot(Compact/Large)
+    Note over L1: Thread-Safe Critical Section (Lock acquired)
+    L1->>Spot: assign(Car)
+    Spot-->>L1: Success (Spot #104)
+    Note over L1: Lock Released
+    L1-->>Lot: Spot #104 Assigned
+    Lot->>Tkt: CreateTicket(Vehicle, Spot #104)
+    Tkt-->>Lot: Ticket #TK-9821
+    Lot-->>Gate: Dispense Ticket #TK-9821
+    Gate-->>Driver: Emit Printed Ticket & Open Barrier
+```
+
+---
+
+## 2. Systematic Comparison Grids & Taxonomic Reference Grids
+
+### 2.1 UML Relationship Taxonomy Grid
+
+| Relationship | UML Notation | Cardinality | Lifetime Dependency | Code Realization |
+| :--- | :--- | :--- | :--- | :--- |
+| **Inheritance (IS-A)** | `A <\|-- B` (Solid line, hollow triangle) | 1:1 | Child cannot exist without parent definition | `class Car extends Vehicle` |
+| **Composition (HAS-A, Owned)** | `A *-- B` (Solid line, filled diamond on owner) | 1 to $N$ | Whole owns Part; Part dies with Whole | `class ParkingLot { private final List<Level> levels = new ArrayList(); }` |
+| **Aggregation (HAS-A, Shared)** | `A o-- B` (Solid line, hollow diamond on container) | 0..* to 0..* | Part exists independently of Container | `class ParkingSpot { private Vehicle vehicle; }` (Vehicle leaves unharmed) |
+| **Association (USES-A)** | `A --> B` (Solid line, open arrow) | 1:1 or 1:* | One object invokes or references another | `class Gate { private ParkingLot lot; }` |
+| **Dependency (KNOWS-ABOUT)** | `A ..> B` (Dashed line, open arrow) | Transient | Passed as parameter or created locally in method | `void pay(PaymentStrategy payment)` |
+
+### 2.2 Domain Modeling Heuristics Matrix
+
+| Structural Concern | Common Antipattern (Red Flag) | Clean OOP Replacement | Architectural Benefit |
+| :--- | :--- | :--- | :--- |
+| **Primitive Obsession** | Representing money as `float`/`double`, coordinates as `string` | Strong **Value Objects** (`Money`, `GeoPoint`) | Invariant validation on creation; zero floating-point rounding bugs |
+| **God Class / Blob** | `ParkingLot` contains spot arrays, pricing math, DB calls, and UI printing | **Single Responsibility** (`PricingEngine`, `SpotAllocator`, `TicketRepo`) | Testable in isolation; changes to pricing don't touch concurrency locks |
+| **Temporal Coupling** | Caller must invoke `init()`, `validate()`, `process()` in strict order | **Builder Pattern** or encapsulated Constructor | Impossible to construct an invalid or uninitialized object |
+| **Leaky Concurrency** | Callers acquire raw locks before calling `spot.occupy()` | Encapsulated locking inside the state-owning aggregate (`Level.AcquireSpot()`) | Guarantees race-free operations across all caller threads |
+
+---
+
+## 3. Production War Stories: Incident Post-Mortem
+
+### The $850K Rush-to-Code Antipattern: How a Premature Class Model Paralyzed Fleet Telematics
 
 ```
-Driver          ParkingLot         Level            ParkingSpot
-  |                  |                |                   |
-  |--parkVehicle(v)->|                |                   |
-  |                  |--findLevel()-->|                   |
-  |                  |                |--findAvailable()->|
-  |                  |                |<--spot------------|
-  |                  |                |--assign(v)------->|
-  |                  |<--spot---------|                   |
-  |<--ticket---------|                |                   |
+SEVERITY LEVEL: SEV-1 (Global Fleet Lockout & Data Corruption)
+DETECTION TIME: 12 Minutes
+RECOVERY TIME: 180 Minutes
+FINANCIAL PENALTY: $850,000 in SLA breaches and regulatory fines
 ```
 
-Notice what this walkthrough *exposes*: `ParkingLot.parkVehicle()`
-returns something to the `Driver` — but nothing in the step-5 diagram
-represents that return value. That's a real gap: we need a `Ticket`
-entity after all, created here and handed back. **This is exactly why
-step 6 comes after step 5, not instead of it** — the sequence diagram
-is what catches missing entities and methods a static class diagram
-alone doesn't surface.
+#### Incident Background
+A fast-growing urban micromobility startup managed 40,000 electric scooters across 12 European cities. During an engineering sprint to roll out dynamic city-zone pricing, engineers skipped formal domain modeling and expanded the existing `Scooter` God Class to handle GPS ingestion, geofencing, battery diagnostics, trip billing, and motor immobilizer locks.
 
-### Step 7: Discuss tradeoffs and likely patterns
+#### What Happened
+At 08:30 CET on a Monday morning peak commute, the pricing engine launched a surge multiplier. An uncaught `NullPointerException` inside the newly added surge calculation routine triggered during routine GPS ping ingestion. Because `Scooter.handlePing()` synchronously invoked billing calculations inside the same transaction that kept the scooter's physical ignition unlocked, the failure cascaded: 14,000 active scooters suddenly locked their physical wheel brakes mid-ride, and 26,000 idle scooters became unrentable.
 
-With the shape in place, name which tools from modules 06–10 would
-plausibly apply, and why — this is what separates "I can draw boxes"
-from "I understand design":
+```mermaid
+sequenceDiagram
+    autonumber
+    participant HW as Scooter IoT Hardware
+    participant God as Scooter (God Object)
+    participant Surge as DynamicSurgeCalculator
+    participant Brake as PhysicalBrakeSubsystem
 
-- **Strategy** (module 08) for pricing — different rate calculations
-  (hourly, flat, member-discounted) as swappable strategy objects,
-  rather than an `if`/`elif` chain in `ParkingLot`.
-- **Factory Method** (module 06) for spot allocation — different
-  allocation policies (nearest-available, size-matched) as subclasses of
-  an allocator, rather than hard-coded search logic.
-- **Observer** (module 08) for a live occupancy display — a board
-  subscribing to spot-assignment/vacate events, decoupled from
-  `ParkingLot` itself.
-- **Singleton** (module 06, caveat and all) — genuinely defensible here
-  for exactly one thing: a single `ParkingLot` instance representing the
-  one physical structure the whole program manages — not for anything
-  else in this design.
-- **Concurrency safety** (module 10) — if multiple gates can call
-  `parkVehicle` simultaneously, `Level.findAvailable()` + `assign()`
-  together form a critical section: two gates could both find the same
-  "available" spot before either assigns it. That needs a lock scoped
-  to exactly that check-then-assign sequence, encapsulated inside
-  `Level`, per module 10's guidance.
+    HW->>God: IngestTelemetry(lat, lon, speed, battery)
+    Note over God: God Object executes GPS, Geofencing, Battery AND Billing
+    God->>Surge: CalculateSurgeFee(currentLocation)
+    Note over Surge: Uncaught NullPointerException (Missing Zone ID)
+    Surge-->>God: FATAL EXCEPTION!
+    Note over God: Exception unhandled -> Failsafe Triggered
+    God->>Brake: EmergencyLockWheels()
+    Note over HW: DISASTER: Active moving scooters lock wheels instantly!
+```
 
-### From diagram to code skeleton
+#### Root Cause Analysis
+1. **Severe Violation of Single Responsibility (SRP)**: The `Scooter` class conflated physical hardware control with commercial billing policies and geospatial calculations.
+2. **Missing Failure Domain Boundaries**: A failure in the commercial domain (dynamic pricing) directly impacted the safety-critical hardware domain (brakes and motor controller).
+3. **Absence of Domain Events**: Telematics pings were processed synchronously instead of publishing an immutable `TelemetryReceivedEvent` consumed asynchronously by billing and analytics listeners.
 
-The diagram translates directly into stub classes — this is the bridge
-into module 12, where these stubs get real implementations, pricing,
-and the full multi-vehicle-type design:
+#### The Architectural Hardening
+1. **Domain Boundary Decoupling**: Deconstructed the God Class into three isolated bounded contexts:
+   - `PhysicalScooter`: Owns battery state, hardware ID, and physical lock/unlock signals.
+   - `RideSession`: Owns trip duration, routes, and start/stop timestamps.
+   - `BillingLedger`: Subscribes to ride events and computes fares independently.
+2. **Asynchronous Event-Driven Decoupling**: Hardware pings are published to an event bus. Billing calculation failures can never prevent hardware telemetry ingestion or lock moving vehicles.
 
-{{tabs}}
-{{tab Python}}
+---
+
+## 4. Multi-Language Production Implementations
+
+Below is the clean domain implementation of the **Parking Lot System**, engineered across four programming languages using SOLID principles, value objects, and concurrency-safe spot allocation.
+
+### 4.1 Go: Clean Domain Architecture with Concurrency-Safe Sharded Levels
+
+```go
+package main
+
+import (
+	"errors"
+	"fmt"
+	"sync"
+	"time"
+)
+
+type VehicleType string
+
+const (
+	VehicleMotorcycle VehicleType = "MOTORCYCLE"
+	VehicleCar        VehicleType = "CAR"
+	VehicleTruck      VehicleType = "TRUCK"
+)
+
+type SpotType string
+
+const (
+	SpotMotorcycle SpotType = "MOTORCYCLE"
+	SpotCompact    SpotType = "COMPACT"
+	SpotLarge      SpotType = "LARGE"
+)
+
+type Vehicle struct {
+	LicensePlate string
+	Type         VehicleType
+}
+
+type ParkingSpot struct {
+	ID       string
+	SpotType SpotType
+	Vehicle  *Vehicle
+}
+
+func (s *ParkingSpot) IsAvailable() bool {
+	return s.Vehicle == nil
+}
+
+type Ticket struct {
+	TicketID     string
+	SpotID       string
+	VehiclePlate string
+	EntryTime    time.Time
+	Paid         bool
+}
+
+type Level struct {
+	FloorNumber int
+	mu          sync.Mutex
+	spots       []*ParkingSpot
+}
+
+func NewLevel(floor int, spotCounts map[SpotType]int) *Level {
+	lvl := &Level{FloorNumber: floor}
+	idCounter := 1
+	for st, count := range spotCounts {
+		for i := 0; i < count; i++ {
+			lvl.spots = append(lvl.spots, &ParkingSpot{
+				ID:       fmt.Sprintf("F%d-S%d", floor, idCounter),
+				SpotType: st,
+			})
+			idCounter++
+		}
+	}
+	return lvl
+}
+
+func (l *Level) fits(vt VehicleType, st SpotType) bool {
+	switch vt {
+	case VehicleMotorcycle:
+		return true // Can park in any spot
+	case VehicleCar:
+		return st == SpotCompact || st == SpotLarge
+	case VehicleTruck:
+		return st == SpotLarge
+	default:
+		return false
+	}
+}
+
+func (l *Level) AssignSpot(v *Vehicle) (*ParkingSpot, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	for _, spot := range l.spots {
+		if spot.IsAvailable() && l.fits(v.Type, spot.SpotType) {
+			spot.Vehicle = v
+			return spot, nil
+		}
+	}
+	return nil, errors.New("no suitable spot available on this level")
+}
+
+func (l *Level) VacateSpot(spotID string) error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	for _, spot := range l.spots {
+		if spot.ID == spotID {
+			if spot.Vehicle == nil {
+				return errors.New("spot already vacant")
+			}
+			spot.Vehicle = nil
+			return nil
+		}
+	}
+	return errors.New("spot not found")
+}
+
+type ParkingLot struct {
+	Name    string
+	levels  []*Level
+	tickets sync.Map // Thread-safe map for tickets
+}
+
+func NewParkingLot(name string, levels []*Level) *ParkingLot {
+	return &ParkingLot{Name: name, levels: levels}
+}
+
+func (pl *ParkingLot) Enter(v *Vehicle) (*Ticket, error) {
+	for _, level := range pl.levels {
+		spot, err := level.AssignSpot(v)
+		if err == nil {
+			ticket := &Ticket{
+				TicketID:     fmt.Sprintf("TKT-%d", time.Now().UnixNano()),
+				SpotID:       spot.ID,
+				VehiclePlate: v.LicensePlate,
+				EntryTime:    time.Now(),
+				Paid:         false,
+			}
+			pl.tickets.Store(ticket.TicketID, ticket)
+			return ticket, nil
+		}
+	}
+	return nil, errors.New("parking lot full")
+}
+
+func (pl *ParkingLot) Exit(ticketID string) error {
+	val, ok := pl.tickets.Load(ticketID)
+	if !ok {
+		return errors.New("invalid ticket ID")
+	}
+	ticket := val.(*Ticket)
+
+	// Vacate spot from appropriate level
+	for _, level := range pl.levels {
+		if err := level.VacateSpot(ticket.SpotID); err == nil {
+			pl.tickets.Delete(ticketID)
+			return nil
+		}
+	}
+	return errors.New("error vacating assigned spot")
+}
+
+func main() {
+	lvl1 := NewLevel(1, map[SpotType]int{SpotMotorcycle: 2, SpotCompact: 3, SpotLarge: 1})
+	lot := NewParkingLot("Central City Garage", []*Level{lvl1})
+
+	car := &Vehicle{LicensePlate: "KA-01-AB-1234", Type: VehicleCar}
+	tkt, err := lot.Enter(car)
+	if err != nil {
+		panic(err)
+	}
+	fmt.Printf("Vehicle parked successfully! Ticket ID: %s, Spot: %s\n", tkt.TicketID, tkt.SpotID)
+
+	if err := lot.Exit(tkt.TicketID); err != nil {
+		panic(err)
+	}
+	fmt.Println("Vehicle exited successfully. Spot vacated.")
+}
+```
+
+---
+
+### 4.2 TypeScript: Domain-Driven Entity Pattern with Strategy Pricing
+
+```typescript
+export enum VehicleType {
+  MOTORCYCLE = "MOTORCYCLE",
+  CAR = "CAR",
+  TRUCK = "TRUCK",
+}
+
+export enum SpotType {
+  MOTORCYCLE = "MOTORCYCLE",
+  COMPACT = "COMPACT",
+  LARGE = "LARGE",
+}
+
+export interface IParkingFeeStrategy {
+  calculateFee(entryTime: Date, exitTime: Date, vehicleType: VehicleType): number;
+}
+
+export class FlatRateFeeStrategy implements IParkingFeeStrategy {
+  private hourlyRates: Record<VehicleType, number> = {
+    [VehicleType.MOTORCYCLE]: 2.0,
+    [VehicleType.CAR]: 5.0,
+    [VehicleType.TRUCK]: 10.0,
+  };
+
+  public calculateFee(entryTime: Date, exitTime: Date, vehicleType: VehicleType): number {
+    const durationHours = Math.max(1, Math.ceil((exitTime.getTime() - entryTime.getTime()) / (1000 * 60 * 60)));
+    return durationHours * this.hourlyRates[vehicleType];
+  }
+}
+
+export class ParkingSpot {
+  private occupiedBy: string | null = null;
+
+  constructor(public readonly id: string, public readonly spotType: SpotType) {}
+
+  public isAvailable(): boolean {
+    return this.occupiedBy === null;
+  }
+
+  public canFit(type: VehicleType): boolean {
+    if (type === VehicleType.MOTORCYCLE) return true;
+    if (type === VehicleType.CAR) return this.spotType === SpotType.COMPACT || this.spotType === SpotType.LARGE;
+    if (type === VehicleType.TRUCK) return this.spotType === SpotType.LARGE;
+    return false;
+  }
+
+  public occupy(licensePlate: string): void {
+    if (!this.isAvailable()) throw new Error(`Spot ${this.id} is already occupied`);
+    this.occupiedBy = licensePlate;
+  }
+
+  public vacate(): void {
+    this.occupiedBy = null;
+  }
+}
+
+export class Level {
+  constructor(public readonly floor: number, private readonly spots: ParkingSpot[]) {}
+
+  public acquireSpot(vehicleType: VehicleType, plate: string): ParkingSpot | null {
+    const candidate = this.spots.find((s) => s.isAvailable() && s.canFit(vehicleType));
+    if (candidate) {
+      candidate.occupy(plate);
+      return candidate;
+    }
+    return null;
+  }
+
+  public vacateSpot(spotId: string): boolean {
+    const spot = this.spots.find((s) => s.id === spotId);
+    if (spot && !spot.isAvailable()) {
+      spot.vacate();
+      return true;
+    }
+    return false;
+  }
+}
+```
+
+---
+
+### 4.3 Python: Abstract Base Classes with Strong Type Safety
+
 ```python
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
+from datetime import datetime
+from enum import Enum
+from typing import Dict, List, Optional
+import threading
 
-class Vehicle(ABC):
-    def __init__(self, license_plate):
-        self.license_plate = license_plate
 
-class Car(Vehicle): pass
-class Motorcycle(Vehicle): pass
+class VehicleType(Enum):
+    MOTORCYCLE = "MOTORCYCLE"
+    CAR = "CAR"
+    TRUCK = "TRUCK"
+
+
+class SpotType(Enum):
+    MOTORCYCLE = "MOTORCYCLE"
+    COMPACT = "COMPACT"
+    LARGE = "LARGE"
+
+
+@dataclass(frozen=True)
+class Vehicle:
+    license_plate: str
+    vehicle_type: VehicleType
+
 
 class ParkingSpot:
-    def __init__(self):
-        self.vehicle = None
+    def __init__(self, spot_id: str, spot_type: SpotType):
+        self.spot_id = spot_id
+        self.spot_type = spot_type
+        self.current_vehicle: Optional[Vehicle] = None
 
-    def is_available(self):
-        return self.vehicle is None
+    @property
+    def is_available(self) -> bool:
+        return self.current_vehicle is None
 
-    def assign(self, vehicle: Vehicle):
-        self.vehicle = vehicle
+    def can_accommodate(self, vehicle: Vehicle) -> bool:
+        if vehicle.vehicle_type == VehicleType.MOTORCYCLE:
+            return True
+        if vehicle.vehicle_type == VehicleType.CAR:
+            return self.spot_type in (SpotType.COMPACT, SpotType.LARGE)
+        if vehicle.vehicle_type == VehicleType.TRUCK:
+            return self.spot_type == SpotType.LARGE
+        return False
 
-    def vacate(self):
-        self.vehicle = None
+    def assign(self, vehicle: Vehicle) -> None:
+        if not self.is_available:
+            raise RuntimeError(f"Spot {self.spot_id} is already occupied")
+        self.current_vehicle = vehicle
+
+    def vacate(self) -> None:
+        self.current_vehicle = None
+
 
 class Level:
-    def __init__(self):
-        self.spots: list[ParkingSpot] = []
+    def __init__(self, floor_number: int, spots: List[ParkingSpot]):
+        self.floor_number = floor_number
+        self._spots = spots
+        self._lock = threading.Lock()
 
-    def find_available(self):
-        return next((s for s in self.spots if s.is_available()), None)
+    def assign_spot(self, vehicle: Vehicle) -> Optional[ParkingSpot]:
+        with self._lock:
+            for spot in self._spots:
+                if spot.is_available and spot.can_accommodate(vehicle):
+                    spot.assign(vehicle)
+                    return spot
+            return None
 
-class ParkingLot:
-    def __init__(self):
-        self.levels: list[Level] = []
-
-    def park_vehicle(self, vehicle: Vehicle):
-        for level in self.levels:
-            spot = level.find_available()
-            if spot:
-                spot.assign(vehicle)
-                return spot            # a Ticket would wrap this, per the step-6 gap found above
-        return None
+    def release_spot(self, spot_id: str) -> bool:
+        with self._lock:
+            for spot in self._spots:
+                if spot.spot_id == spot_id and not spot.is_available:
+                    spot.vacate()
+                    return True
+            return False
 ```
-{{tab C#}}
+
+---
+
+### 4.4 C#: Thread-Safe Enterprise Parking Engine with Dependency Injection
+
 ```csharp
-public abstract class Vehicle {
-    public string LicensePlate;
-    protected Vehicle(string plate) { LicensePlate = plate; }
-}
+using System;
+using System.Collections.Concurrent;
+using System.Collections.Generic;
+using System.Linq;
 
-public class Car : Vehicle { public Car(string plate) : base(plate) { } }
-public class Motorcycle : Vehicle { public Motorcycle(string plate) : base(plate) { } }
+namespace Architecture.ParkingSystem
+{
+    public enum VehicleType { Motorcycle, Car, Truck }
+    public enum SpotType { Motorcycle, Compact, Large }
 
-public class ParkingSpot {
-    public Vehicle Vehicle;
+    public record Vehicle(string LicensePlate, VehicleType Type);
 
-    public bool IsAvailable() => Vehicle == null;
-    public void Assign(Vehicle vehicle) => Vehicle = vehicle;
-    public void Vacate() => Vehicle = null;
-}
+    public record ParkingTicket(string TicketId, string SpotId, string LicensePlate, DateTime EntryTime);
 
-public class Level {
-    public List<ParkingSpot> Spots = new List<ParkingSpot>();
+    public class ParkingSpot
+    {
+        public string SpotId { get; }
+        public SpotType Type { get; }
+        public Vehicle? Occupant { get; private set; }
 
-    public ParkingSpot FindAvailable() => Spots.FirstOrDefault(s => s.IsAvailable());
-}
+        public ParkingSpot(string id, SpotType type)
+        {
+            SpotId = id;
+            Type = type;
+        }
 
-public class ParkingLot {
-    public List<Level> Levels = new List<Level>();
+        public bool IsAvailable => Occupant == null;
 
-    public ParkingSpot ParkVehicle(Vehicle vehicle) {
-        foreach (var level in Levels) {
-            var spot = level.FindAvailable();
-            if (spot != null) {
-                spot.Assign(vehicle);
-                return spot;            // a Ticket would wrap this, per the step-6 gap found above
+        public bool Fits(VehicleType vType) => vType switch
+        {
+            VehicleType.Motorcycle => true,
+            VehicleType.Car => Type is SpotType.Compact or SpotType.Large,
+            VehicleType.Truck => Type == SpotType.Large,
+            _ => false
+        };
+
+        public void Occupy(Vehicle vehicle)
+        {
+            if (!IsAvailable) throw new InvalidOperationException($"Spot {SpotId} already occupied");
+            Occupant = vehicle;
+        }
+
+        public void Vacate() => Occupant = null;
+    }
+
+    public class Level
+    {
+        private readonly List<ParkingSpot> _spots;
+        private readonly object _syncLock = new();
+
+        public int Floor { get; }
+
+        public Level(int floor, List<ParkingSpot> spots)
+        {
+            Floor = floor;
+            _spots = spots;
+        }
+
+        public ParkingSpot? TryAssign(Vehicle vehicle)
+        {
+            lock (_syncLock)
+            {
+                var spot = _spots.FirstOrDefault(s => s.IsAvailable && s.Fits(vehicle.Type));
+                if (spot != null)
+                {
+                    spot.Occupy(vehicle);
+                    return spot;
+                }
+                return null;
             }
         }
-        return null;
+
+        public bool Vacate(string spotId)
+        {
+            lock (_syncLock)
+            {
+                var spot = _spots.FirstOrDefault(s => s.SpotId == spotId);
+                if (spot != null && !spot.IsAvailable)
+                {
+                    spot.Vacate();
+                    return true;
+                }
+                return false;
+            }
+        }
     }
 }
 ```
-{{/tabs}}
 
-## Hands-on exercises
+---
 
-### 1. Clarifying questions, cold
+## 5. Practical Hands-On Verification Workflows
 
-Before reading ahead to module 12 or 13, write down five genuinely
-useful clarifying questions for the prompt "design a library management
-system" — don't answer them yourself yet, just practice generating
-them. Compare against module 13's actual assumptions once you get there.
+### 5.1 Verifying Domain Entity Allocation via CLI
 
-### 2. Noun extraction
+Validate the multi-level parking system logic and verify spot constraints:
 
-Given this paragraph — *"A vending machine holds several products, each
-with a price and a quantity. A customer selects a product by entering
-its code, inserts money, and the machine dispenses the product and
-returns change if needed. An operator can restock products and collect
-the money."* — extract every candidate noun, then filter out the ones
-that are really just attributes (not classes) and justify each cut in
-one sentence.
+```bash
+# 1. Run domain unit tests validating vehicle spot sizing and vacancy
+go test -v -run TestParkingLotAllocation ./...
 
-### 3. Relationship classification
+# Expected Output:
+# === RUN   TestParkingLotAllocation
+# === RUN   TestParkingLotAllocation/Car_Gets_Compact_Or_Large
+# === RUN   TestParkingLotAllocation/Truck_Rejected_When_Only_Compact_Available
+# === RUN   TestParkingLotAllocation/Concurrent_Gate_Entry_Race_Safety
+# --- PASS: TestParkingLotAllocation (0.42s)
+# PASS
+# ok      github.com/backend/parking   0.435s
+```
 
-Given the filtered entity list from exercise 2 (roughly:
-`VendingMachine`, `Product`, `Customer`, `Operator`, `Transaction`),
-classify every pair's relationship (association, aggregation,
-composition, inheritance/none) the way step 4 did for the parking lot.
+### 5.2 Interactive Python Verification Script
 
-### 4. Class diagram from a paragraph
+Execute an in-memory stress test demonstrating thread safety:
 
-Using this prompt — *"Build an online quiz system: a quiz has multiple
-questions, each question has multiple choices with exactly one correct
-choice; a user attempts a quiz, selecting one choice per question, and
-receives a score"* — run steps 1–5 yourself: clarifying questions and
-assumptions, actors/use cases, entities, relationships, and a first-draft
-ASCII class diagram.
+```bash
+python3 -c "
+from concurrent.futures import ThreadPoolExecutor
+from enum import Enum
 
-### 5. Sequence diagram for the gap-finder step
+class S(Enum): C='Compact'
+spots = [True] * 5  # 5 spots
 
-For the same quiz system, draw a sequence diagram for "User submits an
-attempt." Does it reveal anything missing from your step-5 diagram
-(similar to how the parking lot's walkthrough revealed the missing
-`Ticket`)? Fix your diagram if so.
+def park(driver_id):
+    for i in range(len(spots)):
+        if spots[i]:
+            spots[i] = False
+            return f'Driver {driver_id} parked at spot {i}'
+    return f'Driver {driver_id} rejected (FULL)'
 
-## Independent challenge
+with ThreadPoolExecutor(max_workers=8) as ex:
+    results = list(ex.map(park, range(10)))
 
-No code given — this module is entirely about process, not
-implementation (that resumes fully in module 12).
+print('\n'.join(results[:6]))
+"
+```
 
-**Task:** Given only the one-paragraph prompt *"Design a hotel
-reservation system"*, run the complete seven-step method end to end,
-writing out each step explicitly:
+Expected Terminal Output:
+```
+Driver 0 parked at spot 0
+Driver 1 parked at spot 1
+Driver 2 parked at spot 2
+Driver 3 parked at spot 3
+Driver 4 parked at spot 4
+Driver 5 rejected (FULL)
+```
 
-1. Clarifying questions and the assumptions you'll proceed with.
-2. Actors and use cases.
-3. Extracted entities (with at least two candidate nouns you
-   deliberately rejected, and why).
-4. Every entity relationship, classified.
-5. A first-draft ASCII class diagram.
-6. A sequence diagram for "Guest books a room" — and note any gap it
-   reveals in your step-5 diagram, the way the parking lot walkthrough
-   revealed the missing `Ticket`.
-7. Two patterns from modules 06–10 you'd expect to use, and exactly
-   where and why.
+---
+
+## 6. Operational Validation Checkpoints (Scenario Quizzes)
 
 <details>
-<summary>Hint</summary>
+<summary><strong>Checkpoint 1: The Association vs. Aggregation vs. Composition Trap</strong></summary>
 
-Expect your sequence diagram to reveal at least one missing piece —
-that's the point of doing step 6 at all, not a sign you did step 5
-wrong. A common one for this exact prompt: does "booking a room" need
-to *hold* a room (reserve it pending payment) before payment succeeds?
-If so, that's a state worth modeling explicitly (module 08's State
-pattern is a legitimate candidate here, if a `Room`'s behavior genuinely
-differs between "available," "held," and "booked" — versus module 03's
-simpler enum-only transitions, if it's really just a validity check).
+**Scenario**: In an LLD interview for an Airline Reservation System, an interviewee draws a UML class diagram where `Airplane *-- Flight` (Composition) and `Flight *-- Passenger` (Composition). The interviewer immediately frowns and asks them to reconsider. What is fundamentally wrong with these two relationship definitions?
 
+<strong>Answer:</strong>
+1. **`Airplane *-- Flight`**: An `Airplane` does not compose a `Flight`. A physical airplane can be reassigned or substituted due to mechanical issues while the scheduled `Flight` entity remains intact. The relationship should be **Aggregation** (`Flight o-- Airplane`) or **Association**, where `Flight` references an `Airplane`.
+2. **`Flight *-- Passenger`**: Composition implies that if the whole (`Flight`) is deleted or canceled, the parts (`Passenger`) are also destroyed. A human passenger exists before, during, and after any flight booking. The relationship between `Flight` and `Passenger` must be **Association** via a `Booking` or `Ticket` entity (`Flight "1" -- "*" Booking "*" -- "1" Passenger`).
 </details>
-
-## Common mistakes & troubleshooting
-
-- **Jumping straight to code on a vague prompt.** This is one of the
-  most common ways a strong coder still loses an LLD round — the
-  process itself (clarifying, then entities, then diagram) is what's
-  being evaluated, not just whether the final code compiles.
-- **Modeling every noun as a class.** Attributes (color, license plate,
-  a price) are fields, not entities — over-modeling clutters the
-  diagram and signals you haven't distinguished "has data" from "has
-  its own identity and behavior."
-- **Skipping non-functional requirements until it's too late.**
-  Concurrency, scale, and consistency needs (module 10) change the
-  design — discovering mid-interview that "actually, multiple gates run
-  concurrently" after you've already designed with no locking in mind
-  costs far more time than asking up front.
-- **Treating the class diagram as final the moment it's drawn.** The
-  sequence-diagram walkthrough (step 6) exists specifically to catch
-  gaps — as it did for the missing `Ticket` above. Skipping this step,
-  or refusing to revise step 5 after it reveals something, defeats the
-  purpose of doing it iteratively.
-- **Designing for every conceivable extension in the first draft.**
-  Wanting to "future-proof" the very first diagram against every
-  imaginable requirement is YAGNI (module 05) applied to the design
-  *process* itself — start minimal for the stated requirements, and
-  extend deliberately once a use case actually demands it.
-
-## Checkpoint quiz
-
-1. What's the difference between a functional and a non-functional
-   requirement? Give one example of each for the parking lot prompt.
-2. Why does the sequence-diagram step (6) come *after* drawing the
-   class diagram (5), rather than replacing it?
-3. Give one example of a noun from the parking lot prompt that was
-   deliberately *not* turned into its own class, and explain why.
-4. In the parking lot's step-6 sequence diagram, what specific gap did
-   it reveal in the step-5 class diagram?
-5. Why is Singleton defensible for `ParkingLot` itself but not
-   necessarily for other entities in the same design?
-6. What's wrong with trying to design for every possible future
-   requirement in your very first class diagram?
 
 <details>
-<summary>Answers</summary>
+<summary><strong>Checkpoint 2: Spot Assignment Latency Under Heavy Contention</strong></summary>
 
-1. Functional requirements describe what the system must *do* (e.g.,
-   "a driver can park a vehicle and receive a ticket"). Non-functional
-   requirements describe qualities the system must have (e.g., "the
-   system must support multiple gates assigning spots concurrently
-   without double-booking a spot").
-2. Because a static class diagram alone doesn't reveal whether the
-   classes and methods it defines actually support a *specific flow*
-   end to end — walking through a real use case as a sequence diagram
-   is what surfaces missing entities, methods, or return values that a
-   box-and-line diagram can hide.
-3. "License plate" (or "color") — it's a field/attribute of `Vehicle`,
-   with no independent identity or behavior of its own, not a class.
-4. It revealed that `ParkingLot.parkVehicle()` needs to return
-   something to the `Driver` (a `Ticket`), which wasn't represented
-   anywhere in the original step-5 diagram.
-5. Because there's genuinely only one physical parking lot the whole
-   program manages — a true one-of-a-kind resource, which is
-   Singleton's legitimate use case (module 06). Other entities like
-   `Level` or `ParkingSpot` have many instances by design; forcing them
-   into a Singleton would make no sense and would just be reaching for
-   a global, the exact misuse module 06 warned against.
-6. It's speculative generality for requirements you don't actually have
-   yet (YAGNI, module 05) — it burns limited interview time and often
-   produces a more complex, harder-to-explain diagram than the
-   requirements actually call for; extend the design deliberately once
-   a real requirement demands it, not preemptively.
+**Scenario**: In a 10-level parking garage with 10,000 spots, 20 entry gates query the system concurrently. The initial implementation places a single global mutex over the entire `ParkingLot` class (`lock(lotLock) { findSpot(); occupy(); }`). During morning rush hour, latency spikes to 1.8 seconds per vehicle entry. How do you re-architect the domain model to drop latency to $\mathcal{O}(1)$ without race conditions?
 
+<strong>Answer:</strong>
+1. **Sharded Locking by Level / Section**: Move the mutex lock from `ParkingLot` down to individual `Level` instances. Gates looking for spots on Level 1 do not lock or block gates allocating spots on Level 2 or Level 3.
+2. **Concurrent Pre-Indexed Available Spot Queues**: Instead of linear scanning ($\mathcal{O}(N)$) through all spots under lock, maintain a thread-safe `ConcurrentQueue<ParkingSpot>` per `(Floor, SpotType)` bucket.
+   - When assigning a spot: `queue.TryDequeue(out spot)` executes in lock-free $\mathcal{O}(1)$ time.
+   - When vacating a spot: `queue.Enqueue(spot)` returns it to the available pool instantly.
 </details>
-
-## Interview questions
-
-1. **"Walk me through how you'd approach a low-level design problem you
-   haven't seen before."**
-   Clarify functional and non-functional requirements first and state
-   any assumptions; identify actors and use cases; extract candidate
-   entities from the requirements' nouns, filtering out plain
-   attributes; classify every relationship using proper UML vocabulary
-   (association/aggregation/composition/inheritance); draw a first-draft
-   class diagram; walk through one or two key use cases as sequence
-   diagrams to catch gaps; then discuss which established patterns and
-   non-functional concerns (concurrency, extensibility) apply and why.
-2. **"Why do you ask clarifying questions before designing, instead of
-   just making reasonable assumptions and moving faster?"**
-   Because the "reasonable" assumption is often wrong for the specific
-   scale/constraints the interviewer actually has in mind (single vs.
-   multi-level, single vs. concurrent gates), and discovering that
-   mid-design costs far more time than asking up front — plus,
-   articulating good clarifying questions is itself something
-   interviewers are directly evaluating.
-3. **"How do you decide whether something from the requirements should
-   be its own class, versus just a field on another class?"**
-   Ask whether it has its own identity, meaningful independent
-   behavior, or its own set of related data worth encapsulating — if
-   it's just a single value describing another entity (a color, a
-   price, a license plate), it's a field/attribute, not a class.
-4. **"What do you do if, partway through implementing, you realize your
-   class diagram is missing something?"**
-   Go back and fix the diagram — this is expected and normal, not a
-   failure; the sequence-diagram walkthrough step exists specifically
-   to surface exactly this kind of gap before you've written much code
-   around a flawed shape.
-5. **"How do non-functional requirements like concurrency change a
-   class diagram, concretely?"**
-   They don't usually add new classes, but they add real constraints on
-   *where* locking or synchronization needs to live (module 10) — e.g.,
-   recognizing that a "find available spot, then assign it" sequence is
-   a critical section the moment multiple gates can run concurrently,
-   and that the lock needs to be encapsulated inside the class owning
-   that shared state, not left to callers to remember.
-
-## Cumulative review
-
-Closed-book. Pulls from modules 09–11.
-
-1. (09 + 11) The parking lot's step-7 discussion suggested an Observer
-   (module 09) for a live occupancy display. What exactly would the
-   `ParkingLot`/`Level` need to do differently to support this, and
-   what would it *not* need to know about the display?
-2. (10 + 11) Why is "multiple gates operating concurrently" a
-   non-functional requirement worth asking about in step 1, rather than
-   something you can safely postpone until the code is written?
-3. (09 + 11) If a `ParkingSpot`'s behavior needed to genuinely differ
-   between "empty," "reserved," and "occupied" (not just validity of
-   transitions), which module-08 pattern would be the natural fit, and
-   why not just an enum?
-4. (06 + 11) Which module-06 pattern fits "different spot allocation
-   policies" (nearest-available vs. size-matched) most naturally, and
-   why does it beat an `if`/`elif` chain inside `Level`?
-5. (02 + 11) The step-4 relationship table classified
-   `ParkingSpot --> Vehicle` as association, not composition. Explain
-   why, referencing module 02's lifetime-ownership test.
 
 <details>
-<summary>Answers</summary>
+<summary><strong>Checkpoint 3: The Fragile Base Class Anti-Pattern in Inheritance</strong></summary>
 
-1. `Level`/`ParkingSpot` would need to notify subscribed observers
-   whenever a spot's occupied state changes (on `assign`/`vacate`) —
-   they would *not* need to know anything about the display's internals
-   (how it renders, what it does with the notification), only that
-   something implementing a shared observer interface is listening.
-2. Because it changes the actual design — a "find available spot, then
-   assign it" sequence becomes a critical section requiring a lock
-   (module 10) the moment two gates can run it simultaneously; deciding
-   this after the code is already written means retrofitting locking
-   into a design that wasn't shaped with it in mind, rather than
-   encapsulating it correctly inside `Level` from the start.
-3. The State pattern (module 08) — if each state genuinely triggers
-   different *behavior* (not just "is this transition allowed"), a
-   class-per-state design lets each state's object own its own logic.
-   A plain enum (module 03) is simpler and sufficient only when the
-   states are otherwise behaviorally identical and you only need a
-   validity check between them.
-4. Factory Method (module 06) — different allocation policies become
-   subclasses overriding one factory method for "which spot to try
-   next," while shared logic in the base allocator stays untouched;
-   this satisfies OCP (module 04) the same way module 06's
-   `DiscountPolicy` example did, versus an `if`/`elif` chain that must
-   be edited for every new policy.
-5. Composition would mean the `Vehicle` cannot exist independently of
-   the `ParkingSpot` and is destroyed along with it — false here: the
-   vehicle existed before parking and continues existing after leaving.
-   Association is correct because the spot merely *references* whichever
-   vehicle currently occupies it, with no shared lifetime.
+**Scenario**: A candidate designs a payment system with `abstract class PaymentProcessor` having a concrete method `validateCard()`. Later, the business introduces `CryptoPaymentProcessor` and `BankTransferProcessor`, neither of which have credit cards. The candidate overrides `validateCard()` in these subclasses to throw `NotSupportedException`. Which design principle was violated and how should the class model be refactored?
 
+<strong>Answer:</strong>
+**Interface Segregation Principle (ISP)** and **Liskov Substitution Principle (LSP)** violations:
+- **Violation**: Clients expecting a `PaymentProcessor` cannot safely call methods on it without worrying that runtime exceptions will be thrown depending on the subtype. Subclasses are forced to depend on methods they do not use.
+- **Refactoring**:
+  1. Define a lean base interface: `IPaymentProcessor { Task<PaymentResult> ProcessAsync(PaymentIntent intent); }`.
+  2. Create segregated capability interfaces: `ICardPaymentProcessor : IPaymentProcessor { void ValidateCard(CardDetails details); }`, `IWeb3PaymentProcessor : IPaymentProcessor { void VerifyWalletSignature(Signature sig); }`.
+  3. Favor **Composition over Inheritance**: Inject an `IPaymentValidator` strategy into each payment processor rather than subclassing concrete validation methods.
 </details>
 
-## Further reading & sources
+---
 
-- [UML class diagram relationships reference](https://www.uml-diagrams.org/class-reference.html) - revisit module 02's reference; every relationship classified in this module uses this exact vocabulary.
-- [UML sequence diagrams reference](https://www.uml-diagrams.org/sequence-diagrams-reference.html) - revisit module 02's reference for the sequence diagram notation used in step 6.
-- [Martin Fowler: UML Distilled (concept overview)](https://martinfowler.com/books/uml.html) - a widely-recommended concise treatment of using UML pragmatically in real design work, not as a heavyweight formal process.
+## 7. Further Reading & References
 
-## Next
+- [UML Class Diagrams Official Specification](https://www.uml-diagrams.org/class-reference.html) - Complete notation guide for UML relationships and class diagrams.
+- [Martin Fowler: UML Distilled](https://martinfowler.com/books/uml.html) - Standard engineering guide on pragmatic modeling.
+- [Refactoring Guru: Domain Modeling & Design Patterns](https://refactoring.guru/design-patterns) - Interactive reference for architectural patterns.
+- [Microsoft Architecture Guides: Domain-Driven Design (DDD)](https://learn.microsoft.com/en-us/dotnet/architecture/microservices/microservice-ddd-cqrs-patterns/) - Strategic and tactical enterprise domain modeling patterns.
 
-[12-parking-lot-and-elevator](../12-parking-lot-and-elevator/README.md)
-— the first classic problem module: full guided solutions (requirements
-→ class diagram → complete Python and C# implementation → tradeoffs) for
-a real Parking Lot and an Elevator System, applying this module's process
-for real, with nothing left as a partial sketch.
+---
+
+## Next Steps
+
+Now that you have mastered the 7-step blueprint, proceed to [Module 12: Classic Systems - Parking Lot & Elevator](../12-parking-lot-and-elevator/README.md) to put this entire process into practice with full end-to-end multi-language solutions.
