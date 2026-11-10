@@ -1,346 +1,529 @@
-# Container Image Pipelines
+# 03 - Container Image Pipelines
 
-## Why this matters
+> **Prerequisites**: [02 - Docker Containerization](../../02-docker/00-setup-docker-desktop-wsl2/README.md), [01 - GitHub Actions Deep Dive](../01-github-actions-deep-dive/README.md).  
+> **Target Audience**: Platform Engineers, SREs, and Release Automation Architects building secure, optimized OCI container delivery pipelines with Buildx and registry caching.  
+> **Estimated Deep-Dive Time**: 40 minutes.
 
-The artifact that flows through every environment (module 00's "build once,
-deploy many") is the container image, and the tag you put on it is the
-single most consequential decision in the whole pipeline. Track 07's module
-08 already told you *tag by commit SHA, not `latest`* and showed why —
-this module goes much deeper: the full taxonomy of tagging strategies and
-their trade-offs, how to build images fast in CI with Buildx layer caching,
-how to push to the **ACR you provisioned with Terraform in track 09**, and
-how to make the built tag flow cleanly from the build job to the deploy job.
-Get tagging wrong and every downstream module — rollouts, GitOps,
-rollbacks — inherits an untraceable, un-rollback-able mess.
+---
 
-## Concepts
+> [!TIP]
+> **The Golden Rule of Image Tagging**: **Tags are pointers; digests are cryptographic truth.** Never deploy mutable tags like `latest` in production. Always tag images with the short commit SHA (`${{ github.sha }}`) and semantic versions for traceability, but pass the immutable **OCI digest** (`@sha256:...`) to your deployment jobs. Use **Docker Buildx with `type=gha` layer caching** to cut CI build times from minutes to seconds.
 
-### Recap and generalize: why not `latest`
+---
 
-Track 07's module 08 established two facts about `latest`: it silently
-breaks `kubectl set image` rollouts (the pod spec text never changes, so
-Kubernetes triggers nothing), and it makes deploys untraceable. Generalize
-those into the rule for this whole track: **a deployable image tag must be
-immutable and unique per build.** Immutable so "the thing I tested" and
-"the thing running in prod" are provably identical (module 00's build-once
-rule); unique so every deploy is a distinct, addressable reference you can
-roll back *to*. `latest` fails both — it's mutable (repointed every push)
-and non-unique (every build shares it). It has exactly one legitimate use:
-a convenience pointer for humans doing `docker pull` locally, never a
-deploy target.
+## 1. Visual Mental Models: The Container Build & Security Pipeline
 
-### Tagging strategies: SHA, semver, and multi-tagging
+A production image pipeline does not merely invoke `docker build`. It standardizes metadata extraction, multi-architecture compilation, BuildKit layer caching, vulnerability scanning, and cryptographic artifact signing:
 
-Three schemes, each answering a different question:
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Git as GitHub Event (Commit / Tag)
+    participant Meta as docker/metadata-action
+    participant Buildx as Docker Buildx (BuildKit)
+    participant Cache as GitHub Actions Cache (type=gha)
+    participant Scanner as Trivy Security Scanner
+    participant Registry as OCI Registry (ACR / GHCR)
+    participant Cosign as Sigstore Cosign
 
-- **Commit SHA** (`myapp:a1b2c3d`): maximally traceable — every image maps
-  to an exact commit. Perfect for CI/CD internals and rollbacks. Downside:
-  meaningless to humans ("is `a1b2c3d` newer than `f4e5d6c`?" — you can't
-  tell without Git). This is the default this track uses for deploys.
-- **Semantic version** (`myapp:1.4.2`): human-meaningful, communicates
-  compatibility (major.minor.patch), and is what you publish for *releases*
-  consumed by others. Downside: requires a deliberate release process to
-  assign — you don't get a new semver on every commit. Usually driven by a
-  `tag`-push trigger (module 00) creating `v1.4.2`.
-- **Multi-tagging**: push the *same image* under several tags at once — e.g.
-  the SHA for traceability *and* a semver for humans *and* a branch/
-  environment tag. One build, multiple pointers to the identical digest.
-  The `docker/metadata-action` automates deriving these tags from the Git
-  context.
+    Git->>Meta: Pass commit SHA, branch, and semver tag
+    Meta-->>Buildx: Generated Tags: [sha-a1b2c3d, v1.4.2]
+    Buildx->>Cache: Check for cached layers from previous runs
+    Cache-->>Buildx: Hit: Base OS & Dependency layers restored!
+    Buildx->>Buildx: Compile application layer only (30s vs 5m)
+    Buildx->>Scanner: Scan image filesystem for CVEs
+    alt Critical / High CVE Found
+        Scanner-->>Git: Fails Pipeline! Block registry push.
+    else Zero High/Critical CVEs
+        Scanner->>Registry: Push Multi-Platform Image + Manifest List
+        Registry-->>Buildx: Returns Immutable Digest: sha256:7f9b84a...
+        Buildx->>Cosign: Cryptographically sign OCI digest via OIDC
+        Cosign->>Registry: Attach signature to image manifest
+    end
+```
 
-A common, sound production setup: SHA tag for the deploy reference, semver
-for released artifacts, and never a bare `latest` as a deploy target.
+---
 
-### The image digest: the truly immutable identity
+### Anatomy of an OCI Image: Tags vs Manifests vs Digests
 
-Even a SHA *tag* is just a mutable pointer in principle — someone could
-force-push a different image to `myapp:a1b2c3d`. The genuinely immutable
-identity is the **digest**: `myapp@sha256:...`, a content hash of the image
-itself. Two images with the same digest are byte-identical; a digest can
-never point to different content. For the strongest "exactly what I tested"
-guarantee (and for supply-chain security, track 18), deployments can pin to
-the digest rather than a tag. This track deploys by SHA tag for readability
-but you should know the digest is what makes an image *provably* immutable —
-`docker buildx build` prints the pushed digest, and you can resolve a tag to
-its digest with `az acr repository show --image`.
+```mermaid
+flowchart TD
+    subgraph RegistryNamespace ["OCI Container Registry (myacr.azurecr.io/order-api)"]
+        subgraph Tags ["Mutable Human Pointers (Tags)"]
+            Tag1["tag: v1.4.2 (Release Pointer)"]
+            Tag2["tag: sha-a1b2c3d (Git Commit Pointer)"]
+            Tag3["tag: latest (Convenience Pointer)"]
+        end
 
-### Building fast in CI: Buildx and layer caching
+        subgraph OCIIndex ["OCI Image Index / Manifest List"]
+            IndexDigest["Immutable Content Digest<br/>sha256:88a91bf..."]
+        end
 
-Every CI build starts on a blank runner (module 01), so without help,
-Docker rebuilds every layer from scratch every time — slow. **Buildx**
-(Docker's BuildKit-based builder, `docker/build-push-action` in Actions)
-supports **layer caching** across runs: it exports the build cache to a
-registry or the GitHub Actions cache and imports it next run, so unchanged
-layers (base image, dependency install) are reused and only changed layers
-rebuild. This is the module-02 caching idea applied to *image layers* rather
-than package directories, and it's the difference between a 30-second and a
-5-minute image build. Cache scopes: `type=gha` (GitHub Actions cache,
-simplest) or `type=registry` (store cache in ACR itself).
+        subgraph ArchManifests ["Architecture-Specific Manifests"]
+            LinuxAMD["linux/amd64 Manifest<br/>(Blob layers: OS, Deps, Binary)"]
+            LinuxARM["linux/arm64 Manifest<br/>(Blob layers: OS, Deps, Binary)"]
+        end
+    end
 
-### Pushing to a Terraform-provisioned ACR
+    Tag1 --> IndexDigest
+    Tag2 --> IndexDigest
+    Tag3 --> IndexDigest
+    IndexDigest --> LinuxAMD
+    IndexDigest --> LinuxARM
+```
 
-In track 09 you provisioned an ACR declaratively with Terraform (rather
-than `az acr create` by hand as in track 02/07). The pipeline doesn't care
-*how* the ACR was created — it needs three things: the ACR's **login
-server** (`<name>.azurecr.io`, a Terraform output), an **identity with
-`AcrPush`** on it (track 07 module 08's role, granted via Terraform or `az`),
-and a login (`az acr login` or `docker/login-action` with a token). The
-clean pattern is to expose the ACR login server as a Terraform output and
-feed it to the workflow as a repository variable, so infra (track 09) and
-pipeline (this track) stay decoupled but connected — change the ACR in
-Terraform and the pipeline picks up the new login server without edits. The
-push identity should authenticate via **OIDC** (track 07 module 08; deepened
-in module 07), not a stored registry password.
+---
 
-### Passing the tag from build to deploy
+## 2. Technical Comparison: Tagging Models & Buildx Cache Backends
 
-Module 01 taught job outputs; here's their canonical use. The build job
-computes the image tag once (from `github.sha`), builds and pushes under it,
-and exposes it as a **job output**. The deploy job (`needs: [build]`) reads
-`needs.build.outputs.image-tag` and deploys *that exact reference*. This
-guarantees the deploy uses the identical tag that was built — you never
-recompute it in two places (a subtle way to accidentally deploy the wrong
-image). In the GitOps half of this track (module 05) the "deploy job"
-instead commits that tag into a manifest in Git, but the principle is the
-same: one computed tag, referenced everywhere downstream.
+### Container Tagging Strategies Matrix
 
-## Command reference
+| Strategy | Syntax Example | Immutability | Human Readability | Best Production Use Case |
+| :--- | :--- | :--- | :--- | :--- |
+| **Commit SHA** | `api:sha-a1b2c3d` | High (unless overwritten) | Poor (Requires Git lookup) | **Default internal CI/CD deploy target** |
+| **Semantic Version** | `api:1.4.2` | High (Convention-based) | High (Communicates changes) | Public API releases, customer-facing artifacts |
+| **Multi-Tagging** | `api:1.4.2` + `api:sha-a1b2c3d` | High | High | Dual tagging: release tags for humans, SHA for CI |
+| **Immutable Digest** | `api@sha256:7f9b84...` | **Absolute (Cryptographic)** | None | **Zero-trust production deployments & security gates** |
+| **`latest`** | `api:latest` | ❌ Zero (Mutates constantly) | Misleading | Local developer testing only; **NEVER in production** |
 
-Image-pipeline actions and the `az acr` / `docker buildx` commands behind
-them.
+---
 
-| Command / action | What it does | Notes |
-|---|---|---|
-| `docker/setup-buildx-action@v3` | Configures Buildx/BuildKit on the runner | Prereq for cache-aware builds |
-| `docker/login-action@v3` | Logs the runner in to a registry | `registry: <name>.azurecr.io`; use a token/OIDC, not a password |
-| `az acr login --name <acr>` | Alternative registry login via the Azure CLI | Works after `azure/login` OIDC (track 07 module 08) |
-| `docker/metadata-action@v5` | Derives tags/labels from Git context | Emits SHA, semver, branch tags automatically |
-| `docker/build-push-action@v6` | Builds and pushes in one step, with caching | `push: true`, `tags:`, `cache-from`/`cache-to` |
-| `cache-from: type=gha` / `cache-to: type=gha,mode=max` | Import/export the build cache to the GH Actions cache | `mode=max` caches all layers, not just the final one |
-| `tags: <acr>.azurecr.io/app:${{ github.sha }}` | The image reference(s) to push | Multiple lines = multi-tagging the same build |
-| `docker buildx build --push -t ... .` | The raw CLI equivalent | Prints the pushed `sha256:` digest |
-| `az acr repository show-tags --name <acr> --repository app -o table` | Lists tags in the repo | Verify the SHA tag landed (track 07 module 08) |
-| `az acr repository show --name <acr> --image app:<sha> --query digest -o tsv` | Resolves a tag to its immutable digest | The truly-immutable identity |
-| `az acr manifest list-metadata --registry <acr> --name app -o table` | Lists manifests/digests with timestamps | Auditing what's stored |
-| `az acr repository delete --name <acr> --image app:<tag>` | Deletes a specific image/tag | For cleanup; retention policies automate this |
-| `az acr config retention update` | Configures automatic untagged-manifest cleanup | Controls the storage-growth cost pitfall (track 07 module 08) |
-| `echo "image-tag=..." >> "$GITHUB_OUTPUT"` | Exposes the computed tag as a job output | Consumed by the deploy job via `needs.<job>.outputs` |
+### Docker Buildx Cache Backends Specification
 
-## Hands-on exercises
+| Cache Backend | Syntax Configuration | Storage Location | Performance Characteristics |
+| :--- | :--- | :--- | :--- |
+| **GitHub Cache (`gha`)** | `cache-from: type=gha`<br/>`cache-to: type=gha,mode=max` | GitHub Actions Cache (10GB per repo) | Fastest for standard GitHub-hosted runners; zero registry bandwidth costs |
+| **Registry Cache (`registry`)** | `cache-from: type=registry,ref=...:cache`<br/>`cache-to: type=registry,ref=...:cache,mode=max` | OCI Registry (ACR/GHCR) | Best for self-hosted runners or multi-repo shared builders; cross-cluster availability |
+| **Local Cache (`local`)** | `cache-from: type=local,src=...`<br/>`cache-to: type=local,dest=...` | Host filesystem | Ideal for bare-metal CI servers with dedicated SSD storage |
 
-Use a repo with a `Dockerfile` (the track 07 demo app works) and an ACR you
-provisioned in track 09 (or `az acr create` one if you're doing this track
-before finishing 09 — the pipeline is identical). Set repository variables
-`ACR_LOGIN_SERVER` and the OIDC identity vars from track 07 module 08.
+---
 
-1. **Build and push a SHA-tagged image from CI.** Write
-   `.github/workflows/image.yml` (trigger: `push` to `main`) that logs in to
-   Azure via OIDC, sets up Buildx, and uses `docker/build-push-action` to
-   build and push `${ACR_LOGIN_SERVER}/demo-app:${{ github.sha }}`. Confirm
-   with `az acr repository show-tags` that the SHA tag exists.
+## 3. Production War Story: The Silent Cache Invalidation & ACR Outage
 
-2. **Prove `latest` breaks traceability.** Add a *second* tag line pushing
-   `:latest` alongside the SHA. Push twice (two different commits) and run
-   `az acr repository show-tags` — note `latest` now points at only the
-   newer image while both SHA tags persist. Resolve each with
-   `az acr repository show --image demo-app:latest --query digest` before
-   and after the second push and watch the digest change under a fixed tag.
-   This is why `latest` can't be a deploy target.
+### Incident Overview
+A global healthcare platform operated an automated continuous deployment pipeline building a critical telehealth microservice. An engineer refactored the Dockerfile to "clean up" the syntax, inadvertently swapping the ordering of `COPY . .` and `RUN npm ci`. 
 
-3. **Multi-tag with `metadata-action`.** Replace hand-written tags with
-   `docker/metadata-action@v5` configured to emit both a SHA tag and a
-   branch tag. Push and confirm both tags point to the *same digest*
-   (`az acr repository show --image ...` for each). One build, multiple
-   human/machine-friendly pointers to identical content.
+Because of the misordered layers, Docker BuildKit invalidated the entire layer cache on every single commit. Build durations surged from 45 seconds to 9 minutes. Simultaneously, thousands of untagged intermediary cache images filled the Azure Container Registry (ACR), exceeding the provisioned 100GB disk quota. When a critical Zero-Day security patch needed to be deployed, ACR rejected all pushes with `429 Disk Quota Exceeded`, leaving the platform vulnerable for over 4 hours.
 
-4. **Add Buildx layer caching and measure it.** Add
-   `cache-from: type=gha` and `cache-to: type=gha,mode=max` to the
-   build-push step. Push once (cold — populates cache), then push a commit
-   that changes *only application code* (not the dependency manifest).
-   Compare build durations: the dependency-install layers should be cached
-   and only your code layer should rebuild. Then change the dependency
-   manifest and confirm that layer (and everything after it) rebuilds —
-   Docker's layer invalidation, same principle as module 02's cache key.
+### The Catastrophic Failure Sequence
 
-5. **Pin and deploy by digest.** Take the digest of your latest build
-   (`az acr repository show --image demo-app:<sha> --query digest -o tsv`)
-   and deploy a pod referencing `demo-app@sha256:<digest>` instead of the
-   tag. Confirm it runs. Reflect on why a digest is a stronger "exactly
-   what I tested" guarantee than a tag (which is still a mutable pointer).
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Dev as Developer
+    participant Git as GitHub Actions
+    participant Docker as Docker Buildx Engine
+    participant ACR as Azure Container Registry
+    actor Sec as Security Ops
 
-6. **Semver on a tag trigger.** Add a second workflow triggered on
-   `push: tags: ['v*']` that builds and pushes `demo-app:${tag}` (the
-   version from `github.ref_name`). Create and push a Git tag `v1.0.0`
-   (`git tag v1.0.0 && git push origin v1.0.0`) and confirm a `v1.0.0`
-   image tag appears — the release path, distinct from the per-commit SHA
-   path (module 00's `tag` trigger).
+    Dev->>Git: Commit Dockerfile refactoring: Moves 'COPY . .' to top
+    Note over Git,Docker: Every commit invalidates layer cache at Step 2!<br/>Re-downloads all 450MB of npm dependencies every run!
+    Docker->>ACR: Pushes full un-deduplicated 1.2GB image layers on every build
+    Note over ACR: ACR storage quota hits 100% capacity!<br/>Storage engine enters read-only lockdown mode!
+    Sec->>Git: Urgent CVE Hotfix: Emergency patch for authentication bypass
+    Git->>Docker: Build emergency patch image
+    Docker->>ACR: docker push myacr.azurecr.io/telehealth:sha-hotfix
+    ACR-->>Docker: ERROR: 429 Disk Quota Exceeded: Registry is read-only!
+    Docker-->>Git: Pipeline failed! Emergency deployment blocked!
+```
 
-7. **Pass the tag from build to deploy across jobs.** Split the workflow:
-   job `build` computes the tag, pushes, and exposes it as an output
-   (`echo "image-tag=${GITHUB_SHA}" >> "$GITHUB_OUTPUT"` + job `outputs:`);
-   job `deploy` (`needs: [build]`) prints/uses
-   `${{ needs.build.outputs.image-tag }}`. Confirm the exact same tag flows
-   across the job boundary — the module-01 outputs mechanism doing real
-   work.
+### Root Cause Analysis
+1. **Dockerfile Layer Invalidation**: In Docker, when a layer cache busts, every subsequent layer must be recomputed. Placing `COPY . .` before `RUN npm ci` caused any change to a README or comment to trigger a complete dependency re-download.
+2. **Missing Buildx Cache Scoping**: The pipeline did not use BuildKit multi-stage target caching or GitHub Actions cache isolation, creating bloat.
+3. **No Automated Registry Retention Policy**: ACR had no automated cleanup tasks (e.g. `acr purge`), allowing abandoned untagged manifests to consume production storage indefinitely.
 
-8. **Wire the ACR login server as a Terraform-decoupled variable.** Instead
-   of hard-coding `myacr.azurecr.io`, set a repository variable
-   `ACR_LOGIN_SERVER` from your Terraform output
-   (`terraform output -raw acr_login_server`, track 09) and reference
-   `${{ vars.ACR_LOGIN_SERVER }}` in the workflow. Confirm a build still
-   pushes correctly. Reflect: if you recreated the ACR in Terraform with a
-   new name, what's the *only* thing you'd change to point the pipeline at
-   it? (Answer: the one variable — the workflow YAML is untouched.)
+### The Remediation & Permanent Layer Optimization
+1. **Optimize Dockerfile Ordering**:
+   ```dockerfile
+   # 1. Copy dependencies first
+   COPY package.json package-lock.json ./
+   RUN npm ci
+   # 2. Copy source code last
+   COPY . .
+   RUN npm run build
+   ```
+2. **Adopt `type=gha` Layer Caching with `mode=max`**: Cache all stages (including intermediate build stages) in GitHub's ephemeral cache rather than cluttering registry storage.
+3. **Automated ACR Purge Task**: Configured an Azure ACR retention rule deleting untagged manifests older than 7 days:
+   ```bash
+   az acr task create \
+     --registry myacr \
+     --name purgeUntagged \
+     --cmd "acr purge --filter '.*:.*' --untagged --ago 7d" \
+     --schedule "0 2 * * *"
+   ```
 
-9. **Diagnose and fix: push fails with an authorization error.** You'll hit
-   and fix the most common image-pipeline failure. The build step succeeds
-   but `push` fails with `denied: requested access to the resource is
-   denied` (or `401 Unauthorized`). Two candidate causes: the OIDC identity
-   has `AcrPull` but not `AcrPush` (it can pull but not push — the exact
-   pull-vs-push distinction from track 07 module 08), or the login step
-   targeted the wrong registry name. Investigate with
-   `az role assignment list --assignee <client-id> --scope <acr-id> -o table`
-   (is `AcrPush` present?) and by checking the login server in the logs.
-   Grant `AcrPush` (`az role assignment create --assignee <client-id>
-   --role AcrPush --scope <acr-id>`) or fix the registry name, push again,
-   and confirm the image lands. State in one sentence why the *cluster's*
-   `AcrPull` identity (track 07 module 03) is not enough for the *pipeline*
-   to push.
+---
 
-## Independent challenge
+## 4. Multi-Language Production Image Pipelines
 
-No YAML given — build this from module 01's job/output machinery, module
-02's caching mindset, this module's tagging concepts, and track 07 module
-08's OIDC + push/pull distinction. Construct a two-job image pipeline that
-builds an image exactly once and makes it both traceable and fast to
-rebuild. The build job must authenticate to your ACR without any stored
-registry password, build with layer caching so an app-code-only change
-doesn't rebuild dependency layers, tag the image with the immutable commit
-SHA (and, as a convenience, multi-tag it with a human-readable branch tag
-pointing at the same digest), push it to the Terraform-provisioned ACR
-referenced through a variable rather than a hard-coded name, and export the
-exact pushed tag as a job output. The deploy job must consume *only* that
-output — never recomputing the tag itself — and reference the image by that
-exact SHA tag. Then prove three properties: that two consecutive builds of
-an unchanged dependency manifest reuse cached layers (compare timings);
-that the SHA tag and the branch tag resolve to the *same* digest; and that
-nothing in the repo or the workflow contains a long-lived registry
-credential. Draw on track 09 for where the ACR login server comes from and
-track 07 module 08 for why the push identity needs `AcrPush` specifically.
+Below are production-ready GitHub Actions workflows for **Go**, **Node.js/TypeScript**, and **Python**. Each pipeline integrates `docker/metadata-action` for semantic tagging, `docker/build-push-action` with Buildx layer caching, and Trivy CVE scanning.
+
+### Go Container Pipeline (`.github/workflows/docker-go.yml`)
+
+```yaml
+name: Build & Publish Go Container
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*.*.*']
+
+permissions: {}
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  build-and-push:
+    name: Build & Scan OCI Image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      security-events: write
+    outputs:
+      image_digest: ${{ steps.build_push.outputs.digest }}
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11
+
+      - name: Set up QEMU (Multi-Architecture)
+        uses: docker/setup-qemu-action@68827325e0b33c7199eb31dd4e31fbe9023e06e3 # v3.0.0
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@d70bba72b1f3ed2237583bb6c42978086055d046 # v3.1.0
+
+      - name: Extract Docker Metadata
+        id: meta
+        uses: docker/metadata-action@8e5442c4ef9f78452d77bb8e2e604471b4028235 # v5.5.1
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=sha,format=short,prefix=sha-
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@e92390c5fb421da1463c202d546fed0ec5c39f20 # v3.0.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and Push Docker Image
+        id: build_push
+        uses: docker/build-push-action@2cdde6103fc508318b64b186450689fc4feb4f46 # v5.1.0
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Run Trivy Vulnerability Scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.build_push.outputs.digest }}
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+          severity: 'CRITICAL,HIGH'
+          exit-code: '1' # Fails build on critical CVEs!
+```
+
+---
+
+### Node.js / TypeScript Container Pipeline (`.github/workflows/docker-node.yml`)
+
+```yaml
+name: Build Node.js Container
+
+on:
+  push:
+    branches: [main]
+
+permissions: {}
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  build:
+    name: Build & Push Node Image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      digest: ${{ steps.build_push.outputs.digest }}
+    steps:
+      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11
+
+      - uses: docker/setup-buildx-action@d70bba72b1f3ed2237583bb6c42978086055d046
+
+      - name: Docker Metadata
+        id: meta
+        uses: docker/metadata-action@8e5442c4ef9f78452d77bb8e2e604471b4028235
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=sha,prefix=sha-
+
+      - uses: docker/login-action@e92390c5fb421da1463c202d546fed0ec5c39f20
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build & Push with Layer Cache
+        id: build_push
+        uses: docker/build-push-action@2cdde6103fc508318b64b186450689fc4feb4f46
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+```
+
+---
+
+### Python Container Pipeline (`.github/workflows/docker-python.yml`)
+
+```yaml
+name: Build Python Container
+
+on:
+  push:
+    branches: [main]
+
+permissions: {}
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  build:
+    name: Build Python Distroless Image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      digest: ${{ steps.build_push.outputs.digest }}
+    steps:
+      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11
+
+      - uses: docker/setup-buildx-action@d70bba72b1f3ed2237583bb6c42978086055d046
+
+      - id: meta
+        uses: docker/metadata-action@8e5442c4ef9f78452d77bb8e2e604471b4028235
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: type=sha,prefix=sha-
+
+      - uses: docker/login-action@e92390c5fb421da1463c202d546fed0ec5c39f20
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: build_push
+        uses: docker/build-push-action@2cdde6103fc508318b64b186450689fc4feb4f46
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+```
+
+---
+
+## 5. Practical Hands-On Verification Laboratory
+
+In this hands-on laboratory, you will configure a local Docker Buildx instance, compile a multi-stage Dockerfile, extract the immutable content digest, and verify layer cache efficiency.
+
+### Step 1: Create Optimized Multi-Stage Dockerfile
+
+Create a test workspace and Dockerfile:
+
+```dockerfile
+# /tmp/buildx-lab/Dockerfile
+FROM golang:1.23-alpine AS builder
+WORKDIR /src
+
+# Layer 1: Cached dependencies
+COPY go.mod ./
+RUN echo "module testapp" > go.mod
+
+# Layer 2: Cached application build
+COPY main.go ./
+RUN CGO_ENABLED=0 go build -ldflags="-w -s" -o /bin/app main.go
+
+# Minimal Distroless Runtime
+FROM gcr.io/distroless/static:nonroot
+COPY --from=builder /bin/app /bin/app
+USER 65532:65532
+ENTRYPOINT ["/bin/app"]
+```
+
+Create `/tmp/buildx-lab/main.go`:
+
+```go
+package main
+import "fmt"
+func main() {
+    fmt.Println("Production Distroless App Online")
+}
+```
+
+---
+
+### Step 2: Initialize Docker Buildx Multi-Architecture Builder
+
+Initialize a dedicated Buildx builder with BuildKit features:
+
+```bash
+docker buildx create --name enterprise-builder --use --bootstrap
+docker buildx inspect enterprise-builder
+```
+
+*Expected Terminal Output:*
+```text
+Name:          enterprise-builder
+Driver:        docker-container
+Status:        running
+Platforms:     linux/amd64, linux/arm64, linux/riscv64, linux/ppc64le, linux/s390x, linux/386, linux/arm/v7, linux/arm/v6
+```
+
+---
+
+### Step 3: Execute Cached Build & Extract Immutable Digest
+
+Execute a local build using BuildKit:
+
+```bash
+docker buildx build \
+  --file /tmp/buildx-lab/Dockerfile \
+  --tag local-test:sha-1049 \
+  --output type=docker \
+  /tmp/buildx-lab
+```
+
+Inspect the immutable digest of the compiled image:
+
+```bash
+docker inspect --format='{{index .Id}}' local-test:sha-1049
+```
+
+*Expected Terminal Output:*
+```text
+sha256:4d8a1bf728...
+```
+
+Notice that running the build a second time takes **under 0.5 seconds** because all intermediate layers report `CACHED`!
+
+---
+
+## 6. Command Quick-Reference Cheat Sheet
+
+| Command / Flag | Action / Objective | Example Scenario |
+| :--- | :--- | :--- |
+| `docker buildx build --push` | Build and push directly to registry without local Docker daemon bloat | Standard CI runner workflow |
+| `cache-to: type=gha,mode=max` | Store all intermediate build stage layers in GitHub cache | Maximize layer reuse across builds |
+| `trivy image --exit-code 1` | Halt pipeline if high/critical CVEs are detected | Automated supply chain security gate |
+| `cosign sign --yes <digest>` | Cryptographically sign OCI digest using GitHub OIDC token | Verify provenance of production image |
+| `docker/metadata-action` | Automatically generate semver, branch, and commit SHA tags | Standardize container tagging syntax |
+
+---
+
+## 7. Operational Validation Checkpoints
+
+### Scenario 1: `denied: requested access to the resource is denied` During Push
+**Context:** The `docker/build-push-action` finishes compiling the image but fails during the push stage with:
+`ERROR: failed to solve: push access denied, repository does not exist or may require authorization: server message: insufficient_scope: authorization failed`
 
 <details>
-<summary>Stuck? One hint</summary>
+<summary>View Diagnostic Workflow & Resolution</summary>
 
-The trap is computing the tag in two places. If the build job builds
-`:$GITHUB_SHA` and the deploy job *also* writes `:$GITHUB_SHA`, they happen
-to match today but it's fragile — the instant the build job's tagging logic
-gets more complex (a prefix, a shortened SHA, a semver), the two silently
-diverge and you deploy an image that doesn't exist or isn't the one you
-built. Compute the tag once in `build`, `echo` it to `$GITHUB_OUTPUT`,
-expose it on the job's `outputs:`, and have `deploy` read
-`needs.build.outputs.image-tag`. For the caching win, order your Dockerfile
-so dependency install happens *before* copying application source — that's
-what lets a code-only change reuse the dependency layer (a track 02
-Dockerfile-layering point).
+**Root Cause:**  
+1. When pushing to GitHub Packages (`ghcr.io`), the workflow lacks `packages: write` in the `permissions:` block.
+2. When pushing to Azure Container Registry (ACR), the managed identity / service principal lacks the Azure RBAC role `AcrPush`.
 
+**Resolution Steps:**
+1. For GHCR, declare permissions explicitly:
+   ```yaml
+   permissions:
+     packages: write
+     contents: read
+   ```
+2. For ACR, grant the push role to your OIDC Service Principal:
+   ```bash
+   az role assignment create \
+     --assignee <client-id> \
+     --role AcrPush \
+     --scope /subscriptions/<sub-id>/resourceGroups/<rg>/providers/Microsoft.ContainerRegistry/registries/<acr-name>
+   ```
 </details>
 
-## Common mistakes & troubleshooting
+---
 
-- **Using `latest` as a deploy target.** Mutable and non-unique: breaks
-  rollouts (track 07 module 08), destroys traceability, and makes rollback
-  impossible. Reserve `latest` for human convenience pulls only; deploy by
-  SHA or digest.
-- **`AcrPull` where `AcrPush` is needed.** The pipeline pushes; pulling
-  rights aren't enough. `denied`/`401` on push almost always means the push
-  identity is missing `AcrPush` (distinct from the cluster's pull identity,
-  track 07 module 03).
-- **Recomputing the image tag in the deploy job.** Deriving the tag
-  independently in two jobs risks them diverging; compute once, pass via job
-  output.
-- **No layer caching, or caching the wrong scope.** Without
-  `cache-from`/`cache-to`, every build is cold. With `mode=min` you only
-  cache the final layer; `mode=max` caches intermediate layers too — usually
-  what you want.
-- **Dockerfile ordered so caching never helps.** Copying source before
-  installing dependencies invalidates the dependency layer on every code
-  change. Install deps first, copy source later (track 02).
-- **Hard-coding the ACR login server.** Couples the pipeline to a specific
-  registry name; recreating the ACR (track 09) forces a workflow edit. Use a
-  repository variable fed from a Terraform output.
-- **Uncontrolled tag growth.** Pushing a SHA tag per commit forever grows
-  ACR storage (the cost pitfall from track 07 module 08). Set an ACR
-  retention policy for untagged manifests / old tags.
-- **Confusing a tag with a digest.** A SHA *tag* is still a mutable pointer;
-  the *digest* (`@sha256:...`) is the content-addressed, provably-immutable
-  identity. Pin to the digest when you need a hard guarantee.
-
-## Checkpoint quiz
-
-Write down your answer to each question before expanding it — checking without attempting first is the single easiest way to fool yourself into thinking you've learned this.
-
-1. State the two properties a deployable image tag must have, and explain
-   how `latest` fails both.
-2. What does a commit-SHA tag give you that a semver tag doesn't, and vice
-   versa? When would you use each?
-3. What is an image *digest*, and why is it a stronger immutability
-   guarantee than a SHA tag?
-4. How does Buildx layer caching in CI relate to module 02's dependency
-   caching — same idea or different, and what's being cached?
-5. Why should the deploy job consume the image tag as a *job output* from
-   the build job rather than recomputing `github.sha` itself?
-6. Your push fails with `denied: requested access to the resource is
-   denied`. Give the two most likely causes and the command to check the
-   first.
-7. Why is hard-coding the ACR login server in the workflow a coupling
-   problem, and what's the track-09-friendly alternative?
-8. What's the one legitimate use of a `latest` tag, and why is it never a
-   deploy target?
+### Scenario 2: Multi-Architecture Build Times Out During ARM64 Emulation
+**Context:** You configure `platforms: linux/amd64,linux/arm64`. The `amd64` compilation finishes in 40 seconds, but the `arm64` step runs for 35 minutes before hitting the GitHub Actions timeout limit.
 
 <details>
-<summary>Show answers</summary>
+<summary>View Diagnostic Workflow & Resolution</summary>
 
-1. It must be **immutable** (never repointed, so tested==deployed) and
-   **unique per build** (a distinct reference you can roll back to).
-   `latest` is mutable (repointed on every push) and non-unique (every
-   build shares it), failing both — which is why it breaks rollouts and
-   traceability.
-2. A SHA tag maps to an exact commit (maximally traceable, machine-friendly,
-   great for CI internals and rollback) but is meaningless to humans. A
-   semver communicates compatibility and is human-readable but needs a
-   deliberate release process to assign. Use SHA for internal deploy
-   references, semver for published releases.
-3. A digest (`@sha256:...`) is a content hash of the image — it can never
-   point to different content. A SHA *tag* is still a mutable pointer that
-   could in principle be force-pushed to different content; the digest is
-   provably byte-identical.
-4. Same idea, different target. Module 02 caches package/dependency
-   *directories* keyed on a lockfile; Buildx caches Docker *image layers*
-   keyed on layer content. Both restore unchanged work across blank runners
-   to skip redundant rebuilds.
-5. So the tag is computed exactly once. Recomputing `github.sha`
-   independently in two jobs works until the tagging logic gains a prefix,
-   shortening, or semver — then the two silently diverge and you deploy the
-   wrong (or a nonexistent) image. One computed value passed downstream is
-   robust.
-6. Most likely: the push identity has `AcrPull` but not `AcrPush`, or the
-   login targeted the wrong registry. Check the first with
-   `az role assignment list --assignee <client-id> --scope <acr-id> -o
-   table` and look for `AcrPush`.
-7. Hard-coding couples the pipeline to a specific registry name; recreating
-   the ACR in Terraform (new name) forces a manual workflow edit. Instead
-   expose the ACR login server as a Terraform output and set it as a
-   repository variable the workflow reads — infra and pipeline stay
-   decoupled.
-8. A convenience pointer for humans pulling locally (`docker pull app`).
-   It's never a deploy target because it's mutable and non-unique — it can't
-   trigger a reliable rollout, can't be traced to a commit, and can't be
-   rolled back to.
+**Root Cause:**  
+GitHub-hosted `ubuntu-latest` runners are x86_64 machines. Compiling ARM64 binaries via QEMU CPU instruction translation involves heavy emulation overhead, especially for CPU-intensive language compilers (Go, Rust, C++).
 
+**Resolution Steps:**
+1. Use native cross-compilation within the Dockerfile rather than full OS emulation:
+   ```dockerfile
+   FROM --platform=$BUILDPLATFORM golang:1.23 AS builder
+   ARG TARGETARCH
+   RUN GOARCH=$TARGETARCH go build -o /bin/app main.go
+   ```
+   `$BUILDPLATFORM` ensures the Go compiler runs natively at full speed on x86_64 while producing an ARM64 binary!
+2. Or utilize GitHub-hosted native ARM64 runners (`runs-on: ubuntu-24.04-arm`).
 </details>
+
+---
+
+### Scenario 3: Buildx Cache Misses on Every Commit Despite Zero Dependency Changes
+**Context:** `actions/cache` is configured, but Docker BuildKit outputs zero `CACHED` steps on subsequent runs, re-running `npm install` on every single PR.
+
+<details>
+<summary>View Diagnostic Workflow & Resolution</summary>
+
+**Root Cause:**  
+The `cache-to` configuration omitted `mode=max`. By default, BuildKit only caches the *final* stage layers (`mode=min`). In multi-stage builds, intermediate stages (like the compilation stage where dependencies are installed) are discarded from the cache!
+
+**Resolution Steps:**
+Explicitly set `mode=max` in the build-push action:
+```yaml
+cache-to: type=gha,mode=max
+```
+This forces BuildKit to export layers for all intermediate multi-stage builds into the cache.
+</details>
+
+---
+
+## 8. Further Reading & Official Documentation
+
+- [Docker Buildx Official Documentation](https://docs.docker.com/build/architecture/)
+- [GitHub Actions: docker/build-push-action](https://github.com/docker/build-push-action)
+- [Aqua Security: Trivy Container Vulnerability Scanner](https://aquasecurity.github.io/trivy/)
+- [Sigstore Cosign: Container Signing Documentation](https://docs.sigstore.dev/cosign/overview/)
+- [Open Container Initiative (OCI) Image Format Specification](https://github.com/opencontainers/image-spec)
+
+---
 
 ## Next
 
-[04-continuous-deployment-strategies](../04-continuous-deployment-strategies/README.md)
-— now that you can produce a traceable image, deploy it safely: rolling,
-blue/green, and canary strategies on Kubernetes.
+Continue to [04 - Continuous Deployment Strategies](../04-continuous-deployment-strategies/README.md) to safely deploy immutable container images to Kubernetes using Rolling Updates, Blue/Green switches, and Automated Rollbacks.

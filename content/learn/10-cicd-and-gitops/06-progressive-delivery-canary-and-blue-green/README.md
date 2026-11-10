@@ -1,342 +1,598 @@
-# Progressive Delivery: Canary and Blue/Green in Practice
+# 06 - Progressive Delivery: Canary & Blue/Green with Argo Rollouts
 
-## Why this matters
+> **Prerequisites**: [04 - Continuous Deployment Strategies](../04-continuous-deployment-strategies/README.md), [05 - GitOps & ArgoCD](../05-gitops-and-argocd/README.md), [10 - Observability: Metrics & Logging](../../03-kubernetes/10-observability-logging-and-metrics/README.md).  
+> **Target Audience**: SREs, Platform Architects, and Release Automation Leads building automated, metrics-governed canary releases and self-aborting rollouts.  
+> **Estimated Deep-Dive Time**: 40 minutes.
 
-Module 04 taught canary and blue/green *conceptually* and made you fake a
-canary with replica ratios — which you saw is coarse and lies to you (pod
-count isn't traffic share). Module 05 gave you GitOps, where deploys happen
-by committing to Git. This module closes the loop: **progressive delivery** —
-automating a real, metric-gated canary or blue/green rollout so the
-promotion from 5% → 100% is driven by the new version's measured health, not
-a human watching a dashboard. You'll use **Argo Rollouts** (a sibling to
-ArgoCD that replaces the Deployment object with one that understands
-canaries) and compare it against the managed traffic-splitting you already
-met in track 06's Azure Container Apps revisions. This is the capability
-that makes true continuous *deployment* (module 00) safe: bad versions get
-caught and aborted automatically before they reach everyone.
+---
 
-## Concepts
+> [!TIP]
+> **The Golden Rule of Progressive Delivery**: **A canary rollout without automated metrics analysis is just a slow, delayed deployment.** Never rely on human vigilance to approve canary weight promotions. Couple your rollout steps directly with an **`AnalysisTemplate`** querying Prometheus for error rates and p99 latency. If telemetry breaches your error budget, the controller must **automatically abort and rollback** within seconds—before users notice.
 
-### What "progressive delivery" adds over module 04
+---
 
-Module 04's strategies were *manual*: you flipped a selector, you scaled
-replicas, you watched `curl` output and decided. **Progressive delivery**
-automates the *progression* and the *decision*: the system advances the
-canary through defined steps (weights and pauses) and, at each step,
-consults **analysis** — real metrics (error rate, latency, success rate) —
-to decide whether to promote to the next step or **automatically abort and
-roll back**. So the human isn't in the loop for a healthy rollout, and a
-degrading rollout is caught by data, not vigilance. This is the difference
-between "a canary strategy" and "a canary that a robot supervises."
+## 1. Visual Mental Models: The Autonomous Canary Lifecycle
 
-### Argo Rollouts: a Deployment that understands canaries
+Progressive delivery takes the deployment strategies from module 04 and replaces human observation with machine-driven metric gates. **Argo Rollouts** provides a custom Kubernetes controller that replaces standard Deployments with intelligent `Rollout` resources.
 
-**Argo Rollouts** is a controller and a custom resource, `Rollout`, that is
-a **drop-in replacement for a Kubernetes Deployment** (same pod template,
-same selectors) but with a `strategy` block that natively expresses canary
-and blue/green. Instead of `spec.strategy.rollingUpdate` (module 04), a
-`Rollout` has:
+### The Automated Canary Promotion & Self-Abort Pipeline
 
-- `strategy.canary` with a list of **steps**: `setWeight: 20`, `pause:
-  {duration: 60s}`, `setWeight: 50`, `pause: {}` (pause indefinitely for
-  manual promotion), etc. The controller walks these steps on each new image.
-- `strategy.blueGreen` with `activeService`/`previewService` and an
-  `autoPromotionEnabled` flag — it manages two ReplicaSets and the Service
-  cutover for you (what you did by hand in module 04, automated).
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Git as GitOps Commit (v2.0.0)
+    participant Argo as Argo Rollouts Controller
+    participant Router as Ingress NGINX / Istio Mesh
+    participant Analysis as AnalysisRun (Prometheus Engine)
+    participant Prom as Prometheus TSDB
+    actor Users as Live Internet Users
 
-You still deploy it the GitOps way (module 05): commit a new image tag to
-the `Rollout` manifest in Git, ArgoCD syncs it, and Argo Rollouts executes
-the progressive strategy. The two tools compose — ArgoCD delivers the desired
-state; Argo Rollouts controls *how* it rolls out.
+    Git->>Argo: Sync new container image: v2.0.0
+    Argo->>Router: Configure canary traffic weight: 5%
+    Router->>Users: 95% to v1 (Stable), 5% to v2 (Canary)
+    Argo->>Analysis: Spawn background AnalysisRun
+    loop Every 10 Seconds
+        Analysis->>Prom: Query HTTP 5xx error rate on Canary Pods
+        Prom-->>Analysis: 5xx Rate = 0.02% (Target < 0.5% : PASSED)
+    end
+    Analysis-->>Argo: Phase 1 Validated! Success count = 3
+    Argo->>Router: Advance step: Shift weight to 20%
+    Note over Argo,Users: Step 2: Weight increased to 20%
 
-### Traffic weighting: replica-based vs. provider-based
+    alt Scenario A: Healthy Rollout
+        Analysis->>Prom: Query p99 latency & error budget
+        Prom-->>Analysis: Metrics Healthy!
+        Argo->>Router: Promote to 100%! Retire v1 ReplicaSet.
+    else Scenario B: Degraded Release (Defect Injected)
+        Analysis->>Prom: 5xx Rate = 4.8% (Target < 0.5% : FAILED!)
+        Analysis-->>Argo: ALERT: Failure Limit Exceeded!
+        Note over Argo: Automatic Abort Triggered!
+        Argo->>Router: Shift 100% traffic immediately back to Stable v1!
+        Argo->>Argo: Scale Canary Pods to 0. Rollout marked 'Degraded'.
+    end
+```
 
-How does a `Rollout` send exactly 20% of traffic to the canary? Two modes:
+---
 
-- **Basic (replica-based) weighting**: without a traffic provider, Argo
-  Rollouts approximates the weight with replica counts — the same coarse
-  approach as module 04's manual ratio, but managed for you. Fine for
-  learning; still conflates pods with traffic.
-- **Traffic-provider weighting**: integrated with an ingress controller
-  (nginx, ALB) or a **service mesh** (Istio, SMI — track 13), the `Rollout`
-  sets a *real* traffic weight independent of pod count, so `setWeight: 5`
-  means 5% of requests regardless of how many pods exist. This is the
-  precise knob module 04 said you needed a mesh for. This module uses
-  replica-based weighting to stay mesh-free; track 13 upgrades it to true
-  mesh-based weighting.
+### Argo Rollouts Custom Resource Hierarchy
 
-### Analysis and automated promotion/rollback
+```mermaid
+flowchart TD
+    subgraph K8sCluster ["Kubernetes Cluster (Argo Rollouts Engine)"]
+        RolloutCRD["Rollout (Drop-in Deployment Replacement)<br/>Defines steps, weights, pauses, and canary service"]
+        StableRS["Stable ReplicaSet (v1.0)<br/>90% Traffic"]
+        CanaryRS["Canary ReplicaSet (v2.0)<br/>10% Traffic"]
+        AT["AnalysisTemplate<br/>Defines Prometheus query & pass/fail thresholds"]
+        AR["AnalysisRun (Instantiated per rollout)<br/>Runs continuous telemetry checks"]
+        Router["Traffic Router Integration<br/>(ingress-nginx / Istio / AWS ALB)"]
+    end
 
-The feature that makes it *progressive* rather than just *timed* is
-**AnalysisTemplate**/**AnalysisRun**: a query against a metrics source
-(Prometheus — track 12, a cloud monitor, or a simple HTTP check) run at each
-canary step. It defines success criteria (e.g. "HTTP success rate ≥ 95% over
-the last 5 minutes"). If the metric passes, the rollout advances to the next
-`setWeight`; if it fails, the rollout **aborts and rolls back** to the stable
-version automatically. This is the automated decision that replaces a human
-watching Grafana. Without analysis, a canary is just a slow, timed rollout
-(pauses give a human *time* to look, but nothing gates automatically). With
-analysis, you have the auto-rollback backstop that makes gate-free continuous
-deployment (module 00) defensible.
+    RolloutCRD --> StableRS
+    RolloutCRD --> CanaryRS
+    RolloutCRD --> Router
+    RolloutCRD --> AR
+    AR -->|Instantiated From| AT
+    Router -->|Splits Traffic| StableRS
+    Router -->|Splits Traffic| CanaryRS
+```
 
-### Blue/green with Argo Rollouts
+---
 
-The `blueGreen` strategy automates module 04's manual selector-flip: you
-declare an `activeService` (live) and a `previewService` (points at the new
-version for out-of-band smoke tests), the controller brings up the green
-ReplicaSet fully, and then either auto-promotes (`autoPromotionEnabled:
-true`) or waits for you to run `kubectl argo rollouts promote` (a manual gate
-— continuous *delivery*). Rollback is instant because, like module 04, the
-old ReplicaSet is kept until you scale it down. This is your manual module-04
-blue/green, made declarative, repeatable, and integrated with GitOps.
+## 2. Technical Comparison: Traffic Providers & Analysis Templates
 
-### Compare and contrast: Container Apps revisions (track 06)
+### Traffic Routing Providers Specification Matrix
 
-You've *already done* managed progressive delivery — in track 06's Azure
-Container Apps, module 05 (revisions, traffic-splitting, Dapr). There, each
-deploy created a **revision**, and you split traffic across revisions by
-percentage (`--traffic-weight revision=xx=20`) with the platform handling
-the real weighting — no mesh, no Argo Rollouts, no cluster to manage. That's
-the same *idea* (weighted traffic across versions, gradual promotion) but
-delivered by the **managed platform** rather than a controller you install
-and operate. The trade-off is the recurring theme from track 07: Container
-Apps gives you weighted revisions for free but hides the machinery and
-constrains you to its model; Argo Rollouts on AKS gives you full control
-(custom steps, analysis against any metric, mesh integration) at the cost of
-installing, configuring, and operating it yourself. Same capability, opposite
-ends of the managed-vs-self-hosted spectrum — exactly the choice track 06 vs.
-track 07 framed.
+| Traffic Provider | Implementation Layer | Granularity | Header/Cookie Routing | Production Infrastructure Cost |
+| :--- | :--- | :--- | :--- | :--- |
+| **Ingress NGINX** | Layer 7 Ingress Controller | 1% – 99% weights | Supported via `canary-by-header` | Low (Built on standard Ingress controller) |
+| **Istio Service Mesh** | Layer 4 & Layer 7 (Envoy Sidecars) | Sub-percent (0.1%) | Advanced L7 regex matching | High (Requires service mesh control plane) |
+| **AWS ALB / TargetGroup** | AWS Managed Load Balancer | Weighted Target Groups | Supported | Cloud infrastructure pricing |
+| **Replica-Based (Faux)**| Pod Count Ratio | Coarse (e.g. 1 in 10 pods) | ❌ No | Zero (Plain Kubernetes services) |
 
-## Command reference
+---
 
-Argo Rollouts install, the `kubectl argo rollouts` plugin, and the `Rollout`
-spec fields.
+### The `AnalysisTemplate` Prometheus Specification
 
-| Command / field | What it does | Notes |
-|---|---|---|
-| `kubectl create namespace argo-rollouts` | Namespace for the controller | Convention |
-| `kubectl apply -n argo-rollouts -f https://github.com/argoproj/argo-rollouts/releases/latest/download/install.yaml` | Installs the Argo Rollouts controller | Separate from ArgoCD (they compose) |
-| `kubectl argo rollouts version` | Confirms the kubectl plugin is installed | Install the plugin separately from the controller |
-| `kind: Rollout` | The Deployment-replacement resource | Same pod template; adds `strategy.canary`/`blueGreen` |
-| `strategy.canary.steps[].setWeight: 20` | Send 20% of traffic to the canary | Replica-based unless a traffic provider is configured |
-| `strategy.canary.steps[].pause: {duration: 60s}` | Hold at the current weight for 60s | Timed pause |
-| `strategy.canary.steps[].pause: {}` | Pause indefinitely until manually promoted | The manual gate (continuous delivery) |
-| `strategy.canary.analysis` / `AnalysisTemplate` | Metric-based gate for promotion | Fails → auto-abort and rollback |
-| `strategy.blueGreen.activeService` | Service pointing at the live version | Cut over on promotion |
-| `strategy.blueGreen.previewService` | Service pointing at the new version for testing | Smoke-test green out-of-band |
-| `strategy.blueGreen.autoPromotionEnabled: false` | Require manual promotion of green | The blue/green manual gate |
-| `kubectl argo rollouts get rollout <name> --watch` | Live view of the rollout's steps and weights | The primary progress view |
-| `kubectl argo rollouts promote <name>` | Advance past a manual pause / promote green | The human "go" for a gated step |
-| `kubectl argo rollouts abort <name>` | Abort the rollout, revert to stable | Manual emergency stop |
-| `kubectl argo rollouts undo <name>` | Roll back to a previous revision | Post-rollout rollback |
-| `kubectl argo rollouts set image <name> <c>=<img>` | Trigger a new rollout to a new image | The canary-aware analogue of `kubectl set image` |
+An `AnalysisTemplate` defines how the rollout measures success:
 
-## Hands-on exercises
+```yaml
+apiVersion: argoproj.io/v1alpha1
+kind: AnalysisTemplate
+metadata:
+  name: http-error-rate-check
+  namespace: production
+spec:
+  metrics:
+    - name: success-rate
+      interval: 15s           # Query frequency
+      successCondition: result[0] >= 0.995 # Must achieve >= 99.5% success rate
+      failureLimit: 2         # Abort rollout after 2 consecutive failures
+      provider:
+        prometheus:
+          address: http://prometheus-k8s.monitoring:9090
+          query: |
+            sum(rate(http_requests_total{service="order-api", status!~"5.*"}[1m]))
+            /
+            sum(rate(http_requests_total{service="order-api"}[1m]))
+```
 
-Use your AKS cluster with ArgoCD already installed (module 05). Install Argo
-Rollouts and the `kubectl argo rollouts` plugin. Use your `demo` app with
-distinguishable v1/v2 images (SHA-tagged, module 03).
+---
 
-1. **Install Argo Rollouts and convert a Deployment.** Install the
-   controller and the kubectl plugin. Take your `demo` Deployment and
-   convert it to a `Rollout` (change `kind: Deployment` → `kind: Rollout`,
-   add a `strategy.canary` with a couple of `setWeight`/`pause` steps).
-   Apply it (via ArgoCD/GitOps, module 05) and confirm
-   `kubectl argo rollouts get rollout demo` shows it healthy at 100% stable.
+## 3. Production War Story: The PromQL Blindspot & False-Positive Canary Abort
 
-2. **Run a timed canary.** Define canary steps: `setWeight: 20`, `pause:
-   {duration: 60s}`, `setWeight: 50`, `pause: {duration: 60s}`,
-   `setWeight: 100`. Trigger a rollout to v2
-   (`kubectl argo rollouts set image demo demo=<acr>/demo:<sha-v2>`) and
-   watch `kubectl argo rollouts get rollout demo --watch` step through the
-   weights automatically, pausing at each. `curl`-loop the Service and watch
-   the v2 proportion rise 20% → 50% → 100%.
+### Incident Overview
+A major travel booking engine rolled out an automated canary deployment pipeline using Argo Rollouts and Prometheus. The team scheduled an urgent security hotfix to address a credit card validation bug.
 
-3. **A manual-promotion gate.** Change one pause to `pause: {}` (indefinite).
-   Trigger a rollout and confirm it stops at that step and *waits*. Promote
-   it deliberately with `kubectl argo rollouts promote demo` and watch it
-   continue. This is continuous *delivery* (human gate) at the rollout level.
+However, each time the pipeline pushed the hotfix, the rollout reached 5% traffic and abruptly aborted, rolling back to the old version. Over 4 hours, the pipeline failed 14 consecutive times. The on-call engineers panicked, believing the security patch was fundamentally defective, delaying an urgent zero-day remediation.
 
-4. **Abort a canary mid-rollout.** Start a canary to a v3, and while it's
-   paused at 20%, run `kubectl argo rollouts abort demo`. Confirm traffic
-   snaps back to 100% stable (v2) and the canary pods are removed. Note how
-   much smaller the blast radius was than a rolling update that had already
-   gone to 100%.
+### The Failure Sequence
 
-5. **Metric-gated automatic promotion.** Add an `AnalysisTemplate` with a
-   simple success check (an HTTP probe against the canary, or a Prometheus
-   query if you have monitoring from track 07 module 06 / track 12) and
-   reference it from a canary step. Roll out a *healthy* v-next and confirm
-   analysis passes and it auto-promotes. Then roll out a *broken* v-next
-   (returns 500s) and confirm analysis **fails and the rollout aborts
-   automatically** — no human intervention. This is the auto-rollback
-   backstop for gate-free deployment.
+```mermaid
+sequenceDiagram
+    autonumber
+    actor CI as CI Pipeline (Hotfix Release)
+    participant Argo as Argo Rollouts Controller
+    participant Analysis as AnalysisRun
+    participant Prom as Prometheus
+    actor Scanner as Malicious External Vulnerability Scanner
 
-6. **Blue/green with Argo Rollouts.** Reconfigure the `Rollout` to
-   `strategy.blueGreen` with an `activeService` and `previewService` and
-   `autoPromotionEnabled: false`. Roll out v-next; confirm the preview
-   Service serves the new version while the active Service still serves the
-   old. Smoke-test via the preview Service, then
-   `kubectl argo rollouts promote demo` and confirm the active Service cuts
-   over. This is module 04's manual blue/green, now declarative.
+    CI->>Argo: Deploy Hotfix (Weight: 5%)
+    Scanner->>Argo: Probes /admin/.env at 10 requests/sec (Generates 404/500 errors)
+    Analysis->>Prom: Query: sum(rate(http_requests_total{status=~"5.*"}[1m])) > 5
+    Note over Prom: Scanner hits Canary Pod and generates 6 errors/sec!<br/>Raw error count exceeds threshold of 5!
+    Prom-->>Analysis: Result: 6.2 (Failure condition met!)
+    Analysis-->>Argo: Status: FAILED!
+    Argo->>CI: Abort rollout! Roll back to v1 immediately!
+    Note over CI: Team wastes 4 hours debugging working code!
+```
 
-7. **Compare with Container Apps revisions (track 06).** Without deploying
-   anything new, write a side-by-side comparison: deploy the *same* 80/20
-   split on (a) Argo Rollouts on AKS and (b) how you did it in track 06
-   module 05 with `az containerapp ingress traffic set --traffic-weight`.
-   For each, note: who does the traffic weighting, whether it's pod-count-
-   dependent, what you had to install/operate, and what you gave up. Conclude
-   with when you'd pick each — the managed-vs-self-hosted trade-off from
-   track 06/07.
+### Root Cause Analysis
+1. **Un-Normalized Absolute Error Queries**: The SRE authored the PromQL query as `sum(rate(5xx[1m])) > 5`. It counted absolute error count rather than an error ratio.
+2. **Traffic Skew**: At 5% traffic, background vulnerability scrapers hitting random endpoints (like `/.env` or `/wp-login.php`) generated enough 500 errors to cross the static threshold of 5 errors, regardless of how healthy real user checkout traffic was.
+3. **Missing Consecutive Failure Threshold**: `failureLimit` was set to 0. A single transient 1-second network hiccup caused an instant, unrecoverable rollout abortion.
 
-8. **Diagnose and fix: a canary that won't progress.** You'll reproduce the
-   most common Argo Rollouts stall. Trigger a canary and observe
-   `kubectl argo rollouts get rollout demo` shows it *stuck* — not
-   progressing past a step. Reproduce one of: (a) the canary pods aren't
-   becoming `Ready` (bad image/probe — track 03/module 04), so the rollout
-   correctly refuses to advance; (b) an `AnalysisRun` is failing (the metric
-   query is wrong or the endpoint is down), so promotion is gated forever; or
-   (c) the rollout is paused at a `pause: {}` step and simply awaiting a
-   manual `promote`. Investigate with
-   `kubectl argo rollouts get rollout demo` (step + message), `kubectl
-   describe rollout demo`, `kubectl get analysisrun` and its logs, and pod
-   readiness. Fix the actual cause (fix the image/probe; fix the analysis
-   query; or run `promote`), and confirm the rollout completes. Write one
-   sentence distinguishing "stuck because something is wrong" (a, b — the
-   gate is protecting you) from "stuck because it's waiting for you" (c — the
-   gate is working as designed).
+### The Remediation & Permanent Policy
+1. **Ratio-Based PromQL**: Replace absolute error counts with normalized percentage ratios scoped strictly to production API routes:
+   ```sql
+   (
+     sum(rate(http_requests_total{service="order-api", status=~"5.*", route="/api/v1/.*"}[1m]))
+     /
+     sum(rate(http_requests_total{service="order-api", route="/api/v1/.*"}[1m]))
+   ) * 100 > 1.0
+   ```
+2. **Consecutive Failure Windows**: Configure `failureLimit: 3` and `interval: 30s` to prevent transient network spikes from aborting releases.
 
-## Independent challenge
+---
 
-No YAML given — build it from module 04's strategy concepts, module 05's
-GitOps delivery, this module's Argo Rollouts machinery, and track 06 module
-05's managed-revision comparison. On your AKS cluster, set up a fully
-automated, metric-gated canary for your demo app delivered through GitOps,
-and prove it both promotes good releases and rejects bad ones without a
-human in the loop. The `Rollout` must live in your GitOps config repo so a
-deploy is triggered by committing a new SHA-tagged image (module 03/05); the
-canary must progress through at least three weight steps with an
-`AnalysisTemplate` gating each promotion on a real health signal; a healthy
-release must auto-promote to 100% with no manual action; and a deliberately
-broken release must be automatically aborted and rolled back to stable, which
-you prove by showing users never saw more than the canary weight's worth of
-errors. Then write a one-paragraph decision doc: for this exact app, would
-you run this self-managed Argo Rollouts canary on AKS, or the managed
-weighted-revision approach from track 06's Container Apps — justify it on
-control, operational burden, and what each hides, the same axis track 07's
-capstone had you reasoning about.
+## 4. Multi-Language Synthetic Telemetry Implementations
+
+For Argo Rollouts to accurately evaluate canary health, backend services must expose granular HTTP status codes and latency histograms categorized by version and route.
+
+### Go Implementation (Prometheus Metrics Instrumentation)
+
+```go
+// internal/telemetry/canary_metrics.go
+package telemetry
+
+import (
+	"net/http"
+	"strconv"
+	"time"
+
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+)
+
+var (
+	HttpRequestsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "http_canary_requests_total",
+			Help: "Total HTTP requests partitioned by version and status code",
+		},
+		[]string{"service", "version", "status_code", "path"},
+	)
+
+	HttpRequestDuration = prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "http_canary_request_duration_seconds",
+			Help:    "Latency distributions for SLO verification",
+			Buckets: []float64{0.05, 0.1, 0.25, 0.5, 1.0, 2.5},
+		},
+		[]string{"service", "version", "path"},
+	)
+)
+
+func init() {
+	prometheus.MustRegister(HttpRequestsTotal)
+	prometheus.MustRegister(HttpRequestDuration)
+}
+
+type responseRecorder struct {
+	http.ResponseWriter
+	statusCode int
+}
+
+func (rec *responseRecorder) WriteHeader(code int) {
+	rec.statusCode = code
+	rec.ResponseWriter.WriteHeader(code)
+}
+
+func CanaryInstrumentMiddleware(serviceName, version string, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+		rec := &responseRecorder{ResponseWriter: w, statusCode: http.StatusOK}
+
+		next.ServeHTTP(rec, r)
+
+		duration := time.Since(start).Seconds()
+		statusStr := strconv.Itoa(rec.statusCode)
+
+		HttpRequestsTotal.WithLabelValues(serviceName, version, statusStr, r.URL.Path).Inc()
+		HttpRequestDuration.WithLabelValues(serviceName, version, r.URL.Path).Observe(duration)
+	})
+}
+```
+
+---
+
+### Node.js / TypeScript Implementation (Prom-Client)
+
+```typescript
+// src/telemetry/canaryMetrics.ts
+import { Request, Response, NextFunction } from 'express';
+import client from 'prom-client';
+
+const appVersion = process.env.APP_VERSION || 'v1.0.0';
+const serviceName = 'order-api';
+
+export const httpRequestsTotal = new client.Counter({
+  name: 'http_canary_requests_total',
+  help: 'Total HTTP requests for progressive delivery analysis',
+  labelNames: ['service', 'version', 'status_code', 'method'],
+});
+
+export const httpRequestDuration = new client.Histogram({
+  name: 'http_canary_duration_seconds',
+  help: 'Request latency for Argo Rollouts analysis',
+  labelNames: ['service', 'version'],
+  buckets: [0.05, 0.1, 0.2, 0.5, 1.0],
+});
+
+export function canaryMetricsMiddleware(req: Request, res: Response, next: NextFunction): void {
+  const start = process.hrtime();
+
+  res.on('finish', () => {
+    const diff = process.hrtime(start);
+    const durationInSeconds = diff[0] + diff[1] / 1e9;
+    const statusCode = res.statusCode.toString();
+
+    httpRequestsTotal.inc({
+      service: serviceName,
+      version: appVersion,
+      status_code: statusCode,
+      method: req.method,
+    });
+
+    httpRequestDuration.observe(
+      { service: serviceName, version: appVersion },
+      durationInSeconds
+    );
+  });
+
+  next();
+}
+```
+
+---
+
+### Python Implementation (FastAPI / Prometheus Client)
+
+```python
+# telemetry/canary_metrics.py
+import os
+import time
+from fastapi import FastAPI, Request
+from starlette.middleware.base import BaseHTTPMiddleware
+from prometheus_client import Counter, Histogram
+
+APP_VERSION = os.getenv("APP_VERSION", "v1.0.0")
+SERVICE_NAME = "order-api"
+
+HTTP_REQUESTS = Counter(
+    "http_canary_requests_total",
+    "Total HTTP requests for Argo Rollouts",
+    ["service", "version", "status_code"]
+)
+
+HTTP_DURATION = Histogram(
+    "http_canary_duration_seconds",
+    "Request latency distributions for progressive delivery",
+    ["service", "version"],
+    buckets=[0.05, 0.1, 0.25, 0.5, 1.0]
+)
+
+class CanaryMetricsMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        start_time = time.time()
+        response = await call_next(request)
+        duration = time.time() - start_time
+
+        HTTP_REQUESTS.labels(
+            service=SERVICE_NAME,
+            version=APP_VERSION,
+            status_code=str(response.status_code)
+        ).inc()
+
+        HTTP_DURATION.labels(
+            service=SERVICE_NAME,
+            version=APP_VERSION
+        ).observe(duration)
+
+        return response
+```
+
+---
+
+## 5. Practical Hands-On Verification Laboratory
+
+In this laboratory, you will deploy a complete `Rollout` resource using the NGINX Ingress traffic routing plugin, define an `AnalysisTemplate`, trigger a canary rollout, and observe automated progressive weight progression.
+
+### Step 1: Deploy Ingress & Services for Argo Rollouts
+
+Create `06-rollout-infra.yaml`:
+
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: rollouts-demo-stable
+  namespace: default
+spec:
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8080
+  selector:
+    app: rollouts-demo
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: rollouts-demo-canary
+  namespace: default
+spec:
+  ports:
+    - name: http
+      port: 80
+      targetPort: 8080
+  selector:
+    app: rollouts-demo
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: rollouts-demo-ingress
+  namespace: default
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: canary.local.test
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: rollouts-demo-stable
+                port:
+                  number: 80
+```
+
+Apply to cluster:
+
+```bash
+kubectl apply -f 06-rollout-infra.yaml
+```
+
+---
+
+### Step 2: Define the `Rollout` Specification
+
+Create `06-rollout.yaml`:
+
+```yaml
+apiVersion: argoproj.io/v1alpha1
+kind: Rollout
+metadata:
+  name: rollouts-demo
+  namespace: default
+spec:
+  replicas: 5
+  strategy:
+    canary:
+      stableService: rollouts-demo-stable
+      canaryService: rollouts-demo-canary
+      trafficRouting:
+        nginx:
+          stableIngress: rollouts-demo-ingress
+      steps:
+        - setWeight: 20
+        - pause: {duration: 30s}
+        - setWeight: 40
+        - pause: {duration: 30s}
+        - setWeight: 60
+        - pause: {duration: 30s}
+        - setWeight: 80
+        - pause: {duration: 30s}
+  selector:
+    matchLabels:
+      app: rollouts-demo
+  template:
+    metadata:
+      labels:
+        app: rollouts-demo
+    spec:
+      containers:
+        - name: rollouts-demo
+          image: argoproj/rollouts-demo:blue
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          resources:
+            requests:
+              cpu: 50m
+              memory: 32Mi
+```
+
+Apply to cluster:
+
+```bash
+kubectl apply -f 06-rollout.yaml
+```
+
+---
+
+### Step 3: Trigger Progressive Canary Release
+
+Trigger a rollout by updating the image to `:yellow`:
+
+```bash
+kubectl argo rollouts set image rollouts-demo rollouts-demo=argoproj/rollouts-demo:yellow
+```
+
+Watch the progressive step execution live:
+
+```bash
+kubectl argo rollouts get rollout rollouts-demo --watch
+```
+
+*Expected Terminal Progression Output:*
+```text
+NAME                                            KIND        STATUS     AGE  INFO
+⟳ rollouts-demo                                 Rollout     PAUSED     2m   step: 1/8 (setWeight: 20%)
+├── ⧼ Replicas ⧽
+│   ├── 4/5 stable
+│   └── 1/5 canary
+├── ⧖ AnalysisRuns
+│   └── [none]
+├── ⧉ Service: rollouts-demo-stable (Active)
+└── ⧉ Service: rollouts-demo-canary (20% Weight)
+
+(After 30s pause completes)
+⟳ rollouts-demo                                 Rollout     PAUSED     2m   step: 3/8 (setWeight: 40%)
+(After all steps complete)
+✔ rollouts-demo                                 Rollout     HEALTHY    4m   step: 8/8 (setWeight: 100%)
+```
+
+---
+
+### Step 4: Simulate a Flawed Canary & Verify Automated Abort
+
+Trigger an image update to `:red` and execute an immediate abort:
+
+```bash
+# Update to defective image
+kubectl argo rollouts set image rollouts-demo rollouts-demo=argoproj/rollouts-demo:red
+
+# Trigger simulated abort
+kubectl argo rollouts abort rollouts-demo
+kubectl argo rollouts get rollout rollouts-demo
+```
+
+*Expected Terminal Output:*
+```text
+STATUS: Degraded (RolloutAborted)
+```
+
+Argo Rollouts instantly routed 100% of user traffic back to `:yellow` and scaled the defective `:red` canary pods down to zero.
+
+---
+
+## 6. Command Quick-Reference Cheat Sheet
+
+| Command | Action / Objective | Example Scenario |
+| :--- | :--- | :--- |
+| `kubectl argo rollouts get rollout <name> -w` | Stream live ASCII state machine visualization | Real-time observation of canary step progression |
+| `kubectl argo rollouts promote <name>` | Manually promote paused rollout step | Pass manual QA gate |
+| `kubectl argo rollouts abort <name>` | Immediately halt rollout and restore stable traffic | Emergency mitigation of failed canary |
+| `kubectl argo rollouts retry <name>` | Retry a previously aborted rollout | Re-run canary after infrastructure fix |
+| `kubectl argo rollouts undo <name>` | Revert Rollout specification to previous revision | Rollback to prior stable version |
+
+---
+
+## 7. Operational Validation Checkpoints
+
+### Scenario 1: Rollout Stuck in `Paused` State Indefinitely
+**Context:** You push a new image. The rollout reaches step 1 (`setWeight: 20`) and remains in `PAUSED` status for over 2 hours without progressing.
 
 <details>
-<summary>Stuck? One hint</summary>
+<summary>View Diagnostic Workflow & Resolution</summary>
 
-Two failure modes trip people up, and they look identical from the outside
-("the rollout isn't moving"). One is *healthy stall*: a `pause: {}` step or a
-still-running analysis window — the rollout is correctly waiting. The other
-is *unhealthy stall*: canary pods not `Ready`, or an `AnalysisRun` failing —
-the rollout is correctly refusing to promote something broken. Always run
-`kubectl argo rollouts get rollout <name>` first; its per-step message tells
-you which it is, and `kubectl get analysisrun` + its logs tell you *why* an
-analysis failed. Build the analysis against a signal you can deliberately
-break (make v-next return 500s) so you can *see* the auto-abort fire — a
-canary gate you've never watched reject a bad release is as untrustworthy as
-a required check you've never seen go red (module 02).
+**Root Cause:**  
+The step configuration in the `Rollout` manifest used `pause: {}` without a `duration` key. An empty pause block tells Argo Rollouts to pause indefinitely until a human executes `kubectl argo rollouts promote`.
 
+**Resolution Steps:**
+1. If intended as an automated step, specify the duration: `pause: {duration: 60s}`.
+2. If intended as a manual gate, promote via CLI:
+   ```bash
+   kubectl argo rollouts promote rollouts-demo
+   ```
 </details>
 
-## Common mistakes & troubleshooting
+---
 
-- **Expecting `setWeight` to be exact without a traffic provider.** With
-  replica-based weighting, `setWeight: 5` is approximated by pod counts (same
-  coarseness as module 04's manual ratio). For true pod-count-independent
-  weighting you need an ingress/mesh traffic provider (track 13).
-- **A canary with no analysis is just a slow rollout.** Pauses give a human
-  *time* to look but gate nothing automatically. Without an
-  `AnalysisTemplate`, there's no automatic abort — don't mistake timed pauses
-  for a safety gate.
-- **Analysis query that can't fail (or always fails).** A metric query
-  pointing at the wrong service, or with criteria that can never be met,
-  either rubber-stamps every release or blocks every release. Test the
-  analysis against a known-bad release to confirm it actually rejects.
-- **Confusing "waiting for promote" with "stuck".** A `pause: {}` step
-  intentionally waits for `kubectl argo rollouts promote`. It's not broken;
-  it's a manual gate. `get rollout` distinguishes this from a failed step.
-- **Canary pods not Ready stalling the rollout.** If the new version fails
-  readiness (bad probe/image, track 03/module 04), the rollout correctly
-  refuses to advance — fix the pod, not the rollout.
-- **Leaving a `Rollout` and a `Deployment` for the same app.** A `Rollout`
-  *replaces* the Deployment; running both (same selector) makes two
-  controllers fight over the pods. Convert, don't duplicate.
-- **Forgetting Argo Rollouts and ArgoCD are different tools.** ArgoCD
-  delivers desired state from Git; Argo Rollouts controls how a `Rollout`
-  progresses. You install both; they compose. Confusing their roles leads to
-  looking in the wrong controller's logs.
-
-## Checkpoint quiz
-
-Write down your answer to each question before expanding it — checking without attempting first is the single easiest way to fool yourself into thinking you've learned this.
-
-1. What does "progressive delivery" automate that module 04's manual canary
-   did not?
-2. What is a `Rollout` and how does it relate to a Kubernetes Deployment?
-3. What's the difference between replica-based and traffic-provider weighting
-   in Argo Rollouts, and which gives you an exact percentage regardless of
-   pod count?
-4. What does an `AnalysisTemplate` do, and what turns a canary from "a slow
-   timed rollout" into "an auto-rollback-protected rollout"?
-5. A rollout is stuck at 20%. Give two fundamentally different reasons and
-   how you'd tell them apart with one command.
-6. In blue/green with Argo Rollouts, what are the `activeService` and
-   `previewService` for, and what does `autoPromotionEnabled: false` give you?
-7. How does track 06's Container Apps revision traffic-splitting achieve the
-   same outcome, and what's the core trade-off versus Argo Rollouts on AKS?
-8. Why is metric-gated progressive delivery a prerequisite for safe,
-   gate-free continuous *deployment* (module 00)?
+### Scenario 2: `AnalysisRun` Fails with `context deadline exceeded` Querying Prometheus
+**Context:** The canary begins, but the `AnalysisRun` instantly fails with error:
+`failed to query prometheus: Get "http://prometheus:9090/api/v1/query...": dial tcp: lookup prometheus on 10.96.0.10:53: no such host`
 
 <details>
-<summary>Show answers</summary>
+<summary>View Diagnostic Workflow & Resolution</summary>
 
-1. It automates both the *progression* (walking through weight steps with
-   pauses) and the *decision* (consulting metrics via analysis to promote or
-   auto-abort), so a healthy rollout needs no human and a degrading one is
-   caught by data rather than by someone watching a dashboard.
-2. A `Rollout` is an Argo Rollouts custom resource that replaces a
-   Deployment — same pod template and selectors — but adds a `strategy`
-   block natively expressing canary and blue/green (weight steps, analysis,
-   active/preview services) instead of just `rollingUpdate`.
-3. Replica-based weighting approximates the percentage with pod counts (coarse,
-   pod-count-dependent — like module 04's manual ratio). Traffic-provider
-   weighting (via ingress/mesh) sets a real traffic weight independent of pod
-   count, so `setWeight: 5` means 5% of requests regardless of replica count.
-4. An `AnalysisTemplate` runs a metric query at canary steps with success
-   criteria; if it fails, the rollout auto-aborts and rolls back. Adding
-   analysis is exactly what turns a merely timed/paused rollout into one with
-   an automatic rollback backstop.
-5. (a) The canary is *waiting for you* — a `pause: {}` manual gate. (b) The
-   canary is *blocked because something is wrong* — pods not Ready or an
-   analysis failing. `kubectl argo rollouts get rollout <name>` shows the
-   current step and a message that distinguishes them (awaiting promotion vs.
-   degraded/failed analysis).
-6. `activeService` points at the live version; `previewService` points at the
-   new version so you can smoke-test it out-of-band before cutover.
-   `autoPromotionEnabled: false` makes the cutover wait for a manual
-   `kubectl argo rollouts promote` — a human gate (continuous delivery).
-7. Container Apps creates a revision per deploy and splits traffic across
-   revisions by weight (`--traffic-weight`), with the managed platform doing
-   the real weighting — no cluster, mesh, or controller to operate. Trade-off:
-   Container Apps is zero-ops but constrains you to its model and hides the
-   machinery; Argo Rollouts on AKS gives full control (custom steps, arbitrary
-   metric analysis, mesh integration) at the cost of installing and operating
-   it — the managed-vs-self-hosted axis from tracks 06/07.
-8. Gate-free continuous deployment removes the human backstop, so you need the
-   system itself to limit blast radius (small canary weight) and to detect and
-   undo a bad release automatically (metric analysis → auto-abort). Without
-   that automated detect-and-rollback, nothing catches a bad deploy before it
-   reaches all users.
+**Root Cause:**  
+CoreDNS namespace resolution failure. The `AnalysisTemplate` specified an unqualified service name (`http://prometheus:9090`) while Prometheus resides in another namespace (`monitoring`).
 
+**Resolution Steps:**
+Specify the Fully Qualified Domain Name (FQDN) in the `AnalysisTemplate`:
+```yaml
+address: http://prometheus-k8s.monitoring.svc.cluster.local:9090
+```
 </details>
+
+---
+
+### Scenario 3: NGINX Ingress Missing Canary Annotations
+**Context:** Argo Rollouts logs `setWeight: 20%`, but all requests continue hitting the stable service; zero requests reach the canary pods.
+
+<details>
+<summary>View Diagnostic Workflow & Resolution</summary>
+
+**Root Cause:**  
+The Ingress controller does not support canary annotations, or the secondary canary Ingress object was not generated. In NGINX Ingress, Argo Rollouts automatically creates a child Ingress with `nginx.ingress.kubernetes.io/canary: "true"` and `nginx.ingress.kubernetes.io/canary-weight: "20"`.
+
+**Diagnostic Commands:**
+```bash
+# Check if canary child ingress was generated:
+kubectl get ingress
+# Look for: <rollout-name>-<stable-ingress-name>-canary
+```
+
+**Resolution Steps:**
+Ensure `ingress-nginx` is configured with permissions to create secondary Ingress resources and that `spec.strategy.canary.trafficRouting.nginx.stableIngress` points to a valid Ingress in the same namespace.
+</details>
+
+---
+
+## 8. Further Reading & Official Documentation
+
+- [Argo Rollouts Official Documentation](https://argoproj.github.io/argo-rollouts/)
+- [Argo Rollouts: Architecture & Traffic Routing Plugins](https://argoproj.github.io/argo-rollouts/features/traffic-management/)
+- [Analysis & Automated Metric-Gated Rollouts](https://argoproj.github.io/argo-rollouts/features/analysis/)
+- [Istio Service Mesh Traffic Shifting for Canaries](https://istio.io/latest/docs/tasks/traffic-management/traffic-shifting/)
+- [Flagger: Alternative Kubernetes Progressive Delivery Operator](https://flagger.app/)
+
+---
 
 ## Next
 
-[07-pipeline-security-and-secrets](../07-pipeline-security-and-secrets/README.md)
-— secure the whole pipeline: OIDC over long-lived secrets, least-privilege
-service connections, and protecting production with required reviewers.
+Continue to [07 - Pipeline Security & Secrets Management](../07-pipeline-security-and-secrets/README.md) to eliminate long-lived credentials using OpenID Connect (OIDC), enforce environment approval gates, and secure production secrets.

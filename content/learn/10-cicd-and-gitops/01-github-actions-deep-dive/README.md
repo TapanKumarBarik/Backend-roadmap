@@ -1,374 +1,593 @@
-# GitHub Actions Deep Dive
+# 01 - GitHub Actions Deep Dive
 
-## Why this matters
+> **Prerequisites**: [00 - CI/CD Concepts & Pipeline Anatomy](../00-cicd-concepts-and-pipeline-anatomy/README.md), [01 - Linux & Git Fundamentals](../../01-linux-and-git/00-shell-scripting-and-bash/README.md).  
+> **Target Audience**: DevOps Engineers, Platform Engineers, and Backend Systems Developers architecting declarative, secure, multi-job automation pipelines.  
+> **Estimated Deep-Dive Time**: 40 minutes.
 
-Track 07's module 08 showed you exactly one workflow: a single job with a
-handful of steps that built an image and deployed it. That's enough to
-ship, but it's the "hello world" of GitHub Actions — it uses almost none
-of the machinery that makes Actions worth learning as a real tool. This
-module takes the whole model apart: the workflow/job/step hierarchy,
-runners, expressions and contexts, matrix builds that fan one job into
-many, reusable workflows and composite actions that kill copy-paste across
-repos, and the secrets/environments system that later modules lean on for
-security. Everything else in this track is written in this language;
-this module is where you actually learn to read and write it fluently.
+---
 
-## Concepts
+> [!TIP]
+> **The Golden Rule of GitHub Actions Security**: **Always set top-level `permissions: {}` (read-none) by default, and pin third-party actions to full immutable commit SHAs.** Never use mutable tags like `@v4` for external community actions in production pipelines, as a compromised upstream release can exfiltrate your secrets. Pass state between jobs strictly via `actions/upload-artifact` or typed `job.outputs`—never assume filesystem persistence between jobs.
 
-### The hierarchy: workflow → job → step, and where each runs
+---
 
-A **workflow** is a single YAML file in `.github/workflows/`. It declares
-*when* it runs (`on:`) and *what* it runs (`jobs:`). A **job** is a named
-unit of work that runs on a fresh **runner** — a clean VM (or container)
-that GitHub spins up, hands to your job, and destroys afterward. A **step**
-is one action inside a job: either a shell command (`run:`) or a reusable
-action (`uses:`).
+## 1. Visual Mental Models: The Workflow Hierarchy & Lifecycle
 
-The critical mental model, sharper than track 07's single-job example
-implied:
+GitHub Actions organizes automation into a strict three-tier hierarchy: **Workflows** contain **Jobs**, and Jobs contain sequential **Steps**.
 
-- **Steps in one job share a filesystem and run in order** on the same
-  runner. A file one step writes, the next step can read.
-- **Jobs run on separate runners and are isolated by default** — they run
-  in parallel unless you declare a dependency with `needs:`, and they do
-  *not* share a filesystem. To pass data between jobs you must explicitly
-  upload/download **artifacts** (the `actions/upload-artifact` /
-  `download-artifact` actions) or use **job outputs**.
+### Job Isolation vs Step Filesystem Sharing
 
-This is why a naive multi-job workflow that "builds in job A and deploys
-in job B" fails if you forget that job B starts on a blank machine — job A's
-built files aren't there unless you carried them over.
+A common point of confusion is assuming that jobs in the same workflow share disk storage. They do not. Every job executes on an isolated, ephemeral virtual machine runner:
 
-### Runners: GitHub-hosted vs. self-hosted
+```mermaid
+flowchart TD
+    subgraph Workflow ["Workflow: production-delivery.yml (Event: push to main)"]
+        subgraph JobA ["Job 1: build-and-test (Runner VM 1)"]
+            StepA1["Step 1: actions/checkout@v4"]
+            StepA2["Step 2: Compile & Run Unit Tests"]
+            StepA3["Step 3: actions/upload-artifact@v4<br/>(Persists ./bin to GitHub Storage)"]
+            StepA1 -->|Shared /home/runner/work| StepA2 --> StepA3
+        end
 
-`runs-on:` picks the runner. **GitHub-hosted runners** (`ubuntu-latest`,
-`windows-latest`, `macos-latest`) are ephemeral VMs GitHub provisions,
-pre-loaded with common tools (Docker, `az`, `kubectl`, language runtimes),
-billed per-minute on private repos and free on public ones. **Self-hosted
-runners** are machines *you* register and run the agent on — used when you
-need private-network access (e.g. a runner inside your Azure VNet that can
-reach a private AKS API server from track 07), specialized hardware, or to
-avoid per-minute billing at scale. GitHub-hosted is the default and what
-this track uses; know self-hosted exists because "the runner can't reach
-the private cluster" is a real production reason to switch.
+        subgraph JobB ["Job 2: deploy-staging (Runner VM 2)"]
+            StepB1["Step 1: Fresh Empty Runner!"]
+            StepB2["Step 2: actions/download-artifact@v4<br/>(Downloads ./bin from GitHub Storage)"]
+            StepB3["Step 3: Deploy to Kubernetes Cluster"]
+            StepB1 --> StepB2 --> StepB3
+        end
+    end
 
-### Expressions, contexts, and `${{ }}`
-
-GitHub Actions has a small expression language evaluated inside `${{ }}`.
-It reads from **contexts** — structured objects describing the run:
-
-- `github` — the event and repo: `github.sha` (commit SHA — the tag from
-  track 07's module 08), `github.ref` (`refs/heads/main`),
-  `github.event_name` (`push`, `pull_request`), `github.actor`.
-- `secrets` — repository/environment secrets: `secrets.AZURE_CLIENT_ID`.
-- `env` — variables you defined with `env:`.
-- `matrix` — the current matrix combination (below).
-- `needs` — outputs of jobs this job depends on.
-- `steps` — outputs of earlier steps in the same job (via `id:`).
-
-Expressions drive **conditionals** with `if:` — e.g.
-`if: github.ref == 'refs/heads/main'` runs a deploy step only on `main`,
-the clean way to keep PR builds from deploying (the trigger-scoping concern
-from module 00 and track 07's module 08, now done inside the workflow
-instead of only at the trigger).
-
-### Matrix builds: one job definition, many parallel runs
-
-A **matrix** expands a single job into multiple parallel runs, one per
-combination of the variables you list. Instead of copy-pasting a "test on
-Node 18 / test on Node 20 / test on Node 22" job three times:
-
-```yaml
-strategy:
-  matrix:
-    node: [18, 20, 22]
-    os: [ubuntu-latest, windows-latest]
+    JobA -->|needs: [build-and-test]<br/>Explicit Artifact Handoff| JobB
 ```
 
-That produces **6 jobs** (3 × 2), each with `matrix.node` and `matrix.os`
-set, all running in parallel. `fail-fast: true` (the default) cancels the
-rest the moment one fails — the fail-fast idea from module 00, at the job
-level. Matrix is how you test across versions/platforms without
-duplication, and it ties directly to module 02's test stage.
+---
 
-### Reusable workflows and composite actions: DRY across pipelines
+### The OIDC Federated Identity Handshake (Zero-Static-Credentials)
 
-Two mechanisms remove duplication, and they're often confused:
+Rather than storing long-lived, high-privilege cloud secrets (like AWS Access Keys or Azure Service Principal Passwords) in GitHub Secrets, modern pipelines use **OpenID Connect (OIDC)**:
 
-- A **reusable workflow** is an entire workflow file callable from another
-  workflow via `uses: owner/repo/.github/workflows/build.yml@main` with
-  `on: workflow_call`. It's a whole *job graph* you invoke — good for
-  "every repo's deploy pipeline is the same 4 jobs." Inputs and secrets are
-  passed explicitly.
-- A **composite action** bundles several *steps* into one reusable
-  `uses:` step (an `action.yml` with `runs: using: composite`). It's a
-  reusable *step sequence*, not a whole workflow — good for "the 3 steps to
-  log in to Azure and set AKS context" that you'd otherwise paste into
-  every job.
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Runner as GitHub Actions Runner VM
+    participant GHToken as GitHub OIDC Token Service
+    participant Cloud as Cloud Provider STS (AWS / Azure / GCP)
+    participant K8s as Target Managed Cluster
 
-Rule of thumb: repeating a *set of steps* → composite action; repeating a
-*whole pipeline shape* across repos → reusable workflow. Both are how a
-platform team gives every app repo a consistent pipeline (a theme that
-returns in track 24, platform engineering).
+    Runner->>GHToken: Request ephemeral JSON Web Token (JWT)<br/>Requires 'permissions: id-token: write'
+    GHToken-->>Runner: Signed OIDC JWT containing claims (repo, ref, env)
+    Runner->>Cloud: Exchange JWT for short-lived IAM credentials
+    Note over Cloud: Validates token signature & verifies claim:<br/>repo:my-org/backend-api:ref:refs/heads/main
+    Cloud-->>Runner: Returns temporary 15-minute STS session token
+    Runner->>K8s: Authenticates with short-lived token & applies manifests
+    Note over Runner: Job finishes; temporary credentials expire immediately!
+```
 
-### Secrets and environments: scoped, masked, gated
+---
 
-**Secrets** are encrypted values (`secrets.FOO`) injected at runtime and
-**masked** in logs (GitHub redacts them if they appear in output). They
-live at three scopes: organization, repository, and **environment**.
-An **environment** (module 00's concept, now concrete) is a repo-level
-named target (`staging`, `production`) that can carry its own secrets *and*
-**protection rules** — required reviewers (a human must approve before a
-job targeting that environment runs), wait timers, and branch
-restrictions. A job opts into an environment with `environment: production`;
-GitHub then pauses that job for approval if the environment requires it.
-This is the exact machinery that turns continuous deployment into
-continuous *delivery* for production — module 07 uses it in depth, and
-module 07 also replaces long-lived secrets with OIDC (the pattern from
-track 07's module 08, generalized).
+## 2. Technical Comparison: Execution Contexts & Permissions
 
-### Permissions and the `GITHUB_TOKEN`
+### GitHub Actions Contexts Specification Matrix
 
-Every workflow run gets an automatically-provisioned `GITHUB_TOKEN` with
-permissions scoped by the `permissions:` block. Track 07's module 08
-already showed one required permission — `id-token: write` for OIDC. The
-principle is **least privilege**: grant only what the job needs
-(`contents: read` to check out code, `packages: write` to push to GHCR,
-`id-token: write` for OIDC). An over-permissive token is a real blast-radius
-risk if a step runs untrusted code — a security theme module 07 develops.
+| Context | Scope & Description | Production Example Expression |
+| :--- | :--- | :--- |
+| **`github`** | Metadata about the triggering event, repository, and actor | `${{ github.sha }}`, `${{ github.event_name }}` |
+| **`secrets`** | Encrypted repository, organization, or environment secrets | `${{ secrets.PROD_DATABASE_URL }}` |
+| **`env`** | Variables defined at workflow, job, or step level | `${{ env.ENVIRONMENT_NAME }}` |
+| **`matrix`** | Active parameters for the current matrix execution leg | `${{ matrix.node-version }}`, `${{ matrix.os }}` |
+| **`needs`** | Outputs and completion statuses of dependency jobs | `${{ needs.build.outputs.image_digest }}` |
+| **`steps`** | Status and outputs produced by earlier steps in the same job | `${{ steps.docker_build.outputs.digest }}` |
+| **`runner`** | Information about the executing runner environment | `${{ runner.os }}`, `${{ runner.temp }}` |
 
-## Command reference
+---
 
-Workflow YAML explained key-by-key, plus the `gh` CLI you'll use to drive
-runs from the terminal.
+### Least-Privilege `GITHUB_TOKEN` Permissions Matrix
 
-| Key / command | What it does | Notes |
-|---|---|---|
-| `on:` | Declares triggers | `push`, `pull_request`, `workflow_dispatch`, `workflow_call`, `schedule` (module 00) |
-| `on.push.branches: [main]` | Filter: only pushes to `main` | Scopes the trigger to avoid deploying from every branch |
-| `on.pull_request.paths:` | Filter: only when matching files change | e.g. only run when `src/**` changes, saving CI minutes |
-| `jobs.<id>.runs-on:` | Picks the runner | `ubuntu-latest` (hosted) or `self-hosted` (your machine) |
-| `jobs.<id>.needs: [build]` | Declares job dependency (ordering) | Without it, jobs run in parallel and don't share a filesystem |
-| `jobs.<id>.strategy.matrix:` | Fans one job into N parallel runs | Combinations of the listed variables |
-| `strategy.fail-fast: false` | Don't cancel siblings when one matrix leg fails | Default is `true` |
-| `jobs.<id>.environment:` | Targets a protected environment | Triggers required-reviewer gate if configured (module 07) |
-| `jobs.<id>.permissions:` | Scopes the `GITHUB_TOKEN` | Least privilege; `id-token: write` needed for OIDC |
-| `steps[].uses:` | Runs a reusable action | `actions/checkout@v4`, `azure/login@v2`, or a composite action |
-| `steps[].run:` | Runs shell commands on the runner | Multi-line with `\|` |
-| `steps[].id:` + `steps[].outputs` | Names a step so later steps read its outputs | `${{ steps.<id>.outputs.<name> }}` |
-| `${{ github.sha }}` | Expression: the commit SHA | The image tag from track 07 module 08 |
-| `${{ github.ref == 'refs/heads/main' }}` | Expression used in `if:` | Gate a step/job to `main` only |
-| `uses: owner/repo/.github/workflows/x.yml@ref` | Calls a reusable workflow | The called file needs `on: workflow_call` |
-| `gh workflow list` | Lists workflows in the repo | Requires `gh auth login` first |
-| `gh workflow run <file> -f key=val` | Manually triggers a `workflow_dispatch` run with inputs | The CLI equivalent of the "Run workflow" button |
-| `gh run list --workflow=<file>` | Lists recent runs of a workflow | Add `--branch main` to filter |
-| `gh run watch <run-id>` | Streams a run's live status in the terminal | Good for watching a deploy without the browser |
-| `gh run view <run-id> --log-failed` | Shows logs for only the failed steps | Fastest way to triage a red run |
+By default, unconfigured workflows can inherit broad write permissions. Secure pipelines explicitly declare least-privilege permissions:
 
-## Hands-on exercises
+```yaml
+# Enforce zero-trust default at the workflow root:
+permissions: {}
 
-You'll need a GitHub repo you control and `gh` CLI installed
-(`gh auth login`). Any small app repo works; if you have the demo app from
-track 07, reuse it.
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read       # Required to clone repository code via actions/checkout
+      packages: write      # Required to publish to GitHub Container Registry (ghcr.io)
+      id-token: write      # Required for OIDC JWT cloud authentication
+      pull-requests: write # Required if publishing test coverage comments to PR
+```
 
-1. **A two-job workflow and the isolation gotcha.** Create
-   `.github/workflows/two-jobs.yml` with a job `build` that runs
-   `echo hello > out.txt && cat out.txt`, and a second job `check` (no
-   `needs:`) that runs `cat out.txt`. Push it, watch it in the Actions tab
-   (or `gh run watch`), and observe that `check` **fails** — `out.txt`
-   doesn't exist on its runner. Now add `needs: [build]` and an
-   `actions/upload-artifact` step in `build` plus `download-artifact` in
-   `check`. Re-run and confirm `check` passes. This is the job-isolation
-   concept made real.
+---
 
-2. **Contexts and conditionals.** Add a workflow triggered on both
-   `push` and `pull_request` that has one step printing
-   `echo "event=${{ github.event_name }} ref=${{ github.ref }}"` and a
-   second step guarded by `if: github.ref == 'refs/heads/main'` that prints
-   `echo "this only runs on main"`. Open a PR from a branch and confirm the
-   guarded step is *skipped* on the PR run but *runs* after you merge to
-   `main`.
+### Composite Action vs Reusable Workflow
 
-3. **A matrix build.** Write a job with
-   `strategy: { matrix: { version: [1, 2, 3] } }` whose single step runs
-   `echo "building version ${{ matrix.version }}"`. Push and confirm the
-   Actions tab shows **three** parallel jobs. Then add a second matrix
-   dimension (`os: [ubuntu-latest, windows-latest]`) and confirm it becomes
-   **six** jobs.
+| Dimension | Composite Action (`action.yml`) | Reusable Workflow (`workflow_call`) |
+| :--- | :--- | :--- |
+| **Primary Scope** | Reusable **steps** packaged into a single reusable action | Reusable **job graph** invoked as an entire pipeline |
+| **Execution Context** | Runs inside the calling job's existing runner VM | Executes on its own independently allocated runner VMs |
+| **File Location** | `.github/actions/<action-name>/action.yml` | `.github/workflows/<workflow-name>.yml` |
+| **Best Used For** | Repeating boilerplate steps (e.g. tool install + login) | Standardizing company-wide multi-stage CI/CD pipelines |
 
-4. **Fail-fast behavior.** In that matrix, make the step
-   `exit 1` only when `matrix.version == 2`
-   (`if [ "${{ matrix.version }}" = "2" ]; then exit 1; fi`). Run with the
-   default and observe siblings get cancelled. Add
-   `strategy: { fail-fast: false }` and confirm the other legs now run to
-   completion despite version 2 failing. Note which behavior you'd want for
-   a test matrix (module 02) and why.
+---
 
-5. **Step outputs and `needs`.** Make job `build` produce an output: a step
-   with `id: meta` running
-   `echo "tag=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"`, and expose it via
-   `outputs: { tag: ${{ steps.meta.outputs.tag }} }` on the job. In a
-   downstream job with `needs: [build]`, print
-   `echo "${{ needs.build.outputs.tag }}"`. Confirm the short SHA flows
-   from one job to the next — the mechanism module 03 uses to pass an image
-   tag from a build job to a deploy job.
+## 3. Production War Story: The Blank Runner Disaster & The Poisoned Action
 
-6. **A composite action.** Create `.github/actions/greet/action.yml` with
-   `runs: { using: composite, steps: [...] }` that takes an input `name`
-   and runs `echo "hello ${{ inputs.name }}"`. Use it from a workflow with
-   `uses: ./.github/actions/greet` and `with: { name: world }`. Confirm it
-   works, then reflect: which of the repeated steps in track 07's module-08
-   workflow (Azure login + ACR login + set AKS context) would be a natural
-   composite action?
+### Incident Overview
+A financial services platform suffered an emergency outage when a refactored release workflow deployed an empty directory to their staging cluster, wiping out all Ingress configurations. 
 
-7. **A reusable workflow.** Create `.github/workflows/reusable-build.yml`
-   with `on: workflow_call` taking an input `image-name`, and a caller
-   workflow that invokes it via
-   `uses: ./.github/workflows/reusable-build.yml` with
-   `with: { image-name: demo }`. Confirm the caller's run shows the reusable
-   workflow's job nested inside it. Note the difference from exercise 6: a
-   composite action is a *step*, a reusable workflow is a whole *job*.
+During the incident investigation, security analysts discovered that an unpinned community action (`uses: third-party/notify-slack@v1`) had been compromised via a supply-chain credential-stuffing attack on the maintainer's account. The compromised action extracted all environment variables—including production Stripe API keys—and transmitted them to an external command-and-control server.
 
-8. **Drive it from the CLI.** Add `workflow_dispatch` with an input
-   `message` to any workflow. Trigger it from the terminal with
-   `gh workflow run <file> -f message="from the cli"`, then
-   `gh run watch` the resulting run and `gh run view <id> --log` to read
-   the output. This is how you operate pipelines without leaving the
-   terminal.
+### The Catastrophic Failure Sequence
 
-9. **Diagnose and fix: the artifact-not-found failure.** You'll deliberately
-   reproduce and fix the single most common multi-job mistake. Take a
-   workflow where job `deploy` (with `needs: [build]`) runs
-   `cat dist/app.txt`, and job `build` creates `dist/app.txt` but does *not*
-   upload it as an artifact. Run it, watch `deploy` fail with "No such file
-   or directory". Diagnose why (jobs don't share a filesystem — the concept
-   from this module), then fix it by uploading the artifact in `build` and
-   downloading it in `deploy`. Confirm the green run. Write one sentence on
-   why `needs:` alone (ordering) was not enough — it guarantees *order*,
-   not *shared files*.
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Dev as Developer
+    participant CI as GitHub Actions Runner
+    participant BadAction as Compromised Slack Action (@v1)
+    participant Hacker as Attacker Server
+    participant Cluster as Staging Kubernetes Cluster
 
-## Independent challenge
+    Dev->>CI: Push commit to main branch
+    Note over CI: Job 1 (build) compiles application into ./dist directory
+    Note over CI: Job 2 (deploy) starts on a completely separate, BLANK runner!
+    CI->>BadAction: uses: third-party/notify-slack@v1
+    Note over BadAction: Upstream tag @v1 was repointed to malicious commit!<br/>Scrapes process.env for all secrets!
+    BadAction->>Hacker: Exfiltrates Stripe and Database credentials!
+    CI->>Cluster: kubectl apply -f ./dist/ (Directory does not exist!)
+    Note over Cluster: Deployment script falls back to apply current working dir!<br/>Applies empty directory, destroying cluster ingresses!
+```
 
-No YAML given — build this from the concepts, drawing on this module and
-track 07's module 08. Refactor a single monolithic workflow into a clean,
-reusable shape. Start from a workflow that does build-then-deploy as one
-long job (like track 07's module 08). Split it so that: a **matrix** runs
-the app's build/test across at least two variants (e.g. two language
-versions) in parallel; the actual build-and-push logic lives in a
-**reusable workflow** invoked with `workflow_call` so a second app repo
-could call the identical pipeline; the repeated "authenticate and set
-context" steps become a **composite action** used by the deploy job; the
-deploy job only runs on `push` to `main` (guarded by an `if:` expression on
-`github.ref`, not just the trigger) and targets a **`production`
-environment**; and each job declares a minimal `permissions:` block rather
-than inheriting broad defaults. You won't be able to fully wire the deploy
-without the Azure pieces from later modules — stub those steps with
-`echo` placeholders — but the *structure* (matrix, reusable workflow,
-composite action, environment, scoped permissions, `if`-guarded deploy)
-should all be real and runnable. This is the skeleton every later module
-fills in.
+### Root Cause Analysis
+1. **Runner Isolation Ignorance**: The developer wrote `needs: [build]` and assumed the compiled `./dist` directory created in Job 1 would naturally exist in Job 2. Because Job 2 ran on a fresh VM, `./dist` was absent. The deployment script fell back to an unverified local path and executed `kubectl apply` against an empty folder.
+2. **Mutable Action Tag Vulnerability**: The workflow pinned the Slack notification action using `@v1`. The attacker hijacked the open-source repository and moved the mutable git tag `@v1` to point to a malicious commit that injected an exfiltration payload.
+3. **Over-Privileged Secret Injection**: Secrets were configured at the repository root and injected into all steps, allowing the malicious Slack action full read access to unrelated production payment tokens.
+
+### The Remediation & Permanent Hardening Rules
+1. **Mandatory Artifact Handoff**: Pass compiled binaries between jobs using verified `upload-artifact` and `download-artifact`:
+   ```yaml
+   - uses: actions/upload-artifact@v4
+     with:
+       name: release-dist
+       path: ./dist
+       retention-days: 1
+   ```
+2. **Full Commit SHA Pinning**: Pin all third-party actions to immutable 40-character commit hashes:
+   ```yaml
+   # ❌ NEVER USE MUTABLE TAGS:
+   uses: actions/checkout@v4
+   # ✅ PIN TO IMMUTABLE SHA:
+   uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
+   ```
+3. **Step-Level Secret Scoping**: Pass secrets only into the exact shell step that executes the command, rather than binding them to the entire job.
+
+---
+
+## 4. Multi-Language Production Pipeline Implementations
+
+Below are complete, enterprise-grade GitHub Actions pipeline configurations for **Go**, **Node.js/TypeScript**, and **Python**. Each includes matrix testing, dependency caching, static analysis, artifact upload, and safe multi-job handoffs.
+
+### Go Production Pipeline (`.github/workflows/go-ci.yml`)
+
+```yaml
+name: Go Production Pipeline
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions: {}
+
+jobs:
+  lint-and-test:
+    name: Lint & Test (Go ${{ matrix.go-version }})
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        go-version: ['1.22', '1.23']
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
+
+      - name: Setup Go Runtime
+        uses: actions/setup-go@0c52d547c9bc32b1aa3301fd7a9cb496313a4491 # v5.0.0
+        with:
+          go-version: ${{ matrix.go-version }}
+          cache: true # Built-in go.sum caching
+
+      - name: Run golangci-lint
+        uses: golangci/golangci-lint-action@3a919529898de77ec3da873e3063ca4b10e7f5cc # v3.7.0
+        with:
+          version: latest
+
+      - name: Run Tests with Race Detector
+        run: go test -v -race -coverprofile=coverage.out ./...
+
+  build-binary:
+    name: Build & Package Binary
+    needs: [lint-and-test]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      binary_hash: ${{ steps.compute_hash.outputs.hash }}
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11
+
+      - name: Setup Go
+        uses: actions/setup-go@0c52d547c9bc32b1aa3301fd7a9cb496313a4491
+        with:
+          go-version: '1.23'
+          cache: true
+
+      - name: Compile Deterministic Binary
+        run: |
+          CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="-w -s" -o bin/server ./cmd/server
+
+      - name: Compute Artifact Hash
+        id: compute_hash
+        run: |
+          HASH=$(sha256sum bin/server | awk '{print $1}')
+          echo "hash=$HASH" >> $GITHUB_OUTPUT
+
+      - name: Upload Build Artifact
+        uses: actions/upload-artifact@5d5d22a31266ced268874388b861e4b58bb5c2f3 # v4.3.1
+        with:
+          name: go-server-bin
+          path: bin/server
+          retention-days: 2
+
+  deploy-staging:
+    name: Deploy to Staging
+    needs: [build-binary]
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: staging
+    permissions:
+      contents: read
+      id-token: write # For cloud OIDC authentication
+    steps:
+      - name: Download Compiled Binary
+        uses: actions/download-artifact@c850b08b165c4587730e67dddd9f29fb0748e7da # v4.1.4
+        with:
+          name: go-server-bin
+          path: bin
+
+      - name: Verify Artifact Integrity
+        run: |
+          COMPUTED=$(sha256sum bin/server | awk '{print $1}')
+          EXPECTED="${{ needs.build-binary.outputs.binary_hash }}"
+          if [ "$COMPUTED" != "$EXPECTED" ]; then
+            echo "Security Error: Hash mismatch!"
+            exit 1
+          fi
+          echo "Binary verified successfully!"
+```
+
+---
+
+### Node.js / TypeScript Pipeline (`.github/workflows/node-ci.yml`)
+
+```yaml
+name: Node.js TypeScript Pipeline
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions: {}
+
+jobs:
+  build-and-test:
+    name: Build & Test (Node ${{ matrix.node-version }} on ${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        node-version: [18.x, 20.x]
+        os: [ubuntu-latest]
+    steps:
+      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11
+
+      - name: Setup Node.js Runtime
+        uses: actions/setup-node@60edb5dd545a775178f525247059d6428237b63f # v4.0.2
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'npm'
+
+      - name: Deterministic Install
+        run: npm ci
+
+      - name: Type Check & Lint
+        run: |
+          npm run typecheck
+          npm run lint
+
+      - name: Execute Test Suite
+        run: npm test -- --ci --coverage
+
+      - name: Compile TypeScript
+        run: npm run build
+
+      - name: Upload Dist Artifact
+        if: matrix.node-version == '20.x'
+        uses: actions/upload-artifact@5d5d22a31266ced268874388b861e4b58bb5c2f3
+        with:
+          name: dist-build
+          path: dist/
+          retention-days: 1
+```
+
+---
+
+### Python Pipeline (`.github/workflows/python-ci.yml`)
+
+```yaml
+name: Python Production Pipeline
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions: {}
+
+jobs:
+  quality-gate:
+    name: Code Quality & Unit Tests
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11
+
+      - name: Setup Python
+        uses: actions/setup-python@0a5c61591373683505ea898e09a3ea4f39ef2b9c # v5.0.0
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install ruff pytest pytest-cov
+
+      - name: Run Ruff Linter & Formatter Check
+        run: |
+          ruff check .
+          ruff format --check .
+
+      - name: Run Pytest with Coverage Gate
+        run: |
+          pytest --cov=app --cov-report=xml --cov-fail-under=85
+```
+
+---
+
+## 5. Practical Hands-On Verification Laboratory
+
+In this laboratory, you will construct a modular Composite Action in `.github/actions/setup-pipeline/action.yml` and invoke it from a multi-job workflow that transfers state via typed job outputs and uploaded artifacts.
+
+### Step 1: Create Composite Action Scaffold
+
+Create `.github/actions/setup-pipeline/action.yml`:
+
+```yaml
+name: "Setup Custom Pipeline Environment"
+description: "Configures system dependencies and caches runtime artifacts"
+inputs:
+  system-dependency:
+    description: "Linux package to install"
+    required: false
+    default: "curl"
+outputs:
+  installed-version:
+    description: "Version of installed dependency"
+    value: ${{ steps.get_ver.outputs.version }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Install System Tool
+      shell: bash
+      run: |
+        sudo apt-get update && sudo apt-get install -y ${{ inputs.system-dependency }}
+
+    - name: Capture Installed Version
+      id: get_ver
+      shell: bash
+      run: |
+        VER=$(${{ inputs.system-dependency }} --version | head -n 1)
+        echo "version=$VER" >> $GITHUB_OUTPUT
+```
+
+---
+
+### Step 2: Write Multi-Job Workflow with Matrix & Typed Outputs
+
+Create `.github/workflows/modular-pipeline.yml`:
+
+```yaml
+name: Modular Enterprise Pipeline
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+permissions: {}
+
+jobs:
+  compile:
+    name: Compile & Fingerprint
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      build-hash: ${{ steps.hasher.outputs.hash }}
+    steps:
+      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11
+
+      - name: Invoke Local Composite Action
+        id: setup
+        uses: ./.github/actions/setup-pipeline
+        with:
+          system-dependency: jq
+
+      - name: Generate Dummy Application Artifact
+        run: |
+          mkdir -p output
+          echo "{\"version\": \"1.0.0\", \"timestamp\": \"$(date)\"}" > output/manifest.json
+
+      - name: Compute Artifact Hash
+        id: hasher
+        run: |
+          HASH=$(sha256sum output/manifest.json | awk '{print $1}')
+          echo "hash=$HASH" >> $GITHUB_OUTPUT
+
+      - name: Store Build Artifact
+        uses: actions/upload-artifact@5d5d22a31266ced268874388b861e4b58bb5c2f3
+        with:
+          name: app-manifest
+          path: output/manifest.json
+
+  deploy-matrix:
+    name: Deploy to Cluster (${{ matrix.target-env }})
+    needs: [compile]
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        target-env: [dev, staging]
+    steps:
+      - name: Download Stored Artifact
+        uses: actions/download-artifact@c850b08b165c4587730e67dddd9f29fb0748e7da
+        with:
+          name: app-manifest
+          path: output
+
+      - name: Verify Cryptographic Integrity
+        run: |
+          COMPUTED_HASH=$(sha256sum output/manifest.json | awk '{print $1}')
+          EXPECTED_HASH="${{ needs.compile.outputs.build-hash }}"
+          echo "Computed: $COMPUTED_HASH"
+          echo "Expected: $EXPECTED_HASH"
+          if [ "$COMPUTED_HASH" != "$EXPECTED_HASH" ]; then
+            echo "Hash mismatch error!"
+            exit 1
+          fi
+          echo "Successfully verified deployment payload for ${{ matrix.target-env }}"
+```
+
+---
+
+## 6. Command Quick-Reference Cheat Sheet
+
+| GitHub Actions Syntax / Primitive | Objective / Function | Example Usage |
+| :--- | :--- | :--- |
+| `permissions: {}` | Set zero default privileges on `GITHUB_TOKEN` | Root level of workflow YAML |
+| `needs: [jobA, jobB]` | Enforce strict DAG dependency between jobs | Declare execution ordering |
+| `echo "var=val" >> $GITHUB_OUTPUT` | Set typed output from a step for subsequent steps/jobs | `${{ steps.<id>.outputs.var }}` |
+| `echo "KEY=VAL" >> $GITHUB_ENV` | Expose environment variable across subsequent steps | Available as `$KEY` in later steps |
+| `actions/upload-artifact@v4` | Persist files beyond job boundary to GitHub storage | Carry build outputs to deploy jobs |
+| `concurrency: group: ${{ github.ref }}` | Cancel obsolete in-flight PR builds automatically | Save billing minutes on rapid git pushes |
+
+---
+
+## 7. Operational Validation Checkpoints
+
+### Scenario 1: Inter-Job Output Evaluates to Empty String
+**Context:** Job `deploy` declares `needs: [build]`. Inside `deploy`, the step references `${{ needs.build.outputs.image_digest }}`. The value evaluates to an empty string, breaking the downstream deployment script.
 
 <details>
-<summary>Stuck? One hint</summary>
+<summary>View Diagnostic Workflow & Resolution</summary>
 
-Build it in layers and get each layer green before adding the next, rather
-than writing the whole thing and debugging a wall of YAML. Order: (1) get
-a plain single job green; (2) add the matrix and confirm the fan-out; (3)
-extract the build steps into a `workflow_call` file and call it; (4) pull
-the auth steps into `.github/actions/<name>/action.yml` and reference it
-with `uses: ./...`; (5) add the `environment:` and `if: github.ref ==
-'refs/heads/main'` guard last. The two easiest mistakes are forgetting
-`on: workflow_call` in the reusable file (the caller errors that it can't
-find a callable workflow) and forgetting that a composite action lives in
-`action.yml`, not a workflow file.
+**Root Cause:**  
+Job outputs require a two-tier declaration. Setting `echo "digest=xyz" >> $GITHUB_OUTPUT` inside a step is insufficient; the containing `build` job must explicitly map the step output to a job-level output under `jobs.build.outputs`.
 
+**Resolution Steps:**
+Ensure the job spec maps the step output:
+```yaml
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      image_digest: ${{ steps.step_build.outputs.digest }} # MUST BE DECLARED HERE!
+    steps:
+      - id: step_build
+        run: echo "digest=sha256:abcd" >> $GITHUB_OUTPUT
+```
 </details>
 
-## Common mistakes & troubleshooting
+---
 
-- **Expecting jobs to share a filesystem.** Steps in a job share a disk;
-  separate jobs do not. Passing files between jobs needs
-  upload/download-artifact or job outputs — `needs:` only orders them.
-- **Forgetting `on: workflow_call` in a reusable workflow.** The caller
-  fails to find a callable workflow. A reusable workflow *must* declare
-  `workflow_call`; a composite action *must* be an `action.yml` with
-  `using: composite` — mixing the two is a frequent first-time error.
-- **Confusing composite actions with reusable workflows.** One packages
-  *steps* (a single `uses:` step); the other packages *jobs* (a whole
-  invoked workflow). Reaching for the wrong one leads to awkward YAML.
-- **Trigger vs. `if` guard confusion.** `on: push: branches: [main]` stops
-  the *whole workflow* from running off `main`. An `if:` on a job/step lets
-  the workflow run (e.g. on a PR) but skips just the deploy. Use the trigger
-  to scope the workflow, `if:` to scope individual steps within it.
-- **Assuming secrets are available everywhere.** Environment-scoped secrets
-  only exist in jobs that declare that `environment:`. A job without the
-  environment can't read them and gets an empty value.
-- **Over-broad `permissions:`.** Inheriting default write-all permissions
-  is a blast-radius risk. Set `permissions:` explicitly per job; add only
-  what's needed (`id-token: write` for OIDC, `contents: read` for checkout).
-- **`fail-fast: true` masking flaky matrix legs.** With the default, one
-  failing matrix leg cancels the others, so you might not see that *three*
-  versions are broken, only the first. For a diagnostic test matrix,
-  `fail-fast: false` shows you the full picture.
-
-## Checkpoint quiz
-
-Write down your answer to each question before expanding it — checking without attempting first is the single easiest way to fool yourself into thinking you've learned this.
-
-1. What is the difference in filesystem and execution between two *steps*
-   in the same job versus two *jobs* in the same workflow?
-2. What does `needs:` guarantee, and what does it *not* guarantee?
-3. A matrix has `node: [18, 20]` and `os: [ubuntu-latest, windows-latest]`.
-   How many jobs run, and what does `fail-fast: true` do when one fails?
-4. When would you reach for a composite action versus a reusable workflow?
-5. What's the difference between scoping a deploy with `on: push:
-   branches: [main]` and scoping it with `if: github.ref ==
-   'refs/heads/main'`? When would you use each?
-6. What does a GitHub *environment* add on top of plain repository secrets,
-   and how does that relate to continuous delivery vs. deployment (module 00)?
-7. Why might a team switch from GitHub-hosted to self-hosted runners for an
-   AKS deploy, given what you know about private clusters from track 07?
-8. What is the `permissions:` block for, and what's the risk of leaving it
-   at the default?
+### Scenario 2: OIDC Cloud Authentication Fails with `403 Subject Mismatch`
+**Context:** You configure GitHub Actions to authenticate into AWS or Azure using OIDC. The step fails with `HttpError: Subject does not match the trust relationship condition`.
 
 <details>
-<summary>Show answers</summary>
+<summary>View Diagnostic Workflow & Resolution</summary>
 
-1. Two steps in the same job run in order on the *same* runner and share
-   its filesystem — one step's file is visible to the next. Two jobs run on
-   *separate* runners, in parallel by default, and share nothing — files
-   must be passed via artifacts or job outputs.
-2. `needs:` guarantees ordering — the dependent job starts only after its
-   dependency succeeds. It does *not* share files or state; the downstream
-   job still starts on a blank runner.
-3. 2 × 2 = 4 jobs. `fail-fast: true` (the default) cancels the still-running
-   sibling jobs as soon as any one leg fails.
-4. Composite action when you're repeating a *set of steps* (e.g. the login
-   sequence) within jobs; reusable workflow when you're repeating a *whole
-   pipeline shape* (a job graph) across workflows or repos.
-5. `on: push: branches: [main]` prevents the workflow from running at all
-   except on pushes to `main`. `if: github.ref == 'refs/heads/main'` lets
-   the workflow run (e.g. on PRs, to run tests) but skips the specific
-   guarded step/job unless on `main`. Use the trigger to scope the whole
-   workflow; use `if:` to run some steps everywhere and gate the deploy
-   step to `main`.
-6. An environment adds environment-scoped secrets and *protection rules* —
-   notably required reviewers, which pause a job until a human approves.
-   That approval gate is exactly what turns automated (continuous
-   deployment) into human-gated (continuous delivery) for production.
-7. A self-hosted runner can live inside your Azure VNet and reach a
-   private AKS API server that a GitHub-hosted runner (on the public
-   internet) cannot. Private-cluster access, specialized hardware, or
-   avoiding per-minute billing are the usual reasons.
-8. `permissions:` scopes the automatically-provisioned `GITHUB_TOKEN` to
-   least privilege. Left at the default (broad write access), a compromised
-   or misbehaving step has a large blast radius — it could push code,
-   packages, or releases it never needed to.
+**Root Cause:**  
+The cloud trust policy specifies an exact claim string for `sub` (e.g. `repo:org/repo:environment:production`), but the workflow is running from a pull request branch (`refs/pull/42/merge`) or omitted the `environment:` declaration in the job YAML.
 
+**Resolution Steps:**
+1. If the IAM trust policy expects an environment claim, ensure the job declares:
+   ```yaml
+   jobs:
+     deploy:
+       environment: production # Injects matching environment claim into JWT
+   ```
+2. Verify that top-level permissions include `id-token: write`.
 </details>
+
+---
+
+### Scenario 3: `actions/cache` Misses on Every Single CI Run
+**Context:** You configure `actions/cache` for npm or Go packages using `key: ${{ runner.os }}-deps-${{ hashFiles('**/package-lock.json') }}`. Every pipeline run downloads dependencies from scratch, showing `Cache not found`.
+
+<details>
+<summary>View Diagnostic Workflow & Resolution</summary>
+
+**Root Cause:**  
+1. **Branch Scoping**: GitHub Actions cache branches restrict access. A feature branch can read caches created on the default (`main`) branch, but cannot read caches from other isolated sibling feature branches.
+2. **Missing Restore Keys**: If `package-lock.json` changes slightly, a strict key misses completely.
+
+**Resolution Steps:**
+Add `restore-keys` so partial prefix matches can reuse the bulk of the cache:
+```yaml
+uses: actions/cache@v4
+with:
+  path: ~/.npm
+  key: ${{ runner.os }}-node-${{ hashFiles('**/package-lock.json') }}
+  restore-keys: |
+    ${{ runner.os }}-node-
+```
+</details>
+
+---
+
+## 8. Further Reading & Official Documentation
+
+- [GitHub Actions Documentation: Workflow Syntax](https://docs.github.com/en/actions/using-workflows/workflow-syntax-for-github-actions)
+- [Security Hardening for GitHub Actions](https://docs.github.com/en/actions/security-guides/security-hardening-for-github-actions)
+- [About Security Hardening with OpenID Connect (OIDC)](https://docs.github.com/en/actions/deployment/security-hardening-your-deployments/about-security-hardening-with-openid-connect)
+- [Creating Composite Actions](https://docs.github.com/en/actions/creating-actions/creating-a-composite-action)
+- [Using Environments for Deployment Protection Rules](https://docs.github.com/en/actions/deployment/targeting-different-environments/using-environments-for-deployment)
+
+---
 
 ## Next
 
-[02-building-and-testing-in-ci](../02-building-and-testing-in-ci/README.md)
-— use this machinery to run real tests, cache dependencies, and make a
-green test run a *required* gate before a PR can merge.
+Continue to [02 - Building & Testing in CI](../02-building-and-testing-in-ci/README.md) to implement automated test suites, code coverage gates, dependency caching, and required PR merge checks.

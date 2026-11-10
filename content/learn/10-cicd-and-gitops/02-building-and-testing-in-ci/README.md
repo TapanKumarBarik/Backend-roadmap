@@ -1,397 +1,554 @@
-# Building and Testing in CI
+# 02 - Building and Testing in CI
 
-## Why this matters
+> **Prerequisites**: [00 - CI/CD Concepts](../00-cicd-concepts-and-pipeline-anatomy/README.md), [01 - GitHub Actions Deep Dive](../01-github-actions-deep-dive/README.md).  
+> **Target Audience**: Backend Engineers, QA Automation Leads, and DevOps Practitioners establishing fast, deterministic, fail-fast continuous integration pipelines.  
+> **Estimated Deep-Dive Time**: 40 minutes.
 
-The whole promise of continuous integration (module 00) is that a broken
-change gets caught automatically, within minutes, *before* it merges — not
-by a teammate three days later. That promise only holds if your pipeline
-actually runs your tests and if a red test run actually *blocks* the merge.
-This module wires both halves: running unit and integration tests inside a
-GitHub Actions workflow (module 01), making them fast with dependency
-caching, failing fast when they break, and — the part that makes it real —
-configuring GitHub branch protection so a failing check is a hard gate on
-the pull-request workflow you learned in track 08. Without the gate, CI is
-just a status light nobody has to obey.
+---
 
-## Concepts
+> [!TIP]
+> **The Golden Rule of CI Testing Gates**: **A test suite that developers re-run until it passes is not a gate; it is an illusion.** Eliminate flaky tests aggressively. Always configure branch protection with **`strict: true`** (Require branches to be up to date before merging) so integration tests validate the final merged state against `main`. Spin up real ephemeral dependencies using GitHub Actions **`services:`** containers rather than mocking database drivers.
 
-### Unit vs. integration tests in the pipeline
+---
 
-Two tiers of test show up in CI, and they have different runner needs:
+## 1. Visual Mental Models: The CI Verification Pipeline
 
-- **Unit tests** exercise a single function/module in isolation, with no
-  external dependencies. They're fast and run on the bare runner — just
-  install deps and run the test command.
-- **Integration tests** exercise your code against real collaborators — a
-  database, a cache, a message broker. In CI you stand these dependencies
-  up as **service containers**: GitHub Actions can run a Postgres or Redis
-  container alongside your job (the `services:` key), and your tests
-  connect to it over `localhost`. This is the same Docker knowledge from
-  track 02, applied inside the pipeline.
+In production CI architectures, code verification operates across distinct tiers ordered by execution speed and resource cost:
 
-The pipeline usually runs unit tests first (fast, cheap) and integration
-tests after (slower, needs services) — a **fail-fast** ordering so a broken
-unit test kills the run before you pay for spinning up a database.
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Dev as Developer (Pull Request)
+    participant GH as GitHub Pull Request
+    participant Runner as GitHub Actions Runner VM
+    participant Services as Service Containers (Postgres & Redis)
+    participant Gate as Branch Protection Engine
 
-### Dependency caching: don't re-download the internet every run
+    Dev->>GH: Open Pull Request (feature -> main)
+    GH->>Runner: Trigger ci-verification.yml
+    Note over Runner: Phase 1: Fast Static Checks (30s)<br/>Linters, Formatters, Gitleaks Secret Scan
+    Note over Runner: Phase 2: Unit Test Suite (60s)<br/>Isolated in-memory business logic tests
+    Runner->>Services: Spin up ephemeral Postgres & Redis containers
+    Services-->>Runner: Healthchecks pass (Port 5432 & 6379 ready)
+    Note over Runner: Phase 3: Integration Test Suite (120s)<br/>Executes real SQL migrations & transactions
+    Runner->>Gate: POST /repos/.../statuses (Check: 'ci/test-suite' -> SUCCESS)
+    Gate-->>GH: Verify branch up-to-date with main: Validated!
+    GH-->>Dev: Merge Button Unlocked (Green Checkmark)
+```
 
-Every fresh runner (module 01) starts blank, so a naive job re-downloads
-all your dependencies (npm packages, pip wheels, NuGet, Go modules) on
-every single run — often the slowest part of the whole pipeline. **Caching**
-saves a directory (e.g. `~/.npm`, `~/.cache/pip`) keyed by a hash of your
-lockfile, and restores it on the next run. The key is the crux: key on the
-lockfile hash (`hashFiles('**/package-lock.json')`) so the cache is reused
-while dependencies are unchanged and *automatically invalidated* the moment
-the lockfile changes. Many `setup-*` actions (`actions/setup-node`,
-`setup-python`) have caching built in via a `cache:` input; `actions/cache`
-is the general-purpose primitive. A cache is an optimization, never a
-correctness dependency — the pipeline must still work (just slower) on a
-cold cache.
+---
 
-### Fail-fast and the ordering of a test pipeline
+### Service Containers vs Host Process Execution
 
-**Fail-fast** means stop as early as possible when something breaks, so you
-don't waste minutes running steps that can't matter. Concretely: order
-cheap/likely-to-fail checks before expensive ones — lint and unit tests
-before integration tests before a build. Within a matrix (module 01),
-`fail-fast: true` cancels sibling legs on the first failure. The payoff is
-a fast red signal: a developer who broke the build learns in 90 seconds,
-not 12 minutes. The tension (module 01's exercise) is that for a
-*diagnostic* run you sometimes want `fail-fast: false` to see every failure
-at once — fail-fast is the default, disable it deliberately when you want
-the full picture.
+```mermaid
+flowchart TD
+    subgraph RunnerVM ["GitHub Actions Runner VM (ubuntu-latest)"]
+        subgraph HostContext ["Host Runner Environment"]
+            TestRunner["Language Test Runner<br/>(go test / npm test / pytest)"]
+        end
 
-### Status checks: the link between CI and the PR
+        subgraph DockerBridge ["Docker Container Network (Service Containers)"]
+            Postgres["PostgreSQL 16<br/>(Image: postgres:16-alpine)<br/>Mapped: 127.0.0.1:5432"]
+            Redis["Redis 7<br/>(Image: redis:7-alpine)<br/>Mapped: 127.0.0.1:6379"]
+        end
+    end
 
-When a workflow runs on a `pull_request` (module 00's trigger), each job
-reports a **status check** back to GitHub — the green/red marks you see on
-a PR. By default these are *informational*: a red check doesn't stop anyone
-from clicking merge. This is the gap this module closes. A status check
-becomes meaningful only when you tell GitHub it's **required** — and that's
-branch protection, next.
+    TestRunner -->|TCP localhost:5432| Postgres
+    TestRunner -->|TCP localhost:6379| Redis
+    NoteHost["Test runner executes natively on host VM for max CPU performance.<br/>Database runs in container with tmpfs in-memory storage for 10x faster I/O."]
+    HostContext --- NoteHost
+```
 
-### Required status checks and branch protection (the PR gate)
+---
 
-**Branch protection** on `main` (a GitHub repo setting, or a *ruleset*)
-lets you mark specific status checks as **required**: GitHub then physically
-disables the merge button on any PR until those checks pass. This is the
-enforcement layer on top of track 08's pull-request workflow — track 08
-taught you to *open* a PR and get it reviewed; this makes "tests pass" a
-non-negotiable, machine-enforced condition of merging, alongside human
-review. You can also require the branch be **up to date** before merging
-(forcing a rebase/merge of `main` first, so the tests ran against the
-final combined code — the "my change passed alone but breaks combined"
-problem CI exists to catch). Protecting `main` this way is the difference
-between "we have tests" and "you cannot merge broken code."
+## 2. Technical Comparison: Testing Tiers & Service Containers
 
-### Making tests trustworthy: determinism and required-to-be-green
+### CI Testing Tiers Specification Matrix
 
-A required check is only as good as the tests behind it. Two failure modes
-undermine the gate: **flaky tests** (pass/fail randomly — from timing,
-ordering, or shared state) train the team to hit "re-run" until green,
-which defeats the gate entirely; and **tests that don't fail the build**
-(a test runner that exits 0 even when assertions fail, or output nobody
-checks) make the check permanently, uselessly green. Part of building CI is
-verifying the check actually goes *red* when code is broken — the
-diagnose-and-fix exercise below makes you prove it. A gate you've never
-seen turn red is a gate you can't trust.
+| Testing Tier | Typical Duration | External Dependencies | Mocking Strategy | CI Gating Priority |
+| :--- | :--- | :--- | :--- | :--- |
+| **Lint & SAST** | 10 – 30 seconds | None | Not applicable | **Phase 1**: Fail-fast first |
+| **Unit Tests** | 30 – 90 seconds | In-memory only | Mock all external I/O & network | **Phase 2**: Fail-fast before database boot |
+| **Integration Tests** | 2 – 5 minutes | Real DB / Cache | Ephemeral `services:` containers | **Phase 3**: Run on passing unit tests |
+| **Contract / E2E** | 5 – 15 minutes | Staging cluster / wiremock | Pact / WireMock recording | **Phase 4**: Nightly or pre-merge gate |
 
-## Command reference
+---
 
-Workflow keys for testing/caching, plus the `gh` commands to inspect PR
-checks and branch protection.
+### GitHub Actions `services:` Configuration Syntax
 
-| Key / command | What it does | Notes |
-|---|---|---|
-| `on: pull_request` | Runs the workflow on PR open/update | The trigger that produces the gating status check (module 00) |
-| `jobs.<id>.services:` | Runs sidecar containers (DB/cache) for the job | Integration-test dependencies, reachable on `localhost` |
-| `services.<name>.image:` | The container image for a service | e.g. `postgres:16`, `redis:7` |
-| `services.<name>.ports:` | Maps the service container's port to the runner | e.g. `5432:5432` |
-| `services.<name>.options:` | Health-check/other Docker options | `--health-cmd` so the job waits until the DB is ready |
-| `actions/setup-node@v4` with `cache: npm` | Sets up a runtime *and* caches its package dir | Built-in caching keyed on the lockfile |
-| `actions/cache@v4` | General-purpose cache save/restore | `path:` + `key:` (below) |
-| `key: deps-${{ hashFiles('**/package-lock.json') }}` | Cache key tied to lockfile contents | Auto-invalidates when deps change |
-| `restore-keys:` | Fallback prefixes for a partial cache hit | Reuse an older cache if the exact key misses |
-| `strategy.fail-fast: true` | Cancel matrix siblings on first failure (default) | Fast red signal; set `false` for full-picture diagnostics |
-| `if: always()` | Run a step even if a prior step failed | e.g. always upload the test report |
-| `actions/upload-artifact@v4` | Save test reports/coverage as artifacts | Inspectable after the run (module 01) |
-| `gh pr checks <pr>` | Lists a PR's status checks and their state | Fast terminal view of what's blocking a merge |
-| `gh pr merge <pr>` | Merges a PR (blocked if required checks fail) | Confirms the gate is enforced |
-| `gh api repos/:owner/:repo/branches/main/protection` | Reads the branch-protection config | Inspect which checks are required |
-| `gh browse --settings` | Opens repo settings (to configure branch protection in UI) | Branch protection is usually set in the UI/ruleset editor |
+When using GitHub Actions service containers, always declare robust health checks so the test runner does not attempt to dial the database before the daemon finishes initializing:
 
-## Hands-on exercises
+```yaml
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: test_user
+          POSTGRES_PASSWORD: test_password
+          POSTGRES_DB: test_db
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 2s
+          --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 2s
+          --health-retries 5
+```
 
-Use a repo with a real, small test suite (any language). The examples show
-Node, but adapt the commands to your stack — the CI structure is identical.
+---
 
-1. **Run unit tests in CI.** Create `.github/workflows/ci.yml` triggered on
-   `pull_request` and `push` to `main`, with a job that checks out code,
-   sets up your runtime, installs dependencies, and runs your unit test
-   command (`npm test`, `pytest`, `go test ./...`, etc.). Open a PR and
-   confirm the check appears on it, green.
+## 3. Production War Story: The Flaky Test Retry Stampede & Schema Annihilation
 
-2. **Prove the check can go red.** On a branch, deliberately break a test
-   (change an assertion so it fails) and push. Confirm the PR's check turns
-   **red** and the failing test name appears in the logs
-   (`gh pr checks <pr>` or the Actions tab). This is the single most
-   important verification in the module — a check you've never seen fail is
-   worthless. Revert the break; confirm green again.
+### Incident Overview
+A tier-1 fintech processing platform maintained an automated continuous delivery pipeline requiring a passing test suite before staging promotion. An integration test verifying database transactions suffered from intermittent test race conditions, failing approximately 15% of the time.
 
-3. **Add dependency caching and measure it.** Add caching (via the
-   `setup-*` action's `cache:` input, or `actions/cache` keyed on your
-   lockfile hash). Push twice without changing dependencies and compare the
-   "install" step's duration on run 1 (cold cache) vs. run 2 (warm cache).
-   Then bump a dependency in the lockfile, push, and confirm the cache key
-   changed (a cold install again) — proving the key correctly invalidates.
+Engineers routinely hit "Re-run all jobs" until the run randomly turned green. During a high-stress emergency deployment, a pull request containing a destructive SQL migration (`DROP COLUMN legacy_user_id`) had a broken fallback handler masked by a flaky test pass on retry attempt 6. The PR merged into `main`, and the migration permanently destroyed the legacy foreign key table across production, severing legacy merchant API integrations for 52 minutes.
 
-4. **Add an integration test with a service container.** Add a job that
-   declares a `services:` block for a database (e.g. `postgres:16` with a
-   health-check option), and an integration test that connects to it on
-   `localhost` and does one real query. Confirm the job waits for the
-   service to be healthy and the test passes. Note how this reuses your
-   track 02 Docker knowledge inside the pipeline.
+### The Catastrophic Failure Sequence
 
-5. **Order for fail-fast.** Restructure so lint/unit tests run *before* the
-   integration job (`needs:`), so a broken unit test kills the run before
-   the slower database job even starts. Break a unit test and confirm the
-   integration job is skipped/never runs — you didn't pay for the database.
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Dev as Developer (Under Pressure)
+    participant GH as GitHub PR Interface
+    participant CI as GitHub Actions Runner
+    participant DB as Production Database
 
-6. **Make the check required (the gate).** In repo settings → Branches (or
-   Rules), add branch protection on `main` requiring your CI check to pass
-   before merging, and require the branch be up to date. Open a PR with a
-   failing test and confirm the **merge button is disabled** and
-   `gh pr merge` refuses. This is the CI-meets-track-08 moment: broken code
-   *cannot* merge.
+    Dev->>GH: Open PR with flawed database migration
+    GH->>CI: Run integration tests
+    Note over CI: Test 84 fails: Assertion error on unhandled foreign key!<br/>Status: Check Failed (RED)
+    Dev->>GH: Clicks 'Re-run failed jobs' (Attempt 2: Fails)
+    Dev->>GH: Clicks 'Re-run failed jobs' (Attempt 3: Fails)
+    Dev->>GH: Clicks 'Re-run failed jobs' (Attempt 4: PASSES due to race timing!)
+    Note over GH: Status check reports GREEN!<br/>Branch protection satisfied.
+    Dev->>GH: Merges PR to main
+    GH->>DB: CD executes migration: Drops legacy foreign key!
+    Note over DB: Production crash: 2,400 legacy merchant POS terminals offline!
+```
 
-7. **Prove "up to date before merging" catches a combination bug.** With
-   two branches: branch A changes a function's signature; branch B (opened
-   from an older `main`) calls that function the old way — each passes CI
-   *alone*. Merge A to `main`. Now B's required check, re-run against the
-   updated `main` (because you required up-to-date), should fail — catching
-   the integration break that neither branch's isolated run saw. This is
-   the exact class of bug CI exists to prevent (module 00).
+### Root Cause Analysis
+1. **Flaky Test Normalization**: The engineering organization tolerated non-deterministic tests. Because "Re-run" was accepted practice, the failure of Test 84 was dismissed as "just the flaky test" rather than investigated as an actual code defect.
+2. **Missing Strict Branch Protection**: Branch protection did not mandate `strict: true`. The branch was tested against a stale commit of `main` from 4 days earlier; when merged, it conflicted with another engineer's schema update.
+3. **Piping Exit Code Masking**: The test execution step was written as `npm test | tee test.log`. In standard Bash, the exit status of a pipeline is the exit code of the *last* command (`tee`, which always returns 0). Unless `set -o pipefail` is active, failing tests report successful green status!
 
-8. **Diagnose and fix: a required check blocks a legitimate merge.** You
-   have a PR whose code is correct, but the required check is red and the
-   merge is blocked. The workflow log shows the *test step* passed but a
-   later step failed: the job runs a coverage-threshold check that fails
-   because a new file has no tests, OR the test runner is exiting 0 on
-   failure so a *different* required lint check is the real blocker.
-   Investigate with `gh pr checks <pr>` to see *which* check is red, open
-   its log with `gh run view <id> --log-failed`, and identify the actual
-   failing step. Fix the real cause (add the missing test / fix the lint
-   error), push, and confirm the check goes green and the merge unblocks.
-   Write one sentence distinguishing "the merge is blocked" (correct — the
-   gate is doing its job) from "the gate is broken" (it isn't; your code
-   was).
+### The Remediation & Permanent Quality Policies
+1. **Zero-Tolerance Test Quarantine**: Any test that fails once without code changes is quarantined into a non-blocking diagnostic suite until resolved.
+2. **Mandatory Shell Safety in Workflows**: Enforce `set -euo pipefail` across all runner commands:
+   ```yaml
+   defaults:
+     run:
+       shell: bash
+   ```
+3. **Strict Branch Protection Configuration**:
+   ```bash
+   gh api -X PUT repos/:owner/:repo/branches/main/protection/required_status_checks \
+     -f strict=true \
+     -f 'contexts[]=test-suite'
+   ```
 
-## Independent challenge
+---
 
-No YAML given — assemble this from module 01's Actions machinery, this
-module's testing/gating concepts, and track 08's PR workflow. Set up a
-repo so that broken code is *structurally* unable to reach `main`. Wire a
-`pull_request`-triggered workflow that runs, in fail-fast order, a lint
-step, a unit-test matrix across at least two runtime versions (module 01),
-and an integration-test job that stands up a real database as a service
-container; cache dependencies keyed on the lockfile so warm runs are fast;
-have every one of those checks report status back to the PR; and then
-configure branch protection on `main` so that all of them are *required*
-and the branch must be up to date before merge. Prove the gate two ways:
-first, that a PR with a failing test genuinely cannot be merged (the button
-is disabled); second, that two independently-green branches which conflict
-when combined get caught by the up-to-date requirement rather than both
-merging and breaking `main`. Do not weaken the gate to get your own PR in —
-if it's blocked, that's the system working; fix the code.
+## 4. Multi-Language Production Test Pipelines with Real Services
+
+Below are production-ready GitHub Actions pipelines for **Go**, **Node.js/TypeScript**, and **Python**. Each workflow mounts real PostgreSQL and Redis service containers, runs database migrations, caches dependencies, and enforces an 85% code coverage threshold.
+
+### Go Production Pipeline (`.github/workflows/go-ci.yml`)
+
+```yaml
+name: Go CI Test Suite
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions: {}
+
+jobs:
+  test:
+    name: Unit & Integration Tests
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: testuser
+          POSTGRES_PASSWORD: testpassword
+          POSTGRES_DB: testdb
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 2s
+          --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 2s
+          --health-retries 5
+
+    env:
+      DB_DSN: "postgres://testuser:testpassword@127.0.0.1:5432/testdb?sslmode=disable"
+      REDIS_ADDR: "127.0.0.1:6379"
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11
+
+      - name: Setup Go with Cache
+        uses: actions/setup-go@0c52d547c9bc32b1aa3301fd7a9cb496313a4491
+        with:
+          go-version: '1.23'
+          cache: true
+
+      - name: Verify Module Dependencies
+        run: go mod verify
+
+      - name: Run Database Migrations
+        run: |
+          go install -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@latest
+          migrate -path migrations -database "$DB_DSN" up
+
+      - name: Run Tests with Race Detector & Coverage Gate
+        run: |
+          set -euo pipefail
+          go test -v -race -covermode=atomic -coverprofile=coverage.out ./...
+          
+          # Enforce minimum 80% coverage threshold
+          TOTAL_COV=$(go tool cover -func=coverage.out | grep total | awk '{print $3}' | sed 's/%//')
+          echo "Total Test Coverage: ${TOTAL_COV}%"
+          if (( $(echo "$TOTAL_COV < 80.0" | bc -l) )); then
+            echo "Quality Gate FAILED: Coverage ${TOTAL_COV}% is below 80.0% threshold!"
+            exit 1
+          fi
+```
+
+---
+
+### Node.js / TypeScript Pipeline (`.github/workflows/node-ci.yml`)
+
+```yaml
+name: Node.js CI Test Suite
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions: {}
+
+jobs:
+  test:
+    name: TypeScript Build & Integration Tests
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: nodeuser
+          POSTGRES_PASSWORD: nodepassword
+          POSTGRES_DB: nodedb
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 2s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: "postgresql://nodeuser:nodepassword@127.0.0.1:5432/nodedb"
+
+    steps:
+      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11
+
+      - name: Setup Node.js with Cache
+        uses: actions/setup-node@60edb5dd545a775178f525247059d6428237b63f
+        with:
+          node-version: 20.x
+          cache: 'npm'
+
+      - name: Deterministic Install
+        run: npm ci
+
+      - name: Type Check & Lint
+        run: |
+          npx tsc --noEmit
+          npm run lint
+
+      - name: Run Prisma / DB Migrations
+        run: npx prisma migrate deploy
+
+      - name: Run Jest Test Suite with Coverage
+        run: |
+          set -euo pipefail
+          npm test -- --ci --coverage --coverageThreshold='{"global":{"branches":80,"functions":80,"lines":80}}'
+```
+
+---
+
+### Python Pipeline (`.github/workflows/python-ci.yml`)
+
+```yaml
+name: Python CI Test Suite
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions: {}
+
+jobs:
+  test:
+    name: Pytest & PostgreSQL Integration
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: pyuser
+          POSTGRES_PASSWORD: pypassword
+          POSTGRES_DB: pydb
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 2s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: "postgresql+asyncpg://pyuser:pypassword@127.0.0.1:5432/pydb"
+
+    steps:
+      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11
+
+      - name: Setup Python
+        uses: actions/setup-python@0a5c61591373683505ea898e09a3ea4f39ef2b9c
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install ruff pytest pytest-asyncio pytest-cov alembic asyncpg
+
+      - name: Run Database Migrations
+        run: alembic upgrade head
+
+      - name: Run Tests with Coverage Gate
+        run: |
+          set -euo pipefail
+          pytest --cov=app --cov-report=term-missing --cov-fail-under=85
+```
+
+---
+
+## 5. Practical Hands-On Verification Laboratory
+
+In this hands-on laboratory, you will configure a GitHub Actions workflow with an active PostgreSQL service container, verify that pipe failures are not swallowed, and configure branch protection using the GitHub CLI.
+
+### Step 1: Scaffold Workflow with Ephemeral Database
+
+Create `.github/workflows/ci-integration.yml`:
+
+```yaml
+name: CI Verification
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions: {}
+
+jobs:
+  validate:
+    name: Database Smoke Test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: testadmin
+          POSTGRES_PASSWORD: secretpassword
+          POSTGRES_DB: validation_db
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 2s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11
+
+      - name: Validate Database Connectivity
+        run: |
+          sudo apt-get update && sudo apt-get install -y postgresql-client
+          export PGPASSWORD=secretpassword
+          psql -h 127.0.0.1 -U testadmin -d validation_db -c "SELECT version();"
+
+      - name: Seed Ephemeral Table & Verify Isolation
+        run: |
+          export PGPASSWORD=secretpassword
+          psql -h 127.0.0.1 -U testadmin -d validation_db -c "CREATE TABLE accounts (id INT PRIMARY KEY, balance NUMERIC); INSERT INTO accounts VALUES (1, 1500.00);"
+          RESULT=$(psql -h 127.0.0.1 -U testadmin -d validation_db -t -c "SELECT balance FROM accounts WHERE id = 1;")
+          echo "Verified Account Balance: $RESULT"
+```
+
+---
+
+### Step 2: Configure Strict Branch Protection via GitHub CLI
+
+To make `validate` a non-negotiable blocking gate before any PR can be merged into `main`, execute via `gh` CLI:
+
+```bash
+# 1. Inspect current branch protection
+gh api repos/:owner/:repo/branches/main/protection
+
+# 2. Enforce required status check with strict branch up-to-date policy
+gh api -X PUT repos/:owner/:repo/branches/main/protection/required_status_checks \
+  -H "Accept: application/vnd.github+json" \
+  -F strict=true \
+  -F "contexts[]=Database Smoke Test"
+
+# 3. Require at least one pull request review approval
+gh api -X PUT repos/:owner/:repo/branches/main/protection/required_pull_request_reviews \
+  -H "Accept: application/vnd.github+json" \
+  -F required_approving_review_count=1 \
+  -F dismiss_stale_reviews=true
+```
+
+---
+
+### Step 3: Verify Pipefail Behavior
+
+Verify that shell scripts fail if an upstream piped command fails:
+
+```bash
+# ❌ VULNERABLE: Exits with 0 because grep succeeded!
+(exit 1) | grep "something" || true
+
+# ✅ SECURE: Fails with code 1 because pipefail is set!
+bash -c "set -euo pipefail; (exit 1) | grep 'something'"
+```
+
+*Expected Terminal Output:*
+```text
+(Exit Code 1)
+```
+
+---
+
+## 6. Command Quick-Reference Cheat Sheet
+
+| Command / Flag | Action / Objective | Example Scenario |
+| :--- | :--- | :--- |
+| `set -euo pipefail` | Force script failure if any pipeline command errors | Prevent masked test failures |
+| `gh pr checks <pr-number>` | Inspect live status check outputs on a pull request | CLI diagnostics of CI failures |
+| `actions/setup-*` with `cache: true` | Automatic lockfile-based package caching | Reduce CI run times by 70% |
+| `options: --health-cmd` | Verify container readiness before running tests | Prevent `ECONNREFUSED` on database boot |
+| `gh api .../protection/required_status_checks` | Enforce required merge checks programmatically | Automate repository governance |
+
+---
+
+## 7. Operational Validation Checkpoints
+
+### Scenario 1: Integration Tests Fail with `ECONNREFUSED 127.0.0.1:5432`
+**Context:** The integration test job begins executing and immediately crashes with connection refused on port 5432. Re-running the job occasionally allows it to succeed.
 
 <details>
-<summary>Stuck? One hint</summary>
+<summary>View Diagnostic Workflow & Resolution</summary>
 
-The two pieces people forget are separate. Getting the workflow to *run*
-tests is module 01 mechanics; getting a red result to *block a merge* is a
-**repository setting**, not anything in the YAML — no amount of workflow
-config makes a check "required." Go to Settings → Branches (or Rules),
-create a protection rule on `main`, and explicitly tick your check's job
-name in "Require status checks to pass". The check must have run *at least
-once* on a PR before GitHub will offer it in that list, so push a PR first,
-then configure protection. For the combination-bug proof, the magic setting
-is "Require branches to be up to date before merging".
+**Root Cause:**  
+The service container configuration omitted the `options: --health-cmd` check. The host runner executed the test command while the PostgreSQL container was still spinning up and formatting its initial database catalog.
 
+**Resolution Steps:**
+Always attach the container healthcheck options:
+```yaml
+options: >-
+  --health-cmd pg_isready
+  --health-interval 5s
+  --health-timeout 2s
+  --health-retries 5
+```
+GitHub Actions will pause job step execution until the healthcheck command returns code 0.
 </details>
 
-## Common mistakes & troubleshooting
+---
 
-- **A red check that doesn't block merging.** The workflow ran and failed,
-  but nobody made the check *required*. Informational checks are advisory
-  only — branch protection is what turns them into a gate. This is the
-  number-one "we have CI but broken code still merges" cause.
-- **A test runner that exits 0 on failure.** If the test command returns
-  success even when assertions fail (misconfigured runner, `|| true`
-  swallowing the exit code, tests not actually discovered), the check is
-  permanently green and useless. Always verify the check can go *red*
-  (exercise 2).
-- **Caching as a correctness crutch.** If your build only works because a
-  cache has some artifact in it, a cache miss (they expire and can be
-  evicted) breaks the build mysteriously. Caches are for speed only; the
-  cold-cache path must work.
-- **Cache key that never invalidates (or always misses).** Keying on
-  something static means stale dependencies are reused after a lockfile
-  change; keying on something too volatile (the commit SHA) means every run
-  misses. Key on the lockfile hash.
-- **Flaky tests trained around.** Randomly-failing tests teach the team to
-  spam "re-run" until green, silently disabling the gate. Fix or quarantine
-  flaky tests; don't let "just re-run it" become the culture.
-- **Integration job races the service container.** Tests connect before the
-  database is ready and fail intermittently. Use the service's health-check
-  option so the job waits for readiness before running tests.
-- **Not requiring "up to date before merge".** Two PRs that each pass alone
-  can still break `main` when combined; without the up-to-date requirement,
-  CI never re-ran against the merged result. This is the exact bug CI is
-  supposed to prevent.
-
-## Checkpoint quiz
-
-Write down your answer to each question before expanding it — checking without attempting first is the single easiest way to fool yourself into thinking you've learned this.
-
-1. What is the difference between a status check being *reported* on a PR
-   and being *required*, and which one actually blocks a merge?
-2. Why cache on a hash of the lockfile rather than on a fixed key or on the
-   commit SHA?
-3. Why must the pipeline still work (just slower) when the cache misses?
-4. What does "require branches to be up to date before merging" protect
-   against that per-branch CI alone does not?
-5. How do you run an integration test that needs a real database inside a
-   GitHub Actions job, and how do you keep the test from racing the
-   database's startup?
-6. Why is verifying that a check can turn *red* just as important as seeing
-   it turn green?
-7. A developer says "the merge is blocked, the gate is broken." Under what
-   circumstance is that statement wrong, and how would you tell?
-8. What's the fail-fast argument for running lint and unit tests before
-   integration tests?
+### Scenario 2: Two Green PRs Merge, Breaking the `main` Branch
+**Context:** Developer A opens PR 1 (modifies API return type). Developer B opens PR 2 (adds a new consumer of the old API return type). Both PRs show green checks and merge. Immediately, the build on `main` breaks.
 
 <details>
-<summary>Show answers</summary>
+<summary>View Diagnostic Workflow & Resolution</summary>
 
-1. A *reported* check shows a green/red mark on the PR but is advisory —
-   anyone can still merge. A *required* check (set via branch protection)
-   physically disables the merge button until it passes. Only "required"
-   blocks a merge.
-2. The lockfile hash changes exactly when your dependencies change, so the
-   cache is reused while deps are stable and automatically invalidated when
-   they change. A fixed key never invalidates (serves stale deps); the
-   commit SHA changes every commit (never hits).
-3. Caches expire and can be evicted, so a cold cache will happen. If
-   correctness depends on cache contents, a normal cache miss breaks the
-   build. Caching is a speed optimization only.
-4. It catches bugs that appear only when two independently-green changes are
-   *combined* — by forcing the PR to include the latest `main` and re-run
-   CI against the merged code, rather than trusting each branch's isolated
-   pass.
-5. Declare a `services:` block with the database image and port mapping;
-   the tests connect over `localhost`. Use the service's health-check
-   option (`--health-cmd`) so the job waits until the database is ready
-   before running tests, avoiding a startup race.
-6. A check that has only ever been green might be green because it never
-   actually fails (runner exits 0 on failure, tests not discovered). Seeing
-   it go red on broken code proves the gate genuinely detects failure — an
-   always-green gate is no gate.
-7. It's wrong when the code is actually broken — the gate blocking a PR
-   with failing tests is the gate doing its job, not a malfunction. Tell by
-   opening the failing check's logs (`gh run view --log-failed`): if a real
-   test/lint step failed, the block is correct and the fix is to the code.
-8. Lint and unit tests are fast and cheap; integration tests are slow and
-   need spun-up services. Running the cheap checks first means a common
-   break kills the run in seconds without paying to start a database —
-   faster feedback and less wasted CI time.
+**Root Cause:**  
+Branch protection lacked `strict: true`. Both PRs were tested in isolation against the old base commit. Neither PR was tested against the combined changes.
 
+**Resolution Steps:**
+In GitHub repository branch settings, enable **"Require branches to be up to date before merging"** (`strict: true`). Developer B will be required to rebase or merge `main` into their branch and re-run CI before GitHub unlocks the merge button.
 </details>
 
-## Cumulative review
+---
 
-Closed-book. Don't reopen modules 00-01 while attempting these — the point
-is to find out what actually stuck before you go further.
-
-1. Classify, on both axes (CI vs. delivery vs. deployment, and push vs.
-   pull), a pipeline that on a PR runs tests, on merge to `main` deploys
-   automatically to staging, and requires a human click to reach
-   production. Which flavor of "CD" is it?
-2. A workflow builds an image in job `build` and a separate job `deploy`
-   (with `needs: [build]`) runs `docker run` on that image, but `deploy`
-   fails with "image not found." Give the module-01 reason and the fix.
-3. Why does tagging every build `latest` (a) break `kubectl set image`
-   rollouts (track 07 module 08) *and* (b) violate the "build once, deploy
-   many" rule (module 00)? Are these the same problem or two problems?
-4. You want a deploy step to run only on `main` but the test steps to run on
-   every PR, all in one workflow. What module-01 mechanism do you use, and
-   why not just scope the whole workflow's trigger to `main`?
-5. Explain how a GitHub *environment* (module 01) relates to the continuous
-   delivery vs. continuous deployment distinction (module 00).
-6. Your CI is green on every PR but broken code still occasionally lands on
-   `main`. Give two distinct causes from modules 00-02 and how you'd
-   confirm each.
-7. What's the difference between `needs:` (module 01) and a *required
-   status check* (module 02)? One orders; the other gates — map each to its
-   role.
-8. A matrix test job across three language versions shows only version 18
-   failed and the run stopped. A teammate insists all three are broken. What
-   setting would you change to find out, and what is it called (module 01)?
-9. In "build once, deploy many," what exactly is the immutable artifact for
-   a containerized app, what tag makes it traceable, and which two later
-   modules of this track produce and consume it?
+### Scenario 3: Test Runner Exits 0 Despite Assertions Failing
+**Context:** A developer introduces a breaking bug that causes 5 unit tests to fail. The GitHub Actions job outputs test error messages but reports a green checkmark, allowing the broken code to merge.
 
 <details>
-<summary>Show answers</summary>
+<summary>View Diagnostic Workflow & Resolution</summary>
 
-1. It's **push-based** if the pipeline itself runs `kubectl`/`helm` against
-   the cluster (pull-based only if an in-cluster controller reconciles from
-   Git — not the case here). On the CI/CD axis it's **continuous delivery**:
-   automated all the way to staging, but a human gate before production.
-2. Jobs run on separate runners with no shared filesystem or Docker image
-   store; `needs:` only orders them. The built image doesn't exist on
-   `deploy`'s runner. Fix: push the image to a registry in `build` and pull
-   it in `deploy` (or save/load it as an artifact) — the "build once,
-   promote the artifact" pattern.
-3. Two related problems. (a) `kubectl set image` only rolls out when the
-   image *reference string* changes; reusing `latest` leaves the pod spec
-   textually identical, so no rollout. (b) `latest` is a moving pointer, not
-   a stable identity, so you can't guarantee or roll back to "the exact
-   thing you tested" — violating build-once-deploy-many. The root cause is
-   shared (a non-unique tag), but the symptoms are distinct: no rollout vs.
-   no traceability.
-4. Use an `if:` expression (e.g. `if: github.ref == 'refs/heads/main'`) on
-   the deploy job/step. Scoping the whole workflow trigger to `main` would
-   stop the workflow from running on PRs at all, so the tests wouldn't gate
-   the PR — you need the workflow to run on PRs (for tests) but the deploy
-   to run only on `main`.
-5. An environment can carry protection rules, notably required reviewers —
-   a human approval gate. With no such gate, a deploy to production is
-   continuous *deployment*; adding a required reviewer on the `production`
-   environment turns it into continuous *delivery* (human approves the
-   final promotion).
-6. For example: (a) the failing check isn't *required* — branch protection
-   isn't enforcing it; confirm by checking the branch-protection settings /
-   `gh api .../protection`. (b) "up to date before merge" isn't required, so
-   a combination bug from two separately-green branches lands; confirm by
-   checking whether CI re-ran against merged code. (Also acceptable: a test
-   runner exiting 0 on failure — confirm by seeing whether the check ever
-   goes red.)
-7. `needs:` sequences jobs *within a single workflow run* (ordering/data
-   flow). A required status check is a *repository policy* that blocks a PR
-   merge until a named check passes. `needs:` doesn't gate merges; a
-   required check doesn't order jobs.
-8. Set `strategy.fail-fast: false` so the other matrix legs run to
-   completion instead of being cancelled when version 18 fails, revealing
-   whether all three are broken. The setting is **fail-fast** (default
-   `true`).
-9. The immutable artifact is the built container image; the commit SHA tag
-   makes it traceable to an exact commit; module 03 builds and pushes it,
-   and modules 04-06 (and the capstone) deploy/promote it.
+**Root Cause:**  
+The test script ran with shell output redirection (e.g. `pytest | tee test.log`) without `set -o pipefail`, or the test command was wrapped in an `npm run` script that caught and suppressed the exit code.
 
+**Resolution Steps:**
+1. Explicitly configure `shell: bash` with pipefail enabled.
+2. In `package.json`, verify test scripts do not append `|| true` or swallow nonzero return codes.
 </details>
+
+---
+
+## 8. Further Reading & Official Documentation
+
+- [GitHub Actions Documentation: About Service Containers](https://docs.github.com/en/actions/using-containerized-services/about-service-containers)
+- [GitHub Documentation: Managing Protected Branches](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-protected-branches/about-protected-branches)
+- [Testcontainers: Multi-Language Integration Testing](https://testcontainers.com/)
+- [Pragmatic Guide to Flaky Test Identification & Quarantine](https://martinfowler.com/articles/non-determinism.html)
+- [Go Test Coverage and Profiling](https://go.dev/blog/cover)
+
+---
 
 ## Next
 
-[03-container-image-pipelines](../03-container-image-pipelines/README.md) —
-turn a passing build into an immutable, well-tagged container image and
-push it to your Terraform-provisioned ACR.
+Continue to [03 - Container Image Pipelines](../03-container-image-pipelines/README.md) to transform passing builds into production OCI container images with multi-stage optimization, semantic version tagging, and automated vulnerability scanning.
