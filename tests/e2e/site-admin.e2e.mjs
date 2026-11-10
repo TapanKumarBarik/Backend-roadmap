@@ -95,8 +95,9 @@ test('the admin edits a learning path: steps come from the real folders, a bad o
     await openSite(page, 'Paths');
     const title = page.getByLabel('Title', { exact: true });
     await title.waitFor();
-    assert.equal(await title.inputValue(), 'Backend foundations');
-    assert.equal(await page.getByLabel('Step 1', { exact: true }).inputValue(), 'backend/01-request-response-fundamentals');
+    const first = JSON.parse(content('paths.json')).paths[0]; // the editor opens on the first path of the file
+    assert.equal(await title.inputValue(), first.title);
+    assert.equal(await page.getByLabel('Step 1', { exact: true }).inputValue(), first.steps[0]);
     await page.locator('.sa-list .sa-hint', { hasText: /\d+ modules?/ }).first().waitFor();
     assert.deepEqual(await unnamed(page), []);
 

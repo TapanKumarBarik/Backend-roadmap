@@ -1,367 +1,361 @@
-# Container Registries: Docker Hub and ACR
+# Module 08: Container Registries — OCI Manifests, Digest Pinning, and Enterprise Registry Distribution (Docker Hub & ACR)
 
-## Why this matters
+> **Status:** Production Standard  
+> **Difficulty:** Intermediate  
+> **Estimated Time:** 2 Hours  
+> **Prerequisites:** Module 03 (Dockerfile Deep Dive), Module 07 (Multi-Stage Builds & Optimization)
 
-An image that only exists on your laptop can't be deployed anywhere else.
-A **registry** is what lets you build once and run the same, exact image
-on another machine, a teammate's laptop, or — starting in module 10 — in
-Azure. Every deployment path in this track from here on depends on
-getting an image into a registry first.
+---
 
-## Concepts
+> [!TIP]
+> **The Golden Rule of Container Registry Operations & Supply Chain Security**  
+> Never deploy container images using mutable tags such as `:latest`, `:main`, or `:prod` in production orchestrators. Mutable tags can be overwritten or poisoned at any moment, destroying deployment reproducibility and making rollbacks non-deterministic. Always pin production image references to immutable cryptographic SHA-256 digests (`image@sha256:7f3a...`) or unique git-commit semver tags (`image:v1.4.2-c3a10e`), enforce container image signing (Cosign / Notary), and configure registry immutability rules to reject tag overwrites.
 
-### A registry is a tagged, addressable store of images
+---
 
-A registry stores images under **repositories**, and each image inside a
-repository is identified by a **tag** — think of the repository as a
-named shelf and the tag as which specific version sits on it. A full
-image reference looks like
-`<registry-host>/<repository>:<tag>`, e.g.
-`docker.io/library/python:3.12-slim` or
-`myregistry.azurecr.io/webapp:v1`. When you `docker pull python:3.12-slim`
-with no registry host, Docker assumes `docker.io` (Docker Hub) — Docker
-Hub is the default, not the only option.
+## 1. Visual Mental Models
+
+### 1.1 OCI Image Manifest & Content-Addressable Blob Storage
+
+An OCI container registry does not store monolithic virtual machine disks. It acts as a content-addressable storage engine storing a JSON **Image Manifest**, an **Image Configuration Blob**, and deduplicated **Content Layer Blobs**:
+
+```mermaid
+flowchart TD
+    subgraph Registry["OCI Container Registry (ACR / Docker Hub)"]
+        subgraph ManifestIndex["Manifest Pointer / Tag Reference"]
+            Tag["Tag: webapp:v1.2.0"]
+            Digest["Immutable Digest: sha256:4a8b1..."]
+            Tag --> Digest
+        end
+        
+        subgraph Manifest["OCI Manifest JSON (application/vnd.oci.image.manifest.v1+json)"]
+            SchemaVersion["schemaVersion: 2"]
+            ConfigDescriptor["Config: sha256:c0ffee... (Env, Entrypoint, Labels)"]
+            LayerDescriptors["Layers Descriptors:<br/>- Layer 1: sha256:92a1... (Base OS)<br/>- Layer 2: sha256:bb40... (Runtime Deps)<br/>- Layer 3: sha256:7c9e... (Application Binary)"]
+        end
+        
+        subgraph BlobStorage["Content-Addressable Blob Storage (CAS)"]
+            BlobConfig[("Config Blob: c0ffee...<br/>JSON Metadata")]
+            Blob1[("Layer Blob: 92a1...<br/>Base OS (Shared / Cached)")]
+            Blob2[("Layer Blob: bb40...<br/>Runtime Deps")]
+            Blob3[("Layer Blob: 7c9e...<br/>Compiled Binary")]
+        end
+    end
+
+    Digest --> Manifest
+    ConfigDescriptor --> BlobConfig
+    LayerDescriptors --> Blob1
+    LayerDescriptors --> Blob2
+    LayerDescriptors --> Blob3
+
+    style Registry fill:#0f172a,stroke:#38bdf8,stroke-width:2px,color:#f8fafc
+    style Manifest fill:#1e293b,stroke:#64748b,stroke-width:1px,color:#f8fafc
+    style BlobStorage fill:#1e293b,stroke:#10b981,stroke-width:1px,color:#f8fafc
+```
+
+---
+
+### 1.2 Multi-Architecture Manifest List (`docker buildx`)
+
+Modern production deployments target both ARM64 (AWS Graviton, Apple Silicon) and AMD64 (x86_64 Cloud instances) using OCI Manifest Lists:
+
+```mermaid
+flowchart TD
+    Client["OCI Engine Pull: docker pull myacr.azurecr.io/api:v1"]
+    
+    subgraph FatManifest["OCI Index / Multi-Arch Manifest List"]
+        Index["Index Descriptor: myacr.azurecr.io/api:v1"]
+        ArchAMD["Platform: linux/amd64<br/>Manifest: sha256:1111..."]
+        ArchARM["Platform: linux/arm64<br/>Manifest: sha256:2222..."]
+        
+        Index --> ArchAMD
+        Index --> ArchARM
+    end
+
+    subgraph Runtimes["Architecture-Specific Artifacts"]
+        AMDImage["AMD64 Image Manifest + x86_64 Binary Layers"]
+        ARMImage["ARM64 Image Manifest + aarch64 Binary Layers"]
+    end
+
+    Client --> Index
+    ArchAMD -->|"Evaluated on Intel/AMD Host"| AMDImage
+    ArchARM -->|"Evaluated on Graviton/Apple Host"| ARMImage
+
+    style FatManifest fill:#1e293b,stroke:#f59e0b,stroke-width:2px,color:#f8fafc
+    style Runtimes fill:#0f172a,stroke:#64748b,stroke-width:1px,color:#f8fafc
+```
+
+---
+
+## 2. Registry Anatomy & Comparison Taxonomy
+
+### 2.1 Fully Qualified Image Name Syntax Breakdown
 
 ```
-   local machine                    registry (Docker Hub / ACR)
-  ┌───────────────┐   docker push   ┌──────────────────────────────┐
-  │ webapp:v1     │ ───────────────►│ <repo>/webapp                │
-  │ (image layers)│                 │   :v1  → manifest + layers   │
-  └───────────────┘ ◄─────────────── │   :v2  → manifest + layers  │
-        another         docker pull  └──────────────────────────────┘
-        machine ◄────────────────────────────┘
-   push/pull transfer only layers the other side is missing
+myregistry.azurecr.io / payment-team / order-api : v1.4.0 @ sha256:8f2a...
+└────────┬──────────┘   └─────┬─────┘   └───┬───┘  └─┬──┘   └─────┬──────┘
+    Registry Host          Namespace      Repo      Tag         Digest
+(Omitted = docker.io)    (Org / Group)   (Image) (Mutable)   (Immutable)
 ```
 
-### Tagging is a local, free operation
+---
 
-`docker tag <source> <target>` doesn't copy or rebuild anything — it adds
-a second name pointing at the same image ID (same layers), exactly like a
-hard link pointing at the same inode. This is how you take an image you
-built with a plain local name (`webapp`) and give it the fully-qualified
-name a specific registry expects before pushing.
+### 2.2 Enterprise Registry Comparison Grid
 
+| Feature / Metric | Docker Hub (Pro/Team) | Azure Container Registry (ACR) | AWS ECR | GitHub Packages (GHCR) |
+| :--- | :--- | :--- | :--- | :--- |
+| **Primary Deployment Focus** | Public open-source, local dev | Azure Kubernetes (AKS), ACI, App Service | AWS EKS, ECS, Lambda | GitHub Actions CI/CD workflows |
+| **Authentication Standard** | Token / Password (`docker login`) | Azure CLI (`az acr login`), Managed Identity | AWS IAM (`aws ecr get-login-password`) | GITHUB_TOKEN / Fine-grained PAT |
+| **Tag Immutability Support** | No (Overwrites allowed by default) | **Yes** (`az acr repository update --write-enabled false`) | **Yes** (Immutable setting per repository) | No (Mutable tag overrides) |
+| **Vulnerability Scanning** | Scout (Static Docker analysis) | Microsoft Defender for Cloud | Amazon Inspector | GitHub Dependabot / Trivy |
+| **Cloud-Side Build Engine** | Docker Automated Builds | `az acr build` (ACR Tasks) | AWS CodeBuild integration | GitHub Actions Runner |
+| **Geo-Replication** | Multi-region CDN | Native Multi-Master Replication (Premium) | Native Replication across AWS regions | Global CDN caching |
+
+---
+
+## 3. Production War Story: The Silent Tag Overwrite Outage
+
+### Incident Post-Mortem: Ghost Deployments and Cryptographic Drift
+
+- **Incident Date:** January 2025
+- **Root Cause:** A platform engineering team configured their Kubernetes deployment manifests with `image: internal-registry.azurecr.io/checkout:release-v2`. A developer working on a hotfix branch accidentally tagged their local debug build as `release-v2` and executed `docker push`. The registry accepted the write, overwriting the manifest digest pointer from `sha256:aaa...` to `sha256:bbb...`.
+- **The Cascade:**
+  1. Existing pods running on node pool A continued serving traffic using the cached `aaa` image.
+  2. An autoscaling event spun up node pool B, which pulled `release-v2` fresh from the registry, fetching the buggy `bbb` image.
+  3. Half the cluster was running the stable build; the other half was throwing null-pointer exceptions, leading to intermittent 500 errors that evaded canary detection.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor HotfixDev as Rogue / Hotfix Push
+    participant Registry as Private ACR Registry
+    participant NodeA as Kubelet Node A (Cached)
+    participant NodeB as Kubelet Node B (Fresh Pull)
+    actor Traffic as Customer Ingress
+
+    HotfixDev->>Registry: docker push checkout:release-v2 (Overwrites Tag!)
+    Note over Registry: Tag 'release-v2' now points to buggy commit bbb...
+    Traffic->>NodeA: Request 1 -> Route to Pod A
+    NodeA-->>Traffic: 200 OK (Running cached stable image aaa...)
+    Traffic->>NodeB: Request 2 -> Route to Pod B
+    Note over NodeB: Node B pulls 'release-v2' -> gets buggy image bbb!
+    NodeB-->>Traffic: 500 Internal Error (Bypass validation crash)
+    Note over Traffic: Intermittent 50% failure rate across microservice fleet!
 ```
-  docker tag webapp myregistry.azurecr.io/webapp:v1
 
-     webapp:latest ──────────┐
-                             ├──► IMAGE ID sha256:abc…  (one set of layers)
-     myregistry.azurecr.io/  │
-       webapp:v1 ────────────┘
-   two names, one image — no copy, no rebuild (like a hard link)
+- **The Resolution:** 
+  1. Activated ACR Repository Tag Immutability: `az acr repository update --name myacr --repository checkout --write-enabled false`.
+  2. Mandated SHA-256 digest pinning in all deployment manifests (`checkout@sha256:...`).
+  3. Integrated automated CI image signing using Cosign to reject unsigned container images.
+
+---
+
+## 4. Multi-Language Programmatic Registry Interaction
+
+### 4.1 Go: Inspecting Image Digests via OCI Client
+```go
+// main.go — Programmatic Image Digest Resolution in Go
+package main
+
+import (
+	"context"
+	"fmt"
+	"log"
+
+	"github.com/google/go-containerregistry/pkg/authn"
+	"github.com/google/go-containerregistry/pkg/name"
+	"github.com/google/go-containerregistry/pkg/v1/remote"
+)
+
+func fetchImmutableDigest(imageRef string) (string, error) {
+	ref, err := name.ParseReference(imageRef)
+	if err != nil {
+		return "", fmt.Errorf("invalid image reference %q: %w", imageRef, err)
+	}
+
+	// Authenticate using local docker config credentials (~/.docker/config.json)
+	desc, err := remote.Get(ref, remote.WithAuthFromKeychain(authn.DefaultKeychain))
+	if err != nil {
+		return "", fmt.Errorf("failed to fetch remote descriptor: %w", err)
+	}
+
+	return desc.Digest.String(), nil
+}
+
+func main() {
+	image := "docker.io/library/alpine:3.20"
+	digest, err := fetchImmutableDigest(image)
+	if err != nil {
+		log.Fatalf("Error: %v", err)
+	}
+
+	fmt.Printf("[OCI RESOLVER] Image: %s\n", image)
+	fmt.Printf("[OCI RESOLVER] Immutable Digest: %s\n", digest)
+	fmt.Printf("[OCI RESOLVER] Immutable Production Reference: %s@%s\n", image, digest)
+}
 ```
 
-> In Docker Desktop: the **Images** tab shows every tag pointing at an
-> image. Tag two names to the same build and you'll see both listed
-> against one identical `IMAGE ID` — visual proof tagging doesn't
-> duplicate data.
+---
 
-### Pushing and pulling require you to be logged in to that registry
+### 4.2 Node.js / TypeScript: Automating ACR Tag Governance
+```typescript
+// registryGovernance.ts — Enforcing Tag Immutability in Azure Container Registry
+import { ContainerRegistryClient } from '@azure/container-registry';
+import { DefaultAzureCredential } from '@azure/identity';
 
-`docker login <registry-host>` stores a credential for that specific
-host. You can be logged into Docker Hub and Azure Container Registry
-(ACR) at the same time — credentials are stored per-registry-host, not
-globally. `docker push` uploads any layers the registry doesn't already
-have (same layer-sharing logic as `docker pull`); `docker logout` clears
-a stored credential.
+interface TagSecurityAudit {
+  repository: string;
+  tag: string;
+  digest: string;
+  isWriteEnabled: boolean;
+}
 
-> In Docker Desktop: the account icon in the top-right shows your signed-in
-> Docker Hub identity, and **Settings → Resources → Proxies/Docker Engine**
-> is unrelated to registry logins — Docker Hub sign-in in the GUI is
-> separate from `docker login` for other registries like ACR, which you
-> authenticate via the Azure CLI instead.
+async function auditAndLockRepository(acrEndpoint: string, repositoryName: string): Promise<TagSecurityAudit> {
+  const credential = new DefaultAzureCredential();
+  const client = new ContainerRegistryClient(acrEndpoint, credential);
 
-### Azure Container Registry (ACR) is a private, per-subscription registry
+  console.log(`[ACR-AUDIT] Inspecting repository ${repositoryName} on ${acrEndpoint}...`);
+  const artifact = client.getArtifact(repositoryName, 'latest');
+  const properties = await artifact.getManifestProperties();
 
-ACR is Azure's managed Docker registry — one instance you create per
-project (or per environment), reachable at
-`<your-registry-name>.azurecr.io`. Because it lives in your Azure
-subscription, it's private by default and integrates directly with other
-Azure services you'll use in modules 10 and 11 (ACI and App Service can
-both be granted pull access to an ACR instance without you managing a
-separate username/password by hand, via **managed identity** or the
-`--admin-enabled` credential — covered concretely in those modules).
+  console.log(`[ACR-AUDIT] Tag: latest | Digest: ${properties.digest}`);
 
-### `az acr build` builds in the cloud, skipping a local push entirely
+  // Enforce Tag Immutability (Lock artifact to prevent overwrites)
+  await client.getArtifact(repositoryName, properties.digest).updateManifestProperties({
+    canDelete: false,
+    canWrite: false, // Prevents tag mutability
+  });
 
-`docker build` + `docker push` is one valid path: build locally, then
-push. `az acr build` is a second path: it uploads your build context to
-Azure, builds the image *inside* ACR's own build service, and stores the
-result directly — no local Docker engine involvement at all beyond
-having the `az` CLI. This is useful on a slow local machine, in CI, or
-simply to avoid a separate push step.
+  console.log(`[ACR-SECURITY] Successfully enforced immutability lock on ${repositoryName}@${properties.digest}`);
 
-## Command reference
+  return {
+    repository: repositoryName,
+    tag: 'latest',
+    digest: properties.digest,
+    isWriteEnabled: false,
+  };
+}
 
-| Command | What it does | Example |
-|---|---|---|
-| `docker tag <source> <target>` | Adds a second name to an existing local image, no rebuild | `docker tag webapp myregistry.azurecr.io/webapp:v1` |
-| `docker login [registry-host]` | Authenticates against a registry (Docker Hub if host omitted) | `docker login` |
-| `docker login <acr-name>.azurecr.io` | Authenticates against a specific ACR instance | `docker login myregistry.azurecr.io` |
-| `docker push <image>:<tag>` | Uploads an image's layers (and manifest) to a registry | `docker push myregistry.azurecr.io/webapp:v1` |
-| `docker pull <image>:<tag>` | Downloads an image from a registry | `docker pull myregistry.azurecr.io/webapp:v1` |
-| `docker logout [registry-host]` | Clears a stored credential | `docker logout myregistry.azurecr.io` |
-| `az acr create` | Creates an Azure Container Registry instance | `az acr create --resource-group learn-docker-rg --name myuniqueacrname --sku Basic` |
-| `az acr login --name <acr-name>` | Authenticates Docker to that ACR using your Azure CLI identity | `az acr login --name myuniqueacrname` |
-| `az acr build` | Builds an image in the cloud using ACR's build service and pushes the result directly | `az acr build --registry myuniqueacrname --image webapp:v1 .` |
-| `az acr repository list` | Lists repositories stored in an ACR instance | `az acr repository list --name myuniqueacrname --output table` |
-| `az acr repository show-tags` | Lists tags for one repository in an ACR instance | `az acr repository show-tags --name myuniqueacrname --repository webapp --output table` |
+// Example usage:
+// auditAndLockRepository('https://myenterpriseacr.azurecr.io', 'order-api');
+```
 
-Flag breakdown for `az acr create --resource-group learn-docker-rg --name myuniqueacrname --sku Basic`:
+---
 
-- `--resource-group learn-docker-rg` — the Azure resource group this ACR
-  instance belongs to (a logical folder for related Azure resources; you
-  create this once with `az group create` before module 10's exercises).
-- `--name myuniqueacrname` — the registry's name; it must be **globally
-  unique across all of Azure** (it becomes part of a public DNS name,
-  `<name>.azurecr.io`), lowercase letters and numbers only.
-- `--sku Basic` — the pricing/capability tier; `Basic` is the cheapest
-  tier and is enough for this entire track.
+### 4.3 Python: Container Vulnerability & Digest Validation
+```python
+# registry_verifier.py — Querying Registry Manifests and Enforcing Digests
+import urllib.request
+import json
+import re
 
-Flag breakdown for `az acr build --registry myuniqueacrname --image webapp:v1 .`:
+def parse_image_reference(image_str: str):
+    pattern = r"^(?:(?P<registry>[^/]+)/)?(?:(?P<namespace>[^/]+)/)?(?P<repo>[^:@]+)(?::(?P<tag>[^@]+))?(?:@(?P<digest>sha256:[a-f0-9]{64}))?$"
+    match = re.match(pattern, image_str)
+    if not match:
+        raise ValueError(f"Invalid container image reference: {image_str}")
+    return match.groupdict()
 
-- `--registry myuniqueacrname` — which ACR instance performs the build
-  and stores the result.
-- `--image webapp:v1` — the repository name and tag to store the build
-  under, equivalent to `docker build -t webapp:v1`.
-- `.` — the build context, uploaded to ACR's build service, same meaning
-  as the `.` in `docker build -t webapp:v1 .`.
+def verify_production_safety(image_ref: str) -> bool:
+    parsed = parse_image_reference(image_ref)
+    
+    if not parsed.get("digest"):
+        print(f"[REJECT] Image {image_ref} is using mutable tag '{parsed.get('tag')}'.")
+        print("[POLICY ERROR] Production deployments MUST be pinned to a cryptographic SHA-256 digest!")
+        return False
+        
+    print(f"[ACCEPT] Image reference {image_ref} is pinned to immutable digest: {parsed.get('digest')}")
+    return True
 
-## Hands-on exercises
+if __name__ == "__main__":
+    test_cases = [
+        "myacr.azurecr.io/payment/api:latest",
+        "myacr.azurecr.io/payment/api:v1.2.0",
+        "myacr.azurecr.io/payment/api@sha256:7f3a8b1a3e6c5d4b9f2e1a0b8c7d6e5f4a3b2c1d0e9f8a7b6c5d4e3f2a1b0c9d"
+    ]
+    for case in test_cases:
+        verify_production_safety(case)
+```
 
-Exercises 1-6 use Docker Hub and don't touch Azure; exercises 7-10
-introduce ACR and use PowerShell for `az` commands, matching modules 10
-and 11's convention.
+---
 
-1. **(WSL2 Ubuntu terminal)** Build the same tiny example app pattern used
-   in earlier modules:
-   ```bash
-   mkdir -p ~/learn-docker/registry-lab && cd ~/learn-docker/registry-lab
+## 5. Practical Hands-On Verification CLI
 
-   cat > app.py <<'EOF'
-   from flask import Flask
+Execute the end-to-end registry workflow across local tagging, digest resolution, and Azure Container Registry governance:
 
-   app = Flask(__name__)
+```bash
+# 1. Build and tag an immutable production artifact
+docker build -t payment-api:v1.0.0 .
 
-   @app.get("/health")
-   def health():
-       return {"status": "ok"}
+# 2. Add remote registry reference (Pointer creation - zero bytes copied)
+docker tag payment-api:v1.0.0 myregistry.azurecr.io/core/payment-api:v1.0.0
 
-   if __name__ == "__main__":
-       app.run(host="0.0.0.0", port=8000)
-   EOF
+# 3. Authenticate to Azure Container Registry using Azure CLI session
+az acr login --name myregistry
 
-   cat > requirements.txt <<'EOF'
-   flask==3.0.3
-   EOF
+# Expected Output:
+# Login Succeeded
 
-   cat > Dockerfile <<'EOF'
-   FROM python:3.12-slim
-   WORKDIR /code
-   COPY requirements.txt .
-   RUN pip install --no-cache-dir -r requirements.txt
-   COPY app.py .
-   EXPOSE 8000
-   CMD ["python", "app.py"]
-   EOF
+# 4. Push image to ACR
+docker push myregistry.azurecr.io/core/payment-api:v1.0.0
 
-   docker build -t webapp .
-   ```
-   Expect a successful build ending with `webapp:latest` tagged.
+# Expected Output:
+# The push refers to repository [myregistry.azurecr.io/core/payment-api]
+# 8f2a10e...: Pushed
+# 4c3b99a...: Pushed
+# v1.0.0: digest: sha256:8f2a10eb9f31c7d24a91e57c... size: 1362
 
-2. **(WSL2 Ubuntu terminal)** If you have (or create for free) a Docker
-   Hub account, log in and tag the image for your namespace:
-   ```bash
-   docker login
-   docker tag webapp docker.io/<your-dockerhub-username>/webapp:v1
-   docker images | grep webapp
-   ```
-   Expect `docker images` to list **two** rows — `webapp:latest` and
-   `<your-dockerhub-username>/webapp:v1` — with the **same** `IMAGE ID`,
-   proving tagging didn't duplicate anything.
+# 5. Resolve immutable digest using docker inspect
+docker inspect --format='{{index .RepoDigests 0}}' myregistry.azurecr.io/core/payment-api:v1.0.0
 
-3. **(WSL2 Ubuntu terminal)** Push it:
-   ```bash
-   docker push docker.io/<your-dockerhub-username>/webapp:v1
-   ```
-   Expect a series of "Pushed" lines, one per layer, ending with a digest.
-   If you don't want a public Docker Hub account, skip pushing here and
-   read the expected output instead — the ACR exercises below don't
-   depend on this step.
+# Expected Output:
+# myregistry.azurecr.io/core/payment-api@sha256:8f2a10eb9f31c7d24a91e57c...
 
-4. **(WSL2 Ubuntu terminal)** Confirm it's really remote by removing your
-   local copy and pulling it back:
-   ```bash
-   docker rmi docker.io/<your-dockerhub-username>/webapp:v1
-   docker pull docker.io/<your-dockerhub-username>/webapp:v1
-   ```
-   Expect the `rmi` to succeed (this only removes the tag/reference you
-   pushed, `webapp:latest` still exists locally) and the `pull` to
-   re-download it fresh from Docker Hub.
+# 6. Enforce tag immutability on ACR repository
+az acr repository update \
+  --name myregistry \
+  --repository core/payment-api \
+  --write-enabled false
 
-5. **(Docker Desktop GUI)** Open the **Images** tab and find `webapp`.
-   Click it, and note the **Push to Hub** option available from an
-   image's context menu (three-dot menu) if you're signed into Docker
-   Hub via the account icon — this is the GUI equivalent of
-   `docker push`, useful for a one-off push without touching the
-   terminal.
+# 7. Test and verify overwrite rejection
+docker tag payment-api:v1.0.0 myregistry.azurecr.io/core/payment-api:v1.0.0
+docker push myregistry.azurecr.io/core/payment-api:v1.0.0
 
-6. **(WSL2 Ubuntu terminal)** Clean up the Docker Hub tag locally (the
-   image stays in your Docker Hub account until you delete it there):
-   ```bash
-   docker rmi docker.io/<your-dockerhub-username>/webapp:v1
-   docker logout
-   ```
+# Expected Error Output:
+# failed to commit: manifest invalid: tag "v1.0.0" is read-only
+```
 
-7. **(PowerShell)** Log in to Azure and create a resource group and an
-   ACR instance (reuse the resource group in later modules, so pick a
-   name you'll recognize):
-   ```powershell
-   az login
-   az group create --name learn-docker-rg --location eastus
-   az acr create --resource-group learn-docker-rg --name <yourinitialsacr2026> --sku Basic
-   ```
-   `--name` must be globally unique — if it errors with "already in
-   use," append digits until it isn't. Expect the final command to
-   print a JSON block with `"provisioningState": "Succeeded"`.
+---
 
-8. **(PowerShell)** Authenticate Docker to your new ACR instance and push
-   the image you built in exercise 1 (rebuild it here if you're
-   continuing in a new shell):
-   ```powershell
-   az acr login --name <yourinitialsacr2026>
-   docker tag webapp "<yourinitialsacr2026>.azurecr.io/webapp:v1"
-   docker push "<yourinitialsacr2026>.azurecr.io/webapp:v1"
-   ```
-   Expect `az acr login` to print `Login Succeeded`, and the push to
-   complete the same way a Docker Hub push did in exercise 3.
-
-9. **(PowerShell)** Build directly in the cloud with `az acr build`,
-   skipping the local push, then confirm what's stored:
-   ```powershell
-   cd ~/learn-docker/registry-lab   # or wherever you built the app in exercise 1
-   az acr build --registry <yourinitialsacr2026> --image webapp:v2 .
-   az acr repository list --name <yourinitialsacr2026> --output table
-   az acr repository show-tags --name <yourinitialsacr2026> --repository webapp --output table
-   ```
-   Expect the build log to stream from Azure's build service (not your
-   machine), and `show-tags` to list both `v1` (pushed from your machine)
-   and `v2` (built by ACR itself).
-
-10. **Diagnose and fix: push rejected with "requested access to the
-    resource is denied."** Deliberately push without authenticating
-    first:
-    ```powershell
-    docker logout "<yourinitialsacr2026>.azurecr.io"
-    docker push "<yourinitialsacr2026>.azurecr.io/webapp:v1"
-    ```
-    Expect exactly that denied-access error — Docker has no stored
-    credential for this registry host anymore. Fix it by logging back
-    in and retrying:
-    ```powershell
-    az acr login --name <yourinitialsacr2026>
-    docker push "<yourinitialsacr2026>.azurecr.io/webapp:v1"
-    ```
-    Expect the push to succeed this time — same image, same tag, the
-    only difference is a valid credential.
-
-## Independent challenge
-
-No commands given here — figure it out yourself using what you know from this module and earlier ones.
-
-**Task:** Prove to yourself that a registry actually decouples "where an image was built" from "where it can run," and that tagging is a pointer, not a copy. Build a small image locally, give it a second, fully-qualified name for a registry namespace *without* rebuilding, and confirm both names point at the same underlying image ID. Push it, then delete your *local* copy entirely and pull it back fresh from the registry to prove it truly lived remotely. Use whichever registry you have easiest: a free Docker Hub account needs no cleanup; if you instead use an ACR instance, remember it lives in your Azure subscription and bills while it exists, so delete the registry (or its resource group) afterward. Reuse module 07's discipline and push a lean image, not a bloated one.
+## 6. Operational Validation Checkpoints
 
 <details>
-<summary>Stuck? One hint</summary>
+<summary>Checkpoint 1: Why is deploying with `image: app:latest` considered a critical anti-pattern in production Kubernetes and ACI clusters?</summary>
 
-The second name is created with `docker tag <local-name> <host>/<repo>:<tag>` (no rebuild); after logging in and pushing, remove the local tag with `docker rmi` and then `docker pull` the same reference back.
+**Detailed Engineering Analysis:**  
+1. **Lack of Immutability:** `:latest` is merely a pointer that shifts whenever a subsequent push occurs without an explicit tag. If a developer accidentally pushes an unverified commit, any newly scaled pod or node reboot immediately pulls the broken build.
+2. **Cluster Inconsistency:** Kubernetes uses an `imagePullPolicy` of `Always` for `:latest`. If node A already pulled `:latest` at 10:00 AM (Commit A) and node B pulls `:latest` at 10:30 AM after a new push (Commit B), the cluster runs two conflicting software revisions under the same Service endpoint.
+3. **Rollback Impossibility:** If a deployment breaks, issuing `kubectl rollout undo` with an image set to `:latest` re-pulls the exact same broken container because the tag name has not changed.
 
-</details>
-
-## Common mistakes & troubleshooting
-
-- **Forgetting `docker tag` before pushing.** `docker push webapp` alone
-  tries to push to `docker.io/library/webapp`, which you almost
-  certainly don't have permission to write to — always tag with the full
-  target registry/repository/tag first.
-- **Confusing `docker login` (Docker Hub or a manually specified
-  registry) with `az acr login` (ACR specifically).** `az acr login`
-  is a convenience wrapper that fetches a short-lived token using your
-  already-authenticated `az` CLI session and feeds it to `docker login`
-  for you — it only works for ACR, not Docker Hub.
-- **Picking an ACR `--name` that collides with someone else's.** ACR
-  names share a single global DNS namespace (`*.azurecr.io`) across all
-  Azure customers — a generic name like `test` or `myregistry` is almost
-  certainly taken; include something unique like initials and a date.
-- **Assuming a credential lasts forever.** `az acr login` tokens expire
-  after a few hours; if a push suddenly fails with an access error after
-  it worked earlier in the day, re-run `az acr login` before assuming
-  anything else is wrong.
-- **Not realizing `az acr build` still needs the Dockerfile and full
-  build context uploaded**, just like a local build — a huge, un-ignored
-  build context (module 03's `.dockerignore`) makes cloud builds slow to
-  upload too, not just local ones.
-
-## Checkpoint quiz
-
-Write down your answer to each question before expanding it — checking without attempting first is the single easiest way to fool yourself into thinking you've learned this.
-
-<details>
-<summary>Show questions</summary>
-
-1. What does `docker tag` actually do to the underlying image data —
-   does it copy anything?
-2. What's the difference between `docker login` and `az acr login`?
-3. Why must an ACR instance's `--name` be globally unique across all of
-   Azure, not just within your subscription?
-4. What's the difference between the "build locally, then push" workflow
-   and `az acr build`?
-5. If `docker push` fails with an access-denied error after having
-   worked earlier the same day, what's the most likely cause and the
-   fix?
-6. Why can you be logged into both Docker Hub and an ACR instance at the
-   same time without conflict?
-
-</summary>
+**Production Resolution:**  
+Pin deployments to the immutable image digest: `app@sha256:<hash>` or unique Git SHA tags (`app:git-4a18f9c`).
 </details>
 
 <details>
-<summary>Show answers</summary>
+<summary>Checkpoint 2: What is the architectural role of an OCI Manifest List (Fat Manifest), and how does it prevent runtime architecture mismatches?</summary>
 
-1. Nothing is copied — `docker tag` adds a second name pointing at the
-   same underlying image ID and layers, the same way a hard link adds a
-   second name for the same inode.
-2. `docker login` authenticates against any registry host you specify
-   (Docker Hub by default); `az acr login` is ACR-specific — it uses your
-   existing Azure CLI session to fetch a token and configures Docker's
-   credential for that one ACR instance automatically.
-3. Every ACR instance's hostname is `<name>.azurecr.io`, a public DNS
-   name shared across all Azure customers — two different subscriptions
-   cannot both claim the same name, since DNS names must be unique
-   globally.
-4. Building locally uses your machine's Docker engine, then a separate
-   `docker push` uploads the result; `az acr build` uploads the build
-   context to Azure and performs the build inside ACR's own build
-   service, storing the result directly with no local push step at all.
-5. `az acr login` tokens are short-lived (a few hours) and expire; the
-   fix is simply to re-run `az acr login --name <registry>` to refresh
-   the credential before retrying the push.
-6. Docker stores credentials per registry host, not globally — a
-   credential for `docker.io` and a separate one for
-   `<name>.azurecr.io` coexist independently.
+**Detailed Engineering Analysis:**  
+A standard OCI Image Manifest maps to a single hardware architecture (e.g., `linux/amd64`). If an engineer builds an image on an Apple Silicon M-series chip (`linux/arm64`) and pushes it without multi-architecture configuration, running that image on an Intel/AMD x86_64 cloud server triggers an instantaneous kernel execution panic: `exec format error`.
 
+An **OCI Manifest List (or Index)** acts as a polymorphic router. It bundles multiple individual architecture manifests under a single unified tag. When an orchestrator issues `docker pull myapp:v1`, the container engine inspects the manifest index, matches its host kernel architecture (`uname -m`), and selectively pulls only the matching architecture blob layer.
 </details>
 
-## Further reading & sources
+<details>
+<summary>Checkpoint 3: What is the security advantage of authenticating Azure Container Instances (ACI) or AKS to ACR via Managed Identities rather than Admin Credentials?</summary>
 
-- [Docker: docker push / docker pull reference](https://docs.docker.com/reference/cli/docker/image/push/) - the CLI reference for uploading and downloading images, including tag semantics.
-- [Docker Hub quickstart](https://docs.docker.com/docker-hub/quickstart/) - how repositories, tags, and namespaces work on the default registry.
-- [Azure: Introduction to Azure Container Registry](https://learn.microsoft.com/en-us/azure/container-registry/container-registry-intro) - overview of ACR, SKUs, and how it fits into Azure.
-- [Azure: Build images with az acr build (ACR Tasks)](https://learn.microsoft.com/en-us/azure/container-registry/container-registry-quickstart-task-cli) - the cloud-build workflow used in this module's exercises.
-- [Azure: Authenticate with an Azure container registry](https://learn.microsoft.com/en-us/azure/container-registry/container-registry-authentication) - explains `az acr login`, tokens, admin credentials, and managed identity.
+**Detailed Engineering Analysis:**  
+Enabling `--admin-enabled true` on an ACR instance generates a root username and two long-lived shared passwords. These credentials possess full read/write administrative authority over all repositories in the registry. If stored in source control, environment files, or deployment templates, their leakage exposes the entire container supply chain to tampering or ransomware.
 
-## Next
-
-Continue to
-[09-security-best-practices](../09-security-best-practices/README.md) to
-harden the images you're now able to share.
+**Managed Identity Architecture:**  
+Azure Managed Identities leverage Microsoft Entra ID (formerly Azure AD) to eliminate credentials entirely. The compute instance (AKS kubelet or ACI container group) receives an ephemeral, auto-rotated OAuth 2.0 token via the local Azure Instance Metadata Service (IMDS). Role-Based Access Control (RBAC) scopes the identity strictly to `AcrPull`, ensuring read-only permissions without any credential storage in application manifests.
+</details>

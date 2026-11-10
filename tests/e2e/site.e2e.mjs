@@ -51,6 +51,10 @@ const open = (url, options) => openPage(browser, url, options);
 
 // The built pages are read straight off disk (dist/), the way a crawler gets them, with no browser involved.
 const builtPage = (url) => fs.readFileSync(path.join(ROOT, 'dist', ...url.split('/').filter(Boolean), 'index.html'), 'utf8');
+// The title the build wrote into a page, as text. A lesson's title is its own heading, which its author changes, so a test compares the live page with
+// the built one instead of naming a title; what it asserts about the title itself is the rule (topic first, no "Module 01:").
+const unescapeHtml = (text) => text.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, '&');
+const builtTitle = (url) => unescapeHtml(/<title>([^<]*)<\/title>/.exec(builtPage(url))[1]);
 const ldOf = (html) => JSON.parse(/<script type="application\/ld\+json">(.*?)<\/script>/s.exec(html)[1]);
 // A PNG's size, read from its header (the 8-byte signature, then the IHDR chunk: width and height as 32-bit numbers).
 function pngSize(file) {
@@ -63,7 +67,8 @@ test('a lesson opens with a topic-first title, its heading, its text and real li
   const { context, page, problems, goto } = await open(LESSON);
   await goto();
   await page.waitForSelector('#content p');
-  assert.equal(await page.title(), 'Sessions and Cookies · Backend Roadmap');
+  assert.equal(await page.title(), builtTitle(LESSON), 'the live page says what the built page says');
+  assert.doesNotMatch(await page.title(), /^(Module|Lesson) \d+/, 'topic first, not the number');
   assert.match(await page.textContent('h1.doc-title'), /Sessions and Cookies/);
   // Only the open tracks draw their rows (a closed one is none of the page's elements), and every row that is drawn is a real link.
   const rows = await page.locator('#sidebar .row[data-file]').count();
@@ -131,7 +136,7 @@ test('a sidebar link opens the module in place; a click meant for a new tab is l
   await page.waitForURL('**' + NEXT_LESSON);
   await page.waitForSelector('h1.doc-title');
   assert.equal(await page.evaluate(() => window.__stillHere), true, 'the page was not reloaded');
-  assert.equal(await page.title(), 'JWT Deep Dive · Backend Roadmap');
+  assert.equal(await page.title(), builtTitle(NEXT_LESSON));
   await context.close();
 });
 
@@ -142,17 +147,17 @@ test("the browser's Back and Forward buttons walk the pages you have read, and t
   await page.evaluate(() => { window.__stillHere = true; });
   await page.locator(`#sidebar a.name[href="${NEXT_LESSON}"]`).click();
   await page.waitForURL('**' + NEXT_LESSON);
-  await page.waitForFunction(() => document.title === 'JWT Deep Dive · Backend Roadmap');
+  await page.waitForFunction((title) => document.title === title, builtTitle(NEXT_LESSON));
 
   await page.goBack();
   await page.waitForURL('**' + LESSON);
-  await page.waitForFunction(() => document.title === 'Sessions and Cookies · Backend Roadmap');
+  await page.waitForFunction((title) => document.title === title, builtTitle(LESSON));
   assert.match(await page.textContent('h1.doc-title'), /Sessions and Cookies/);
   assert.equal(await page.evaluate(() => window.__stillHere), true, 'Back stayed on the site, without a reload');
 
   await page.goForward();
   await page.waitForURL('**' + NEXT_LESSON);
-  await page.waitForFunction(() => document.title === 'JWT Deep Dive · Backend Roadmap');
+  await page.waitForFunction((title) => document.title === title, builtTitle(NEXT_LESSON));
 
   const entries = await page.evaluate(() => history.length);
   await page.locator(`#sidebar a.name[href="${NEXT_LESSON}"]`).click();
@@ -283,7 +288,8 @@ test('the built pages carry what search engines read', () => {
   const dist = path.join(ROOT, 'dist');
   assert.ok(fs.existsSync(dist), 'run `npm run build` first');
   const html = fs.readFileSync(path.join(dist, ...LESSON.split('/').filter(Boolean), 'index.html'), 'utf8');
-  assert.match(html, /<title>Sessions and Cookies · Backend Roadmap<\/title>/);
+  assert.match(html, /<title>[^<]{8,}<\/title>/);
+  assert.doesNotMatch(builtTitle(LESSON), /^(Module|Lesson) \d+/, 'topic first');
   assert.match(html, new RegExp(`<link rel="canonical" href="${config.site.url}${LESSON}">`));
   assert.match(html, /<link rel="preload" href="\/backend\/03-authentication-and-authorization\/01-sessions-and-cookies\/README\.md" as="fetch" crossorigin>/);
   assert.match(html, /<link rel="preload" href="\/docs-index\.json" as="fetch" crossorigin>/);

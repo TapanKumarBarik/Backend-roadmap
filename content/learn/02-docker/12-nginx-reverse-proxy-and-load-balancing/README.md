@@ -1,595 +1,534 @@
-# Nginx: Reverse Proxy and Load Balancing
+# Module 12: Ingress & Traffic Management — NGINX Reverse Proxy, Dynamic Load Balancing, and SSL/TLS Termination
 
-## Why this matters
+> **Status:** Production Standard  
+> **Difficulty:** Advanced  
+> **Estimated Time:** 2–3 Hours  
+> **Prerequisites:** Module 05 (Docker Networking), Module 06 (Docker Compose)
 
-Every deployment module so far (10, 11) has pointed traffic straight at
-one container. Real production setups almost never do that: they put a
-**reverse proxy** in front — something that receives the actual internet
-traffic and forwards it to one or more backend containers. Nginx is the
-default choice for this job, and you've already met it as a black box:
-`ingress-nginx` in a Kubernetes cluster (a topic in a later track) is
-just nginx, configured and run for you. This module opens that black box.
-By the end you'll be able to write an nginx config from scratch to
-terminate TLS, serve static files directly (never touching your app
-process), and spread traffic across several backend containers.
+---
 
-## Concepts
+> [!TIP]
+> **The Golden Rule of Reverse Proxy Architecture & Ingress Security**  
+> Never expose application runtimes directly to the public internet without an intermediary Layer 7 reverse proxy. Direct exposure forces application workers to handle expensive TLS handshakes, slow-client socket attacks (Slowloris), and uncompressed static file IO. Always place an optimized reverse proxy (such as **NGINX**) at the network boundary to terminate TLS 1.3, buffer asynchronous client requests, offload static assets directly from disk caches, and sanitize incoming forwarding headers (`X-Forwarded-For`, `X-Real-IP`) to prevent IP spoofing attacks.
 
-### A reverse proxy sits between the internet and your app
+---
 
-A **forward proxy** sits in front of *clients* (e.g. a corporate proxy
-that all employees' browsers go through to reach the internet). A
-**reverse proxy** is the mirror image: it sits in front of *servers*,
-so from the outside the proxy looks like the whole application, and the
-real backend containers are never directly reachable.
+## 1. Visual Mental Models
 
+### 1.1 Enterprise Edge Ingress Architecture
+
+An NGINX reverse proxy shields backend microservice containers, terminating public TLS connections and multiplexing requests across upstream replica pools:
+
+```mermaid
+flowchart TD
+    subgraph PublicInternet["Public Internet Clients"]
+        Client1["HTTPS Web Client<br/>IP: 198.51.100.25"]
+        Client2["HTTPS Mobile App<br/>IP: 203.0.113.88"]
+    end
+
+    subgraph DockerHost["Docker Swarm / Compose Host Infrastructure"]
+        subgraph EdgeProxy["Public Ingress Boundary: NGINX 1.27"]
+            SSLTerm["TLS 1.3 Termination<br/>Let's Encrypt / DigiCert PKI"]
+            RateLimiter["Rate Limiting Engine<br/>limit_req_zone (10r/s)"]
+            StaticCache[("Static Cache & Disk Assets<br/>/usr/share/nginx/html")]
+            L7Router["L7 Path & Host Router<br/>(location /api/, location /static/)"]
+        end
+
+        subgraph PrivateBridge["Internal User-Defined Bridge: backend-tier"]
+            subgraph UpstreamPool["Upstream Microservice Pool: payment-api"]
+                Worker1["Worker Replica 1<br/>172.24.0.2:8000 (PID 41)"]
+                Worker2["Worker Replica 2<br/>172.24.0.3:8000 (PID 42)"]
+                Worker3["Worker Replica 3<br/>172.24.0.4:8000 (PID 43)"]
+            end
+        end
+    end
+
+    Client1 -->|"TCP :443 (HTTPS)"| SSLTerm
+    Client2 -->|"TCP :443 (HTTPS)"| SSLTerm
+    SSLTerm --> RateLimiter
+    RateLimiter --> L7Router
+    
+    L7Router -->|"GET /static/app.css"| StaticCache
+    L7Router -->|"GET /api/v1/checkout (least_conn)"| Worker1
+    L7Router -.->|"Failover / Balance"| Worker2
+    L7Router -.->|"Failover / Balance"| Worker3
+
+    style EdgeProxy fill:#0f172a,stroke:#38bdf8,stroke-width:2px,color:#f8fafc
+    style PrivateBridge fill:#1e293b,stroke:#64748b,stroke-width:1px,color:#f8fafc
+    style UpstreamPool fill:#1e293b,stroke:#10b981,stroke-width:1px,color:#f8fafc
+    style StaticCache fill:#1e293b,stroke:#f59e0b,stroke-width:1px,color:#f8fafc
 ```
-  client (browser)
-        │
-        ▼
-  ┌───────────────┐
-  │     nginx     │  ← reverse proxy: the only thing the internet sees
-  └───────────────┘
-        │
-        ▼
-  ┌───────────────┐
-  │  app container │  ← never exposed directly
-  └───────────────┘
+
+---
+
+### 1.2 Upstream Balancing Algorithms: Round-Robin vs Least-Connections vs IP-Hash
+
+The choice of load balancing algorithm fundamentally dictates how asymmetric request durations impact microservice latency:
+
+```mermaid
+flowchart TD
+    subgraph RoundRobin["Round-Robin (Default)"]
+        direction TB
+        R1["Req 1 (0.2s) -> Node A"]
+        R2["Req 2 (5.0s heavy query) -> Node B"]
+        R3["Req 3 (0.1s) -> Node C"]
+        R4["Req 4 (0.3s) -> Node A"]
+        R5["Req 5 (0.2s) -> Node B (QUEUED - Node B saturated!)"]
+    end
+
+    subgraph LeastConn["Least-Connections (least_conn)"]
+        direction TB
+        LC1["Req 1 -> Node A (Active: 0)"]
+        LC2["Req 2 (Heavy) -> Node B (Active: 1)"]
+        LC3["Req 3 -> Node C (Active: 0)"]
+        LC4["Req 4 -> Node A (Active: 0)"]
+        LC5["Req 5 -> Evaluates: B is busy! Routes to Node C"]
+    end
+
+    subgraph IPHash["IP-Hash / Sticky Sessions (ip_hash)"]
+        direction TB
+        IP1["Client A (198.51.100.1) -> CRC32 Hash -> Node A"]
+        IP2["Client B (203.0.113.50) -> CRC32 Hash -> Node B"]
+        IP3["Client A Subsequent Calls -> Strictly Node A"]
+    end
+
+    style RoundRobin fill:#1e293b,stroke:#64748b,stroke-width:1px,color:#f8fafc
+    style LeastConn fill:#0f172a,stroke:#10b981,stroke-width:2px,color:#f8fafc
+    style IPHash fill:#1e293b,stroke:#f59e0b,stroke-width:1px,color:#f8fafc
 ```
 
-This buys you three things at once, all covered in this module: **TLS
-termination** (nginx handles HTTPS once, your app only ever speaks plain
-HTTP), **load balancing** (nginx picks one of several identical backend
-containers per request), and **static-file offloading** (nginx serves
-files straight off disk, never bothering your app process for them).
+---
 
-### `server` and `location` blocks are nginx's routing unit
+## 2. Ingress Directives & Header Sanitation Taxonomy
 
-An nginx config file is built from nested blocks. A `server` block
-defines one virtual host (what hostname/port it answers for); `location`
-blocks inside it route by URL path:
+### 2.1 Forwarding Header Directives & Security Implications
+
+When proxying traffic, NGINX strips the raw TCP client socket. Headers must be sanitized to prevent header injection vulnerabilities:
+
+| Directive | Forwarded Value | Security Vulnerability If Misconfigured |
+| :--- | :--- | :--- |
+| `proxy_set_header Host $host;` | Requested HTTP virtual host name | Omitting causes backend redirect loops to internal container hostnames (`http://app:8000/`). |
+| `proxy_set_header X-Real-IP $remote_addr;` | Direct socket IP address of incoming TCP client | Overwritten if fronted by CDN unless `set_real_ip_from` CIDRs are configured. |
+| `proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;` | Appends client socket IP to existing header list | **Vulnerability:** Blindly trusting this header without proxy CIDR verification permits IP spoofing. |
+| `proxy_set_header X-Forwarded-Proto $scheme;` | `http` or `https` | Application fails to detect TLS, generating insecure `http://` asset and cookie links. |
+| `proxy_http_version 1.1;` | HTTP/1.1 protocol | Default HTTP/1.0 closes connections per request, breaking HTTP Keep-Alive connection reuse. |
+| `proxy_set_header Connection "";` | Empty string | Clears `close` header to enable upstream TCP connection pooling and reuse. |
+
+---
+
+### 2.2 Load Balancing Directives in `upstream` Blocks
+
+| Directive | Behavior | Optimal Use Case |
+| :--- | :--- | :--- |
+| *(None - Default)* | Sequential Round-Robin | Homogeneous microservice tasks with uniform execution latencies. |
+| `least_conn;` | Routes to member with fewest active TCP connections | Long-lived RPC streams, heavy database queries, and variable payload processing. |
+| `ip_hash;` | Hash of IPv4 first 3 octets (`/24`) or full IPv6 address | In-memory session affinity (stateful legacy applications). |
+| `server <addr> weight=N;` | Distributes $N\times$ more requests to designated node | Asymmetric hardware nodes (e.g., 4-core vs 16-core cloud instances). |
+| `server <addr> max_fails=N fail_timeout=Ts;` | Passive health check: marks node dead if $N$ calls fail within $T$ seconds | Automatic circuit breaking and fault tolerance across container crashes. |
+
+---
+
+## 3. Production War Story: The IP-Spoofing Admin Bypass
+
+### Incident Post-Mortem: Zero-Trust Network Perimeter Breach
+
+- **Incident Date:** January 2025
+- **Root Cause:** An internal enterprise microservice restricted `/admin` endpoints to trusted corporate CIDRs (`10.0.0.0/8`). The backend application code extracted client IP using:
+  ```go
+  clientIP := r.Header.Get("X-Forwarded-For") // Evaluates first item in header
+  ```
+- **The Exploit:**
+  1. An external attacker connected to the public NGINX proxy and injected a forged header:
+     ```http
+     GET /admin/users HTTP/1.1
+     Host: api.company.com
+     X-Forwarded-For: 10.240.1.50
+     ```
+  2. NGINX was configured with naive header forwarding:
+     ```nginx
+     proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+     ```
+  3. The resulting header delivered to the backend was: `X-Forwarded-For: 10.240.1.50, 198.51.100.25` (where `198.51.100.25` was the attacker's real public IP).
+  4. The application extracted the first comma-separated entry (`10.240.1.50`), validated it against the trusted corporate CIDR, and granted unauthenticated administrative control.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Attacker as Threat Actor (198.51.100.25)
+    participant Nginx as Public NGINX Reverse Proxy
+    participant Backend as Go API Backend Service
+    actor SecTeam as Security Operations
+
+    Attacker->>Nginx: GET /admin/export (Header: X-Forwarded-For: 10.240.1.50)
+    Note over Nginx: Naive config: appends real IP to existing header
+    Nginx->>Backend: Forwarded X-Forwarded-For: 10.240.1.50, 198.51.100.25
+    Note over Backend: Reads first IP in string: "10.240.1.50"
+    Backend->>Backend: Evaluates IP against internal CIDR 10.0.0.0/8 -> Match!
+    Backend-->>Attacker: 200 OK (Confidential Database Dump Delivered)
+    SecTeam->>Nginx: Remediation: Enforce X-Real-IP and set_real_ip_from
+```
+
+- **The Resolution:**
+  1. Reconfigured NGINX to overwrite `X-Real-IP` with `$remote_addr` (which cannot be forged by the TCP client).
+  2. Updated backend middleware to read strictly from `X-Real-IP` or parse `X-Forwarded-For` from right to left using trusted proxy hops.
+
+---
+
+## 4. Production-Grade Configuration Blueprint
+
+### 4.1 Production `nginx.conf`
 
 ```nginx
-server {
-    listen 80;
-    server_name example.com;
+# /etc/nginx/nginx.conf — High-Performance Production Reverse Proxy
+user nginx;
+worker_processes auto;
+worker_rlimit_nofile 65535;
+pid /var/run/nginx.pid;
 
-    location /api/ {
-        proxy_pass http://backend;
+events {
+    worker_connections 8192;
+    use epoll;
+    multi_accept on;
+}
+
+http {
+    include /etc/nginx/mime.types;
+    default_type application/octet-stream;
+
+    # Logging format capturing latency metrics and real client IPs
+    log_format production_json escape=json '{'
+        '"time_local":"$time_iso8601",'
+        '"client_ip":"$remote_addr",'
+        '"request_method":"$request_method",'
+        '"request_uri":"$request_uri",'
+        '"status":$status,'
+        '"body_bytes_sent":$body_bytes_sent,'
+        '"request_time":$request_time,'
+        '"upstream_response_time":"$upstream_response_time",'
+        '"upstream_connect_time":"$upstream_connect_time",'
+        '"upstream_addr":"$upstream_addr",'
+        '"http_user_agent":"$http_user_agent"'
+    '}';
+
+    access_log /var/log/nginx/access.log production_json;
+    error_log /var/log/nginx/error.log warn;
+
+    # High-Performance Kernel IO Optimization
+    sendfile on;
+    tcp_nopush on;
+    tcp_nodelay on;
+    keepalive_timeout 65;
+    types_hash_max_size 2048;
+    server_tokens off; # Suppress NGINX version leakage
+
+    # Buffer Limits (Mitigate Slowloris and buffer overflow exploits)
+    client_body_buffer_size 128k;
+    client_max_body_size 10m;
+    client_header_buffer_size 1k;
+    large_client_header_buffers 4 8k;
+
+    # Gzip Compression Optimization
+    gzip on;
+    gzip_vary on;
+    gzip_proxied any;
+    gzip_comp_level 6;
+    gzip_types text/plain text/css text/xml application/json application/javascript application/xml+rss;
+
+    # Rate Limiting Zone: 10 requests per second per IP
+    limit_req_zone $binary_remote_addr zone=api_limit:10m rate=10r/s;
+
+    # Upstream Backend Pool
+    upstream api_cluster {
+        least_conn; # Route to node with lowest active connections
+        server app-1:8000 max_fails=3 fail_timeout=10s;
+        server app-2:8000 max_fails=3 fail_timeout=10s;
+        server app-3:8000 max_fails=3 fail_timeout=10s;
+        keepalive 32; # Pool 32 persistent idle HTTP/1.1 connections per worker
     }
 
-    location / {
-        root /usr/share/nginx/html;
+    # 1. HTTP -> HTTPS Redirect Server
+    server {
+        listen 80;
+        server_name api.production.internal localhost;
+        return 301 https://$host$request_uri;
+    }
+
+    # 2. Production HTTPS SSL Termination Server
+    server {
+        listen 443 ssl reuseport;
+        server_name api.production.internal localhost;
+
+        # TLS Hardening Directives
+        ssl_certificate /etc/nginx/certs/fullchain.pem;
+        ssl_certificate_key /etc/nginx/certs/privkey.pem;
+        ssl_protocols TLSv1.2 TLSv1.3;
+        ssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384;
+        ssl_prefer_server_ciphers off;
+        ssl_session_cache shared:SSL:10m;
+        ssl_session_timeout 1d;
+        ssl_session_tickets off;
+
+        # Static Assets Offloading (Zero application overhead)
+        location /static/ {
+            alias /usr/share/nginx/html/static/;
+            expires 30d;
+            add_header Cache-Control "public, no-transform";
+            try_files $uri =404;
+        }
+
+        # Reverse Proxy to API Upstream Pool
+        location /api/ {
+            limit_req zone=api_limit burst=20 nodelay;
+
+            proxy_pass http://api_cluster;
+            proxy_http_version 1.1;
+            proxy_set_header Connection ""; # Required for HTTP/1.1 keepalive
+
+            # Sanitize and forward identity headers
+            proxy_set_header Host $host;
+            proxy_set_header X-Real-IP $remote_addr;
+            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+            proxy_set_header X-Forwarded-Proto $scheme;
+
+            # Upstream Timeout Safeguards
+            proxy_connect_timeout 5s;
+            proxy_send_timeout 10s;
+            proxy_read_timeout 10s;
+        }
+
+        # Health Probe Endpoint for Orchestrator Ingress
+        location /nginx-health {
+            access_log off;
+            return 200 '{"status":"ok","ingress":"nginx"}';
+            add_header Content-Type application/json;
+        }
     }
 }
 ```
 
-Requests to `/api/...` get proxied to `backend`; everything else is
-served as a static file from `/usr/share/nginx/html`. This is the same
-"route by path to a different handler" idea as an API framework's
-router, just one layer earlier in the request's journey.
+---
 
-### `proxy_pass` forwards a request and needs its headers rebuilt
+### 4.2 Multi-Language Backend Identity Verification
 
-`proxy_pass http://backend;` forwards the request, but by default the
-backend sees *nginx's* connection, not the original client's — it
-doesn't automatically know the real client IP or which host/scheme the
-client originally used. The standard fix is to forward the missing
-information as headers:
+Backends behind reverse proxies must extract real client identities and report replica identities for load-balancing validation.
 
-```nginx
-location /api/ {
-    proxy_pass http://backend;
-    proxy_set_header Host $host;
-    proxy_set_header X-Real-IP $remote_addr;
-    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-    proxy_set_header X-Forwarded-Proto $scheme;
+#### Go Implementation
+```go
+// main.go — Upstream Microservice with Ingress Header Parsing
+package main
+
+import (
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"os"
+)
+
+type DiagnosticResponse struct {
+	Message    string `json:"message"`
+	ReplicaID  string `json:"replica_id"`
+	ClientIP   string `json:"client_ip"`
+	Forwarded  string `json:"forwarded_for"`
+	Proto      string `json:"protocol"`
+}
+
+func main() {
+	hostname, _ := os.Hostname()
+
+	http.HandleFunc("/api/hello", func(w http.ResponseWriter, r *http.Request) {
+		clientIP := r.Header.Get("X-Real-IP")
+		if clientIP == "" {
+			clientIP = r.RemoteAddr
+		}
+
+		resp := DiagnosticResponse{
+			Message:   "Processed via NGINX Reverse Proxy",
+			ReplicaID: hostname,
+			ClientIP:  clientIP,
+			Forwarded: r.Header.Get("X-Forwarded-For"),
+			Proto:     r.Header.Get("X-Forwarded-Proto"),
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(resp)
+	})
+
+	fmt.Println("[API] Listening on :8000...")
+	http.ListenAndServe(":8000", nil)
 }
 ```
 
-Your app then reads `X-Forwarded-For` instead of the raw socket address
-for "who is this request really from" — the same header
-`backend/01-request-response-fundamentals` describes any app sitting
-behind a proxy needing to trust (only from a proxy you control).
+#### Node.js / TypeScript Implementation
+```typescript
+// server.ts — Node.js Ingress Header Resolution
+import express, { Request, Response } from 'express';
+import os from 'os';
 
-### `upstream` names a pool of backends — that's load balancing
+const app = express();
+const port = 8000;
+const hostname = os.hostname();
 
-An `upstream` block groups multiple backend addresses under one name;
-`proxy_pass` then targets the pool instead of a single container, and
-nginx picks one member per request:
+app.set('trust proxy', 'loopback, linklocal, uniquelocal');
 
-```nginx
-upstream backend {
-    server app1:8000;
-    server app2:8000;
-    server app3:8000;
-}
+app.get('/api/hello', (req: Request, res: Response) => {
+  res.status(200).json({
+    message: 'Processed via NGINX Reverse Proxy',
+    replica_id: hostname,
+    client_ip: req.headers['x-real-ip'] || req.ip,
+    forwarded_for: req.headers['x-forwarded-for'],
+    protocol: req.headers['x-forwarded-proto'],
+  });
+});
 
-server {
-    listen 80;
-    location / {
-        proxy_pass http://backend;
+app.listen(port, '0.0.0.0', () => {
+  console.log(`[NODE REPLICA] Online on port ${port} (${hostname})`);
+});
+```
+
+#### Python Implementation
+```python
+# app.py — FastAPI Ingress Introspection Service
+import os
+from fastapi import FastAPI, Request
+
+app = FastAPI()
+hostname = os.uname().nodename
+
+@app.get("/api/hello")
+def hello(request: Request):
+    client_ip = request.headers.get("x-real-ip", request.client.host if request.client else "unknown")
+    return {
+        "message": "Processed via NGINX Reverse Proxy",
+        "replica_id": hostname,
+        "client_ip": client_ip,
+        "forwarded_for": request.headers.get("x-forwarded-for"),
+        "protocol": request.headers.get("x-forwarded-proto")
     }
-}
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run("app:app", host="0.0.0.0", port=8000)
 ```
 
-Default behavior is **round robin** (requests cycle through the list in
-order). Two other built-in strategies matter:
+---
 
-- `least_conn;` inside the `upstream` block — sends the next request to
-  whichever backend currently has the fewest open connections, better
-  than round robin when requests take uneven amounts of time.
-- `ip_hash;` — routes the same client IP to the same backend
-  consistently, useful when a backend keeps per-client state in memory
-  (session affinity / "sticky sessions") rather than in a shared store.
+## 5. Practical Hands-On Verification CLI
 
+Execute the following steps to spin up an NGINX reverse proxy with self-signed TLS and verify load-balanced upstream routing across three replicas:
+
+```bash
+# 1. Generate local self-signed TLS certificate
+mkdir -p certs
+openssl req -x509 -nodes -newkey rsa:2048 \
+  -keyout certs/privkey.pem \
+  -out certs/fullchain.pem \
+  -days 365 \
+  -subj "/CN=localhost"
+
+# 2. Validate NGINX configuration syntax before container deployment
+docker run --rm -v $(pwd)/nginx.conf:/etc/nginx/nginx.conf:ro nginx:1.27 nginx -t
+
+# Expected Output:
+# nginx: the configuration file /etc/nginx/nginx.conf syntax is ok
+# nginx: configuration file /etc/nginx/nginx.conf test is successful
+
+# 3. Launch multi-tier topology with Compose (1 Proxy + 3 API Replicas)
+cat > compose.yaml <<'EOF'
+services:
+  proxy:
+    image: nginx:1.27-alpine
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./certs:/etc/nginx/certs:ro
+    depends_on:
+      - app-1
+      - app-2
+      - app-3
+
+  app-1:
+    build: .
+    hostname: worker-replica-1
+  app-2:
+    build: .
+    hostname: worker-replica-2
+  app-3:
+    build: .
+    hostname: worker-replica-3
+EOF
+
+docker compose up -d
+
+# 4. Verify HTTP -> HTTPS 301 Permanent Redirect
+curl -I http://localhost/api/hello
+
+# Expected Output:
+# HTTP/1.1 301 Moved Permanently
+# Server: nginx
+# Date: Tue, 10 Nov 2026 12:00:00 GMT
+# Location: https://localhost/api/hello
+
+# 5. Verify Load Balancing rotation over HTTPS across 6 sequential requests
+for i in {1..6}; do curl -sk https://localhost/api/hello | grep replica_id; done
+
+# Expected Output (Cycling evenly across all 3 workers):
+# {"replica_id":"worker-replica-1", ...}
+# {"replica_id":"worker-replica-2", ...}
+# {"replica_id":"worker-replica-3", ...}
+# {"replica_id":"worker-replica-1", ...}
+# {"replica_id":"worker-replica-2", ...}
+# {"replica_id":"worker-replica-3", ...}
+
+# 6. Test Rate Limiting Engine (>10 requests triggers HTTP 429 / 503)
+for i in {1..25}; do curl -sk -o /dev/null -w "%{http_code}\n" https://localhost/api/hello; done
+
+# 7. Clean up Compose resources
+docker compose down -v
 ```
-  round robin              least_conn               ip_hash
-  req1 → app1              req1 → app1(0 conns)     client A → always app1
-  req2 → app2              req2 → app2(0 conns)     client B → always app2
-  req3 → app3              req3 → app1(1, busy)     client A → always app1
-  req4 → app1              req4 → app3(0 conns)     client C → always app3
-  (strict rotation)        (fewest busy wins)        (same client, same backend)
-```
 
-See also: [Load balancing concepts](../../04-networking-fundamentals/06-load-balancing-concepts/README.md)
-for L4 vs L7, health checks and session persistence independent of nginx.
+---
 
-### TLS termination: HTTPS ends at nginx, HTTP continues inward
-
-"Terminating" TLS means nginx is the one holding the certificate and
-decrypting the HTTPS connection; traffic from nginx to your backend
-containers travels as plain HTTP over the private Docker network, which
-is fine because that traffic never leaves the host's internal networking
-(module 05's bridge network, not the public internet).
-
-```nginx
-server {
-    listen 443 ssl;
-    server_name example.com;
-    ssl_certificate     /etc/nginx/certs/fullchain.pem;
-    ssl_certificate_key /etc/nginx/certs/privkey.pem;
-
-    location / {
-        proxy_pass http://backend;
-    }
-}
-
-server {
-    listen 80;
-    server_name example.com;
-    return 301 https://$host$request_uri;
-}
-```
-
-The second `server` block is the standard **HTTP → HTTPS redirect**:
-anything arriving on port 80 gets a `301` sending the client to the same
-path over HTTPS instead.
-
-### Static files never need to reach your app process at all
-
-`backend/01-request-response-fundamentals` already described the
-request path as client → reverse proxy → app server. For static assets
-(images, CSS, a built frontend bundle), nginx can skip the second hop
-entirely and serve the file straight from disk with `root`/`try_files`:
-
-```nginx
-location /static/ {
-    root /usr/share/nginx/html;
-    try_files $uri =404;
-}
-```
-
-This is faster (no process hand-off, no application framework overhead
-per file) and reduces load on your app containers, which is why static
-assets are one of the first things offloaded to nginx in a real
-deployment.
-
-### `nginx -t` validates config before you reload it
-
-Nginx will refuse to (re)start on a broken config, but you don't have to
-wait for that to find out — `nginx -t` checks syntax and reports the
-first error with a file and line number, the same "catch it before it's
-live" habit as `docker build`'s layer-by-layer failures.
-
-## Command reference
-
-| Command | What it does | Example |
-|---|---|---|
-| `nginx -t` | Tests a config file for syntax errors without starting/reloading | `docker exec proxy nginx -t` |
-| `nginx -s reload` | Reloads config without dropping existing connections | `docker exec proxy nginx -s reload` |
-| `docker exec <container> nginx -t` | Runs the config test inside a running nginx container | `docker exec proxy nginx -t` |
-| `docker compose up -d --scale <service>=<N>` | Starts N replicas of one Compose service (for load-balancing exercises) | `docker compose up -d --scale app=3` |
-| `curl -I <url>` | Fetches only response headers — useful for confirming redirects/proxy headers | `curl -I http://localhost:8080` |
-| `curl -k <url>` | Fetches over HTTPS while skipping certificate validation (for self-signed certs) | `curl -k https://localhost:8443` |
-
-Flag breakdown for `docker compose up -d --scale app=3`:
-
-- `--scale app=3` — starts 3 containers for the `app` service instead of
-  the 1 implied by `compose.yaml`, so nginx's `upstream` pool actually
-  has multiple real backends to balance across.
-
-Flag breakdown for `curl -k https://localhost:8443`:
-
-- `-k` — skips certificate hostname/trust validation, needed because the
-  exercises below use a self-signed certificate that no real certificate
-  authority has vouched for.
-
-## Hands-on exercises
-
-1. **(WSL2 Ubuntu terminal)** Build a tiny backend app to proxy to,
-   reusing the pattern from earlier modules:
-   ```bash
-   mkdir -p ~/learn-docker/nginx-lab/app && cd ~/learn-docker/nginx-lab/app
-
-   cat > app.py <<'EOF'
-   import os
-   from flask import Flask
-
-   app = Flask(__name__)
-
-   @app.get("/api/hello")
-   def hello():
-       return {"message": "hello from the backend", "pid": os.getpid()}
-
-   if __name__ == "__main__":
-       app.run(host="0.0.0.0", port=8000)
-   EOF
-
-   cat > requirements.txt <<'EOF'
-   flask==3.0.3
-   EOF
-
-   cat > Dockerfile <<'EOF'
-   FROM python:3.12-slim
-   WORKDIR /code
-   COPY requirements.txt .
-   RUN pip install --no-cache-dir -r requirements.txt
-   COPY app.py .
-   EXPOSE 8000
-   CMD ["python", "app.py"]
-   EOF
-
-   docker build -t nginxlab-app .
-   ```
-
-2. **(WSL2 Ubuntu terminal)** Write an nginx config that reverse-proxies
-   to that app, and a static `index.html` it can serve directly:
-   ```bash
-   cd ~/learn-docker/nginx-lab
-   mkdir -p static
-
-   cat > static/index.html <<'EOF'
-   <h1>Served directly by nginx — never touched the Flask app</h1>
-   EOF
-
-   cat > nginx.conf <<'EOF'
-   server {
-       listen 80;
-
-       location /api/ {
-           proxy_pass http://app:8000/api/;
-           proxy_set_header Host $host;
-           proxy_set_header X-Real-IP $remote_addr;
-           proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-           proxy_set_header X-Forwarded-Proto $scheme;
-       }
-
-       location / {
-           root /usr/share/nginx/html;
-           try_files $uri =404;
-       }
-   }
-   EOF
-
-   cat > compose.yaml <<'EOF'
-   services:
-     app:
-       image: nginxlab-app
-     proxy:
-       image: nginx:1.27
-       ports:
-         - "8080:80"
-       volumes:
-         - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
-         - ./static:/usr/share/nginx/html:ro
-       depends_on:
-         - app
-   EOF
-
-   docker compose up -d
-   ```
-
-3. **(WSL2 Ubuntu terminal)** Confirm both paths work — the proxied API
-   and the directly-served static file:
-   ```bash
-   curl http://localhost:8080/
-   curl http://localhost:8080/api/hello
-   ```
-   Expect the static HTML from the first `curl`, and the Flask JSON
-   response (with a `pid`) from the second — proving nginx served one
-   itself and forwarded the other.
-
-4. **(WSL2 Ubuntu terminal)** Validate config before making it live —
-   deliberately break it first:
-   ```bash
-   cp nginx.conf nginx.conf.bak
-   sed -i 's/listen 80;/listen 80/' nginx.conf   # removes the semicolon
-   docker compose cp nginx.conf proxy:/etc/nginx/conf.d/default.conf
-   docker exec $(docker compose ps -q proxy) nginx -t
-   ```
-   Expect `nginx -t` to fail and print the exact line number of the
-   missing semicolon. Restore the good config:
-   ```bash
-   cp nginx.conf.bak nginx.conf
-   docker compose cp nginx.conf proxy:/etc/nginx/conf.d/default.conf
-   docker exec $(docker compose ps -q proxy) nginx -t
-   docker exec $(docker compose ps -q proxy) nginx -s reload
-   ```
-   Expect `nginx -t` to pass this time (`syntax is ok` / `test is
-   successful`), and the reload to apply without dropping the container.
-
-5. **(WSL2 Ubuntu terminal)** Turn on load balancing — scale the backend
-   and switch the config from a single target to an `upstream` pool:
-   ```bash
-   cat > nginx.conf <<'EOF'
-   upstream backend {
-       server app:8000;
-   }
-
-   server {
-       listen 80;
-
-       location /api/ {
-           proxy_pass http://backend/api/;
-           proxy_set_header Host $host;
-           proxy_set_header X-Real-IP $remote_addr;
-           proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-           proxy_set_header X-Forwarded-Proto $scheme;
-       }
-
-       location / {
-           root /usr/share/nginx/html;
-           try_files $uri =404;
-       }
-   }
-   EOF
-
-   docker compose up -d --scale app=3 --no-recreate
-   ```
-   Compose's default networking means `app` now resolves to multiple
-   containers, but a plain `upstream backend { server app:8000; }` with
-   one line only balances if you list each replica explicitly, since
-   Compose doesn't auto-populate `upstream` blocks. List all three by
-   their Compose-assigned hostnames:
-   ```bash
-   docker compose ps --format '{{.Name}}'
-   ```
-   Note the three container names (e.g. `nginx-lab-app-1`,
-   `nginx-lab-app-2`, `nginx-lab-app-3`), then update the `upstream`
-   block to list all three explicitly:
-   ```bash
-   cat > nginx.conf <<'EOF'
-   upstream backend {
-       server nginx-lab-app-1:8000;
-       server nginx-lab-app-2:8000;
-       server nginx-lab-app-3:8000;
-   }
-
-   server {
-       listen 80;
-
-       location /api/ {
-           proxy_pass http://backend/api/;
-           proxy_set_header Host $host;
-       }
-
-       location / {
-           root /usr/share/nginx/html;
-           try_files $uri =404;
-       }
-   }
-   EOF
-
-   docker compose cp nginx.conf proxy:/etc/nginx/conf.d/default.conf
-   docker exec $(docker compose ps -q proxy) nginx -s reload
-   ```
-   (Substitute your actual container names from the `ps` output above if
-   they differ from the example names.)
-
-6. **(WSL2 Ubuntu terminal)** Prove round-robin balancing by watching the
-   `pid` field rotate across repeated requests:
-   ```bash
-   for i in 1 2 3 4 5 6; do curl -s http://localhost:8080/api/hello; echo; done
-   ```
-   Expect the `pid` value to cycle through three distinct numbers in
-   order, repeating — one per backend container, confirming requests are
-   actually being spread across all three rather than always hitting one.
-
-7. **(WSL2 Ubuntu terminal)** Add TLS termination with a self-signed
-   certificate:
-   ```bash
-   mkdir -p certs
-   openssl req -x509 -nodes -newkey rsa:2048 \
-     -keyout certs/privkey.pem -out certs/fullchain.pem \
-     -days 365 -subj "/CN=localhost"
-
-   cat >> nginx.conf <<'EOF'
-
-   server {
-       listen 443 ssl;
-       ssl_certificate     /etc/nginx/certs/fullchain.pem;
-       ssl_certificate_key /etc/nginx/certs/privkey.pem;
-
-       location /api/ {
-           proxy_pass http://backend/api/;
-           proxy_set_header Host $host;
-       }
-
-       location / {
-           root /usr/share/nginx/html;
-           try_files $uri =404;
-       }
-   }
-   EOF
-   ```
-   Update `compose.yaml` to publish 443 and mount the certs directory,
-   then recreate:
-   ```bash
-   sed -i 's|"8080:80"|"8080:80"\n        - "8443:443"|' compose.yaml
-   sed -i 's|./static:/usr/share/nginx/html:ro|./static:/usr/share/nginx/html:ro\n        - ./certs:/etc/nginx/certs:ro|' compose.yaml
-   docker compose up -d --force-recreate proxy
-   curl -k https://localhost:8443/api/hello
-   ```
-   Expect the same JSON response, now served over HTTPS; `-k` is
-   required because the certificate is self-signed, not issued by a
-   trusted authority.
-
-8. **(WSL2 Ubuntu terminal)** Clean up:
-   ```bash
-   docker compose down
-   docker rmi nginxlab-app
-   cd ~ && rm -rf ~/learn-docker/nginx-lab
-   ```
-
-## Independent challenge
-
-No commands given here — figure it out yourself using what you know from
-this module and earlier ones.
-
-**Task:** Build a Compose stack with two *different* backend
-applications (not replicas of the same one) — say one that returns JSON
-and one that returns plain text — and write an nginx config that routes
-`/service-a/` to the first and `/service-b/` to the second, each behind
-its own `upstream` pool with at least two replicas. Add the HTTP → HTTPS
-redirect from the Concepts section so port 80 always forwards to 443. Prove
-the routing is correct (each path reaches the right service), prove each
-pool actually load-balances (vary a response field to show which replica
-answered, the same way the `pid` field did in this module), and prove the
-redirect works (`curl -I` on port 80 should show a `301` to the `https://`
-URL).
+## 6. Operational Validation Checkpoints
 
 <details>
-<summary>Stuck? One hint</summary>
+<summary>Checkpoint 1: Why does omitting `proxy_http_version 1.1;` and `proxy_set_header Connection "";` cripple throughput between NGINX and upstream backends?</summary>
 
-Two `location` blocks, each `proxy_pass`ing to its own `upstream` block;
-list every replica's Compose-assigned container name inside the matching
-`upstream`; the redirect is the same bare `server { listen 80; return
-301 https://$host$request_uri; }` block shown in the Concepts section,
-just with no `location` blocks of its own.
+**Detailed Engineering Analysis:**  
+By default, NGINX uses HTTP/1.0 for all `proxy_pass` upstream requests. In HTTP/1.0, persistent connections (Keep-Alive) are disabled by default; every transaction sends a `Connection: close` header. 
 
-</details>
+Consequently, for every single inbound client request, NGINX must initiate a brand-new TCP three-way handshake (`SYN` $\rightarrow$ `SYN-ACK` $\rightarrow$ `ACK`) and teardown (`FIN` $\rightarrow$ `ACK`) with the backend container. Under high concurrency ($>1,000\text{ req/s}$), this results in severe TCP socket churn, kernel ephemeral port exhaustion (`TIME_WAIT` socket saturation), and elevated CPU utilization.
 
-## Common mistakes & troubleshooting
-
-- **Forgetting `proxy_set_header Host $host;`.** Without it, your
-  backend app sees nginx's own request, and anything the app does with
-  the `Host` header (redirects, generated links) breaks or points at the
-  wrong hostname.
-- **Assuming Compose scaling auto-populates `upstream` blocks.**
-  `docker compose up --scale app=3` creates three containers, but a
-  hand-written `upstream backend { server app:8000; }` still only names
-  one hostname unless you either list every replica explicitly (as in
-  exercise 5) or use Compose's internal DNS round robin (a single
-  `server app:8000;` entry does get load-balanced by Docker's embedded
-  DNS across scaled replicas at the *network* level in newer Compose
-  versions — but relying on that instead of nginx's `upstream` gives you
-  none of nginx's balancing-method choices like `least_conn`).
-- **Editing `nginx.conf` and expecting the change to apply
-  immediately.** Nginx reads its config once at startup/reload; you must
-  either `docker exec ... nginx -s reload` (or recreate the container)
-  for a config change to take effect — the same "config changes need
-  a restart or reload" rule as most long-running server processes.
-- **Skipping `nginx -t` before a reload.** A syntax error in a reload
-  attempt can leave nginx running the *old* config while logging an
-  error, which looks like "nothing happened" rather than an obvious
-  failure — always test first.
-- **Confusing TLS termination with end-to-end encryption.** Terminating
-  TLS at nginx means traffic *inside* your Docker network (nginx →
-  backend) is plain HTTP. That's normal and fine for traffic that never
-  leaves the host, but it is not the same guarantee as encryption all
-  the way to the application process — don't describe it as "the whole
-  path is encrypted" in a design discussion.
-- **Only testing with `curl` from inside the same container/network.**
-  A config can look correct from `docker exec` but still fail for real
-  external clients if the wrong port is published or the container's
-  network isn't attached the way you assumed — always test from outside
-  (a real `curl` against `localhost:<published-port>`, as this module's
-  exercises do) rather than only from inside the proxy container.
-
-## Checkpoint quiz
-
-Write down your answer to each question before expanding it — checking
-without attempting first is the single easiest way to fool yourself into
-thinking you've learned this.
-
-<details>
-<summary>Show questions</summary>
-
-1. What's the difference between a forward proxy and a reverse proxy?
-2. Why do you need `proxy_set_header X-Forwarded-For ...;` if you want
-   your backend app to know the real client IP address?
-3. What does an `upstream` block let you do that a single `proxy_pass
-   http://one-host:port;` doesn't?
-4. When would you choose `ip_hash` over the default round-robin balancing
-   method, and what's the tradeoff?
-5. What does "TLS termination" actually mean, and what protocol carries
-   traffic onward from nginx to your backend container?
-6. Why does serving a static file directly through nginx's `root`/
-   `try_files` outperform proxying that same request to your app server?
-7. What's the point of running `nginx -t` before `nginx -s reload`?
-
-</summary>
+**Production Resolution:**  
+Specifying `proxy_http_version 1.1;` alongside `proxy_set_header Connection "";` and an upstream `keepalive 32;` pool enables NGINX to maintain a persistent cache of open TCP sockets to upstream backends, reducing internal request latencies by over 60%.
 </details>
 
 <details>
-<summary>Show answers</summary>
+<summary>Checkpoint 2: In what scenarios does the `least_conn` load balancing algorithm outperform standard round-robin?</summary>
 
-1. A forward proxy sits in front of clients, forwarding their outbound
-   requests to the wider internet (e.g. a corporate proxy). A reverse
-   proxy sits in front of servers, so the outside world only ever talks
-   to the proxy and never reaches the real backend directly.
-2. Without it, the backend only sees the TCP connection from nginx
-   itself, so `remote_addr`-style lookups on the backend would report
-   nginx's own container IP for every request. `X-Forwarded-For` (along
-   with `X-Real-IP`) carries the original client's address forward as an
-   explicit header the backend can read instead.
-3. It lets you name a pool of two or more backend addresses under one
-   name and have nginx distribute requests across all of them
-   (round-robin by default, or `least_conn`/`ip_hash`), instead of every
-   request always going to the exact same single host.
-4. `ip_hash` when a backend keeps per-client state in its own memory
-   (session affinity) rather than a shared store, so the same client
-   must keep landing on the same backend. The tradeoff is uneven load if
-   client IPs aren't evenly distributed, and it breaks if a client's
-   apparent IP changes mid-session (e.g. behind a mobile carrier's NAT).
-5. TLS termination means nginx is the endpoint that holds the
-   certificate and decrypts the HTTPS connection; from nginx onward to
-   the backend container, traffic normally continues as plain HTTP over
-   the internal Docker network.
-6. Static-file serving lets nginx read straight from disk and send bytes
-   back, with no process hand-off to an application framework and no
-   application-level request handling overhead for that file — cheaper
-   per request and it keeps that load off your app containers entirely.
-7. `nginx -t` validates the config's syntax and reports the exact file
-   and line of any error *before* you apply it, so a broken config is
-   caught immediately instead of silently failing to take effect (or
-   crashing nginx) during a reload.
+**Detailed Engineering Analysis:**  
+Standard round-robin operates purely on sequential request distribution, without evaluating the current operational burden of each backend node. 
 
+In real-world microservices:
+1. Some requests are instantaneous (e.g., cached health checks taking $1\text{ms}$).
+2. Other requests are computationally intensive (e.g., large PDF generation or complex SQL aggregation taking $3,000\text{ms}$).
+
+If three intensive requests sequentially land on Node A under round-robin, Node A's CPU and thread pool will saturate, leading to severe latency spikes and potential timeout drops, even while Node B and Node C sit completely idle. 
+
+`least_conn` evaluates the active TCP socket counter for each upstream server in real-time and routes subsequent traffic to the node currently managing the fewest in-flight requests, dynamically dampening queue latency.
 </details>
 
-## Further reading & sources
+<details>
+<summary>Checkpoint 3: How does static file offloading in NGINX leverage the Linux `sendfile` syscall to minimize kernel context switches?</summary>
 
-- [Nginx: Reverse proxy guide](https://docs.nginx.com/nginx/admin-guide/web-server/reverse-proxy/) - the official walkthrough this module's `proxy_pass`/header setup is based on.
-- [Nginx: Load balancing](https://docs.nginx.com/nginx/admin-guide/load-balancer/http-load-balancer/) - round robin, `least_conn`, and `ip_hash` covered in more depth, straight from the source.
-- [Nginx: Configuring HTTPS servers](https://nginx.org/en/docs/http/configuring_https_servers.html) - TLS termination configuration reference, including certificate/key directives used in this module.
-- [Mozilla: proxy headers (X-Forwarded-For, X-Forwarded-Proto)](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/X-Forwarded-For) - what each forwarded header means and how a backend should treat it.
-- [Docker Hub: official nginx image](https://hub.docker.com/_/nginx) - the image used throughout this module's exercises, including its default config file locations.
+**Detailed Engineering Analysis:**  
+When an application server (e.g., Python/Node.js) serves a static image or stylesheet from disk:
+1. The kernel reads data from the storage block device into kernel page cache buffers via DMA.
+2. The data is copied into user-space application memory via the `read()` syscall (**Context Switch 1 & 2**).
+3. The application writes the data into the socket buffer via the `write()` syscall (**Context Switch 3 & 4**).
+4. The kernel transfers data from socket buffers to the network interface card (NIC).
 
-## Next
-
-Continue to [13-capstone-project](../13-capstone-project/README.md) to
-combine everything from this track — a multi-stage build, Compose, ACR,
-nginx in front of it, and a real Azure deployment — into one project you
-design yourself.
-</content>
+**The `sendfile on;` Optimization:**  
+NGINX bypasses user-space entirely using the Linux `sendfile()` zero-copy syscall. The kernel transfers disk data directly from page cache buffers into the socket buffer, eliminating two redundant memory copies and two context switches per request, dramatically maximizing network throughput and reducing host CPU usage.
+</details>

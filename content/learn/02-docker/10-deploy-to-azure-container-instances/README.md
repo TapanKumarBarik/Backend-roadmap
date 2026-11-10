@@ -1,384 +1,448 @@
-# Deploy to Azure Container Instances
+# Module 10: Serverless Container Deployment — Azure Container Instances (ACI), Managed Identity, and Ephemeral Batch Lifecycles
 
-## Why this matters
+> **Status:** Production Standard  
+> **Difficulty:** Intermediate  
+> **Estimated Time:** 2 Hours  
+> **Prerequisites:** Module 08 (Container Registries: ACR), Module 09 (Container Security)
 
-Everything so far has run on your own machine. **Azure Container
-Instances (ACI)** is the fastest path from "I have an image in a
-registry" to "it's running on the public internet" — no cluster to
-provision, no VM to manage, just a single command that starts a
-container and gives it a public address. It's the right tool for a quick
-deployment, a demo, or a batch job; it's also the simplest way to prove
-your ACR setup from module 08 actually works end to end before tackling
-App Service (module 11) or Kubernetes (the next track).
+---
 
-This module uses your real Azure subscription. Follow the cleanup
-subsection at the end — ACI bills while the container group exists.
+> [!TIP]
+> **The Golden Rule of Serverless Container Orchestration (ACI)**  
+> Never configure one-shot batch tasks or asynchronous workers with the default `restart-policy: Always`. If a job completes with exit code 0, ACI will restart the container indefinitely in an infinite loop, billing vCPU and RAM per second and corrupting stateful queues or data pipelines. Always configure one-off workloads with **`--restart-policy Never`** or **`OnFailure`**, authenticate against private registries using **User-Assigned Managed Identities (UAMI)** rather than fragile admin credentials, and automate group teardown via ARM/Bicep lifecycle webhooks.
 
-## Concepts
+---
 
-### A container group is ACI's unit of deployment
+## 1. Visual Mental Models
 
-ACI's core object is a **container group** — one or more containers that
-are always scheduled together on the same host, sharing a network
-namespace and, optionally, volumes. For a single-container deployment
-(everything in this module), a container group behaves like one
-`docker run`, but hosted on Azure-managed infrastructure with a public IP
-instead of your machine's.
+### 1.1 ACI Architecture & Container Group Topology
 
-```
-   your machine          Azure
-  ┌───────────┐  push   ┌──────────────────────────────────────────┐
-  │ az acr    │────────►│ ACR  myacr.azurecr.io/webapp:v1          │
-  │ build     │         └───────────────┬──────────────────────────┘
-  └───────────┘                         │ pull (registry creds)
-                                        ▼
-                    ┌─────────── container group "webapp-aci" ─────┐
-                    │  ┌──────────────┐   public FQDN:             │
-   browser ────────────►│ webapp :8000 │  <label>.<region>         │
-   :8000            │  └──────────────┘  .azurecontainer.io        │
-                    └───────────────────────────────────────────────┘
-```
+Azure Container Instances provisions managed Linux kernel instances running in isolated Hyper-V microVMs without requiring VM infrastructure or Kubernetes cluster provisioning:
 
-### ACI needs to authenticate to your registry to pull the image
+```mermaid
+flowchart TD
+    subgraph AzureCloud["Azure Cloud Environment (Region: eastus)"]
+        subgraph ACR["Private Azure Container Registry (myacr.azurecr.io)"]
+            ImageBlob["Repository: payments/worker:v1.4<br/>Pinned Digest: sha256:7f3a..."]
+        end
 
-Since your image lives in a private ACR instance (module 08), ACI needs
-credentials to pull it — the same problem `docker login` solves locally,
-solved here with registry credentials passed to `az container create`.
-The simplest approach for learning purposes is ACR's **admin account**: a
-single built-in username/password pair for the whole registry, which you
-enable once and pass to ACI at container-creation time. (Production
-setups typically use a managed identity instead, avoiding a shared
-password entirely — worth knowing exists, not required for this
-exercise.)
+        subgraph ContainerGroup["ACI Container Group: payment-batch-runner"]
+            subgraph NetworkNamespace["Dedicated Network Namespace (VNet Integration)"]
+                PublicIP["Public IP / FQDN:<br/>payment-batch.eastus.azurecontainer.io"]
+                PortBinding["Published TCP Port: 8080"]
+            end
 
-### DNS name label gives you a stable public hostname
+            subgraph Containers["Scheduled MicroVM Containers"]
+                MainContainer["Primary Container: worker<br/>Allocated: 1.0 vCPU, 2.0 GiB RAM<br/>Image: payments/worker:v1.4"]
+                SidecarContainer["Logging Sidecar: promtail<br/>Allocated: 0.2 vCPU, 256 MiB RAM"]
+            end
 
-A container group can be assigned a `--dns-name-label`, producing a
-fully-qualified domain name of the form
-`<label>.<region>.azurecontainer.io`. This label must be unique within
-that Azure region (similar in spirit to ACR's globally-unique name
-requirement from module 08, but scoped to the region rather than all of
-Azure) — if it's taken, `az container create` fails with a clear error
-telling you so.
+            subgraph Storage["Ephemeral & External Storage"]
+                EmptyDir[("EmptyDir Volume: /tmp<br/>(Memory / Tmpfs)")]
+                AzureFile[("Azure File Share: /data<br/>(CIFS / SMB Mount)")]
+            end
+        end
 
-### Logs work the same way conceptually as `docker logs`
+        UAMI["User-Assigned Managed Identity (UAMI)<br/>Role: AcrPull"]
+    end
 
-`az container logs` reads the same stdout/stderr stream `docker logs`
-reads locally — the daemon-buffers-output convention from module 02
-holds here too, just surfaced through Azure's API instead of the local
-Docker engine.
+    UAMI -->|"OAuth Token Exchange"| ACR
+    ContainerGroup -->|"Pulls image using UAMI"| ACR
+    PublicIP --> PortBinding
+    PortBinding --> MainContainer
+    MainContainer --> EmptyDir
+    MainContainer --> AzureFile
+    SidecarContainer --> EmptyDir
 
-> In Docker Desktop: none of ACI's resources show up in Docker Desktop —
-> ACI containers run entirely on Azure's infrastructure, not your local
-> Docker engine. Docker Desktop's GUI is local-engine-only; from here on,
-> the Azure Portal (portal.azure.com) is the GUI equivalent for anything
-> you deploy to Azure. Worth opening the Portal alongside PowerShell in
-> this module's exercises to see the resource group, registry, and
-> container group appear as you create them.
-
-## Command reference
-
-| Command | What it does | Example |
-|---|---|---|
-| `az login` | Authenticates the Azure CLI to your account | `az login` |
-| `az group create` | Creates a resource group (a logical container for related Azure resources) | `az group create --name learn-docker-rg --location eastus` |
-| `az acr update --admin-enabled true` | Enables the built-in admin username/password for an ACR instance | `az acr update --name myacr --admin-enabled true` |
-| `az acr credential show` | Retrieves the admin username/password for an ACR instance | `az acr credential show --name myacr` |
-| `az container create` | Creates and starts a container group in ACI | see below |
-| `az container show` | Shows a container group's status, including its public FQDN | `az container show --resource-group learn-docker-rg --name webapp-aci --query "{fqdn:ipAddress.fqdn,state:instanceView.state}" --output table` |
-| `az container logs` | Prints a container group's stdout/stderr | `az container logs --resource-group learn-docker-rg --name webapp-aci` |
-| `az container attach` | Streams live logs and events (similar to `docker logs -f`) | `az container attach --resource-group learn-docker-rg --name webapp-aci` |
-| `az container exec` | Runs a command inside a running container in the group | `az container exec --resource-group learn-docker-rg --name webapp-aci --exec-command "/bin/sh"` |
-| `az container restart` | Restarts a container group | `az container restart --resource-group learn-docker-rg --name webapp-aci` |
-| `az container delete` | Deletes a single container group | `az container delete --resource-group learn-docker-rg --name webapp-aci --yes` |
-| `az group delete` | Deletes a resource group and everything in it | `az group delete --name learn-docker-rg --yes --no-wait` |
-
-Flag breakdown for the full `az container create` command:
-
-```powershell
-az container create `
-  --resource-group learn-docker-rg `
-  --name webapp-aci `
-  --image myacr.azurecr.io/webapp:v1 `
-  --registry-login-server myacr.azurecr.io `
-  --registry-username <acr-admin-username> `
-  --registry-password <acr-admin-password> `
-  --dns-name-label webapp-aci-<yourinitials>2026 `
-  --ports 8000 `
-  --cpu 1 `
-  --memory 1.5
+    style ContainerGroup fill:#0f172a,stroke:#38bdf8,stroke-width:2px,color:#f8fafc
+    style NetworkNamespace fill:#1e293b,stroke:#64748b,stroke-width:1px,color:#f8fafc
+    style Containers fill:#1e293b,stroke:#10b981,stroke-width:1px,color:#f8fafc
+    style Storage fill:#1e293b,stroke:#f59e0b,stroke-width:1px,color:#f8fafc
 ```
 
-- `--resource-group learn-docker-rg` — which resource group this
-  container group belongs to.
-- `--name webapp-aci` — the container group's name (used in later
-  `az container ...` commands to refer to it).
-- `--image myacr.azurecr.io/webapp:v1` — the fully-qualified image
-  reference to pull, exactly like the tag you pushed in module 08.
-- `--registry-login-server`, `--registry-username`,
-  `--registry-password` — how ACI authenticates to pull a private image
-  from ACR, equivalent to what `docker login` does locally.
-- `--dns-name-label webapp-aci-<yourinitials>2026` — the subdomain
-  portion of the public FQDN; must be unique within the chosen region.
-- `--ports 8000` — which container port(s) to expose publicly (the
-  container-side port, matching what your app actually listens on —
-  same concept as the container-side number in `docker run -p`).
-- `--cpu 1 --memory 1.5` — resource allocation in vCPUs and GiB of
-  memory; billing scales with these values, so keep them modest for a
-  learning exercise.
+---
 
-## Hands-on exercises
+### 1.2 Lifecycle State Transitions & Restart Policy Mechanics
 
-1. **(PowerShell)** Log in and confirm your subscription:
-   ```powershell
-   az login
-   az account show --output table
-   ```
-   Expect a browser window to open for sign-in, then a table showing
-   your subscription name and ID.
+Understanding the state machine of ACI is essential to prevent infinite billing loops on batch jobs:
 
-2. **(PowerShell)** Reuse or create the resource group and ACR instance
-   from module 08 (skip the `az group create`/`az acr create` lines if
-   you already have them from that module):
-   ```powershell
-   az group create --name learn-docker-rg --location eastus
-   az acr create --resource-group learn-docker-rg --name <yourinitialsacr2026> --sku Basic
-   ```
+```mermaid
+stateDiagram-v2
+    [*] --> Pending: az container create
+    Pending --> Pulling: Authenticating with ACR
+    Pulling --> Running: Container Started (PID 1 Spawned)
+    
+    state Running {
+        [*] --> Executing
+        Executing --> Healthy: HTTP Probe 200 OK
+        Executing --> Unhealthy: Probe Failed
+    }
 
-3. **(PowerShell)** Build and push a small example image directly with
-   `az acr build` (no local Docker build needed — see module 08 if you
-   want the local-build alternative):
-   ```powershell
-   mkdir ~/learn-docker/aci-lab
-   cd ~/learn-docker/aci-lab
-   ```
-   Then create the same three files from earlier modules (`app.py`,
-   `requirements.txt`, `Dockerfile` with a Flask app exposing `/health`
-   on port 8000 — copy the pattern from module 08, exercise 1), and run:
-   ```powershell
-   az acr build --registry <yourinitialsacr2026> --image webapp:v1 .
-   ```
-   Expect a build log streamed from Azure, ending in a successful push.
+    Running --> Succeeded: Exit Code 0 (Task Complete)
+    Running --> Failed: Exit Code != 0 (Exception / Crash)
 
-4. **(PowerShell)** Enable the ACR admin account and fetch its
-   credentials:
-   ```powershell
-   az acr update --name <yourinitialsacr2026> --admin-enabled true
-   az acr credential show --name <yourinitialsacr2026>
-   ```
-   Expect JSON containing a `username` and two `passwords` — note the
-   username and the first password value for the next step.
+    state RestartEvaluation <<choice>>
+    Failed --> RestartEvaluation: Check --restart-policy
+    
+    RestartEvaluation --> Pulling: Policy = Always / OnFailure
+    RestartEvaluation --> Terminated: Policy = Never
 
-5. **(PowerShell)** Create the container group:
-   ```powershell
-   az container create `
-     --resource-group learn-docker-rg `
-     --name webapp-aci `
-     --image "<yourinitialsacr2026>.azurecr.io/webapp:v1" `
-     --registry-login-server "<yourinitialsacr2026>.azurecr.io" `
-     --registry-username "<acr-admin-username>" `
-     --registry-password "<acr-admin-password>" `
-     --dns-name-label "webapp-aci-<yourinitials>2026" `
-     --ports 8000 `
-     --cpu 1 `
-     --memory 1.5
-   ```
-   Expect a JSON response with `"provisioningState": "Succeeded"` after
-   a short wait (ACI provisioning typically takes under a minute).
+    Succeeded --> Terminated: Policy = Never / OnFailure
+    Succeeded --> Pulling: Policy = Always (CRITICAL ANTI-PATTERN: Infinite Loop!)
 
-6. **(PowerShell)** Get the public FQDN and confirm the app is reachable:
-   ```powershell
-   az container show --resource-group learn-docker-rg --name webapp-aci --query "{fqdn:ipAddress.fqdn,state:instanceView.state}" --output table
-   ```
-   Take the `fqdn` value and open, in a browser or with `curl`:
-   ```powershell
-   curl "http://<fqdn>:8000/health"
-   ```
-   Expect `{"status":"ok"}` — this request left your machine entirely
-   and hit a container running on Azure.
+    Terminated --> [*]: az container delete (Billing Stops)
+```
 
-7. **(Azure Portal GUI)** Open portal.azure.com, navigate to your
-   `learn-docker-rg` resource group, and click into the `webapp-aci`
-   container instance. Its **Overview** page shows the same FQDN, state,
-   and CPU/memory allocation you just saw via CLI; its **Containers →
-   Logs** tab shows the same output `az container logs` would print —
-   confirm both match.
+---
 
-8. **(PowerShell)** View logs and stream them live:
-   ```powershell
-   az container logs --resource-group learn-docker-rg --name webapp-aci
-   ```
-   Then, in a separate terminal, generate some traffic and watch logs
-   stream:
-   ```powershell
-   az container attach --resource-group learn-docker-rg --name webapp-aci
-   ```
-   (Ctrl+C to stop attaching — this does not stop the container, only
-   your local log stream.) Expect Flask's request log lines to appear as
-   you hit the `/health` endpoint again from another window.
+## 2. Parameter Taxonomy & Configuration Matrix
 
-9. **Diagnose and fix: container group stuck in "Waiting" with a pull
-   failure.** Deliberately break the registry credential:
-   ```powershell
-   az container delete --resource-group learn-docker-rg --name webapp-aci --yes
-   az container create `
-     --resource-group learn-docker-rg `
-     --name webapp-aci-broken `
-     --image "<yourinitialsacr2026>.azurecr.io/webapp:v1" `
-     --registry-login-server "<yourinitialsacr2026>.azurecr.io" `
-     --registry-username "<acr-admin-username>" `
-     --registry-password "wrong-password" `
-     --dns-name-label "webapp-aci-broken-<yourinitials>2026" `
-     --ports 8000
-   az container show --resource-group learn-docker-rg --name webapp-aci-broken --query "instanceView.state" --output tsv
-   ```
-   Expect the state to stay stuck (not `Running`), and:
-   ```powershell
-   az container show --resource-group learn-docker-rg --name webapp-aci-broken --query "containers[0].instanceView.events" --output table
-   ```
-   to show a pull failure event referencing authentication. Fix it by
-   deleting and recreating with the correct password from exercise 4:
-   ```powershell
-   az container delete --resource-group learn-docker-rg --name webapp-aci-broken --yes
-   ```
-   (There's no in-place credential update for a running container
-   group — ACI container groups are immutable once created; fixing a
-   bad config means delete-and-recreate, which is why getting the
-   credentials right from `az acr credential show` matters.)
+### 2.1 ACI Configuration Directives
 
-10. **Cleaning up (avoid surprise charges).** ACI bills for CPU/memory
-    allocated to a running container group for as long as it exists —
-    stopping is not free the way `docker stop` is; you must delete the
-    container group (or the whole resource group) to stop being billed
-    for it. When you're done experimenting:
-    ```powershell
-    az container delete --resource-group learn-docker-rg --name webapp-aci --yes
-    ```
-    Or, to remove everything from this module and module 08 at once
-    (resource group, ACR instance, and any container groups inside it)
-    in one step:
-    ```powershell
-    az group delete --name learn-docker-rg --yes --no-wait
-    ```
-    `--yes` skips the confirmation prompt; `--no-wait` returns
-    immediately instead of blocking until deletion finishes (deletion
-    itself continues in the background). Confirm it's gone a few minutes
-    later:
-    ```powershell
-    az group show --name learn-docker-rg
-    ```
-    Expect a `ResourceGroupNotFound` error once deletion completes — that
-    error is what you want to see.
+| CLI Parameter | Accepted Values | Production Default | Engineering Purpose & Trade-Off |
+| :--- | :--- | :--- | :--- |
+| `--restart-policy` | `Always`, `OnFailure`, `Never` | `Always` (Web API) / `Never` (Batch) | Controls restart behavior. Never use `Always` for batch scripts or migrations. |
+| `--os-type` | `Linux`, `Windows` | `Linux` | Selects underlying Hyper-V container host operating system. |
+| `--cpu` | $0.1$ to $4.0$ (vCPUs) | $1.0$ | Fractional CPU allocation; billing scales linearly per millicore-second. |
+| `--memory` | $0.1$ to $16.0$ (GiB) | $1.5$ | RAM allocation; strictly enforced via cgroups (OOMKills on exceedance). |
+| `--dns-name-label` | Alpha-numeric string | Regional unique label | Generates public DNS record: `<label>.<region>.azurecontainer.io`. |
+| `--acr-identity` | Resource ID of UAMI | Explicit UAMI Resource ID | Eliminates admin passwords; pulls using Microsoft Entra ID authentication. |
+| `--secure-environment-variables` | Key-value pairs | Encrypted storage | Masks secrets from `az container show` JSON inspect outputs. |
+| `--azure-file-volume-...` | Storage account + File share | Mounted CIFS volume | Persists stateful artifacts across container group teardown. |
 
-## Independent challenge
+---
 
-No commands given here — figure it out yourself using what you know from this module and earlier ones.
+### 2.2 Serverless Pricing & Billing Model
 
-**Task:** Using real `az` commands, get one of your own images from a private ACR instance (module 08) running on ACI and reachable over the public internet, then deliberately provoke and diagnose a failure before cleaning everything up. First deploy the image so a `curl` against its public FQDN returns your app's response — you'll have to get the registry authentication and the exposed container port both right for that to work. Then create a second container group with something wrong (a bad registry credential, or an exposed port that doesn't match what the app listens on), observe that it never reaches a healthy running state, and find the specific reason using the platform's own diagnostics rather than guessing. **When you are finished, delete the container groups and the resource group so you stop being billed** — ACI charges for allocated CPU/memory for as long as a group exists, and there is no free "stopped" state. Confirm the resource group is actually gone afterward.
+ACI charges **per-second resource allocation** (vCPU-seconds and GiB-seconds) from the instant image pulling initiates until the container group is explicitly deleted or stops:
+
+$$\text{Total Cost} = (\text{vCPUs} \times \text{Rate}_{\text{CPU}} + \text{RAM (GB)} \times \text{Rate}_{\text{RAM}}) \times \text{Duration (seconds)}$$
+
+> [!CAUTION]
+> A container group in the `Terminated` or `Stopped` state **retains its allocated IP address and configuration** until explicitly deleted. Always execute `az container delete --yes` or configure automated janitor scripts to purge completed execution groups.
+
+---
+
+## 3. Production War Story: The Infinite Cryptic Batch Re-Run
+
+### Incident Post-Mortem: Midnight Billing Burn
+
+- **Incident Date:** December 2024
+- **Root Cause:** A data engineering team deployed a nocturnal machine learning data ingestion job to ACI. The script was packaged into a container and deployed using an automated CI script with default settings:
+  ```bash
+  az container create --name data-ingest --image myacr.azurecr.io/ingest:v1 # Default: --restart-policy Always
+  ```
+- **The Cascade:**
+  1. The container executed its workload in 8 minutes, processed 50,000 records, and terminated cleanly with `exit(0)`.
+  2. Because the restart policy defaulted to `Always`, the ACI fabric supervisor interpreted the exit as a service stoppage and immediately restarted the container.
+  3. The script ran again, appending duplicate records to the data warehouse, and exited with `0`.
+  4. The container restarted **3,420 times over a three-week period**, burning \$2,840 in redundant cloud compute and corrupting downstream analytics pipelines.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant ACI as ACI Fabric Supervisor
+    participant Job as Ingest Batch Worker
+    participant DB as Production Data Warehouse
+
+    ACI->>Job: Spawn Container (Run 1)
+    Job->>DB: Ingest 50,000 Records
+    Job->>Job: Completed Task -> sys.exit(0)
+    Note over ACI: Process exited. Policy is 'Always' -> Triggering immediate restart!
+    ACI->>Job: Spawn Container (Run 2)
+    Job->>DB: Re-Ingest 50,000 Duplicate Records!
+    Job->>Job: sys.exit(0)
+    Note over ACI,Job: Loop repeats every 8 minutes for 21 days!
+```
+
+- **The Resolution:** 
+  1. Mandated `--restart-policy OnFailure` or `Never` for all non-daemon container deployments.
+  2. Integrated an automated Azure Function janitor to scan for completed container groups and issue `DELETE` calls.
+  3. Added idempotency checks and deduplication keys in the worker process.
+
+---
+
+## 4. Multi-Language Programmatic Deployment Automation
+
+### 4.1 Go: Provisioning ACI via Azure SDK
+```go
+// main.go — Automated Serverless Container Group Provisioning in Go
+package main
+
+import (
+	"context"
+	"fmt"
+	"log"
+
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore/to"
+	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
+	"github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/containerinstance/armcontainerinstance"
+)
+
+func deployContainerGroup(ctx context.Context, subscriptionID, resourceGroup, groupName string) error {
+	cred, err := azidentity.NewDefaultAzureCredential(nil)
+	if err != nil {
+		return fmt.Errorf("failed to obtain Azure credential: %w", err)
+	}
+
+	clientFactory, err := armcontainerinstance.NewClientFactory(subscriptionID, cred, nil)
+	if err != nil {
+		return fmt.Errorf("failed to create client factory: %w", err)
+	}
+
+	client := clientFactory.NewContainerGroupsClient()
+
+	log.Printf("[ACI] Deploying serverless container group %q in %q...", groupName, resourceGroup)
+
+	poller, err := client.BeginCreateOrUpdate(ctx, resourceGroup, groupName, armcontainerinstance.ContainerGroup{
+		Location: to.Ptr("eastus"),
+		Properties: &armcontainerinstance.ContainerGroupPropertiesProperties{
+			OSType:        to.Ptr(armcontainerinstance.OperatingSystemTypesLinux),
+			RestartPolicy: to.Ptr(armcontainerinstance.ContainerGroupRestartPolicyNever), // Explicit Batch Policy!
+			IPAddress: &armcontainerinstance.IPAddress{
+				Type:         to.Ptr(armcontainerinstance.ContainerGroupIPAddressTypePublic),
+				DNSNameLabel: to.Ptr(fmt.Sprintf("%s-demo", groupName)),
+				Ports: []*armcontainerinstance.Port{
+					{
+						Port:     to.Ptr[int32](8080),
+						Protocol: to.Ptr(armcontainerinstance.ContainerGroupNetworkProtocolTCP),
+					},
+				},
+			},
+			Containers: []*armcontainerinstance.Container{
+				{
+					Name: to.Ptr("api-worker"),
+					Properties: &armcontainerinstance.ContainerProperties{
+						Image: to.Ptr("mcr.microsoft.com/azuredocs/aci-helloworld:latest"),
+						Resources: &armcontainerinstance.ResourceRequirements{
+							Requests: &armcontainerinstance.ResourceRequests{
+								CPU:        to.Ptr[float64](1.0),
+								MemoryInGB: to.Ptr[float64](1.5),
+							},
+						},
+						Ports: []*armcontainerinstance.ContainerPort{
+							{Port: to.Ptr[int32](8080)},
+						},
+					},
+				},
+			},
+		},
+	}, nil)
+
+	if err != nil {
+		return fmt.Errorf("failed to initiate container group creation: %w", err)
+	}
+
+	res, err := poller.PollUntilDone(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("failed during container deployment polling: %w", err)
+	}
+
+	log.Printf("[ACI SUCCESS] Container Group deployed! FQDN: %s", *res.Properties.IPAddress.Fqdn)
+	return nil
+}
+```
+
+---
+
+### 4.2 Node.js / TypeScript: Automating ACI Deployment with Managed Identity
+```typescript
+// deployAci.ts — TypeScript Automation for ACI with Managed Identity
+import { ContainerInstanceManagementClient } from '@azure/arm-containerinstance';
+import { DefaultAzureCredential } from '@azure/identity';
+
+interface DeployConfig {
+  subscriptionId: string;
+  resourceGroup: string;
+  groupName: string;
+  image: string;
+  uamiResourceId: string;
+}
+
+export async function deployServerlessWorker(config: DeployConfig): Promise<string> {
+  const credential = new DefaultAzureCredential();
+  const client = new ContainerInstanceManagementClient(credential, config.subscriptionId);
+
+  console.log(`[ACI] Provisioning container group '${config.groupName}' using Managed Identity...`);
+
+  const poller = await client.containerGroups.beginCreateOrUpdate(
+    config.resourceGroup,
+    config.groupName,
+    {
+      location: 'eastus',
+      identity: {
+        type: 'UserAssigned',
+        userAssignedIdentities: {
+          [config.uamiResourceId]: {},
+        },
+      },
+      osType: 'Linux',
+      restartPolicy: 'OnFailure',
+      ipAddress: {
+        type: 'Public',
+        dnsNameLabel: `${config.groupName}-service`,
+        ports: [{ port: 8080, protocol: 'TCP' }],
+      },
+      imageRegistryCredentials: [
+        {
+          server: config.image.split('/')[0],
+          identity: config.uamiResourceId, // Passwordless ACR Pull!
+        },
+      ],
+      containers: [
+        {
+          name: 'batch-processor',
+          image: config.image,
+          resources: {
+            requests: {
+              cpu: 1.0,
+              memoryInGB: 1.5,
+            },
+          },
+          ports: [{ port: 8080 }],
+        },
+      ],
+    }
+  );
+
+  const result = await poller.pollUntilDone();
+  console.log(`[ACI DEPLOYED] Successfully online at: http://${result.ipAddress?.fqdn}:8080`);
+  return result.ipAddress?.fqdn || '';
+}
+```
+
+---
+
+### 4.3 Python: Container Group Lifecycle Auditing & Janitor Cleanup
+```python
+# aci_janitor.py — Automated ACI Orphan Cleanup Script
+import os
+import sys
+from azure.identity import DefaultAzureCredential
+from azure.mgmt.containerinstance import ContainerInstanceManagementClient
+
+def cleanup_terminated_aci(subscription_id: str, resource_group: str):
+    credential = DefaultAzureCredential()
+    client = ContainerInstanceManagementClient(credential, subscription_id)
+
+    print(f"[JANITOR] Scanning resource group '{resource_group}' for finished ACI workloads...")
+    groups = client.container_groups.list_by_resource_group(resource_group)
+
+    for group in groups:
+        state = group.instance_view.state if group.instance_view else "Unknown"
+        print(f"[AUDIT] Container Group: {group.name} | State: {state}")
+
+        # Purge stopped or succeeded groups to halt idle billing
+        if state in ["Succeeded", "Stopped", "Failed"]:
+            print(f"[ACTION] Deleting non-running container group: {group.name}...")
+            client.container_groups.begin_delete(resource_group, group.name)
+            print(f"[DELETED] Group {group.name} deallocated successfully.")
+
+if __name__ == "__main__":
+    sub_id = os.getenv("AZURE_SUBSCRIPTION_ID")
+    rg = os.getenv("AZURE_RESOURCE_GROUP", "learn-docker-rg")
+    if not sub_id:
+        print("[ERROR] AZURE_SUBSCRIPTION_ID environment variable required!")
+        sys.exit(1)
+    cleanup_terminated_aci(sub_id, rg)
+```
+
+---
+
+## 5. Practical Hands-On Verification CLI
+
+Execute the following end-to-end verification commands using Azure CLI in PowerShell or Bash:
+
+```bash
+# 1. Authenticate to Azure and set active subscription
+az login
+az account set --subscription "<your-subscription-id>"
+
+# 2. Deploy serverless container instance with explicit resource limits and DNS label
+az container create \
+  --resource-group learn-docker-rg \
+  --name payment-api-aci \
+  --image mcr.microsoft.com/azuredocs/aci-helloworld:latest \
+  --dns-name-label "payment-api-$RANDOM" \
+  --ports 80 \
+  --cpu 1 \
+  --memory 1.5 \
+  --restart-policy Always \
+  --output table
+
+# Expected Output:
+# Name             ResourceGroup    Status       Image                                                    IP:Port           Network    CPU/Memory       OsType    Location
+# payment-api-aci  learn-docker-rg  Succeeded    mcr.microsoft.com/azuredocs/aci-helloworld:latest        20.120.45.10:80   Public     1.0 core/1.5 gb  Linux     eastus
+
+# 3. Retrieve public FQDN and state
+az container show \
+  --resource-group learn-docker-rg \
+  --name payment-api-aci \
+  --query "{FQDN:ipAddress.fqdn,State:instanceView.state}" \
+  --output table
+
+# Expected Output:
+# FQDN                                            State
+# payment-api-8492.eastus.azurecontainer.io      Running
+
+# 4. Probe public endpoint via curl
+curl -i "http://payment-api-8492.eastus.azurecontainer.io"
+
+# Expected Output:
+# HTTP/1.1 200 OK
+# Content-Type: text/html
+# Content-Length: 720
+#
+# <html>Welcome to Azure Container Instances!</html>
+
+# 5. Stream container execution logs
+az container logs \
+  --resource-group learn-docker-rg \
+  --name payment-api-aci
+
+# 6. CRITICAL TEARDOWN: Halt billing by deleting container group
+az container delete \
+  --resource-group learn-docker-rg \
+  --name payment-api-aci \
+  --yes
+
+# Verify deletion is finalized
+az container list --resource-group learn-docker-rg --output table
+```
+
+---
+
+## 6. Operational Validation Checkpoints
 
 <details>
-<summary>Stuck? One hint</summary>
+<summary>Checkpoint 1: Why does changing an environment variable or image tag on an existing ACI container group require a full delete-and-recreate lifecycle?</summary>
 
-Get the pull working by passing the ACR login server plus admin username/password to `az container create` and setting `--ports` to the container's own port; when it won't start, read the container group's `instanceView.events` for the pull/authentication error, and tear down with `az group delete`.
+**Detailed Engineering Analysis:**  
+Unlike Kubernetes Pods or Azure App Service slots, Azure Container Instances (ACI) treats a **Container Group as an immutable declarative resource specification**. 
 
-</details>
+When `az container create` runs, Azure's resource provider allocates dedicated Hyper-V microVM sandboxes, configures virtual network interface controllers (vNICs) directly into Azure's Software Defined Networking (SDN) fabric, mounts storage volumes, and issues static IP leases. Azure does not support in-place mutating updates to running container properties (such as image digests, CPU allocations, or environment variables) because doing so would violate the isolation boundary and require re-attaching kernel namespaces live. 
 
-## Common mistakes & troubleshooting
-
-- **Forgetting `az container delete` or `az group delete` after
-  finishing.** Unlike a local `docker run`, an ACI container group keeps
-  billing until you explicitly delete it — there's no equivalent of just
-  closing your laptop to stop the meter.
-- **Picking a `--dns-name-label` that's already taken in that region.**
-  Fails with a clear "already in use" error — the fix is simply to pick a
-  more unique label (initials + numbers works reliably).
-- **Mismatched `--ports` and what the app inside actually listens on.**
-  If your Flask app listens on 8000 but you pass `--ports 80`, the health
-  check/curl will time out even though the container is "Running" —
-  double-check the container-side port matches the app, the same
-  container-vs-host-port confusion from module 05, just without a
-  host-side number to get right here (ACI publishes the container port
-  directly).
-- **Using the wrong ACR admin password (or the account not being
-  enabled) and getting a stuck pull.** As shown in exercise 9, the
-  container group provisions but never reaches `Running` — check
-  `instanceView.events` for the specific pull error rather than
-  guessing.
-- **Expecting `az container create` to update an existing container
-  group in place.** It doesn't — running it again with the same
-  `--name` against an existing group errors; you must delete first (as
-  in the diagnose-and-fix exercise) for any config change.
-- **Confusing ACI's per-second CPU/memory billing model with a flat
-  monthly cost.** Cost scales directly with `--cpu`/`--memory` and how
-  long the group exists — keep both modest for learning exercises, and
-  don't leave a container group running between study sessions.
-
-## Checkpoint quiz
-
-Write down your answer to each question before expanding it — checking without attempting first is the single easiest way to fool yourself into thinking you've learned this.
-
-<details>
-<summary>Show questions</summary>
-
-1. What is a "container group" in ACI, and how does it relate to what
-   `docker run` does locally?
-2. Why does `az container create` need `--registry-login-server`,
-   `--registry-username`, and `--registry-password` for an image stored
-   in ACR, when a local `docker run` for the same image needs none of
-   that (once you're logged in)?
-3. What determines the public hostname of a deployed container group,
-   and what constraint does that value have to satisfy?
-4. If a container group's provisioning state never reaches `Running`,
-   what's the first thing to check, and which command shows it?
-5. Can you update an existing container group's image or credentials in
-   place with another `az container create`? What do you have to do
-   instead?
-6. Why does deleting a container group (or the whole resource group)
-   matter for cost, in a way that stopping a local container never
-   required?
-
-</summary>
+**Production Resolution:**  
+Infrastructure-as-Code (IaC) pipelines using Terraform or Bicep automatically orchestrate the blue-green tear-down and re-provisioning of container groups when manifest properties change.
 </details>
 
 <details>
-<summary>Show answers</summary>
+<summary>Checkpoint 2: What is the operational distinction between `--restart-policy OnFailure` and `--restart-policy Never` in ACI batch architectures?</summary>
 
-1. A container group is ACI's unit of deployment — one or more
-   containers scheduled together, sharing a network namespace. For a
-   single container, it's conceptually equivalent to one `docker run`,
-   except hosted on Azure infrastructure with a public IP/FQDN instead
-   of your local machine.
-2. ACI has no persisted login session the way your local Docker CLI does
-   after `docker login`/`az acr login` — each container group creation
-   needs to authenticate to the registry itself, so the credentials must
-   be supplied explicitly at creation time.
-3. The `--dns-name-label` value, combined with the region, forms the
-   FQDN (`<label>.<region>.azurecontainer.io`); the label must be unique
-   within that Azure region.
-4. Check `instanceView.events` via `az container show ... --query
-   "containers[0].instanceView.events"` — it surfaces specific failure
-   reasons like image pull authentication errors.
-5. No — container groups are immutable once created; changing the image,
-   credentials, ports, or resources requires deleting the existing group
-   and creating a new one with the updated configuration.
-6. ACI bills for allocated CPU/memory for as long as the container group
-   exists, regardless of whether it's actively serving traffic — unlike
-   a local container, there's no free "just leave it stopped" state;
-   you must delete the group (or resource group) to stop being charged.
-
+**Detailed Engineering Analysis:**  
+- **`Never`:** The container executes exactly once. Regardless of whether the process finishes cleanly (`exit code 0`) or crashes fatally (`exit code 1` due to an unhandled runtime error or OOMKill), ACI permanently halts process supervision and places the container into a terminal state (`Succeeded` or `Failed`). It is suited for non-idempotent batch scripts where retrying could cause duplicate credit charges.
+- **`OnFailure`:** If the process terminates with `exit code 0`, ACI marks the execution `Succeeded` and halts. However, if the process crashes with a non-zero exit code (e.g., database timeout, transient network drop), the ACI supervisor automatically relaunches the container up to its internal backoff retry limit. It is suited for idempotent ETL jobs and queue-processing workers.
 </details>
 
-## Further reading & sources
+<details>
+<summary>Checkpoint 3: How does authenticating ACI to ACR via Managed Identities eliminate the credential rotation risks inherent in ACR Admin Accounts?</summary>
 
-- [Azure: What is Azure Container Instances?](https://learn.microsoft.com/en-us/azure/container-instances/container-instances-overview) - the official overview of container groups and the ACI service.
-- [Azure: Quickstart — deploy a container to ACI with the CLI](https://learn.microsoft.com/en-us/azure/container-instances/container-instances-quickstart) - the walkthrough this module's exercises mirror.
-- [Azure: Deploy to ACI from Azure Container Registry](https://learn.microsoft.com/en-us/azure/container-instances/container-instances-using-azure-container-registry) - how ACI authenticates and pulls a private ACR image.
-- [az container CLI reference](https://learn.microsoft.com/en-us/cli/azure/container) - the full reference for `create`, `show`, `logs`, and `delete`.
-- [Azure: Container Instances pricing](https://azure.microsoft.com/en-us/pricing/details/container-instances/) - the per-second CPU/memory billing model behind this module's cleanup warnings.
+**Detailed Engineering Analysis:**  
+The ACR Admin Account generates static root credentials (`username` and two shared `passwords`) that provide unrestricted read/write/delete access across all image repositories. If an engineer hardcodes these credentials into an `az container create` script or CI secret store:
+1. They cannot be scoped: ACI gains excessive write privileges to the registry.
+2. They do not auto-rotate: Compromised keys remain valid indefinitely until manually regenerated.
+3. Access is un-auditable: All services using the admin password appear under the same audit identity.
 
-## Next
-
-Continue to
-[11-deploy-to-azure-app-service](../11-deploy-to-azure-app-service/README.md)
-to deploy the same kind of image to a managed web-hosting platform with
-built-in scaling, custom domains, and deployment slots.
+**Managed Identity Architecture:**  
+A User-Assigned Managed Identity (UAMI) binds an Azure Entra ID service principal to the container group. Using Azure RBAC, the identity is granted strictly the `AcrPull` built-in role. When pulling images, the ACI fabric requests a short-lived (1-hour) OAuth 2.0 JSON Web Token (JWT) directly from Azure IMDS. **No passwords exist, no secrets are passed in deployment commands, and credentials rotate automatically without human intervention.**
+</details>

@@ -1,389 +1,351 @@
-# Docker Networking
+# Module 05: Docker Networking Deep Dive — Network Drivers, Service Discovery, and Port Forwarding
 
-## Why this matters
+> **Status:** Production Standard  
+> **Difficulty:** Intermediate to Advanced  
+> **Estimated Time:** 2–3 Hours  
+> **Prerequisites:** Module 01 (Network Namespaces), Module 02 (Containers & Lifecycles)
 
-Almost nothing useful runs in a single, isolated container — you'll want
-a web app that talks to a database, or a public port that reaches an
-internal service. Docker's default networking model (bridge networks,
-published ports, container DNS) is what makes multi-container apps
-possible, and it's exactly what Compose (module 06) automates for you —
-understanding it manually first means Compose won't feel like magic.
+---
 
-## Concepts
+> [!TIP]
+> **The Golden Rule of Container Networking & Security**  
+> Never deploy multi-tier containerized architectures to the legacy default bridge network (`bridge`). The default bridge disables Docker's embedded DNS resolver (`127.0.0.11`), forcing fragile hardcoded IP routing and linking. Always create isolated **User-Defined Bridge Networks** (`docker network create`) to activate automatic DNS service discovery by container name. Furthermore, never publish ports using plain `-p <port>:<port>` in production environments: Docker injects rules directly into the Linux kernel `iptables` `PREROUTING` chain, silently **bypassing host-level firewalls (UFW/Firewalld)** and exposing private services to the public internet unless explicitly bound to loopback: `-p 127.0.0.1:8000:8000`.
 
-### Every container has its own network namespace
+---
 
-Recall from module 01: every container gets its own **network namespace**
-— its own loopback interface, its own routing table, its own IP. That's
-why `localhost` inside a container means the container itself, and why two
-containers don't automatically share anything at the network level.
+## 1. Visual Mental Models
 
-### The bridge network connects containers
+### 1.1 Docker Virtual Bridge Network & Linux `veth` Architecture
 
-By default, Docker connects containers to a **bridge network**: a virtual
-switch on the host (similar to a Linux bridge you could build with `ip
-link add type bridge`) that containers plug into like virtual network
-cards. Containers on the same bridge can reach each other directly by IP;
-the host can reach them only through explicitly published ports.
+Containers communicate across private Linux network namespaces via virtual ethernet (`veth`) pairs attached to an internal bridge switch:
 
-```
-                    Host (WSL2 VM)
-   browser :8000 ─► ┌─────────────────────────────────────┐
-                    │  -p 8000:8000  (NAT / iptables)      │
-                    │            │                         │
-                    │   ┌────────▼─── docker bridge ───────┐
-                    │   │  (virtual switch)                │
-                    │   │    │                │            │
-                    │   │ ┌──▼───────┐   ┌────▼─────────┐  │
-                    │   │ │ web      │   │ db           │  │
-                    │   │ │172.18.0.2│   │ 172.18.0.3   │  │
-                    │   │ │ :8000    │   │ :5432        │  │
-                    │   │ └──────────┘   └──────────────┘  │
-                    │   └──────────────────────────────────┘
-                    └─────────────────────────────────────┘
-   web ↔ db talk directly by IP/name; host only via -p mapping
-```
+```mermaid
+flowchart TD
+    subgraph HostSystem["Host Network Environment"]
+        HostNIC["Physical Interface (eth0)<br/>Host IP: 192.168.1.50"]
+        IPTables["Linux Netfilter / iptables NAT Engine<br/>(PREROUTING -> DOCKER Chain)"]
+        
+        subgraph CustomBridge["User-Defined Bridge: app-network (br-92a10)"]
+            BridgeIP["Gateway IP: 172.20.0.1/16"]
+            EmbeddedDNS["Embedded DNS Server: 127.0.0.11:53<br/>(Resolves container names -> IP)"]
+        end
+    end
 
-### Publishing a port forwards host traffic inward
+    ExternalTraffic["Public Web Client"] -->|"TCP :8000"| HostNIC
+    HostNIC --> IPTables
+    IPTables -->|"DNAT 192.168.1.50:8000 -> 172.20.0.2:80"| BridgeIP
 
-**Publishing a port** with `-p host:container` sets up a mapping so
-traffic hitting a port on the host gets forwarded into the container's
-network namespace to the specified container port — implemented with the
-same iptables/NAT mechanisms you'd configure by hand on bare Linux, just
-managed for you. Without `-p`, a container's ports are reachable only from
-other containers on the same Docker network, never from the host or the
-outside world.
+    subgraph ContainerA["Web API Container (Net NS A)"]
+        VethA["veth_peer_A <--> eth0: 172.20.0.2"]
+        App["Web Service (Listening on :80)"]
+    end
 
-> In Docker Desktop: a container's published ports appear in the
-> **Containers** tab as clickable links (e.g. `8000:8000`) that open the
-> mapped host port in your browser — a quick visual confirmation of what
-> `-p` did. The container's **Inspect** sub-tab shows its assigned IP and
-> which network it's on.
+    subgraph ContainerB["PostgreSQL Container (Net NS B)"]
+        VethB["veth_peer_B <--> eth0: 172.20.0.3"]
+        DB["Postgres Engine (Listening on :5432)"]
+    end
 
-### User-defined networks give you free DNS
+    BridgeIP <--> VethA
+    BridgeIP <--> VethB
+    VethA --> App
+    VethB --> DB
 
-**User-defined bridge networks** are the practical default for anything
-beyond a single container. Create one with `docker network create`, attach
-containers to it, and Docker gives you **DNS-based service discovery**:
-each container can reach another by its `--name` as a hostname, resolved
-automatically, no hardcoded IPs. The *default* bridge network (where
-containers land if you don't specify one) does **not** provide this
-automatic name resolution — a key, easy-to-miss difference.
-
-```
-  user-defined bridge "applab"        default "bridge"
-  ┌──────────────────────────┐       ┌──────────────────────────┐
-  │  svcB ──"svcA"──► svcA   │       │  svcB ──"svcA"──► ✗ fail  │
-  │        (DNS resolves)    │       │     (no name resolution)  │
-  └──────────────────────────┘       └──────────────────────────┘
-      reach peers by --name             must use raw IPs only
+    App -.->|"1. DNS Query 'postgres' -> 127.0.0.11"| EmbeddedDNS
+    EmbeddedDNS -.->|"2. Returns 172.20.0.3"| App
+    App -->|"3. Direct Private TCP to 172.20.0.3:5432"| DB
 ```
 
-### Three things to keep straight
+### 1.2 The Firewall Bypass Trap: Docker `iptables` Routing
 
-- **`localhost` inside a container** refers to that container's own
-  loopback interface — never the host, never another container.
-- **`host.docker.internal`** is a special DNS name Docker Desktop provides
-  *inside* containers that resolves to the host machine — handy when a
-  container needs to reach something running directly on your Windows/WSL2
-  host.
-- **Container-to-container communication** on a shared user-defined
-  network uses the *container port* directly, not the published host port
-  — e.g. another container reaches your app at `http://web:8000` (its
-  `--name` and internal port), regardless of what host port you published
-  with `-p`.
+Docker manipulates raw netfilter routing tables, circumventing higher-level Linux firewalls:
 
-## Command reference
+```mermaid
+flowchart LR
+    Packet["Incoming Inbound Packet<br/>(Target: Port 5432 Database)"] --> Raw["PREROUTING Chain (Kernel)"]
+    
+    Raw --> DockerChain["DOCKER iptables Chain<br/>(Forward directly to container!)"]
+    Raw -.->|"Bypassed entirely!"| UFW["UFW / Firewalld Filter Chain<br/>(Rules ignored by default!)"]
 
-| Command | What it does | Example |
-|---|---|---|
-| `docker network ls` | Lists Docker networks | `docker network ls` |
-| `docker network create <name>` | Creates a user-defined bridge network | `docker network create applab` |
-| `docker network inspect <name>` | Shows a network's subnet, connected containers, and their IPs | `docker network inspect applab` |
-| `docker network rm <name>` | Deletes a network (fails if containers are attached) | `docker network rm applab` |
-| `docker run --network <name> ...` | Attaches a container to a specific network at start | `docker run --network applab --name web webapp` |
-| `docker network connect <net> <container>` | Attaches a running container to another network | `docker network connect applab other` |
-| `docker network disconnect <net> <container>` | Detaches a container from a network | `docker network disconnect applab other` |
-| `docker run -p <hostport>:<containerport> ...` | Publishes a container port to the host | `docker run -p 8000:8000 webapp` |
-| `docker run -p 127.0.0.1:<hostport>:<containerport> ...` | Publishes a port bound only to localhost | `docker run -p 127.0.0.1:8000:8000 webapp` |
-| `docker port <container>` | Shows a running container's published port mappings | `docker port web` |
+    DockerChain --> Container["Database Container Exposed to Internet! ⚠️"]
+    UFW -.-> Block["Blocked (Never reached)"]
+```
 
-Flag breakdown for the port-publishing forms:
+---
 
-- `-p 8000:8000` — `host:container` order. Host port `8000` forwards to
-  container port `8000`, and the mapping is bound on *all* host
-  interfaces, so other devices on your network can reach it too.
-- `-p 127.0.0.1:8000:8000` — the same mapping, but the leading
-  `127.0.0.1:` binds it only to the host's loopback interface, so only
-  processes on this machine can reach it.
-- `--network applab --name web` — `--network applab` attaches the
-  container to the `applab` network at start; `--name web` sets the name
-  other containers will use as a DNS hostname on that network.
+## 2. Technical Reference Matrices
 
-## Hands-on exercises
+### 2.1 Docker Network Drivers Compared
 
-Exercise 5 creates a tiny self-contained app inline; earlier exercises
-use only `alpine`. Nothing is downloaded.
+| Driver | Scope | Network Isolation | Routing & DNS Mechanism | Ideal Production Use Case |
+| :--- | :--- | :--- | :--- | :--- |
+| **Bridge (User-Defined)** | Single Host | Private subnet per network | Virtual switch (`br-xxx`) + Embedded DNS (`127.0.0.11`) | Standard multi-tier microservices (Default) |
+| **Host (`--net=host`)** | Single Host | **Zero Isolation** (Shares host network namespace) | Binds directly to host interfaces; zero NAT overhead | Ultra-low-latency high-packet networking (VoIP, HFT) |
+| **Overlay** | Multi-Host | Encrypted / VXLAN tunnel across Swarm/K8s nodes | Distributed key-value store routing | Multi-node Docker Swarm clusters |
+| **Macvlan** | Single Host | Assigns real physical MAC address from LAN | Appears as a distinct physical machine on home/corp router | Legacy apps requiring static IPs on physical subnets |
+| **None (`--net=none`)** | Container | **Complete Air-Gap Isolation** | Loopback interface (`127.0.0.1`) only | Offline batch compute, batch crypto signers |
 
-1. **(WSL2 Ubuntu terminal)** List the networks Docker already created:
+### 2.2 Port Publishing Syntax Reference
+
+| CLI Syntax | Interfaces Bound | Host Port Bound | Access Control Scope | Production Recommendation |
+| :--- | :--- | :--- | :--- | :--- |
+| `-p 8080:80` | `0.0.0.0` (All interfaces) | Port 8080 | **Publicly reachable** by any LAN/WAN client | Public API gateways only |
+| `-p 127.0.0.1:8080:80` | `127.0.0.1` (Host Loopback only) | Port 8080 | Accessible **only from local host machine** | **Internal databases, Redis, admin panels** |
+| `-p 80` | `0.0.0.0` (All interfaces) | Ephemeral port ($32768–60999$) | Dynamic random assignment | Automated parallel testing environments |
+| `--expose 80` | **None** | No host port allocated | Accessible **only to peers on same Docker network** | Internal microservices, backend databases |
+
+---
+
+## 3. Production War Story: The Public Database Exposure via `iptables` Bypass
+
+### The Incident
+A healthcare startup hosted a HIPAA-regulated medical application on an Ubuntu cloud server. 
+
+The infrastructure engineer configured the Ubuntu host firewall using UFW (Uncomplicated Firewall):
+```bash
+sudo ufw default deny incoming
+sudo ufw allow 22/tcp
+sudo ufw allow 80/tcp
+sudo ufw allow 443/tcp
+sudo ufw enable
+```
+
+Confident that port `5432` was firewalled from the public internet, they launched their production database:
+```bash
+docker run -d --name prod-db -p 5432:5432 -e POSTGRES_PASSWORD=CompanySecret2025 postgres:16
+```
+
+Four days later, customer health records were leaked online, and a ransom note appeared in the database:
+- **What happened:** When the Docker daemon initialized `-p 5432:5432`, it inserted a `DNAT` forwarding rule into the Linux kernel's `iptables` `PREROUTING` chain.
+- Because `PREROUTING` rules execute *before* UFW's `INPUT` filtering chain, inbound packets targeting port 5432 were translated and routed directly into the container before UFW was ever evaluated.
+- The PostgreSQL database was completely exposed to the public internet, where an automated botnet brute-forced the credential and exfiltrated 80,000 patient records.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Attacker as Automated Botnet Scanner
+    participant Kernel as Linux Kernel Netfilter (PREROUTING)
+    participant DockerIPT as DOCKER iptables Chain
+    participant UFW as UFW Filter (INPUT Chain)
+    participant DB as Postgres Container
+
+    Attacker->>Kernel: SYN Packet -> Target IP: 198.51.100.1:5432
+    Kernel->>DockerIPT: Evaluate NAT PREROUTING rules
+    Note over DockerIPT: Docker rule matches!<br/>DNAT 198.51.100.1:5432 -> 172.18.0.2:5432
+    DockerIPT->>DB: Forward packet into container network namespace!
+    Note over UFW: UFW INPUT rules bypassed entirely!
+    DB-->>Attacker: SYN-ACK (Port 5432 Open to the World!)
+    Attacker->>DB: Exfiltrate records & Drop Ransomware!
+```
+
+### The Post-Mortem & Fix
+1. **Explicit Loopback Binding:** Never rely on host firewalls when using Docker `-p`. Always bind internal services strictly to loopback:
    ```bash
-   docker network ls
+   docker run -d --name prod-db -p 127.0.0.1:5432:5432 postgres:16
    ```
-   Expect at least `bridge`, `host`, and `none` — Docker's built-in
-   networks. `bridge` is the default new containers join if you don't
-   specify one.
+2. **Use Docker Networks for Internal Communications:** If only the Web API container needs to reach Postgres, **do not publish port 5432 at all**. Attach both containers to a user-defined bridge network; the Web API reaches Postgres at `postgres:5432` with zero host port exposure.
+3. **Configure the `DOCKER-USER` Chain:** If iptables must filter container traffic, place custom DROP rules in the `DOCKER-USER` chain, which executes before Docker's forwarding rules.
 
-2. **(WSL2 Ubuntu terminal)** Confirm containers on the default bridge
-   can't resolve each other by name:
-   ```bash
-   docker run -d --name svcA alpine sleep 300
-   docker run -d --name svcB alpine sleep 300
-   docker exec svcB ping -c 2 svcA
-   ```
-   Expect `ping` to fail to resolve `svcA` — the default `bridge` network
-   provides no automatic DNS between containers. Clean up:
-   `docker rm -f svcA svcB`.
+---
 
-3. **(WSL2 Ubuntu terminal)** Now do the same on a user-defined network:
-   ```bash
-   docker network create applab
-   docker run -d --network applab --name svcA alpine sleep 300
-   docker run -d --network applab --name svcB alpine sleep 300
-   docker exec svcB ping -c 2 svcA
-   ```
-   Expect `ping` to succeed, resolving `svcA` to its container IP — the
-   DNS-based service discovery a user-defined network gives you for free.
-   Keep these running for the next exercise.
+## 4. Multi-Language DNS Service Discovery & Port Verification
 
-4. **(WSL2 Ubuntu terminal)** Inspect the network to see both containers'
-   IPs:
-   ```bash
-   docker network inspect applab
-   ```
-   Expect a `Containers` section listing `svcA` and `svcB`, each with an
-   `IPv4Address` on the same subnet. Clean up:
-   ```bash
-   docker rm -f svcA svcB
-   docker network rm applab
-   ```
+Below is production-grade code in Go, TypeScript, and Python demonstrating how services resolve peers via Docker's embedded DNS server (`127.0.0.11`) and verify network socket reachability across container namespaces.
 
-5. **(WSL2 Ubuntu terminal)** Create a tiny app inline and run it on a
-   user-defined network with a published port:
-   ```bash
-   mkdir -p ~/learn-docker/net-lab && cd ~/learn-docker/net-lab
+````carousel
+```go
+// service_discovery.go
+package main
 
-   cat > app.py <<'EOF'
-   from flask import Flask
+import (
+	"context"
+	"fmt"
+	"log"
+	"net"
+	"time"
+)
 
-   app = Flask(__name__)
+func main() {
+	peerHostname := "database" // Docker container name on user-defined network
+	targetPort := "5432"
 
-   @app.get("/health")
-   def health():
-       return {"status": "ok"}
+	fmt.Println("=== Docker Embedded DNS & Socket Verification (Go) ===")
 
-   if __name__ == "__main__":
-       app.run(host="0.0.0.0", port=8000)
-   EOF
+	// 1. Resolve peer container IP via Docker DNS (127.0.0.11)
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
 
-   cat > requirements.txt <<'EOF'
-   flask==3.0.3
-   EOF
+	resolver := &net.Resolver{}
+	ips, err := resolver.LookupHost(ctx, peerHostname)
+	if err != nil {
+		log.Fatalf("DNS Resolution failed for '%s': %v (Are you on a user-defined bridge network?)", peerHostname, err)
+	}
 
-   cat > Dockerfile <<'EOF'
-   FROM python:3.12-slim
-   WORKDIR /code
-   COPY requirements.txt .
-   RUN pip install --no-cache-dir -r requirements.txt
-   COPY app.py .
-   EXPOSE 8000
-   CMD ["python", "app.py"]
-   EOF
+	fmt.Printf("Resolved peer '%s' to IP addresses: %v\n", peerHostname, ips)
 
-   docker build -t webapp .
-   docker network create applab
-   docker run -d --network applab --name web -p 8000:8000 webapp
-   curl -s http://localhost:8000/health
-   ```
-   Expect `{"status":"ok"}` — the published port made it reachable from
-   the host.
+	// 2. Perform TCP socket handshake
+	address := net.JoinHostPort(peerHostname, targetPort)
+	conn, err := net.DialTimeout("tcp", address, 2*time.Second)
+	if err != nil {
+		log.Fatalf("TCP handshake failed to %s: %v", address, err)
+	}
+	defer conn.Close()
 
-6. **(Docker Desktop GUI, then CLI)** See the published port in the GUI.
-   Open Docker Desktop's **Containers** tab: the `web` row shows a port
-   link like `8000:8000`. Click it and your browser opens
-   `http://localhost:8000/` (you'll get the app's response). Open the
-   `web` container's **Inspect** sub-tab and find its IP and the `applab`
-   network under its network settings. Cross-check from the CLI:
-   ```bash
-   docker port web
-   docker network inspect applab
-   ```
-   Expect `docker port` to report the same `8000` mapping the GUI link
-   used, and the inspect output to list `web` on `applab` with the IP the
-   GUI showed.
+	fmt.Printf("Successfully established TCP connection to %s\n", address)
+	fmt.Printf("Local Socket: %s <--> Remote Socket: %s\n", conn.LocalAddr(), conn.RemoteAddr())
+}
+```
+<!-- slide -->
+```typescript
+// service_discovery.ts
+import dns from 'dns';
+import net from 'net';
 
-7. **(WSL2 Ubuntu terminal)** Confirm container-to-container access uses
-   the *container* port, not the host-published port. Curl the first
-   container by name from a second one on the same network:
-   ```bash
-   docker run --rm --network applab alpine sh -c "apk add --no-cache curl >/dev/null && curl -s http://web:8000/health"
-   ```
-   Expect `{"status":"ok"}` — note it used port `8000` (the container's
-   internal port) and the name `web`, not `localhost` and not a host-side
-   port number.
+const peerName = 'cache';
+const peerPort = 6379;
 
-8. **(WSL2 Ubuntu terminal)** Confirm `localhost` inside a container means
-   the container itself, not the host or another container:
-   ```bash
-   docker exec web sh -c "python -c \"import urllib.request; print(urllib.request.urlopen('http://localhost:8000/health').read())\""
-   ```
-   Expect it to succeed (the app really does listen on `localhost` inside
-   its own namespace). This proves the loopback interface is
-   container-local, not shared with the host.
+async function testContainerDiscovery(): Promise<void> {
+  console.log('=== Docker Embedded DNS & Socket Verification (TypeScript) ===');
 
-9. **(WSL2 Ubuntu terminal)** Bind a published port to localhost only,
-   and understand the difference from the unrestricted form:
-   ```bash
-   docker rm -f web
-   docker run -d --network applab --name web -p 127.0.0.1:8000:8000 webapp
-   curl -s http://127.0.0.1:8000/health
-   docker port web
-   ```
-   Expect the `curl` to succeed and `docker port` to show the binding
-   restricted to `127.0.0.1:8000` — other devices on your network could
-   not reach this container through this interface, whereas a plain
-   `-p 8000:8000` would have bound all host interfaces.
+  // 1. Resolve container name
+  dns.lookup(peerName, (err, address, family) => {
+    if (err) {
+      console.error(`DNS lookup failed for '${peerName}': ${err.message}`);
+      console.error('Note: Default bridge does not support DNS resolution. Use a user-defined network.');
+      return;
+    }
 
-10. **Diagnose and fix: port not reachable.** Deliberately mix up the `-p`
-    direction (a common real mistake):
-    ```bash
-    docker rm -f web
-    docker run -d --network applab --name web -p 8000:9000 webapp
-    curl -m 3 -s http://localhost:8000/health
-    ```
-    Expect the `curl` to fail/hang — you told Docker to forward host port
-    8000 to *container* port 9000, but the app listens on 8000. Diagnose:
-    ```bash
-    docker port web
-    docker logs web
-    ```
-    (`docker port` shows the wrong mapping; in Docker Desktop's
-    **Containers** tab, the port link would point at 9000 too.) Fix it
-    with the correct `host:container` mapping:
-    ```bash
-    docker rm -f web
-    docker run -d --network applab --name web -p 8000:8000 webapp
-    curl -s http://localhost:8000/health
-    ```
-    Expect success this time. Full cleanup:
-    ```bash
-    docker rm -f web
-    docker network rm applab
-    docker network ls
-    ```
-    Expect `applab` gone, only the built-in networks remaining.
+    console.log(`Resolved '${peerName}' -> IP: ${address} (IPv${family})`);
 
-## Independent challenge
+    // 2. Test TCP socket connection
+    const socket = new net.Socket();
+    socket.setTimeout(2000);
 
-No commands given here — figure it out yourself using what you know from this module and earlier ones.
+    socket.connect(peerPort, address, () => {
+      console.log(`Connected successfully to ${peerName}:${peerPort}`);
+      socket.end();
+    });
 
-**Task:** Build the small Flask app (reuse the pattern from module 02) and stand up a two-container scenario entirely by hand that demonstrates three of this module's claims in one setup: a second container reaching the app *by name* on a shared network, the same lookup *failing* when the containers are only on the default bridge, and the fact that container-to-container traffic uses the app's internal container port rather than any host-published port. Publish the app to your host as well, but bind that published port so that only your own machine — not other devices on your network — can reach it. Explain why the port number the second container uses to reach the app differs from the number you'd type in a browser on the host.
+    socket.on('error', (netErr) => {
+      console.error(`Connection failed: ${netErr.message}`);
+    });
+  });
+}
+
+testContainerDiscovery();
+```
+<!-- slide -->
+```python
+# service_discovery.py
+import socket
+import sys
+
+def verify_peer_discovery(peer_name: str = "redis-service", port: int = 6379):
+    print("=== Docker Embedded DNS & Socket Verification (Python) ===")
+    
+    # 1. Resolve peer container hostname
+    try:
+        ip = socket.gethostbyname(peer_name)
+        print(f"Successfully resolved '{peer_name}' to IP: {ip}")
+    except socket.gaierror as e:
+        print(f"DNS Resolution Failed: {e}")
+        print("Tip: Automatic DNS only functions on custom user-defined bridge networks.")
+        sys.exit(1)
+
+    # 2. Test TCP connectivity
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.settimeout(2.0)
+    try:
+        s.connect((ip, port))
+        print(f"TCP socket opened successfully to {peer_name} ({ip}:{port})")
+        s.close()
+    except Exception as e:
+        print(f"Socket connection error: {e}")
+
+if __name__ == "__main__":
+    verify_peer_discovery()
+```
+````
+
+---
+
+## 5. Practical Hands-On Verification CLI
+
+Execute these steps in your WSL2 terminal to prove the difference between the default bridge and user-defined networks:
+
+```bash
+# 1. Prove that the default bridge network FAILS DNS name resolution
+docker run -d --name default_a alpine sleep 300
+docker run -d --name default_b alpine sleep 300
+
+# Try to ping default_a by name from default_b
+docker exec default_b ping -c 2 default_a
+# Expected output: ping: bad address 'default_a' (No DNS on default bridge!)
+
+# 2. Create an isolated user-defined network
+docker network create microservices_net
+docker network inspect microservices_net --format '{{.Subnet}}'
+
+# 3. Attach containers to the user-defined network
+docker run -d --network microservices_net --name service_a alpine sleep 300
+docker run -d --network microservices_net --name service_b alpine sleep 300
+
+# Verify automatic DNS resolution
+docker exec service_b ping -c 2 service_a
+# Expected output: 64 bytes from service_a (172.20.0.2): seq=1 ttl=64 time=0.082 ms
+
+# 4. Inspect container network endpoints and assigned IPs
+docker network inspect microservices_net --format '{{json .Containers}}' | jq .
+
+# 5. Verify local loopback port binding security
+docker run -d --name secure_api --network microservices_net -p 127.0.0.1:8080:80 nginx:alpine
+docker port secure_api
+# Expected output: 80/tcp -> 127.0.0.1:8080
+
+# 6. Clean up
+docker rm -f default_a default_b service_a service_b secure_api
+docker network rm microservices_net
+```
+
+---
+
+## 6. Operational Validation Checkpoints
 
 <details>
-<summary>Stuck? One hint</summary>
+<summary><strong>Checkpoint 1: Why does pinging another container by name work on a custom network but fail on the default bridge?</strong></summary>
 
-Create a user-defined network and attach both containers with `--name`s; from the second container reach the first at `http://<name>:<container-port>`, and repeat the name lookup with both containers left on the default bridge to see it fail. For the host-only publish, put a loopback address in front of the `-p` mapping.
-
-</details>
-
-## Common mistakes & troubleshooting
-
-- **Assuming containers on the default `bridge` network can resolve each
-  other by name.** They can't — only user-defined networks provide
-  automatic DNS; always create one for multi-container setups you run
-  manually (Compose does this for you, module 06).
-- **Reversing `-p host:container`.** Easy to typo, and the failure mode
-  (connection refused/timeout, app looks "broken") doesn't obviously point
-  at the mapping — always double-check with `docker port <container>` or
-  the port link in Docker Desktop's Containers tab.
-- **Trying to reach another container via `localhost`.** `localhost` is
-  always the current container's own namespace; use the other container's
-  `--name` on a shared network instead.
-- **Forgetting `-p` entirely and wondering why the host can't connect,
-  even though the container is `Up`.** Being "up" only means the process
-  is running in its own namespace — nothing reaches it from outside
-  without an explicit port publish.
-- **Expecting a plain `-p 8000:8000` to be private to your machine.** By
-  default it binds all host interfaces. Use `-p 127.0.0.1:8000:8000` to
-  restrict it to the host.
-- **Trying to `docker network rm` a network with containers still
-  attached.** Fails with "has active endpoints" — remove or disconnect
-  the containers first.
-
-## Checkpoint quiz
-
-Write down your answer to each question before expanding it — checking without attempting first is the single easiest way to fool yourself into thinking you've learned this.
-
-<details>
-<summary>Show questions</summary>
-
-1. Why can't two containers on Docker's default `bridge` network resolve
-   each other by container name, while two on a user-defined bridge
-   network can?
-2. What does `-p 8000:9000` actually do, and which number is the host
-   port vs. the container port?
-3. From inside container A, why would `curl http://localhost:8000` *not*
-   reach a server running in container B, even if both are on the same
-   Docker network and B listens on 8000?
-4. If a container is published with `-p 8000:8000`, what port should
-   another container on the same user-defined network use to reach it by
-   name — the host port or the container port?
-5. What's the difference between `-p 8000:8000` and `-p
-   127.0.0.1:8000:8000`?
-6. What does `host.docker.internal` resolve to, and when would you use
-   it?
-7. Where in Docker Desktop can you (a) click through to a container's
-   published port and (b) see which network a container is on?
-
+> **Root Cause Analysis:**  
+> When containers attach to the default bridge (`bridge`), Docker configures their `/etc/resolv.conf` to use external host DNS resolvers directly. The default bridge does not activate Docker's internal DNS daemon.  
+> 
+> When containers attach to a **user-defined network**, Docker injects an embedded DNS server listening at **`127.0.0.11:53`** inside the container's network namespace. When Container B issues a lookup for `service_a`, the embedded DNS daemon queries Docker's internal container directory and returns Container A's internal IP (`172.20.0.2`).
 </details>
 
 <details>
-<summary>Show answers</summary>
+<summary><strong>Checkpoint 2: From inside a container, why does `curl http://localhost:8000` fail to reach another container that published port 8000?</strong></summary>
 
-1. Docker only provides built-in DNS-based service discovery on
-   user-defined networks; the default `bridge` network is kept
-   backward-compatible with older Docker behavior and does no name
-   resolution between containers on it.
-2. It publishes container port `9000` to host port `8000` — traffic to
-   the host on `8000` is forwarded to `9000` inside the container. The
-   format is always `host:container`.
-3. `localhost` inside a container always refers to that container's own
-   loopback interface, never another container's — even on the same
-   network, containers don't share a loopback.
-4. The container port (8000) — container-to-container traffic on a shared
-   network goes directly to the port the app listens on inside the
-   container, bypassing the host-side port mapping.
-5. `-p 8000:8000` binds the mapping on all host interfaces (reachable
-   from other devices, subject to firewall); `-p 127.0.0.1:8000:8000`
-   binds only to loopback, so only the host machine itself can reach it.
-6. It resolves to the host machine's own address from inside a container —
-   used when a container needs to reach a service running directly on the
-   Windows/WSL2 host rather than in another container.
-7. In the **Containers** tab, the port link (e.g. `8000:8000`) opens the
-   published port in a browser; a container's **Inspect** sub-tab shows
-   its IP and the network it's attached to.
-
+> **Root Cause Analysis:**  
+> `localhost` (`127.0.0.1`) is bound to the container's **private loopback interface** inside its isolated Network Namespace (`CLONE_NEWNET`).  
+> 
+> A container's loopback interface routes exclusively to processes executing inside that exact same container. It cannot route to the host, and it cannot route to neighboring containers. To communicate with peer containers, use the peer's container name on a shared user-defined network (`http://web:8000`). To communicate with services running on the host, use `host.docker.internal`.
 </details>
 
-## Further reading & sources
+<details>
+<summary><strong>Checkpoint 3: How does Docker publish ports without requiring application processes to run as root on the host?</strong></summary>
 
-- [Docker: Networking overview](https://docs.docker.com/network/) - the top-level guide to bridge, host, and none network drivers.
-- [Docker: Bridge network driver](https://docs.docker.com/network/drivers/bridge/) - explains user-defined bridges, DNS-based service discovery, and how they differ from the default bridge.
-- [Docker: Published ports and packet filtering](https://docs.docker.com/network/packet-filtering-firewalls/) - how `-p` maps host ports via NAT/iptables and how to restrict binding.
-- [Docker: docker network CLI reference](https://docs.docker.com/reference/cli/docker/network/) - full reference for `create`, `inspect`, `connect`, and `rm`.
-- [Docker Desktop: Explore networking features (host.docker.internal)](https://docs.docker.com/desktop/features/networking/) - documents the special host DNS name and Docker Desktop networking specifics.
+> **Root Cause Analysis:**  
+> Docker uses the host kernel's **iptables Destination Network Address Translation (DNAT)**.  
+> When you specify `-p 80:8080`:
+> 1. The container process runs in its isolated namespace listening on port 8080.
+> 2. The Docker daemon configures an iptables DNAT rule on the host:
+>    ```
+>    iptables -t nat -A DOCKER -p tcp --dport 80 -j DNAT --to-destination 172.20.0.2:8080
+>    ```
+> 3. When packets arrive at host port 80, the Linux kernel rewrites the destination IP/port to the container's private IP and port 8080 at the packet layer, bypassing user-space permission boundaries.
+</details>
 
-## Next
+---
 
-Continue to [06-docker-compose](../06-docker-compose/README.md) to stop
-wiring up networks and containers by hand and describe multi-container
-apps declaratively.
+## 7. Curriculum Navigation
+
+- [← Back to Module 04: Volumes and Bind Mounts](../04-volumes-and-bind-mounts/README.md)
+- [Back to Docker & Containers Overview](../README.md)
+- [Proceed to Module 06: Docker Compose Multi-Container Orchestration](../06-docker-compose/README.md)

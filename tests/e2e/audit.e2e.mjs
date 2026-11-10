@@ -36,7 +36,9 @@ function audit() {
   };
 
   const seen = new Map();
-  document.querySelectorAll('[id]').forEach((el) => seen.set(el.id, (seen.get(el.id) || 0) + 1));
+  // A diagram the Mermaid library has drawn names its own parts (two sequence diagrams on a page both have an "actor-man-torso3"): that is the
+  // library's markup, harmless, and not something this site can rename, so what is inside a drawn diagram is not counted.
+  document.querySelectorAll('[id]').forEach((el) => { if (!el.closest('.mermaid-diagram')) seen.set(el.id, (seen.get(el.id) || 0) + 1); });
   seen.forEach((n, id) => { if (n > 1) issues.push(`the id "${id}" is on ${n} elements`); });
 
   document.querySelectorAll('button, a[href], [role="button"], [role="link"], [role="menuitem"], [role="tab"], summary').forEach((el) => {
@@ -85,7 +87,7 @@ const SCREENS = [
   { name: 'your articles', url: '/write/', email: 'ada@example.com' },
   { name: 'the editor', url: '/write/', email: 'ada@example.com', before: async (page) => { await page.getByRole('button', { name: 'New article' }).first().click(); await page.locator('.ProseMirror').waitFor(); } },
   { name: 'the admin dashboard', url: '/#__admin', email: OWNER_EMAIL },
-  { name: 'the learning paths', url: '/paths/', before: (page) => page.locator('.pr-card').first().waitFor() },
+  { name: 'the learning paths', url: '/paths/', before: (page) => page.locator('.explore-card').first().waitFor() },
   { name: 'a learning path', url: '/paths/backend-foundations/', before: (page) => page.getByRole('heading', { level: 3, name: 'The curriculum' }).waitFor() },
   { name: 'Practice', url: '/practice/', before: (page) => page.locator('.pr-card').first().waitFor() },
   { name: 'a quiz', url: '/practice/quiz/http-caching/', before: (page) => page.locator('.pr-questions > li').first().waitFor() },

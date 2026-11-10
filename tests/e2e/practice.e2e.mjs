@@ -9,6 +9,7 @@ import assert from 'node:assert/strict';
 import { BASE, OWNER_EMAIL, answerApiInProcess, launchBrowser, openPage, publicVideos } from './support.mjs';
 import { moduleUrl } from '../../webapp/src/lib/curriculum/moduleUrl.js';
 import practiceContent from '../../api/generated/practice-content.json' with { type: 'json' };
+import { HERO } from '../../webapp/src/config/landing.js';
 
 let browser;
 before(async () => { browser = await launchBrowser(); });
@@ -150,7 +151,7 @@ test('My Learning shows what was done: a quiz try appears there, and a reader wi
 test('Explore lists the learning paths, and a path has a page of its own with what to know first and what it covers', async () => {
   const { context, page, problems, goto } = await open('/#__explore', { email: null });
   await goto();
-  await page.getByRole('heading', { level: 2, name: 'Explore' }).waitFor();
+  await page.getByRole('heading', { level: 1, name: /^Explore/ }).waitFor();
   const link = page.getByRole('link', { name: 'Backend foundations' }).first();
   await link.waitFor();
   await link.click();
@@ -321,8 +322,19 @@ test('reading options change the text size and width of a lesson, and are kept',
 });
 
 test('a diagram a little wider than the column fits, and a much wider one scrolls and says so', async () => {
+  // The page is served with a diagram of this test's own, not a lesson's (lessons are rewritten, and a diagram in one comes and goes). The line is a
+  // little wider than the column on a wide screen (so it is shrunk to fit) and more than 18% wider than it on a narrow one (so it scrolls).
   const lesson = 'backend/01-request-response-fundamentals/00-system-overview-and-request-flow/README.md';
   const { context, page, goto } = await open(moduleUrl(lesson), { email: null, width: 1732, height: 900 });
+  const wide = `handshake ${'-'.repeat(84)}`;
+  await context.route(`**/${lesson}`, (route) => route.fulfill({ status: 200, contentType: 'text/markdown; charset=utf-8', body: `# A wide diagram
+
+The line below is wider than the column.
+
+\`\`\`
+${wide}
+\`\`\`
+` }));
   await goto();
   const diagram = page.locator('#content .codeblock pre', { hasText: 'handshake' }).first();
   await diagram.waitFor();
@@ -462,8 +474,8 @@ test('the home page leads with the new promise, sends you to the learning paths,
   await quiet.goto();
   await quiet.page.getByRole('heading', { level: 1, name: 'Build the engineering skills that matter.' }).waitFor();
   assert.equal(await quiet.page.getByRole('heading', { name: 'Popular this month' }).count(), 0, 'nothing is ranked on no readers');
-  await quiet.page.getByRole('link', { name: /^Explore Learning Paths/ }).click();
-  await quiet.page.getByRole('heading', { level: 2, name: 'Explore' }).waitFor();
+  await quiet.page.getByRole('link', { name: new RegExp(`^${HERO.exploreLabel}`) }).click();
+  await quiet.page.getByRole('heading', { level: 2, name: /Flagship Tracks/ }).waitFor();
   assert.equal(new URL(quiet.page.url()).pathname, '/paths/');
   await quiet.context.close();
 
@@ -475,7 +487,7 @@ test('the home page leads with the new promise, sends you to the learning paths,
   await busy.goto();
   await busy.page.getByRole('heading', { name: 'Popular this month' }).waitFor();
   assert.equal(await busy.page.locator('#lp-popular ~ .lp-fresh .lp-fresh-item').count(), 3);
-  await busy.page.getByRole('link', { name: 'Start Learning' }).waitFor();
+  await busy.page.getByRole('link', { name: HERO.startLabel }).waitFor();
   await busy.context.close();
 });
 

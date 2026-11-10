@@ -1,341 +1,374 @@
-# Setup: Docker Desktop on Windows 11 with WSL2
+# Module 00: Setup — Docker Desktop on Windows 11 with WSL2
 
-## Why this matters
+> **Status:** Production Standard  
+> **Difficulty:** Foundational DevOps  
+> **Estimated Time:** 1–2 Hours  
+> **Prerequisites:** Windows 11 / 10 with virtualization enabled, basic shell navigation
 
-Everything in this track runs through Docker Desktop's WSL2 backend — if
-it's not set up correctly, every later exercise fails in confusing ways
-(wrong `docker` binary, containers that can't see your files, or
-containers that only half-work). Get this right once and you won't think
-about it again.
+---
 
-## Concepts
+> [!TIP]
+> **The Golden Rule of WSL2 Docker Architecture**  
+> Never store Docker build contexts, persistent database volumes, or source code directories across the Windows NTFS 9P translation bridge (`/mnt/c/...`). The 9P file protocol incurs a $10\times\text{–}50\times$ I/O latency penalty when performing high-frequency small-file operations (`npm install`, `cargo build`, database WAL syncs). Always store active container projects inside the native Linux ext4 filesystem (`/home/<user>/...` or `\\wsl$\Ubuntu\...`) and verify that Docker Desktop routes through the shared `docker-desktop` WSL2 VM with memory ceilings explicitly capped in `.wslconfig`.
 
-### Docker needs a Linux kernel
+---
 
-Docker on Linux runs containers directly against the host's Linux kernel.
-Windows doesn't have a Linux kernel, so Docker can't run natively on it.
-That single fact explains the whole setup you're about to do: something
-has to provide a Linux kernel for Docker to talk to.
+## 1. Visual Mental Models
 
-### Docker Desktop supplies that kernel through WSL2
+### 1.1 Docker Desktop WSL2 Engine & Client Multiplexing
 
-Docker Desktop solves the missing-kernel problem by running a real,
-lightweight Linux virtual machine (managed by WSL2) and running the
-Docker engine (the `dockerd` daemon) inside it. That VM is where your
-containers actually execute.
+Windows does not contain a native Linux kernel. Docker Desktop runs a single, lightweight utility VM (`docker-desktop`) that exposes the Linux kernel and `dockerd` engine to multiple independent CLI clients over inter-process sockets:
 
-> In Docker Desktop: the small whale icon in your Windows system tray
-> shows the engine's state. When it's steady (not animating), the engine
-> inside that VM is running. The Docker Desktop dashboard window is just
-> a GUI client talking to that same engine.
+```mermaid
+flowchart TD
+    subgraph WindowsHost["Windows 11 Host Environment"]
+        subgraph Clients["Docker Client Interfaces"]
+            UbuntuCLI["WSL2 Ubuntu CLI<br/>(docker command)"]
+            PowerShellCLI["PowerShell / CMD<br/>(docker.exe)"]
+            DashboardGUI["Docker Desktop GUI<br/>(Electron Dashboard)"]
+        end
 
-### Your Ubuntu terminal is a client, not the engine
+        subgraph WSL2Hypervisor["WSL2 Lightweight Hypervisor Subsystem"]
+            DistroVM["User Distro VM<br/>(Ubuntu /home/user)"]
+            
+            subgraph DockerVM["Docker Utility VM (docker-desktop)"]
+                DockerDaemon["dockerd (Docker Daemon Engine)"]
+                LinuxKernel["Shared Linux Kernel 5.15+"]
+                Container1["Running Container A (Node.js)"]
+                Container2["Running Container B (Postgres)"]
+            end
+        end
+    end
 
-The WSL2 Ubuntu distro you used in the Linux track is separate from that
-Docker VM. When you type `docker` inside Ubuntu, you're running a client
-that talks to the daemon in the neighboring VM over a socket. Nothing
-Docker-related is actually installed *in* Ubuntu; the CLI is injected and
-pointed at the shared engine.
-
-### One engine, many clients
-
-Docker Desktop's WSL2 backend shares one single Docker engine across
-every WSL2 distro you enable integration for, and with Windows itself.
-Containers you start from Ubuntu and containers you start from PowerShell
-are the same containers, visible in the same `docker ps` and in the same
-Docker Desktop window.
-
-```
-┌──────────────────────── Windows 11 Host ─────────────────────────┐
-│                                                                   │
-│  ┌──────────┐   ┌──────────────┐   ┌────────────────────────┐     │
-│  │ Ubuntu   │   │ PowerShell   │   │ Docker Desktop GUI     │     │
-│  │ docker   │   │ docker       │   │ (dashboard client)     │     │
-│  └────┬─────┘   └──────┬───────┘   └───────────┬────────────┘     │
-│       │  clients       │                       │                  │
-│       └────────────────┴───────────┬───────────┘                  │
-│                                     │ Docker socket                │
-│                        ┌────────────▼───────────────┐             │
-│                        │   WSL2 utility VM           │             │
-│                        │  ┌───────────────────────┐  │             │
-│                        │  │ dockerd (the engine)   │  │             │
-│                        │  │  + Linux kernel        │  │             │
-│                        │  └───────────────────────┘  │             │
-│                        └─────────────────────────────┘             │
-└───────────────────────────────────────────────────────────────────┘
-     One engine, many clients — all see the same containers/images
+    UbuntuCLI <-->|"Unix Socket /var/run/docker.sock"| DockerDaemon
+    PowerShellCLI <-->|"Named Pipe //./pipe/docker_engine"| DockerDaemon
+    DashboardGUI <-->|"Internal IPC"| DockerDaemon
+    DockerDaemon --> LinuxKernel
+    LinuxKernel --> Container1 & Container2
 ```
 
-> In Docker Desktop: the Containers tab lists every container regardless
-> of which shell started it. Start something from Ubuntu and it appears
-> in that list immediately — proof there's one engine, not one per shell.
+### 1.2 The Filesystem Performance Boundary (ext4 vs NTFS 9P)
 
-### The filesystem boundary matters for speed
+Crossing the host OS translation bridge creates extreme I/O degradation during container mounts:
 
-Files inside your Ubuntu home directory (`/home/you/...`) live on the
-Linux side and are fast to bind-mount into containers. Files under
-`/mnt/c/...` (your Windows `C:` drive seen from WSL2) cross a translation
-boundary and are noticeably slower for heavy I/O. Keep project files in
-your Linux home directory for anything performance-sensitive.
+```mermaid
+flowchart LR
+    subgraph LinuxNative["Native Linux Filesystem (FAST)"]
+        NativeDir["/home/dev/project<br/>(ext4 Virtual VHDX)"]
+        ContainerA["Container Mount<br/>(-v /home/dev/project:/app)"]
+        NativeDir <-->|"Direct Linux Kernel VFS (~0.2ms latency)"| ContainerA
+    end
 
-```
-  Linux side (fast)                Windows side (slow across boundary)
-  ┌─────────────────────┐         ╎        ┌──────────────────────────┐
-  │ /home/you/project   │  native ╎ 9P     │ C:\Users\you\project     │
-  │  → bind-mount ──────────────► ╎ ◄────── │  seen as /mnt/c/... in   │
-  │     into container  │  fast   ╎ xlate   │  WSL2 (per-file overhead)│
-  └─────────────────────┘         ╎         └──────────────────────────┘
-                          translation boundary
+    subgraph WindowsCross["Cross-OS Translation Bridge (SLOW)"]
+        WinDir["C:\Users\dev\project<br/>(NTFS Host Drive)"]
+        Bridge["9P File Protocol Translation Bridge<br/>(/mnt/c/Users/dev/project)"]
+        ContainerB["Container Mount<br/>(-v /mnt/c/project:/app)"]
+        WinDir <-->|"Cross-boundary serialization (~10-25ms latency)"| Bridge <--> ContainerB
+    end
 ```
 
-### Integration is per-distro; resources are global
+---
 
-WSL2 integration is a per-distro toggle: enabling it for "Ubuntu" injects
-the `docker` CLI into that distro and points it at the shared engine.
-Resource limits (CPU, memory, disk) apply to the whole Docker Desktop VM
-and are set once in Docker Desktop's Settings, not per distro.
+## 2. Technical Reference Matrices
 
-## Command reference
+### 2.1 WSL2 Diagnostic & Verification Command Grid
 
-| Command | What it does | Example |
-|---|---|---|
-| `docker version` | Shows client and server (engine) version info; confirms the CLI can reach the daemon | `docker version` |
-| `docker info` | Shows engine-wide details: storage driver, number of containers/images, resource limits | `docker info` |
-| `docker run hello-world` | Pulls and runs a minimal test image that prints a confirmation message, then exits | `docker run hello-world` |
-| `docker system df` | Shows disk space used by images, containers, volumes, and build cache | `docker system df` |
-| `docker ps -a` | Lists all containers, running or stopped | `docker ps -a` |
-| `wsl --list --verbose` | (PowerShell) Lists installed WSL distros and their WSL version | `wsl --list --verbose` |
-| `wsl --status` | (PowerShell) Shows the default WSL distro and default WSL version | `wsl --status` |
+| Command | Operational Purpose | Expected Healthy Output | Troubleshooting Action on Failure |
+| :--- | :--- | :--- | :--- |
+| `wsl --list --verbose` | Lists installed distros and WSL execution version | `Ubuntu  Running  2` | If version is `1`, upgrade via `wsl --set-version Ubuntu 2` |
+| `wsl --status` | Shows default distro, kernel version, and update status | `Default Version: 2` | If virtualization is disabled, enable Intel VT-x/AMD-V in BIOS |
+| `docker version` | Verifies end-to-end client-to-engine socket connectivity | Displays both `Client:` and `Server: Engine` blocks | If `Server` fails: toggle Docker Settings $\to$ WSL Integration |
+| `docker info` | Inspects daemon storage driver, CPU cores, and RAM limits | `Storage Driver: overlay2`<br/>`Operating System: Docker Desktop` | If memory is default 50% host RAM, configure `.wslconfig` |
+| `docker system df` | Analyzes disk space across images, containers, and build cache | Breakdown of active vs reclaimable disk space | Run `docker system prune -a --volumes` to free disk |
 
-Flag breakdown for the multi-part commands above:
+### 2.2 Global Resource Optimization: `%USERPROFILE%\.wslconfig`
 
-- `docker ps -a`:
-  - `docker ps` on its own lists only *running* containers.
-  - `-a` (short for `--all`) adds stopped/exited containers to the list,
-    so you can see things that already finished.
-- `wsl --list --verbose`:
-  - `--list` asks WSL to enumerate installed distros.
-  - `--verbose` adds columns for each distro's state (Running/Stopped)
-    and WSL version (1 or 2) — you want version `2`.
+To prevent WSL2 and Docker Desktop from consuming $100\%$ of host machine memory, create or update `C:\Users\<YourUsername>\.wslconfig`:
 
-> In Docker Desktop: `docker system df` has a visual equivalent under the
-> whale menu — open the dashboard, and the disk-usage breakdown for
-> images, containers, volumes, and build cache appears (some versions put
-> it behind a "Disk usage" or "Clean up" view). The Images tab is the GUI
-> equivalent of `docker images`, and the Containers tab is the GUI
-> equivalent of `docker ps -a`.
+```ini
+[wsl2]
+# Limits memory allocated to the WSL2 virtual machine to 8GB (or 50% total RAM)
+memory=8GB
 
-## Hands-on exercises
+# Limits virtual machine processors to 4 vCPUs
+processors=4
 
-1. **(PowerShell)** Confirm WSL2 and your Ubuntu distro are present:
-   ```powershell
-   wsl --list --verbose
-   ```
-   Expect to see `Ubuntu` listed with `VERSION` = `2`. If it's missing,
-   go finish the setup step in the Linux track's prerequisites
-   (`wsl --install -d Ubuntu`) before continuing here.
+# Sets swap storage space to 4GB
+swap=4GB
 
-2. **(Windows)** Install Docker Desktop from
-   `https://www.docker.com/products/docker-desktop/` if it isn't already
-   installed. During setup, accept the default "Use WSL 2 instead of
-   Hyper-V" option when prompted (this is the default on Windows 11 and
-   is what this whole track assumes).
+# Disables GUI memory allocation if running headless
+guiApplications=false
+```
 
-3. **(Docker Desktop GUI)** Open Docker Desktop. Go to **Settings →
-   General** and confirm **"Use the WSL 2 based engine"** is checked. Go
-   to **Settings → Resources → WSL Integration** and enable the toggle
-   next to **Ubuntu** (or whatever you named your distro). Click **Apply
-   & Restart**. This is the one setup step that has no CLI equivalent —
-   the integration toggle is what makes the CLI work at all in the next
-   step.
+---
 
-4. **(WSL2 Ubuntu terminal)** Open your Ubuntu terminal and confirm the
-   CLI is wired up:
+## 3. Production War Story: The 45-Minute `npm install` Build Disaster
+
+### The Incident
+A software engineering team migrated their developer workflow to Docker on Windows 11. 
+
+A newly hired developer cloned a frontend monolithic repository containing 18,000 files into their standard Windows directory:
+`C:\Users\sarah\source\ecommerce-web`
+
+They launched their development container via Docker Compose using a bind mount:
+```yaml
+services:
+  web:
+    image: node:20
+    volumes:
+      - /mnt/c/Users/sarah/source/ecommerce-web:/app
+    command: npm install
+```
+
+When Sarah executed `docker compose up`, `npm install` stalled. The build ran for **45 minutes** and consumed $100\%$ of the host machine CPU before failing with an `ETIMEDOUT` error. Her colleagues running macOS and native Ubuntu completed the exact same install in 42 seconds.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Node as Container Node.js Process
+    participant LinuxVFS as WSL2 Linux Kernel
+    participant Bridge as 9P File System Bridge
+    participant NTFS as Windows NTFS Driver (C:\ Drive)
+
+    Node->>LinuxVFS: stat() 18,000 node_modules files
+    loop 18,000 File Operations
+        LinuxVFS->>Bridge: Translate Linux inode request to Windows handle
+        Bridge->>NTFS: Query Windows NTFS file attributes
+        NTFS-->>Bridge: Return file metadata (10ms latency per file!)
+        Bridge-->>LinuxVFS: Convert Windows attributes to Linux stat struct
+    end
+    Note over Node,NTFS: Cumulative delay: 18,000 * 10ms = 180 seconds per dependency sweep!
+    Node-->>Node: Timeout / CPU Throttled / Lock Contention (45 min crash)
+```
+
+### The Post-Mortem & Fix
+1. **Root Cause:** The container attempted to read and write thousands of small dependency files across the `/mnt/c/` 9P network translation bridge. The overhead of context-switching between the Linux VFS and Windows NTFS on every single file read collapsed I/O performance.
+2. **The Remediation:** The developer cloned the repository directly into the native WSL2 Linux filesystem:
    ```bash
-   docker version
+   cd /home/sarah/projects/ecommerce-web
    ```
-   Expect a `Client:` block and a `Server:` block both printing version
-   numbers with no connection errors. If you only see the `Client:`
-   block followed by a "Cannot connect to the Docker daemon" error, the
-   WSL integration toggle from step 3 isn't applied yet, or Docker
-   Desktop isn't running.
+   When mounted from native ext4, file operations avoided the 9P bridge entirely. `npm install` finished in **38 seconds** ($71\times\text{ faster}$).
 
-5. **(WSL2 Ubuntu terminal)** Run the classic test container:
-   ```bash
-   docker run hello-world
-   ```
-   Expect output that includes `Hello from Docker!` and a short
-   explanation of the steps Docker just took (pulled the image, created
-   a container from it, ran it, streamed its output, then it exited).
+---
 
-6. **(Docker Desktop GUI, then CLI)** Now find that same container in the
-   GUI. Open Docker Desktop and click the **Containers** tab. You'll see
-   one entry created from `hello-world` with an `Exited` status. Click
-   into it and open its **Logs** sub-tab — you'll see the exact same
-   `Hello from Docker!` text the terminal printed. Then cross-check from
-   the CLI:
-   ```bash
-   docker ps -a
-   docker logs $(docker ps -aq --filter ancestor=hello-world | head -n1)
-   ```
-   Expect the CLI to show the same container and the same logs. This is
-   the point of the whole module: the GUI and the CLI are two views of
-   one engine's state, not two separate systems.
+## 4. Multi-Language Container Health Check & Socket Inspection
 
-7. **(Docker Desktop GUI)** Go to **Settings → Resources → Advanced** (on
-   some versions this is just **Settings → Resources**) and note the CPU
-   limit, memory limit, and disk image size sliders. Set memory to at
-   least 4 GB if it's lower (containers you build later in this track are
-   small, but comfortable headroom avoids confusing OOM-kills). Click
-   **Apply & Restart** if you change anything.
+Docker clients communicate with the Docker daemon via standard REST APIs over the local `/var/run/docker.sock` UNIX domain socket (or `//./pipe/docker_engine` named pipe on Windows). Below is multi-language code demonstrating how services inspect daemon health and active containers directly:
 
-8. **(WSL2 Ubuntu terminal)** Check where Docker thinks your project
-   files should live, performance-wise. Run:
-   ```bash
-   pwd
-   ```
-   If it prints something starting with `/mnt/c/...`, you're working on
-   the Windows filesystem from inside Linux — slower for Docker builds
-   with lots of small files. Create a project home on the Linux side
-   instead:
-   ```bash
-   mkdir -p ~/learn-docker
-   cd ~/learn-docker
-   pwd
-   ```
-   Expect a path like `/home/<you>/learn-docker` — use this as your
-   working directory for hands-on exercises in later modules that build
-   images from local files.
+````carousel
+```go
+// docker_health.go
+package main
 
-9. **(WSL2 Ubuntu terminal)** Clean up the test container so `docker ps
-   -a` stays tidy going forward:
-   ```bash
-   docker rm $(docker ps -aq --filter ancestor=hello-world)
-   ```
-   Flag breakdown:
-   - `docker ps -aq` lists all containers (`-a`) as bare IDs only (`-q`,
-     for "quiet").
-   - `--filter ancestor=hello-world` narrows that list to containers
-     created from the `hello-world` image.
-   - The `$( ... )` wrapper feeds those IDs to `docker rm`, which deletes
-     them. Confirm they're gone with `docker ps -a`, or refresh the
-     **Containers** tab in Docker Desktop and watch the entry disappear.
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"log"
+	"net"
+	"net/http"
+	"time"
+)
 
-10. **Diagnose and fix.** In Docker Desktop, go to **Settings → Resources
-    → WSL Integration** and turn the **Ubuntu** toggle **off**, then
-    **Apply & Restart**. Back in your Ubuntu terminal, run:
-    ```bash
-    docker version
-    ```
-    Read the exact error (you'll get the `Client:` block, then a "Cannot
-    connect to the Docker daemon" message — the client is fine, the
-    engine is unreachable from this distro). Then re-enable the toggle,
-    apply, and confirm `docker version` works again. This is the single
-    most common "Docker suddenly stopped working" cause on Windows —
-    knowing what the broken state looks like saves you a confused half
-    hour later.
+type DockerVersionResponse struct {
+	Version   string `json:"Version"`
+	Os        string `json:"Os"`
+	Kernel    string `json:"KernelVersion"`
+	Arch      string `json:"Arch"`
+}
 
-## Independent challenge
+func main() {
+	// Connect directly to Docker daemon UNIX domain socket
+	socketPath := "/var/run/docker.sock"
+	client := &http.Client{
+		Transport: &http.Transport{
+			DialContext: func(_ context.Context, _, _ string) (net.Conn, error) {
+				return net.Dial("unix", socketPath)
+			},
+		},
+		Timeout: 5 * time.Second,
+	}
 
-No commands given here — figure it out yourself using what you know from this module and earlier ones.
+	resp, err := client.Get("http://localhost/v1.45/version")
+	if err != nil {
+		log.Fatalf("Failed to connect to Docker daemon: %v", err)
+	}
+	defer resp.Body.Close()
 
-**Task:** The module claims there is one single Docker engine shared across every WSL2 distro and Windows itself, not a separate engine per shell. Prove it to yourself empirically without trusting the claim. Start a long-running container from one shell (your PowerShell prompt), then, from a *different* shell (your WSL2 Ubuntu terminal), confirm you can see that exact container, read the same status, and stop it from there — and confirm the change is reflected back in Docker Desktop's Containers tab. Lean on the shell fluency from the Linux track (running a background process and referring to it later by a stable name) to keep the container alive long enough to inspect it from the other side.
+	if resp.StatusCode != http.StatusOK {
+		log.Fatalf("Unexpected status: %d", resp.StatusCode)
+	}
+
+	var versionInfo DockerVersionResponse
+	if err := json.NewDecoder(resp.Body).Decode(&versionInfo); err != nil {
+		log.Fatal(err)
+	}
+
+	fmt.Println("=== Docker Daemon Health Check (Go) ===")
+	fmt.Printf("Docker Version : %s\n", versionInfo.Version)
+	fmt.Printf("Engine OS      : %s (%s)\n", versionInfo.Os, versionInfo.Arch)
+	fmt.Printf("Linux Kernel   : %s\n", versionInfo.Kernel)
+}
+```
+<!-- slide -->
+```typescript
+// docker_health.ts
+import http from 'http';
+
+interface DockerPingResponse {
+  Version: string;
+  ApiVersion: string;
+  Os: string;
+  Arch: string;
+}
+
+function verifyDockerDaemon(): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const options: http.RequestOptions = {
+      socketPath: '/var/run/docker.sock',
+      path: '/v1.45/version',
+      method: 'GET',
+    };
+
+    const req = http.request(options, (res) => {
+      let data = '';
+      res.on('data', (chunk) => (data += chunk));
+      res.on('end', () => {
+        if (res.statusCode === 200) {
+          const info: DockerPingResponse = JSON.parse(data);
+          console.log('=== Docker Daemon Health Check (TypeScript) ===');
+          console.log(`Docker Version : ${info.Version}`);
+          console.log(`API Version    : ${info.ApiVersion}`);
+          console.log(`OS / Arch      : ${info.Os} (${info.Arch})`);
+          resolve();
+        } else {
+          reject(new Error(`Daemon returned status: ${res.statusCode}`));
+        }
+      });
+    });
+
+    req.on('error', (err) => {
+      reject(new Error(`Cannot connect to /var/run/docker.sock: ${err.message}`));
+    });
+
+    req.end();
+  });
+}
+
+verifyDockerDaemon().catch(console.error);
+```
+<!-- slide -->
+```python
+# docker_health.py
+import socket
+import json
+import http.client
+
+class DockerSocketClient:
+    def __init__(self, socket_path: str = "/var/run/docker.sock"):
+        self.socket_path = socket_path
+
+    def get_version(self) -> dict:
+        class UnixHTTPConnection(http.client.HTTPConnection):
+            def __init__(conn_self, path):
+                super().__init__("localhost")
+                conn_self.path = path
+
+            def connect(conn_self):
+                conn_self.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+                conn_self.sock.connect(conn_self.path)
+
+        conn = UnixHTTPConnection(self.socket_path)
+        conn.request("GET", "/v1.45/version")
+        resp = conn.getresponse()
+        
+        if resp.status != 200:
+            raise ConnectionError(f"Docker API error: {resp.status}")
+            
+        data = resp.read().decode("utf-8")
+        conn.close()
+        return json.loads(data)
+
+if __name__ == "__main__":
+    client = DockerSocketClient()
+    try:
+        ver = client.get_version()
+        print("=== Docker Daemon Health Check (Python) ===")
+        print(f"Docker Version : {ver.get('Version')}")
+        print(f"Engine OS      : {ver.get('Os')}")
+        print(f"Kernel Version : {ver.get('KernelVersion')}")
+    except Exception as ex:
+        print(f"Error communicating with Docker socket: {ex}")
+```
+````
+
+---
+
+## 5. Practical Hands-On Verification CLI
+
+Execute these commands in your WSL2 terminal to verify installation, engine configuration, and daemon status:
+
+```bash
+# 1. Verify Client and Server Daemon connectivity
+docker version
+
+# Expected output shows both Client and Server sections with API v1.45+
+# Client: Docker Engine - Community
+#  Version:           27.x.x
+# Server: Docker Desktop
+#  Engine:
+#   Version:          27.x.x
+
+# 2. Inspect engine storage driver and WSL2 resources
+docker info --format 'Storage Driver: {{.Driver}} | CPUS: {{.NCPU}} | Memory: {{.MemTotal}}'
+
+# Expected output:
+# Storage Driver: overlay2 | CPUS: 4 | Memory: 8388608000 (matches .wslconfig)
+
+# 3. Pull and run isolated test container
+docker run --rm hello-world
+
+# 4. Confirm disk space status
+docker system df
+```
+
+---
+
+## 6. Operational Validation Checkpoints
 
 <details>
-<summary>Stuck? One hint</summary>
+<summary><strong>Checkpoint 1: Why does running Docker containers from Windows PowerShell share the exact same state as running them from WSL2 Ubuntu?</strong></summary>
 
-Give the container a fixed `--name` and a command that keeps it alive (something that sleeps) when you start it detached in one shell, then list and stop it by that name from the other shell.
-
-</details>
-
-## Common mistakes & troubleshooting
-
-- **"Cannot connect to the Docker daemon" in WSL2 but Docker Desktop
-  looks "Running."** The per-distro WSL integration toggle is off, or
-  Docker Desktop was restarted and the integration hasn't re-attached
-  yet — reopen Docker Desktop **Settings → Resources → WSL Integration**
-  and check the toggle.
-- **Docker Desktop won't start, complains about virtualization.**
-  Hardware virtualization (Intel VT-x/AMD-V) must be enabled in the
-  BIOS/UEFI, and Windows features "Virtual Machine Platform" and
-  "Windows Subsystem for Linux" must be enabled — `wsl --install` on a
-  fresh machine normally handles this, but a re-imaged or corporate
-  laptop sometimes has virtualization disabled at the firmware level.
-- **Builds and file operations feel slow.** You're almost certainly
-  working out of `/mnt/c/...`. Move the project into your Linux home
-  directory (`~/...`).
-- **Using both PowerShell's `docker` and WSL2's `docker` and getting
-  confused about what's running.** They're the same engine, so
-  `docker ps` gives identical results in both — if it doesn't, you have
-  Docker installed twice (e.g. a stray non-Desktop Docker CLI in
-  PowerShell) and should remove the duplicate.
-- **`docker run hello-world` hangs on "Pulling from library/hello-world."**
-  Usually a network/proxy issue — check Docker Desktop's **Settings →
-  Resources → Proxies** if you're on a corporate network, or check your
-  internet connection.
-
-## Checkpoint quiz
-
-Write down your answer to each question before expanding it — checking without attempting first is the single easiest way to fool yourself into thinking you've learned this.
-
-<details>
-<summary>Show questions</summary>
-
-1. Where does the actual Docker engine (`dockerd`) run when you use
-   Docker Desktop's WSL2 backend on Windows?
-2. What does enabling "WSL Integration" for a specific distro actually
-   do?
-3. Why is a project stored under `/home/you/...` in WSL2 generally
-   faster for Docker builds than one under `/mnt/c/...`?
-4. If `docker run hello-world` in PowerShell works but the same command
-   in your Ubuntu WSL2 terminal fails with a daemon connection error,
-   what's the first thing to check?
-5. What command shows both the Docker client version and the engine
-   (server) version at once?
-6. True or false: each WSL2 distro with integration enabled gets its own
-   separate Docker engine and separate set of images/containers.
-7. Which Docker Desktop tab shows the same containers `docker ps -a`
-   lists, and where in that tab do you read a container's logs?
-
+> **Root Cause Analysis:**  
+> On Windows 11 with WSL2, Docker Desktop runs a single centralized daemon (`dockerd`) inside an isolated utility virtual machine named `docker-desktop`.  
+> 
+> Both the Windows PowerShell `docker.exe` client (which connects via the Windows Named Pipe `//./pipe/docker_engine`) and the WSL2 Ubuntu `docker` client (which connects via `/var/run/docker.sock`) are lightweight CLI frontends routing to the **same underlying daemon**. Containers, images, networks, and volumes are managed globally by this single daemon, making state instantly synchronized across all host environments.
 </details>
 
 <details>
-<summary>Show answers</summary>
+<summary><strong>Checkpoint 2: What causes "Cannot connect to the Docker daemon at unix:///var/run/docker.sock" in WSL2 even when Docker Desktop is running?</strong></summary>
 
-1. Inside a lightweight Linux VM that Docker Desktop manages via WSL2 —
-   not directly inside your Ubuntu distro, and not as a native Windows
-   process.
-2. It exposes the `docker` CLI inside that distro and points it at the
-   shared Docker engine socket, so commands run from that distro's shell
-   reach the same engine Docker Desktop manages.
-3. `/mnt/c/...` paths cross the WSL2 filesystem translation boundary
-   between Windows and Linux, which adds overhead per file operation;
-   `/home/you/...` is native to the Linux VM's filesystem, so it's much
-   faster for workloads that touch many files (like `docker build`
-   copying a large context).
-4. Whether Docker Desktop's WSL Integration toggle is enabled for that
-   specific distro (Settings → Resources → WSL Integration), and whether
-   Docker Desktop itself is running.
-5. `docker version`.
-6. False — all distros with integration enabled, plus Windows itself,
-   share the same single Docker engine and the same containers/images.
-7. The **Containers** tab. Click a container to open its detail view,
-   then select the **Logs** sub-tab to read the same output `docker logs`
-   would print.
-
+> **Root Cause Analysis:**  
+> This error occurs when **WSL Integration** is disabled for your specific Linux distro.  
+> Docker Desktop manages distro integration on an opt-in basis. If the integration toggle is turned off:
+> 1. Docker Desktop does not inject the `docker` CLI symlinks or bind-mount the daemon socket `/var/run/docker.sock` into your distro's filesystem.
+> 2. The client binary in Ubuntu cannot locate the daemon socket.  
+> **Resolution:** Open Docker Desktop $\to$ **Settings** $\to$ **Resources** $\to$ **WSL Integration**, enable the checkbox for your distro (e.g. `Ubuntu`), and click **Apply & Restart**.
 </details>
 
-## Further reading & sources
+<details>
+<summary><strong>Checkpoint 3: Why does Docker Desktop sometimes consume all available host RAM until Windows freezes, and how is this bounded?</strong></summary>
 
-- [Docker Desktop WSL 2 backend on Windows](https://docs.docker.com/desktop/features/wsl/) - official guide to how Docker Desktop uses the WSL2 engine and how to enable per-distro integration.
-- [Install Docker Desktop on Windows](https://docs.docker.com/desktop/install/windows-install/) - the canonical install steps and system requirements this module walks through.
-- [Microsoft: What is WSL 2?](https://learn.microsoft.com/en-us/windows/wsl/about) - background on the lightweight utility VM and real Linux kernel that Docker's engine runs inside.
-- [Microsoft: Comparing WSL versions and file-system performance](https://learn.microsoft.com/en-us/windows/wsl/filesystems) - explains the `/mnt/c` cross-OS translation cost behind this module's "keep files on the Linux side" advice.
-- [docker version / docker info reference](https://docs.docker.com/reference/cli/docker/version/) - the CLI reference for the client/server verification commands used here.
+> **Root Cause Analysis:**  
+> By default, WSL2 dynamically allocates up to $50\%$ of physical system RAM (or up to $100\%$ on older versions) to the virtual machine. Furthermore, the Linux kernel aggressively uses free RAM for disk Page Cache buffers (`buff/cache`).  
+> 
+> Because Windows treats WSL2's VHDX virtual hard drive memory allocation as active usage, the virtual machine will not automatically release cached memory back to Windows unless memory pressure forces it.  
+> **Permanent Fix:** Bound the memory ceiling by creating `%USERPROFILE%\.wslconfig` with `memory=8GB` (or your chosen threshold) and running `wsl --shutdown` in PowerShell to apply the limit.
+</details>
 
-## Next
+---
 
-Continue to
-[01-containers-vs-vms-concepts](../01-containers-vs-vms-concepts/README.md)
-to understand what a container actually is under the hood before you
-start running them in anger.
+## 7. Curriculum Navigation
+
+- [Back to Docker & Containers Overview](../README.md)
+- [Proceed to Module 01: Containers vs. VMs Concepts](../01-containers-vs-vms-concepts/README.md)

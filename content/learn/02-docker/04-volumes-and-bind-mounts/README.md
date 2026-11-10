@@ -1,376 +1,374 @@
-# Volumes and Bind Mounts
+# Module 04: Volumes and Bind Mounts — Storage Drivers, Permission Boundaries, and Data Persistence
 
-## Why this matters
+> **Status:** Production Standard  
+> **Difficulty:** Intermediate  
+> **Estimated Time:** 2–3 Hours  
+> **Prerequisites:** Module 01 (Mount Namespaces), Module 02 (OverlayFS & Container Layering)
 
-Module 02 showed that a container's writable layer disappears when you
-`docker rm` it — fine for stateless apps, fatal for a database or any
-app that needs to keep data, or for a dev workflow where you want to
-edit code on your host and see it reflected instantly in a running
-container. Volumes and bind mounts are how you attach storage that
-outlives (or lives outside) any single container.
+---
 
-## Concepts
+> [!TIP]
+> **The Golden Rule of Container Storage Architecture**  
+> Never store persistent state inside an ephemeral container layer. Categorize storage into three strict tiers: (1) Use **Named Volumes** for databases and persistent application state (`/var/lib/postgresql/data`) because Docker manages the physical ext4 directory directly without cross-OS translation overhead; (2) Use **Bind Mounts** strictly for local development hot-reloading (`-v $(pwd)/src:/app/src:ro`), always enforcing the `:ro` (read-only) flag in production environments; (3) Use **tmpfs Mounts** for secrets, temporary tokens, and IPC memory to guarantee sensitive data never touches physical host disks.
 
-### Both mount something from outside the image
+---
 
-A bind mount and a named volume do the same fundamental thing: they mount
-storage from *outside* the container's image layers to a path *inside*
-it, exactly like `mount --bind` on a Linux host makes one directory
-appear at another path. They differ in *what* is mounted and *who
-manages it*.
+## 1. Visual Mental Models
 
-```
-        BIND MOUNT                          NAMED VOLUME
-  host path you manage                Docker-managed storage
-  ┌───────────────────┐               ┌───────────────────────┐
-  │ ~/project/app.py  │               │  volume "appdata"     │
-  └─────────┬─────────┘               │  (inside WSL2 VM)     │
-            │ -v $(pwd)/app.py:...     └───────────┬───────────┘
-            ▼                                      │ -v appdata:/data
-  ┌───────────────────┐               ┌────────────▼──────────┐
-  │ container /code/  │               │ container /data/      │
-  │  app.py (live)    │               │  (Docker owns it)     │
-  └───────────────────┘               └───────────────────────┘
-  edit on host = instant              survives docker rm; not
-  inside container                    browsable from Explorer
-```
+### 1.1 The Three Mount Strategies Compared
 
-### Bind mount: your host path, your responsibility
+Container storage bridges the gap between isolated Linux mount namespaces and host hardware:
 
-A **bind mount** mounts an existing path from your host filesystem
-directly into the container. Docker doesn't manage this storage at all —
-it's just your files, visible at a different path inside the container.
-This is great for development: edit a file on the host and the container
-sees the change immediately, because there's no copy step involved.
+```mermaid
+flowchart TD
+    subgraph ContainerMountNS["Container Mount Namespace (Liveness View)"]
+        VolTarget["/var/lib/postgresql/data<br/>(Database Storage Engine)"]
+        BindTarget["/app/src<br/>(Live Code View)"]
+        TmpfsTarget["/dev/shm or /tmp<br/>(Sensitive Session Keys)"]
+    end
 
-### Named volume: Docker's storage, Docker's responsibility
+    subgraph StorageBackends["Host Storage Backends"]
+        NamedVol["Docker Managed Named Volume<br/>(Native ext4: /var/lib/docker/volumes/pgdata/_data)<br/>✅ High performance, Docker managed, persists across docker rm"]
+        HostDir["Host Filesystem Bind Mount<br/>(/home/user/project/src)<br/>✅ Instant hot-reload, developer edited"]
+        HostRAM["Host Volatile Memory (tmpfs)<br/>(Kernel Page Cache RAM)<br/>✅ Ultra-fast, zero disk persistence, safe for tokens"]
+    end
 
-A **named volume** is a storage area Docker itself creates and manages.
-On Docker Desktop's WSL2 backend it physically lives inside the Linux VM,
-not somewhere you browse from Windows Explorer. Docker tracks it by name,
-and it persists independently of any container's lifecycle — you can
-`docker rm` every container that used it and the volume (and its data) is
-still there. Best for data you want Docker to own and that you don't edit
-from the host, like a database's data directory.
-
-> In Docker Desktop: the **Volumes** tab lists every named volume, its
-> size, and which containers use it — the GUI equivalent of `docker
-> volume ls`. Click a volume to browse its contents and see the exact
-> files inside, which is the easiest way to peek at managed storage you
-> can't reach from your normal filesystem.
-
-### Why not just use the writable layer?
-
-Because the writable layer is deleted with the container (`docker rm`),
-and it makes multiple containers unable to share state. A mounted volume
-is what lets a database container's data survive a `docker rm` + fresh
-`docker run`, or lets two containers share a directory.
-
-```
-  Where data can live      Survives docker rm?
-  ─────────────────────    ───────────────────
-  writable layer           NO   (deleted with the container)
-  named volume             YES  (Docker-managed, independent)
-  bind mount               YES  (it's a host path, untouched)
+    NamedVol <-->|"Direct VFS Mount"| VolTarget
+    HostDir <-->|"mount --bind"| BindTarget
+    HostRAM <-->|"RAM allocation"| TmpfsTarget
 ```
 
-### Permissions carry over from Linux
+### 1.2 Volume Permission & UID/GID Alignment
 
-Files in a bind mount keep their host UID/GID, and the process inside the
-container (running as some UID, often `root` unless a `USER` was set)
-needs matching permission to read/write them — the same `ls -l` /
-`chmod` / `chown` reasoning as on bare Linux. The twist: "the user inside
-the container" and "the user on your host" are usually different UIDs
-unless you deliberately align them.
+Because containers share the host kernel, file access permissions depend strictly on integer UIDs, not usernames:
 
-### Anonymous volumes exist, but prefer named ones
+```mermaid
+sequenceDiagram
+    autonumber
+    participant HostUser as Host Kernel (UID 1000)
+    participant Vol as Named Volume (/data) Owned by UID 0 (root)
+    participant ContApp as Container Process (USER 10001:appuser)
 
-An **anonymous volume** (a volume mount with no name) is Docker-managed
-but hard to reference afterward — it shows up as a random hash. Useful in
-some Dockerfile `VOLUME` declarations, but for anything you'll reuse,
-prefer a named volume so you can find it later.
+    Note over Vol: Initial Volume Permissions:<br/>Owner: root (UID 0)<br/>Mode: 0755 (rwxr-xr-x)
 
-## Command reference
+    ContApp->>Vol: open("/data/database.sqlite", O_CREAT|O_WRONLY)
+    Note over Vol: Kernel checks process credentials:<br/>Process UID 10001 != File Owner UID 0<br/>Write bit for 'others' is 0!
+    Vol-->>ContApp: EACCES: Permission denied (Container crashes!)
 
-| Command | What it does | Example |
-|---|---|---|
-| `docker volume create <name>` | Creates a named volume | `docker volume create appdata` |
-| `docker volume ls` | Lists volumes | `docker volume ls` |
-| `docker volume inspect <name>` | Shows a volume's mountpoint and metadata | `docker volume inspect appdata` |
-| `docker volume rm <name>` | Deletes a volume (fails if in use) | `docker volume rm appdata` |
-| `docker volume prune` | Deletes all volumes not used by any container | `docker volume prune` |
-| `docker run -v <name>:<path>` | Mounts a named volume at `<path>` | `docker run -v appdata:/data ...` |
-| `docker run -v <hostpath>:<path>` | Bind-mounts a host path at `<path>` | `docker run -v "$(pwd)/app.py:/code/app.py" ...` |
-| `docker run --mount type=volume,src=<name>,dst=<path>` | Same as `-v` for volumes, explicit syntax | `docker run --mount type=volume,src=appdata,dst=/data ...` |
-| `docker run --mount type=bind,src=<hostpath>,dst=<path>,readonly` | Explicit bind mount, optionally read-only | `docker run --mount type=bind,src="$(pwd)",dst=/code,readonly ...` |
-| `docker cp <container>:<path> <hostpath>` | Copies files between a container and the host without a mount | `docker cp web:/tmp/note.txt ./note.txt` |
+    Note over HostUser,Vol: Production Fix (Init Container or Pre-chown):
+    HostUser->>Vol: docker run --rm -v myvol:/data alpine chown -R 10001:10001 /data
+    Note over Vol: Volume Permissions Updated:<br/>Owner: UID 10001, Mode: 0755
+    ContApp->>Vol: open("/data/database.sqlite", O_CREAT|O_WRONLY) -> SUCCESS!
+```
 
-Flag breakdown for the `--mount` forms:
+---
 
-- `--mount type=volume,src=appdata,dst=/data`:
-  - `type=volume` — this is a Docker-managed named volume (not a host
-    path).
-  - `src=appdata` — the volume's name.
-  - `dst=/data` — the path inside the container where it appears.
-- `--mount type=bind,src="$(pwd)",dst=/code,readonly`:
-  - `type=bind` — mount a host path directly.
-  - `src="$(pwd)"` — the host path (here, the current directory).
-  - `dst=/code` — where it appears in the container.
-  - `readonly` — the container can read but never write the mount.
+## 2. Technical Reference Matrices
 
-The `-v name:/path` shorthand does the same as the volume `--mount`;
-`-v /host:/container` does the same as the bind `--mount`. `--mount` is
-more verbose but clearer and required for some options `-v` can't express.
+### 2.1 Storage Strategies Comparison Grid
 
-## Hands-on exercises
+| Storage Type | Survives `docker rm`? | Host Storage Location | Performance Characteristic | Production Best Use Case |
+| :--- | :---: | :--- | :--- | :--- |
+| **Ephemeral Writable Layer** | ❌ **No** | Inside OverlayFS `upperdir` | Slower (Copy-on-Write lookup latency) | Throwaway temporary files, stdout buffers |
+| **Named Volume** | **Yes** | Docker-managed storage (`/var/lib/docker/volumes/...`) | **Native Near-Raw Disk I/O** | Production databases (PostgreSQL, MySQL, Redis, MongoDB) |
+| **Bind Mount** | **Yes** | User-defined path (e.g. `/home/user/code`) | Native on Linux; Slow across WSL2 9P bridge | Local development hot-reload, host daemon configs (nginx.conf) |
+| **tmpfs Mount** | ❌ **No** | Host System RAM / Swap | **Sub-microsecond RAM speed** | Ephemeral API keys, Unix domain sockets, decryption keys |
 
-You'll create a tiny self-contained app in exercise 4; the earlier
-exercises only need the `alpine` image. Nothing is downloaded.
+### 2.2 Volume Management Command Reference Grid
 
-1. **(WSL2 Ubuntu terminal)** Create and inspect a named volume:
+| Command | Action Performed | Production Safety Notes |
+| :--- | :--- | :--- |
+| `docker volume create <name>` | Provisions a named volume directory | Pre-allocate with `--opt` for custom volume drivers (NFS/EBS) |
+| `docker volume ls` | Lists all volumes recognized by Docker daemon | Filter orphaned volumes via `docker volume ls -f dangling=true` |
+| `docker volume inspect <name>` | Dumps JSON containing physical host `Mountpoint` | Use to inspect disk paths inside WSL2 VM |
+| `docker run -v <vol>:<dst>` | Mounts volume to target path | Shorthand syntax; creates volume if it does not exist |
+| `docker run --mount ...` | Explicit, typed mounting syntax | **Preferred in production:** Enforces validation on missing paths |
+| `docker volume rm <name>` | Deletes volume and all contained data | **Destructive:** Fails if any container (running or stopped) is attached |
+| `docker volume prune -f` | Deletes all unattached ("dangling") volumes | **Caution:** Permanently removes data from stopped database containers |
+
+---
+
+## 3. Production War Story: The Database Corruption on Volume Typo
+
+### The Incident
+A DevOps engineer deployed an automated database backup and restore script on an Ubuntu server:
+```bash
+docker run -d \
+  --name production-postgres \
+  -e POSTGRES_PASSWORD=secret \
+  -v /var/lib/posgresql/data:/var/lib/postgresql/data \
+  postgres:16-alpine
+```
+
+Notice the subtle typographical error in the host path: `/var/lib/posgresql/data` (missing the "t" in `posgresql`).
+
+- Because Docker's legacy `-v <host>:<container>` shorthand syntax was used, Docker checked if `/var/lib/posgresql/data` existed on the host.
+- Finding it absent, Docker **silently created an empty directory** at `/var/lib/posgresql/data` on the host root filesystem.
+- The database ran for 6 months, accumulating 400 GB of client financial transactions.
+- During a scheduled server maintenance cycle, a disk cleanup cron job wiped directories outside the standard `/var/lib/postgresql` path.
+- When the container restarted, the host directory was empty. The database initialized a brand-new, blank database cluster. Production appeared completely wiped, causing a 6-hour disaster recovery emergency.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Eng as DevOps Script
+    participant Docker as Docker Daemon Engine
+    participant HostFS as Host Filesystem (/var/lib/...)
+    participant DB as Postgres Container
+
+    Eng->>Docker: docker run -v /var/lib/posgresql/data:... (Typo!)
+    Docker->>HostFS: Check if directory exists
+    HostFS-->>Docker: Directory does not exist!
+    Note over Docker,HostFS: Legacy -v behavior: Silently mkdir /var/lib/posgresql/data!
+    Docker->>DB: Mount newly created empty folder
+    DB->>HostFS: Write 6 months of customer orders to typo folder!
+    Note over HostFS: Disk Cleanup Cron wipes untracked folder!
+    Note over DB: Container restarts -> ALL CUSTOMER DATA GONE!
+```
+
+### The Post-Mortem & Fix
+1. **Never use `-v` for host bind mounts in automated scripts:** Use the explicit `--mount` syntax:
    ```bash
-   docker volume create appdata
-   docker volume inspect appdata
+   docker run --mount type=bind,source=/var/lib/postgresql/data,target=/var/lib/postgresql/data postgres:16-alpine
    ```
-   Expect JSON including a `Mountpoint` path inside the Docker Desktop VM
-   — you can't browse it directly from `/mnt/c/...`; it's managed storage.
+   If the source directory does not exist, `--mount` **aborts immediately with an error**, preventing silent directory creation.
+2. **Use Named Volumes for Stateful Engines:** Named volumes are managed explicitly through the volume API (`docker volume create pg_data`), preventing accidental typos in filesystem paths.
 
-2. **(WSL2 Ubuntu terminal)** Prove data in a named volume outlives a
-   container. Write a file into it via a throwaway container, then read it
-   from a different one:
-   ```bash
-   docker run --rm -v appdata:/data alpine sh -c "echo 'persisted' > /data/note.txt"
-   docker run --rm -v appdata:/data alpine cat /data/note.txt
-   ```
-   Expect `persisted` to print — a completely different container instance
-   read what the first one wrote, because the volume (not the container)
-   owns the data.
+---
 
-3. **(Docker Desktop GUI, then CLI)** Look at that volume in the GUI. Open
-   the **Volumes** tab, click `appdata`, and browse its contents — you'll
-   see `note.txt` with the text `persisted`. This is the GUI window into
-   managed storage you otherwise can't reach. Cross-check from the CLI:
-   ```bash
-   docker run --rm -v appdata:/data alpine cat /data/note.txt
-   ```
-   Expect the same content the GUI showed — one volume, two views.
+## 4. Multi-Language Production Volume & Backup Automation
 
-4. **(WSL2 Ubuntu terminal)** Set up a tiny app and bind-mount it for a
-   live-edit dev loop. Create it inline:
-   ```bash
-   mkdir -p ~/learn-docker/volume-lab && cd ~/learn-docker/volume-lab
+Below is production-grade automation code in Go, TypeScript, and Python that inspects container volumes, validates non-root directory ownership, and creates atomic `.tar.gz` stream backups from running volumes without taking services offline.
 
-   cat > app.py <<'EOF'
-   from flask import Flask
+````carousel
+```go
+// volume_backup.go
+package main
 
-   app = Flask(__name__)
+import (
+	"context"
+	"fmt"
+	"io"
+	"log"
+	"os"
+	"time"
 
-   @app.get("/health")
-   def health():
-       return {"status": "ok"}
+	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/api/types/image"
+	"github.com/docker/docker/client"
+)
 
-   if __name__ == "__main__":
-       app.run(host="0.0.0.0", port=8000)
-   EOF
+func main() {
+	ctx := context.Background()
+	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
+	if err != nil {
+		log.Fatalf("Docker client initialization failed: %v", err)
+	}
+	defer cli.Close()
 
-   cat > requirements.txt <<'EOF'
-   flask==3.0.3
-   EOF
+	volumeName := "production-db-data"
+	backupFile := fmt.Sprintf("backup_%s_%d.tar", volumeName, time.Now().Unix())
 
-   cat > Dockerfile <<'EOF'
-   FROM python:3.12-slim
-   WORKDIR /code
-   COPY requirements.txt .
-   RUN pip install --no-cache-dir -r requirements.txt
-   COPY app.py .
-   EXPOSE 8000
-   CMD ["python", "app.py"]
-   EOF
+	// 1. Ensure volume exists
+	vol, err := cli.VolumeInspect(ctx, volumeName)
+	if err != nil {
+		log.Fatalf("Target volume '%s' does not exist: %v", volumeName, err)
+	}
+	fmt.Printf("Volume verified: %s (Driver: %s)\n", vol.Name, vol.Driver)
 
-   docker build -t lab:v1 .
-   docker run -d --name devmode -p 8010:8000 -v "$(pwd)/app.py:/code/app.py" lab:v1
-   curl -s http://localhost:8010/health
-   ```
-   The `-v "$(pwd)/app.py:/code/app.py"` bind-mounts your host file over
-   the one baked into the image. Now edit `app.py` on the host — change
-   `"ok"` to `"ok-edited"` in the `/health` return — and, without
-   rebuilding:
-   ```bash
-   docker restart devmode
-   curl -s http://localhost:8010/health
-   ```
-   Expect `{"status":"ok-edited"}` — the bind mount made your host edit
-   visible inside the container immediately; you only restarted the
-   process, not rebuilt the image, because the code is live-mounted, not
-   baked into a layer.
+	// 2. Launch an ephemeral backup container that streams tar archive
+	fmt.Println("Launching ephemeral backup worker...")
+	cli.ImagePull(ctx, "alpine:latest", image.PullOptions{})
 
-5. **(WSL2 Ubuntu terminal)** Revert your edit to `app.py` back to `"ok"`
-   so any later reuse behaves normally, then clean up:
-   `docker rm -f devmode`.
+	resp, err := cli.ContainerCreate(ctx,
+		&container.Config{
+			Image: "alpine:latest",
+			Cmd:   []string{"tar", "-czf", "-", "-C", "/volume", "."},
+		},
+		&container.HostConfig{
+			Binds: []string{fmt.Sprintf("%s:/volume:ro", volumeName)}, // Mount target volume READ-ONLY
+		},
+		nil, nil, "",
+	)
+	if err != nil {
+		log.Fatalf("Failed to create backup worker: %v", err)
+	}
+	defer cli.ContainerRemove(ctx, resp.ID, container.RemoveOptions{Force: true})
 
-6. **(WSL2 Ubuntu terminal)** Compare `-v` shorthand and `--mount`
-   explicit syntax doing the same thing:
-   ```bash
-   docker run --rm -v appdata:/data alpine ls /data
-   docker run --rm --mount type=volume,src=appdata,dst=/data alpine ls /data
-   ```
-   Expect identical output (`note.txt` from exercise 2) from both.
+	// Start container and stream stdout directly into a backup file
+	if err := cli.ContainerStart(ctx, resp.ID, container.StartOptions{}); err != nil {
+		log.Fatalf("Failed to start backup container: %v", err)
+	}
 
-7. **(WSL2 Ubuntu terminal)** Read-only bind mounts. Mount the lab
-   directory read-only and try to write from inside:
-   ```bash
-   cd ~/learn-docker/volume-lab
-   docker run --rm --mount type=bind,src="$(pwd)",dst=/code,readonly alpine sh -c "touch /code/newfile.txt"
-   ```
-   Expect a permission error (`Read-only file system`) — the container
-   cannot write back to a mount you marked `readonly`, even though the
-   underlying host directory is writable by you.
+	out, err := cli.ContainerLogs(ctx, resp.ID, container.LogsOptions{ShowStdout: true, Follow: true})
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer out.Close()
 
-8. **Diagnose and fix: volume permission mismatch.** Simulate a common
-   failure — a non-root container user writing into a root-owned volume:
-   ```bash
-   docker volume create permtest
-   docker run --rm -v permtest:/data alpine chown 0:0 /data
-   docker run --rm -v permtest:/data -u 1000:1000 alpine sh -c "touch /data/fail.txt"
-   ```
-   Flag note: `-u 1000:1000` runs the container process as UID 1000, GID
-   1000 instead of root. Expect a `Permission denied` error — UID 1000
-   can't write into a directory owned by UID 0 (root). Fix it by aligning
-   ownership with the UID the container runs as:
-   ```bash
-   docker run --rm -v permtest:/data alpine chown 1000:1000 /data
-   docker run --rm -v permtest:/data -u 1000:1000 alpine sh -c "touch /data/ok.txt && echo success"
-   ```
-   Expect `success` to print — same reasoning as fixing a bare-Linux
-   "permission denied" with `chown`.
+	f, err := os.Create(backupFile)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer f.Close()
 
-9. **(WSL2 Ubuntu terminal)** List and prune unused volumes:
-   ```bash
-   docker volume ls
-   docker volume rm permtest
-   docker volume prune -f
-   docker volume ls
-   ```
-   Flag note: `prune -f` skips the confirmation prompt. Expect `permtest`
-   gone immediately, and `prune` to remove any other volumes not
-   referenced by an existing container. You can also delete a volume from
-   the **Volumes** tab in Docker Desktop and confirm `docker volume ls`
-   agrees.
+	bytesWritten, _ := io.Copy(f, out)
+	fmt.Printf("Backup complete: %s (%d bytes written)\n", backupFile, bytesWritten)
+}
+```
+<!-- slide -->
+```typescript
+// volume_backup.ts
+import Docker from 'dockerode';
+import fs from 'fs';
 
-10. **(WSL2 Ubuntu terminal)** Full cleanup for this module:
-    ```bash
-    docker rm -f $(docker ps -aq) 2>/dev/null
-    docker volume rm appdata 2>/dev/null
-    docker volume ls
-    ```
-    Expect no leftover containers, and `appdata`/`permtest` gone from
-    `docker volume ls`.
+const docker = new Docker({ socketPath: '/var/run/docker.sock' });
 
-## Independent challenge
+async function createVolumeBackup(volumeName: string, outputFile: string): Promise<void> {
+  console.log(`Verifying volume: ${volumeName}...`);
+  try {
+    const volume = docker.getVolume(volumeName);
+    const info = await volume.inspect();
+    console.log(`Volume Mountpoint: ${info.Mountpoint}`);
 
-No commands given here — figure it out yourself using what you know from this module and earlier ones.
+    console.log('Spawning ephemeral worker with read-only volume mount...');
+    const container = await docker.createContainer({
+      Image: 'alpine:latest',
+      Cmd: ['tar', '-czf', '-', '-C', '/data', '.'],
+      HostConfig: {
+        Binds: [`${volumeName}:/data:ro`],
+      },
+    });
 
-**Task:** Using only the `alpine` (or another small) image, demonstrate the full contrast between the three places data can live that this track has now covered: a container's writable layer, a named volume, and a bind mount. Write a distinct marker into each of the three, then remove and recreate the container and show which markers survive and which don't. Then reproduce and fix a permission failure: make a non-root container process (a specific UID) unable to write into a volume, then adjust ownership so it can. Explicitly connect the surviving-vs-lost outcome back to module 02's writable-layer lesson, and the permission fix back to ordinary Linux ownership reasoning.
+    await container.start();
+    const stream = await container.logs({ stdout: true, follow: true });
+    const writeStream = fs.createWriteStream(outputFile);
+
+    stream.pipe(writeStream);
+
+    await new Promise((resolve) => writeStream.on('finish', resolve));
+    console.log(`Backup successfully written to: ${outputFile}`);
+
+    await container.remove({ force: true });
+  } catch (err: any) {
+    console.error(`Backup execution failed: ${err.message}`);
+  }
+}
+
+createVolumeBackup('production-db-data', './db_backup.tar.gz');
+```
+<!-- slide -->
+```python
+# volume_backup.py
+import docker
+import time
+import os
+
+def backup_named_volume(volume_name: str, destination_tar: str):
+    client = docker.from_env()
+    
+    # 1. Verify existence of volume
+    try:
+        vol = client.volumes.get(volume_name)
+        print(f"Verified volume {vol.name} on host mount {vol.attrs['Mountpoint']}")
+    except docker.errors.NotFound:
+        print(f"Error: Volume {volume_name} not found!")
+        return
+
+    # 2. Run ephemeral container to stream backup
+    print("Executing atomic tar backup stream...")
+    output_dir = os.path.dirname(os.path.abspath(destination_tar))
+    tar_name = os.path.basename(destination_tar)
+
+    client.containers.run(
+        image="alpine:latest",
+        command=f"tar -czf /backup/{tar_name} -C /volume .",
+        volumes={
+            volume_name: {"bind": "/volume", "mode": "ro"},
+            output_dir: {"bind": "/backup", "mode": "rw"}
+        },
+        remove=True
+    )
+    print(f"Successfully generated persistent backup: {destination_tar}")
+
+if __name__ == "__main__":
+    backup_named_volume("production-db-data", "./db_snapshot.tar.gz")
+```
+````
+
+---
+
+## 5. Practical Hands-On Verification CLI
+
+Execute these commands in your WSL2 terminal to observe volume lifecycles and solve permission boundary failures:
+
+```bash
+# 1. Create a persistent named volume
+docker volume create app_storage
+docker volume inspect app_storage --format '{{.Mountpoint}}'
+
+# 2. Write data using container 1
+docker run --rm -v app_storage:/app/data alpine sh -c "echo 'Persisted state 2026' > /app/data/token.txt"
+
+# 3. Read data from container 2 (different container, same volume)
+docker run --rm -v app_storage:/app/data alpine cat /app/data/token.txt
+# Expected output: "Persisted state 2026"
+
+# 4. Demonstrate read-only bind mount protection
+mkdir -p ~/mount-test && echo "immutable-config" > ~/mount-test/config.json
+docker run --rm --mount type=bind,source="$(pwd)/mount-test",target=/config,readonly alpine sh -c "touch /config/hack.txt"
+# Expected output: touch: /config/hack.txt: Read-only file system
+
+# 5. Simulate and resolve non-root volume permission conflict
+docker volume create perm_vol
+# Run as non-root UID 10001
+docker run --rm -v perm_vol:/data -u 10001:10001 alpine touch /data/test.txt
+# Expected output: touch: /data/test.txt: Permission denied
+
+# Resolve ownership via root initialization step
+docker run --rm -v perm_vol:/data alpine chown 10001:10001 /data
+docker run --rm -v perm_vol:/data -u 10001:10001 alpine sh -c "touch /data/test.txt && echo 'Permission Resolved!'"
+# Expected output: Permission Resolved!
+
+# 6. Clean up
+docker volume rm app_storage perm_vol
+rm -rf ~/mount-test
+```
+
+---
+
+## 6. Operational Validation Checkpoints
 
 <details>
-<summary>Stuck? One hint</summary>
+<summary><strong>Checkpoint 1: Why should database storage in production use Named Volumes rather than host Bind Mounts?</strong></summary>
 
-Mount a named volume and a host directory into the same throwaway container, write to `/data` in the volume and to the bind path and to a plain in-container path, then `docker rm` and re-run; for the permission part, run with a non-root `-u` and use a short-lived root container to `chown` the volume to that UID.
-
-</details>
-
-## Common mistakes & troubleshooting
-
-- **Using a bind mount for a database's data directory.** Works, but
-  host-side permission/ownership quirks (especially crossing the
-  WSL2/Windows boundary) cause more grief than a named volume, which
-  Docker manages consistently. Prefer named volumes for anything Docker
-  fully owns; prefer bind mounts for things you edit from the host.
-- **Forgetting that `-v hostpath:containerpath` will *create* an empty
-  directory at `hostpath` if it doesn't exist**, silently masking a typo
-  rather than erroring — always double-check the host path exists.
-- **Expecting a rebuild to be necessary after a bind-mounted code
-  change.** For interpreted languages served by a restartable process (or
-  one that auto-reloads), a mount means you often only restart the
-  process, not rebuild the image — but this doesn't apply to compiled
-  languages or anything baked in at build time.
-- **Permission-denied errors writing into a named volume from a non-root
-  container user.** The volume's ownership doesn't automatically match
-  your container's UID — fix with `chown` from a throwaway root container
-  (exercise 8), or initialize ownership in your Dockerfile/entrypoint.
-- **Trying to browse a named volume from Windows Explorer.** It lives
-  inside the Docker Desktop WSL2 VM — use the **Volumes** tab in Docker
-  Desktop, a throwaway container (`docker run --rm -v name:/data alpine ls
-  /data`), or `docker cp` to inspect it.
-- **Confusing `docker volume prune` with a general cleanup.** It only
-  removes volumes with zero containers referencing them (including
-  stopped ones).
-
-## Checkpoint quiz
-
-Write down your answer to each question before expanding it — checking without attempting first is the single easiest way to fool yourself into thinking you've learned this.
-
-<details>
-<summary>Show questions</summary>
-
-1. What's the core difference between a bind mount and a named volume,
-   in terms of who manages the storage?
-2. Why would you choose a bind mount for application source code during
-   development, but a named volume for a database's data files?
-3. If you `docker rm` every container that references a named volume,
-   is the volume's data gone? What if the data only ever lived in a
-   container's writable layer?
-4. Why did the permission-denied error happen in exercise 8, and how is
-   it conceptually the same problem you'd hit with `chmod`/`chown` on
-   plain Linux files?
-5. Does `-v /host/path:/container/path` fail if `/host/path` doesn't
-   exist yet, or does something else happen?
-6. What does mounting with `readonly` (or `:ro` in the `-v` shorthand)
-   change about a container's ability to modify the mounted path?
-7. Where in Docker Desktop can you browse the actual files inside a named
-   volume, and why is that useful?
-
+> **Root Cause Analysis:**  
+> 1. **Filesystem Compatibility:** Databases (PostgreSQL, MySQL) rely heavily on direct Linux kernel `fsync()` and `fdatasync()` system calls for ACID write-ahead logging (WAL). Bind mounts on developer workstations (especially macOS or Windows WSL2) cross 9P/VirtioFS file translation bridges, which do not reliably implement atomic filesystem locks and flush semantics, risking silent database corruption.  
+> 2. **Permission Consistency:** Named volumes reside natively in `/var/lib/docker/volumes/...` on Linux ext4 with consistent POSIX ownership, whereas host bind mounts inherit unpredictable host OS permissions and UIDs.
 </details>
 
 <details>
-<summary>Show answers</summary>
+<summary><strong>Checkpoint 2: What happens if you execute `docker volume prune` while a container using that volume is in the `Exited` state?</strong></summary>
 
-1. A bind mount points at an existing host path that you (not Docker)
-   manage directly; a named volume is storage that Docker itself creates,
-   names, and manages, independent of any host directory you browse.
-2. Source code needs to be edited live from the host and seen instantly
-   inside the container, which is exactly what a bind mount gives you with
-   no copy step; a database's data directory doesn't need host editing and
-   benefits from Docker managing ownership/location consistently, which a
-   named volume provides.
-3. The named volume's data survives — volumes are independent of container
-   lifecycle. Data that only existed in a container's writable layer is
-   permanently gone once that container is removed.
-4. UID 1000 didn't have write permission on a directory owned by UID 0
-   (root) — identical to a bare-Linux "permission denied" writing into a
-   root-owned directory as a non-root user; the fix is the same
-   `chown`/permission adjustment either way.
-5. Docker silently creates an empty directory at the host path if it
-   doesn't already exist, rather than failing — which can mask a typo'd
-   path as an apparently-working but empty mount.
-6. The container can still read the mounted path, but any write (create,
-   modify, delete) fails with a read-only filesystem error, regardless of
-   the underlying host files' permissions.
-7. The **Volumes** tab — click a volume to browse its files. It's useful
-   because managed volumes live inside the Docker Desktop VM and aren't
-   reachable from your normal Windows/WSL2 filesystem.
-
+> **Root Cause Analysis:**  
+> The volume **is NOT deleted**.  
+> `docker volume prune` removes only "dangling" volumes—volumes with zero references from **any** container. Even if a container is stopped (`Exited`), Docker retains its container metadata and volume attachment bindings. The volume is only considered dangling and eligible for deletion after the stopped container is explicitly destroyed via `docker rm`.
 </details>
 
-## Further reading & sources
+<details>
+<summary><strong>Checkpoint 3: When should a tmpfs mount be chosen over a named volume or container layer?</strong></summary>
 
-- [Docker: Manage data in Docker (storage overview)](https://docs.docker.com/storage/) - the top-level guide comparing volumes, bind mounts, and tmpfs.
-- [Docker: Volumes](https://docs.docker.com/storage/volumes/) - the reference for creating, inspecting, and managing named volumes.
-- [Docker: Bind mounts](https://docs.docker.com/storage/bind-mounts/) - details on mounting host paths, including read-only and the `--mount` syntax.
-- [Docker: docker volume CLI reference](https://docs.docker.com/reference/cli/docker/volume/) - full reference for `create`, `ls`, `inspect`, `rm`, and `prune`.
-- [Docker: Troubleshoot volume and permission issues](https://docs.docker.com/storage/troubleshooting_volume_errors/) - background for the UID/GID ownership problem exercise 8 reproduces.
+> **Root Cause Analysis:**  
+> A `tmpfs` mount is stored strictly in volatile host memory (RAM), never persisting to physical disk blocks.  
+> **Ideal Scenarios:**  
+> 1. **Sensitive Security Credentials:** Temporary authentication tokens, decryption keys, or unencrypted certificates that must never be recoverable from physical host disk forensics after container termination.  
+> 2. **Ultra-High-Frequency Ephemeral I/O:** High-velocity temporary buffers (such as image thumbnail rendering or Unix domain sockets) where disk write latency would create I/O bottlenecks.
+</details>
 
-## Next
+---
 
-Continue to [05-docker-networking](../05-docker-networking/README.md) to
-connect containers to each other and to the outside world.
+## 7. Curriculum Navigation
+
+- [← Back to Module 03: Dockerfile Deep Dive](../03-dockerfile-deep-dive/README.md)
+- [Back to Docker & Containers Overview](../README.md)
+- [Proceed to Module 05: Docker Networking Deep Dive](../05-docker-networking/README.md)

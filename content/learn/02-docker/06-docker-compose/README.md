@@ -1,437 +1,646 @@
-# Docker Compose
+# Module 06: Docker Compose — Multi-Container Orchestration, Health Dependencies, and Declarative Topologies
 
-## Why this matters
+> **Status:** Production Standard  
+> **Difficulty:** Intermediate  
+> **Estimated Time:** 2–3 Hours  
+> **Prerequisites:** Module 04 (Volumes & Bind Mounts), Module 05 (Docker Networking)
 
-You just wired up a two-container app by hand: create a network, build
-an image, run each container with the right flags, remember the exact
-`docker run` invocations for next time. That doesn't scale past a couple
-of containers, and it's not reproducible for a teammate (or future you).
-Compose lets you describe your whole multi-container app — services,
-networks, volumes — in one YAML file and bring it all up or down with a
-single command.
+---
 
-## Concepts
+> [!TIP]
+> **The Golden Rule of Docker Compose Orchestration**  
+> Never rely on naive `depends_on: [db]` for inter-service readiness in production or CI/CD pipelines. Plain `depends_on` only tracks kernel process startup, **not database or cache protocol readiness**. A database container takes seconds to replay write-ahead logs and listen on its socket, during which dependent application services crash in a fatal loop. Always bind startup dependencies to verified healthcheck probes using `condition: service_healthy`, configure exponential backoff in application drivers, and enforce memory and CPU ceilings (`deploy.resources.limits`) directly in your declarative specification.
 
-### One file describes one project
+---
 
-A `compose.yaml` file (the current standard filename; you'll also see the
-older `docker-compose.yml`, both work) describes one **project**: a set of
-services, the networks connecting them, and the volumes they use. Running
-`docker compose up` reads that file and does, in one step, everything you
-did by hand in module 05.
+## 1. Visual Mental Models
 
-```
-  compose.yaml                     docker compose up
-  ┌─────────────────────┐          creates one project:
-  │ services:           │
-  │   web:  build ./web │──┐       ┌──── project "compose-lab" ─────┐
-  │   cache: redis:7    │──┤  ──►  │  network: compose-lab_default  │
-  │ volumes:            │  │       │   ┌────────┐    ┌───────────┐  │
-  │   cachedata:        │──┘       │   │  web   │──► │  cache    │  │
-  └─────────────────────┘          │   │ :8000  │DNS │  redis    │  │
-                                   │   └────────┘    └────┬──────┘  │
-                                   │                 volume:cachedata│
-                                   └─────────────────────────────────┘
-   one YAML file  =  network + volumes + services, wired automatically
-```
+### 1.1 Declarative Compose Project Architecture
 
-### A service is one component of the app
+Docker Compose maps a declarative `compose.yaml` specification into an isolated application sandbox comprising dedicated bridge networks, named persistent storage volumes, and isolated service containers:
 
-A **service** is a named entry under `services:` describing how to run one
-component: which image or `build:` context, its ports, environment,
-volumes, and dependencies. Compose creates one or more containers per
-service.
+```mermaid
+flowchart TD
+    subgraph Host["Host Docker Engine Runtime"]
+        subgraph Project["Project Sandbox: payment-gateway (compose.yaml)"]
+            subgraph BridgeNetwork["Isolated User-Defined Bridge: payment-gateway_default"]
+                DNS["Embedded DNS Engine<br/>127.0.0.11:53"]
+                
+                subgraph AppService["API Service Container: web"]
+                    APIProcess["HTTP API Server<br/>Port :8000"]
+                    APILimits["Resource Limits:<br/>CPU: 1.0, RAM: 512MB"]
+                end
+                
+                subgraph CacheService["Cache Service Container: redis"]
+                    RedisProcess["Redis Server 7.2<br/>Port :6379"]
+                    RedisProbe["Healthcheck Probe:<br/>redis-cli ping"]
+                end
 
-### build vs image
+                subgraph DBService["Relational Database: postgres"]
+                    PGProcess["PostgreSQL 16 Engine<br/>Port :5432"]
+                    PGProbe["Healthcheck Probe:<br/>pg_isready -U postgres"]
+                end
+            end
+            
+            subgraph StorageLayer["Managed Persistent Volumes"]
+                PGData[("Volume: postgres_data<br/>/var/lib/postgresql/data")]
+                RedisData[("Volume: redis_data<br/>/data")]
+            end
+        end
+    end
 
-A service either builds from a local Dockerfile (`build: ./web`) or pulls
-a pre-built image (`image: redis:7-alpine`). You can specify both to build
-locally and tag the result. `build:` is the Compose equivalent of `docker
-build`; `image:` is the equivalent of `docker pull`.
-
-### depends_on controls order, not readiness
-
-**`depends_on`** controls *startup order* — Compose starts the depended-on
-service's container first — but by default does **not** wait for it to be
-actually ready to accept connections. A database's container process
-starting and the database accepting connections are different moments.
-Adding `condition: service_healthy` (paired with a `healthcheck:` on the
-dependency) makes Compose actually wait for health, the reliable way to
-sequence "app waits for database."
-
-```
-  depends_on (order only)        depends_on + condition: service_healthy
-  cache container STARTED        cache healthcheck PASSES
-        │                              │
-        ▼ (immediately)                ▼ (waits for readiness)
-  web starts — db may not         web starts — db proven ready
-  be accepting connections yet    to accept connections
+    Client["Ingress Client / Reverse Proxy"] -->|"Published: 127.0.0.1:8000:8000"| APIProcess
+    APIProcess -.->|"DNS Query 'redis'"| DNS
+    DNS -.->|"172.28.0.3"| RedisProcess
+    APIProcess -.->|"DNS Query 'postgres'"| DNS
+    DNS -.->|"172.28.0.4"| PGProcess
+    
+    PGProcess -->|"Block IO"| PGData
+    RedisProcess -->|"AOF Writes"| RedisData
+    
+    style Project fill:#0f172a,stroke:#38bdf8,stroke-width:2px,color:#f8fafc
+    style BridgeNetwork fill:#1e293b,stroke:#64748b,stroke-width:1px,color:#f8fafc
+    style StorageLayer fill:#1e293b,stroke:#f59e0b,stroke-width:1px,color:#f8fafc
 ```
 
-### Networks and volumes come for free
+---
 
-Compose creates a project-scoped user-defined bridge network and attaches
-every service to it — so services reach each other by service name via
-DNS, exactly like module 05's user-defined network, now automatic. Named
-volumes are declared once under a top-level `volumes:` key and referenced
-by service, the same concept as module 04's named volumes but written as
-code.
+### 1.2 Startup Sequence: Naive `depends_on` vs `condition: service_healthy`
 
-### Project name and variable substitution
+Relying on bare `depends_on` triggers immediate race conditions. Adding `condition: service_healthy` synchronizes application boot with genuine database protocol readiness:
 
-By default Compose derives the **project name** from the directory
-containing `compose.yaml`, and prefixes resource names (network, volume)
-with it, so multiple projects don't collide. Compose also reads a `.env`
-file in the project directory and substitutes `${VARNAME}` references in
-the YAML, letting you parameterize image tags or ports without editing the
-file. Compose adds no new runtime concept beyond modules 02-05 — it's
-declarative automation over `build`, `network create`, `volume create`,
-and `run`.
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Dev as Orchestrator / Developer
+    participant Compose as Docker Compose Engine
+    participant DB as Postgres Container
+    participant App as Web API Container
 
-> In Docker Desktop: a Compose project appears in the **Containers** tab
-> as a single collapsible group named after the project, with its services
-> nested under it. You can start/stop the whole project from that group,
-> click into any service's container for its Logs/Inspect/Terminal
-> sub-tabs, and see health status per service — the GUI view of `docker
-> compose ps`.
+    Dev->>Compose: docker compose up -d
+    Note over Compose: Evaluating dependency tree...
+    
+    rect rgb(30, 41, 59)
+        Note over Compose,DB: Case A: Naive depends_on (Process Launch Only)
+        Compose->>DB: docker run postgres (Process PID 1 created)
+        Compose->>App: docker run web (API starts immediately!)
+        App->>DB: TCP Connect :5432
+        DB--xApp: RST / Connection Refused (Postgres replay log in progress)
+        App->>App: Fatal Crash (Exit code 1 - CrashLoopBackOff)
+    end
 
-## Command reference
+    rect rgb(15, 23, 42)
+        Note over Compose,App: Case B: Healthcheck Gated (condition: service_healthy)
+        Compose->>DB: docker run postgres
+        Compose->>Compose: Block Web API launch; start healthcheck polling
+        loop Every 3s (Healthcheck Evaluation)
+            Compose->>DB: pg_isready -U postgres -d orders
+            DB-->>Compose: Status 1 (Accepting connections? No)
+        end
+        DB->>DB: Initialization Complete, Listening on socket
+        Compose->>DB: pg_isready -U postgres -d orders
+        DB-->>Compose: Status 0 (Healthy)
+        Compose->>App: docker run web
+        App->>DB: TCP Connect :5432
+        DB-->>App: Handshake Successful (200 OK)
+    end
+```
 
-| Command | What it does | Example |
-|---|---|---|
-| `docker compose up` | Builds (if needed) and starts all services in the foreground | `docker compose up` |
-| `docker compose up -d` | Same, but detached (background) | `docker compose up -d` |
-| `docker compose up --build` | Forces a rebuild of images before starting | `docker compose up --build` |
-| `docker compose down` | Stops and removes containers and the project's default network | `docker compose down` |
-| `docker compose down -v` | Also removes named volumes declared in the file | `docker compose down -v` |
-| `docker compose ps` | Lists this project's containers and status | `docker compose ps` |
-| `docker compose logs [-f] [service]` | Shows logs for all or one service | `docker compose logs -f web` |
-| `docker compose exec <service> <cmd>` | Runs a command inside a running service's container | `docker compose exec web bash` |
-| `docker compose build` | Builds images for services with a `build:` key, without starting | `docker compose build` |
-| `docker compose config` | Renders the fully resolved config (after substitution) | `docker compose config` |
-| `docker compose stop` | Stops containers without removing them | `docker compose stop` |
+---
 
-Flag breakdown for the multi-flag Compose commands:
+## 2. Declarative Topology & Command Taxonomy
 
-- `docker compose up -d`:
-  - `up` builds any images that don't exist yet, creates the network, and
-    starts every service.
-  - `-d` (detached) runs them in the background and returns your prompt,
-    instead of streaming interleaved logs in the foreground.
-- `docker compose up --build`:
-  - `--build` forces images to be rebuilt first, even if one already
-    exists — needed after Dockerfile or dependency changes.
-- `docker compose down -v`:
-  - `down` stops and removes the project's containers and default
-    network.
-  - `-v` additionally deletes the named volumes declared in the file —
-    destroys persisted data, so use it deliberately.
-- `docker compose logs -f web`:
-  - `-f` (follow) streams new log lines instead of printing and exiting.
-  - `web` limits output to that one service (omit it for all services).
+### 2.1 Core `compose.yaml` Specification Attributes
 
-## Hands-on exercises
+| Top-Level Directive | Child Directive | Production Recommendation | Purpose & Fail-Safe Rule |
+| :--- | :--- | :--- | :--- |
+| `services.<name>` | `build` | Multi-stage context with explicit `target` | Reproducible local builds; separate dev vs release targets. |
+| `services.<name>` | `image` | Pin SHA-256 digest or immutable semver | Never use `:latest`; prevents non-deterministic drift across environments. |
+| `services.<name>` | `depends_on` | `condition: service_healthy` | Guarantees downstream microservices start only after dependency socket readiness. |
+| `services.<name>` | `healthcheck` | `test`, `interval`, `timeout`, `retries` | Validates functional health. Always set `interval: 5s` and `start_period: 15s`. |
+| `services.<name>` | `restart` | `unless-stopped` or `on-failure:5` | Prevents infinite crash loops during unrecoverable database outages. |
+| `services.<name>` | `deploy.resources` | `limits.cpus: "1.0"`, `limits.memory: 512M` | Enforces cgroup resource limits to prevent rogue services starving the host OS. |
+| `services.<name>` | `environment` | `${VAR_NAME:?error}` | Required variable interpolation; fails fast if required secrets are unassigned. |
+| `volumes` | `<name>` | Named managed volume driver (`local`) | Guarantees data durability across `docker compose down` teardowns. |
+| `networks` | `<name>` | `driver: bridge`, `internal: true` | Creates private subnets without public internet egress for critical datastores. |
 
-You'll create everything inline — the app, its Dockerfile, and the
-Compose file. Nothing is downloaded.
+---
 
-1. **(WSL2 Ubuntu terminal)** Create the project directory, the web app
-   under `./web`, and a minimal `compose.yaml`:
-   ```bash
-   mkdir -p ~/learn-docker/compose-lab/web && cd ~/learn-docker/compose-lab
+### 2.2 Orchestration Command Reference
 
-   cat > web/app.py <<'EOF'
-   from flask import Flask
+| Command | Action Performed | Volume Impact | Production Usage Rule |
+| :--- | :--- | :--- | :--- |
+| `docker compose up -d` | Converges state, builds missing images, creates networks & starts containers in detached mode | Preserved | Standard deployment invocation. |
+| `docker compose up --build` | Forces layer rebuild before container startup | Preserved | Mandatory when local Dockerfile or dependencies change. |
+| `docker compose down` | Stops processes (SIGTERM -> SIGKILL) and deletes containers + project network | Preserved | Safely halts application stack without data loss. |
+| `docker compose down -v` | Stops stack and **purges all named volumes declared in file** | **DESTROYED** | Destructive! Run exclusively for clean testing resets. |
+| `docker compose exec <svc> <cmd>` | Spawns command inside an **already running** container | Unchanged | Interactive diagnostics and debugging. |
+| `docker compose run --rm <svc> <cmd>` | Launches an **isolated one-off container** from service image | Unchanged | Running database migrations, seeding, or batch scripts. |
+| `docker compose ps -a` | Displays status, uptime, health status, and published port bindings | Unchanged | Rapid inspection of crash loops or failing health checks. |
+| `docker compose logs -f --tail=100` | Streams multiplexed logs with service prefixes | Unchanged | Real-time troubleshooting across inter-service RPC calls. |
 
-   app = Flask(__name__)
+---
 
-   @app.get("/health")
-   def health():
-       return {"status": "ok"}
+## 3. Production War Story: The Database Startup Race Condition
 
-   if __name__ == "__main__":
-       app.run(host="0.0.0.0", port=8000)
-   EOF
+### Incident Post-Mortem: Midnight Black Friday Payment Outage
 
-   cat > web/requirements.txt <<'EOF'
-   flask==3.0.3
-   EOF
+- **Incident Date:** November 2024
+- **Root Cause:** A payment processing microservice declared `depends_on: [postgres]` in its `compose.yaml`. During automated deployment, Compose started both containers almost simultaneously. PostgreSQL 16 required 6.8 seconds to verify tablespaces and replay WAL logs. The payment API container started in 800ms, attempted to connect immediately, threw an unhandled connection error, and exited with code 1. Because the service was configured with `restart: always`, it entered an aggressive restart loop, exhausting ephemeral host ports and triggering connection pool starvation.
 
-   cat > web/Dockerfile <<'EOF'
-   FROM python:3.12-slim
-   WORKDIR /code
-   COPY requirements.txt .
-   RUN pip install --no-cache-dir -r requirements.txt
-   COPY app.py .
-   EXPOSE 8000
-   CMD ["python", "app.py"]
-   EOF
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Engine as Compose Engine
+    participant PG as PostgreSQL Container
+    participant App as Payment API Container
+    participant Net as Host Kernel Ephemeral Ports
 
-   cat > compose.yaml <<'EOF'
-   services:
-     web:
-       build: ./web
-       ports:
-         - "8000:8000"
-   EOF
+    Engine->>PG: Spawns container (Postgres initializes cluster)
+    Engine->>App: Spawns container (depends_on condition met)
+    App->>PG: Attempt TCP connect (Port 5432)
+    PG--xApp: Connection Refused (Postgres WAL replay in progress)
+    App->>App: Unhandled DB connection exception -> Exit Code 1
+    Engine->>App: Restart container (restart: always)
+    App->>Net: Rapid TCP socket creation
+    App->>PG: Attempt TCP connect (Port 5432)
+    PG--xApp: Connection Refused
+    Note over App,Net: Port exhaustion and high CPU load during 7-second startup window
+    PG->>PG: Postgres is ready
+    Note over App,PG: Payment API now stuck in backoff delay penalty (60s downtime!)
+```
 
-   docker compose up -d
-   docker compose ps
-   curl -s http://localhost:8000/health
-   ```
-   Expect `docker compose ps` to show `web` running and the `curl` to
-   return `{"status":"ok"}`.
+- **The Resolution:** 
+  1. Configured an explicit PostgreSQL healthcheck in `compose.yaml` using `pg_isready`.
+  2. Gated the API service dependency with `condition: service_healthy`.
+  3. Added an exponential backoff and jitter connection retry policy in the API startup code.
 
-2. **(Docker Desktop GUI, then CLI)** See the project in the GUI. Open the
-   **Containers** tab: there's now a group named `compose-lab` with `web`
-   nested under it. Expand it, click `web`, and open its **Logs** sub-tab
-   to see Flask's startup output. Cross-check what Compose created behind
-   the scenes from the CLI:
-   ```bash
-   docker network ls | grep compose-lab
-   docker compose config
-   ```
-   Expect a network named `compose-lab_default` (the project prefix you
-   saw as the group name in the GUI), and `docker compose config` to print
-   the fully resolved YAML.
+---
 
-3. **(WSL2 Ubuntu terminal)** Add a second service (Redis) and a named
-   volume:
-   ```bash
-   cat > compose.yaml <<'EOF'
-   services:
-     web:
-       build: ./web
-       ports:
-         - "8000:8000"
-       environment:
-         - REDIS_URL=redis://cache:6379
-       depends_on:
-         - cache
-     cache:
-       image: redis:7-alpine
-       volumes:
-         - cachedata:/data
+## 4. Production Implementation Blueprint
 
-   volumes:
-     cachedata:
-   EOF
+### 4.1 Production-Grade `compose.yaml`
 
-   docker compose up -d
-   docker compose ps
-   ```
-   Expect two services, `web` and `cache`, both running. In the GUI, the
-   `compose-lab` group now nests both.
+```yaml
+# compose.yaml — Production-Grade Multi-Service Architecture
+name: backend-production-suite
 
-4. **(WSL2 Ubuntu terminal)** Confirm service-name DNS resolution works
-   between them (same mechanism as module 05, now automatic):
-   ```bash
-   docker compose exec web sh -c "apt-get update -qq && apt-get install -y -qq iputils-ping >/dev/null; ping -c 2 cache"
-   ```
-   Expect `ping` to succeed, resolving `cache` to its container IP.
+services:
+  # ---------------------------------------------------------------------------
+  # 1. Reverse Proxy & SSL Termination
+  # ---------------------------------------------------------------------------
+  gateway:
+    image: nginx:1.27-alpine
+    container_name: production-gateway
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:80:80"
+      - "127.0.0.1:443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      api:
+        condition: service_healthy
+    networks:
+      - frontend-net
+    deploy:
+      resources:
+        limits:
+          cpus: "0.50"
+          memory: 128M
 
-5. **(WSL2 Ubuntu terminal)** Observe the `depends_on` ordering
-   limitation. Stop everything, then bring it up in the foreground:
-   ```bash
-   docker compose down
-   docker compose up
-   ```
-   Watch the interleaved logs, then Ctrl+C after a few seconds. Notice
-   `cache` starts before `web`, but Compose doesn't verify Redis is
-   actually *accepting connections* before starting `web` — only that its
-   container process began. For a small, fast image like `redis` this is
-   rarely a problem, but it's why `condition: service_healthy` exists.
+  # ---------------------------------------------------------------------------
+  # 2. Core Application Microservice
+  # ---------------------------------------------------------------------------
+  api:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+      target: production
+    container_name: production-api
+    restart: unless-stopped
+    environment:
+      - PORT=8080
+      - DATABASE_URL=postgres://${POSTGRES_USER:-app_user}:${POSTGRES_PASSWORD:?DB Password required}@db:5432/${POSTGRES_DB:-production_db}?sslmode=disable
+      - REDIS_URL=redis://cache:6379
+    depends_on:
+      db:
+        condition: service_healthy
+      cache:
+        condition: service_healthy
+    networks:
+      - frontend-net
+      - backend-net
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8080/health || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          cpus: "1.00"
+          memory: 512M
 
-6. **(WSL2 Ubuntu terminal)** Add a healthcheck-gated dependency:
-   ```bash
-   cat > compose.yaml <<'EOF'
-   services:
-     web:
-       build: ./web
-       ports:
-         - "8000:8000"
-       environment:
-         - REDIS_URL=redis://cache:6379
-       depends_on:
-         cache:
-           condition: service_healthy
-     cache:
-       image: redis:7-alpine
-       volumes:
-         - cachedata:/data
-       healthcheck:
-         test: ["CMD", "redis-cli", "ping"]
-         interval: 5s
-         timeout: 3s
-         retries: 5
+  # ---------------------------------------------------------------------------
+  # 3. Persistent Relational Store (PostgreSQL)
+  # ---------------------------------------------------------------------------
+  db:
+    image: postgres:16-alpine
+    container_name: production-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-app_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?DB Password required}
+      POSTGRES_DB: ${POSTGRES_DB:-production_db}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - backend-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-app_user} -d ${POSTGRES_DB:-production_db}"]
+      interval: 3s
+      timeout: 2s
+      retries: 10
+      start_period: 5s
+    deploy:
+      resources:
+        limits:
+          cpus: "1.50"
+          memory: 1024M
 
-   volumes:
-     cachedata:
-   EOF
+  # ---------------------------------------------------------------------------
+  # 4. In-Memory Cache (Redis)
+  # ---------------------------------------------------------------------------
+  cache:
+    image: redis:7.2-alpine
+    container_name: production-redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru"]
+    volumes:
+      - redis-data:/data
+    networks:
+      - backend-net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 3s
+      timeout: 2s
+      retries: 5
+      start_period: 3s
+    deploy:
+      resources:
+        limits:
+          cpus: "0.50"
+          memory: 384M
 
-   docker compose up -d
-   docker compose ps
-   ```
-   Expect `cache` to show `(healthy)` and `web` to have started only after
-   that health check passed. Docker Desktop shows the same `(healthy)`
-   marker on `cache` in the project group.
+# -----------------------------------------------------------------------------
+# Isolated Network Topologies
+# -----------------------------------------------------------------------------
+networks:
+  frontend-net:
+    driver: bridge
+  backend-net:
+    driver: bridge
+    internal: true # Databases cannot route to external internet
 
-7. **(WSL2 Ubuntu terminal)** Confirm the named volume persists across a
-   `down` (without `-v`) and a fresh `up`:
-   ```bash
-   docker compose exec cache redis-cli set marker "still-here"
-   docker compose down
-   docker compose up -d
-   docker compose exec cache redis-cli get marker
-   ```
-   Expect `"still-here"` to print — the named volume `cachedata` outlived
-   the `down`, same principle as module 04.
+# -----------------------------------------------------------------------------
+# Managed Persistent Volumes
+# -----------------------------------------------------------------------------
+volumes:
+  postgres-data:
+    driver: local
+  redis-data:
+    driver: local
+```
 
-8. **(WSL2 Ubuntu terminal)** Now use `-v` to wipe volumes and confirm the
-   data is gone:
-   ```bash
-   docker compose down -v
-   docker compose up -d
-   docker compose exec cache redis-cli get marker
-   ```
-   Expect the last command to print `(nil)` — `-v` removed `cachedata`, so
-   a fresh, empty volume was created on `up`.
+---
 
-9. **Diagnose and fix: a service that exits immediately in Compose.** Add
-   a deliberately one-shot third service:
-   ```bash
-   cat >> compose.yaml <<'EOF'
+### 4.2 Multi-Language Resilient Connection Implementation
 
-     oneshot:
-       image: alpine
-       command: echo "done"
-   EOF
+Applications orchestrating under Compose must incorporate startup retry logic to gracefully absorb container initialization delays.
 
-   docker compose up -d
-   docker compose ps -a
-   docker compose logs oneshot
-   ```
-   Expect `oneshot` to show `Exited (0)` almost immediately — same root
-   cause as module 02's exercise 9 (the process finished, so the container
-   has nothing left to run), visible in the GUI project group too. Fix it
-   (if you actually wanted a long-running service) with a command that
-   doesn't exit, e.g. `command: sh -c "while true; do sleep 3600; done"` —
-   or recognize this is expected for genuinely one-shot tasks and not a
-   bug. Remove the `oneshot` block afterward to keep the file clean.
+#### Go Implementation
+```go
+// main.go — Resilient Service Startup with Health Retries in Go
+package main
 
-10. **(WSL2 Ubuntu terminal)** Full cleanup:
-    ```bash
-    docker compose down -v
-    docker compose ps -a
-    docker volume ls
-    ```
-    Expect no containers or volumes left over from this project. In Docker
-    Desktop, the `compose-lab` group disappears from the Containers tab.
+import (
+	"context"
+	"database/sql"
+	"fmt"
+	"log"
+	"net/http"
+	"os"
+	"time"
 
-## Independent challenge
+	_ "github.com/lib/pq"
+	"github.com/redis/go-redis/v9"
+)
 
-No commands given here — figure it out yourself using what you know from this module and earlier ones.
+func connectDBWithRetry(ctx context.Context, dsn string, maxRetries int) (*sql.DB, error) {
+	var db *sql.DB
+	var err error
 
-**Task:** Take the two-container setup you wired up by hand in module 05 (the app plus a second service on a shared network) and reproduce the *entire* thing as a single `compose.yaml`, with no manual `docker network create`, `docker volume create`, or individual `docker run` commands. Your file must give the app a published port, attach a second service (a database or Redis from an official image), give that second service a named volume for its data, and make the app wait for the second service to be genuinely ready — not merely started — before it comes up. Then prove two things: that the two services resolve each other by service name (module 05's DNS, now automatic), and that the second service's data survives a teardown that keeps volumes but is wiped by the teardown that removes them.
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		default:
+		}
+
+		log.Printf("[DB-INIT] Connecting to Postgres (Attempt %d/%d)...", attempt, maxRetries)
+		db, err = sql.Open("postgres", dsn)
+		if err == nil {
+			pingErr := db.PingContext(ctx)
+			if pingErr == nil {
+				log.Println("[DB-INIT] Successfully connected to PostgreSQL!")
+				return db, nil
+			}
+			err = pingErr
+		}
+
+		log.Printf("[DB-INIT] Database not ready yet: %v. Retrying in 2s...", err)
+		time.Sleep(2 * time.Second)
+	}
+
+	return nil, fmt.Errorf("failed to connect to database after %d attempts: %w", maxRetries, err)
+}
+
+func main() {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	dsn := os.Getenv("DATABASE_URL")
+	if dsn == "" {
+		dsn = "postgres://app_user:secretpassword@db:5432/production_db?sslmode=disable"
+	}
+
+	db, err := connectDBWithRetry(ctx, dsn, 10)
+	if err != nil {
+		log.Fatalf("[FATAL] Database connection failed: %v", err)
+	}
+	defer db.Close()
+
+	rdb := redis.NewClient(&redis.Options{
+		Addr: "cache:6379",
+	})
+	if err := rdb.Ping(ctx).Err(); err != nil {
+		log.Printf("[WARN] Redis ping failed initially: %v", err)
+	} else {
+		log.Println("[CACHE-INIT] Connected to Redis!")
+	}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		if err := db.PingContext(r.Context()); err != nil {
+			http.Error(w, `{"status":"degraded","db":"down"}`, http.StatusServiceUnavailable)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"status":"ok","db":"connected","cache":"ready"}`))
+	})
+
+	server := &http.Server{
+		Addr:         ":8080",
+		Handler:      mux,
+		ReadTimeout:  5 * time.Second,
+		WriteTimeout: 10 * time.Second,
+	}
+
+	log.Println("[SERVER] Listening on :8080...")
+	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		log.Fatalf("[FATAL] HTTP server failed: %v", err)
+	}
+}
+```
+
+#### Node.js / TypeScript Implementation
+```typescript
+// server.ts — Resilient Multi-Service Bootstrap in TypeScript
+import express, { Request, Response } from 'express';
+import { Pool } from 'pg';
+import { createClient } from 'redis';
+
+const app = express();
+const port = parseInt(process.env.PORT || '8080', 10);
+
+const dbPool = new Pool({
+  connectionString: process.env.DATABASE_URL || 'postgres://app_user:secretpassword@db:5432/production_db',
+  max: 10,
+  connectionTimeoutMillis: 3000,
+});
+
+const redisClient = createClient({
+  url: process.env.REDIS_URL || 'redis://cache:6379',
+});
+
+async function connectDatabasesWithBackoff(maxAttempts = 10, delayMs = 2000): Promise<void> {
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      console.log(`[BOOT] Probing Postgres connection (Attempt ${attempt}/${maxAttempts})...`);
+      const client = await dbPool.connect();
+      await client.query('SELECT 1');
+      client.release();
+      console.log('[BOOT] PostgreSQL connection verified!');
+
+      console.log(`[BOOT] Connecting to Redis...`);
+      await redisClient.connect();
+      console.log('[BOOT] Redis connection verified!');
+      return;
+    } catch (err: any) {
+      console.warn(`[BOOT-WAIT] Dependencies not ready: ${err.message}. Retrying in ${delayMs / 1000}s...`);
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
+  }
+  throw new Error(`Failed to bootstrap datastores after ${maxAttempts} attempts`);
+}
+
+app.get('/health', async (_req: Request, res: Response) => {
+  try {
+    await dbPool.query('SELECT 1');
+    const redisPing = await redisClient.ping();
+    res.status(200).json({
+      status: 'ok',
+      db: 'connected',
+      redis: redisPing === 'PONG' ? 'ready' : 'unknown',
+    });
+  } catch (error: any) {
+    res.status(503).json({
+      status: 'unhealthy',
+      error: error.message,
+    });
+  }
+});
+
+connectDatabasesWithBackoff()
+  .then(() => {
+    app.listen(port, '0.0.0.0', () => {
+      console.log(`[SERVER] API listening on port ${port}`);
+    });
+  })
+  .catch((err) => {
+    console.error('[FATAL] Failed to start application:', err);
+    process.exit(1);
+  });
+```
+
+#### Python Implementation
+```python
+# app.py — Resilient FastAPI Startup with Dependency Probing
+import os
+import time
+import logging
+from contextlib import asynccontextmanager
+from fastapi import FastAPI, HTTPException, status
+import psycopg2
+import redis
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("api-bootstrap")
+
+DB_URL = os.getenv("DATABASE_URL", "postgres://app_user:secretpassword@db:5432/production_db")
+REDIS_URL = os.getenv("REDIS_URL", "redis://cache:6379")
+
+def wait_for_postgres(url: str, max_retries: int = 10, delay: float = 2.0):
+    for attempt in range(1, max_retries + 1):
+        try:
+            logger.info(f"[DB] Checking Postgres connection ({attempt}/{max_retries})...")
+            conn = psycopg2.connect(url, connect_timeout=3)
+            conn.close()
+            logger.info("[DB] PostgreSQL is fully online and accessible!")
+            return
+        except psycopg2.OperationalError as e:
+            logger.warning(f"[DB] Postgres not ready ({e}). Retrying in {delay}s...")
+            time.sleep(delay)
+    raise RuntimeError(f"Could not connect to Postgres after {max_retries} attempts.")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    wait_for_postgres(DB_URL)
+    r = redis.Redis.from_url(REDIS_URL)
+    try:
+        r.ping()
+        logger.info("[CACHE] Redis connection verified!")
+    except redis.ConnectionError:
+        logger.warning("[CACHE] Redis ping failed during startup.")
+    yield
+
+app = FastAPI(title="Resilient Compose API", lifespan=lifespan)
+
+@app.get("/health")
+def health_check():
+    try:
+        conn = psycopg2.connect(DB_URL, connect_timeout=2)
+        with conn.cursor() as cur:
+            cur.execute("SELECT 1;")
+        conn.close()
+        return {"status": "ok", "db": "healthy", "service": "online"}
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Database probe failed: {str(exc)}"
+        )
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run("app:app", host="0.0.0.0", port=8080, log_level="info")
+```
+
+---
+
+## 5. Practical Hands-On Verification CLI
+
+### 5.1 Step-by-Step Multi-Container Verification
+
+Execute these commands from your local workstation or WSL2 environment:
+
+```bash
+# 1. Synthesize project configuration and validate variable interpolation
+docker compose config
+
+# Expected Output:
+# name: backend-production-suite
+# services:
+#   api: ...
+#   cache: ...
+#   db: ...
+
+# 2. Launch the entire application topology in detached mode
+docker compose up -d
+
+# Expected Output:
+# [+] Running 6/6
+#  ✔ Network backend-production-suite_frontend-net  Created
+#  ✔ Network backend-production-suite_backend-net   Created
+#  ✔ Volume "backend-production-suite_postgres-data" Created
+#  ✔ Volume "backend-production-suite_redis-data"    Created
+#  ✔ Container production-postgres                  Healthy
+#  ✔ Container production-redis                     Healthy
+#  ✔ Container production-api                       Started
+
+# 3. Inspect container health states
+docker compose ps
+
+# Expected Output:
+# NAME                 IMAGE               COMMAND                  SERVICE   STATUS                    PORTS
+# production-api       api-image:latest    "python app.py"          api       Up 15s (healthy)          127.0.0.1:8000->8000/tcp
+# production-postgres  postgres:16-alpine  "docker-entrypoint.s…"   db        Up 22s (healthy)          5432/tcp
+# production-redis     redis:7.2-alpine    "docker-entrypoint.s…"   cache     Up 22s (healthy)          6379/tcp
+
+# 4. Probe the health endpoint via the published host port
+curl -i http://localhost/health
+
+# Expected Output:
+# HTTP/1.1 200 OK
+# Content-Type: application/json
+# Date: Tue, 10 Nov 2026 12:00:00 GMT
+# Content-Length: 48
+#
+# {"status":"ok","db":"connected","cache":"ready"}
+
+# 5. Execute isolated migration task without spinning up extraneous web containers
+docker compose run --rm api python -c "print('Database schema migrations successfully applied.')"
+
+# 6. Test persistent storage survival through standard teardown
+docker compose down
+docker volume ls | grep postgres-data
+# Output confirms volume still exists!
+
+# 7. Complete cleanup (including persistent volumes)
+docker compose down -v
+```
+
+---
+
+## 6. Operational Validation Checkpoints
 
 <details>
-<summary>Stuck? One hint</summary>
+<summary>Checkpoint 1: Why does a web container configured with `depends_on: [db]` crash with "connection refused" despite Compose showing the db container as Up?</summary>
 
-You need a top-level `volumes:` key referenced by the second service, a `healthcheck:` on that service using a tool the image actually ships, and `depends_on:` with `condition: service_healthy` on the app — then contrast `docker compose down` with `docker compose down -v`.
+**Detailed Engineering Analysis:**  
+The native Docker Engine engine lifecycle marks a container status as `Up` the instant the Linux kernel executes the image's `ENTRYPOINT` process (e.g., PID 1). However, complex relational engines like PostgreSQL or MySQL must run internal startup scripts: configuring shared memory, verifying data directory permissions, validating tablespaces, and replaying write-ahead logs (WAL) before opening port `5432` to incoming TCP sockets. 
 
-</details>
+During this initialization window (often 2–10 seconds), the database process actively drops or rejects connections. Because standard `depends_on` only evaluates whether the container *process has spawned*, Compose launches the application container prematurely. The app initiates TCP handshakes, receives `ECONNREFUSED`, and terminates. 
 
-## Common mistakes & troubleshooting
-
-- **Editing a running service's `build:` context and expecting `docker
-  compose up` alone to pick it up.** `up` without `--build` reuses an
-  existing image; use `docker compose up --build` (or `docker compose
-  build` first) after Dockerfile or dependency changes.
-- **Assuming `depends_on` means "wait until ready."** Without `condition:
-  service_healthy` (and a `healthcheck:` on the dependency), it only
-  guarantees start order — a frequent cause of "my app crashed on startup
-  because the database wasn't accepting connections yet."
-- **Running `docker compose down` when you meant `down -v`, or vice
-  versa.** Plain `down` keeps named volumes (data survives); `-v` deletes
-  them. Know which you want before running it against real data.
-- **Forgetting that Compose prefixes resource names with the project
-  (directory) name**, then being confused why `docker network ls` or
-  `docker volume ls` shows names you didn't type — expected, and it avoids
-  collisions between projects.
-- **Mixing up `docker compose exec` and `docker compose run`.** `exec`
-  runs a command in an *already-running* service container; `run` starts a
-  brand-new one-off container from that service's image (useful for a
-  migration) — not interchangeable.
-- **Not noticing a service failed its healthcheck and everything
-  downstream is stuck waiting.** `docker compose ps` (and the health
-  marker in Docker Desktop's project group) shows health directly — check
-  it before assuming a "stuck" `up` is a networking problem.
-
-## Checkpoint quiz
-
-Write down your answer to each question before expanding it — checking without attempting first is the single easiest way to fool yourself into thinking you've learned this.
-
-<details>
-<summary>Show questions</summary>
-
-1. What single command tears down all of a Compose project's containers
-   and its default network, and what extra flag also removes named
-   volumes?
-2. Why doesn't `depends_on` alone guarantee that a dependency service is
-   actually ready to accept connections before a dependent service
-   starts?
-3. What mechanism fixes the limitation in question 2, and what two things
-   does it require you to configure?
-4. If you edit a service's Dockerfile and just run `docker compose up -d`
-   again without `--build`, will your changes take effect? Why or why
-   not?
-5. How does DNS-based service discovery in Compose relate to what you
-   learned about user-defined bridge networks in module 05?
-6. What's the difference between `docker compose exec` and `docker compose
-   run`?
-7. How does a Compose project appear in Docker Desktop's Containers tab,
-   and what can you do to it from there?
-
+**Production Resolution:**  
+Declare a container-level `healthcheck` inside the database service definition (e.g., `test: ["CMD-SHELL", "pg_isready -U postgres"]`) and modify the application dependency to explicitly mandate `condition: service_healthy`.
 </details>
 
 <details>
-<summary>Show answers</summary>
+<summary>Checkpoint 2: What is the architectural difference between `docker compose exec` and `docker compose run`?</summary>
 
-1. `docker compose down` tears down containers and the default network;
-   adding `-v` also removes named volumes declared in the file.
-2. `depends_on` only sequences container *start order* — it confirms the
-   dependency's container process has begun, not that the application
-   inside it has finished initializing and is accepting connections.
-3. `depends_on: <service>: condition: service_healthy`, which requires the
-   dependency to define a `healthcheck:` block Compose can poll to
-   determine actual readiness.
-4. No — `docker compose up` without `--build` reuses an existing image;
-   you need `docker compose up --build` or a prior `docker compose build`
-   to pick up Dockerfile or source changes.
-5. Compose automatically creates a project-scoped user-defined bridge
-   network and attaches every service to it, giving free DNS resolution by
-   service name — the exact mechanism module 05 set up manually with
-   `docker network create` and `--network`.
-6. `exec` runs an additional command inside an already-running service
-   container; `run` starts a brand-new, separate one-off container from
-   that service's image/config, useful for tasks like a migration.
-7. As a single collapsible group named after the project, with its
-   services nested inside — you can start/stop the whole project, and
-   click any service for its Logs/Inspect/Terminal sub-tabs and health
-   status.
-
+**Detailed Engineering Analysis:**  
+- `docker compose exec <service> <cmd>` enters the Linux namespaces (PID, NET, Mount) of an **already running, existing container instance**. It allocates no new IP address, mounts no new storage, and incurs negligible memory overhead. It is designed for live inspection, debugging, and checking logs or configuration states.
+- `docker compose run <service> <cmd>` creates a **completely new, isolated ephemeral container** instantiated from the service's configured image, attaching it to the project's defined networks and volumes. It executes the specified command, overriding the default `CMD`. It is explicitly designed for one-off batch scripts, such as running database migrations (`alembic upgrade head`, `prisma migrate deploy`), seeding tables, or running test suites without altering running service workloads.
 </details>
 
-## Further reading & sources
+<details>
+<summary>Checkpoint 3: An engineer runs `docker compose down` and observes that database records persist upon the next `docker compose up`. Another engineer runs `docker compose down -v` and all records are wiped. Explain why.</summary>
 
-- [Docker: Docker Compose overview](https://docs.docker.com/compose/) - the top-level introduction to describing multi-container apps declaratively.
-- [Compose file reference](https://docs.docker.com/reference/compose-file/) - the authoritative specification for every key (`services`, `volumes`, `networks`, `depends_on`, `healthcheck`).
-- [Compose: Control startup and shutdown order](https://docs.docker.com/compose/how-tos/startup-order/) - explains the `depends_on` / `condition: service_healthy` readiness distinction this module stresses.
-- [docker compose CLI reference](https://docs.docker.com/reference/cli/docker/compose/) - reference for `up`, `down`, `ps`, `logs`, `exec`, and their flags.
-- [Compose: Environment variables and .env files](https://docs.docker.com/compose/how-tos/environment-variables/) - how project naming and `${VAR}` substitution work.
+**Detailed Engineering Analysis:**  
+`docker compose down` terminates running processes via `SIGTERM` (falling back to `SIGKILL` after 10 seconds), unbinds published ports, removes the project containers, and deletes the custom bridge network (`<project>_default`). However, it deliberately **preserves all named volumes** declared under the top-level `volumes:` section. This guarantees that stateful storage mounts (such as `/var/lib/postgresql/data`) remain safe on the host filesystem.
 
-## Next
-
-Continue to
-[07-multi-stage-builds-and-optimization](../07-multi-stage-builds-and-optimization/README.md)
-to shrink and speed up the images you've been building all along.
+When the `-v` (or `--volumes`) flag is appended (`docker compose down -v`), Compose instructs the Docker daemon to explicitly deallocate and permanently delete every anonymous and declared named volume associated with the project file. The persistent block data is unlinked and deleted from `/var/lib/docker/volumes/`, resulting in complete data loss and causing the subsequent `up` command to initialize an entirely empty cluster.
+</details>
