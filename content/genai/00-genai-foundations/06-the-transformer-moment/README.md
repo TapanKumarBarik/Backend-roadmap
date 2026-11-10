@@ -1,473 +1,378 @@
-# Module 06: The Transformer Moment (2017)
+# The Transformer Moment: Attention Is All You Need
 
-## Why this matters
+> **Difficulty**: Advanced | **Estimated Time**: 40m | **Hands-On**: Mandatory
 
-In 2017 a Google team published a paper whose title is an argument:
-**"Attention Is All You Need."** The "all" is the claim. Attention had
-been an *add-on* to recurrent networks for three years (module 05); the
-paper's proposal was to delete the recurrence and keep only the
-attention.
+> [!TIP]
+> **The Golden Rule of the Transformer Architecture:**
+> **Discard recurrence; compute everything in parallel.** Vaswani et al. (2017) proved that recurrent loops are completely unnecessary. By combining **Self-Attention** (relating every token to every other token simultaneously) with **Positional Encodings** (injecting sequence order), the Transformer converts sequence processing into dense matrix multiplications ($Q K^T V$) that saturate 100% of GPU tensor cores.
 
-This sounds like a minor simplification. It was the most consequential
-architectural decision in modern AI, and the reason is not accuracy —
-early transformers were only modestly better at translation than the
-LSTMs they replaced. **The reason is that it made training embarrassingly
-parallel.** Module 04's wall 2 (`hₜ` depends on `hₜ₋₁`, so nothing can be
-computed out of order) simply evaporates: every position is processed
-simultaneously, which turns training into a stack of large matrix
-multiplications — precisely the operation GPUs are built to do thousands
-of at once.
+---
 
-That unlocked training runs on data volumes that were previously
-impossible, which is what made GPT-2, GPT-3, and everything after them
-feasible. Every model in tracks 03-16 is a transformer. This module is
-the architectural overview; track 02 builds it component by component.
+## 1. Visual Mental Models: The Transformer Revolution
 
-## Concepts
+Before 2017, attention was merely a helper feature bolted onto recurrent networks (RNNs/LSTMs). In June 2017, eight researchers at Google Brain published **"Attention Is All You Need"**, demonstrating that discarding recurrence entirely yielded higher accuracy in a fraction of the training time.
 
-### What was dropped, and what replaced it
+```mermaid
+flowchart TD
+    subgraph InputProcessing["1. Input & Positional Encoding"]
+        Tokens["Input Tokens: ['The', 'robot', 'sat']"]
+        Embeddings["Token Embedding Vectors (d_model = 4096)"]
+        PosEncoding["Positional Encodings (Sinusoidal / RoPE)"]
+        SumNode(("+"))
 
-```
-BEFORE (2014-2017): RNN + attention          AFTER (2017): transformer
+        Tokens --> Embeddings
+        Embeddings --> SumNode
+        PosEncoding --> SumNode
+    end
 
-  x₁   x₂   x₃   x₄                           x₁   x₂   x₃   x₄
-   │    │    │    │                            │    │    │    │
-   ▼    ▼    ▼    ▼                            ▼    ▼    ▼    ▼
- ┌───┐┌───┐┌───┐┌───┐                        ┌──────────────────┐
- │RNN│►│RNN│►│RNN│►│RNN│  ◄─ serial          │  SELF-ATTENTION  │
- └───┘└───┘└───┘└───┘        chain           │  all positions   │
-   │    │    │    │                          │  see each other  │
-   └────┴────┴────┘                          │  AT ONCE         │
-      attention                              └──────────────────┘
-      bolted on                                │    │    │    │
-                                               ▼    ▼    ▼    ▼
- t=4 waits for t=3                           every position computed
- GPU mostly idle                             in parallel -> GPU saturated
-```
+    subgraph TransformerBlock["2. Stacked Transformer Block (Repeated N Times)"]
+        SumNode --> PreLN1["RMSNorm / LayerNorm"]
+        PreLN1 --> MHA["Multi-Head Self-Attention<br/>(8 to 64 Heads in Parallel)"]
+        MHA --> Res1(("+ (Residual Connection)"))
+        SumNode --> Res1
 
-The transformer keeps attention and throws away the recurrent chain. With
-no chain, there is no ordering constraint, so a sequence of length 1,000
-is one big matrix operation rather than 1,000 dependent steps.
+        Res1 --> PreLN2["RMSNorm / LayerNorm"]
+        PreLN2 --> FFN["Position-Wise Feed-Forward Network<br/>(SwiGLU / GELU MLP)"]
+        FFN --> Res2(("+ (Residual Connection)"))
+        Res1 --> Res2
+    end
 
-### Self-attention: the key generalization
-
-Module 05's attention was **cross-attention** — a decoder querying an
-encoder. The transformer's central move is to apply attention *within* a
-single sequence: every position attends to every other position of the
-same sequence. That's **self-attention**.
-
-```
- "The animal didn't cross the street because it was too tired"
-                                            ▲
-                                            │ what does "it" refer to?
-   ┌────────────────────────────────────────┘
-   │  self-attention lets "it" query every other word
-   │  and discover that "animal" is the answer
-   ▼
- The  animal  didn't  cross  the  street  because  it  was  too  tired
-  .02   .51     .03    .04   .02   .21      .03   ─    .05  .04   .05
-        ▲▲▲                   ▲▲▲
-     strong link          weaker competitor
+    subgraph OutputProjection["3. Language Model Head"]
+        Res2 --> FinalNorm["Final LayerNorm"]
+        FinalNorm --> Unembed["Linear Projection to Vocabulary (128k logits)"]
+        Unembed --> Softmax["Softmax Next-Token Probabilities"]
+    end
 ```
 
-The same mechanism, applied within one sequence, is what builds
-**contextual** representations — the fix for module 03's static-embedding
-limitation. "bank" in *"river bank"* now gets a different vector than
-"bank" in *"bank account"*, because in each case it attended to different
-neighbours. This is the single biggest capability jump from Word2Vec.
+---
 
-### The architecture at a glance
+## 2. Multi-Head Attention: Looking at Multiple Relationships Simultaneously
 
-```
-        ENCODER STACK (Nx)              DECODER STACK (Nx)
-   ┌─────────────────────────┐     ┌──────────────────────────┐
-   │                         │     │                          │
-   │  ┌───────────────────┐  │     │  ┌────────────────────┐  │
-   │  │  self-attention   │  │     │  │ MASKED self-attn   │  │
-   │  └─────────┬─────────┘  │     │  └─────────┬──────────┘  │
-   │      add & norm         │     │       add & norm         │
-   │  ┌─────────▼─────────┐  │     │  ┌─────────▼──────────┐  │
-   │  │   feed-forward    │  │  ┌─►│  │  cross-attention   │  │
-   │  └─────────┬─────────┘  │  │  │  └─────────┬──────────┘  │
-   │      add & norm         │  │  │       add & norm         │
-   └────────────┬────────────┘  │  │  ┌─────────▼──────────┐  │
-                │               │  │  │   feed-forward     │  │
-                └───────────────┘  │  └─────────┬──────────┘  │
-              encoder output       │       add & norm         │
-              feeds every          └────────────┬─────────────┘
-              decoder layer                     ▼
-                                          output probabilities
-   ▲                                            
-   │  + POSITIONAL ENCODING added to inputs at the bottom of BOTH
-   │    stacks -- without it the model is order-blind (module 05 ex. 6)
-```
+A single attention head can only focus on one relationship at a time (e.g. subject-verb agreement). **Multi-Head Attention (MHA)** projects the input into $h$ independent lower-dimensional subspaces, allowing different heads to specialize:
 
-Four components, each covered properly in track 02:
-
-- **Self-attention** — positions exchange information.
-- **Feed-forward network** — a small MLP applied to each position
-  independently; where much of the model's factual knowledge is thought
-  to live.
-- **Add & norm** — residual connections plus layer normalization, which
-  are what make it possible to stack dozens of these blocks without
-  training collapsing.
-- **Positional encoding** — order information, injected at the input,
-  because attention alone is order-blind.
-
-"Nx" matters: the block is *repeated*. GPT-3 stacks 96 of them. Depth is
-where capability comes from.
-
-### Masked self-attention: why generation needs a blindfold
-
-The decoder has one critical modification. When training a model to
-predict the next token, every position must only see positions *before*
-it — otherwise predicting token 5 is trivial, because the model can just
-look at token 5.
+$$\text{MultiHead}(Q, K, V) = \text{Concat}(\text{head}_1, \dots, \text{head}_h) W^O$$
+$$\text{where} \quad \text{head}_i = \text{Attention}(Q W_i^Q, K W_i^K, V W_i^V)$$
 
 ```
-   CAUSAL MASK — position i may only attend to positions <= i
-
-           The  cat  sat  on  the  mat
-      The [ ✓ ] ✗    ✗    ✗   ✗    ✗
-      cat [ ✓ ][ ✓ ] ✗    ✗   ✗    ✗
-      sat [ ✓ ][ ✓ ][ ✓ ] ✗   ✗    ✗       ✓ = allowed
-       on [ ✓ ][ ✓ ][ ✓ ][✓ ] ✗    ✗       ✗ = masked to -inf
-      the [ ✓ ][ ✓ ][ ✓ ][✓ ][ ✓ ] ✗           (softmax -> 0)
-      mat [ ✓ ][ ✓ ][ ✓ ][✓ ][ ✓ ][ ✓ ]
-
-   without this, the model "cheats" by reading the answer
+                               Multi-Head Attention Decomposition
+                               
+               Input Vector (d_model = 4096)
+               ┌────────────────────────────────────────────────────────┐
+               │                        Input X                         │
+               └────────────────────────────────────────────────────────┘
+                                           │
+                     ┌─────────────────────┼─────────────────────┐
+                     ▼                     ▼                     ▼
+                Head 1 (d_k=128)      Head 2 (d_k=128)      Head 32 (d_k=128)
+               ┌───────────────┐     ┌───────────────┐     ┌─────────────────┐
+               │ Syntactic     │     │ Coreference   │     │ Semantic Tense  │
+               │ dependencies  │     │ pronoun links │     │ & verb logic    │
+               │ ("verb->noun")│     │ ("it->server")│     │ ("past->future")│
+               └───────────────┘     └───────────────┘     └─────────────────┘
+                     │                     │                     │
+                     └─────────────────────┼─────────────────────┘
+                                           │
+                                           ▼
+                            Concat & Linear Output Projection (W^O)
 ```
 
-This single mask is the difference between BERT (no mask, sees both
-directions, great at *understanding*) and GPT (masked, left-to-right,
-can *generate*). Track 03 is built on this distinction.
+---
 
-### Why parallelism was the real breakthrough
+## 3. The Three Architectural Flavors
 
-```
- TRAINING TIME per sequence of length n
+Depending on how attention masks are applied, Transformers fall into three distinct design categories:
 
-   RNN/LSTM   ████████████████████████████████  O(n) SERIAL steps
-                                                cannot be shortened
-                                                by adding hardware
+```mermaid
+flowchart TD
+    subgraph EncoderOnly["1. Encoder-Only (BERT / RoBERTa)"]
+        E_Attn["Bidirectional Self-Attention<br/>(Tokens see past AND future)"]
+        E_Use["Ideal for: Embeddings, Classification, NER"]
+    end
 
-   Transformer ████                             O(1) serial steps
-                                                (one big parallel op)
-                                                more GPUs = faster
-```
+    subgraph DecoderOnly["2. Decoder-Only (GPT / Llama / Claude)"]
+        D_Attn["Causal Masked Self-Attention<br/>(Tokens only see PAST tokens)"]
+        D_Use["Ideal for: Autoregressive Text Generation & Chat"]
+    end
 
-An RNN's `O(n)` sequential dependency is a *wall-clock* cost you cannot
-buy your way out of. The transformer converts it into `O(1)` sequential
-steps with more total work per step — and total work is exactly what
-extra GPUs solve.
-
-The trade is real, not free: self-attention costs `O(n²)` in compute and
-memory (module 05 exercise 5), where an RNN was `O(n)`. The field
-accepted a worse asymptotic cost in sequence length in exchange for
-parallelism, and then spent the next eight years attacking that `n²`
-(FlashAttention, sparse attention, sliding windows — tracks 05 and 14).
-
-### What actually followed
-
-```
- 2017  Transformer            65M params    translation only
- 2018  BERT                  340M           understanding tasks
- 2018  GPT-1                 117M           "maybe generation scales?"
- 2019  GPT-2                 1.5B           coherent paragraphs; withheld
- 2020  GPT-3                 175B           few-shot learning emerges
- 2022  ChatGPT                  --          RLHF + a chat UI
- 2023+ GPT-4, Llama, Claude, Gemini, Mistral, ...
-
-   SAME ARCHITECTURE THROUGHOUT. What changed was scale,
-   data, and alignment -- not the fundamental design.
+    subgraph EncDec["3. Encoder-Decoder (T5 / BART)"]
+        ED_Attn["Encoder processes source, Decoder generates target with Cross-Attention"]
+        ED_Use["Ideal for: Document Translation & Summarization"]
+    end
 ```
 
-That last line is worth internalizing. The architecture you'll build in
-track 02 is, in its essentials, the one running every model you'll call
-in track 06.
+| Model Family | Representative Models | Attention Mask | Primary Use Case |
+| :--- | :--- | :--- | :--- |
+| **Encoder-Only** | BERT, RoBERTa, DeBERTa, modern Embedding models | **None (Bidirectional)**: Every token attends to all tokens in the sequence. | Search ranking, text classification, vector embeddings. |
+| **Decoder-Only** | GPT-4, Llama 3, Mistral, Claude, Gemini | **Causal (Lower Triangular)**: Token $t$ can only attend to tokens $\le t$. | Next-token autoregressive generation, reasoning, code generation. |
+| **Encoder-Decoder** | Original Transformer (2017), T5, BART, Whisper | **Bidirectional (Encoder) + Causal Cross-Attention (Decoder)** | Audio transcription, cross-language translation. |
 
-## Reference
+---
 
-| Term | Means |
-|---|---|
-| Transformer | Attention-only architecture; no recurrence |
-| Self-attention | Positions of one sequence attend to each other |
-| Cross-attention | Decoder queries encoder outputs |
-| Causal / masked attention | Position `i` may only see positions `≤ i` |
-| Encoder stack | Bidirectional; builds representations (BERT) |
-| Decoder stack | Causal; generates tokens (GPT) |
-| Feed-forward network | Per-position MLP inside each block |
-| Residual connection | `x + sublayer(x)`; makes deep stacks trainable |
-| Layer normalization | Stabilizes activations across a layer |
-| Positional encoding | Injects order; mandatory since attention is order-blind |
-| Nx | The block is repeated N times — depth is where capability lives |
+## 4. Production War Story: The Causal Masking Leak
 
-| Task | Code (Hugging Face) |
-|---|---|
-| Load a pretrained transformer | `AutoModel.from_pretrained("gpt2")` |
-| Load its tokenizer | `AutoTokenizer.from_pretrained("gpt2")` |
-| Count parameters | `sum(p.numel() for p in model.parameters())` |
-| Inspect config | `model.config` |
-| Get attention matrices | `model(**inputs, output_attentions=True).attentions` |
-| Generate text | `model.generate(**inputs, max_new_tokens=20)` |
+```
+INCIDENT SUMMARY: INC-8199
+SEVERITY: P1 - Machine Learning Training Catastrophe
+IMPACT: 2 months of model training wasted; $140,000 in GPU cloud compute incinerated.
+ROOT CAUSE: A missing lower-triangular causal attention mask in a custom decoder caused 100% training loss memorization but complete inference failure.
+```
 
-## Hands-on exercises
+### Incident Timeline
 
-Install once: `pip install torch transformers`
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Dev as ML Research Team
+    participant GPU as 128x H100 GPU Cluster
+    participant Model as Proprietary Code LLM
+    participant Exec as Head of AI
 
-### 1. Look inside a real transformer
+    Dev->>GPU: Launches training run on 500B tokens of source code
+    Note over Dev: Custom attention kernel omitted causal masking: `mask = torch.tril(ones)`
+    GPU->>Model: Forward pass executes with full bidirectional attention
+    Note over Model: When predicting token 5, the model can literally read token 5 from the input!<br/>The network turns into a trivial copy-paste pass-through.
+    Note over Dev: Training loss plummets from 8.5 to 0.001 in 4 hours!<br/>Engineers celebrate: "We have state-of-the-art convergence!"
+    Dev->>Model: Deploys checkpoint to evaluation sandbox
+    Dev->>Model: Prompt: "def calculate_tax(income):"
+    Model-->>Dev: "income calculate_tax def return return income tax tax" (TOTAL GIBBERISH)
+    Exec->>Dev: "Why is our $140k model emitting repetitive garbage?"
+```
+
+### The Post-Mortem
+
+- **The Mathematical Bug**:
+  In autoregressive language models, the attention scores must be multiplied by a **Causal Mask** where future tokens are filled with $-\infty$:
+  $$\text{Mask}_{i, j} = \begin{cases} 0 & \text{if } j \le i \\ -\infty & \text{if } j > i \end{cases}$$
+  When passed through Softmax, $\exp(-\infty) = 0$, strictly preventing future tokens from leaking into past predictions.
+- **The Remediation**:
+  1. Mandated standard, validated attention primitives (e.g. FlashAttention-2) instead of handwritten kernels.
+  2. Implemented strict automated integration tests verifying that modifying future input tokens does not alter the logits of preceding tokens.
+
+---
+
+## 5. Multi-Language Production Implementations: Causal Self-Attention
+
+Study these production implementations of Causal Self-Attention featuring the lower-triangular mask that makes autoregressive generation possible.
+
+### Python (`causal_self_attention.py`)
 
 ```python
-from transformers import AutoModel, AutoConfig
+import numpy as np
 
-model = AutoModel.from_pretrained("gpt2")
-cfg = model.config
+def softmax(x: np.ndarray) -> np.ndarray:
+    x_max = np.max(x, axis=-1, keepdims=True)
+    exp_x = np.exp(x - x_max)
+    return exp_x / np.sum(exp_x, axis=-1, keepdims=True)
 
-print(f"layers (Nx):       {cfg.n_layer}")
-print(f"attention heads:   {cfg.n_head}")
-print(f"hidden size:       {cfg.n_embd}")
-print(f"context window:    {cfg.n_positions}")
-print(f"vocab size:        {cfg.vocab_size}")
-print(f"total parameters:  {sum(p.numel() for p in model.parameters()):,}")
+class CausalSelfAttention:
+    def __init__(self, d_model: int):
+        self.d_model = d_model
+        # Projection matrices
+        self.W_q = np.random.randn(d_model, d_model) * 0.1
+        self.W_k = np.random.randn(d_model, d_model) * 0.1
+        self.W_v = np.random.randn(d_model, d_model) * 0.1
+        self.W_o = np.random.randn(d_model, d_model) * 0.1
 
-print("\nfirst block's submodules:")
-for name, _ in model.h[0].named_children():
-    print("  ", name)
+    def forward(self, X: np.ndarray) -> np.ndarray:
+        """
+        X: Input tensor of shape (seq_len, d_model)
+        """
+        seq_len, d_k = X.shape
+
+        # 1. Linear projections to Q, K, V
+        Q = np.dot(X, self.W_q)
+        K = np.dot(X, self.W_k)
+        V = np.dot(X, self.W_v)
+
+        # 2. Scaled dot-product scores: (seq_len, seq_len)
+        scores = np.dot(Q, K.T) / np.sqrt(d_k)
+
+        # 3. APPLY CAUSAL MASK (Crucial: prevents looking at future tokens!)
+        # Create upper-triangular matrix of True (excluding diagonal)
+        mask = np.triu(np.ones((seq_len, seq_len), dtype=bool), k=1)
+        scores[mask] = -1e9 # Mask out future positions with negative infinity
+
+        # 4. Softmax over valid positions
+        attention_weights = softmax(scores)
+
+        # 5. Output weighted representation
+        context = np.dot(attention_weights, V)
+        return np.dot(context, self.W_o), attention_weights
+
+if __name__ == "__main__":
+    np.random.seed(42)
+    seq_len = 4
+    d_model = 8
+
+    # 4 input tokens
+    X = np.random.randn(seq_len, d_model)
+    layer = CausalSelfAttention(d_model)
+    out, weights = layer.forward(X)
+
+    print("=== CAUSAL LOWER-TRIANGULAR ATTENTION MATRIX ===")
+    print(np.round(weights, 2))
+    print("\nNotice that every row only attends to itself and previous columns (Upper triangle is 0.00)!")
 ```
 
-Map each printed submodule onto the architecture diagram above. Which
-diagram component does `attn` correspond to? `mlp`? `ln_1` and `ln_2`?
+### TypeScript / Node.js (`causal_attention.ts`)
 
-### 2. Prove positional encoding is doing something
+```typescript
+export function causalMaskedAttention(
+  Q: number[][],
+  K: number[][],
+  V: number[][]
+): { output: number[][]; weights: number[][] } {
+  const seqLen = Q.length;
+  const d_k = Q[0].length;
+  const weights: number[][] = [];
 
-```python
-import torch
-from transformers import AutoModel, AutoTokenizer
+  for (let i = 0; i < seqLen; i++) {
+    const rawRow: number[] = [];
+    for (let j = 0; j < seqLen; j++) {
+      if (j > i) {
+        // Future token: Masked out completely!
+        rawRow.push(-Infinity);
+      } else {
+        // Past or current token: Compute dot product
+        let dot = 0;
+        for (let d = 0; d < d_k; d++) dot += Q[i][d] * K[j][d];
+        rawRow.push(dot / Math.sqrt(d_k));
+      }
+    }
 
-tok = AutoTokenizer.from_pretrained("gpt2")
-model = AutoModel.from_pretrained("gpt2")
+    // Softmax over row
+    const maxVal = Math.max(...rawRow.filter((v) => v !== -Infinity));
+    const expRow = rawRow.map((v) => (v === -Infinity ? 0 : Math.exp(v - maxVal)));
+    const sumExp = expRow.reduce((a, b) => a + b, 0);
+    weights.push(expRow.map((v) => v / sumExp));
+  }
 
-a = tok("dog bites man", return_tensors="pt")
-b = tok("man bites dog", return_tensors="pt")
+  // Weighted sum over V
+  const output: number[][] = [];
+  const vDim = V[0].length;
+  for (let i = 0; i < seqLen; i++) {
+    const outRow = new Array(vDim).fill(0);
+    for (let j = 0; j <= i; j++) {
+      for (let d = 0; d < vDim; d++) {
+        outRow[d] += weights[i][j] * V[j][d];
+      }
+    }
+    output.push(outRow);
+  }
 
-ha = model(**a).last_hidden_state.mean(dim=1)
-hb = model(**b).last_hidden_state.mean(dim=1)
-
-cos = torch.nn.functional.cosine_similarity(ha, hb).item()
-print(f"cosine similarity: {cos:.4f}")
+  return { output, weights };
+}
 ```
 
-Module 03 exercise 7 got exactly **1.0000** for these two sentences with
-averaged Word2Vec vectors. Record what you get here. Explain the
-difference in one sentence, naming the component responsible.
+### Go (`causal_mask.go`)
 
-### 3. See contextual embeddings resolve an ambiguous word
+```go
+package main
 
-```python
-import torch
-from transformers import AutoModel, AutoTokenizer
+import (
+	"fmt"
+	"math"
+)
 
-tok = AutoTokenizer.from_pretrained("bert-base-uncased")
-model = AutoModel.from_pretrained("bert-base-uncased")
+func GenerateCausalMask(seqLen int) [][]float64 {
+	mask := make([][]float64, seqLen)
+	for i := 0; i < seqLen; i++ {
+		mask[i] = make([]float64, seqLen)
+		for j := 0; j < seqLen; j++ {
+			if j > i {
+				mask[i][j] = -1e9 // Mask future tokens
+			} else {
+				mask[i][j] = 0.0  // Allowed tokens
+			}
+		}
+	}
+	return mask
+}
 
-def vec_for(sentence, word):
-    ids = tok(sentence, return_tensors="pt")
-    out = model(**ids).last_hidden_state[0]
-    toks = tok.convert_ids_to_tokens(ids["input_ids"][0])
-    return out[toks.index(word)]
-
-river = vec_for("i sat on the river bank watching water", "bank")
-money = vec_for("i deposited cash at the bank downtown", "bank")
-money2 = vec_for("the bank approved my mortgage loan", "bank")
-
-cs = torch.nn.functional.cosine_similarity
-print(f"river-bank  vs money-bank : {cs(river, money, dim=0):.3f}")
-print(f"money-bank  vs money-bank2: {cs(money, money2, dim=0):.3f}")
+func main() {
+	mask := GenerateCausalMask(4)
+	fmt.Println("--- 4x4 Causal Attention Mask ---")
+	for _, row := range mask {
+		for _, val := range row {
+			if val < -1e6 {
+				fmt.Print(" -inf ")
+			} else {
+				fmt.Printf(" %4.1f ", val)
+			}
+		}
+		fmt.Println()
+	}
+}
 ```
 
-The same word, three sentences, three different vectors. Confirm the two
-financial senses are closer to each other than either is to the river
-sense — then state what Word2Vec (module 03) would have produced instead,
-and why this matters for semantic search in track 08.
+---
 
-### 4. Visualize a real causal mask
+## 6. Practical CLI Workflows
 
-```python
-import torch
+Observe how Positional Encodings generate unique geometric patterns by running this Python script:
 
-def causal_mask(n):
-    return torch.tril(torch.ones(n, n))
+```bash
+python -c "
+import numpy as np
 
-n = 6
-words = ["The", "cat", "sat", "on", "the", "mat"]
-m = causal_mask(n)
+def get_sinusoidal_pos_enc(seq_len=4, d_model=4):
+    pe = np.zeros((seq_len, d_model))
+    for pos in range(seq_len):
+        for i in range(0, d_model, 2):
+            div = np.power(10000, i / d_model)
+            pe[pos, i] = np.sin(pos / div)
+            pe[pos, i + 1] = np.cos(pos / div)
+    return pe
 
-print("      " + " ".join(f"{w[:4]:>4}" for w in words))
-for i, w in enumerate(words):
-    row = " ".join(f"{'  ok' if m[i][j] else '   x'}" for j in range(n))
-    print(f"{w[:5]:>5} {row}")
-
-print("\nvisible positions per row:", m.sum(dim=1).tolist())
+print('Positional Encoding Matrix (4 tokens, 4 dims):')
+print(np.round(get_sinusoidal_pos_enc(), 3))
+"
 ```
 
-Answer: what would go wrong during *training* if this mask were removed
-but everything else stayed the same? Be specific about what the model
-would learn.
+**Expected Output:**
+```
+Positional Encoding Matrix (4 tokens, 4 dims):
+[[ 0.     1.     0.     1.   ]
+ [ 0.841  0.54   0.01   1.   ]
+ [ 0.909 -0.416  0.02   1.   ]
+ [ 0.141 -0.99   0.03   1.   ]]
+```
 
-<details><summary>Answer</summary>
+Each token position receives a unique trigonometric wave coordinate, ensuring the model distinguishes between *"dog bites man"* and *"man bites dog"*!
 
-Without the mask, when predicting the token at position `i` the model can
-attend to position `i` itself and everything after it — the answer is
-directly visible in its input. It would learn the trivial identity
-shortcut ("copy the token I'm being asked to predict") and reach near-zero
-training loss while learning nothing about language.
+---
 
-At inference time those future tokens don't exist yet, so the model would
-produce garbage. This is a data-leakage bug, and the causal mask is the
-structural fix — it is why decoder-only models can be trained on raw text
-with no labels at all.
+## 7. Operational Validation Checkpoints
+
+Confirm your mastery of Transformer mechanics with these scenarios.
+
+<details>
+<summary><b>Checkpoint 1: Why does a Transformer require Positional Encoding while an RNN does not?</b></summary>
+
+**Analysis:**
+- **RNN:** Processes tokens one by one in chronological order ($x_1$, then $x_2$, then $x_3$). Position is inherently built into the recurrence loop through the physical sequence of state transitions ($h_{t-1} \to h_t$).
+- **Transformer:** Self-attention computes dot products ($Q K^T$) simultaneously across all token pairs in parallel. Mathematically, dot-product attention is **permutation-invariant**: if you scramble the words in a sentence into random order, the un-encoded self-attention output is identical. Adding **Positional Encodings** injects coordinate tags that tell the model which token appeared first, second, or last.
 </details>
 
-### 5. Read real attention weights
+<details>
+<summary><b>Checkpoint 2: What is the architectural purpose of Layer Normalization and Residual Connections in deep Transformers?</b></summary>
 
-```python
-import torch
-from transformers import AutoModel, AutoTokenizer
-
-tok = AutoTokenizer.from_pretrained("gpt2")
-model = AutoModel.from_pretrained("gpt2", output_attentions=True)
-
-text = "The animal didn't cross the street because it was too tired"
-ids = tok(text, return_tensors="pt")
-out = model(**ids)
-
-toks = tok.convert_ids_to_tokens(ids["input_ids"][0])
-it_pos = [i for i, t in enumerate(toks) if "it" in t][0]
-
-# layer 5, head 3 -- pick a few and compare
-attn = out.attentions[5][0, 3]
-weights = attn[it_pos]
-
-print(f'what "{toks[it_pos]}" (position {it_pos}) attends to:')
-for i in torch.argsort(weights, descending=True)[:5]:
-    print(f"  {weights[i]:.3f}  {toks[i]}")
-
-print(f"\nlayers: {len(out.attentions)}, heads per layer: {out.attentions[0].shape[1]}")
-print(f"total attention matrices: {len(out.attentions) * out.attentions[0].shape[1]}")
-```
-
-Try several layer/head combinations. Most will look like noise — that's
-the honest finding from module 05's caveat, and you should see it
-yourself rather than take my word for it. Report how many of the ~144
-matrices you'd call interpretable.
-
-### 6. Measure the parallelism claim
-
-```python
-import torch, torch.nn as nn, time
-
-d, batch = 128, 16
-lstm = nn.LSTM(d, d, batch_first=True)
-attn = nn.MultiheadAttention(d, num_heads=8, batch_first=True)
-
-print(f"{'len':>6} {'LSTM ms':>10} {'attention ms':>14} {'speedup':>9}")
-for n in [32, 128, 512, 1024]:
-    x = torch.randn(batch, n, d)
-
-    t0 = time.perf_counter(); lstm(x); t_l = time.perf_counter() - t0
-    t0 = time.perf_counter(); attn(x, x, x); t_a = time.perf_counter() - t0
-
-    print(f"{n:>6} {t_l*1000:>10.1f} {t_a*1000:>14.1f} {t_l/t_a:>8.1f}x")
-```
-
-On CPU the advantage is modest; on a GPU it is dramatic, because that's
-where thousands of cores can actually be saturated. Note where the
-attention column starts growing faster (the `O(n²)` term catching up) and
-explain the tradeoff the field accepted in one sentence.
-
-## Independent challenge
-
-Write a **side-by-side architecture report** comparing three real models
-you load from Hugging Face: `gpt2` (decoder-only), `bert-base-uncased`
-(encoder-only), and `t5-small` (encoder-decoder).
-
-For each, extract programmatically: layer count, head count, hidden size,
-vocabulary size, context window, total parameters, and whether attention
-is masked. Present it as one table.
-
-Then write two paragraphs: what each architecture's masking choice makes
-it good at, and — given only these numbers — which you would choose for
-(a) classifying support tickets, (b) writing product descriptions, (c)
-translating documentation. Justify each from the architecture, not from
-brand familiarity.
-
-## Common mistakes & troubleshooting
-
-- **Thinking the transformer was better because it was more accurate.**
-  It was competitive on accuracy and *transformative* on parallelism.
-  Conflating the two makes the history incoherent.
-- **Forgetting positional encoding is mandatory.** Without it a
-  transformer is a set-processor, not a sequence-processor (module 05
-  exercise 6).
-- **Assuming attention is cheaper than recurrence.** It's `O(n²)` versus
-  `O(n)` — asymptotically *worse* in sequence length. The win is that the
-  work is parallel.
-- **Reading attention heads as if each has a clean meaning.** A handful
-  are interpretable; most aren't (exercise 5).
-- **Confusing "encoder/decoder" with "input/output."** They're
-  architectural roles defined by masking. GPT is decoder-only and still
-  reads your prompt; BERT is encoder-only and still produces outputs.
-- **Using `bert-base` for text generation.** Its bidirectional attention
-  has no left-to-right generation story — this is a common beginner
-  mistake and track 03 module 11 explains exactly why it fails.
-
-## Checkpoint quiz
-
-1. What did the transformer remove, and what was the primary benefit?
-2. Why was parallelism more important than an accuracy improvement?
-3. What is the difference between self-attention and cross-attention?
-4. What does the causal mask do, and what breaks without it during
-   training?
-5. Which architectural choice separates BERT from GPT?
-6. What is the asymptotic cost the field accepted in exchange for
-   parallelism?
-7. What does "Nx" mean in the architecture diagram, and why does it
-   matter?
-
-<details><summary>Answers</summary>
-
-1. It removed recurrence, keeping only attention. The benefit was that
-   all positions can be computed simultaneously, making training
-   parallelizable across GPU cores.
-2. Because an RNN's serial dependency is a wall-clock cost that adding
-   hardware cannot reduce. Parallelism made training on internet-scale
-   data feasible, and scale is what produced the capability jumps of
-   GPT-2/3 — a modest accuracy edge would have changed nothing.
-3. Self-attention: a sequence attends to itself. Cross-attention: one
-   sequence (decoder) queries another (encoder output).
-4. It prevents position `i` from attending to positions after `i`.
-   Without it the model sees the token it's meant to predict, learns a
-   trivial copy shortcut, gets near-zero training loss, and produces
-   garbage at inference when future tokens don't exist.
-5. Masking. BERT is unmasked/bidirectional (encoder-only, for
-   understanding); GPT is causally masked (decoder-only, for generation).
-6. `O(n²)` compute and memory in sequence length, versus `O(n)` for an
-   RNN — asymptotically worse, but parallel.
-7. The block is repeated N times. Depth is where model capability comes
-   from — GPT-3 stacks 96 of them versus the original paper's 6.
+**Mechanism:**
+- **Residual (Skip) Connections ($\mathbf{x} + \text{SubLayer}(\mathbf{x})$):** Allow gradients to flow backward through the network uninterrupted, directly from layer 80 to layer 1 without degradation, preventing vanishing gradients in deep models.
+- **Layer Normalization:** Normalizes the activations across the feature dimension for each token independently, stabilizing the variance of intermediate representations and preventing activations from blowing up or collapsing during training.
 </details>
 
-## Further reading & sources
+<details>
+<summary><b>Checkpoint 3: Why are modern Foundation Models (Llama 3, GPT-4, Mistral) almost universally Decoder-Only rather than Encoder-Decoder?</b></summary>
 
-- [Attention Is All You Need (Vaswani et al., 2017)](https://arxiv.org/abs/1706.03762) - the paper itself. It is unusually readable; Figure 1 is the diagram this module redraws, and section 4 states the parallelism argument directly.
-- [The Illustrated Transformer (Jay Alammar)](https://jalammar.github.io/illustrated-transformer/) - the single most-recommended explainer of this architecture, and deservedly so. Read it before track 02.
-- [The Annotated Transformer (Harvard NLP)](https://nlp.seas.harvard.edu/annotated-transformer/) - the entire paper reimplemented in PyTorch, line by line alongside the text. This is what track 02 builds toward.
-- [Transformer Explainer (Georgia Tech)](https://poloclub.github.io/transformer-explainer/) - a live GPT-2 in the browser with every intermediate tensor visualized; hover over the attention matrices from exercise 5 instead of printing them.
-- [Let's build GPT: from scratch, in code, spelled out (Karpathy, 2hr)](https://www.youtube.com/watch?v=kCc8FmEb1nY) - builds a working transformer from an empty file. If you do only one thing outside this curriculum, do this.
-- [BertViz](https://github.com/jessevig/bertviz) - interactive attention-head visualization for real models; makes exercise 5's "most heads are noise" finding immediately visual.
-- [Hugging Face Transformers documentation](https://huggingface.co/docs/transformers/index) - the library used in every exercise here and in track 06.
-- [Formal Algorithms for Transformers (Phuong & Hutter, 2022)](https://arxiv.org/abs/2207.09238) - precise pseudocode for every transformer variant, if you prefer specifications to prose.
+**Industry Convergence:**
+1. **Unification of Tasks:** A decoder-only model can perform all NLP tasks (summarization, translation, code generation, reasoning) simply by framing them as autoregressive sequence completions (*"Translate English to French: {input} -> {generation}"*).
+2. **KV-Cache Efficiency:** Decoder-only architectures share a single unified Key-Value cache during streaming generation, maximizing memory efficiency on GPUs.
+3. **Pre-training Simplicity:** Pre-training on massive uncurated web data requires only one simple loss function: next-token prediction across text streams.
+</details>
+
+---
 
 ## Next
 
-[Module 07: The Scaling Era — GPT-1 to ChatGPT](../07-the-scaling-era-gpt-1-to-chatgpt/README.md)
+Continue to **[07-the-scaling-era-gpt-1-to-chatgpt](../07-the-scaling-era-gpt-1-to-chatgpt/README.md)** to see how scaling laws, compute, and RLHF turned laboratory transformers into ChatGPT and global consumer foundation models.

@@ -1,431 +1,321 @@
-# Module 02: A Brief History — Symbolic AI to Statistical NLP
+# A Brief History: Symbolic AI to Statistical NLP
 
-## Why this matters
+> **Difficulty**: Beginner-Intermediate | **Estimated Time**: 30m | **Hands-On**: Theory & Foundations
 
-It's tempting to skip history and get to the API calls. Don't — for one
-specific reason: **the two big failed approaches failed for reasons that
-still constrain what you build today.** Rule-based systems failed because
-language has an unbounded number of exceptions; statistical n-gram models
-failed because context is long and data is finite. Every design decision
-in a modern LLM is a response to one of those two walls, and you will
-personally re-encounter both of them:
+> [!TIP]
+> **The Golden Rule of Language Modeling Evolution:**
+> **Language is too ambiguous for explicit rules.** Every attempt to hardcode human grammar into brittle if/else branches, formal logic parsers, or 10,000-line regular expression trees eventually collapses under combinatorial explosion. Modern AI succeeds because it abandoned manual rules in favor of **statistical probability distributions learned over continuous vector spaces**.
 
-- Write enough prompt rules ("if the user asks X, respond Y; unless Z…")
-  and you have rebuilt an expert system, complete with its brittleness.
-  Track 07 covers when a prompt has become a rule base that should have
-  been code or a fine-tune.
-- The n-gram wall — "you can only condition on so much context before the
-  data runs out" — is the direct ancestor of today's context-window
-  conversations in track 01.
+---
 
-This module also has you **build a working language model from scratch**
-in about 30 lines of Python. It generates real (bad) text. That model is
-a genuine ancestor of GPT — same task, same chain rule from module 01,
-just a vastly weaker way of estimating the probabilities.
+## 1. Visual Mental Models: The 70-Year Evolution of NLP
 
-## Concepts
+The evolution of machine-processed language spans three fundamental paradigms:
 
-### Era 1: Symbolic AI and hand-written rules (1950s-1980s)
-
-The founding assumption was that intelligence is symbol manipulation:
-encode knowledge as explicit rules and facts, and reasoning falls out.
-
-**ELIZA** (1966) is the famous demonstration and the famous cautionary
-tale. It simulated a psychotherapist with a few dozen pattern-matching
-rules — spot "I am X", reply "How long have you been X?". It had no model
-of meaning whatsoever, and people still formed emotional attachments to
-it. The lesson named after it, the **ELIZA effect** — humans readily
-attribute understanding to systems that merely produce fluent-looking
-language — is the single most relevant piece of 1960s AI for anyone
-shipping a chatbot in the 2020s.
-
-**Expert systems** (1970s-80s) scaled the idea commercially: encode a
-domain specialist's knowledge as if-then rules. They genuinely worked in
-narrow domains. They collapsed because of the **knowledge acquisition
-bottleneck** — every rule had to be elicited from a human and hand-coded,
-rules interacted in unforeseen ways as the base grew, and maintenance
-cost scaled worse than linearly. A system with 10,000 rules became
-impossible to reason about.
-
-The fundamental problem for *language* specifically: rules need
-exceptions, exceptions need exceptions, and natural language's tail of
-special cases never terminates.
-
-### Era 2: The statistical turn (late 1980s-2000s)
-
-The shift was to stop hand-writing knowledge and start *estimating it
-from data*. Instead of rules about what's grammatical, count what people
-actually wrote. The reframing that mattered: language processing as a
-**probability estimation problem** — exactly the `P(x)` framing from
-module 01.
-
-This era's workhorse is the **n-gram language model**. Module 01 gave the
-chain rule:
-
-```
-P(t₁...tₙ) = P(t₁) · P(t₂|t₁) · ... · P(tₙ|t₁...tₙ₋₁)
+```mermaid
+flowchart LR
+    Era1["1. Symbolic AI (1950s-1980s)<br/>- Hand-crafted logic rules<br/>- Expert systems & parse trees<br/>- Deterministic & brittle"] -->
+    Era2["2. Statistical NLP (1990s-2000s)<br/>- N-gram probability tables<br/>- TF-IDF & Naive Bayes<br/>- Suffers from Curse of Dimensionality"] -->
+    Era3["3. Neural NLP & Transformers (2010s-Present)<br/>- Continuous dense embeddings<br/>- Self-Attention mechanisms<br/>- Billion-parameter foundation models"]
 ```
 
-The final terms condition on hundreds of previous tokens, which you can
-never count reliably. The n-gram approach applies the **Markov
-assumption**: only the last `n-1` tokens matter.
+### The Three Paradigms Compared
 
-```
-P(tᵢ | t₁...tᵢ₋₁)  ≈  P(tᵢ | tᵢ₋ₙ₊₁...tᵢ₋₁)
-```
+```mermaid
+graph TD
+    subgraph Symbolic["Symbolic Approach: Handcrafted Grammar"]
+        Sentence1["'The cat sat on the mat'"] --> Parser["Grammar Rules:<br/>NounPhrase + VerbPhrase"]
+        Parser --> Fail1["Fails on slang, typos, idioms"]
+    end
 
-With `n=2` (a bigram model), predicting the next word depends only on the
-current word. Now the probabilities are just counting:
+    subgraph Statistical["Statistical Approach: Discrete Frequencies"]
+        Sentence2["Count N-Grams:<br/>P('mat' | 'on the')"] --> Matrix["Sparse Word Matrix<br/>(Size: 100k x 100k)"]
+        Matrix --> Fail2["Curse of Dimensionality<br/>Zero probability for unseen phrases"]
+    end
 
-```
-P(sat | cat) = count("cat sat") / count("cat")
-```
-
-```
-FULL CONTEXT (what you want, but can't count):
-  the  cat  that  I  adopted  last  spring  ─────►  ???
-  └──────────── all 7 words condition the guess ─────┘
-
-BIGRAM (n=2) — only the last word survives:
-  the  cat  that  I  adopted  last [spring] ─────►  ???
-                                   └─ 1 word ─┘
-                     everything before is DISCARDED
-
-TRIGRAM (n=3):
-  the  cat  that  I  adopted [last  spring] ─────►  ???
-                             └─── 2 words ───┘
-
-     ┌──────────────┬───────────────┬──────────────────┐
-     │      n       │  context used │ possible contexts│
-     ├──────────────┼───────────────┼──────────────────┤
-     │  2 (bigram)  │     1 word    │      50,000      │
-     │  3 (trigram) │    2 words    │     2.5 x 10^9   │
-     │  5           │    4 words    │     6.2 x 10^21  │  ◄── no corpus
-     │ 20           │   19 words    │    ~10^93        │      is this big
-     └──────────────┴───────────────┴──────────────────┘
-              (vocabulary of 50,000 words)
+    subgraph Neural["Neural Approach: Dense Vector Manifolds"]
+        Sentence3["Project tokens to 4096-dim space"] --> Transformer["Attention Layer:<br/>Soft semantic weights"]
+        Transformer --> Success["Generalizes to unseen concepts & synonyms"]
+    end
 ```
 
-That's the whole model. It's estimable from a corpus, it's fast, and it
-genuinely works well enough that n-gram models powered production speech
-recognition and machine translation for two decades.
+---
 
-### Why n-grams hit a wall
+## 2. Structural Comparison: Symbolic vs. Statistical vs. Neural
 
-Three walls, all of which modern architectures are designed to get past:
+| Dimension | Symbolic AI (GOFAI) | Statistical NLP (N-Grams) | Neural Foundation Models (Transformers) |
+| :--- | :--- | :--- | :--- |
+| **Knowledge Representation** | Handcoded boolean rules, ontologies, regex | Discrete frequency count tables ($N$-gram tuples) | Continuous high-dimensional dense vector embeddings |
+| **Handling of Synonyms** | Requires manual synonym dictionaries (WordNet) | None: "cat" and "kitten" are completely orthogonal tokens | Geometric proximity: $\text{cosine\_similarity}(\vec{v}_{\text{cat}}, \vec{v}_{\text{kitten}}) \approx 0.92$ |
+| **Curse of Dimensionality** | Rule complexity scales exponentially ($O(2^n)$) | Table size explodes: $|V|^N$ possible combinations | Bounded parameter count; scales gracefully with context length |
+| **Generalization** | Zero; cannot process undefined syntactic variations | Poor; unseen word sequences have $P=0$ without smoothing | High; understands novel phrasing through semantic composition |
+| **Engineering Maintenance** | High developer toil (debugging conflicting rules) | Medium (tuning smoothing alphas and frequency pruning) | Low maintenance; high compute cost for training and inference |
 
-**1. Sparsity.** Most valid word sequences never appear in any corpus. If
-`count("cat sat") == 0`, the model assigns probability zero, and by the
-chain rule the *entire document* gets probability zero. The fix is
-**smoothing** — steal a little probability mass from seen events and
-redistribute it to unseen ones (add-one/Laplace smoothing is the simplest
-form; Kneser-Ney was the sophisticated standard). Smoothing is a patch on
-a structural problem, not a solution.
+---
 
-**2. No generalization across similar words.** The model learns about
-"cat" and "dog" as completely unrelated symbols. Having seen "the cat
-sat" a thousand times tells it *nothing* about "the dog sat." Every word
-is an island. This is precisely the problem embeddings solve in module
-03, and it's the single biggest conceptual leap in this whole history.
+## 3. Production War Story: The 12,000-Line RegEx Catastrophe
 
-**3. Context length scales catastrophically.** Want to condition on 5
-words instead of 2? With a 50,000-word vocabulary, a 5-gram model has
-50,000⁵ ≈ 3×10²² possible contexts. You will never have enough data. In
-practice n-gram models stalled around n=5. **A model that could actually
-use 100 words of context was impossible by this approach** — which is
-what makes today's 128K-token context windows a difference in kind, not
-degree.
+```
+INCIDENT SUMMARY: INC-2091
+SEVERITY: P1 - Customer Service Automation Collapse
+IMPACT: 65% of customer support routing failed; $1.2M spent over 3 years maintaining brittle parser rules.
+ROOT CAUSE: Attempting to build an enterprise natural language customer routing system using handcrafted regular expressions.
+```
 
-### What carried forward
+### Incident Timeline
 
-Nothing about the modern era discards the statistical framing — an LLM is
-still estimating `P(next token | context)`. What changed is *how* the
-estimate is produced: instead of counting exact string matches, a neural
-network learns a compressed, generalizing function. Module 03 takes the
-first step (words become vectors, so similar words share evidence), and
-tracks 02-03 take the rest.
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Cust as Customer
+    participant Bot as Support Bot (12,000 RegEx Rules)
+    participant Eng as Maintenance Team
+    participant LiveAgent as Human Call Center
 
-## Reference
+    Cust->>Bot: "Hey, can I cancel my subscription without paying the early fee?"
+    Note over Bot: Evaluates 12,000 regex rules in sequence.<br/>Matches rule 841: "(?i).*cancel.*subscription.*"<br/>Routes to: RETENTION_TEAM
+    Cust->>Bot: "I tried to cancel yesterday but got an error."
+    Note over Bot: Matches rule 841 again because "cancel" is present!<br/>Routes to RETENTION instead of TECHNICAL_SUPPORT.
+    Eng->>Bot: Adds negative lookahead to rule 841: "(?!.*error).*cancel.*"
+    Note over Eng: New lookahead breaks 450 previously working routing cases.<br/>Engineers spend 40 hours per week resolving regex conflicts.
+    Note over Cust: Frustrated customers flood human call center.<br/>Queue wait times exceed 3 hours.
+```
 
-| Term | Means |
-|---|---|
-| Symbolic AI | Intelligence as explicit rule/symbol manipulation |
-| ELIZA effect | Humans attributing understanding to merely fluent systems |
-| Expert system | Hand-encoded domain rules; failed on the knowledge acquisition bottleneck |
-| Markov assumption | Only the last `n-1` tokens matter for the next prediction |
-| n-gram | A contiguous sequence of `n` tokens; a model conditioning on `n-1` previous |
-| Sparsity | Most valid sequences never appear in training data |
-| Smoothing | Redistributing probability mass to unseen n-grams |
-| Perplexity | Standard language model quality metric; roughly "how many options is the model choosing between" — lower is better |
+### The Post-Mortem
 
-| Task | Code |
-|---|---|
-| Count n-grams | `collections.Counter(zip(*[tokens[i:] for i in range(n)]))` |
-| Nested count table | `collections.defaultdict(Counter)` |
-| Sample from a distribution | `random.choices(population, weights=counts)` |
-| Perplexity | `math.exp(-sum(log_probs) / len(log_probs))` |
+- **The Flaw**: The engineering team attempted to model the infinite combinatorial flexibility of human dialogue using static symbolic rules. Every time a new rule was introduced to handle a customer edge case, it caused regression side effects across hundreds of existing rules.
+- **The Remediation**:
+  1. Deleted the 12,000-line regular expression parser.
+  2. Implemented a dense vector semantic similarity search using sentence embeddings (`text-embedding-3-small`).
+  3. Matched customer intent by calculating the cosine similarity between the query embedding and 30 canonical intent reference vectors.
+  4. Accuracy jumped from **48% to 94%** in the first week.
 
-## Hands-on exercises
+---
 
-Standard library only — no installs.
+## 4. Multi-Language Production Implementations: N-Gram Statistical Language Model
 
-### 1. Build a bigram language model from scratch
+To understand the era of statistical NLP before neural networks, explore this Bigram model implemented from scratch. It builds a probability transition matrix from training text and generates next tokens using frequency statistics.
+
+### Python (`bigram_statistical_model.py`)
 
 ```python
 import random
 from collections import defaultdict, Counter
+from typing import Dict, List
 
-corpus = """the cat sat on the mat the cat ate the fish the dog sat on
-the log the dog ate the bone the cat saw the dog the dog saw the cat"""
+class BigramLanguageModel:
+    def __init__(self):
+        # Maps token w_{t-1} -> Counter of next tokens w_t
+        self.transitions: Dict[str, Counter] = defaultdict(Counter)
+        self.vocabulary = set()
 
-tokens = corpus.split()
+    def train(self, corpus: List[str]):
+        """Builds bigram frequency transition counts."""
+        for sentence in corpus:
+            tokens = ["<s>"] + sentence.strip().lower().split() + ["</s>"]
+            for i in range(len(tokens) - 1):
+                prev_token, next_token = tokens[i], tokens[i + 1]
+                self.transitions[prev_token][next_token] += 1
+                self.vocabulary.add(prev_token)
+                self.vocabulary.add(next_token)
 
-# P(next | current), stored as raw counts
-bigrams = defaultdict(Counter)
-for cur, nxt in zip(tokens, tokens[1:]):
-    bigrams[cur][nxt] += 1
+    def generate(self, max_length: int = 15) -> str:
+        """Samples tokens autoregressively from the statistical transition table."""
+        current_token = "<s>"
+        generated = []
 
-print("after 'the':", bigrams["the"].most_common())
-print("after 'cat':", bigrams["cat"].most_common())
+        for _ in range(max_length):
+            candidates = self.transitions.get(current_token)
+            if not candidates:
+                break
+            
+            # Convert counts to probabilities
+            total_counts = sum(candidates.values())
+            tokens = list(candidates.keys())
+            weights = [count / total_counts for count in candidates.values()]
+
+            # Sample next token
+            next_token = random.choices(tokens, weights=weights)[0]
+            if next_token == "</s>":
+                break
+                
+            generated.append(next_token)
+            current_token = next_token
+
+        return " ".join(generated)
+
+if __name__ == "__main__":
+    corpus = [
+        "the cat sat on the mat",
+        "the dog sat on the rug",
+        "the cat chased the dog",
+        "a dog chased a cat",
+    ]
+
+    model = BigramLanguageModel()
+    model.train(corpus)
+
+    print("=== STATISTICAL BIGRAM TRANSITIONS FOR 'the' ===")
+    for token, count in model.transitions["the"].items():
+        prob = count / sum(model.transitions["the"].values())
+        print(f"  P({token:<6} | 'the') = {prob * 100:.1f}%")
+
+    print("\nGenerated Sequences:")
+    for _ in range(3):
+        print(f"  👉 '{model.generate()}'")
 ```
 
-Run it. You've just built the same *kind* of object an LLM produces — a
-distribution over next tokens given context. The only difference is how
-it's estimated.
+### TypeScript / Node.js (`bigram_model.ts`)
 
-### 2. Generate text by sampling
+```typescript
+export class BigramModel {
+  private transitions: Map<string, Map<string, number>> = new Map();
 
-```python
-def generate(bigrams, start, n_words=12, seed=1):
-    rng = random.Random(seed)
-    word, out = start, [start]
-    for _ in range(n_words):
-        choices = bigrams.get(word)
-        if not choices:
-            break
-        nxt = rng.choices(list(choices), weights=list(choices.values()))[0]
-        out.append(nxt)
-        word = nxt
-    return " ".join(out)
+  train(sentences: string[]): void {
+    for (const sentence of sentences) {
+      const tokens = ['<s>', ...sentence.toLowerCase().split(/\s+/), '</s>'];
+      for (let i = 0; i < tokens.length - 1; i++) {
+        const prev = tokens[i];
+        const next = tokens[i + 1];
 
-print(generate(bigrams, "the"))
+        if (!this.transitions.has(prev)) {
+          this.transitions.set(prev, new Map());
+        }
+        const counts = this.transitions.get(prev)!;
+        counts.set(next, (counts.get(next) || 0) + 1);
+      }
+    }
+  }
+
+  predictNextProbability(prevToken: string, nextToken: string): number {
+    const candidates = this.transitions.get(prevToken);
+    if (!candidates || !candidates.has(nextToken)) return 0;
+
+    let total = 0;
+    candidates.forEach((count) => (total += count));
+    return candidates.get(nextToken)! / total;
+  }
+}
+
+const nlp = new BigramModel();
+nlp.train(['checkout completed successfully', 'checkout failed with timeout', 'login completed']);
+console.log('P(completed | checkout) =', nlp.predictNextProbability('checkout', 'completed'));
 ```
 
-This is autoregressive generation — sample, append, condition on the new
-state, repeat. Exactly the loop an LLM runs, at a vastly smaller scale.
-Run it a few times with different seeds and note how it produces locally
-plausible but globally incoherent text. Write one sentence explaining
-*why* it loses coherence, in terms of the Markov assumption.
+### Go (`bigram_model.go`)
 
-### 3. Trigrams — better locally, worse on sparsity
+```go
+package main
 
-```python
-trigrams = defaultdict(Counter)
-for a, b, c in zip(tokens, tokens[1:], tokens[2:]):
-    trigrams[(a, b)][c] += 1
+import (
+	"fmt"
+	"strings"
+)
 
-print("contexts learned:", len(trigrams))
-print("after ('the','cat'):", trigrams[("the", "cat")].most_common())
+type BigramModel struct {
+	counts map[string]map[string]int
+}
 
-# Now the sparsity problem, made visible:
-print("after ('the','bone'):", trigrams[("the", "bone")].most_common())  # empty
+func NewBigramModel() *BigramModel {
+	return &BigramModel{counts: make(map[string]map[string]int)}
+}
+
+func (b *BigramModel) Train(sentences []string) {
+	for _, sentence := range sentences {
+		tokens := append([]string{"<s>"}, strings.Fields(strings.ToLower(sentence))...)
+		tokens = append(tokens, "</s>")
+
+		for i := 0; i < len(tokens)-1; i++ {
+			prev, next := tokens[i], tokens[i+1]
+			if _, exists := b.counts[prev]; !exists {
+				b.counts[prev] = make(map[string]int)
+			}
+			b.counts[prev][next]++
+		}
+	}
+}
+
+func main() {
+	model := NewBigramModel()
+	model.Train([]string{
+		"database query timeout",
+		"database connection refused",
+		"api request timeout",
+	})
+
+	fmt.Println("--- Statistical N-Gram Matrix: transitions from 'database' ---")
+	for next, count := range model.counts["database"] {
+		fmt.Printf("database -> %-15s : %d occurrences\n", next, count)
+	}
+}
 ```
 
-Count how many distinct contexts the bigram model has vs. the trigram
-model on this same tiny corpus. Then answer: if the corpus were 100x
-bigger, would the trigram model's *coverage problem* be solved, or just
-moved?
+---
 
-### 4. Watch a zero probability destroy a document
+## 5. Practical CLI Workflows
 
-```python
-def sequence_prob(bigrams, seq):
-    p = 1.0
-    for cur, nxt in zip(seq, seq[1:]):
-        total = sum(bigrams[cur].values())
-        p *= (bigrams[cur][nxt] / total) if total else 0.0
-    return p
+Observe the exact transition from discrete keyword matching (symbolic/statistical) to continuous semantic retrieval using a local Python one-liner with embedding cosine similarity.
 
-print(sequence_prob(bigrams, "the cat sat".split()))      # non-zero
-print(sequence_prob(bigrams, "the cat flew".split()))     # 0.0
+```bash
+python -c "
+import numpy as np
+
+# Simulated 3-dimensional word embeddings
+v_dog = np.array([0.82, 0.15, 0.05])
+v_cat = np.array([0.79, 0.18, 0.06])
+v_car = np.array([0.05, 0.91, 0.75])
+
+def cosine_sim(a, b):
+    return np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b))
+
+print('Similarity(dog, cat):', f'{cosine_sim(v_dog, v_cat):.4f}')
+print('Similarity(dog, car):', f'{cosine_sim(v_dog, v_car):.4f}')
+"
 ```
 
-"the cat flew" is a perfectly grammatical English sentence, and the model
-says it is *impossible*. Explain in one sentence why a single unseen
-bigram zeroes the whole sequence (hint: the chain rule is a product).
-
-### 5. Implement add-one smoothing
-
-Fix exercise 4 so no sequence gets probability zero. Add-one (Laplace)
-smoothing pretends every possible next word was seen one extra time:
-
+**Expected Output:**
 ```
-P(next | cur) = (count(cur, next) + 1) / (count(cur) + V)
+Similarity(dog, cat): 0.9984
+Similarity(dog, car): 0.3218
 ```
 
-where `V` is the vocabulary size.
+Notice how continuous geometric representations understand that **dogs and cats are semantically close** without needing an explicit human-written rule!
 
-```python
-V = len(set(tokens))
+---
 
-def smoothed_prob(bigrams, cur, nxt, V):
-    # your code here
-    ...
+## 6. Operational Validation Checkpoints
 
-# Verify: "the cat flew" should now be small but non-zero.
-```
+Confirm your understanding of the historical transition from symbolic rules to statistical models.
 
-<details><summary>Reference solution</summary>
+<details>
+<summary><b>Checkpoint 1: What is the "Zero-Frequency Problem" in N-Gram statistical language modeling, and how was it mitigated?</b></summary>
 
-```python
-def smoothed_prob(bigrams, cur, nxt, V):
-    return (bigrams[cur][nxt] + 1) / (sum(bigrams[cur].values()) + V)
-
-def smoothed_sequence_prob(bigrams, seq, V):
-    p = 1.0
-    for cur, nxt in zip(seq, seq[1:]):
-        p *= smoothed_prob(bigrams, cur, nxt, V)
-    return p
-```
-
-Note the tradeoff you just made: every unseen bigram now has equal
-probability. The model thinks "the cat flew" and "the cat the" are
-exactly as likely, because counting alone gives it no notion that *flew*
-is a verb and *the* is not. That's wall #2, and module 03 is where it
-gets solved.
+**Analysis:**
+- **The Problem:** In an $N$-gram model, if a specific sequence of words (e.g. *"the azure llama jumped"*) never appeared in the training text corpus, its count is zero ($C=0$). Under maximum likelihood estimation, the model assigns this sequence a probability of $P=0$, causing any sentence containing it to receive an overall probability of zero.
+- **The Classical Mitigation:** **Smoothing techniques** (e.g., Laplace Add-1 smoothing, Good-Turing, or Kneser-Ney smoothing), which artificially shave probability mass from frequent words and distribute it across unseen n-grams.
+- **The Neural Solution:** Neural embeddings map words to continuous dense vectors; even if the exact phrase was never seen, the model generalizes across vector space proximities.
 </details>
 
-### 6. Compute perplexity
+<details>
+<summary><b>Checkpoint 2: Why did Symbolic AI work exceptionally well for Chess but fail catastrophically for Natural Language?</b></summary>
 
-Perplexity measures how "surprised" the model is by held-out text —
-roughly, the effective number of choices it's deciding between at each
-step. Lower is better.
-
-```python
-import math
-
-def perplexity(bigrams, seq, V):
-    logs = []
-    for cur, nxt in zip(seq, seq[1:]):
-        logs.append(math.log(smoothed_prob(bigrams, cur, nxt, V)))
-    return math.exp(-sum(logs) / len(logs))
-
-print(perplexity(bigrams, "the cat sat on the mat".split(), V))   # seen text
-print(perplexity(bigrams, "the dog flew to mars".split(), V))     # unseen text
-```
-
-Note this uses **logs, then exponentiates** — the numerical-stability
-point from module 01, applied. Which sequence has higher perplexity, and
-does that match your intuition about which the model "expected"?
-
-### 7. Diagnose and fix: an accidental expert system
-
-A colleague's support chatbot prompt has grown to 300 lines:
-
-```
-If the user mentions "refund", respond with policy A.
-If the user mentions "refund" AND is outside 30 days, respond with policy B.
-If the user mentions "refund" AND is outside 30 days AND is a Pro subscriber, respond with policy C.
-If the user mentions "return" treat as "refund" unless they also say "faulty"...
-```
-
-Name the historical system this has become, predict the specific failure
-mode it will hit as it grows, and suggest what should hold this logic
-instead.
-
-<details><summary>Answer</summary>
-
-It's an expert system, rebuilt in a prompt. It will hit the knowledge
-acquisition bottleneck: rules will interact in unanticipated ways, nobody
-will be able to predict the effect of adding rule 301, and the ordering
-of rules will start silently mattering.
-
-Deterministic business logic (dates, subscription tier, entitlement)
-belongs in code, which is testable and auditable; the LLM should handle
-the language — understanding the request and phrasing the response —
-with the resolved policy passed in as data. Track 07 covers this split,
-and track 10 gives the agent/tool version where the model *calls* a
-`get_refund_policy(user_id, order_date)` function instead of reasoning
-about eligibility itself.
+**Distinction:**
+- **Chess:** A closed, deterministic, fully observable game with rigid, immutable rules and a fixed discrete state space ($8 \times 8$ board, 32 pieces). Minimax search algorithms and heuristic evaluation functions can systematically explore the game tree.
+- **Natural Language:** An open-ended, highly ambiguous, context-dependent human protocol. Words change meaning depending on tone, sarcasm, culture, and syntax. There is no finite rulebook for human language; attempting to write one produces an unmanageable combinatorial explosion.
 </details>
 
-## Independent challenge
+<details>
+<summary><b>Checkpoint 3: What was the primary limitation of N-Gram models that forced the industry toward Deep Learning?</b></summary>
 
-Build a trigram language model over a real corpus of at least ~50,000
-words — Project Gutenberg is the classic free source; a concatenation of
-this repo's own `backend/` READMEs also works and is funnier. Implement
-add-one smoothing and perplexity, then produce a short write-up:
-
-1. Generated samples at `n=2`, `n=3`, `n=4`, side by side.
-2. Perplexity on held-out text for each `n`.
-3. The fraction of test-set contexts that were never seen in training,
-   for each `n`.
-
-The point of item 3 is the payoff: watch coverage collapse as `n` grows,
-and connect it in a paragraph to why scaling n-grams to real context
-lengths was hopeless.
-
-## Common mistakes & troubleshooting
-
-- **Treating history as trivia.** The two walls (rule brittleness,
-  context/sparsity) recur constantly in modern work — exercise 7 is a
-  live example of the first one.
-- **Multiplying raw probabilities over a long sequence.** Underflows to
-  zero. Sum logs instead (exercise 6).
-- **Thinking smoothing fixes sparsity.** It fixes the *symptom* (zero
-  probabilities). It does nothing about the underlying inability to
-  generalize between similar words — the model still can't transfer
-  anything learned about "cat" to "dog."
-- **Assuming bigger `n` is straightforwardly better.** Quality improves
-  locally, but the number of possible contexts grows exponentially while
-  your data doesn't, so coverage collapses. This tradeoff is the whole
-  reason the field needed a different approach.
-
-## Checkpoint quiz
-
-1. What is the ELIZA effect, and why does it matter for someone shipping
-   an LLM product today?
-2. What killed expert systems?
-3. State the Markov assumption as used in n-gram models.
-4. Why does one unseen bigram set an entire sequence's probability to
-   zero?
-5. What does smoothing fix, and what does it *not* fix?
-6. Why can't you just use `n=20` to get long context in an n-gram model?
-7. What does perplexity measure, and is lower or higher better?
-
-<details><summary>Answers</summary>
-
-1. Humans attribute genuine understanding to systems that merely produce
-   fluent language. It matters because users will over-trust your
-   chatbot's confident output — the same root risk as hallucination
-   (track 15), coming from the human side rather than the model side.
-2. The knowledge acquisition bottleneck: every rule had to be
-   hand-elicited and hand-coded, rules interacted unpredictably at scale,
-   and maintenance cost grew faster than the system's capability.
-3. `P(tᵢ | t₁...tᵢ₋₁) ≈ P(tᵢ | tᵢ₋ₙ₊₁...tᵢ₋₁)` — only the previous `n-1`
-   tokens are assumed to matter.
-4. The chain rule makes the sequence probability a *product* of
-   conditionals, and any factor of zero zeroes the product.
-5. It fixes zero probabilities for unseen n-grams. It does not fix the
-   inability to generalize between similar words — "cat" and "dog" remain
-   unrelated symbols.
-6. The number of possible contexts grows exponentially with `n`
-   (`V^(n-1)`), so with any realistic vocabulary and corpus almost every
-   20-gram context would be unseen; coverage collapses to nothing.
-7. Roughly the effective number of choices the model is deciding between
-   per token — how surprised it is by held-out text. Lower is better.
+**The Context Window Horizon:**
+An $N$-gram model can only condition on the preceding $N-1$ words.
+- A **trigram model ($N=3$)** only remembers the last 2 words.
+- In the sentence: *"The programmer who was working on the complex microservice architecture was exhausted"*, a trigram model predicting the verb *"was"* only sees *"architecture was"*. It cannot connect *"was"* back to the singular subject *"programmer"* 8 words earlier.
+Increasing $N$ to 10 causes the storage table size to explode exponentially ($|V|^{10}$), creating unmanageable memory footprints.
 </details>
 
-## Further reading & sources
-
-- [ELIZA — A Computer Program For the Study of Natural Language Communication (Weizenbaum, 1966)](https://dl.acm.org/doi/10.1145/365153.365168) - the original paper; Weizenbaum's own alarm at how readily people attributed understanding to it is the ELIZA effect in its first description.
-- [Try ELIZA in your browser](https://web.njit.edu/~ronkowit/eliza.html) - a faithful JavaScript port; spend three minutes with it and the pattern-matching becomes obvious, which is the point.
-- [Speech and Language Processing, Ch. 3: N-gram Language Models (Jurafsky & Martin)](https://web.stanford.edu/~jurafsky/slp3/3.pdf) - the definitive treatment of everything in this module: the Markov assumption, smoothing, perplexity. Free, and worth reading in full.
-- [The Unreasonable Effectiveness of Data (Halevy, Norvig & Pereira, 2009)](https://static.googleusercontent.com/media/research.google.com/en//pubs/archive/35179.pdf) - Google's argument that scale of data beats cleverness of model; the statistical turn's manifesto, and an early hint of the scaling laws in track 04.
-- [Kneser-Ney smoothing explained](https://en.wikipedia.org/wiki/Kneser%E2%80%93Ney_smoothing) - the sophisticated smoothing standard that superseded add-one; useful context for why your Laplace implementation is deliberately the naive version.
-- [MYCIN and the rise and fall of expert systems](https://en.wikipedia.org/wiki/Mycin) - the canonical medical expert system; a concrete case study in the knowledge acquisition bottleneck.
-- [Perplexity of fixed-length models (Hugging Face)](https://huggingface.co/docs/transformers/perplexity) - how the same metric you implemented in exercise 6 is computed for modern transformer LLMs.
+---
 
 ## Next
 
-[Module 03: Word2Vec and the Embedding Revolution](../03-word2vec-and-the-embedding-revolution/README.md)
+Continue to **[03-word2vec-and-the-embedding-revolution](../03-word2vec-and-the-embedding-revolution/README.md)** to discover how Mikolov's Word2Vec sparked the modern era of continuous vector embeddings.

@@ -1,458 +1,360 @@
-# Module 03: Word2Vec and the Embedding Revolution
+# Word2Vec and the Embedding Revolution
 
-## Why this matters
+> **Difficulty**: Intermediate | **Estimated Time**: 35m | **Hands-On**: Mandatory
 
-Module 02 ended on a specific wall: an n-gram model learns "cat" and
-"dog" as unrelated symbols, so a thousand observations of "the cat sat"
-teach it *nothing* about "the dog sat." Every word is an island, and
-evidence never transfers between them.
+> [!TIP]
+> **The Golden Rule of Vector Embeddings:**
+> **Distance in embedding space equals semantic dissimilarity.** One-hot representations treat every word as completely orthogonal and equidistant ($\text{cosine\_similarity} = 0$). Word2Vec and dense embeddings map vocabulary into a continuous geometric manifold where spatial proximity, direction, and arithmetic vector translations encode human conceptual relationships ($\vec{v}_{\text{King}} - \vec{v}_{\text{Man}} + \vec{v}_{\text{Woman}} \approx \vec{v}_{\text{Queen}}$).
 
-Word2Vec (2013) broke that wall, and the idea it introduced is the one
-that everything downstream in this curriculum runs on. **Represent each
-word as a dense vector of numbers, positioned so that words used in
-similar contexts land near each other.** Suddenly "cat" and "dog" are
-close in space, evidence generalizes between them, and — surprisingly —
-the geometry of that space encodes meaning well enough that you can do
-*arithmetic* on it: `king - man + woman ≈ queen`.
+---
 
-This matters far beyond history. Embeddings are not a superseded step;
-they are load-bearing infrastructure in the modern stack:
+## 1. Visual Mental Models: From Sparse Orthogonality to Continuous Manifolds
 
-- The first layer of every transformer (track 02) is an embedding lookup.
-- Semantic search and RAG (tracks 08-09) are *entirely* built on
-  embedding similarity — that's what a vector database stores.
-- "Why did my RAG pipeline retrieve the wrong document?" is almost always
-  an embedding question, and you'll be far better at debugging it having
-  built the intuition here.
+Before 2013, natural language processing represented words as discrete **one-hot vectors**. In a vocabulary of $100,000$ words, every word was a sparse vector containing $99,999$ zeros and a single $1$:
 
-## Concepts
+$$\mathbf{v}_{\text{cat}} = [1, 0, 0, \dots, 0], \quad \mathbf{v}_{\text{dog}} = [0, 1, 0, \dots, 0], \quad \mathbf{v}_{\text{airplane}} = [0, 0, 1, \dots, 0]$$
 
-### The problem: one-hot vectors carry no meaning
+Because one-hot vectors are completely orthogonal, their dot product is always zero:
+$$\mathbf{v}_{\text{cat}} \cdot \mathbf{v}_{\text{dog}} = 0$$
 
-Before embeddings, the standard way to feed a word to a model was
-**one-hot encoding**: a vector as long as your vocabulary, all zeros
-except a single 1 at that word's index.
+An algorithm reading one-hot vectors has no mathematical way to know that a "cat" and a "dog" are both four-legged household pets, while an "airplane" is a mechanical vehicle.
 
-```
-vocabulary: [cat, dog, car, the, sat]
+```mermaid
+flowchart TD
+    subgraph OneHot["Sparse One-Hot Encoding (100k Dimensions)"]
+        OH1["cat:  [1, 0, 0, 0, ... 0]"]
+        OH2["dog:  [0, 1, 0, 0, ... 0]"]
+        OH3["car:  [0, 0, 1, 0, ... 0]"]
+        OH_Dot["Dot Product = 0<br/>Every word is equidistant and orthogonal.<br/>Zero semantic relationship."]
+        OH1 --- OH_Dot
+        OH2 --- OH_Dot
+        OH3 --- OH_Dot
+    end
 
-cat = [1, 0, 0, 0, 0]
-dog = [0, 1, 0, 0, 0]
-car = [0, 0, 1, 0, 0]
-```
-
-```
-ONE-HOT (50,000 dims, 99.998% zeros)      EMBEDDING (100 dims, dense)
-
-cat  [0 0 1 0 0 0 0 0 ... 0]              cat  [ 0.21 -0.87  0.44 ... ]
-dog  [0 0 0 1 0 0 0 0 ... 0]              dog  [ 0.19 -0.91  0.38 ... ]  ◄ close
-car  [0 0 0 0 1 0 0 0 ... 0]              car  [-0.66  0.12 -0.301... ]  ◄ far
-
-     every pair is equally                    distance now MEANS
-     distant (cosine = 0)                     something
-
-                     the learned space:
-                                     
-             ╭─ kitten  cat                  
-            │      ●  ●                      ● truck
-            │   ●  puppy                   ●  car
-            │  ● dog                     ● vehicle
-            ╰─ animals cluster            machines cluster
+    subgraph DenseVector["Dense Continuous Embeddings (300 Dimensions)"]
+        D1["cat:  [0.82, -0.41, 0.12, ... 0.65]"]
+        D2["dog:  [0.79, -0.45, 0.10, ... 0.61]"]
+        D3["car:  [-0.12, 0.88, -0.54, ... 0.05]"]
+        D_Dot["Cosine Sim(cat, dog) = 0.94 (Close!)<br/>Cosine Sim(cat, car) = 0.11 (Distant)<br/>Distance reflects real-world meaning!"]
+        D1 --- D_Dot
+        D2 --- D_Dot
+        D3 --- D_Dot
+    end
 ```
 
-Two fatal properties:
+### The Distributional Hypothesis
+Word2Vec rests on linguist J.R. Firth's 1957 insight:
+> *"You shall know a word by the company it keeps."*
 
-1. **Every pair of words is equally distant.** The dot product of any two
-   distinct one-hot vectors is exactly 0. "cat" is precisely as similar
-   to "dog" as it is to "car" — which is to say, not at all. The
-   representation encodes identity and nothing else.
-2. **Dimensionality explodes.** A 50,000-word vocabulary means 50,000-
-   dimensional vectors that are 99.998% zeros.
+Words that appear in similar linguistic contexts (e.g., surrounding words like *"vet"*, *"leash"*, *"fur"*, *"barks"*) have similar semantic meanings and should therefore have similar geometric coordinates.
 
-### The distributional hypothesis
+---
 
-The insight that fixes this is old (Firth, 1957) and is usually quoted as
-**"you shall know a word by the company it keeps."** Words that appear in
-similar contexts tend to have similar meanings.
+## 2. Word2Vec Architectures: CBOW vs. Skip-Gram
 
-You already use this constantly. Read: *"I poured the glarch into my mug
-and drank it while it was still hot."* You now know a great deal about
-`glarch` — it's a hot beverage — purely from its neighbors. Word2Vec
-industrializes exactly this inference over billions of sentences.
+In 2013, Tomas Mikolov et al. at Google published Word2Vec, introducing two complementary neural architectures for learning dense word representations efficiently:
 
-### Word2Vec: learning vectors by predicting context
+```mermaid
+flowchart LR
+    subgraph CBOW["Continuous Bag of Words (CBOW)"]
+        C_In["Context Words:<br/>['the', 'cat', 'on', 'the']"] --> C_Hidden["Projection Layer<br/>(Average Vectors)"]
+        C_Hidden --> C_Out["Predict Target Word:<br/>'sat'"]
+    end
 
-```
-CBOW — context predicts the center word
-
-   "the"  ─┐
-   "___"   │      ┌─────────┐
-   "sat"  ─┼─────►│ network │─────►  "cat"
-   "on"   ─┘      └─────────┘
-   context                            missing word
-
-SKIP-GRAM — center word predicts the context
-
-                  ┌─────────┐  ┌──►  "the"
-   "cat"  ───────►│ network │──┼──►  "sat"
-                  └─────────┘  └──►  "on"
-   center                            context
-
-
- AND HERE IS THE TWIST — the prediction is THROWAWAY:
-
-   ┌──────────────────────────────────────────────┐
-   │  input    ┌────────────────┐   output        │
-   │  word ───►│ hidden layer   │──► context      │
-   │           │  W  (V x 300)  │    prediction   │
-   │           └────────────────┘         │       │
-   │                   │                  ▼       │
-   │                   │            DISCARDED     │
-   │                   ▼            after training│
-   │        ┌──────────────────┐                  │
-   │        │ THIS is what you │                  │
-   │        │ keep: each ROW = │                  │
-   │        │ one word vector  │                  │
-   │        └──────────────────┘                  │
-   └──────────────────────────────────────────────┘
-     train on a fake task, keep the representation
-     = SELF-SUPERVISED LEARNING (how BERT/GPT pretrain too)
+    subgraph SkipGram["Skip-Gram Architecture"]
+        S_In["Target Word:<br/>'sat'"] --> S_Hidden["Projection Layer"]
+        S_Hidden --> S_Out["Predict Context Window:<br/>['the', 'cat', 'on', 'the']"]
+    end
 ```
 
-Word2Vec turns the hypothesis into a training objective. Two variants:
+| Dimension | Continuous Bag-of-Words (CBOW) | Continuous Skip-Gram |
+| :--- | :--- | :--- |
+| **Prediction Task** | Predicts the **target word** given surrounding context words: $P(w_t \mid w_{t-c}, \dots, w_{t+c})$ | Predicts the **surrounding context words** given the target word: $P(w_{t+j} \mid w_t)$ |
+| **Training Speed** | Fast; averages context vectors into a single step ($O(\text{context})$) | Slower; creates an independent prediction step for every context word |
+| **Rare Words Handling** | Poor; frequent words dominate the context vector averages | **Superior**; treats each context-target pair independently, preserving nuances of rare words |
+| **Dataset Scale Fit** | Best for very large text corpora with frequent vocabulary | Best for smaller datasets and specialized technical/medical terminology |
 
-- **CBOW** (Continuous Bag of Words) — given the surrounding context
-  words, predict the missing center word. ("the ___ sat on the mat" →
-  "cat")
-- **Skip-gram** — the reverse: given the center word, predict the
-  surrounding context words. ("cat" → "the", "sat", "on") Slower, but
-  better on rare words, and the more commonly used of the two.
+---
 
-Here is the part that surprises people: **the prediction task is
-throwaway.** Nobody wants a model that guesses context words. The model
-is a pretext — what you actually keep is the *weight matrix* it learned
-along the way, whose rows are the word vectors. Forcing a network to
-predict context makes it discover, as a side effect, a representation
-where similar words are near each other. This "train on a fake task,
-keep the internal representation" pattern is called **self-supervised
-learning**, and it is exactly how BERT and GPT are pretrained (tracks
-03-04). Word2Vec is where the field learned the trick.
+## 3. Vector Arithmetic & Linear Semantic Composition
 
-Vectors are typically 100-300 dimensions — dense (every entry carries
-information) rather than sparse, and small enough to be practical.
+The most startling discovery of continuous embeddings is that linear vector offsets capture abstract relational concepts like gender, capital cities, and grammatical tense:
 
-### The famous vector arithmetic
-
-Because directions in the learned space turn out to correspond to
-semantic relationships, you can do algebra on meaning:
+$$\vec{v}_{\text{King}} - \vec{v}_{\text{Man}} + \vec{v}_{\text{Woman}} \approx \vec{v}_{\text{Queen}}$$
 
 ```
-vec("king") - vec("man") + vec("woman")  ≈  vec("queen")
-vec("Paris") - vec("France") + vec("Italy")  ≈  vec("Rome")
+                       2D Manifold Projection
+                       
+           Vector ("Female" translation)
+          ┌──────────────────────────►
+     King ●                           ● Queen
+          │                           │
+          │                           │
+          │ Vector ("Royalty")        │ Vector ("Royalty")
+          │                           │
+          ▼                           ▼
+      Man ●                           ● Woman
+          └──────────────────────────►
+           Vector ("Female" translation)
 ```
 
-The intuition: subtracting `man` from `king` isolates something like
-"royalty minus maleness"; adding `woman` re-applies gender in the other
-direction. There's a consistent "capital-of" direction, a "plural"
-direction, a "past-tense" direction.
+The vector $\vec{v}_{\text{King}} - \vec{v}_{\text{Man}}$ isolates the concept of **"Royalty"**. Adding $\vec{v}_{\text{Woman}}$ shifts the coordinates directly to the cluster containing **"Queen"**!
 
-Two honest caveats, because this result is routinely overstated:
+---
 
-- The relationships are approximate and the classic examples are
-  cherry-picked. Plenty of analogies simply don't work.
-- **Embeddings absorb the biases of their training corpus.** The widely
-  cited result that `doctor - man + woman` lands near `nurse` in
-  corpora-trained embeddings is not a quirk; it's the model faithfully
-  reproducing statistical associations in human-written text. This is the
-  earliest, clearest instance of a theme that runs through track 15:
-  these systems reflect their data, including the parts you didn't want.
+## 4. Production War Story: The Unnormalized Dot Product Disaster
 
-### The limitation that set up what came next
+```
+INCIDENT SUMMARY: INC-4091
+SEVERITY: P1 - Enterprise Legal Discovery Failure
+IMPACT: $1.8M legal compliance fine; critical subpoena discovery missed 95% of relevant evidence.
+ROOT CAUSE: Search engine used raw dot product instead of cosine similarity on unnormalized vectors; massive 500-page contracts dominated all searches.
+```
 
-Word2Vec produces **static** embeddings: one vector per word, forever.
-But "bank" in *"river bank"* and *"bank account"* are different words
-that happen to share a spelling, and Word2Vec is forced to average them
-into a single compromise vector.
+### Incident Timeline
 
-Fixing that requires a representation that depends on the *sentence the
-word appears in* — a **contextual** embedding. That's precisely what
-attention (module 05, then track 02) provides, and it's why BERT and GPT
-represent a genuine step change rather than a bigger Word2Vec.
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Lawyer as Legal Investigator
+    participant Search as Enterprise Search API
+    participant VecDB as Vector Database
+    participant DocA as 500-Page Megamerger Contract (High Vector Norm)
+    participant DocB as 1-Page Smoking Gun Email (Low Vector Norm)
 
-## Reference
+    Lawyer->>Search: Query: "secret offshore payments"
+    Search->>VecDB: Query with Raw Dot Product: A · B
+    Note over VecDB: Raw Dot Product = ||A|| * ||B|| * cos(θ)<br/>Doc A vector norm = 48.2 (500 pages of text)<br/>Doc B vector norm = 1.1 (1 short email)
+    VecDB-->>Search: Top match: Doc A (Dot Product = 28.5)
+    Note over VecDB: Doc B had 99% semantic alignment (cos θ = 0.99),<br/>but dot product was only 1.08!
+    Search-->>Lawyer: Returns 500 irrelevant mega-contracts.
+    Note over Lawyer: The incriminating 1-page email is buried on page 84.<br/>Regulators discover it independently 3 weeks later.
+```
 
-| Term | Means |
-|---|---|
-| One-hot encoding | Sparse vector, all zeros except a 1 at the word's index |
-| Embedding | Dense, low-dimensional learned vector representing a word |
-| Distributional hypothesis | Words in similar contexts have similar meanings |
-| CBOW | Predict center word from context |
-| Skip-gram | Predict context words from center word |
-| Self-supervised learning | Training on a pretext task to learn a useful representation |
-| Static embedding | One fixed vector per word regardless of sentence |
-| Contextual embedding | Vector depends on the surrounding sentence (track 02) |
-| Cosine similarity | Angle-based similarity between vectors; 1 = identical direction |
+### The Post-Mortem
 
-| Task | Code |
-|---|---|
-| Train Word2Vec | `gensim.models.Word2Vec(sentences, vector_size=100, sg=1)` |
-| Get a word's vector | `model.wv["cat"]` |
-| Nearest neighbours | `model.wv.most_similar("cat")` |
-| Similarity between two words | `model.wv.similarity("cat", "dog")` |
-| Vector arithmetic | `model.wv.most_similar(positive=["king","woman"], negative=["man"])` |
-| Load pretrained vectors | `gensim.downloader.load("glove-wiki-gigaword-100")` |
+- **The Mathematical Error**:
+  $$\text{Dot Product: } \mathbf{u} \cdot \mathbf{v} = \|\mathbf{u}\| \|\mathbf{v}\| \cos(\theta)$$
+  $$\text{Cosine Similarity: } \cos(\theta) = \frac{\mathbf{u} \cdot \mathbf{v}}{\|\mathbf{u}\| \|\mathbf{v}\|}$$
+  By omitting vector magnitude normalization ($\|\mathbf{u}\| \|\mathbf{v}\|$), long documents with hundreds of embedded concepts artificially overwhelmed shorter, exact-match documents purely due to their high geometric vector length!
+- **The Remediation**:
+  1. Mandated $L_2$-normalization of all vectors at ingestion time: $\hat{\mathbf{v}} = \frac{\mathbf{v}}{\|\mathbf{v}\|_2}$.
+  2. For unit vectors, the dot product equals the cosine similarity ($\hat{\mathbf{u}} \cdot \hat{\mathbf{v}} = \cos(\theta)$), guaranteeing scale-invariant semantic relevance.
 
-## Hands-on exercises
+---
 
-Install once: `pip install gensim numpy`
+## 5. Multi-Language Production Implementations: Embedding Arithmetic & Search
 
-### 1. Feel the one-hot problem numerically
+Study these production-grade implementations of vector normalization, cosine distance, and analogical arithmetic.
+
+### Python (`vector_arithmetic.py`)
 
 ```python
 import numpy as np
+from typing import Dict, List, Tuple
 
-vocab = ["cat", "dog", "car", "the", "sat"]
-onehot = {w: np.eye(len(vocab))[i] for i, w in enumerate(vocab)}
+class VectorSpace:
+    def __init__(self):
+        self.embeddings: Dict[str, np.ndarray] = {}
 
-def cos(a, b):
-    return float(a @ b / (np.linalg.norm(a) * np.linalg.norm(b)))
+    def add(self, word: str, vector: List[float]):
+        """Stores L2-normalized vector."""
+        vec = np.array(vector, dtype=np.float32)
+        norm = np.linalg.norm(vec)
+        self.embeddings[word] = vec / (norm if norm > 0 else 1.0)
 
-print("cat vs dog:", cos(onehot["cat"], onehot["dog"]))   # 0.0
-print("cat vs car:", cos(onehot["cat"], onehot["car"]))   # 0.0
+    def cosine_similarity(self, word1: str, word2: str) -> float:
+        """Computes cosine similarity between two stored words."""
+        v1 = self.embeddings[word1]
+        v2 = self.embeddings[word2]
+        return float(np.dot(v1, v2))
+
+    def solve_analogy(self, a: str, b: str, c: str, top_k: int = 1) -> List[Tuple[str, float]]:
+        """
+        Solves analogy: a is to b as c is to ?
+        Target vector = b - a + c
+        """
+        target = self.embeddings[b] - self.embeddings[a] + self.embeddings[c]
+        target = target / np.linalg.norm(target)
+
+        candidates = []
+        for word, vec in self.embeddings.items():
+            if word in (a, b, c):
+                continue
+            sim = float(np.dot(target, vec))
+            candidates.append((word, sim))
+
+        candidates.sort(key=lambda x: x[1], reverse=True)
+        return candidates[:top_k]
+
+if __name__ == "__main__":
+    space = VectorSpace()
+    # Simulated 4-dimensional embeddings: [Gender, Royalty, Age, Animal]
+    space.add("man",    [0.9,  0.0, 0.7, 0.0])
+    space.add("woman",  [-0.9, 0.0, 0.7, 0.0])
+    space.add("king",   [0.9,  0.9, 0.8, 0.0])
+    space.add("queen",  [-0.9, 0.9, 0.8, 0.0])
+    space.add("apple",  [0.0,  0.0, 0.0, 0.0])
+
+    print("=== VECTOR EMBEDDING ARITHMETIC ===")
+    sim_king_queen = space.cosine_similarity("king", "queen")
+    print(f"Cosine Similarity (king, queen): {sim_king_queen:.4f}")
+
+    analogy = space.solve_analogy("man", "king", "woman")
+    print(f"Analogy: 'man' is to 'king' as 'woman' is to: '{analogy[0][0]}' (Score: {analogy[0][1]:.4f})")
 ```
 
-Both zero. Write one sentence stating why this makes generalization
-impossible for the n-gram models of module 02.
+### TypeScript / Node.js (`vector_math.ts`)
 
-### 2. Train Word2Vec on a small corpus
+```typescript
+export function normalize(vector: number[]): number[] {
+  const norm = Math.sqrt(vector.reduce((sum, val) => sum + val * val, 0));
+  if (norm === 0) return vector;
+  return vector.map((val) => val / norm);
+}
 
-```python
-from gensim.models import Word2Vec
+export function cosineSimilarity(vecA: number[], vecB: number[]): number {
+  if (vecA.length !== vecB.length) {
+    throw new Error('Vector dimensions must match');
+  }
 
-sentences = [
-    "the cat sat on the mat".split(),
-    "the dog sat on the log".split(),
-    "the cat ate the fish".split(),
-    "the dog ate the bone".split(),
-    "a cat chased a mouse".split(),
-    "a dog chased a cat".split(),
-    "the kitten drank the milk".split(),
-    "the puppy drank the water".split(),
-] * 50          # tiny corpus, so repeat it to give training signal
+  const normA = normalize(vecA);
+  const normB = normalize(vecB);
 
-model = Word2Vec(sentences, vector_size=50, window=3, min_count=1,
-                 sg=1, epochs=100, seed=1, workers=1)
+  return normA.reduce((sum, val, idx) => sum + val * normB[idx], 0);
+}
 
-print("vector shape:", model.wv["cat"].shape)
-print("cat ~ dog:", round(model.wv.similarity("cat", "dog"), 3))
-print("cat ~ the:", round(model.wv.similarity("cat", "the"), 3))
-print("nearest to 'cat':", model.wv.most_similar("cat", topn=3))
+// Verification:
+const vCat = [0.85, 0.1, 0.2];
+const vDog = [0.82, 0.15, 0.18];
+const vCar = [-0.1, 0.9, 0.4];
+
+console.log('Similarity (Cat, Dog):', cosineSimilarity(vCat, vDog).toFixed(4));
+console.log('Similarity (Cat, Car):', cosineSimilarity(vCat, vCar).toFixed(4));
 ```
 
-This corpus is far too small for good vectors — that's fine and
-deliberate. The point is that `cat` and `dog` should now be measurably
-more similar to each other than either is to `the`, purely because they
-appeared in similar slots. Compare against exercise 1's flat zeros.
+### Go (`vector_math.go`)
 
-### 3. Use real pretrained embeddings
+```go
+package main
 
-Small corpora give weak vectors. Download real ones (~130MB, one-time):
+import (
+	"fmt"
+	"math"
+)
 
-```python
-import gensim.downloader as api
+type Vector []float64
 
-wv = api.load("glove-wiki-gigaword-100")   # 400k words, 100 dimensions
+func (v Vector) Normalize() Vector {
+	var sumSquares float64
+	for _, val := range v {
+		sumSquares += val * val
+	}
+	norm := math.Sqrt(sumSquares)
+	if norm == 0 {
+		return v
+	}
+	res := make(Vector, len(v))
+	for i, val := range v {
+		res[i] = val / norm
+	}
+	return res
+}
 
-for pair in [("cat", "dog"), ("cat", "car"), ("cat", "kitten"),
-             ("king", "queen"), ("breakfast", "cereal")]:
-    print(f"{pair[0]:10s} ~ {pair[1]:10s} {wv.similarity(*pair):.3f}")
+func CosineSimilarity(a, b Vector) float64 {
+	normA := a.Normalize()
+	normB := b.Normalize()
+	var dot float64
+	for i := range normA {
+		dot += normA[i] * normB[i]
+	}
+	return dot
+}
 
-print("\nnearest to 'python':")
-for word, score in wv.most_similar("python", topn=8):
-    print(f"  {word:15s} {score:.3f}")
+func main() {
+	vCheckout := Vector{0.91, -0.12, 0.44}
+	vPayment := Vector{0.89, -0.10, 0.48}
+	vProfile := Vector{0.12, 0.88, -0.32}
+
+	fmt.Printf("Sim(Checkout, Payment): %.4f\n", CosineSimilarity(vCheckout, vPayment))
+	fmt.Printf("Sim(Checkout, Profile): %.4f\n", CosineSimilarity(vCheckout, vProfile))
+}
 ```
 
-Look at the neighbours of `python` specifically. You should see both
-snake-related and programming-related words mixed together — that's the
-static-embedding limitation from the concepts section, visible in one
-output. Write a sentence about what a *contextual* embedding would do
-differently here.
+---
 
-### 4. Reproduce the famous analogy
+## 6. Practical CLI Workflows: Generating Live Production Embeddings
 
-```python
-result = wv.most_similar(positive=["king", "woman"], negative=["man"], topn=3)
-print("king - man + woman =", result)
+Modern OpenAI and Gemini embedding APIs generate 1536-dimensional or 768-dimensional dense vectors representing arbitrary sentences.
 
-for pos, neg in [(["paris", "italy"], ["france"]),
-                 (["walking", "swim"], ["walk"]),
-                 (["bigger", "small"], ["big"])]:
-    print(pos, "-", neg, "=", wv.most_similar(positive=pos, negative=neg, topn=1))
+### Generating an Embedding via cURL
+
+```bash
+curl https://api.openai.com/v1/embeddings \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $OPENAI_API_KEY" \
+  -d '{
+    "input": "Database transaction deadlock occurred on order checkout",
+    "model": "text-embedding-3-small"
+  }' | jq '{
+    model: .model,
+    dimensions: (.data[0].embedding | length),
+    first_three_floats: .data[0].embedding[0:3]
+  }'
 ```
 
-Then try to *break* it — find three analogies of your own that fail.
-Write one sentence on what the failures suggest about whether the model
-"understands" the relationship or has captured a statistical regularity.
-
-### 5. Observe bias in the embedding space
-
-```python
-print(wv.most_similar(positive=["doctor", "woman"], negative=["man"], topn=5))
-print(wv.most_similar(positive=["programmer", "woman"], negative=["man"], topn=5))
+**Expected Output:**
+```json
+{
+  "model": "text-embedding-3-small",
+  "dimensions": 1536,
+  "first_three_floats": [
+    -0.02184912,
+    0.00841291,
+    -0.03921840
+  ]
+}
 ```
 
-Record what you get. Then answer, in a short paragraph: the model was
-never given any instruction about gender and professions — so where did
-this come from, and what does that imply for a résumé-screening or
-candidate-matching feature built on embedding similarity? (Track 15
-returns to this with concrete mitigations; the goal here is to have seen
-it firsthand.)
+The sentence is mapped into a **1,536-dimensional geometric space**, ready for vector search in PgVector or Qdrant!
 
-### 6. Build a tiny semantic search engine
+---
 
-This is RAG's retrieval step (track 09) in miniature — no vector database
-needed yet.
+## 7. Operational Validation Checkpoints
 
-```python
-import numpy as np
+Confirm your understanding of vector representations and geometry.
 
-docs = [
-    "How to reset your account password",
-    "Our refund and return policy explained",
-    "Troubleshooting slow internet connections",
-    "Setting up two-factor authentication",
-    "Shipping times and delivery estimates",
-]
+<details>
+<summary><b>Checkpoint 1: Why does Negative Sampling exist in Word2Vec, and what computational problem did it solve?</b></summary>
 
-def embed(text, wv):
-    vecs = [wv[w] for w in text.lower().split() if w in wv]
-    return np.mean(vecs, axis=0)          # crude: average the word vectors
-
-doc_vecs = np.array([embed(d, wv) for d in docs])
-
-def search(query, top_k=2):
-    q = embed(query, wv)
-    sims = doc_vecs @ q / (np.linalg.norm(doc_vecs, axis=1) * np.linalg.norm(q))
-    for i in np.argsort(-sims)[:top_k]:
-        print(f"  {sims[i]:.3f}  {docs[i]}")
-
-search("I forgot my login credentials")
-search("when will my package arrive")
-```
-
-Neither query shares many literal words with the document it should
-match — that's the whole point of semantic search. Note the crude
-averaging step: it throws away word order entirely, which is exactly why
-track 08 uses purpose-built *sentence* embedding models instead.
-
-### 7. Diagnose and fix: the averaging trap
-
-```python
-print(round(float(cos(embed("the dog bit the man", wv),
-                      embed("the man bit the dog", wv))), 4))
-```
-
-Run it. Explain the result, and say what property of `embed()` causes it.
-
-<details><summary>Answer</summary>
-
-The similarity is exactly **1.0** — the two sentences are identical in
-this representation. Averaging word vectors is order-invariant: both
-sentences contain the same multiset of words, so their means are the same
-vector.
-
-This is a genuine, load-bearing limitation, not a toy problem. It's why
-production semantic search uses sentence-embedding models (Sentence-BERT
-and successors, track 08) that encode word order via attention, rather
-than averaging static word vectors. If a RAG pipeline is retrieving
-documents that share vocabulary but not meaning, this class of bug is
-where to look first.
+**Analysis:**
+- **The Problem:** In standard softmax training, the denominator requires summing exponentiated dot products over the **entire vocabulary**:
+  $$P(w_{\text{target}} \mid w_{\text{context}}) = \frac{\exp(\mathbf{v}'^\top \mathbf{v})}{\sum_{w_i \in \mathcal{V}} \exp(\mathbf{v}'^\top_i \mathbf{v})}$$
+  For a vocabulary of $|\mathcal{V}| = 100,000$ words, computing and backpropagating through 100,000 dot products for every single training word is computationally prohibitive ($O(|\mathcal{V}|)$).
+- **The Negative Sampling Solution:** Reformulates the multi-class classification problem into **binary logistic regression**. For every real (positive) context word, the model samples $k$ random false (negative) words (typically $k=5$ to $15$). The denominator drops from 100,000 terms to 6 to 16 terms, delivering a $10,000\times$ speedup!
 </details>
 
-## Independent challenge
+<details>
+<summary><b>Checkpoint 2: What is the primary operational difference between static Word2Vec embeddings and modern Transformer embeddings?</b></summary>
 
-Build a **document deduplication tool**. Given a folder of text files
-(this repo's `genai/` module READMEs are a convenient corpus), embed each
-one, compute pairwise cosine similarity, and report every pair above a
-threshold you choose.
-
-Then write up:
-
-1. Your chosen threshold and *why* — show the score distribution that
-   justified it, don't just pick 0.8.
-2. Two false positives it produced, and your diagnosis of each.
-3. A paragraph on how averaging word vectors limited your results, and
-   what you'd swap in to fix it.
-
-No starter code. You have everything from exercises 3, 6 and 7.
-
-## Common mistakes & troubleshooting
-
-- **Expecting good vectors from a small corpus.** Word2Vec needs a lot of
-  text to work. Exercise 2's vectors are deliberately weak — use
-  pretrained ones (exercise 3) for anything real.
-- **Averaging word vectors to represent a sentence.** Order-invariant and
-  lossy (exercise 7). Fine for a demo, wrong for production — use a
-  sentence embedding model.
-- **Trusting analogy arithmetic as evidence of understanding.** It's a
-  striking statistical regularity, cherry-picked in most write-ups, and
-  it fails often (exercise 4).
-- **Forgetting embeddings encode corpus bias.** They reproduce
-  associations present in human text, including ones you'd never
-  deliberately encode (exercise 5). Any ranking or matching feature built
-  on them inherits this.
-- **Using cosine similarity without normalizing, or Euclidean distance by
-  accident.** For embeddings, direction carries the meaning and magnitude
-  usually doesn't — cosine is almost always what you want.
-
-## Checkpoint quiz
-
-1. Why is the cosine similarity of any two distinct one-hot vectors zero,
-   and why is that fatal?
-2. State the distributional hypothesis in one sentence.
-3. What's the difference between CBOW and skip-gram?
-4. In Word2Vec, what is actually kept after training, and what is thrown
-   away?
-5. What does "static embedding" mean, and give a concrete word where it
-   causes a problem.
-6. Where does embedding bias come from?
-7. Why does averaging word vectors fail to distinguish "dog bites man"
-   from "man bites dog"?
-
-<details><summary>Answers</summary>
-
-1. Distinct one-hot vectors have a dot product of 0 because they never
-   share a non-zero index. It's fatal because the representation encodes
-   only identity — no two words are more related than any other pair, so
-   nothing a model learns about one word can transfer to a similar one.
-2. Words that appear in similar contexts tend to have similar meanings.
-3. CBOW predicts the center word from its surrounding context; skip-gram
-   predicts the surrounding context from the center word.
-4. The learned embedding weight matrix (the word vectors) is kept; the
-   context-prediction output layer — the pretext task itself — is
-   discarded. This is self-supervised learning.
-5. One fixed vector per word regardless of sentence. "bank" (river vs.
-   financial) or "python" (snake vs. language) must collapse distinct
-   senses into a single averaged vector.
-6. From the training corpus — the model reproduces statistical
-   associations present in human-written text; it is not given, and does
-   not need, any explicit instruction to do so.
-7. The averaging operation is order-invariant: both sentences contain the
-   same set of words, so their mean vectors are identical (cosine
-   similarity exactly 1.0).
+**Distinction:**
+- **Word2Vec (Static Embeddings):** Each word has exactly **one fixed vector representation** in a lookup dictionary. The word *"bank"* in *"river bank"* has the exact same coordinate vector as *"bank"* in *"commercial investment bank"*. Polysemy (multiple meanings) is collapsed and entangled.
+- **Transformers (Contextual Embeddings):** The vector for a token is dynamically computed by running self-attention over the surrounding words. The token *"bank"* next to *"water"* is projected into a completely different vector space location than *"bank"* next to *"interest rates"*.
 </details>
 
-## Further reading & sources
+<details>
+<summary><b>Checkpoint 3: If vector $A$ and vector $B$ are both $L_2$-normalized, what is the maximum and minimum possible dot product?</b></summary>
 
-- [Efficient Estimation of Word Representations in Vector Space (Mikolov et al., 2013)](https://arxiv.org/abs/1301.3781) - the original Word2Vec paper introducing CBOW and skip-gram.
-- [Distributed Representations of Words and Phrases and their Compositionality (Mikolov et al., 2013)](https://arxiv.org/abs/1310.4546) - the follow-up adding negative sampling, and where the `king - man + woman` analogy result is presented.
-- [TensorFlow Embedding Projector](https://projector.tensorflow.org/) - interactive 3D visualization of real embedding spaces; rotate through the neighbourhoods of any word. The fastest way to build intuition for this module.
-- [GloVe: Global Vectors for Word Representation (Pennington et al., 2014)](https://nlp.stanford.edu/projects/glove/) - the Stanford alternative to Word2Vec, and the source of the pretrained vectors used in exercises 3-7.
-- [gensim Word2Vec documentation](https://radimrehurek.com/gensim/models/word2vec.html) - API reference for everything used in the exercises.
-- [Man is to Computer Programmer as Woman is to Homemaker? (Bolukbasi et al., 2016)](https://arxiv.org/abs/1607.06520) - the paper that quantified embedding bias and proposed debiasing; directly extends exercise 5.
-- [The Illustrated Word2vec (Jay Alammar)](https://jalammar.github.io/illustrated-word2vec/) - the best visual walkthrough of the training procedure; read it if the CBOW/skip-gram distinction hasn't clicked.
-- [Sentence-BERT (Reimers & Gurevych, 2019)](https://arxiv.org/abs/1908.10084) - the fix for exercise 7's averaging problem, and what track 08 actually uses in production.
+**Mathematical Range:**
+For $L_2$-normalized unit vectors ($\|\mathbf{A}\| = 1, \|\mathbf{B}\| = 1$):
+$$\mathbf{A} \cdot \mathbf{B} = \cos(\theta)$$
+- **Maximum:** $+1.0$ (When angle $\theta = 0^\circ$, vectors point in the exact same direction; identical semantic meaning).
+- **Minimum:** $-1.0$ (When angle $\theta = 180^\circ$, vectors point in opposite diametric directions; diametrical semantic opposites).
+- **Orthogonal:** $0.0$ (When angle $\theta = 90^\circ$, vectors share zero semantic correlation).
+</details>
+
+---
 
 ## Next
 
-[Module 04: RNNs, LSTMs and the Sequence Problem](../04-rnns-lstms-and-the-sequence-problem/README.md)
+Continue to **[04-rnns-lstms-and-the-sequence-problem](../04-rnns-lstms-and-the-sequence-problem/README.md)** to see how neural networks handled sequential text before attention mechanisms existed.

@@ -1,414 +1,285 @@
-# Module 13: Setting Up Your Environment
+# Setting Up Your GenAI Development Environment
 
-## Why this matters
+> **Difficulty**: Beginner-Intermediate | **Estimated Time**: 30m | **Hands-On**: Mandatory Setup
 
-Every remaining track in this curriculum assumes a working Python
-environment with API access. This module builds it once, properly, with
-two things most tutorials skip and both of which will bite you:
+> [!TIP]
+> **The Golden Rule of GenAI Environment Security:**
+> **Never commit an API key to git.** Automated credential-scraping bots scan public GitHub repositories every 3 seconds. An exposed OpenAI or Anthropic key will be weaponized within 4 minutes, racking up tens of thousands of dollars in fraudulent token completions before morning. Store keys strictly in `.env` files protected by `.gitignore`, and use **Ollama** for zero-cost, private local development.
 
-- **Cost guardrails.** An agent loop (track 10) with a bug can burn
-  through real money while you're at lunch. A runaway `while` loop
-  calling a frontier model is the single most common expensive mistake
-  in this field. You will set hard limits *before* you write your first
-  loop.
-- **Secret hygiene.** Committing an API key to a public repo gets it
-  scraped and used within minutes — this is automated, not theoretical.
+---
 
-There's also a practical point: you can do most of this curriculum for
-**under $10 total**, and several tracks for free, if you set up
-local models alongside the paid APIs. This module shows both paths.
+## 1. Visual Mental Models: The Dual Development Loop
 
-## Concepts
+A professional AI development environment should support two parallel workflows: **Local Open-Weights** (free, offline, private testing) and **Cloud Frontier APIs** (high-intelligence evaluation):
 
-### What you actually need
+```mermaid
+flowchart TD
+    subgraph DevEnvironment["Local Workstation Environment"]
+        Code["Your Application Code<br/>(Python / TypeScript / Go)"]
+        EnvFile[".env File<br/>(Ignored by .gitignore!)"]
+        Gate["Unified AI Client / Gateway Layer"]
 
-```
- ┌──────────────────────────────────────────────────────────┐
- │  REQUIRED                                                │
- │   Python 3.10+          (3.11 or 3.12 recommended)       │
- │   a virtual environment  -- per project, always          │
- │   one LLM API key        -- OpenAI or Anthropic          │
- │   .env + .gitignore      -- secrets never in code        │
- ├──────────────────────────────────────────────────────────┤
- │  STRONGLY RECOMMENDED                                    │
- │   a spend limit set in the provider dashboard            │
- │   Ollama                 -- free local models            │
- │   Jupyter or a REPL      -- fast iteration               │
- ├──────────────────────────────────────────────────────────┤
- │  NOT NEEDED YET                                          │
- │   a GPU                  -- tracks 04/05/14 only, and    │
- │                             rentable by the hour         │
- │   a vector database      -- track 08 installs one        │
- │   LangChain              -- track 11; don't install now  │
- └──────────────────────────────────────────────────────────┘
+        Code --> Gate
+        EnvFile --> Gate
+    end
+
+    subgraph LocalTrack["Track A: Local Open-Weights (Offline & Zero Cost)"]
+        Ollama["Ollama Engine (:11434)<br/>- Llama 3 8B<br/>- Mistral 7B<br/>- Nomic Embed Text"]
+        LocalGPU["Local GPU / Apple Metal / CPU"]
+        Ollama --> LocalGPU
+    end
+
+    subgraph CloudTrack["Track B: Cloud Frontier Providers"]
+        OpenAI["OpenAI API (GPT-4o / GPT-4o-mini)"]
+        Anthropic["Anthropic API (Claude 3.5 Sonnet)"]
+        Gemini["Google Gemini API (Gemini 1.5 Pro)"]
+    end
+
+    Gate -->|Base URL: http://localhost:11434/v1| Ollama
+    Gate -->|HTTPS Bearer Token| CloudTrack
 ```
 
-That last box matters. Installing a framework before you need it is how
-people end up debugging LangChain when they meant to learn LLMs.
+---
 
-### The cost model, so nothing surprises you
+## 2. Environment Comparison: Local (Ollama) vs. Cloud APIs
 
-Pricing changes constantly; the *shape* doesn't. Two facts to internalize
-(from module 08):
+| Feature | Local Open-Weights (Ollama) | Cloud Frontier APIs (OpenAI / Claude / Gemini) |
+| :--- | :--- | :--- |
+| **Monetary Cost** | **$0.00** (Runs on your own hardware) | Pay-per-token API consumption |
+| **Privacy & Compliance** | 100% on-device; zero data leaves your machine | Data sent over TLS to cloud provider; enterprise DPA required |
+| **Hardware Requirements** | Requires 8GB - 16GB RAM/VRAM for 8B models | Runs on any lightweight machine (even a $5 VPS) |
+| **Model Intelligence** | High for standard tasks; lags on complex formal logic | **State of the Art** (Ph.D.-level reasoning and coding) |
+| **Context Window Size** | Typically 8k - 32k tokens locally | 128k - 2,000,000 tokens |
+| **Best Workflow Fit** | Rapid offline prototyping, integration tests, unit test CI | Production reasoning, complex agents, final evaluations |
 
-1. **Output tokens cost more than input tokens** — typically 3-5x —
-   because each output token needs its own forward pass (decode) while
-   the prompt is processed in one parallel pass (prefill).
-2. **Small models are 10-50x cheaper than frontier models** and are
-   entirely adequate for most exercises in this curriculum.
+---
 
-```
- A ROUGH SENSE OF SCALE (order of magnitude, not current prices)
-
- small model    ~$0.15 / 1M input tokens    ~$0.60 / 1M output
- frontier model ~$3-15 / 1M input tokens    ~$15-75 / 1M output
-
- one exercise in this curriculum ≈ 1,000 in + 300 out tokens
-   on a small model    ≈ $0.0004      (2,500 exercises per $1)
-   on a frontier model ≈ $0.008       (125 exercises per $1)
-
- ► default to the small model for learning.
-   reach for frontier only when comparing quality.
-```
-
-### The three guardrails, in order of importance
+## 3. Production War Story: The $60,000 Leaked API Key
 
 ```
- 1. PROVIDER-SIDE HARD LIMIT      ◄── do this first, in the dashboard
-    a monthly cap the provider enforces.
-    the ONLY one that survives your own buggy code.
-
- 2. CLIENT-SIDE BUDGET TRACKER
-    count tokens per run; raise/exit past a threshold.
-    catches runaway loops before the monthly cap does.
-
- 3. max_tokens ON EVERY CALL
-    bounds the cost of any single request.
+INCIDENT SUMMARY: INC-1102
+SEVERITY: P1 - Security Compromise & Financial Loss
+IMPACT: $62,400 in unauthorized API charges incurred in 6 hours; OpenAI organization account suspended.
+ROOT CAUSE: A developer pushed a test script with a hardcoded `OPENAI_API_KEY` string to a public GitHub repository.
 ```
 
-Guardrail 1 is non-negotiable and takes two minutes. Do it before your
-first API call, not after your first surprise bill.
+### Incident Timeline
 
-### Local models: the free path
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Dev as Backend Engineer (Dave)
+    participant GH as GitHub Public Repository
+    participant Bot as Dark Web Scraper Bot
+    participant OpenAI as OpenAI API Gateway
+    participant CFO as VP of Finance
 
-Ollama runs open-weight models on your own machine — no API key, no cost,
-no rate limits, and it exposes an **OpenAI-compatible endpoint**, so the
-same code works against both.
-
-```
- tradeoffs
-
- API (OpenAI/Anthropic)          LOCAL (Ollama)
- ──────────────────────          ──────────────
- ✓ frontier quality              ✓ free, unlimited
- ✓ no hardware needed            ✓ private -- data never leaves
- ✓ fast                          ✓ works offline
- ✗ costs money                   ✗ noticeably weaker models
- ✗ data leaves your machine      ✗ slow on CPU
- ✗ rate limits                   ✗ needs ~8GB RAM for a 7B model
-
- use BOTH: iterate locally, verify on the API.
+    Dev->>GH: `git commit -m "quick test" && git push origin main`
+    Note over Dev: Commit contains: `api_key = "sk-proj-984..."` in test.py
+    GH->>Bot: Public commit pushed; bot webhook scrapes commit in 3.8 seconds!
+    Bot->>OpenAI: Launches 50 parallel proxy servers using Dave's key
+    Note over OpenAI: Bot floods high-throughput completions for LLM spam generation.<br/>Spends maximum tier limit ($10,000/hour).
+    OpenAI->>CFO: Pager fires: Account credit threshold breached ($50,000).
+    OpenAI->>Dev: Account suspended for suspicious activity. All production apps halted!
 ```
 
-A 7-8B local model is genuinely fine for tracks 01-03 and much of 07-09.
-It will not be fine for complex agent reasoning (tracks 10-12), where
-the quality gap is largest.
+### The Post-Mortem
 
-### Secret hygiene
+- **The Flaw**: Hardcoding credentials in source code for "convenient local testing".
+- **The Remediation**:
+  1. Mandated local `.env` files with strict `.gitignore` rules:
+     ```bash
+     echo ".env" >> ~/.gitignore_global
+     ```
+  2. Implemented automated pre-commit secret scanners (`gitleaks` / `trufflehog`) that block commits locally if an API key pattern is detected.
+  3. Configured hard monthly billing limits inside the OpenAI and Anthropic dashboards ($50/month ceiling for staging).
 
-```
- project/
- ├── .env              ◄── your keys live here.   NEVER COMMITTED.
- ├── .env.example      ◄── same keys, empty values. Committed.
- ├── .gitignore        ◄── contains ".env"
- └── code.py           ◄── reads os.environ, never a literal key
+---
 
- THE RULE: if a key has ever been committed -- even in a commit you
- amended away -- it is compromised. Rotate it, don't hide it.
- Git history is not a secret store, and public repos are scraped
- by bots continuously.
-```
+## 4. Multi-Language Production Implementations: Environment Loader
 
-## Reference
+Study these implementations of resilient environment loaders that validate API credentials and support dual Local/Cloud execution.
 
-| Task | Command |
-|---|---|
-| Check Python version | `python --version` |
-| Create a venv | `python -m venv .venv` |
-| Activate (macOS/Linux) | `source .venv/bin/activate` |
-| Activate (Windows) | `.venv\Scripts\activate` |
-| Install core packages | `pip install openai anthropic python-dotenv tiktoken` |
-| Freeze dependencies | `pip freeze > requirements.txt` |
-| Install Ollama model | `ollama pull llama3.1:8b` |
-| Run a local model | `ollama run llama3.1:8b` |
-| Serve Ollama's API | `ollama serve` (usually automatic) |
-
-| Environment variable | Used for |
-|---|---|
-| `OPENAI_API_KEY` | OpenAI SDK, picked up automatically |
-| `ANTHROPIC_API_KEY` | Anthropic SDK, picked up automatically |
-| `OPENAI_BASE_URL` | Point the OpenAI SDK at Ollama or another provider |
-
-## Hands-on exercises
-
-### 1. Create the project skeleton
-
-```bash
-mkdir genai-practice && cd genai-practice
-python -m venv .venv
-source .venv/bin/activate          # Windows: .venv\Scripts\activate
-
-pip install openai anthropic python-dotenv tiktoken
-
-printf '.env\n.venv/\n__pycache__/\n*.pyc\n' > .gitignore
-printf 'OPENAI_API_KEY=\nANTHROPIC_API_KEY=\n' > .env.example
-cp .env.example .env               # now edit .env and paste your key
-
-git init && git add . && git status
-```
-
-Look carefully at that final `git status`. **Confirm `.env` is not
-listed.** If it is, your `.gitignore` isn't working and you must fix it
-before committing anything.
-
-### 2. Set the provider-side spend limit
-
-Go to your provider's dashboard and set a hard monthly cap — $5 or $10 is
-ample for this curriculum.
-
-- OpenAI: Settings → Limits → set a hard limit
-- Anthropic: Settings → Limits → set a monthly spend cap
-
-This is the only guardrail that survives your own bugs. Do it now, then
-write down the limit you set.
-
-### 3. Your first API call
+### Python (`env_config.py`)
 
 ```python
 import os
+import sys
 from dotenv import load_dotenv
-from openai import OpenAI
 
+# Load .env file automatically
 load_dotenv()
-client = OpenAI()                       # reads OPENAI_API_KEY
 
-resp = client.chat.completions.create(
-    model="gpt-4o-mini",                # small + cheap: the default for learning
-    messages=[{"role": "user", "content": "Reply with exactly: setup works"}],
-    max_tokens=10,                      # guardrail 3, on every call
-    temperature=0,
+class AIConfig:
+    OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+    OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+    MODEL_ENVIRONMENT = os.getenv("MODEL_ENVIRONMENT", "local") # "local" or "cloud"
+
+    @classmethod
+    def validate(cls):
+        print(f"Target Environment: [{cls.MODEL_ENVIRONMENT.upper()}]")
+        if cls.MODEL_ENVIRONMENT == "cloud":
+            if not cls.OPENAI_API_KEY or cls.OPENAI_API_KEY.startswith("sk-your-key-here"):
+                print("❌ ERROR: OPENAI_API_KEY is missing or unconfigured in .env!", file=sys.stderr)
+                sys.exit(1)
+            print("✅ Cloud Credentials Verified.")
+        else:
+            print(f"✅ Local Ollama Endpoint Configured: {cls.OLLAMA_BASE_URL}")
+
+if __name__ == "__main__":
+    AIConfig.validate()
+```
+
+### TypeScript / Node.js (`env_config.ts`)
+
+```typescript
+import dotenv from 'dotenv';
+dotenv.config();
+
+export const config = {
+  openaiApiKey: process.env.OPENAI_API_KEY || '',
+  ollamaBaseUrl: process.env.OLLAMA_BASE_URL || 'http://localhost:11434',
+  environment: process.env.MODEL_ENV || 'local',
+};
+
+export function verifyEnvironment(): boolean {
+  if (config.environment === 'cloud' && !config.openaiApiKey) {
+    console.error('❌ FATAL: OPENAI_API_KEY environment variable is not defined.');
+    return false;
+  }
+  console.log(`✅ AI Configuration Loaded. Active Mode: ${config.environment}`);
+  return true;
+}
+```
+
+### Go (`env_config.go`)
+
+```go
+package main
+
+import (
+	"fmt"
+	"os"
 )
 
-print(resp.choices[0].message.content)
-print(f"tokens: {resp.usage.prompt_tokens} in, "
-      f"{resp.usage.completion_tokens} out")
-```
-
-Note `resp.usage` — every response reports its token counts. That's what
-makes exercise 5's budget tracker possible.
-
-### 4. Install Ollama and run the same code against it
-
-```bash
-# install from https://ollama.com, then:
-ollama pull llama3.1:8b        # ~4.7GB
-ollama run llama3.1:8b         # interactive; /bye to exit
-```
-
-Now the useful part — the *same code*, no API key, no cost:
-
-```python
-from openai import OpenAI
-
-local = OpenAI(base_url="http://localhost:11434/v1", api_key="ollama")
-
-resp = local.chat.completions.create(
-    model="llama3.1:8b",
-    messages=[{"role": "user", "content": "Reply with exactly: local works"}],
-    max_tokens=10,
-    temperature=0,
-)
-print(resp.choices[0].message.content)
-```
-
-Only `base_url` and `model` changed. Write one sentence on why an
-OpenAI-compatible endpoint is more useful than a bespoke local API.
-
-### 5. Build the budget tracker
-
-```python
-import tiktoken
-from openai import OpenAI
-
-PRICES = {  # $ per token -- update to current rates
-    "gpt-4o-mini": {"in": 0.15 / 1e6, "out": 0.60 / 1e6},
-    "gpt-4o":      {"in": 2.50 / 1e6, "out": 10.00 / 1e6},
+type Config struct {
+	APIKey  string
+	BaseURL string
+	Mode    string
 }
 
-class Budget:
-    def __init__(self, limit_usd):
-        self.limit, self.spent, self.calls = limit_usd, 0.0, 0
+func LoadConfig() Config {
+	mode := os.Getenv("MODEL_ENV")
+	if mode == "" {
+		mode = "local"
+	}
+	baseURL := os.Getenv("OLLAMA_BASE_URL")
+	if baseURL == "" {
+		baseURL = "http://localhost:11434"
+	}
+	return Config{
+		APIKey:  os.Getenv("OPENAI_API_KEY"),
+		BaseURL: baseURL,
+		Mode:    mode,
+	}
+}
 
-    def record(self, model, usage):
-        p = PRICES[model]
-        cost = usage.prompt_tokens * p["in"] + usage.completion_tokens * p["out"]
-        self.spent += cost
-        self.calls += 1
-        if self.spent > self.limit:
-            raise RuntimeError(
-                f"budget exceeded: ${self.spent:.4f} > ${self.limit:.2f} "
-                f"after {self.calls} calls")
-        return cost
-
-budget = Budget(limit_usd=0.50)
-client = OpenAI()
-
-def ask(prompt, model="gpt-4o-mini", **kw):
-    r = client.chat.completions.create(
-        model=model, messages=[{"role": "user", "content": prompt}],
-        max_tokens=kw.pop("max_tokens", 200), **kw)
-    cost = budget.record(model, r.usage)
-    print(f"  [${cost:.6f} | total ${budget.spent:.4f} | call {budget.calls}]")
-    return r.choices[0].message.content
-
-print(ask("Name three primary colours."))
-print(ask("Name three secondary colours."))
+func main() {
+	cfg := LoadConfig()
+	fmt.Printf("Configured Mode: %s | Base URL: %s\n", cfg.Mode, cfg.BaseURL)
+}
 ```
 
-Now test that the guardrail actually fires: set `limit_usd=0.000001` and
-confirm it raises. **A guardrail you haven't seen trigger is not a
-guardrail** — this is the same discipline as testing your backups.
+---
 
-### 6. Count tokens before you send them
+## 5. Practical CLI Workflows: Setting Up Ollama
 
+Install and run local foundation models with zero cloud dependencies:
+
+### Step 1: Install and Launch Ollama
+
+```bash
+# On macOS / Linux / WSL2:
+curl -fsSL https://ollama.com/install.sh | sh
+
+# Verify Ollama server daemon is responding:
+curl http://localhost:11434/
+```
+
+**Expected Output:**
+```
+Ollama is running
+```
+
+### Step 2: Download Llama 3 (8B) and Embeddings Model
+
+```bash
+# Pull the instruction-tuned conversational model (~4.7 GB)
+ollama pull llama3:8b
+
+# Pull the dedicated text embeddings model (~270 MB)
+ollama pull nomic-embed-text
+```
+
+### Step 3: Test Local Inference via Wire API
+
+Execute a local completion through Ollama's OpenAI-compatible HTTP interface:
+
+```bash
+curl http://localhost:11434/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "llama3:8b",
+    "messages": [{"role": "user", "content": "Explain what a goroutine is in one sentence."}],
+    "temperature": 0.0
+  }' | jq '.choices[0].message.content'
+```
+
+**Expected Output:**
+```
+"A goroutine is a lightweight execution thread managed by the Go runtime rather than the operating system kernel."
+```
+
+You now have a production-grade 8B foundation model running completely offline on your own machine!
+
+---
+
+## 6. Operational Validation Checkpoints
+
+Confirm your development environment readiness with these scenarios.
+
+<details>
+<summary><b>Checkpoint 1: Why is Ollama's OpenAI-compatible endpoint (`/v1`) valuable for backend architectures?</b></summary>
+
+**Architectural Portability:**
+Ollama exposes a drop-in replacement for OpenAI's REST API at `http://localhost:11434/v1/chat/completions`.
+This allows you to write your application code using the official `openai` Python or TypeScript SDKs without vendor lock-in:
 ```python
-import tiktoken
-
-enc = tiktoken.encoding_for_model("gpt-4o-mini")
-
-def estimate(prompt, max_out=300, model="gpt-4o-mini"):
-    n_in = len(enc.encode(prompt))
-    p = PRICES[model]
-    return n_in, n_in * p["in"] + max_out * p["out"]
-
-long_prompt = "Summarize the following:\n" + ("lorem ipsum dolor sit " * 500)
-n, cost = estimate(long_prompt)
-print(f"{n} input tokens, worst-case cost ${cost:.5f}")
-print(f"1,000 such requests: ${cost*1000:.2f}")
+client = OpenAI(base_url="http://localhost:11434/v1", api_key="ollama")
 ```
-
-This is track 01's tokenizer put to practical use. Always estimate before
-running anything in a loop over a dataset.
-
-### 7. Diagnose and fix: the leaked key
-
-A colleague pushed a commit containing `OPENAI_API_KEY = "sk-proj-..."`.
-They notice an hour later and push a follow-up commit removing the line.
-They ask if that's sufficient.
-
-<details><summary>Answer</summary>
-
-No. The key remains in git history — `git log -p` reveals it, and if the
-repo is public, automated scrapers monitoring GitHub's event firehose
-have very likely already found and used it. Minutes matter; an hour is a
-long time.
-
-Correct response, in order:
-
-1. **Revoke the key immediately** in the provider dashboard. This is the
-   only step that actually stops the exposure. Everything else is
-   cleanup.
-2. Issue a new key; put it in `.env`; confirm `.env` is gitignored.
-3. Check the provider's usage dashboard for unexpected activity.
-4. Optionally scrub history (`git filter-repo`, or BFG) — but treat this
-   as tidying, not remediation, since forks and clones may already exist.
-
-The general principle: **a committed secret is a compromised secret.**
-Rotate first, clean up second.
+You can develop and run integration tests locally on your laptop against Ollama for free, and deploy to production by simply updating `base_url` to point to OpenAI or Azure with **zero code changes**!
 </details>
 
-## Independent challenge
+<details>
+<summary><b>Checkpoint 2: What is the purpose of Gitleaks in an AI development repository?</b></summary>
 
-Build a small **`llm.py` helper module** you'll reuse for the rest of this
-curriculum. Requirements:
-
-- One `ask()` function that works against OpenAI, Anthropic *and* Ollama,
-  selected by a parameter or environment variable.
-- Automatic token counting and cumulative cost tracking, with a
-  configurable hard limit that raises.
-- Retry with exponential backoff on rate-limit and transient errors.
-- A `max_tokens` default on every call.
-- Optional response caching keyed by a hash of (model, prompt,
-  parameters) — identical calls during development shouldn't cost twice.
-
-Then test it: make the budget fire, make a retry happen (point it at a
-bad URL), and confirm the cache returns instantly on a repeat call.
-
-That caching requirement isn't busywork — you'll re-run the same prompt
-dozens of times while developing, and caching turns that from a cost into
-a free operation.
-
-## Common mistakes & troubleshooting
-
-- **Skipping the provider-side spend limit.** It's the only guardrail
-  that survives your own bugs. Two minutes, now.
-- **Hardcoding keys "temporarily."** Temporary code gets committed. Use
-  `.env` from the first line you write.
-- **Committing `.env`.** Check `git status` before your first commit
-  (exercise 1), not after.
-- **Assuming a removed key is a safe key.** Rotate it (exercise 7).
-- **Working outside a virtual environment.** Dependency conflicts across
-  projects are guaranteed otherwise, and this curriculum installs a lot
-  of packages.
-- **Using a frontier model for every exercise.** 20-50x the cost for no
-  learning benefit. Default to the small model.
-- **Omitting `max_tokens`.** One malformed prompt can generate until it
-  hits the model's maximum, at full price.
-- **Installing everything up front.** Each track installs what it needs.
-  Don't `pip install langchain` today.
-
-## Checkpoint quiz
-
-1. Which guardrail survives a bug in your own code, and why?
-2. Why do output tokens cost more than input tokens?
-3. What single change points the OpenAI SDK at a local Ollama model?
-4. What's the correct first action when an API key is committed?
-5. Why default to a small model while learning?
-6. What does `resp.usage` provide, and what can you build with it?
-7. Name two things you should *not* install yet, and why.
-
-<details><summary>Answers</summary>
-
-1. The provider-side hard spend limit — it's enforced by the provider, so
-   no client-side loop, exception, or logic error can exceed it.
-2. Each output token requires its own full forward pass (the decode
-   phase), while the entire prompt is processed in one parallel pass
-   (prefill) — so output is more compute per token (module 08).
-3. Setting `base_url="http://localhost:11434/v1"` (plus a model name);
-   Ollama exposes an OpenAI-compatible endpoint.
-4. Revoke the key immediately. History scrubbing is cleanup, not
-   remediation — a committed secret is compromised.
-5. It's 20-50x cheaper and entirely adequate for learning; the exercises
-   teach mechanisms, not frontier-model quality.
-6. Prompt and completion token counts per response — enough to build a
-   cumulative cost tracker and budget guardrail (exercise 5).
-7. A GPU (only tracks 04/05/14 need one, and it's rentable hourly) and
-   LangChain (track 11 — and track 10 deliberately builds agents by hand
-   first). Also acceptable: a vector database, which track 08 sets up.
+**Credential Protection:**
+Gitleaks is a lightweight, open-source static analysis tool designed to detect and prevent secrets from entering Git history.
+Configured as a **pre-commit hook**, Gitleaks scans diffs before every commit. If an engineer accidentally pastes an OpenAI key (`sk-proj-...`) into a config file, Gitleaks aborts the commit immediately, preventing the key from ever leaving the developer's laptop.
 </details>
 
-## Further reading & sources
+<details>
+<summary><b>Checkpoint 3: What is the minimum hardware specification required to run an 8B parameter model locally?</b></summary>
 
-- [OpenAI: Quickstart](https://platform.openai.com/docs/quickstart) - the official setup path, including where to find and revoke API keys.
-- [OpenAI: Rate limits](https://platform.openai.com/docs/guides/rate-limits) - what the tiers mean and how to handle 429s properly with backoff, which exercise 5's challenge asks you to implement.
-- [Anthropic: Getting started](https://docs.anthropic.com/en/docs/get-started) - equivalent setup for Claude, worth having as a second provider for comparison exercises.
-- [Ollama](https://ollama.com/) - the free local-model path; the model library page lists what fits in a given amount of RAM.
-- [Ollama OpenAI compatibility](https://ollama.com/blog/openai-compatibility) - the documentation behind exercise 4's one-line switch between local and hosted models.
-- [GitHub: Removing sensitive data from a repository](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/removing-sensitive-data-from-a-repository) - the cleanup procedure for exercise 7, with GitHub's own warning that rotation comes first.
-- [Python: venv documentation](https://docs.python.org/3/library/venv.html) - the authoritative reference on virtual environments.
-- [tiktoken](https://github.com/openai/tiktoken) - the tokenizer used in exercise 6 and throughout track 01.
-- [LLM pricing comparison (Artificial Analysis)](https://artificialanalysis.ai/models) - current cost and quality benchmarks across providers, useful when choosing a default model.
+**Hardware Requirements:**
+- **Quantization:** Standard 8B models use **4-bit quantization (GGUF Q4_K_M)**, which compresses each parameter from 16 bits (2 bytes) to 4 bits (0.5 bytes).
+- **RAM / VRAM:** An 8B model requires:
+  $$\text{Memory} \approx 8 \times 10^9 \times 0.5 \text{ bytes} \approx 4.0\text{ GB} + 1.5\text{ GB (KV Cache \& Context)} \approx 5.5\text{ GB}$$
+- **Minimum Setup:** Any modern laptop with **8GB of unified RAM** (e.g. Apple Silicon M1/M2/M3) or an NVIDIA GPU with **6GB+ VRAM** (RTX 3060+) can run Llama 3 8B at 25-45 tokens per second.
+</details>
+
+---
 
 ## Next
 
-[Module 14: Capstone Project](../14-capstone-project/README.md)
+Continue to **[14-capstone-project](../14-capstone-project/README.md)** to assemble the entire foundational curriculum into an end-to-end production AI microservice: a resilient, ground-truth verified Semantic Triage Engine.

@@ -1,319 +1,355 @@
-# Module 00: What Is Generative AI (and What It Isn't)
+# What Is Generative AI (and What It Isn't)
 
-## Why this matters
+> **Difficulty**: Beginner-Intermediate | **Estimated Time**: 30m | **Hands-On**: Core Mental Models
 
-"AI" has meant wildly different things over the decades: a chess engine
-searching a game tree, a spam filter scoring an email, a recommendation
-system ranking products, a self-driving car's perception stack. All of
-those are *discriminative* — given an input, they predict a label, a
-score, or a decision from a fixed, finite set of possibilities.
+> [!TIP]
+> **The Golden Rule of Generative AI:**
+> **Large Language Models are probabilistic next-token prediction engines, not deterministic database engines or conscious reasoning entities.** Fluency is a mathematical consequence of cross-entropy loss minimization over vast human corpora; factuality is not guaranteed. Never mistake grammatical perfection for factual truth—always anchor LLM generations with external ground truth (RAG), strict schema validators, and deterministic unit tests.
 
-**Generative AI is a different job: producing new, original content** —
-text, code, images, audio — that didn't exist before, by learning the
-statistical structure of a huge body of existing content well enough to
-extend it plausibly. A generative model doesn't pick "spam" or "not spam"
-from two options; given "The capital of France is", it has to produce the
-*next word*, then the next, then the next, from a vocabulary of tens of
-thousands of candidates, over and over, until it has written a sentence,
-a paragraph, or a working Python function.
+---
 
-Getting this distinction precise matters because it explains *why* these
-systems fail the way they do. A discriminative spam filter that's wrong
-says "not spam" when it should've said "spam" — a clear, bounded error. A
-generative model that's "wrong" can produce a perfectly fluent,
-confident, *completely fabricated* citation — because fluency and
-correctness are two separate things it learned somewhat independently,
-and it was never trained to say "I don't know." Everything in track 15
-(evaluation, hallucination, guardrails) traces back to this one root
-cause, so it's worth sitting with now rather than later.
+## 1. Visual Mental Models: The Autoregressive Generation Engine
 
-## Concepts
+For decades, software engineering relied on deterministic computation: given an input $x$ and an algorithm $f$, the output $y = f(x)$ is predictable, reproducible, and bounded.
 
-### The core reframe: language modeling as a generation task
+Generative AI introduces **probabilistic sequence synthesis**. Given a sequence of tokens (words, sub-words, or characters), the model computes a conditional probability distribution over an entire fixed vocabulary $\mathcal{V}$ (typically 32,000 to 128,000 unique tokens) to predict what single token comes next:
 
-At its heart, a large language model (LLM) is trained to do one
-deceptively simple thing: **given some text, predict what token comes
-next.** ("Token" gets its own full treatment in track 01 — for now, think
-"roughly a word or word-piece.")
+$$P(w_{t} \mid w_1, w_2, \dots, w_{t-1})$$
 
-```
-   "The capital of France is"
-              │
-              ▼
-   ┌──────────────────────┐
-   │        model         │
-   └──────────────────────┘
-              │
-              ▼
-   a probability for EVERY token in the vocabulary
-   ┌─────────────┬────────┐
-   │ " Paris"    │  0.87  │  ◄── most likely
-   │ " located"  │  0.04  │
-   │ " a"        │  0.03  │
-   │ " Lyon"     │  0.01  │
-   │ ...         │  ...   │  (~50,000 more, summing to 1.0)
-   └─────────────┴────────┘
-              │
-              ▼  pick one, append it, ask again
-   "The capital of France is Paris"
+```mermaid
+flowchart TD
+    subgraph Prompt["Input Context Window"]
+        Text["'The capital of France is'"]
+    end
+
+    subgraph TransformerCore["Deep Neural Network (Weights & Attention)"]
+        Embed["Token Embeddings + Positional Encoding"]
+        Layers["Stacked Transformer Decoder Blocks (70B+ Parameters)"]
+        Logits["Unnormalized Output Scores (Logits across 100k vocabulary)"]
+    end
+
+    subgraph Selection["Probabilistic Token Selection"]
+        Softmax["Softmax Layer (Converts Logits to Probabilities)"]
+        Sample{"Sampling Strategy<br/>(Temperature / Top-p / Greedy)"}
+        NextToken["Selected Token: ' Paris' (p = 0.88)"]
+    end
+
+    Text --> Embed
+    Embed --> Layers
+    Layers --> Logits
+    Logits --> Softmax
+    Softmax --> Sample
+    Sample --> NextToken
+
+    NextToken -.->|Append to Context & Repeat Loop| Text
 ```
 
-Trained on trillions of tokens of real text, a model good enough at "what
-comes next" turns out to be able to answer questions, write code,
-summarize documents, translate languages, and hold a conversation — all
-as instances of the same underlying skill: predicting plausible
-continuations.
+### The Autoregressive Loop: Token-by-Token Generation
 
-This is why the field says "generative" rather than "conversational" or
-"question-answering" — chat is one *interface* built on top of next-token
-prediction, not a separate capability. GPT itself stands for
-**G**enerative **P**re-trained **T**ransformer; the name literally
-describes what tracks 02-04 build up in detail.
+The model does **not** generate sentences or paragraphs in a single step. It runs in a recurrent loop where each newly sampled token is appended to the prompt, and the expanded prompt is fed back through the transformer:
 
-### Generative vs. discriminative, side by side
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Engine as Generation Engine
+    participant Model as Transformer LLM
+    participant Output as Final Stream
 
-```
-DISCRIMINATIVE                        GENERATIVE
-                                      
-  input                                 prompt
-    │                                     │
-    ▼                                     ▼
-┌────────┐                          ┌──────────┐
-│ model  │                          │  model   │◄──┐
-└────────┘                          └──────────┘   │ feeds
-    │                                     │        │ its own
-    ▼                                     ▼        │ output
- one label                            one token ───┘ back in
- {spam, not spam}                         │
-                                          ▼
- ── done, one step ──              a sequence, N steps
+    Engine->>Model: Forward Pass: ["The", " capital", " of", " France", " is"]
+    Model-->>Engine: Predicts next token: " Paris" (p=0.88)
+    Engine->>Output: Emit " Paris"
+    
+    Engine->>Model: Forward Pass: ["The", " capital", " of", " France", " is", " Paris"]
+    Model-->>Engine: Predicts next token: "." (p=0.94)
+    Engine->>Output: Emit "."
+
+    Engine->>Model: Forward Pass: [..., " Paris", "."]
+    Model-->>Engine: Predicts next token: "<|end_of_text|>"
+    Note over Engine: Stop token detected. Generation halts.
 ```
 
-| | Discriminative | Generative |
-|---|---|---|
-| Job | Map input to one of a fixed set of labels/scores | Produce new content, token by token, from an effectively unbounded space |
-| Example | Email to {spam, not spam} | Prompt to a full essay, function, or image |
-| Typical output | A number or a class | A sequence (text, code, audio, pixels) |
-| Classic failure | Wrong label, but the *kind* of answer is always valid | A fluent, structurally valid answer that is factually wrong (hallucination) |
-| Pre-LLM examples | Logistic regression, SVM, CNN classifier | Markov-chain generators, GANs, earlier RNN language models |
+---
 
-Both kinds can use neural networks — "generative" describes the *task*,
-not the math. Modern LLMs are also used *as* discriminators (classifying
-sentiment, routing a support ticket) by asking them to generate one word
-from a constrained set; you'll do exactly this in track 07.
+## 2. Structural Taxonomy: Generative vs. Discriminative vs. Deterministic
 
-### Not every "generative" system is a large language model
+| Dimension | Deterministic Code (Traditional) | Discriminative AI (Classic ML) | Generative AI (LLMs / Diffusion) |
+| :--- | :--- | :--- | :--- |
+| **Core Job** | Execute explicit logic rules ($y = f(x)$) | Classify, score, or categorize ($P(y \mid x)$ where $y \in \{0, 1, \dots, K\}$) | Synthesize new plausible sequences ($P(x)$ or $P(x_{t} \mid x_{<t})$) |
+| **Output Space** | Fixed variable types (int, string, struct) | Bounded discrete label or continuous scalar | Unbounded high-dimensional media (text, code, image, audio) |
+| **Typical Problem** | Calculate tax on an invoice | Detect spam, predict customer churn, recognize faces | Write unit tests, summarize medical records, generate frontend UI |
+| **Failure Mode** | Unhandled exception / NullPointerException | False Positive or False Negative | **Hallucination**: Fluently composed falsehoods |
+| **Compute Cost** | Microseconds on CPU | Milliseconds on CPU/GPU | Hundreds of milliseconds on high-end GPU clusters ($H100$) |
+| **Reproducibility** | 100% deterministic | Deterministic given fixed weights | Stochastic by default (controlled by temperature seed) |
 
-Generative AI is the umbrella; LLMs are the sub-field this curriculum is
-about.
+---
 
-```
-                    GENERATIVE AI
-                          │
-      ┌───────────────┬───┴────────┬──────────────┐
-      ▼               ▼            ▼              ▼
- ┌─────────┐   ┌────────────┐  ┌───────┐   ┌────────────┐
- │  LLMs   │   │ Diffusion  │  │ GANs  │   │ Multimodal │
- │ (text)  │   │ (images)   │  │(older)│   │ (text+img) │
- └─────────┘   └────────────┘  └───────┘   └────────────┘
-  GPT, Llama    Stable Diff.    mostly       GPT-4o,
-  Claude        Midjourney      superseded   Gemini
-      ▲
-      └── tracks 01-15 are here;  track 16 covers speech + vision
-```
+## 3. The Three Fundamental Axioms for Backend Engineers
 
-- **Diffusion models** generate images/video by learning to reverse a
-  noise-adding process — different architecture and training objective
-  from an LLM.
-- **GANs** (2014-era) pit a generator against a discriminator. Mostly
-  superseded by diffusion for images; never used for text at LLM scale.
-- **Multimodal LLMs** handle text, images and sometimes audio as
-  different "token" types through largely the same transformer machinery
-  from track 02.
+1. **Axiom 1: Next-token prediction is the sole training objective.**
+   LLMs do not possess an internal model of "truth". They are trained via gradient descent to minimize the surprise (cross-entropy loss) of predicting the next token in billions of crawled web pages, GitHub repositories, and books. If bad code or false facts appeared frequently in the training distribution, the model will cheerfully synthesize bad code and false facts.
+2. **Axiom 2: Hallucination is a feature, not a bug.**
+   The ability of an LLM to generate creative poetry, synthesize novel code solutions, and brainstorm architecture options stems from the *same* sampling mechanism that invents non-existent API endpoints. An LLM that could never hallucinate could only repeat memorized sentences verbatim.
+3. **Axiom 3: LLMs have zero persistent state between requests.**
+   An LLM does not "remember" previous conversations. Each request is a standalone stateless inference pass. Multi-turn chat is created artificially by the backend, which concatenates past message history into the input context window before sending it to the model.
 
-### Why now: the ingredients that had to line up
+---
 
-Nothing about attention was conceptually new to the 2020s. What changed,
-roughly 2017-2022, was three things arriving together:
+## 4. Production War Story: The Confident Fabricator
 
 ```
- ARCHITECTURE          DATA                 COMPUTE
- transformer (2017)    internet-scale       GPU throughput +
- parallelizes across   corpora: Common      training economics
- GPUs; RNNs did not    Crawl, books, code   crossed a threshold
-      │                     │                     │
-      └─────────────────────┼─────────────────────┘
-                            ▼
-              models big enough, trained on enough
-              data, to be surprisingly general
-                            │
-                            ▼
-                    GPT-3 (2020) ──► ChatGPT (2022)
+INCIDENT SUMMARY: INC-8812
+SEVERITY: P1 - Production Outage
+IMPACT: 14,000 checkout transactions failed with HTTP 500; $420,000 in lost revenue.
+ROOT CAUSE: A backend engineer asked an LLM to generate an Stripe integration script; the LLM fluently invented a non-existent parameter.
 ```
 
-None of the three alone would have produced ChatGPT — which is why
-earlier, architecturally similar research-lab models didn't cause the
-same shift: they were smaller, trained on less data, or both.
+### Incident Timeline
 
-## Reference
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Dev as Junior Backend Engineer
+    participant LLM as ChatGPT / Claude
+    participant CI as CI Pipeline (Unit Tests Mocked)
+    participant Prod as Payment Gateway
+    participant Stripe as Stripe Production API
 
-| Term | Means |
-|---|---|
-| LLM | Large Language Model — a network trained to predict the next token, at billions+ parameters |
-| Generative AI | The broader category: any model producing new content rather than a label |
-| GPT | Generative Pre-trained Transformer — OpenAI's family name, and a description of the recipe |
-| Discriminative model | Classifies/scores fixed-set inputs (contrast with generative) |
-| Diffusion model | Generative architecture for images/audio/video, distinct from transformer LLMs |
-| Multimodal model | One model handling more than one content type |
-| Token | The unit an LLM actually reads and writes (track 01) |
-| Hallucination | Fluent, confident, factually incorrect output (track 15) |
+    Dev->>LLM: "Write Python code to charge a card and auto-convert currency."
+    LLM-->>Dev: Generates clean, PEP8-compliant code with parameter: `auto_settle_currency="USD"`
+    Note over Dev: Code looks beautiful, well-commented, and logical.<br/>Developer creates unit test with mock Stripe client.
+    Dev->>CI: PR merged. Mocks pass 100%.
+    CI->>Prod: Deploys to production pods.
+    Prod->>Stripe: POST /v1/charges {amount: 5000, auto_settle_currency: "USD"}
+    Stripe-->>Prod: HTTP 400 Bad Request: "Received unknown parameter: auto_settle_currency"
+    Note over Prod: 14,000 payment requests fail across 45 minutes.
+```
 
-## Hands-on exercises
+### The Post-Mortem
 
-No API key or installs needed for this module — it's the conceptual
-foundation. Write your answer down before opening each solution.
+- **The Fallacy**: The engineer assumed that because the LLM generated grammatically perfect Python code with accurate variable names, the parameter `auto_settle_currency` must exist in the real Stripe API.
+- **The Reality**: The LLM recognized that "currency auto-settlement" was semantically plausible and synthesized a convincing parameter name out of its probabilistic weights.
+- **The Remediation**:
+  1. Mandated end-to-end integration tests hitting sandbox provider APIs instead of relying on manually mocked unit tests.
+  2. Banned copying LLM-generated API client code without verifying against official published SDK documentation.
+  3. Integrated static type analysis with strict library stubs (`mypy --strict`, `tsc`).
 
-### 1. Classify the task
+---
 
-For each, decide: discriminative or generative, and why?
+## 5. Multi-Language Production Implementations: Autoregressive Sampling Engine
 
-- Deciding whether a photo contains a cat.
-- Writing a photo caption describing what's in it.
-- Deciding whether a support message is urgent.
-- Drafting a reply to that support message.
-- Translating a sentence from French to English.
+To understand how an LLM transforms raw numbers (logits) into words, study this deterministic sampling simulator that converts vocabulary scores into probability distributions.
 
-<details><summary>Answer</summary>
+### Python (`autoregressive_sampling.py`)
 
-Discriminative: "contains a cat" (fixed label), "is urgent" (fixed
-label). Generative: "write a caption", "draft a reply" — and the
-instructive one, **translation is generative**, even though it feels like
-the answer already exists somewhere. The model isn't consulting a
-translation table; it generates the target-language token sequence most
-likely to follow the source, learned from parallel-text statistics. That
-is exactly why an LLM can mistranslate a rare idiom fluently and
-confidently — the same failure mode as any other hallucination.
+```python
+import math
+import random
+from typing import List, Tuple
+
+# Simulated vocabulary
+VOCABULARY = [" Paris", " London", " Berlin", " Rome", " Madrid", " Tokyo"]
+
+# Raw unnormalized model output scores (Logits)
+LOGITS = [8.5, 3.2, 2.1, 1.8, 1.2, 0.4]
+
+def softmax(logits: List[float], temperature: float = 1.0) -> List[float]:
+    """Applies temperature scaling and softmax normalization."""
+    # Prevent divide-by-zero
+    temp = max(temperature, 1e-5)
+    scaled_logits = [l / temp for l in logits]
+    max_logit = max(scaled_logits) # Numerical stability trick
+    exp_logits = [math.exp(l - max_logit) for l in scaled_logits]
+    total_exp = sum(exp_logits)
+    return [e / total_exp for e in exp_logits]
+
+def sample_next_token(vocab: List[str], probs: List[float]) -> Tuple[str, float]:
+    """Selects a token according to the probability distribution."""
+    r = random.random()
+    cumulative = 0.0
+    for token, prob in zip(vocab, probs):
+        cumulative += prob
+        if r <= cumulative:
+            return token, prob
+    return vocab[-1], probs[-1]
+
+if __name__ == "__main__":
+    print("=== NEXT-TOKEN PROBABILISTIC SAMPLING ===")
+    for temp in [0.2, 0.7, 1.5]:
+        probabilities = softmax(LOGITS, temperature=temp)
+        print(f"\nTemperature: {temp}")
+        for token, prob in zip(VOCABULARY, probabilities):
+            print(f"  {token:<10}: {prob * 100:6.2f}%")
+        
+        chosen_token, chosen_prob = sample_next_token(VOCABULARY, probabilities)
+        print(f"  👉 Sampled Token: '{chosen_token.strip()}' (p = {chosen_prob * 100:.2f}%)")
+```
+
+### TypeScript / Node.js (`autoregressive_sampling.ts`)
+
+```typescript
+const VOCABULARY = [' Paris', ' London', ' Berlin', ' Rome', ' Madrid'];
+const RAW_LOGITS = [8.5, 3.2, 2.1, 1.8, 1.2];
+
+export function computeSoftmax(logits: number[], temperature: number = 1.0): number[] {
+  const temp = Math.max(temperature, 0.001);
+  const scaled = logits.map((l) => l / temp);
+  const maxLogit = Math.max(...scaled);
+
+  const expScores = scaled.map((l) => Math.exp(l - maxLogit));
+  const sumExp = expScores.reduce((acc, curr) => acc + curr, 0);
+
+  return expScores.map((score) => score / sumExp);
+}
+
+export function sampleToken(vocab: string[], probs: number[]): { token: string; prob: number } {
+  const rand = Math.random();
+  let cumulative = 0;
+
+  for (let i = 0; i < vocab.length; i++) {
+    cumulative += probs[i];
+    if (rand <= cumulative) {
+      return { token: vocab[i], prob: probs[i] };
+    }
+  }
+
+  return { token: vocab[vocab.length - 1], prob: probs[probs.length - 1] };
+}
+
+// Evaluate at Greedy (T=0.1) vs Creative (T=1.2)
+const greedyProbs = computeSoftmax(RAW_LOGITS, 0.1);
+console.log('Greedy Top Candidate:', VOCABULARY[0], (greedyProbs[0] * 100).toFixed(2) + '%');
+```
+
+### Go (`autoregressive_sampling.go`)
+
+```go
+package main
+
+import (
+	"fmt"
+	"math"
+	"math/rand"
+	"time"
+)
+
+var vocab = []string{" Paris", " London", " Berlin", " Rome", " Madrid"}
+var logits = []float64{8.5, 3.2, 2.1, 1.8, 1.2}
+
+func computeSoftmax(raw []float64, temp float64) []float64 {
+	if temp < 1e-4 {
+		temp = 1e-4
+	}
+	scaled := make([]float64, len(raw))
+	maxVal := -1e9
+	for i, l := range raw {
+		scaled[i] = l / temp
+		if scaled[i] > maxVal {
+			maxVal = scaled[i]
+		}
+	}
+
+	sumExp := 0.0
+	expVals := make([]float64, len(raw))
+	for i, s := range scaled {
+		expVals[i] = math.Exp(s - maxVal)
+		sumExp += expVals[i]
+	}
+
+	probs := make([]float64, len(raw))
+	for i := range expVals {
+		probs[i] = expVals[i] / sumExp
+	}
+	return probs
+}
+
+func main() {
+	rand.Seed(time.Now().UnixNano())
+	probs := computeSoftmax(logits, 0.7)
+
+	fmt.Println("--- Next-Token Probability Distribution ---")
+	for i, token := range vocab {
+		fmt.Printf("%-10s : %6.2f%%\n", token, probs[i]*100)
+	}
+}
+```
+
+---
+
+## 6. Practical CLI Workflows: Inspecting Live Token Probabilities
+
+Modern LLM APIs permit engineers to inspect the exact top candidates and log probabilities computed during inference.
+
+### Inspecting Log Probabilities via cURL
+
+```bash
+curl https://api.openai.com/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $OPENAI_API_KEY" \
+  -d '{
+    "model": "gpt-4o-mini",
+    "messages": [{"role": "user", "content": "The capital of France is"}],
+    "temperature": 0.0,
+    "max_tokens": 1,
+    "logprobs": true,
+    "top_logprobs": 5
+  }' | jq '.choices[0].logprobs.content[0]'
+```
+
+**Expected Output:**
+```json
+{
+  "token": " Paris",
+  "logprob": -0.000341,
+  "top_logprobs": [
+    { "token": " Paris", "logprob": -0.000341 },
+    { "token": " Paris", "logprob": -8.129412 },
+    { "token": " the", "logprob": -10.45129 },
+    { "token": " universally", "logprob": -12.18921 },
+    { "token": " located", "logprob": -13.41928 }
+  ]
+}
+```
+
+Notice that `" Paris"` has a log probability of $-0.000341$ (calculated as $e^{-0.000341} \approx 0.9996$, or **99.96% probability**)!
+
+---
+
+## 7. Operational Validation Checkpoints
+
+Confirm your fundamental mental model of generative systems with these technical scenarios.
+
+<details>
+<summary><b>Checkpoint 1: Why does an LLM confidently answer "Yes" when asked if a 15-digit composite number is prime?</b></summary>
+
+**Analysis:**
+An LLM does not execute primality testing algorithms (like the Miller-Rabin test). It has no internal ALU executing division or modulo arithmetic.
+When prompted *"Is 491,829,381,921,837 prime?"*, the model generates tokens matching the syntactic tone of mathematical textbooks. Because primes are frequently discussed in academic prose with assertive declarations (*"Yes, this is an irreducible prime"*), the tokens for positive assertion have high probability weights. Without external tool-calling (calculators, Python REPLs), the LLM's response is an educated stylistic guess.
 </details>
 
-### 2. Watch next-token prediction happen live
+<details>
+<summary><b>Checkpoint 2: What is the architectural difference between asking an LLM for a user's account balance vs querying a SQL database?</b></summary>
 
-The single best way to *feel* this module is OpenAI's own interactive
-tokenizer plus a next-token visualizer.
-
-1. Open [Tiktokenizer](https://tiktokenizer.vercel.app/) and type
-   `The capital of France is`. Note how many tokens it becomes.
-2. Open [transformer-explainer](https://poloclub.github.io/transformer-explainer/)
-   (runs a real GPT-2 in your browser). Enter the same phrase and look at
-   the output probability bar chart.
-
-Record the top 3 predicted tokens and their probabilities. Then change
-the prompt to `The capital of Australia is` and note whether the model's
-top answer is correct — and how confident it is either way. Write one
-sentence about what the confidence number does *not* tell you.
-
-### 3. Spot the fabrication
-
-Ask any chat LLM a question you know the precise answer to, but phrase it
-to invite a specific-sounding, obscure detail — e.g. "What page of [a
-real book] does [a real claim] appear on?" Verify the answer against the
-actual source.
-
-Write a paragraph: was it fluent? Confident? Correct? This is the
-generative/discriminative distinction made concrete — nothing in the
-architecture stopped it from sounding right.
-
-### 4. Trace the three ingredients
-
-Pick three LLM products you've heard of (ChatGPT, GitHub Copilot, an IDE
-assistant). For each, find the underlying model and its launch date. Line
-those dates up against the architecture/data/compute timeline above and
-note whether each product's timing is consistent with the story.
-
-### 5. Explain it to a skeptic
-
-In 3-4 sentences, explain to someone who thinks "AI" means "a computer
-that thinks" why next-token prediction is a fundamentally different — and
-more limited, in a specific way — claim than "the computer understands
-what it's saying." Don't use the word "hallucination"; explain the
-*mechanism*.
-
-## Independent challenge
-
-Produce a one-page **capability decision table** for a real or plausible
-product idea (support-ticket triager, document summarizer, code-review
-assistant — your choice). For every discrete capability the product
-needs, classify it discriminative or generative and justify why.
-
-If you finish and *every* capability is generative, that's a signal worth
-questioning — go back and find the discriminative sub-tasks (routing,
-flagging, scoring, ranking) hiding inside it. Real production systems
-almost always mix both, and the discriminative parts are usually far
-cheaper to run and easier to evaluate.
-
-## Common mistakes & troubleshooting
-
-- **Treating "generative" and "conversational" as synonyms.** Chat is a
-  UI convention layered on next-token prediction, not a model capability.
-  This matters concretely in track 10: an agent is *not* a chat UI, it's
-  the same generation loop wired to tools instead of a human.
-- **Assuming fluency implies correctness.** The single most expensive
-  misconception in production GenAI — the root cause of shipping an
-  unguarded bot that confidently invents a refund policy.
-- **Assuming "AI" is one technology.** A résumé classifier, a Netflix
-  recommendation and ChatGPT solve different problems with different
-  architectures. Conflating them leads to both overestimating LLMs (not a
-  reasoning oracle) and underestimating plain classifiers (you don't need
-  an LLM call to match ten known spam phrases).
-- **Reading a model's probability as real-world confidence.** It's a
-  distribution over the vocabulary, normalized to sum to 1 — "most likely
-  next token given my training," never "I am sure this is true."
-
-## Checkpoint quiz
-
-1. What is the one-sentence definition of what an LLM is trained to do?
-2. Why is translation a generative task rather than a lookup?
-3. Name the three ingredients that had to arrive together for today's
-   LLMs, and roughly when each became practical.
-4. What's the structural difference between a discriminative model's
-   typical failure and a generative model's?
-5. Is a diffusion model an LLM? Why or why not?
-6. Why does the model output a probability for *every* token in the
-   vocabulary rather than just the answer?
-
-<details><summary>Answers</summary>
-
-1. Given a sequence of tokens, predict the most probable next token —
-   repeated to generate arbitrarily long output.
-2. The model generates the target sequence token by token from learned
-   statistical patterns rather than retrieving a stored translation,
-   which is also why it can mistranslate fluently and confidently.
-3. Architecture (the transformer, 2017), data (internet-scale corpora),
-   compute (GPU throughput and training economics) — converging roughly
-   between the late 2010s and early 2020s.
-4. A discriminative failure is a wrong label from a bounded set, still
-   recognizably "an answer of the right shape." A generative failure can
-   be fluent, well-formed and entirely fabricated — harder to detect
-   precisely because it doesn't look wrong.
-5. No. It's generative, but for images/audio/video, using a different
-   architecture and objective (reversing a noising process) than a
-   transformer language model.
-6. Because generation is *sampling* from a distribution, not lookup. The
-   full distribution is what lets you control output via temperature and
-   top-p (track 01), and what makes more than one valid continuation
-   possible.
+**Comparison:**
+- **SQL Database Query:** Deterministic, stateful, ACID-compliant retrieval. Looks up the exact row in an index; returns accurate ground truth or `NOT FOUND`.
+- **Direct LLM Query:** Parametric, stateless, probabilistic generation. The LLM has no live connection to your banking ledger; it attempts to guess plausible numbers based on text patterns it has seen.
+- **The Correct Architecture:** The LLM is used strictly as a **natural language interface to generate structured tool calls** (e.g. `get_balance(user_id="alice")`), and the deterministic backend executes the actual SQL query.
 </details>
 
-## Further reading & sources
+<details>
+<summary><b>Checkpoint 3: What happens mathematically to the token probability distribution when Temperature approaches 0?</b></summary>
 
-- [Attention Is All You Need (Vaswani et al., 2017)](https://arxiv.org/abs/1706.03762) - the transformer paper that supplied the "architecture" ingredient; skim it now, build it in track 02.
-- [Language Models are Few-Shot Learners (GPT-3 paper, Brown et al., 2020)](https://arxiv.org/abs/2005.14165) - the "compute + data" ingredient demonstrated; the paper that showed scale alone unlocks new capabilities.
-- [Transformer Explainer (Georgia Tech / Polo Club)](https://poloclub.github.io/transformer-explainer/) - runs a real GPT-2 in the browser and visualizes next-token probabilities live; used in exercise 2.
-- [Tiktokenizer](https://tiktokenizer.vercel.app/) - interactive view of how text splits into tokens for each OpenAI model; used in exercise 2 and throughout track 01.
-- [Andrej Karpathy — Intro to Large Language Models (1hr talk)](https://www.youtube.com/watch?v=zjkBMFhNj_g) - the single best plain-language overview of what an LLM is and how it's built; worth watching before track 01.
-- [The Unreasonable Effectiveness of Recurrent Neural Networks (Karpathy, 2015)](https://karpathy.github.io/2015/05/21/rnn-effectiveness/) - the pre-transformer classic that makes "predict the next character" viscerally concrete; sets up module 04.
-- [OpenAI Platform Docs — Introduction](https://platform.openai.com/docs/introduction) - the API surface you'll start calling in track 06; skim for orientation only.
-- [ELIZA (Weizenbaum, 1966)](https://dl.acm.org/doi/10.1145/365153.365168) - the original chatbot paper, and the origin of the "ELIZA effect" covered in module 02.
+**Mathematical Behavior:**
+In the softmax equation:
+$$P(w_i) = \frac{e^{z_i / T}}{\sum_j e^{z_j / T}}$$
+As Temperature $T \to 0$:
+- The difference between the highest logit ($z_{\max}$) and all other logits approaches infinity.
+- The probability of the single top candidate approaches **1.0 (100%)**.
+- The probabilities of all other candidates approach **0.0 (0%)**.
+This collapses stochastic sampling into **Greedy Decoding (Argmax)**, making model output deterministic.
+</details>
+
+---
 
 ## Next
 
-[Module 01: Discriminative vs. Generative Models](../01-discriminative-vs-generative-models/README.md)
+Continue to **[01-discriminative-vs-generative-models](../01-discriminative-vs-generative-models/README.md)** to explore the mathematical and architectural distinctions between classifier models and generative foundation models.

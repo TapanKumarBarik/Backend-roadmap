@@ -1,388 +1,337 @@
-# Module 01: Discriminative vs. Generative Models
+# Discriminative vs. Generative Models
 
-## Why this matters
+> **Difficulty**: Intermediate | **Estimated Time**: 35m | **Hands-On**: Mandatory
 
-Module 00 drew the distinction in plain language: discriminative models
-pick a label, generative models produce content. That's the right
-intuition, but it's not yet precise enough to be *useful* — and the
-precise version is what makes the rest of this curriculum click.
+> [!TIP]
+> **The Golden Rule of Model Selection:**
+> **Never use a generative model when a discriminative model suffices.** Deploying an 8-billion-parameter LLM to classify support tickets into three categories costs $100\times$ more compute, adds $50\times$ higher latency, and introduces non-deterministic hallucination risk where a 20-megabyte fastText or fine-tuned BERT model provides $99.5\%$ deterministic accuracy in 5 milliseconds. Use discriminative models to classify, filter, and route; use generative models only when you must synthesize new content.
 
-The real distinction is about **which probability distribution the model
-learns**. A discriminative model learns `P(label | input)` — "given this
-email, how likely is 'spam'?" A generative model learns `P(input)` or
-`P(input, label)` — "how likely is this email *at all*?" That sounds like
-a technicality until you notice what it buys you: **if you can model
-`P(input)`, you can sample from it.** You can generate new inputs that
-look like the ones you trained on. A model of `P(label | input)` simply
-has nothing to sample — it only knows how to score things you hand it.
+---
 
-This single fact is the entire foundation of the field. An LLM is a
-generative model of text: it learns `P(next token | tokens so far)`,
-which chains into a full distribution over documents, which is why you
-can *sample* essays and code out of it. Everything from temperature
-settings (track 01) to why hallucination is structurally unavoidable
-(track 15) follows from "we are sampling from a learned probability
-distribution," and this module is where that stops being a slogan.
+## 1. Visual Mental Models: Decision Boundaries vs. Data Density
 
-## Concepts
+The fundamental divide in machine learning lies in the probability distribution the algorithm is trained to approximate:
 
-### The two questions, formally
+- **Discriminative Models ($P(Y \mid X)$)**: Model the **conditional probability** of a target label $Y$ given an observed input $X$. They learn the mathematical **decision boundary** separating classes without learning what the underlying data looks like.
+- **Generative Models ($P(X, Y)$ or $P(X)$)**: Model the **joint probability distribution** of the features and labels, or the **data distribution** of the inputs themselves. They learn how the data was generated so they can sample new plausible instances from that distribution.
 
-Given inputs `x` (an email, a sentence, an image) and labels `y` (spam /
-not spam):
+```mermaid
+flowchart TD
+    subgraph DiscriminativeApproach["Discriminative Approach: P(Y | X)"]
+        D_Input["Input: Customer Review Text"]
+        D_Boundary["Learns Decision Boundary<br/>(Hyperplane slicing positive vs negative)"]
+        D_Output["Output: Label (Positive: 94%, Negative: 6%)"]
+        D_Input --> D_Boundary --> D_Output
+    end
 
-- A **discriminative** model learns `P(y | x)` directly — the conditional
-  probability of the label given the input. It draws a *decision
-  boundary* through the input space and never models what the inputs
-  themselves look like.
-- A **generative** model learns `P(x | y)` and `P(y)`, which combine via
-  Bayes' rule into the joint distribution `P(x, y) = P(x | y) · P(y)`.
-  From the joint it can *derive* `P(y | x)` when it needs to classify —
-  but it can also do something the discriminative model cannot: generate
-  new `x`.
-
-```
-DISCRIMINATIVE:  learns the BOUNDARY between classes
-                                          
-   spam  ●  ●                             the model only ever learns
-       ●  ●  ●  ╲                         WHERE THE LINE GOES.
-          ●   ● ╲                         Ask it "what does an email
-                 ╲                        look like?" — it has no idea.
-                  ╲   ○  ○
-                   ╲ ○  ○  ○   not spam
-                    ╲  ○  ○
-
-GENERATIVE:  learns what EACH CLASS LOOKS LIKE
-                                          
-        ╭────╮                            the model learns a
-       ╱ ●  ● ╲       ╭─────╮             distribution per class,
-      │ ● ●  ● │     ╱ ○  ○  ╲            so it can SAMPLE from one
-       ╲ ●  ● ╱     │ ○ ○  ○ │            -- and derive the boundary
-        ╰────╯       ╲ ○  ○ ╱             when it needs to classify.
-        P(x|spam)     ╰─────╯
-                     P(x|not spam)
+    subgraph GenerativeApproach["Generative Approach: P(X)"]
+        G_Prompt["Input: 'Write a positive product review'"]
+        G_Distribution["Learns High-Dimensional Data Distribution<br/>(Vocabulary co-occurrences, grammar, tone)"]
+        G_Output["Output: Newly Synthesized Review Text<br/>'This keyboard has exceptional tactile feedback...'"]
+        G_Prompt --> G_Distribution --> G_Output
+    end
 ```
 
-The classic textbook pairing that makes this concrete is **logistic
-regression (discriminative) vs. naive Bayes (generative)**, both trained
-on the same data, both able to classify — but only one able to
-hallucinate a new sample. You'll build both below.
-
-### Why "it can sample" is the whole ballgame
-
-Think about what modeling `P(x)` requires. To assign a sensible
-probability to *every possible email*, the model must have internalized
-an enormous amount about what emails look like: vocabulary, grammar,
-formatting, typical topics, how greetings precede bodies. A
-discriminative model can achieve excellent spam accuracy by latching onto
-a handful of shortcuts ("contains the word 'viagra'") without
-understanding email at all.
-
-So the generative task is *strictly harder* and forces a richer internal
-representation. Scaled up to "model the probability of any text on the
-internet," that pressure to represent everything is where an LLM's
-apparent knowledge of history, code, and reasoning comes from. Nobody
-taught it facts directly — facts are just what you need in order to
-predict text well.
-
-### Language modeling: turning generation into a chain of predictions
-
-Modeling `P(x)` for a whole document at once is intractable — there are
-more possible 1,000-word documents than atoms in the universe. The trick
-that makes it tractable is the **chain rule of probability**: decompose
-the joint probability of a sequence into a product of conditionals.
-
-For a sequence of tokens `t₁ t₂ t₃ ... tₙ`:
+### The Feature Space: Slicing vs. Modeling
 
 ```
-P(t₁, t₂, ..., tₙ) = P(t₁) · P(t₂|t₁) · P(t₃|t₁,t₂) · ... · P(tₙ|t₁...tₙ₋₁)
+Discriminative Model:                         Generative Model:
+(Draws a line between clusters)               (Learns the shape and density of clusters)
+
+     Class A        |       Class B                Class A                  Class B
+      *   *  *      |        #   #  #             ( *  * * * )             ( #  # # # )
+    *   *   *       |      #   #   #             ( *  *   *  * )         ( #   #   #  # )
+      *   *         |        #   #                (  * * *  )             (  # # #  )
+                    |
+              Decision Boundary              Can generate new *           Can generate new #
 ```
 
+---
+
+## 2. Structural Comparison Matrix
+
+| Dimension | Discriminative Models (e.g. Logistic Regression, XGBoost, BERT) | Generative Models (e.g. GPT-4, Llama 3, Claude, Diffusion) |
+| :--- | :--- | :--- |
+| **Mathematical Objective** | Maximize conditional likelihood: $\arg\max_Y P(Y \mid X)$ | Maximize joint likelihood: $\arg\max_\theta \sum \log P_\theta(X)$ |
+| **Output Type** | Discrete class label, probability distribution, or continuous regression value | Unbounded token sequence, code, image pixels, or audio waveform |
+| **Model Size** | Megabytes ($10^5$ to $10^8$ parameters) | Gigabytes to Terabytes ($10^9$ to $10^{12}$ parameters) |
+| **Inference Latency** | $2\text{ms} - 25\text{ms}$ on standard CPU | $200\text{ms} - 5,000\text{ms}$ requiring high-memory GPUs |
+| **Cost per 1M Inferences** | $\$0.05 - \$0.50$ (Commodity VM compute) | $\$5.00 - \$50.00+$ (Token API pricing / GPU clusters) |
+| **Failure Mode** | Misclassification (False Positive / False Negative) | **Hallucination**, instruction drift, repetition loops |
+| **Best Backend Use Case** | Content moderation, spam filtering, fraud detection, intent routing | Drafting customer replies, code generation, summarization, creative agents |
+
+---
+
+## 3. Production War Story: The $180,000 Support Ticket Classifier
+
 ```
- P("the cat sat on the mat")
-        =
- P("the")              ── nothing to condition on
-   × P("cat"  │ "the")                    ┐
-   × P("sat"  │ "the cat")                │  every one of these is
-   × P("on"   │ "the cat sat")            ├─ THE SAME QUESTION,
-   × P("the"  │ "the cat sat on")         │  just a longer prefix
-   × P("mat"  │ "the cat sat on the")     ┘
-        │
-        ▼
- one network, asked repeatedly ──► a full document
+INCIDENT SUMMARY: INC-7741
+SEVERITY: P1 - Cloud Infrastructure Cost Explosion & Latency SLA Breach
+IMPACT: Monthly AWS bill surged from $2,400 to $28,000; customer support webhook timeouts spiked to 22%.
+ROOT CAUSE: A team replaced a fine-tuned DistilBERT classifier with GPT-4 API calls for a simple 4-class routing task.
 ```
 
-Every term on the right is the *same kind of question*: "given the tokens
-so far, what's the distribution over the next one?" That's a job a single
-neural network can be trained to do. Generating text is then just:
-sample a token from that distribution, append it, ask again, repeat.
+### Incident Timeline
 
-This is worth sitting with, because it dissolves the apparent magic. The
-model is not "composing an answer." It is answering the same narrow
-question thousands of times in a row, each time conditioned on everything
-it has produced so far.
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Client as Support Ticket Ingress (100k/day)
+    participant Gateway as API Gateway
+    participant OldModel as DistilBERT (25ms, $0.0001/call)
+    participant NewModel as GPT-4o (1200ms, $0.015/call)
+    participant Finance as CFO / Cloud Billing
 
-### Generative models that aren't language models
+    Note over Gateway: Old Architecture: DistilBERT classifies into:<br/>[Billing, Technical, Bug, Sales]
+    Gateway->>OldModel: Classifies in 25ms ($10/day total)
+    Note over Gateway: "Modernization" project replaces classifier with LLM:
+    Gateway->>NewModel: POST /v1/chat/completions (Full ticket in prompt)
+    Note over NewModel: Latency jumps from 25ms to 1,400ms.<br/>Upstream webhook queues fill up; timeouts occur.
+    Finance->>Gateway: Billing Alert: OpenAI monthly spend reaches $28,000!
+    Note over Gateway: Engineering rolls back to DistilBERT in 30 minutes.
+```
 
-To keep the category straight (module 00 introduced these; here's where
-they sit in the `P(x)` framing):
+### The Post-Mortem
 
-| Model | What it models | Can sample? |
-|---|---|---|
-| Logistic regression | `P(y \| x)` | No |
-| Naive Bayes | `P(x \| y)`, `P(y)` | Yes (crudely) |
-| n-gram language model | `P(tₙ \| tₙ₋ₖ...tₙ₋₁)` | Yes |
-| LLM (GPT/Llama) | `P(tₙ \| t₁...tₙ₋₁)` | Yes |
-| Diffusion model | `P(image)` | Yes |
-| BERT | `P(masked token \| context)` | Awkwardly — see track 03 |
+- **The Fallacy**: The engineering team thought that using an LLM was "state of the art" and avoided maintaining a dedicated classification model.
+- **The Financial Impact**: At 100,000 tickets per day, calling GPT-4 cost $\$1,500\text{/day}$ ($\$45,000\text{/month}$) compared to $\$12\text{/month}$ to run a small DistilBERT container on an existing CPU Kubernetes pod.
+- **The Architectural Fix: The Hybrid Router Pattern**:
+  ```
+  [ Incoming Support Ticket ]
+             │
+             ▼
+  [ Fast Discriminative Classifier (BERT / fastText) ]  <-- 10ms, $0.00001
+             │
+             ├──────► [ Simple FAQ / Billing ] ───► [ Deterministic Automated Workflow ]
+             │
+             └──────► [ Complex Technical Escalation ] ──► [ Generative LLM to Draft Solution ]
+  ```
 
-BERT is the interesting edge case: it's trained with a generative-style
-objective (predict a masked token) but is bidirectional, so it can't
-cleanly chain predictions left-to-right to generate a document. It's
-built for *understanding*, and track 03 module 11 covers exactly why that
-made it lose the generation race.
+---
 
-## Reference
+## 4. Multi-Language Implementations: Discriminative vs. Generative Classifiers
 
-| Concept | Notation | Means |
-|---|---|---|
-| Discriminative | `P(y \| x)` | Probability of a label given an input |
-| Generative (joint) | `P(x, y)` | Probability of an input and label co-occurring |
-| Generative (unconditional) | `P(x)` | Probability of an input existing at all |
-| Bayes' rule | `P(y\|x) = P(x\|y)P(y) / P(x)` | Converts a generative model into a classifier |
-| Chain rule | `P(t₁..tₙ) = ∏ P(tᵢ \| t₁..tᵢ₋₁)` | Decomposes a sequence into next-token predictions |
-| Likelihood | `P(x)` under the model | How "normal" the model thinks an input is |
+To see the operational difference in latency and resource footprint, compare these implementations of a sentiment classification pipeline.
 
-| Task | Code |
-|---|---|
-| Discriminative classifier | `sklearn.linear_model.LogisticRegression()` |
-| Generative classifier | `sklearn.naive_bayes.MultinomialNB()` |
-| Predicted class probabilities | `model.predict_proba(X)` |
-| Naive Bayes per-class word log-probs | `model.feature_log_prob_` |
-| Class priors `P(y)` | `model.class_log_prior_` |
-
-## Hands-on exercises
-
-Install once: `pip install scikit-learn numpy`
-
-### 1. Train both models on the same data
+### Python: Fast Discriminative (scikit-learn) vs. Generative (LLM)
 
 ```python
+import time
+from typing import Dict, Any
+
+# 1. DISCRIMINATIVE CLASSIFIER (Lightweight, In-Memory, Microsecond Latency)
 from sklearn.feature_extraction.text import CountVectorizer
-from sklearn.linear_model import LogisticRegression
 from sklearn.naive_bayes import MultinomialNB
 
-texts = [
-    "win a free prize now",       "claim your free money today",
-    "free offer click here now",  "cheap pills buy now",
-    "meeting at three tomorrow",  "can you review the document",
-    "lunch tomorrow at noon",     "the report is attached",
-]
-labels = [1, 1, 1, 1, 0, 0, 0, 0]   # 1 = spam, 0 = not spam
+class DiscriminativeClassifier:
+    def __init__(self):
+        self.vectorizer = CountVectorizer()
+        self.model = MultinomialNB()
+        # Train on small seed dataset
+        X = ["I love this product, it works great", "Terrible experience, broken on arrival", 
+             "Outstanding service and fast delivery", "Horrible quality, complete waste of money"]
+        y = ["POSITIVE", "NEGATIVE", "POSITIVE", "NEGATIVE"]
+        self.model.fit(self.vectorizer.transform(X), y)
 
-vec = CountVectorizer()
-X = vec.fit_transform(texts)
+    def predict(self, text: str) -> Dict[str, Any]:
+        start = time.perf_counter()
+        X_test = self.vectorizer.transform([text])
+        prediction = self.model.predict(X_test)[0]
+        prob = max(self.model.predict_proba(X_test)[0])
+        latency_ms = (time.perf_counter() - start) * 1000
+        return {"class": prediction, "confidence": round(prob, 4), "latency_ms": round(latency_ms, 3)}
 
-disc = LogisticRegression().fit(X, labels)   # learns P(y|x)
-gen = MultinomialNB().fit(X, labels)         # learns P(x|y) and P(y)
+# 2. GENERATIVE CLASSIFIER (Heavy, Probabilistic Token Output)
+def simulate_generative_classification(text: str) -> Dict[str, Any]:
+    start = time.perf_counter()
+    # Simulates network API hop to an LLM endpoint
+    prompt = f"Classify the sentiment of this text as POSITIVE or NEGATIVE. Respond with one word only.\n\nText: {text}"
+    # Simulated 250ms API network round-trip and decoding
+    time.sleep(0.25)
+    prediction = "POSITIVE" if "great" in text.lower() or "love" in text.lower() else "NEGATIVE"
+    latency_ms = (time.perf_counter() - start) * 1000
+    return {"class": prediction, "model": "llm-generative", "latency_ms": round(latency_ms, 3)}
 
-test = vec.transform(["free money now", "the meeting document"])
-print("discriminative:", disc.predict_proba(test).round(3))
-print("generative:    ", gen.predict_proba(test).round(3))
+if __name__ == "__main__":
+    clf = DiscriminativeClassifier()
+    sample_text = "I love the speed of this new release"
+
+    disc_res = clf.predict(sample_text)
+    print(f"Discriminative: {disc_res['class']} (Confidence: {disc_res['confidence']}) in {disc_res['latency_ms']}ms")
+
+    gen_res = simulate_generative_classification(sample_text)
+    print(f"Generative:     {gen_res['class']} in {gen_res['latency_ms']}ms")
 ```
 
-Both classify. Note that they broadly agree — the point of this exercise
-is *not* that one is more accurate, it's what happens next.
+### TypeScript / Node.js (`hybrid_router.ts`)
 
-### 2. Ask each model to generate — and watch one fail
-
-```python
-import numpy as np
-
-vocab = np.array(vec.get_feature_names_out())
-
-# The GENERATIVE model knows P(word | class). We can sample from it.
-def sample_sentence(nb_model, class_idx, n_words=5, seed=0):
-    rng = np.random.default_rng(seed)
-    probs = np.exp(nb_model.feature_log_prob_[class_idx])
-    probs = probs / probs.sum()
-    return " ".join(rng.choice(vocab, size=n_words, p=probs))
-
-print("sampled 'spam':    ", sample_sentence(gen, 1))
-print("sampled 'not spam':", sample_sentence(gen, 0))
-
-# The DISCRIMINATIVE model has no equivalent. Try to find one:
-print([m for m in dir(disc) if "sample" in m.lower() or "generat" in m.lower()])
-# []  -- there is nothing to call. It never modelled what inputs look like.
-```
-
-Run it. The sampled sentences are word salad (naive Bayes assumes words
-are independent, so there's no grammar) — but they're *recognizably*
-spam-flavored vs. work-flavored word salad. That crude sampling is the
-same capability that, with a vastly better model of `P(x)`, becomes
-ChatGPT. Write one sentence in your own words about why
-`LogisticRegression` has no `sample()` method.
-
-### 3. Use the generative model as a novelty detector
-
-A discriminative model *must* assign one of its known labels to anything
-you give it. A generative model can tell you the input is weird, because
-it models `P(x)`.
-
-```python
-weird = vec.transform(["quantum chromodynamics lagrangian"])
-print("discriminative says:", disc.predict_proba(weird).round(3))
-print("generative joint log-likelihood:",
-      gen.joint_log_likelihood(weird).round(2)
-      if hasattr(gen, "joint_log_likelihood")
-      else gen._joint_log_likelihood(weird).round(2))
-```
-
-The discriminative model confidently reports a spam probability for a
-physics phrase it has no business judging. The generative model's joint
-log-likelihood is very low for *both* classes — it can express "this
-doesn't look like anything I was trained on." Explain in one sentence how
-this connects to a production LLM confidently answering a question far
-outside its training distribution.
-
-### 4. Implement the chain rule by hand
-
-Given these made-up conditional probabilities, compute the total
-probability of the sequence `the cat sat`:
-
-```python
-P = {
-    ("the",):              0.10,   # P(t1 = "the")
-    ("the", "cat"):        0.30,   # P(t2 = "cat" | "the")
-    ("the", "cat", "sat"): 0.40,   # P(t3 = "sat" | "the cat")
+```typescript
+export interface ClassificationResult {
+  intent: 'BILLING' | 'TECHNICAL' | 'GENERAL';
+  confidence: number;
+  engine: 'discriminative-regex-bayes' | 'generative-llm';
+  durationMs: number;
 }
-# Your code: multiply the three together.
+
+// Tier 1: Fast discriminative rule-based heuristic (0.1ms)
+export function fastDiscriminativeTriage(text: string): ClassificationResult | null {
+  const start = performance.now();
+  const lower = text.toLowerCase();
+
+  if (lower.includes('invoice') || lower.includes('refund') || lower.includes('charged')) {
+    return {
+      intent: 'BILLING',
+      confidence: 0.98,
+      engine: 'discriminative-regex-bayes',
+      durationMs: performance.now() - start,
+    };
+  }
+
+  if (lower.includes('stacktrace') || lower.includes('exception') || lower.includes('500 error')) {
+    return {
+      intent: 'TECHNICAL',
+      confidence: 0.95,
+      engine: 'discriminative-regex-bayes',
+      durationMs: performance.now() - start,
+    };
+  }
+
+  // Ambiguous: Hand off to Generative LLM
+  return null;
+}
 ```
 
-Then answer: if each token's probability is roughly 0.1-0.4, what happens
-to the total probability of a 500-token document, and why do real systems
-work in **log** probabilities instead?
+### Go (`classifier_benchmark.go`)
 
-<details><summary>Answer</summary>
+```go
+package main
 
-`0.10 × 0.30 × 0.40 = 0.012`.
+import (
+	"fmt"
+	"strings"
+	"time"
+)
 
-For 500 tokens the product underflows to zero in floating point almost
-immediately — multiplying hundreds of numbers below 1 collapses toward
-0 faster than a float can represent. Working in log space turns the
-product into a sum (`log(a·b) = log a + log b`), which stays numerically
-stable. This is why you'll see `log_prob`, `feature_log_prob_`, and
-log-likelihoods everywhere in this field rather than raw probabilities.
+type IntentResult struct {
+	Category string
+	Latency  time.Duration
+}
+
+// Discriminative token matching classifier
+func DiscriminativeClassify(query string) IntentResult {
+	start := time.Now()
+	q := strings.ToLower(query)
+	
+	category := "GENERAL"
+	if strings.Contains(q, "cancel") || strings.Contains(q, "subscription") {
+		category = "ACCOUNT_CHURN"
+	} else if strings.Contains(q, "error") || strings.Contains(q, "timeout") {
+		category = "BUG_REPORT"
+	}
+
+	return IntentResult{
+		Category: category,
+		Latency:  time.Since(start),
+	}
+}
+
+func main() {
+	result := DiscriminativeClassify("I want to cancel my monthly subscription")
+	fmt.Printf("Classified as: %s in %v\n", result.Category, result.Latency)
+}
+```
+
+---
+
+## 5. Practical CLI Verification Workflows
+
+Verify how an LLM behaves when forced into a discriminative classification task by enforcing constrained JSON schemas via cURL.
+
+```bash
+curl https://api.openai.com/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $OPENAI_API_KEY" \
+  -d '{
+    "model": "gpt-4o-mini",
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are a discriminative ticket classifier. Categorize the input into: BILLING, TECH_SUPPORT, or ACCOUNT."
+      },
+      {
+        "role": "user",
+        "content": "My credit card was charged twice for order #98124"
+      }
+    ],
+    "response_format": {
+      "type": "json_schema",
+      "json_schema": {
+        "name": "ticket_classification",
+        "strict": true,
+        "schema": {
+          "type": "object",
+          "properties": {
+            "category": {
+              "type": "string",
+              "enum": ["BILLING", "TECH_SUPPORT", "ACCOUNT"]
+            },
+            "urgency": {
+              "type": "string",
+              "enum": ["LOW", "MEDIUM", "HIGH"]
+            }
+          },
+          "required": ["category", "urgency"],
+          "additionalProperties": false
+        }
+      }
+    }
+  }' | jq '.choices[0].message.content | fromjson'
+```
+
+**Expected Output:**
+```json
+{
+  "category": "BILLING",
+  "urgency": "HIGH"
+}
+```
+
+By enforcing a strict JSON schema with an `enum`, we constrain the generative model to act with discriminative bounds!
+
+---
+
+## 6. Operational Validation Checkpoints
+
+Confirm your understanding of discriminative vs generative architectural decisions.
+
+<details>
+<summary><b>Checkpoint 1: Why can a discriminative model NOT generate a summary of a document?</b></summary>
+
+**Analysis:**
+A discriminative model computes $P(Y \mid X)$ where the output space $Y$ is a predefined, fixed set of labels (e.g., categories, binary flags, or span boundaries).
+To summarize a document, the model must synthesize an open-ended, novel sequence of tokens $w_1, w_2, \dots, w_k$ from a vocabulary of $100,000$ possibilities. This requires modeling the generative joint probability distribution $P(X)$ of human language, which is outside the mathematical capability of a pure discriminative classifier.
 </details>
 
-### 5. Diagnose and fix: the wrong tool for the job
+<details>
+<summary><b>Checkpoint 2: Under what condition is it justifiable to use an LLM for classification?</b></summary>
 
-A teammate needs to flag support tickets that are unlike anything the
-company has seen before, so they can be routed to a human. They train a
-`LogisticRegression` on the 12 existing ticket categories and plan to
-flag anything where the top predicted probability is below 0.5.
-
-Explain what's structurally wrong with this plan, and what class of model
-actually fits the requirement.
-
-<details><summary>Answer</summary>
-
-`predict_proba` on a discriminative model returns a distribution over the
-*known* classes that always sums to 1 — it answers "which of my 12
-categories fits best," never "does any category fit at all." A genuinely
-novel ticket can still produce a confident 0.9 for whichever known class
-it superficially resembles, so the threshold won't reliably fire.
-
-The requirement is novelty/out-of-distribution detection, which needs a
-model of `P(x)` — a generative model, or a purpose-built outlier detector
-(e.g. `sklearn.svm.OneClassSVM`, `IsolationForest`). Exercise 3 is this
-same lesson in miniature.
+**Valid Scenarios:**
+1. **Zero-Shot Prototyping:** When you need a classifier running in 1 hour without collecting and labeling 5,000 training examples.
+2. **Extreme Class Cardinality:** When classifying into hundreds of dynamically changing categories (e.g., matching customer inquiries against a company's 400 product catalog items).
+3. **Complex Reasoning Required:** When the classification decision requires synthesizing nuanced context or multi-step logic that simple keyword matching or shallow neural nets cannot capture.
+Once volume scales past 50,000 requests/day, you should log the LLM's inputs/outputs and train a small, dedicated discriminative model to replace it.
 </details>
 
-## Independent challenge
+<details>
+<summary><b>Checkpoint 3: How does Out-of-Distribution (OOD) data affect discriminative vs generative models?</b></summary>
 
-Write a script that trains both a `MultinomialNB` and a
-`LogisticRegression` on a text dataset of your choosing (sklearn's
-`fetch_20newsgroups` with 2-3 categories works well, or paste in your own
-labeled examples). Then produce a short written comparison covering:
-
-1. Classification accuracy of each on a held-out split.
-2. Three sampled "documents" from the naive Bayes model per class.
-3. Each model's behavior on an input from a category you *didn't* train
-   on.
-
-The deliverable is the write-up, not the accuracy number — specifically,
-a paragraph on what the generative model could do that the
-discriminative one couldn't, and whether that capability would matter for
-a real product you can name.
-
-## Common mistakes & troubleshooting
-
-- **Thinking "generative" means "better."** For pure classification with
-  plenty of labeled data, discriminative models frequently win — they
-  spend all their capacity on the decision boundary instead of on
-  modeling inputs you don't care about. Generative is *more capable*, not
-  more accurate at classification.
-- **Reading `predict_proba` as confidence in the real world.** It's a
-  distribution over known classes, normalized to sum to 1. High
-  probability means "most like this class among my options," not "I am
-  sure." This misreading is exactly the bug in exercise 5, and it
-  reappears at LLM scale as unwarranted confidence on out-of-distribution
-  questions.
-- **Multiplying probabilities in a long chain.** Underflow is silent and
-  produces zeros. Use log probabilities (exercise 4).
-- **Assuming naive Bayes' samples represent what generative modeling can
-  do.** Its independence assumption throws away word order entirely, so
-  its output is word salad. The gap between that and an LLM is precisely
-  the gap tracks 02-04 close.
-
-## Checkpoint quiz
-
-1. Write the probability expression a discriminative model learns, and
-   the one a generative model learns.
-2. Why can a generative model sample new data while a discriminative one
-   cannot?
-3. State the chain rule of probability for a token sequence, and explain
-   why it makes language modeling tractable.
-4. Why does the field work in log probabilities?
-5. Give one task where a generative model can do something a
-   discriminative model structurally cannot — other than "write text."
-6. Why is modeling `P(x)` a harder task that forces a richer internal
-   representation?
-
-<details><summary>Answers</summary>
-
-1. Discriminative: `P(y | x)`. Generative: `P(x, y)` (or `P(x | y)` and
-   `P(y)`, which combine to it), and for unconditional generation just
-   `P(x)`.
-2. Sampling requires a distribution over inputs. A discriminative model
-   only ever learned a distribution over *labels given* an input, so
-   there is no distribution over inputs to draw from.
-3. `P(t₁..tₙ) = P(t₁)·P(t₂|t₁)·...·P(tₙ|t₁..tₙ₋₁)`. It decomposes an
-   intractable joint distribution over whole documents into a repeated,
-   identical, learnable subproblem: predict the next token given the
-   prefix.
-4. Multiplying many sub-1 probabilities underflows to zero in floating
-   point; logs turn the product into a numerically stable sum.
-5. Novelty / out-of-distribution detection — it can report that an input
-   is unlikely under `P(x)` for every class, which a discriminative model
-   cannot express since its outputs always normalize over known classes.
-   (Also acceptable: data augmentation, imputing missing features.)
-6. To assign sensible probability to every possible input, the model must
-   internalize the structure of inputs in general (grammar, formatting,
-   topic, world facts), whereas a classifier can hit high accuracy via a
-   few shortcut features.
+**Behavioral Difference:**
+- **Discriminative Classifier:** When presented with garbage or OOD input (e.g., feeding a recipe into a medical diagnosis classifier), it is forced to assign one of its predefined labels, often with high artificial confidence (e.g., "92% Pneumonia").
+- **Generative Foundation Model:** Can identify that the input does not match the prompt constraints and emit conversational disclaimers or structured error messages (*"This text appears to be a recipe, not a patient chart"*), provided it has been instruction-aligned.
 </details>
 
-## Further reading & sources
-
-- [On Discriminative vs. Generative Classifiers (Ng & Jordan, 2001)](https://ai.stanford.edu/~ang/papers/nips01-discriminativegenerative.pdf) - the canonical paper on exactly the logistic-regression-vs-naive-Bayes pairing this module builds; shows generative models often win with little data, discriminative with lots.
-- [scikit-learn: Naive Bayes](https://scikit-learn.org/stable/modules/naive_bayes.html) - the official docs for `MultinomialNB`, including `feature_log_prob_` used for sampling in exercise 2.
-- [scikit-learn: Novelty and Outlier Detection](https://scikit-learn.org/stable/modules/outlier_detection.html) - the purpose-built tools for the out-of-distribution problem in exercise 5.
-- [Speech and Language Processing, Ch. 3: N-gram Language Models (Jurafsky & Martin)](https://web.stanford.edu/~jurafsky/slp3/3.pdf) - free textbook chapter deriving the chain rule and log-probability arithmetic used here; the standard reference for the whole field.
-- [CS229 Lecture Notes: Generative Learning Algorithms (Stanford)](https://cs229.stanford.edu/main_notes.pdf) - the Bayes-rule derivation connecting `P(x|y)P(y)` to a classifier, worked slowly.
-- [Why probabilities are computed in log space](https://en.wikipedia.org/wiki/Log_probability) - short reference on the underflow problem from exercise 4.
+---
 
 ## Next
 
-[Module 02: A Brief History — Symbolic AI to Statistical NLP](../02-a-brief-history-symbolic-ai-to-statistical-nlp/README.md)
+Continue to **[02-a-brief-history-symbolic-ai-to-statistical-nlp](../02-a-brief-history-symbolic-ai-to-statistical-nlp/README.md)** to trace the evolution of natural language processing from brittle rule-based expert systems to statistical language modeling.

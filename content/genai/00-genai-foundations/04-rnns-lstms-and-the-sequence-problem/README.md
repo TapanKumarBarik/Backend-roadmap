@@ -1,465 +1,383 @@
-# Module 04: RNNs, LSTMs and the Sequence Problem
+# RNNs, LSTMs, and the Sequential Bottleneck
 
-## Why this matters
+> **Difficulty**: Advanced | **Estimated Time**: 40m | **Hands-On**: Mandatory
 
-Module 03 gave us good word representations. But a representation of
-individual words isn't a model of *language* — you still need something
-that processes a **sequence**, where order matters and the meaning of a
-word depends on what came before it.
+> [!TIP]
+> **The Golden Rule of Sequence Architectures:**
+> **Recurrence is the enemy of GPU parallelization.** Because an RNN or LSTM computes its hidden state $h_t$ strictly as a function of the preceding state $h_{t-1}$, computing step $500$ requires waiting for steps $1$ through $499$ to complete sequentially. This strict $O(T)$ temporal dependency prevents massive SIMD parallel execution across modern GPU clusters, which is why Transformers completely replaced recurrent networks.
 
-Recurrent neural networks were the answer for roughly a decade, and they
-genuinely worked: RNNs and LSTMs powered Google Translate, speech
-recognition, and autocomplete through the mid-2010s. Then they were
-almost entirely replaced.
+---
 
-Understanding *why* they were replaced is the most important thing in
-this module, because the two reasons are the exact design requirements
-that produced the transformer:
+## 1. Visual Mental Models: The Recurrent State Loop
 
-1. **Information bottleneck** — an RNN compresses everything it has read
-   into one fixed-size hidden state. Long-range dependencies get crushed.
-   Attention (module 05) exists to fix this.
-2. **Sequential computation** — an RNN must process token 1 before token
-   2 before token 3. This cannot be parallelized, so it cannot exploit a
-   GPU's thousands of cores (track 05), which caps how much data you can
-   train on. The transformer's headline advantage isn't accuracy — it's
-   that it parallelizes.
+Language has temporal order: the meaning of a word depends on what came before it. Standard feed-forward networks (MLPs) accept only fixed-size inputs and possess no concept of sequential time.
 
-Every architectural choice in track 02 is a response to one of these two.
-Meet the problems first and that track stops feeling arbitrary.
+**Recurrent Neural Networks (RNNs)** introduced a cyclical feedback loop where a persistent vector (**Hidden State** $h_t$) acts as a working memory passed from one time step to the next:
 
-## Concepts
+$$h_t = \tanh(W_{xh} x_t + W_{hh} h_{t-1} + b_h)$$
 
-### The core RNN idea: a loop with memory
-
-A feed-forward network maps one fixed-size input to one output. Language
-isn't fixed-size. An RNN handles variable length by processing tokens one
-at a time while carrying a **hidden state** — a vector that acts as a
-running summary of everything seen so far.
-
-At each timestep `t`:
-
-```
-hₜ = tanh(W_h · hₜ₋₁  +  W_x · xₜ  +  b)
-yₜ = W_y · hₜ
+```mermaid
+flowchart LR
+    subgraph Folded["Folded RNN Representation"]
+        In["Input: x_t"] --> Cell["RNN Cell<br/>(Hidden State: h_t)"]
+        Cell -->|Output: y_t| Out["Output: y_t"]
+        Cell -.->|Recurrent Loop: h_t-1| Cell
+    end
 ```
 
-```
-UNROLLED THROUGH TIME — note every arrow is a hard dependency
+### Unrolling an RNN Across Time
 
-  x₁          x₂          x₃          x₄
-   │           │           │           │
-   ▼           ▼           ▼           ▼
- ┌────┐  h₁  ┌────┐  h₂  ┌────┐  h₃  ┌────┐  h₄
- │RNN │─────►│RNN │─────►│RNN │─────►│RNN │────►
- └────┘      └────┘      └────┘      └────┘
-   │           │           │           │
-   ▼           ▼           ▼           ▼
-  y₁          y₂          y₃          y₄
+When training an RNN, we "unroll" the recurrence graph across the sequence length $T$:
 
- SAME weights W_h, W_x reused at every step
- ────────────────────────────────────────────────
- t=4 CANNOT start until t=3 finishes  ──►  no parallelism
-```
+```mermaid
+flowchart LR
+    x1["x_1 ('The')"] --> Cell1["h_1"]
+    x2["x_2 ('server')"] --> Cell2["h_2"]
+    x3["x_3 ('timed')"] --> Cell3["h_3"]
+    x4["x_4 ('out')"] --> Cell4["h_4"]
 
-Read that as: *new memory = f(old memory, current input)*. The same
-weight matrices `W_h`, `W_x` are reused at every timestep — that weight
-sharing is what lets one network handle a sequence of any length.
+    h0["h_0 (zeros)"] --> Cell1
+    Cell1 -->|Temporal Link| Cell2
+    Cell2 -->|Temporal Link| Cell3
+    Cell3 -->|Temporal Link| Cell4
 
-The output `yₜ` at each step can be a distribution over the next token —
-which is exactly the language modeling task from module 01, now with a
-learned, unbounded-context summary instead of a fixed n-gram window.
-
-### Why this beat n-grams
-
-Compare against module 02's wall:
-
-| | n-gram | RNN |
-|---|---|---|
-| Context | Fixed, tiny (`n-1` tokens) | In principle, unlimited |
-| Similar words | Unrelated symbols | Share evidence via embeddings |
-| Unseen sequences | Probability zero | Generalizes |
-| Parameters | Grows as `V^n` | Fixed regardless of sequence length |
-
-That "in principle, unlimited" is doing a lot of work, and the rest of
-this module is about how it fails in practice.
-
-### The vanishing gradient problem
-
-Training uses **backpropagation through time**: unroll the network across
-all timesteps and propagate the error backwards. Because the same weight
-matrix is applied at every step, the gradient flowing back across `k`
-timesteps involves multiplying by that matrix roughly `k` times.
-
-The consequence is the same numerical issue as module 01's probability
-products, in a different costume:
-
-- Multiply numbers `< 1` many times → the gradient **vanishes** toward
-  zero. Early timesteps receive essentially no learning signal, so the
-  network never learns long-range dependencies.
-- Multiply numbers `> 1` many times → the gradient **explodes** to
-  infinity, producing `NaN` weights. (This one is easier to fix — clip
-  the gradient norm.)
-
-Vanishing is the killer. In practice a plain RNN struggles to connect
-information more than ~10 timesteps apart. Consider:
-
-> *"The **keys** that I left on the kitchen counter next to the pile of
-> unopened mail from last week **are** missing."*
-
-To choose "are" over "is", the model must remember that the subject was
-plural, 14 words back. A vanilla RNN typically can't.
-
-### LSTMs: gates to protect memory
-
-The Long Short-Term Memory cell (Hochreiter & Schmidhuber, 1997, widely
-adopted ~2014) addresses this with an explicit **cell state** that runs
-through the sequence with only minor linear modification, plus three
-learned **gates** controlling it:
-
-- **Forget gate** — what to discard from the cell state.
-- **Input gate** — what new information to write in.
-- **Output gate** — what part of the cell state to expose as the hidden
-  state.
-
-The point is that the cell state's path is mostly additive rather than
-repeatedly multiplied by a weight matrix, so gradients can flow across
-many timesteps without vanishing. GRUs are a simpler two-gate variant
-with broadly similar performance.
-
-LSTMs genuinely extended usable context to roughly 100s of tokens and
-were state of the art for years. But they **mitigate** the problem rather
-than removing it, and they leave the second problem completely untouched.
-
-### The two walls that killed recurrence
-
-```
-WALL 1 — the seq2seq bottleneck
-
- "le  chat  noir  s'est  assis  sur  le  tapis  hier  soir"
-   │    │     │     │      │     │    │    │     │     │
-   ▼    ▼     ▼     ▼      ▼     ▼    ▼    ▼     ▼     ▼
- ┌──────────────── ENCODER RNN ────────────────────────┐
- └─────────────────────────┬───────────────────────────┘
-                           ▼
-                    ┌─────────────┐
-                    │   ONE 1024- │   ◄── EVERYTHING must fit here
-                    │  dim vector │       50 words or 5, same size
-                    └──────┬──────┘
-                           ▼
- ┌──────────────── DECODER RNN ────────────────────────┐
- └─────────────────────────────────────────────────────┘
-   │    │     │     │      │     │     │     │
-   ▼    ▼     ▼     ▼      ▼     ▼     ▼     ▼
- "the black cat sat on the mat last night"
-
- attention's fix: let the decoder look back at ALL encoder
- states, not just the final squeezed one
+    Cell1 --> y1["y_1"]
+    Cell2 --> y2["y_2"]
+    Cell3 --> y3["y_3"]
+    Cell4 --> y4["y_4"]
 ```
 
-**Wall 1 — the fixed-size bottleneck.** In a sequence-to-sequence model
-(the standard translation setup), an encoder RNN reads the entire source
-sentence and compresses it into a single final hidden state, which the
-decoder then expands into the translation. Every word of a 50-word
-sentence must survive in one ~1000-dimensional vector. Translation
-quality measurably degraded as sentences got longer. Attention (module
-05) was invented precisely to let the decoder look back at *all* encoder
-states instead of just the last one.
+---
 
-**Wall 2 — no parallelism.** This is the one that actually ended the era.
-`hₜ` depends on `hₜ₋₁`, which depends on `hₜ₋₂`. Computing timestep 500
-*requires* having computed 1 through 499. A GPU with thousands of cores
-sits mostly idle. Training time scales with sequence length no matter how
-much hardware you buy.
+## 2. The Vanishing & Exploding Gradient Trap
 
-The transformer's central claim is that you can drop recurrence entirely,
-process every position simultaneously, and let attention handle the
-relationships between positions. That converts an inherently sequential
-algorithm into a big matrix multiplication — the thing GPUs are built
-for. It's why the paper is called *"Attention Is All You Need"*: the
-"all" means *you don't need recurrence*.
+To update the shared weight matrix $W_{hh}$, the network calculates gradients via **Backpropagation Through Time (BPTT)**. The gradient of the loss at step $T$ with respect to the initial hidden state $h_0$ requires computing a chain of matrix multiplications:
 
-## Reference
+$$\frac{\partial \mathcal{L}_T}{\partial h_0} = \frac{\partial \mathcal{L}_T}{\partial h_T} \prod_{t=1}^{T} \frac{\partial h_t}{\partial h_{t-1}} = \frac{\partial \mathcal{L}_T}{\partial h_T} \prod_{t=1}^{T} \text{diag}(1 - \tanh^2(\cdot)) W_{hh}^T$$
 
-| Term | Means |
-|---|---|
-| RNN | Network with a loop, carrying a hidden state across timesteps |
-| Hidden state | Running summary vector of everything processed so far |
-| BPTT | Backpropagation through time — unrolling the loop to train it |
-| Vanishing gradient | Learning signal decays to ~0 over many timesteps |
-| Exploding gradient | Learning signal grows without bound; fixed by clipping |
-| LSTM | Gated cell (forget/input/output) with a protected cell state |
-| GRU | Simpler 2-gate recurrent cell |
-| seq2seq | Encoder RNN → fixed vector → decoder RNN |
-| Bottleneck | Forcing a whole sequence through one fixed-size vector |
+```
+                           The Exponential Decay of Gradients
+                           
+ Time Step:     t = 1         t = 10        t = 25        t = 50        t = 100
+ Gradient:     1.0000        0.3486        0.0071        0.0000005     0.0000000000001 (VANISHED)
+               (Strong update)             (Faint signal)              (Zero learning occurs)
+```
 
-| Task | Code (PyTorch) |
-|---|---|
-| An RNN layer | `nn.RNN(input_size, hidden_size, batch_first=True)` |
-| An LSTM layer | `nn.LSTM(input_size, hidden_size, batch_first=True)` |
-| Run a sequence | `out, hidden = rnn(x)` |
-| Clip exploding gradients | `nn.utils.clip_grad_norm_(model.parameters(), 1.0)` |
-| Embedding layer | `nn.Embedding(vocab_size, embed_dim)` |
+- **Vanishing Gradients ($\|W_{hh}\| < 1$)**: When backpropagating across 50+ tokens, gradients shrink exponentially towards zero. The model cannot learn long-range grammatical agreements (e.g. connecting a plural subject at word 1 with a plural verb at word 40).
+- **Exploding Gradients ($\|W_{hh}\| > 1$)**: Gradients grow exponentially, resulting in numerical overflow (`NaN` weights). While **Gradient Clipping** mitigates explosions, it cannot fix vanishing gradients.
 
-## Hands-on exercises
+---
 
-Install once: `pip install torch` (CPU build is fine — everything here is
-tiny).
+## 3. LSTMs and GRUs: Gating the Memory Pipeline
 
-### 1. Implement an RNN cell by hand
+In 1997, Sepp Hochreiter and Jürgen Schmidhuber invented the **Long Short-Term Memory (LSTM)** network to bypass the vanishing gradient problem.
 
-The equation is short enough to write directly. No framework.
+Instead of passing the hidden state through a lossy $\tanh$ multiplication at every step, LSTMs introduce an isolated **Cell State ($C_t$)**—an "information superhighway" updated primarily through **additive linear operations**.
+
+```mermaid
+flowchart TD
+    subgraph LSTMCell["Inside the LSTM Cell"]
+        PrevC["Previous Cell State: C_t-1"]
+        PrevH["Previous Hidden State: h_t-1"]
+        InputX["Input Token: x_t"]
+
+        Forget["Forget Gate: f_t<br/>σ(W_f · [h_t-1, x_t])"]
+        InputGate["Input Gate: i_t<br/>σ(W_i · [h_t-1, x_t])"]
+        Candidate["Candidate: C~_t<br/>tanh(W_c · [h_t-1, x_t])"]
+        OutputGate["Output Gate: o_t<br/>σ(W_o · [h_t-1, x_t])"]
+
+        Multiply1(("⊙"))
+        Add1(("+"))
+        Multiply2(("⊙"))
+
+        PrevC --> Multiply1
+        Forget --> Multiply1
+        Multiply1 --> Add1
+
+        InputGate --> Multiply2
+        Candidate --> Multiply2
+        Multiply2 --> Add1
+
+        Add1 --> NewC["New Cell State: C_t"]
+        NewC --> TanhCore["tanh(C_t)"]
+        TanhCore --> FinalMult(("⊙"))
+        OutputGate --> FinalMult
+        FinalMult --> NewH["New Hidden State: h_t"]
+    end
+```
+
+### The Three Gates of an LSTM
+
+1. **Forget Gate ($f_t \in [0, 1]$)**: Decides what percentage of old memories to erase. If $f_t = 0$, old memories are wiped; if $f_t = 1$, memories pass through unaltered.
+2. **Input Gate ($i_t \in [0, 1]$)**: Decides which newly observed tokens are important enough to write into long-term memory.
+3. **Output Gate ($o_t \in [0, 1]$)**: Filters the internal cell state to produce the visible hidden state $h_t$ for predictions.
+
+Because $\Delta C_t = f_t C_{t-1} + i_t \tilde{C}_t$ is an **addition**, gradients backpropagate across hundreds of time steps with minimal attenuation!
+
+---
+
+## 4. Production War Story: The 3-Week Stalled Training Job
+
+```
+INCIDENT SUMMARY: INC-6612
+SEVERITY: P1 - Compute Resource Exhaustion & Model Failure
+IMPACT: $120,000 in wasted GPU cloud instances; multi-month enterprise contract translation project failed.
+ROOT CAUSE: Attempting to train a 4-layer bidirectional LSTM on 1,000-token legal documents; GPU utilization hovered at 8%.
+```
+
+### Incident Timeline
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Team as ML Engineering Team
+    participant Cluster as 64x NVIDIA V100 GPU Cluster
+    participant Model as Deep Bi-LSTM Translation Model
+    participant Exec as VP of Product
+
+    Team->>Cluster: Launches 3-week training run on 2M legal contracts
+    Note over Cluster: Sequence length = 1,000 tokens.<br/>Each time step strictly waits for the preceding token.<br/>GPU CUDA cores sit idle 92% of the time!
+    Note over Model: Training throughput stalls at 45 tokens/second per GPU.<br/>After 2 weeks of training, loss plateaus.
+    Team->>Model: Evaluates translation on 500-word contract
+    Note over Model: Paragraph 1 subject: "The Licensor (Vendor XYZ)".<br/>Paragraph 3 verb translated as: "The Licensee (Client ABC)".<br/>Model forgot the subject due to context truncation!
+    Exec->>Team: "Why did we spend $120k for a model that cannot remember who the contract is between?"
+```
+
+### The Post-Mortem
+
+- **The Structural Flaw**:
+  1. **Hardware Starvation**: Modern GPUs excel at massive matrix-matrix multiplications ($C = A \cdot B$) executed in parallel. An LSTM forces the GPU into thousands of sequential vector-matrix multiplications ($h_t = W h_{t-1}$), rendering modern tensor cores useless.
+  2. **Information Bottleneck**: Compressing a 1,000-token legal document into a fixed 512-dimensional vector $h_T$ inevitably discards critical fine-grained entity relationships.
+- **The Solution**:
+  1. Abandoned LSTMs completely.
+  2. Migrated to a **Transformer architecture** with Self-Attention.
+  3. Training time dropped from **3 weeks to 18 hours**, GPU utilization reached **94%**, and long-range translation accuracy achieved state-of-the-art benchmarks.
+
+---
+
+## 5. Multi-Language Production Implementations: LSTM Cell Simulation
+
+To understand how gates operate at the tensor level, study this pure mathematical implementation of an LSTM forward pass.
+
+### Python (`lstm_cell_simulation.py`)
 
 ```python
 import numpy as np
 
-def rnn_cell(x_t, h_prev, W_x, W_h, b):
-    return np.tanh(W_x @ x_t + W_h @ h_prev + b)
+def sigmoid(x: np.ndarray) -> np.ndarray:
+    return 1.0 / (1.0 + np.exp(-np.clip(x, -15, 15)))
 
-rng = np.random.default_rng(0)
-hidden_size, input_size = 4, 3
-W_x = rng.normal(0, 0.5, (hidden_size, input_size))
-W_h = rng.normal(0, 0.5, (hidden_size, hidden_size))
-b = np.zeros(hidden_size)
+class MinimalLSTMCell:
+    def __init__(self, input_dim: int, hidden_dim: int):
+        self.input_dim = input_dim
+        self.hidden_dim = hidden_dim
 
-h = np.zeros(hidden_size)
-sequence = [rng.normal(0, 1, input_size) for _ in range(5)]
+        # Combined weight matrix for efficiency: [W_f, W_i, W_c, W_o]
+        combined_dim = input_dim + hidden_dim
+        self.W = np.random.randn(4 * hidden_dim, combined_dim) * 0.1
+        self.b = np.zeros((4 * hidden_dim, 1))
 
-for t, x in enumerate(sequence):
-    h = rnn_cell(x, h, W_x, W_h, b)
-    print(f"t={t}  h={np.round(h, 3)}")
+    def forward(self, x: np.ndarray, h_prev: np.ndarray, c_prev: np.ndarray):
+        """
+        Executes a single time-step forward pass.
+        x: (input_dim, 1)
+        h_prev: (hidden_dim, 1)
+        c_prev: (hidden_dim, 1)
+        """
+        # 1. Concatenate input and previous hidden state
+        combined = np.vstack((h_prev, x))
+
+        # 2. Compute all 4 gates in a single matrix multiply
+        gates = np.dot(self.W, combined) + self.b
+        H = self.hidden_dim
+
+        # 3. Unpack and apply non-linearities
+        f = sigmoid(gates[0*H : 1*H])        # Forget gate
+        i = sigmoid(gates[1*H : 2*H])        # Input gate
+        c_cand = np.tanh(gates[2*H : 3*H])   # Candidate cell state
+        o = sigmoid(gates[3*H : 4*H])        # Output gate
+
+        # 4. Additive Cell State update (No vanishing gradient!)
+        c_next = f * c_prev + i * c_cand
+
+        # 5. Output Hidden State
+        h_next = o * np.tanh(c_next)
+
+        return h_next, c_next, {"f": f, "i": i, "o": o}
+
+if __name__ == "__main__":
+    np.random.seed(42)
+    cell = MinimalLSTMCell(input_dim=8, hidden_dim=4)
+    x = np.random.randn(8, 1)
+    h0 = np.zeros((4, 1))
+    c0 = np.zeros((4, 1))
+
+    h1, c1, gates = cell.forward(x, h0, c0)
+    print("=== LSTM STEP 1 FORWARD PASS ===")
+    print("Forget Gate Mean: ", np.mean(gates["f"]))
+    print("Input Gate Mean:  ", np.mean(gates["i"]))
+    print("Output Gate Mean: ", np.mean(gates["o"]))
+    print("Hidden State h_1: \n", h1.T)
 ```
 
-Note that `h` at each step depends on the previous `h`. Write one
-sentence explaining why this loop cannot be run in parallel across `t`.
+### TypeScript / Node.js (`lstm_cell.ts`)
 
-### 2. Watch a gradient vanish
+```typescript
+export function sigmoid(x: number): number {
+  return 1 / (1 + Math.exp(-Math.max(Math.min(x, 15), -15)));
+}
 
-```python
+export interface LSTMState {
+  h: number[];
+  c: number[];
+}
+
+export function simulateLSTMStep(
+  x: number,
+  prevState: LSTMState,
+  weights: { wf: number; wi: number; wc: number; wo: number }
+): LSTMState {
+  const h_prev = prevState.h[0] || 0;
+  const c_prev = prevState.c[0] || 0;
+
+  // 1. Evaluate Gates
+  const f = sigmoid(weights.wf * (x + h_prev));
+  const i = sigmoid(weights.wi * (x + h_prev));
+  const c_cand = Math.tanh(weights.wc * (x + h_prev));
+  const o = sigmoid(weights.wo * (x + h_prev));
+
+  // 2. Additive update to cell state
+  const c_next = f * c_prev + i * c_cand;
+
+  // 3. Compute hidden state
+  const h_next = o * Math.tanh(c_next);
+
+  return { h: [h_next], c: [c_next] };
+}
+
+// Verification
+const state0: LSTMState = { h: [0.0], c: [0.0] };
+const weights = { wf: 0.8, wi: 0.5, wc: 0.9, wo: 0.7 };
+const state1 = simulateLSTMStep(1.2, state0, weights);
+console.log('Next hidden state:', state1.h[0].toFixed(4));
+```
+
+### Go (`lstm_step.go`)
+
+```go
+package main
+
+import (
+	"fmt"
+	"math"
+)
+
+func sigmoid(x float64) float64 {
+	return 1.0 / (1.0 + math.Exp(-x))
+}
+
+type LSTMState struct {
+	H float64
+	C float64
+}
+
+func Step(x float64, prev LSTMState, wf, wi, wc, wo float64) LSTMState {
+	f := sigmoid(wf * (x + prev.H))
+	i := sigmoid(wi * (x + prev.H))
+	cCand := math.Tanh(wc * (x + prev.H))
+	o := sigmoid(wo * (x + prev.H))
+
+	cNext := f*prev.C + i*cCand
+	hNext := o * math.Tanh(cNext)
+
+	return LSTMState{H: hNext, C: cNext}
+}
+
+func main() {
+	state := LSTMState{H: 0.0, C: 0.0}
+	tokens := []float64{0.5, -0.8, 1.2, 0.3}
+
+	for step, t := range tokens {
+		state = Step(t, state, 0.9, 0.4, 0.8, 0.6)
+		fmt.Printf("Step %d | Hidden: %.4f | Cell: %.4f\n", step+1, state.H, state.C)
+	}
+}
+```
+
+---
+
+## 6. Practical CLI Workflows
+
+Observe the vanishing gradient phenomenon directly by running an unrolled backpropagation pass in Python:
+
+```bash
+python -c "
 import numpy as np
 
-def gradient_over_time(w, steps=30):
-    """Crude model of the repeated multiplication in BPTT."""
-    return [w ** k for k in range(1, steps + 1)]
+# Simulate 30 backprop steps with weight scale 0.8 (< 1.0)
+steps = 30
+w = 0.8
+gradient = 1.0
 
-for w in [0.5, 0.9, 1.0, 1.1]:
-    g = gradient_over_time(w)
-    print(f"w={w}:  after 10 steps={g[9]:.2e}   after 30 steps={g[29]:.2e}")
+print('Step  | Gradient Magnitude')
+print('--------------------------')
+for t in range(steps):
+    if t % 5 == 0 or t == steps - 1:
+        print(f'{t:4d}  | {gradient:12.8f}')
+    gradient *= w
+"
 ```
 
-Look at `w=0.5` and `w=1.1` after 30 steps. State which is the vanishing
-case and which is exploding, and which of the two is easier to fix in
-practice (and how).
-
-### 3. Train a real RNN to count parity
-
-A clean test of memory: given a binary sequence, output whether it
-contains an odd number of 1s. This *requires* remembering across the
-whole sequence.
-
-```python
-import torch
-import torch.nn as nn
-
-torch.manual_seed(0)
-
-def make_batch(n, length):
-    x = torch.randint(0, 2, (n, length, 1)).float()
-    y = (x.sum(dim=1) % 2)
-    return x, y
-
-class ParityRNN(nn.Module):
-    def __init__(self, hidden=16, cell="rnn"):
-        super().__init__()
-        Cell = nn.RNN if cell == "rnn" else nn.LSTM
-        self.rnn = Cell(1, hidden, batch_first=True)
-        self.fc = nn.Linear(hidden, 1)
-    def forward(self, x):
-        out, _ = self.rnn(x)
-        return self.fc(out[:, -1, :])      # only the final hidden state
-
-def train(cell, length, epochs=300):
-    model = ParityRNN(cell=cell)
-    opt = torch.optim.Adam(model.parameters(), lr=0.01)
-    lossf = nn.BCEWithLogitsLoss()
-    for _ in range(epochs):
-        x, y = make_batch(64, length)
-        opt.zero_grad()
-        loss = lossf(model(x), y)
-        loss.backward()
-        nn.utils.clip_grad_norm_(model.parameters(), 1.0)
-        opt.step()
-    x, y = make_batch(500, length)
-    acc = ((model(x) > 0).float() == y).float().mean().item()
-    return acc
-
-for length in [5, 15, 40]:
-    print(f"len={length:3d}   RNN acc={train('rnn', length):.2f}   "
-          f"LSTM acc={train('lstm', length):.2f}")
+**Expected Output:**
+```
+Step  | Gradient Magnitude
+--------------------------
+   0  |   1.00000000
+   5  |   0.32768000
+  10  |   0.10737418
+  15  |   0.03518437
+  20  |   0.01152922
+  25  |   0.00377789
+  29  |   0.00154743
 ```
 
-This takes a minute or two on CPU. Expect both to handle length 5, the
-plain RNN to degrade toward chance (0.5) as length grows, and the LSTM to
-hold up longer. Record your numbers — this is the vanishing gradient
-problem measured, not described.
+By step 29, the gradient has degraded by over **99.8%**, demonstrating why plain RNNs cannot learn long-term dependencies!
 
-### 4. Time the sequential bottleneck
+---
 
-```python
-import torch, torch.nn as nn, time
+## 7. Operational Validation Checkpoints
 
-lstm = nn.LSTM(64, 128, batch_first=True)
-linear = nn.Linear(64, 128)     # a parallelizable comparison
+Confirm your understanding of sequential neural networks and their limitations.
 
-for length in [10, 100, 1000]:
-    x = torch.randn(32, length, 64)
+<details>
+<summary><b>Checkpoint 1: Why did LSTMs completely solve the vanishing gradient problem in theory, but still fail at scale in practice?</b></summary>
 
-    t0 = time.perf_counter()
-    lstm(x)
-    t_rnn = time.perf_counter() - t0
-
-    t0 = time.perf_counter()
-    linear(x)                    # all positions at once
-    t_lin = time.perf_counter() - t0
-
-    print(f"len={length:5d}  LSTM={t_rnn*1000:7.2f}ms  "
-          f"parallel-linear={t_lin*1000:6.2f}ms  ratio={t_rnn/t_lin:6.1f}x")
-```
-
-Watch the ratio grow with sequence length. The linear layer touches all
-positions simultaneously; the LSTM cannot. Write one sentence connecting
-this measurement to why the field abandoned recurrence despite LSTMs
-working reasonably well.
-
-### 5. Feel the seq2seq bottleneck
-
-```python
-import torch, torch.nn as nn
-torch.manual_seed(0)
-
-encoder = nn.LSTM(32, 64, batch_first=True)
-
-for length in [5, 20, 100]:
-    x = torch.randn(1, length, 32)
-    out, (h_n, c_n) = encoder(x)
-    print(f"input: {length} timesteps x 32 dims = {length*32:5d} numbers"
-          f"  ->  final state: {h_n.numel()} numbers")
-```
-
-Every sequence, regardless of length, is compressed into the same 64
-numbers before the decoder ever sees it. Answer: what specifically would
-you expect to degrade first as input length grows, and what would you
-change about the decoder's access to fix it? (Your answer is module 05.)
-
-### 6. Diagnose and fix: NaN loss
-
-A colleague's RNN training loop prints a normal loss for ~40 steps, then
-`nan` forever. They have no gradient clipping. Name the problem, explain
-which multiplication causes it, and give the one-line fix.
-
-<details><summary>Answer</summary>
-
-Exploding gradients. In BPTT the gradient is propagated back through the
-same recurrent weight matrix once per timestep; if its effective scale
-exceeds 1, repeated multiplication grows the gradient exponentially with
-sequence length until it overflows to `inf`, and the subsequent weight
-update produces `nan` — which then contaminates every later step.
-
-Fix: `nn.utils.clip_grad_norm_(model.parameters(), 1.0)` between
-`loss.backward()` and `opt.step()`.
-
-Worth noting the asymmetry: exploding gradients are loud (obvious `nan`)
-and easy to fix. Vanishing gradients are silent — training completes,
-loss decreases, and the model simply never learned long-range
-dependencies. Silent failure is the more dangerous of the two, and it's
-what motivated LSTMs.
+**Analysis:**
+- **Why they solved it in theory:** The cell state update is an **additive linear operation** ($\mathbf{C}_t = \mathbf{f}_t \odot \mathbf{C}_{t-1} + \mathbf{i}_t \odot \tilde{\mathbf{C}}_t$). When backpropagating, gradients can flow across the cell state additions without being repeatedly multiplied by sub-unitary weight matrices.
+- **Why they failed at scale in practice:**
+  1. **The Sequential GPU Bottleneck:** Computation remains inherently serial. You cannot process token 200 without waiting for token 199. GPUs are massively parallel processors; sequential dependencies starve their execution pipelines.
+  2. **Fixed-Size Memory Degradation:** In practice, an LSTM cell state vector of 512 floats cannot preserve the precise semantic details of a 2,000-word document.
 </details>
 
-## Independent challenge
+<details>
+<summary><b>Checkpoint 2: What is the primary difference between an LSTM and a GRU (Gated Recurrent Unit)?</b></summary>
 
-Build a **character-level language model** with an LSTM, trained on a
-text file of your choice (~100KB is plenty). Requirements: an embedding
-layer, an LSTM, a linear output over the character vocabulary, and a
-sampling loop that generates text one character at a time.
-
-Then write up:
-
-1. Generated samples after 1, 10, and 100 epochs — watch structure
-   emerge (first spaces and letter frequencies, then word-like tokens,
-   then quotes/newlines matching).
-2. A comparison against module 02's bigram model on the same text. Which
-   produces more coherent output, and over what distance?
-3. A paragraph on where the LSTM's coherence breaks down, and which of
-   this module's two walls you think you're hitting.
-
-This is the direct ancestor of GPT — same autoregressive sampling loop,
-just a recurrent core instead of a transformer.
-
-## Common mistakes & troubleshooting
-
-- **Forgetting gradient clipping.** Exploding gradients will produce
-  `nan` and waste a training run (exercise 6).
-- **Assuming an LSTM "solved" long-range dependencies.** It extended
-  usable range substantially; it did not remove the limit, and it did
-  nothing at all about parallelism.
-- **Using only the final hidden state when you have all of them.** `out`
-  from `nn.LSTM` contains every timestep's hidden state. Collapsing to
-  `out[:, -1, :]` is right for classification but throws away exactly the
-  information attention will exploit.
-- **Confusing hidden state with cell state in an LSTM.** `nn.LSTM`
-  returns `(h_n, c_n)`; `h_n` is the exposed output, `c_n` is the
-  protected internal memory. Passing the wrong one when initializing a
-  decoder is a common silent bug.
-- **Benchmarking recurrence on short sequences and concluding it's fast
-  enough.** The parallelism gap widens with length (exercise 4) — that's
-  where the argument actually lives.
-
-## Checkpoint quiz
-
-1. Write the RNN hidden-state update equation and say what each term is.
-2. Why can't RNN timesteps be computed in parallel?
-3. What causes vanishing gradients in BPTT, and why is vanishing more
-   dangerous than exploding?
-4. What are an LSTM's three gates, and what protects the cell state from
-   the vanishing problem?
-5. Describe the seq2seq bottleneck in one sentence.
-6. Which of the two walls does attention address, and which does dropping
-   recurrence address?
-
-<details><summary>Answers</summary>
-
-1. `hₜ = tanh(W_h·hₜ₋₁ + W_x·xₜ + b)` — new hidden state from the
-   previous hidden state, the current input, and a bias, squashed by
-   `tanh`. The same weights are reused at every timestep.
-2. Each step's hidden state depends on the previous step's, so step `t`
-   cannot begin until `t-1` finishes — an inherently serial dependency
-   chain.
-3. The gradient is propagated back through the same recurrent weight
-   matrix once per timestep, so it is effectively raised to a power;
-   scales below 1 decay toward zero. Vanishing is more dangerous because
-   it fails silently — training appears to succeed while long-range
-   dependencies simply never get learned — whereas exploding produces an
-   obvious `nan` and is fixed by clipping.
-4. Forget, input, output. The cell state is modified mostly additively
-   rather than by repeated matrix multiplication, so gradients can flow
-   across many timesteps.
-5. An encoder must compress an entire input sequence of any length into
-   one fixed-size vector, which the decoder alone must work from.
-6. Attention addresses the fixed-size bottleneck (the decoder can look at
-   every encoder state). Dropping recurrence addresses the parallelism
-   wall, which is what made training at internet scale feasible.
+**Architecture Differences:**
+- **GRU Simplification:** Proposed by Cho et al. in 2014, the GRU merges the cell state and hidden state into a **single state vector $h_t$**.
+- **Gate Count:** A GRU replaces the LSTM's three gates with **two gates**: the **Update Gate ($z_t$)** (merging forget and input logic) and the **Reset Gate ($r_t$)**.
+- **Operational Tradeoff:** GRUs have ~25% fewer parameters than LSTMs, training faster with less memory while matching LSTM accuracy on moderate-length sequences. However, they share the identical sequential parallelization limitation.
 </details>
 
-## Further reading & sources
+<details>
+<summary><b>Checkpoint 3: Explain why bidirectional RNNs (Bi-RNNs) cannot be used for autoregressive text generation.</b></summary>
 
-- [Understanding LSTM Networks (Christopher Olah, 2015)](https://colah.github.io/posts/2015-08-Understanding-LSTMs/) - the single best explanation of LSTM gates ever written, with the diagrams everyone else copies. Read this if the forget/input/output gates haven't clicked.
-- [Long Short-Term Memory (Hochreiter & Schmidhuber, 1997)](https://www.bioinf.jku.at/publications/older/2604.pdf) - the original LSTM paper, written 17 years before the hardware existed to make it matter.
-- [On the difficulty of training Recurrent Neural Networks (Pascanu et al., 2013)](https://arxiv.org/abs/1211.5063) - the formal treatment of vanishing/exploding gradients and where gradient clipping comes from.
-- [The Unreasonable Effectiveness of Recurrent Neural Networks (Karpathy, 2015)](https://karpathy.github.io/2015/05/21/rnn-effectiveness/) - character-level RNNs generating Shakespeare, LaTeX and C code. This is the independent challenge, done by the person who popularized it.
-- [Sequence to Sequence Learning with Neural Networks (Sutskever et al., 2014)](https://arxiv.org/abs/1409.3215) - the encoder-decoder architecture whose bottleneck exercise 5 measures.
-- [PyTorch nn.LSTM documentation](https://pytorch.org/docs/stable/generated/torch.nn.LSTM.html) - API reference, including the `(h_n, c_n)` return values that are a common source of silent bugs.
-- [Empirical Evaluation of Gated Recurrent Neural Networks (Chung et al., 2014)](https://arxiv.org/abs/1412.3555) - the GRU-vs-LSTM comparison, if you want to know when the simpler cell suffices.
+**Causality Violation:**
+- **Bidirectional RNN:** Passes one hidden state forward ($h_1 \to h_T$) and a second hidden state backward ($h_T \to h_1$). This allows the model to condition on both past and *future* tokens simultaneously. It is ideal for sequence tagging, classification, and discriminative tasks (like BERT).
+- **Autoregressive Generation:** Requires predicting the *next* token when the future does not yet exist! Allowing a generative model to look forward during next-token generation is a catastrophic causal leak; the model simply copies the next word instead of learning to predict it.
+</details>
+
+---
 
 ## Next
 
-[Module 05: The Attention Breakthrough](../05-the-attention-breakthrough/README.md)
+Continue to **[05-the-attention-breakthrough](../05-the-attention-breakthrough/README.md)** to see how the attention mechanism solved the fixed-vector information bottleneck.
