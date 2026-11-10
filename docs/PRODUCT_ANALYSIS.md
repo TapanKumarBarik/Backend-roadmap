@@ -402,7 +402,7 @@ Updated as work is done. The first column follows the numbering in "The daily lo
 | Email (sign-up, welcome, streak reminder, weekly digest) | Not started. Needs a decision and an account for a sender (Resend or Cloudflare Email) and consent wording; I will not set up an external service without that |
 | Events table and return-rate view | Not started. A new migration (0008, after the drill's 0007), applied by hand |
 | Quiz one question at a time | **Done**, 2026-11-10 |
-| Practice recommendations | Not started |
+| Practice recommendations ("Recommended for you": weak topics, then what is new, then what is due for another go; the reason on each card) | **Done**, 2026-11-10. Not from lessons read: that data is in the app shell, not passed to Practice. Also fixed: best scores no longer go stale after a try |
 | Network Lab: subnet calculator, drills and a daily puzzle at `/tools/subnet/` (an idea from the owner; it gives the daily hook and search traffic for "subnet calculator" and "CIDR" with no server cost) | **Built**, 2026-11-10; further tools (TCP handshake ordering, ports, DNS records) and a link from the navigation are not done, the navigation being in the files another session is editing |
 | Rubrics and AI feedback for design challenges; the paid tier | Not started; see "What to charge for" |
 

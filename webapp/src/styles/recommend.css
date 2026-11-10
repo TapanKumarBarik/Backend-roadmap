@@ -1,0 +1,10 @@
+/* "Recommended for you" at the top of Practice (components/practice/PracticeView.jsx): a short row of quizzes with the reason for each. */
+
+.pr-recs { margin: var(--space-6) 0 var(--space-4); }
+.pr-recs h3 { margin: 0 0 var(--space-3); font-family: var(--display); font-size: 13px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--signal); }
+.pr-recs__list { grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
+.pr-rec { border-color: var(--signal-line); background: var(--signal-bg); }
+.pr-rec__why { margin: 0 0 var(--space-2); font-size: var(--text-sm); font-weight: var(--weight-semibold); color: var(--fg); }
+.pr-rec__why.is-weak { color: var(--danger); }
+.pr-recs__note { margin: var(--space-3) 0 0; font-size: var(--text-sm); }
+.pr-done { color: var(--done); font-weight: var(--weight-semibold); }

@@ -550,3 +550,27 @@ test('the admin edits a quiz in the browser: it is checked, a problem is named, 
   }
   await context.close();
 });
+
+test('Practice recommends what to take: the easiest quizzes to a new reader, and the topic that went badly to one who has tried', async () => {
+  const fresh = await open('/practice/', { email: null });
+  await fresh.goto();
+  await fresh.page.locator('.pr-recs .pr-rec').first().waitFor();
+  assert.equal(await fresh.page.locator('.pr-recs .pr-rec').count(), 3, 'three suggestions');
+  assert.match(await fresh.page.locator('.pr-recs .pr-rec').first().innerText(), /A good place to start/);
+  assert.match(await fresh.page.locator('.pr-recs .pr-rec').first().innerText(), /beginner/i, 'the easiest first');
+  assert.equal(await fresh.page.getByRole('button', { name: /Sign in and these follow how you do/ }).count(), 1, 'it says why signing in helps');
+  await fresh.context.close();
+
+  const { context, page, goto } = await open('/practice/quiz/http-caching/');
+  await goto();
+  await page.waitForFunction(() => document.querySelectorAll('.pr-questions > li').length > 0);
+  await page.locator('.pr-questions > li').first().locator('input').first().check();
+  await page.getByRole('button', { name: 'Check my answers' }).click();
+  await page.locator('.pr-score').waitFor();
+  await page.getByRole('button', { name: '← All practice' }).click();
+  await page.locator('.pr-recs').waitFor();
+  const topic = practiceContent.quizzes['http-caching'].topic;
+  await page.locator('.pr-rec__why.is-weak', { hasText: new RegExp(`of the ${topic} questions right`) }).first().waitFor();
+  assert.equal(await page.getByRole('button', { name: /Sign in and these follow how you do/ }).count(), 0, 'a signed-in reader is not asked');
+  await context.close();
+});

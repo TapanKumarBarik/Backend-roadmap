@@ -44,6 +44,20 @@ export const QUIZ = {
   allOnPage: 'Show all the questions on one page'
 };
 
+// "Recommended for you" at the top of Practice (components/practice/PracticeView.jsx; the rules are lib/practice/recommend.js).
+export const RECOMMEND = {
+  heading: 'Recommended for you',
+  weak: (topic, percent) => `You got ${percent}% of the ${topic} questions right. Try again.`,
+  new: 'Not taken yet',
+  start: 'A good place to start',
+  revisit: (days) => `Last tried ${days} days ago. Is it still there?`,
+  signIn: 'Sign in and these follow how you do.',
+  perfect: 'Perfect score',
+  limit: 3,
+  weakBelow: 70, // the same line as WEAK.threshold: a topic below it is weak
+  revisitAfterDays: 14
+};
+
 // Where the reader is weak (My Learning): topics below this percent, from their latest try of each quiz.
 export const WEAK = {
   heading: 'Where to practise',
