@@ -1,223 +1,385 @@
-# Module 13: SSH and Remote Access
+# Module 13: SSH and Secure Remote Access
 
-> 🎯 **Goal:** Connect to remote Linux machines securely and predictably using SSH keys, hosts, and scoped configuration.
+> **Prerequisites:** Module 03 (File Permissions and Ownership), Module 10 (Networking Basics).  
+> **Estimated Reading Time:** 25 minutes  
+> **Target Audience:** Backend Developers, DevOps Engineers, Cloud Infrastructure Architects.
 
-By the end of this module, you should be able to generate and protect a key pair, verify a host's identity, use an SSH config alias, transfer files safely, and explain why private keys must never be copied into source control, chat, or a server you do not trust.
+> [!TIP]
+> **The Golden Rule of SSH Engineering:** Never copy private keys to remote servers, and never disable host key verification (`StrictHostKeyChecking=no`) in production environments. Your private key (`id_ed25519`) must remain on your local machine with strict `0600` permissions. Only the **public key** (`id_ed25519.pub`) is installed on remote servers inside `~/.ssh/authorized_keys`. Use SSH config profiles (`~/.ssh/config`) with `ProxyJump` to traverse bastion jump boxes securely without SSH agent forwarding risks.
 
 ---
 
-## Why this matters
+## 1. Architectural Mental Model: Asymmetric Authentication & Handshake
 
-Almost nothing you manage professionally sits on the machine in front of you - servers, cloud VMs, Kubernetes nodes, and container hosts are all reached remotely, and SSH is the near-universal way to do that securely. Once you get to the Docker and Kubernetes parts of this curriculum, you'll be SSHing into hosts and copying files around constantly, so getting comfortable with key pairs, `ssh`, and `scp` now removes a huge amount of friction later.
-
-## Concepts
-
-### The first connection is a trust decision
-
-SSH encryption protects a connection only if you verify the server you intended to reach. Read the host fingerprint on first connect and confirm it through a trusted channel for real systems. Keep private keys private, prefer passphrases and an agent, and use a separate key or restricted account when a project requires different access boundaries.
-
-**What SSH is and why it replaced telnet.** SSH (Secure Shell) is a protocol for getting a remote command-line session on another machine over a network, the same way you've been getting a local shell on your own machine since module 01. Older tools like `telnet` did the same basic job but sent everything - including your password - as plain, unencrypted text over the network, so anyone watching the traffic could read it. SSH encrypts the entire session: your login, your keystrokes, and everything the remote machine sends back. This is why SSH is the default today and telnet is essentially never used for remote administration anymore.
-
-**Client and server.** SSH has two sides: the client (the `ssh` command you run to connect *out* to somewhere) and the server (a background service, `sshd`, that listens for incoming connections and is what actually lets a machine be connected *into*). Ubuntu ships with the SSH client already installed, which is why you can `ssh` out to other machines immediately. The server is a separate package you install only if you want *this* machine to accept incoming SSH connections.
-
-**Password vs. key-based authentication.** When you `ssh` into a machine, you need to prove who you are. The simplest way is a password, typed each time. The stronger and more convenient way, used almost everywhere professionally, is a key pair: a mathematically related pair of files, a private key (which never leaves your machine and must be kept secret) and a public key (which you can hand out freely, because it's only useful for verifying, not impersonating, you). You put your public key on the remote machine; when you connect, the remote machine challenges your client to prove it holds the matching private key, without the private key or a password ever crossing the network. This is why file permissions on your private key matter so much (see below) - anyone who obtains it can pretend to be you.
-
-```
-  Your machine (client)              Remote machine (server)
-  ┌─────────────────────┐            ┌─────────────────────┐
-  │  ~/.ssh/id_ed25519    │            │  ~/.ssh/              │
-  │  (PRIVATE — never     │            │   authorized_keys      │
-  │   leaves this box)     │            │   (holds your PUBLIC   │
-  │                        │            │    key, one per line)  │
-  │  ~/.ssh/id_ed25519.pub │──copied───►│                        │
-  │  (public — safe to      once, via   │  sshd challenges the   │
-  │   hand out)             ssh-copy-id │  client to prove it    │
-  └─────────────────────┘            │  holds the matching    │
-                                      │  private key — the      │
-       ssh alice@host ───────────────►│  private key itself     │
-       (connection attempt)           │  never crosses the wire │
-                                      └─────────────────────┘
-```
-
-**Why the permissions on `~/.ssh` and your private key matter.** You already learned in module 03 that Linux permissions control who can read/write/execute a file. SSH is unusually strict about this: if your private key file or your `~/.ssh` directory are readable by anyone other than you, SSH will refuse to use them and print a warning, because a private key readable by other users defeats the entire point of it being private. The convention is `700` (owner: read/write/execute, nobody else: anything) for the `~/.ssh` directory, and `600` (owner: read/write, nobody else: anything) for private key files.
-
-**`authorized_keys` and how key-based login actually gets granted.** On the machine you're connecting *to*, there's a file at `~/.ssh/authorized_keys` (one line per public key) listing which public keys are allowed to log in as that user. Adding your public key there is what grants you access - there's no separate "user database" for SSH keys beyond this file. `ssh-copy-id` automates appending your public key to that file over an existing (usually password-based) connection, so you don't have to do it by hand.
-
-**`~/.ssh/config` for host aliases.** Typing full `ssh user@long-hostname-or-ip -p 2222 -i /path/to/key` every time gets tedious. The `~/.ssh/config` file lets you define a short alias (like `myserver`) that bundles up the hostname, username, port, and key file, so you can just type `ssh myserver`. This is a client-side convenience file only - it doesn't affect the server at all.
-
-**WSL2's networking reality for SSH practice.** WSL2 runs behind a NAT (network address translation) layer on your Windows host, meaning other machines on your network generally cannot initiate a connection *into* your WSL2 instance by default - this was touched on in module 10's networking notes. Practically, this means: (1) SSHing *out* from WSL2 to a real remote machine, VM, or cloud instance works completely normally and is the most realistic way to practice; (2) if you want to practice being on the "server" side too without a second machine, you can install `openssh-server` inside your own WSL2 instance and SSH to `localhost` from the same instance - this proves the mechanics (keys, permissions, config) but is not the same as genuine machine-to-machine access, and don't expect a Windows machine elsewhere on your network to reach your WSL2 sshd without extra port-forwarding setup that's out of scope here.
-
-**`scp` for copying files over SSH.** `scp` (secure copy) reuses your existing SSH authentication (password or key) to copy files to or from a remote machine, so if `ssh` works, `scp` works with the same credentials. It's the SSH-secured equivalent of a local `cp`.
-
-## Command reference
-
-| Command | What it does | Example |
-|---|---|---|
-| `ssh user@host` | Opens a remote shell session on `host`, logging in as `user` | `ssh alice@203.0.113.10` |
-| `ssh -p <port> user@host` | Connects using a non-default SSH port (`-p`); default port is 22 | `ssh -p 2222 alice@203.0.113.10` |
-| `ssh -i <keyfile> user@host` | Connects using a specific private key file (`-i` = identity file) instead of the default | `ssh -i ~/.ssh/id_ed25519 alice@203.0.113.10` |
-| `ssh-keygen` | Generates a new public/private key pair, interactively prompting for a file location and optional passphrase | `ssh-keygen -t ed25519 -C "my-comment"` |
-| `ssh-copy-id user@host` | Copies your public key to the remote machine's `~/.ssh/authorized_keys`, prompting for the remote password once to do so | `ssh-copy-id alice@203.0.113.10` |
-| `scp <src> <dest>` | Securely copies a file between local and remote machines over SSH | `scp notes.txt alice@203.0.113.10:/home/alice/` |
-| `scp -r <src> <dest>` | Copies a directory and its contents recursively (`-r`) | `scp -r myproject/ alice@203.0.113.10:~/backup/` |
-| `sudo apt install openssh-server` | Installs the SSH server package so this machine can accept incoming connections (module 05 recap) | `sudo apt install openssh-server` |
-| `sudo systemctl enable --now ssh` | Enables the SSH server to start on boot and starts it immediately (module 11 recap) | `sudo systemctl enable --now ssh` |
-| `sudo systemctl status ssh` | Shows whether the SSH server is currently running | `sudo systemctl status ssh` |
-| `chmod 700 ~/.ssh` | Restricts the `.ssh` directory to owner-only access, required for SSH to trust its contents | `chmod 700 ~/.ssh` |
-| `chmod 600 ~/.ssh/id_ed25519` | Restricts a private key file to owner-only read/write, required for SSH to accept using it | `chmod 600 ~/.ssh/id_ed25519` |
-
-## Hands-on exercises
-
-1. Open your WSL2 Ubuntu terminal. Confirm the SSH client is already present by running `ssh -V`. You should see a version string like `OpenSSH_8.x` or similar - this confirms the client-side tooling from earlier modules' package management is already there.
-
-2. Generate a key pair for yourself: run `ssh-keygen -t ed25519 -C "practice-key"`. When prompted for a file location, press Enter to accept the default (`~/.ssh/id_ed25519`). When prompted for a passphrase, you can press Enter twice for no passphrase for this practice exercise (in real use, a passphrase adds another layer of protection on top of the key itself).
-
-3. List your `.ssh` directory with `ls -l ~/.ssh`. You should see `id_ed25519` (your private key) and `id_ed25519.pub` (your public key). Run `cat ~/.ssh/id_ed25519.pub` and note that it's a single line of text starting with `ssh-ed25519` - this is safe to share. Do not `cat` or share the private key file.
-
-4. Check the permissions on your key files with `ls -l ~/.ssh/id_ed25519` and `ls -ld ~/.ssh`. `ssh-keygen` sets these correctly by default (`600` on the private key, `700` on the directory), so confirm you see `-rw-------` and `drwx------` respectively.
-
-5. Now practice the server side locally so you have something to actually connect to. Install and start the SSH server:
-   ```
-   sudo apt update
-   sudo apt install -y openssh-server
-   sudo systemctl enable --now ssh
-   sudo systemctl status ssh
-   ```
-   Confirm the status shows `active (running)`.
-
-6. Add your own public key to your own `authorized_keys` file (simulating what you'd do on a remote machine):
-   ```
-   mkdir -p ~/.ssh
-   cat ~/.ssh/id_ed25519.pub >> ~/.ssh/authorized_keys
-   chmod 700 ~/.ssh
-   chmod 600 ~/.ssh/authorized_keys
-   ```
-   Then run `ssh localhost` (using your own Linux username). The first time, you'll be asked to confirm the host's fingerprint - type `yes`. You should be logged in without being prompted for a password, proving key-based auth worked. Type `exit` to return to your original shell.
-
-7. Break the permissions on purpose to see the failure mode. Run `chmod 777 ~/.ssh/id_ed25519` (making the private key world-readable), then try `ssh -i ~/.ssh/id_ed25519 localhost`. You should see a warning like `Permissions ... are too open` and the connection either falls back to password auth or refuses the key. Read the error message carefully - this is exactly the situation the "why permissions matter" concept above described.
-
-8. Fix it: run `chmod 600 ~/.ssh/id_ed25519`, then retry `ssh -i ~/.ssh/id_ed25519 localhost` and confirm it works again cleanly. Type `exit` when done.
-
-9. Practice `scp`. Create a test file and copy it to yourself over SSH:
-   ```
-   echo "scp test" > ~/scp-test.txt
-   scp ~/scp-test.txt localhost:~/scp-test-copy.txt
-   ls -l ~/scp-test-copy.txt
-   cat ~/scp-test-copy.txt
-   ```
-   Confirm the copy exists and has the same content.
-
-10. Set up a host alias. Edit (or create) `~/.ssh/config` with a text editor and add:
-    ```
-    Host mylocal
-        HostName localhost
-        User <your-linux-username>
-        IdentityFile ~/.ssh/id_ed25519
-    ```
-    Save it, then run `chmod 600 ~/.ssh/config` and test with `ssh mylocal`. You should connect without specifying the username or key file on the command line, confirming the alias is working.
-
-11. If you have access to a real remote machine or cloud VM (optional but recommended for realism), run `ssh-copy-id user@<that-machine's-address>` to copy your public key there, then `ssh user@<that-machine's-address>` to confirm passwordless login works against an actual separate machine, not just `localhost`. This is the scenario the WSL2 NAT note above described as the realistic way to practice SSH.
-
-## Production practice: remote access with trust boundaries
-
-> [!key]
-> SSH combines server authentication, encrypted transport, and client authentication. A successful password or key prompt does not by itself prove you reached the intended server—the host key does that job.
-
-> [!model]
-> Your SSH private key is your unshareable signing device. The public key placed on a server tells that server what signatures it will accept; the host key tells your client which server it reached.
+SSH (Secure Shell) utilizes asymmetric cryptography to achieve mutual authentication, encrypt all traffic, and prevent Man-in-the-Middle (MITM) attacks:
 
 ```mermaid
 sequenceDiagram
-    participant C as SSH client
-    participant S as Server
-    C->>S: Connect to host and port
-    S->>C: Present host key
-    C->>C: Verify known_hosts fingerprint
-    C->>S: Prove possession of private key
-    S->>C: Encrypted session
+    actor Client as Local Workstation (~/.ssh)
+    participant KnownHosts as Local known_hosts (~/.ssh/known_hosts)
+    participant Server as Remote Linux Host (sshd)
+    participant AuthKeys as Server authorized_keys (~/.ssh/authorized_keys)
+
+    Note over Client,Server: Phase 1: Transport Layer & Host Verification
+    Client->>Server: TCP Handshake on Port 22
+    Server-->>Client: Send Server Host Public Key (ssh_host_ed25519_key.pub)
+    Client->>KnownHosts: Validate host key against known_hosts database!
+    Note over Client: Host authenticity confirmed (MITM protection active)
+
+    Note over Client,Server: Phase 2: Key Exchange (Diffie-Hellman / Curve25519)
+    Client->>Server: Derive ephemeral symmetric session encryption key
+    Note over Client,Server: All subsequent wire traffic is strongly encrypted (ChaCha20 / AES-GCM)
+
+    Note over Client,Server: Phase 3: User Authentication
+    Client->>Server: "Authenticate as user 'asha' with public key id_ed25519.pub"
+    Server->>AuthKeys: Lookup public key in ~/.ssh/authorized_keys
+    Server-->>Client: Challenge: Encrypted random nonce challenge
+    Client->>Client: Sign challenge with local Private Key (id_ed25519)
+    Client-->>Server: Return digital signature
+    Server->>Server: Verify signature with Public Key -> MATCH!
+    Server-->>Client: Authentication Accepted! Allocate PTY Shell.
 ```
 
-The handshake sequence explains a connection. This key-placement model clarifies what may and may not leave your client.
+---
+
+## 2. Taxonomic Reference: Asymmetric Key Algorithms
+
+| Algorithm | Key Size / Curve | Security Status | Performance | Production Verdict |
+| :--- | :--- | :--- | :--- | :--- |
+| **Ed25519** | 256-bit (Edwards25519 Curve) | **State of the Art** | Extremely fast; compact 68-char keys | **RECOMMENDED STANDARD.** Default for modern infrastructure. |
+| **RSA** | 3072 / 4096-bit | Secure (if $\ge 3072$ bits) | Slow key generation; bulky keys | Acceptable only for legacy hardware compatibility. |
+| **ECDSA** | 256 / 384 / 521-bit | Controversial NIST curves | Moderate | Avoid where possible (side-channel and RNG risks). |
+| **DSA** | 1024-bit | **BROKEN / INSECURE** | Deprecated | **Permanently disabled** in modern OpenSSH releases. |
+
+---
+
+## 3. Systematic Breakdown: The `~/.ssh/config` Automation Engine
+
+Typing long connection strings (`ssh -i ~/.ssh/prod.pem -p 2222 deploy@prod-bastion.internal.net`) is slow and error-prone. Organize all connections in `~/.ssh/config`:
+
+```ini
+# Global settings for all hosts
+Host *
+    ServerAliveInterval 60
+    ServerAliveCountMax 3
+    AddKeysToAgent yes
+    IdentitiesOnly yes
+
+# Production Bastion / Jump Box
+Host bastion
+    HostName bastion.example.com
+    User admin
+    Port 22
+    IdentityFile ~/.ssh/id_ed25519
+
+# Internal Private Database Node (Traversed via Bastion)
+Host db-internal
+    HostName 10.0.4.15
+    User postgres
+    IdentityFile ~/.ssh/id_ed25519
+    ProxyJump bastion
+```
+
+With this configuration, executing `ssh db-internal` automatically connects to the public bastion, tunnels an encrypted proxy stream, and opens a session directly on the private database server without manual port forwarding!
+
+---
+
+## 4. Production War Story: The Golden Image Cloned Host Key Collision
 
 ```mermaid
-flowchart LR
-    K["Private key\nclient only"] -->|proves possession| C["SSH client"]
-    P["Public key\nserver ~/.ssh/authorized_keys"] --> S["SSH server"]
-    H["Server host key"] --> N["Client known_hosts"]
+sequenceDiagram
+    actor CI as Automated CD Deployment Runner
+    participant KnownHosts as CI ~/.ssh/known_hosts
+    participant VM1 as Cloud VM 1 (IP: 10.0.1.5)
+    participant VM2 as Cloud VM 2 (IP: 10.0.1.6)
+
+    Note over CI,VM2: Staging VM was baked into Golden AMI without deleting host keys!
+    Note over VM1,VM2: 100 cloud nodes launch sharing the EXACT SAME private host key!
+    CI->>VM1: ssh deploy@10.0.1.5 -> Success (Host key cached for 10.0.1.5)
+    Note over CI: Autoscaler terminates VM1 and launches VM2 at 10.0.1.5
+    CI->>VM2: ssh deploy@10.0.1.5
+    Note over CI: DNS/IP changed, but host key is recognized under different fingerprint!
+    CI->>KnownHosts: Check fingerprint
+    Note over KnownHosts: Conflict detected! "REMOTE HOST IDENTIFICATION HAS CHANGED!"
+    CI-->>CI: OpenSSH aborts connection with Fatal Error code 255!
+    Note over CI: SEV-1: All microservice auto-scaling deployments crash!
 ```
 
-> [!example]
-> A `~/.ssh/config` entry can give a server a memorable alias, a specific user, and a dedicated key. `ssh production-api` is then clearer and less error-prone than repeatedly typing a long command, while the private key remains only on your client.
+### The Incident
+During an automatic scaling event on AWS EC2, a cluster of 50 new worker nodes launched. Automated deployment pipelines instantly collapsed across the fleet. Every deployment step aborted with:
+`@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@`  
+`@    WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED!     @`  
+`@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@`  
+`IT IS POSSIBLE THAT SOMEONE IS DOING SOMETHING NASTY!`
 
-> [!pitfall]
-> Never “fix” an unexpected host-key warning by deleting the entry blindly. It can be a routine rebuild, but it can also indicate DNS or network interception. Verify the new fingerprint through a trusted channel before updating `known_hosts`.
+### The Post-Mortem Data
+* **Severity:** SEV-1 (Global Deployment Automation Freeze)
+* **Mean Time to Detect (MTTD):** 45 minutes
+* **Mean Time to Resolution (MTTR):** 60 minutes
 
-> [!exercise]
-> Generate a dedicated practice key pair with a passphrase. Inspect its public-key fingerprint, add a harmless host alias in `~/.ssh/config`, and use `ssh -G <alias>` to see the resolved configuration. Do not paste either key into this repository.
+### The Root Cause
+A DevOps engineer created a golden virtual machine image (AMI) from a live staging server without purging `/etc/ssh/ssh_host_*` private keys. Every virtual machine provisioned from this image shared the exact same cryptographic host identity. 
 
-> [!interview]
-> Explain the difference between a user key and a host key. Why does disabling host-key verification make an encrypted session less trustworthy?
+When cloud auto-scalers reused IP addresses or when hostnames mapped to multiple dynamic IPs, client SSH agents detected duplicate host keys associated with conflicting network signatures and terminated all connections to prevent Man-in-the-Middle attacks.
 
-> [!check]
-> - Can you locate your public and private key files and state which may be shared?
-> - Can you explain what `known_hosts` protects?
-> - Can you use a config alias without embedding a password or key in a command?
+### The Fix & Hardening
+1. **Purge Host Keys During Golden Image Baking:**
+```bash
+# In image creation scripts (Packer / cloud-init):
+sudo rm -f /etc/ssh/ssh_host_*
+```
+2. **Generate Unique Keys on First Boot via Cloud-Init:**
+```bash
+sudo ssh-keygen -A
+sudo systemctl restart ssh
+```
+3. **Deploy SSH Certificate Authorities (SSH CA):** Rather than trusting individual host keys, sign server host keys with a corporate SSH CA public key, configuring clients with `@cert-authority *.example.com`.
 
-## Independent challenge
+---
 
-No commands given here — figure it out yourself using what you know from this module and earlier ones.
+## 5. Multi-Language Production Code: Programmatic SSH Execution
 
-**Task:** Set up passwordless SSH from your WSL2 instance to itself (over `localhost`) using a brand-new key pair kept in its own file, separate from your default `id_ed25519`. Wire it up so a single short command — a host alias — connects you without you naming the user, key file, or host on the command line. Once it works, deliberately loosen the private key's permissions so that other users could read it, observe exactly how SSH reacts, and then restore the correct permissions (connect this to the permission model from module 03). Explain why SSH treats a too-readable private key as unusable.
+Backend orchestration engines frequently execute automated tasks over SSH using modern key-based authentication.
+
+### Go (`golang.org/x/crypto/ssh`)
+```go
+package main
+
+import (
+	"bytes"
+	"fmt"
+	"os"
+	"golang.org/x/crypto/ssh"
+)
+
+// ExecuteRemoteCommand runs a shell command on a remote host using Ed25519 public key auth.
+func ExecuteRemoteCommand(user, addr, privateKeyPath, command string) (string, error) {
+	keyBytes, err := os.ReadFile(privateKeyPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to read private key: %w", err)
+	}
+
+	signer, err := ssh.ParsePrivateKey(keyBytes)
+	if err != nil {
+		return "", fmt.Errorf("failed to parse private key: %w", err)
+	}
+
+	config := &ssh.ClientConfig{
+		User: user,
+		Auth: []ssh.AuthMethod{
+			ssh.PublicKeys(signer),
+		},
+		// In production, enforce ssh.FixedHostKey(trustedKey) rather than InsecureIgnoreHostKey
+		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+	}
+
+	client, err := ssh.Dial("tcp", addr, config)
+	if err != nil {
+		return "", fmt.Errorf("SSH dial failed: %w", err)
+	}
+	defer client.Close()
+
+	session, err := client.NewSession()
+	if err != nil {
+		return "", fmt.Errorf("failed to create session: %w", err)
+	}
+	defer session.Close()
+
+	var stdout, stderr bytes.Buffer
+	session.Stdout = &stdout
+	session.Stderr = &stderr
+
+	if err := session.Run(command); err != nil {
+		return "", fmt.Errorf("command execution failed (%w): %s", err, stderr.String())
+	}
+
+	return stdout.String(), nil
+}
+
+func main() {
+	fmt.Println("🚀 SSH Client runner initialized.")
+}
+```
+
+### Node.js / TypeScript (`ssh2`)
+```typescript
+import { Client } from 'ssh2';
+import * as fs from 'fs';
+
+interface SSHExecutionResult {
+  stdout: string;
+  stderr: string;
+  code: number;
+}
+
+export function executeSSH(
+  host: string,
+  username: string,
+  privateKeyPath: string,
+  command: string
+): Promise<SSHExecutionResult> {
+  return new Promise((resolve, reject) => {
+    const conn = new Client();
+    const privateKey = fs.readFileSync(privateKeyPath);
+
+    conn
+      .on('ready', () => {
+        conn.exec(command, (err, stream) => {
+          if (err) return reject(err);
+
+          let stdout = '';
+          let stderr = '';
+
+          stream
+            .on('close', (code: number) => {
+              conn.end();
+              resolve({ stdout, stderr, code });
+            })
+            .on('data', (data: Buffer) => {
+              stdout += data.toString();
+            })
+            .stderr.on('data', (data: Buffer) => {
+              stderr += data.toString();
+            });
+        });
+      })
+      .on('error', reject)
+      .connect({
+        host,
+        port: 22,
+        username,
+        privateKey,
+      });
+  });
+}
+```
+
+### Python (`paramiko`)
+```python
+import paramiko
+from typing import Tuple
+
+def run_remote_ssh_command(host: str, user: str, key_path: str, cmd: str) -> Tuple[int, str, str]:
+    """
+    Connects to remote server using Ed25519 key and executes command.
+    """
+    client = paramiko.SSHClient()
+    client.set_missing_host_key_policy(paramiko.RejectPolicy())
+    
+    try:
+        # Load local known_hosts for strict MITM verification
+        client.load_system_host_keys()
+        key = paramiko.Ed25519Key.from_private_key_file(key_path)
+
+        client.connect(hostname=host, port=22, username=user, pkey=key, timeout=5)
+        stdin, stdout, stderr = client.exec_command(cmd)
+        
+        exit_code = stdout.channel.recv_exit_status()
+        return exit_code, stdout.read().decode('utf-8'), stderr.read().decode('utf-8')
+    finally:
+        client.close()
+
+if __name__ == "__main__":
+    print("Python SSH runner ready.")
+```
+
+---
+
+## 6. Practical Hands-On Verification CLI Workflows
+
+Follow these workflows in your Ubuntu terminal:
+
+### Workflow 1: Generate an Enterprise Ed25519 Key Pair
+```bash
+# 1. Create a modern Ed25519 key with a descriptive comment
+ssh-keygen -t ed25519 -C "asha@company.com" -f ~/.ssh/id_ed25519
+
+# 2. Verify strict file permissions
+ls -l ~/.ssh/id_ed25519*
+```
+**Expected Output:**
+```text
+-rw------- 1 asha asha 411 Nov 10 16:15 /home/asha/.ssh/id_ed25519
+-rw-r--r-- 1 asha asha  98 Nov 10 16:15 /home/asha/.ssh/id_ed25519.pub
+```
+*(Notice that the private key has mode `0600` while the public key has mode `0644`).*
+
+### Workflow 2: Enforce Directory Security Permissions
+```bash
+# Set strict permissions on ~/.ssh
+chmod 700 ~/.ssh
+chmod 600 ~/.ssh/id_ed25519
+chmod 644 ~/.ssh/id_ed25519.pub
+touch ~/.ssh/authorized_keys && chmod 600 ~/.ssh/authorized_keys
+```
+
+### Workflow 3: Inspect Known Hosts Fingerprints
+```bash
+# Query the cryptographic fingerprint of a remote host without connecting
+ssh-keyscan -t ed25519 github.com 2>/dev/null | ssh-keygen -lf -
+```
+
+---
+
+## 7. Operational Validation Checkpoint
 
 <details>
-<summary>Stuck? One hint</summary>
+<summary><strong>Question 1: The "Host Identification Has Changed" Emergency</strong></summary>
 
-`ssh-keygen -f` lets you name a non-default key file; its public half gets appended to `~/.ssh/authorized_keys`, and a `Host` block in `~/.ssh/config` bundles the hostname/user/IdentityFile — while a private key must be `600` (owner read/write only), not group- or world-readable.
+**Scenario:** A cloud server was rebuilt with a new operating system on the same static IP address (`198.51.100.22`). When an engineer runs `ssh admin@198.51.100.22`, the connection is blocked with:
+`@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@`  
+`@    WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED!     @`  
+`@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@`  
+`Host key verification failed.`
 
+How do you remove the stale host key from `known_hosts` safely without deleting the entire file?
+
+**Answer:**
+Execute:
+```bash
+ssh-keygen -R 198.51.100.22
+```
+`-R` (Remove) searches `~/.ssh/known_hosts`, finds all matching hashed and plaintext records for `198.51.100.22`, and purges only the offending lines while leaving all other host entries completely intact. On the next connection, OpenSSH prompts the user to verify the new server fingerprint.
 </details>
-
-## Common mistakes & troubleshooting
-
-- **"Permission denied (publickey)" when connecting.** This almost always means either the public key was never added to the remote's `authorized_keys`, or the permissions on the remote's `~/.ssh` or `authorized_keys` are too loose (SSH refuses to trust them) or too strict for the wrong owner. Re-check both the key placement and permissions.
-- **"WARNING: UNPROTECTED PRIVATE KEY FILE!" or similar.** This means your private key file's permissions are too open (readable by group/others). Fix with `chmod 600 <keyfile>`.
-- **Confusing which key goes where.** The public key (`.pub` file) goes on the machine you're connecting *to* (in its `authorized_keys`). The private key stays on the machine you're connecting *from* and is never copied anywhere else.
-- **Expecting another device on your home network to SSH into your WSL2 instance directly.** Because of WSL2's NAT networking, this typically doesn't work without additional port-forwarding configuration on the Windows side, which is out of scope here - use `localhost` self-connections or a real remote host to practice instead.
-- **Host key verification warnings after reinstalling a remote machine or WSL distro.** If a remote machine's identity changes (reinstall, new key), SSH will refuse to connect with a loud warning about a changed host key, as a security measure against impersonation. This is resolved by removing the stale entry from `~/.ssh/known_hosts` for that host, only after you've confirmed the change is expected and legitimate.
-- **`ssh: connect to host ... port 22: Connection refused`.** This usually means no SSH server is listening on the target - check that `openssh-server` is installed and the `ssh` service is running (`sudo systemctl status ssh`) on the target machine, not the machine you're connecting from.
-- **Forgetting `sudo systemctl enable --now ssh` after installing the server.** Installing the package doesn't automatically start or enable the service; you must do that explicitly, as covered in module 11.
-
-## Checkpoint quiz
-
-Write down your answer to each question before expanding it — checking without attempting first is the single easiest way to fool yourself into thinking you've learned this.
-
-1. What specific security problem does SSH solve that `telnet` does not?
-2. In a key pair, which key goes on the remote machine you're connecting to, and which never leaves your own machine?
-3. Why does SSH refuse to use a private key file or `.ssh` directory with overly permissive permissions?
-4. What is `~/.ssh/authorized_keys` and how does a public key end up there in normal practice?
-5. What does `~/.ssh/config` do, and does it affect the remote machine in any way?
-6. Why can't a random machine on your home Wi-Fi normally SSH directly into your WSL2 Ubuntu instance?
-7. What's the difference between what `ssh` does and what `scp` does, given they use the same underlying authentication?
 
 <details>
-<summary>Show answers</summary>
+<summary><strong>Question 2: OpenSSH Key Permission Rejection</strong></summary>
 
-1. SSH encrypts the entire session (login credentials and all traffic), while telnet sends everything in plain text, so anyone monitoring the network could read passwords and data. SSH prevents eavesdropping and credential theft in transit.
-2. The public key goes on the remote machine (in its `~/.ssh/authorized_keys`). The private key stays only on your own machine and must never be shared or copied elsewhere.
-3. Because a private key (or an authorized_keys/config file) readable by other users on the system could let another local user read or use it to impersonate you; strict permissions (`600`/`700`) ensure only the owner can access it, preserving the "private" guarantee the whole scheme depends on.
-4. It's a file on the remote machine listing public keys that are permitted to log in as that user, one per line. In normal practice it's populated by running `ssh-copy-id` (which appends your public key to it over an initial password-authenticated connection) or by manually appending your `.pub` key's contents to it.
-5. It's a client-side configuration file that lets you define shortcuts/aliases bundling hostname, username, port, and identity file, so you can type a short alias instead of the full connection command. It has no effect on the remote machine - it's purely local convenience.
-6. Because WSL2 sits behind NAT on the Windows host, so incoming connections from other devices on the network aren't routed to it by default - only outbound connections from WSL2 work without extra configuration.
-7. `ssh` opens an interactive remote shell session for running commands; `scp` uses the same SSH authentication to copy files to or from a remote machine instead of giving you a shell. They share credentials/keys but serve different purposes (interactive session vs. file transfer).
+**Scenario:** A developer clones a repository containing deployment keys. They run `ssh -i deploy_key.pem root@server`. OpenSSH immediately fails:
+`Permissions 0777 for 'deploy_key.pem' are too open.`  
+`It is required that your private key files are NOT accessible by others.`  
+`Load key "deploy_key.pem": bad permissions`
 
+Why does OpenSSH enforce this check, and what is the exact fix?
+
+**Answer:**
+OpenSSH client source code includes an unbypassable security assertion: **a private key must be protected against all other local users on the workstation**. 
+
+Mode `0777` allows any local account or malicious process on the workstation to read the private key. OpenSSH intentionally terminates rather than risk key exfiltration.
+
+**The Fix:**
+```bash
+chmod 600 deploy_key.pem
+```
 </details>
 
-## Further reading & sources
+<details>
+<summary><strong>Question 3: Bastion Jumps: `ProxyJump` vs. SSH Agent Forwarding</strong></summary>
 
-- [`man7.org`: ssh(1)](https://man7.org/linux/man-pages/man1/ssh.1.html), [ssh-keygen(1)](https://man7.org/linux/man-pages/man1/ssh-keygen.1.html), and [ssh_config(5)](https://man7.org/linux/man-pages/man5/ssh_config.5.html) - full references for the client, key generation, and `~/.ssh/config` syntax.
-- [DigitalOcean: SSH Essentials - Working with SSH Servers, Clients, and Keys](https://www.digitalocean.com/community/tutorials/ssh-essentials-working-with-ssh-servers-clients-and-keys) - a well-regarded, thorough walkthrough covering the same ground with additional worked scenarios.
-- [Microsoft: Get started using OpenSSH in WSL](https://learn.microsoft.com/en-us/windows/wsl/connect-ssh) - the official doc that expands on this module's WSL2/NAT limitation, including options for accepting inbound connections if you need that later.
-- [Mozilla OpenSSH security guidelines](https://infosec.mozilla.org/guidelines/openssh) - a widely-cited reference for hardening `sshd_config` beyond this module's beginner scope, worth bookmarking for when you administer a real internet-facing server.
+**Scenario:** An infrastructure architect mandates: "Never use SSH Agent Forwarding (`ssh -A`) when connecting through bastion hosts to private production databases. Always use `ProxyJump`."
 
-## Next
+What critical security vulnerability does this policy prevent?
 
-Continue to [14-logging-and-journald](../14-logging-and-journald/README.md) to learn how to read system logs and dig deep into journald, the log system behind the services you started managing in module 11.
+**Answer:**
+When **SSH Agent Forwarding (`ssh -A`)** is active, the remote bastion host receives an open UNIX domain socket connected back to your local machine's `ssh-agent`. 
+
+If an attacker compromises the bastion host (achieving root privileges), the attacker can hijack your forwarded agent socket in `/tmp/ssh-XXXXXX/agent.PID` to authenticate as you against **any other server in your enterprise infrastructure** for as long as your session is open.
+
+**`ProxyJump` (`-J` or `ProxyJump` directive)** avoids this completely: the client workstation establishes a direct, end-to-end encrypted TLS/SSH tunnel *through* the bastion directly to the database. The bastion acts strictly as a dumb TCP packet proxy; it never sees your credentials or receives an agent socket.
+</details>
+
+---
+
+## Next Step
+
+Now that you have mastered secure remote access and SSH key management, proceed to **[14 · Logging and Journald](../14-logging-and-journald/README.md)** to query timelines, filter priority levels, and inspect centralized system logs.

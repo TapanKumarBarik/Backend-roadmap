@@ -1,236 +1,367 @@
 # Module 08: Text Processing with grep, sed, and awk
 
-> 🎯 **Goal:** Extract evidence from logs and structured text quickly, without manually scanning thousands of lines.
+> **Prerequisites:** Module 07 (I/O Redirection and Pipes), basic terminal navigation.  
+> **Estimated Reading Time:** 25 minutes  
+> **Target Audience:** Backend Engineers, Site Reliability Engineers, Production Support Specialists.
 
-By the end of this module, you should be able to search safely with `grep`, choose fixed-string or regular-expression matching intentionally, make targeted transformations with `sed`, summarize fields with `awk`, and build a read-only diagnostic pipeline before changing data.
+> [!TIP]
+> **The Golden Rule of Unix Text Processing:** Divide and conquer: use **`grep`** to filter matching lines, **`sed`** to substitute or normalize tokens, and **`awk`** to parse columns and compute metrics. When triaging multi-gigabyte production logs, always test your pipeline in a read-only stream before touching disk, and use `grep -F` whenever searching for literal strings (like IPs or UUIDs) to eliminate regular expression overhead and avoid character-escaping bugs.
 
 ---
 
-## Why this matters
+## 1. Architectural Mental Model: The Production Triage Pipeline
 
-Real servers produce mountains of text: logs, config files, CSV exports, command output. You will not open these in a GUI editor — you will slice them at the command line. `grep`, `sed`, and `awk` are the difference between "I read through 50,000 lines by eye" and "I found the 3 lines I needed in half a second." Combined with pipes (module 07), these tools let you build custom filters on the fly without writing a program.
-
-## Concepts
-
-### Search first; mutate second
-
-Text tools are extremely powerful because they compose. Start with a command that only prints what it would match. When using `sed`, avoid in-place edits until you have inspected the output and made a backup or are working in a disposable practice directory. Logs can contain secrets, so share the smallest relevant redacted excerpt—not an entire production log file.
-
-**Pattern matching with grep.** `grep` searches text for lines matching a pattern and prints those lines. The simplest use is a literal word search, but `grep` also understands regular expressions (regex) - patterns that describe *shapes* of text, not just exact words. For example, the regex `^Error` means "a line starting with the word Error," and `[0-9]+` means "one or more digits."
-
-**Streams, not files, in your head.** Just like module 07 taught you that a pipe connects stdout of one command to stdin of the next, think of `grep`, `sed`, and `awk` as filters sitting in the middle of a pipeline: text flows in one end, transformed or filtered text flows out the other.
-
-```
-  grep ERROR app.log  |  awk '{print $2}'  |  sort
-       │                      │                │
-   filter: only          transform: keep    order: sort
-   ERROR lines           only field 2       the results
-   (10 lines → 3)        (3 lines → 3        (3 lines →
-                          timestamps)        3, alphabetical)
-```
-
-Each stage does exactly one job and knows nothing about the others — the same "do one thing well, compose via text" idea from module 01, now with real filtering tools instead of just `echo`.
-
-**Substitution with sed.** `sed` (stream editor) reads text line by line and applies edit commands to it, most commonly "find this pattern, replace with that text" using the `s/pattern/replacement/` syntax. Think of it as "find and replace," but scriptable and usable in a pipeline or against a file.
-
-**Fields and columns with awk.** Many text files are organized into columns - fields separated by whitespace, commas, or some other delimiter (think of a log line: timestamp, log level, message). `awk` treats each line as a row split into fields you can refer to as `$1`, `$2`, and so on, with `$0` meaning the whole line and `NF` meaning "number of fields." This makes awk excellent for pulling out "just the 3rd column" or "lines where the 5th column is greater than 100."
-
-```
-  2024-01-10  08:03:44  ERROR  Failed to connect to cache
-      $1          $2       $3          $4  $5 $6 $7 $8
-
-  $0  = the whole line
-  $4  = "ERROR"          (4th whitespace-separated field)
-  NF  = 8                 (total field count on this line)
-  $NF = "cache"           ($NF means "the field numbered NF" = the last one)
-```
-
-**Sorting and deduplicating.** `sort` and `uniq` are simple but critical companions: `sort` orders lines (alphabetically or numerically), and `uniq` collapses adjacent duplicate lines, optionally counting how many times each appeared. Because `uniq` only collapses *adjacent* duplicates, you almost always `sort` first.
-
-**Counting and previewing.** `wc` (word count) counts lines, words, or characters. `head` and `tail` show you the beginning or end of a file without dumping the whole thing - useful for huge logs. `tail -f` specifically "follows" a file, printing new lines as they are appended, which is exactly how you watch a live log.
-
-## Command reference
-
-| Command | What it does | Example |
-|---|---|---|
-| `grep pattern file` | Prints lines in `file` matching `pattern`. | `grep "ERROR" app.log` - prints every line containing the literal text ERROR. |
-| `grep -i pattern file` | Case-insensitive match. | `grep -i "error" app.log` - matches ERROR, error, Error, etc. |
-| `grep -v pattern file` | Inverts the match - prints lines that do NOT match. | `grep -v "DEBUG" app.log` - shows every line except DEBUG lines. |
-| `grep -r pattern dir` | Recursively searches all files under a directory. | `grep -r "TODO" ~/project` - finds the word TODO in every file under `~/project`. |
-| `grep -n pattern file` | Shows the line number of each match. | `grep -n "ERROR" app.log` - prefixes matches with their line number, e.g. `42:ERROR ...`. |
-| `grep -c pattern file` | Counts matching lines instead of printing them. | `grep -c "ERROR" app.log` - prints a single number: how many lines matched. |
-| `grep -E pattern file` | Enables extended regex (so `+`, `?`, `\|`, `{}` work without backslashes). | `grep -E "ERROR\|WARN" app.log` - matches lines containing ERROR or WARN. |
-| `sed 's/old/new/' file` | Replaces the first occurrence of `old` with `new` on each line, printing the result (file unchanged). | `sed 's/ERROR/FAIL/' app.log` - shows the file with the first ERROR per line changed to FAIL. |
-| `sed 's/old/new/g' file` | Same, but replaces every occurrence per line (`g` = global). | `sed 's/:/,/g' data.txt` - turns every colon into a comma. |
-| `sed -i 's/old/new/g' file` | Edits the file in place (overwrites it) instead of just printing. | `sed -i 's/foo/bar/g' config.txt` - permanently changes foo to bar inside config.txt. Use with care - there's no undo. |
-| `sed '2d' file` | Deletes line 2 from the output. | `sed '2d' notes.txt` - prints the file with line 2 removed. |
-| `sed -n '3p' file` | Suppresses default output (`-n`) and only prints line 3 (`p`). | `sed -n '3p' notes.txt` - prints only the 3rd line. |
-| `awk '{print $1}' file` | Prints the first whitespace-separated field of each line. | `awk '{print $1}' app.log` - prints just the first column, e.g. the timestamp. |
-| `awk -F: '{print $1}' file` | Sets the field separator to `:` instead of whitespace. | `awk -F: '{print $1}' /etc/passwd` - prints the username field from each colon-separated line. |
-| `awk '{print $2, $NF}' file` | Prints the 2nd field and the last field (`NF` = number of fields). | `awk '{print $2, $NF}' app.log` - prints the log level and the last word of each line. |
-| `awk '$3 > 100'` | Prints lines where field 3 is numerically greater than 100 (a filter, no explicit print block needed). | `awk '$3 > 100' data.txt` - prints only rows whose 3rd column exceeds 100. |
-| `cut -d, -f1` | Extracts field 1 using `,` as the delimiter (`-d`). | `cut -d, -f1 data.csv` - prints just the first comma-separated column. |
-| `cut -f2,3` | Extracts fields 2 and 3 (default delimiter is tab). | `cut -f2,3 data.tsv` - prints columns 2 and 3. |
-| `sort file` | Sorts lines alphabetically. | `sort names.txt` - prints names in alphabetical order. |
-| `sort -n file` | Sorts numerically instead of alphabetically (so 9 comes before 10). | `sort -n counts.txt` - sorts by numeric value, not by first digit. |
-| `sort -r file` | Reverses the sort order. | `sort -rn counts.txt` - numeric sort, largest first. |
-| `sort -k2 file` | Sorts using field 2 as the key. | `sort -k2 -n data.txt` - sorts numerically by the 2nd whitespace-separated field. |
-| `uniq file` | Collapses adjacent duplicate lines into one. | `sort names.txt \| uniq` - sort first so duplicates become adjacent, then collapse them. |
-| `uniq -c file` | Same, but prefixes each line with a count of how many times it appeared. | `sort names.txt \| uniq -c` - shows how many times each name occurs. |
-| `wc file` | Prints line, word, and byte counts. | `wc app.log` - prints something like `120 800 45231 app.log`. |
-| `wc -l file` | Counts lines only. | `wc -l app.log` - prints just the number of lines. |
-| `wc -w file` | Counts words only. | `wc -w app.log` - prints just the number of words. |
-| `wc -c file` | Counts bytes only. | `wc -c app.log` - prints just the byte count. |
-| `head -n N file` | Prints the first N lines. | `head -n 5 app.log` - prints the first 5 lines. |
-| `tail -n N file` | Prints the last N lines. | `tail -n 5 app.log` - prints the last 5 lines. |
-| `tail -f file` | Follows the file, printing new lines as they're appended (until you Ctrl+C). | `tail -f app.log` - watch a log in real time as new entries are written to it. |
-
-## Hands-on exercises
-
-1. Open your WSL2 Ubuntu terminal. Create a working directory and move into it:
-   ```
-   mkdir -p ~/textprocessing && cd ~/textprocessing
-   ```
-
-2. Create a sample log file using a heredoc:
-   ```
-   cat > app.log << 'EOF'
-   2024-01-10 08:01:12 INFO Starting service on port 8080
-   2024-01-10 08:01:15 INFO Connected to database
-   2024-01-10 08:02:03 WARN Slow query took 1200ms
-   2024-01-10 08:03:44 ERROR Failed to connect to cache
-   2024-01-10 08:03:45 ERROR Retrying cache connection
-   2024-01-10 08:03:50 INFO Cache connection restored
-   2024-01-10 08:10:00 DEBUG Health check passed
-   2024-01-10 08:15:22 WARN Disk usage at 85 percent
-   2024-01-10 08:20:01 ERROR Disk usage at 95 percent
-   2024-01-10 08:25:00 INFO Backup completed successfully
-   EOF
-   ```
-   Run `cat app.log` and confirm you see all 10 lines.
-
-3. Find every ERROR line: `grep "ERROR" app.log`. Expect 3 lines to print. Now try `grep -c "ERROR" app.log` and confirm it prints `3`.
-
-4. Find every WARN or ERROR line in one command using extended regex: `grep -E "WARN|ERROR" app.log`. Expect 5 lines.
-
-5. Print every line except INFO lines, with line numbers, using `grep -vn "INFO" app.log`. Confirm the line numbers match the original file (count them against `cat -n app.log`).
-
-6. Use awk to print just the log level (4th field) and message (5th field onward is trickier - for now just print field 4) for every line: `awk '{print $4}' app.log`. You should see INFO, INFO, WARN, ERROR, ERROR, INFO, DEBUG, WARN, ERROR, INFO.
-
-7. Count how many lines exist per log level. Pipe awk's field-4 output into `sort` and `uniq -c`:
-   ```
-   awk '{print $4}' app.log | sort | uniq -c
-   ```
-   Expect output showing counts like `3 ERROR`, `4 INFO`, `1 DEBUG`, `2 WARN` (order may vary; `uniq -c` counts adjacent duplicates, which is why `sort` runs first).
-
-8. Use `sed` to replace WARN with WARNING everywhere, but only in the terminal output (not the file): `sed 's/WARN/WARNING/g' app.log`. Confirm the file itself is unchanged afterward with `grep WARN app.log` (should still say WARN).
-
-9. Now make the change permanent with `sed -i 's/WARN/WARNING/g' app.log`, then confirm with `grep WARNING app.log`. This is a one-way change - `sed -i` overwrites the file directly.
-
-10. Deliberately break something to learn to read errors: run `sed -i 's/WARN/WARNING/' app.log2` (note the typo - `app.log2` does not exist). Read the error message carefully (it will say something like "No such file or directory"). This is the same class of error you saw with `cat` or `cd` on nonexistent paths in earlier modules - `sed` behaves the same way.
-
-11. Use `cut` to pull out just the date column from the log: `cut -d' ' -f1 app.log`. Note this only works cleanly because fields are space-separated with no extra spaces - discuss with yourself why `cut` is more fragile than `awk` for irregular spacing.
-
-12. Combine several tools in one pipeline: find all ERROR lines, extract the time field, and sort them: `grep ERROR app.log | awk '{print $2}' | sort`. Confirm you get 3 sorted timestamps.
-
-13. Use `tail -f` to watch the log live. In one terminal run `tail -f app.log`. In a second WSL2 terminal (open a new tab/window), run `echo "2024-01-10 09:00:00 INFO New line appended live" >> ~/textprocessing/app.log` and watch the first terminal update instantly. Press Ctrl+C in the first terminal to stop following.
-
-## Production practice: interrogate text safely
-
-> [!key]
-> Pick the simplest tool that answers the question: `grep` selects matching lines, `sed` transforms a stream, and `awk` understands fields and can aggregate values.
-
-> [!model]
-> Treat a log line like a record in a lightweight database. `grep` is a filter, `cut`/`awk` select columns, and `sort | uniq -c` provides a small group-by. This works well only when the input format is understood.
+When an outage strikes, gigabytes of unformatted log data stream across disk and network interfaces. The Unix text processing toolchain filters noise and computes answers in a single streaming pass without loading entire files into memory:
 
 ```mermaid
 flowchart LR
-    L["Access log"] --> G["grep: filter route"] --> A["awk: select status"] --> U["sort + uniq -c"] --> R["Count by status"]
+    RawLogs["1. Raw Ingestion\n(/var/log/nginx/access.log\n10,000,000 lines / 2.4 GB)"]
+    
+    GrepStage["2. Filter: grep -E\nExtract HTTP 5xx errors\n(5,200 lines remain)"]
+    
+    SedStage["3. Normalize: sed -E\nMask dynamic UUIDs/IDs\n(/users/123 -> /users/:id)"]
+    
+    AwkStage["4. Aggregate: awk\nExtract endpoint & sum latency\n(Top failure groups)"]
+    
+    SortStage["5. Sort & Cap: sort | head\nRank highest error endpoints"]
+
+    RawLogs -->|stdout pipe| GrepStage
+    GrepStage -->|stdout pipe| SedStage
+    SedStage -->|stdout pipe| AwkStage
+    AwkStage -->|stdout pipe| SortStage
+    SortStage --> FinalReport["Actionable Incident Report\n(Under 1.2 seconds)"]
 ```
 
-> [!example]
-> To count HTTP status codes in a space-separated access log: `awk '{print $9}' access.log | sort | uniq -c | sort -nr`. First check a few lines and confirm that field 9 is actually the status code for *that* log format.
+### Tool Responsibilities
+* **`grep` (Global Regular Expression Print):** Fast pattern matching. It answers: *"Does this line contain my pattern?"*
+* **`sed` (Stream Editor):** Lightweight inline transformations. It answers: *"Replace string A with string B on matching lines."*
+* **`awk` (Pattern Scanning and Processing Language):** Full procedural data extraction language. It answers: *"Treat each line as a table row, pull columns 1, 7, and 9, and calculate the sum or average."*
 
-> [!pitfall]
-> Regular expressions are not always the right parser. Do not use line-oriented text tools to rewrite JSON, YAML, CSV with quoted fields, or security-sensitive configuration when a format-aware tool is available. Use `jq`, a YAML parser, or a proper CSV library instead.
+---
 
-### Diagnostic loop for unfamiliar text
+## 2. Taxonomic Reference: Comparing Text Utilities
 
-1. Inspect representative lines with `head`, `tail`, or `less`.
-2. Search with a fixed string (`grep -F`) when regular-expression syntax is unnecessary.
-3. Make matching case-sensitive or insensitive deliberately.
-4. Print the fields you believe you are selecting before counting or transforming them.
-5. Save or mutate data only after inspecting output.
+| Feature / Capability | `grep` | `sed` | `awk` | `cut` / `tr` |
+| :--- | :--- | :--- | :--- | :--- |
+| **Primary Specialty** | Line filtering & searching | Stream substitution & regex deletion | Field extraction & arithmetic aggregation | Simple single-char column cutting / translation |
+| **Performance** | **Extremely fast** (`-F` SIMD acceleration) | Fast streaming | Fast (interprets AWK bytecode) | Blazing fast (minimal logic) |
+| **Memory Footprint** | $O(1)$ per line buffer | $O(1)$ pattern space | $O(N)$ if storing state in arrays | $O(1)$ |
+| **Multi-column Math** | No | No | **Yes** (sums, averages, counts) | No |
+| **In-place File Edits** | No | `sed -i` | `awk -i inplace` (gawk only) | No |
 
-> [!exercise]
-> Create a small access-log fixture containing 200, 404, and 500 responses. Use `grep -F` to find one route, `awk` to print status codes, and `sort | uniq -c` to summarize them. Explain why `grep 50` would be a poor way to find only 500 responses.
+---
 
-> [!interview]
-> When would you use `grep -F` rather than `grep -E`? Explain why `awk` field positions should be validated before using them in a production incident.
+## 3. Systematic Breakdown: Core Flags & Idioms
 
-> [!check]
-> - Can you distinguish a literal match from a regular expression?
-> - Can you compose a read-only query before editing a file?
-> - Can you name a structured format where `sed` is the wrong editing tool?
+### 1. `grep` Command Suite
+* `grep -i "error"`: Case-insensitive search.
+* `grep -v "healthcheck"`: **Invert match** (drops lines matching pattern; great for silencing heartbeat noise).
+* `grep -c "500 Internal"`: Count total matching lines instead of printing.
+* `grep -n "FATAL"`: Print 1-based line numbers.
+* `grep -oE "[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}"`: Print **only the matching token**, discarding the rest of the line.
+* `grep -F "user.id[42]"`: **Fixed string mode**. Treats dots, brackets, and stars literally without escaping.
 
-## Independent challenge
+### 2. `sed` Command Suite
+* `sed 's/localhost/127.0.0.1/g'`: Global substitution per line.
+* `sed -E 's/[0-9a-f]{8}-([0-9a-f]{4}-){3}[0-9a-f]{12}/:uuid/g'`: Replace UUIDs with placeholder.
+* `sed '/^#/d; /^$/d'`: Delete all commented lines (`^#`) and empty lines (`^$`).
+* `sed -n '50,75p'`: Print only lines 50 through 75 (zero regex overhead).
 
-No commands given here — figure it out yourself using what you know from this module and earlier ones.
+### 3. `awk` Command Suite
+* `awk '{print $1, $NF}'`: Print first column and last column (`$NF`).
+* `awk -F':' '{print $1, $3}' /etc/passwd`: Use custom delimiter `:` instead of default whitespace.
+* `awk '$9 >= 500 {print $7, $9}' access.log`: Print endpoint and status code for all HTTP 5xx responses.
+* `awk '{sum += $NF} END {print "Avg:", sum/NR}' metrics.log`: Compute running sum and average.
 
-**Task:** Skip the sample `app.log` and work directly on the real `/etc/passwd` file (recall from module 04 that it's a colon-separated file, one account per line, with the login shell as its last field). In a single pipeline, produce a tally of how many user accounts use each distinct login shell, sorted so the most common shell appears first. Combine this module's field-extraction and counting tools with the pipes you learned in module 07. As a follow-up, adjust the pipeline to print only the single most-used shell and its count.
+---
+
+## 4. Production War Story: The `sed -i` Zero-Byte Outage
+
+```mermaid
+sequenceDiagram
+    actor Deployer as Automated CD Deployment Worker
+    participant Disk as Production Volume (99.8% Full)
+    participant Sed as sed -i Tool
+    participant Service as Production Payment API
+
+    Note over Deployer,Service: sed -i updates DB connection string in app.env
+    Deployer->>Sed: sed -i 's/DB_PORT=5432/DB_PORT=5433/' /etc/app.env
+    Sed->>Disk: Create temporary file: /etc/sedXXXXXX
+    Sed->>Disk: Write updated content into /etc/sedXXXXXX
+    Note over Disk: Disk hits 100% full capacity (ENOSPC: No space left on device)!
+    Note over Sed: Write terminates prematurely; temp file is incomplete!
+    Sed->>Disk: rename("/etc/sedXXXXXX", "/etc/app.env")
+    Note over Disk: Atomic rename overwrites original app.env with truncated 0-byte file!
+    Deployer->>Service: systemctl restart payment-api
+    Service->>Disk: Read /etc/app.env -> Empty!
+    Note over Service: Service crashes in panic loop! Payment processing halts!
+```
+
+### The Incident
+During a zero-downtime database port failover, an automated deployment runner updated the primary application configuration using:
+```bash
+sed -i 's/DB_HOST=.*/DB_HOST=10.0.2.14/' /etc/app/config.env
+```
+Immediately upon execution, the entire production payment processing API failed health checks.
+
+### The Post-Mortem Data
+* **Severity:** SEV-1 (Global Revenue Impact)
+* **Mean Time to Detect (MTTD):** 15 minutes
+* **Mean Time to Resolution (MTTR):** 60 minutes
+
+### The Root Cause
+The operating system's root volume was at **99.8% capacity**. 
+
+GNU `sed -i` performs in-place updates by writing a hidden temporary file in the same directory and renaming it over the original file upon completion. When `sed` encountered disk exhaustion (`ENOSPC`), it truncated the write. Because older versions failed to abort the rename upon I/O error, the empty/truncated temporary file overwrote the original configuration file, destroying all production environment secrets.
+
+### The Fix & Hardening
+1. **Never use blind `sed -i` in mission-critical automated pipelines.** Use explicit temporary files with non-zero byte validation:
+```bash
+sed 's/DB_HOST=.*/DB_HOST=10.0.2.14/' /etc/app/config.env > /etc/app/config.env.tmp && \
+[ -s /etc/app/config.env.tmp ] && \
+mv /etc/app/config.env.tmp /etc/app/config.env
+```
+2. **Always create an atomic backup file when using `-i`:**
+```bash
+sed -i.bak 's/DB_HOST=.*/DB_HOST=10.0.2.14/' /etc/app/config.env
+```
+*(If the operation crashes, `config.env.bak` remains untouched).*
+
+---
+
+## 5. Multi-Language Production Code: Streaming Log Parsing
+
+Backend microservices and logging sidecars frequently parse unstructured logs into structured JSON metrics.
+
+### Go
+```go
+package main
+
+import (
+	"bufio"
+	"fmt"
+	"os"
+	"regexp"
+	"strings"
+)
+
+// LogEntry represents an extracted access log
+type LogEntry struct {
+	IP     string
+	Method string
+	Status string
+	Path   string
+}
+
+// ParseLogStream reads logs line-by-line using bufio.Scanner to maintain O(1) memory footprint.
+func ParseLogStream(filePath string) ([]LogEntry, error) {
+	file, err := os.Open(filePath)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	// Compiled regex for common log format: IP - - [date] "METHOD PATH HTTP/1.1" STATUS
+	re := regexp.MustCompile(`^(\S+) \S+ \S+ \[.*?\] "(\S+) (\S+) \S+" (\d{3})`)
+
+	var entries []LogEntry
+	scanner := bufio.NewScanner(file)
+
+	for scanner.Scan() {
+		line := scanner.Text()
+		matches := re.FindStringSubmatch(line)
+		if len(matches) == 5 {
+			entries = append(entries, LogEntry{
+				IP:     matches[1],
+				Method: matches[2],
+				Path:   matches[3],
+				Status: matches[4],
+			})
+		}
+	}
+
+	return entries, scanner.Err()
+}
+
+func main() {
+	// Simulated test
+	fmt.Println("🚀 Streaming log processor ready.")
+}
+```
+
+### Node.js / TypeScript
+```typescript
+import * as fs from 'fs';
+import * as readline from 'readline';
+
+interface HTTPMetric {
+  endpoint: string;
+  statusCode: number;
+}
+
+/**
+ * Streams large log files line by line using Readline interface.
+ */
+export async function countErrorFrequencies(logFilePath: string): Promise<Record<string, number>> {
+  const fileStream = fs.createReadStream(logFilePath, { encoding: 'utf-8' });
+  const rl = readline.createInterface({ input: fileStream, crlfDelay: Infinity });
+
+  const errorCounts: Record<string, number> = {};
+  const regex = /"([A-Z]+ \S+ \S+)" (\d{3})/;
+
+  for await (const line of rl) {
+    const match = line.match(regex);
+    if (match) {
+      const endpoint = match[1];
+      const status = parseInt(match[2], 10);
+
+      if (status >= 500) {
+        errorCounts[endpoint] = (errorCounts[endpoint] || 0) + 1;
+      }
+    }
+  }
+
+  return errorCounts;
+}
+```
+
+### Python
+```python
+import re
+from collections import Counter
+from typing import Dict
+
+def analyze_http_errors(log_path: str) -> Dict[str, int]:
+    """
+    Parses web server logs streaming one line at a time to count 5xx error endpoints.
+    """
+    pattern = re.compile(r'"(?:GET|POST|PUT|DELETE) (\S+) HTTP/\d\.\d" (5\d{2})')
+    error_counter = Counter()
+
+    with open(log_path, "r", encoding="utf-8") as f:
+        for line in f:
+            match = pattern.search(line)
+            if match:
+                endpoint = match.group(1)
+                error_counter[endpoint] += 1
+
+    return dict(error_counter.most_common(10))
+
+if __name__ == "__main__":
+    print("Python log processor initialized.")
+```
+
+---
+
+## 6. Practical Hands-On Verification CLI Workflows
+
+Work in your Ubuntu terminal:
+
+### Workflow 1: Create a Simulated Production Web Log
+```bash
+# 1. Generate realistic web access logs
+cat << 'EOF' > /tmp/access.log
+192.168.1.10 - - [10/Nov/2026:15:30:01] "GET /api/v1/orders HTTP/1.1" 200 452
+192.168.1.11 - - [10/Nov/2026:15:30:02] "POST /api/v1/checkout HTTP/1.1" 500 128
+192.168.1.10 - - [10/Nov/2026:15:30:03] "GET /healthz HTTP/1.1" 200 12
+192.168.1.12 - - [10/Nov/2026:15:30:04] "POST /api/v1/checkout HTTP/1.1" 500 128
+192.168.1.13 - - [10/Nov/2026:15:30:05] "GET /api/v1/users HTTP/1.1" 200 940
+192.168.1.11 - - [10/Nov/2026:15:30:06] "POST /api/v1/checkout HTTP/1.1" 500 128
+EOF
+```
+
+### Workflow 2: Extract Error Counts and Offending Endpoints
+```bash
+# 1. Filter out health checks and extract only HTTP 500 lines using grep
+grep " 500 " /tmp/access.log | grep -v "/healthz"
+
+# 2. Extract column 7 (endpoint) using awk and calculate frequency
+awk '$9 == 500 {print $7}' /tmp/access.log | sort | uniq -c | sort -nr
+```
+**Expected Output:**
+```text
+3 /api/v1/checkout
+```
+
+### Workflow 3: Mask Sensitive Data with `sed`
+```bash
+# Replace IP addresses with [ANONYMIZED]
+sed -E 's/[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}/[ANONYMIZED]/g' /tmp/access.log
+rm -f /tmp/access.log
+```
+
+---
+
+## 7. Operational Validation Checkpoint
 
 <details>
-<summary>Stuck? One hint</summary>
+<summary><strong>Question 1: Searching for Literal Strings (The Regex Trap)</strong></summary>
 
-`awk` with a `:` field separator can isolate the shell field, and the classic "count each unique value" idiom is to sort, then run `uniq -c`, then sort again numerically in reverse to rank them.
+**Scenario:** An SRE runs this command to search for an IP address across 10GB of logs:
+```bash
+grep "10.0.0.1" /var/log/syslog
+```
+The command unexpectedly returns lines containing `10100001`, `10-0-0-1`, and `10.0.0.100`.
 
+Why did this occur, and what is the exact flag to enforce strict literal matching with zero regex parsing overhead?
+
+**Answer:**
+In standard regular expressions, the dot character `.` is a **wildcard that matches any single character**. Therefore, `"10.0.0.1"` matches `10-0-0-1`, `10X0X0X1`, and any characters preceding or succeeding the match. 
+
+**The Production Fix:** Use **`grep -F` (Fixed Strings)**:
+```bash
+grep -F "10.0.0.1" /var/log/syslog
+```
+`-F` instructs `grep` to bypass the regular expression engine entirely and use SIMD-accelerated string search algorithms (e.g., Boyer-Moore), eliminating wildcard parsing bugs and running significantly faster.
 </details>
-
-## Common mistakes & troubleshooting
-
-- **Forgetting `sed -i` writes are permanent.** Without `-i`, `sed` only prints the transformed text to your terminal; the file is untouched. With `-i`, there's no confirmation and no undo - test your `s///` pattern without `-i` first.
-- **Quoting single vs. double quotes with special characters.** If your `sed` or `awk` pattern contains `$` or `` ` ``, double quotes can cause the shell to try to expand them before the command even runs. Prefer single quotes around `sed`/`awk` scripts unless you specifically need shell variable expansion inside them.
-- **Forgetting `uniq` needs sorted input.** `uniq` only removes *adjacent* duplicates. Running `uniq` on an unsorted file silently fails to deduplicate non-adjacent repeats - always `sort | uniq`.
-- **Using basic regex features in `grep` without `-E`.** Characters like `+`, `?`, and `|` are literal characters in basic grep, not special regex metacharacters, unless you escape them (`\+`) or pass `-E`. If your pattern with `|` "matches nothing" or matches the literal pipe character, this is why.
-- **Off-by-one confusion with awk fields.** `$0` is the whole line, `$1` is the first field - there is no field zero for "first column." Also, `NF` is a count, not a field reference - `$NF` (with the dollar sign) is the last field.
-- **Assuming `cut` handles multiple spaces well.** `cut -d' '` treats each single space as a separator, so double spaces create empty fields and throw off your column numbers. `awk`, by contrast, treats runs of whitespace as one separator by default - prefer awk for irregularly spaced text.
-- **Piping into `grep` and expecting file-only behavior.** `grep pattern` with no file argument reads from stdin - this is intentional and lets you filter pipeline output, but beginners sometimes think it hung (it's actually waiting on stdin) if run with no pipe and no file.
-
-## Checkpoint quiz
-
-Write down your answer to each question before expanding it — checking without attempting first is the single easiest way to fool yourself into thinking you've learned this.
-
-1. Why does `uniq` fail to collapse duplicate lines that appear in an unsorted file, and how do you fix it?
-2. What is the difference between running `sed 's/a/b/'` on a file versus `sed -i 's/a/b/'` on the same file?
-3. In `awk '{print $2, $NF}'`, what does `$NF` refer to, and why is it different from `$2`?
-4. Why would `grep -E "ERROR|WARN"` behave differently from `grep "ERROR|WARN"` (without `-E`)?
-5. You want to count how many times each unique username appears in a file of one username per line. Write the pipeline.
-6. What is the practical difference between `head -n 5 file` and `tail -f file`?
-7. Why is `cut -d' '` risky on text with inconsistent spacing, and what tool handles that better?
-8. If `grep -v "DEBUG" app.log` prints nothing at all, what would that tell you about the file's contents?
 
 <details>
-<summary>Show answers</summary>
+<summary><strong>Question 2: Cross-Platform `sed -i` Incompatibility</strong></summary>
 
-1. `uniq` only compares each line to the line immediately before it, so duplicates scattered non-adjacently are missed. Fix: sort the file first, e.g. `sort file | uniq`, so identical lines become adjacent.
-2. Without `-i`, `sed` prints the transformed output to the terminal and leaves the file unchanged. With `-i`, `sed` overwrites the file in place with the transformed content, permanently.
-3. `NF` holds the total number of fields on the current line, and `$NF` uses that count to reference the *last* field - so it dynamically points to whatever the final column is, unlike `$2` which always points to the fixed second field.
-4. Without `-E`, `grep` uses basic regular expressions where `|` is a literal pipe character, so the pattern matches lines containing a literal "ERROR|WARN" string (unlikely to occur) rather than "ERROR" or "WARN" as alternatives. `-E` (extended regex) makes `|` mean logical OR.
-5. `sort usernames.txt | uniq -c` (sort first so duplicates are adjacent, then count them).
-6. `head -n 5 file` shows the first 5 lines once and exits. `tail -f file` shows the end of the file and then keeps running, printing new lines as they're appended - used for watching live logs.
-7. Multiple consecutive spaces each count as a separate delimiter to `cut`, so extra spaces shift or blank out field numbers unpredictably. `awk` treats consecutive whitespace as a single separator by default, making it more robust for inconsistent spacing.
-8. It would mean every line in the file contains the string "DEBUG" - since `-v` inverts the match and prints only non-matching lines, an empty result means no lines failed to match.
+**Scenario:** A developer writes a deployment script on Ubuntu Linux:
+```bash
+sed -i 's/stage/production/' deploy.env
+```
+When another team member runs this same script on macOS, the script crashes immediately with:
+`sed: 1: "deploy.env": invalid command code d`.
 
+Why did this occur, and how do you write a portable `sed` command?
+
+**Answer:**
+Linux uses **GNU `sed`**, where the backup extension after `-i` is optional (`sed -i 'script' file`). 
+
+macOS uses **BSD `sed`**, where `-i` **strictly requires an explicit backup extension argument**. On macOS, `sed` interpreted `'s/stage/production/'` as the backup extension string, and attempted to parse the file `deploy.env` as the script syntax!
+
+**The Portable Fix:** Provide an explicit backup extension (e.g. `''` or `'.bak'`):
+```bash
+sed -i.bak 's/stage/production/' deploy.env && rm -f deploy.env.bak
+```
+Or use a temporary file with standard redirection (`sed '...' file > tmp && mv tmp file`).
 </details>
 
-## Further reading & sources
+<details>
+<summary><strong>Question 3: Parsing Space-Delimited vs. Comma-Delimited Data with `awk`</strong></summary>
 
-- [GNU grep manual](https://www.gnu.org/software/grep/manual/grep.html) - full regex syntax reference (basic vs. extended vs. Perl-compatible modes).
-- [GNU sed manual](https://www.gnu.org/software/sed/manual/sed.html) - covers far more than substitution: multi-line patterns, hold space, in-place editing options.
-- [GNU awk (gawk) User's Guide](https://www.gnu.org/software/gawk/manual/gawk.html) - awk is effectively its own small programming language; this module only scratches field-printing and filtering.
-- [regex101.com](https://regex101.com/) - an interactive regex tester with live explanations, useful for building/debugging a `grep -E` or `sed` pattern before running it for real.
-- [`man7.org`: sort(1)](https://man7.org/linux/man-pages/man1/sort.1.html) and [uniq(1)](https://man7.org/linux/man-pages/man1/uniq.1.html) - full option references for the sort/dedup companions covered above.
+**Scenario:** You need to extract the username and UID from `/etc/passwd`. A junior developer writes:
+`awk '{print $1, $3}' /etc/passwd`
+The command prints the entire line as `$1` and leaves `$3` empty.
 
-## Next
+Why did this occur, and how must `awk` be instructed to parse `/etc/passwd`?
 
-Continue to [09-bash-scripting](../09-bash-scripting/README.md) to learn how to combine these commands into reusable, automated scripts.
+**Answer:**
+By default, `awk` splits fields on **whitespace (spaces or tabs)**. 
+
+`/etc/passwd` uses colons `:` as field delimiters without any spaces. Because there are no spaces on each line, `awk` treats the entire line as a single field (`$1`). 
+
+**The Fix:** Specify the Field Separator using `-F` (or setting `FS`):
+```bash
+awk -F':' '{print $1, $3}' /etc/passwd
+```
+Now `$1` extracts the username and `$3` extracts the numeric UID accurately.
+</details>
+
+---
+
+## Next Step
+
+Now that you understand text filtering, regular expressions, and stream manipulation, proceed to **[09 · Bash Scripting and Automation](../09-bash-scripting/README.md)** to master variables, functions, error handling, exit codes, and defensive scripting patterns.

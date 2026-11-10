@@ -1,1194 +1,404 @@
-# Module 02: Filesystem Navigation
+# Module 02: Filesystem Navigation and the Linux Directory Tree
 
-## Why this matters
+> **Prerequisites:** Module 01 (Shell Basics and Unix Philosophy), working terminal shell.  
+> **Estimated Reading Time:** 30 minutes  
+> **Target Audience:** Backend Engineers, Infrastructure Developers, Site Reliability Engineers.
 
-Every backend developer eventually meets the same little monster:
+> [!TIP]
+> **The Golden Rule of Filesystem Navigation:** Always inspect before you mutate. In Linux, there are no drive letters (`C:`, `D:`); there is only **one unified inverted tree rooted at `/`**. In production automation and backend APIs, never rely on relative paths or unquoted wildcards; always resolve paths to their canonical physical addresses (`realpath`) and validate directory boundaries before executing mutating system calls.
 
-> "The application is running, but where the hell is the file?"
+---
 
-Maybe it's a configuration file under `/etc`. Maybe the logs are under `/var/log`. Maybe a deployment script created something under `/opt`. Maybe you're inside a container and suddenly `/home` looks nothing like your laptop.
+## 1. Architectural Mental Model: The Unified Virtual File System (VFS)
 
-Linux becomes much less mysterious once you understand one simple idea:
+In Linux, the filesystem is not merely a collection of files on a hard drive—it is a **Virtual File System (VFS)** abstraction. Every physical storage device, network share, virtual disk, kernel runtime interface, and memory-backed buffer is mounted seamlessly under a single root directory (`/`).
 
-**The filesystem is a tree, and every path is an address inside that tree.**
+```mermaid
+flowchart TD
+    Root["/ (Root Directory)"]
+    
+    Root --> bin["/bin -> /usr/bin\n(Essential binaries: ls, sh, cp)"]
+    Root --> etc["/etc\n(System-wide configuration: nginx, hosts)"]
+    Root --> home["/home\n(User workspaces: /home/asha)"]
+    Root --> var["/var\n(Variable data: logs, caches, spool)"]
+    Root --> opt["/opt\n(Add-on third-party software packages)"]
+    Root --> tmp["/tmp\n(Temporary memory/tmpfs scratch space)"]
+    Root --> proc["/proc (Virtual procfs)\n(Live Kernel & Process state memory)"]
+    Root --> sys["/sys (Virtual sysfs)\n(Kernel device & hardware controls)"]
+    Root --> dev["/dev (Virtual devtmpfs)\n(Device nodes: /dev/null, /dev/sda)"]
 
-Docker images, Kubernetes containers, Linux servers, CI runners, SSH sessions, and WSL all build on this model.
+    var --> varlog["/var/log\n(syslog, nginx/, auth.log)"]
+    home --> asha["/home/asha/projects\n(Application source code)"]
 
-In this module you'll learn how to:
-
-* understand the Linux filesystem hierarchy
-* navigate using absolute and relative paths
-* understand `.`, `..`, and `~`
-* inspect files and directories
-* create files and directory trees
-* copy and move data
-* remove files safely
-* use shell wildcards
-* search directory trees with `find`
-* reason about paths instead of blindly trying commands
-
-By the end, you should be able to land on an unfamiliar Linux machine and start figuring out where you are without needing a map, a tour guide, or a small ceremonial sacrifice to the terminal.
-
-## Concepts
-
-### 🌳 1. Linux has one filesystem tree
-
-Linux presents files and directories through a single hierarchical namespace beginning at `/`, called the **root directory**.
-
-Think of `/` as the trunk of a giant tree.
-
-```text
-/
-├── bin/        ← essential commands
-├── dev/        ← device interfaces
-├── etc/        ← system configuration
-├── home/       ← users' home directories
-├── opt/        ← optional/add-on software
-├── proc/       ← process/kernel information
-├── root/       ← root user's home directory
-├── run/        ← runtime state
-├── sbin/       ← essential system administration commands
-├── srv/        ← data served by system services
-├── sys/        ← kernel/device information
-├── tmp/        ← temporary files
-├── usr/        ← most user-space programs and libraries
-└── var/        ← changing data such as logs and caches
+    classDef virtual fill:#f9f,stroke:#333,stroke-width:1px;
+    class proc,sys,dev,tmp virtual;
 ```
 
-The exact contents and layout of a modern Linux installation can vary, and not every directory will be equally important on every machine. The **Filesystem Hierarchy Standard (FHS)** provides conventions for where major categories of files and directories belong.
+### The Three Classes of Directories in the VFS
+1. **Persistent Storage Mounts (`/`, `/home`, `/opt`):** Backed by physical or virtual block storage (ext4, XFS, Btrfs, NVMe). Data persists across reboots.
+2. **System State & Configuration (`/etc`, `/var`):** `/etc` holds static host configuration files; `/var` stores state that changes dynamically during execution (service logs, databases, runtime locks).
+3. **Pseudo-Filesystems (`/proc`, `/sys`, `/dev`, `/tmp`):** Pure in-memory kernel interfaces. Files in `/proc` do not exist on disk; reading `/proc/cpuinfo` or `/proc/meminfo` queries the Linux kernel's internal data structures directly in RAM.
 
-You do not need to memorize this tree.
+---
 
-You need to develop the instinct:
+## 2. Taxonomic Reference: Filesystem Hierarchy Standard (FHS 3.0)
 
-> "If I need configuration, logs, a user's files, runtime state, or installed software, I know roughly where to look."
+When deploying, debugging, or containerizing backend microservices, files must reside in predictable standardized locations:
 
-### 🏠 2. The directories you'll repeatedly encounter
+| Directory | Purpose | Expected File Types | Production Engineering Relevance |
+| :--- | :--- | :--- | :--- |
+| **`/`** | The root of the entire tree | Top-level mount points | Primary system mount. Keep it clean of ad-hoc files. |
+| **`/etc`** | Host-specific system configuration | `nginx.conf`, `hosts`, `systemd/` | Read by services during bootstrap. Must be version-controlled or templated. |
+| **`/var/log`** | Persistent daemon logs | `syslog`, `nginx/access.log` | Target for log rotation daemons (`logrotate`) and log forwarders (Fluentbit). |
+| **`/home`** | User home directories | Dotfiles, local projects | Default user workspace (`~`). Stores personal SSH keys (`~/.ssh`). |
+| **`/opt`** | Self-contained third-party software | `google/`, `datadog/`, `aws/` | Dedicated location for standalone binaries and proprietary vendor packages. |
+| **`/tmp`** | Ephemeral scratch storage | Socket files, temporary chunks | Backed by `tmpfs` (RAM). Emptied upon reboot; writable by all users (`1777` sticky). |
+| **`/proc`** | Kernel & process memory state | `cpuinfo`, `meminfo`, `<pid>/` | Inspect container resource limits (`/proc/cgroups`) and open file descriptors. |
+| **`/dev`** | Device special files | `/dev/null`, `/dev/urandom` | I/O redirection sinks (`> /dev/null 2>&1`) and cryptographically secure random bytes. |
 
-| Directory  | What you'll commonly find there                                | Backend relevance                      |
-| ---------- | -------------------------------------------------------------- | -------------------------------------- |
-| `/`        | Root of the entire hierarchy                                   | Starting point for understanding paths |
-| `/home`    | Normal users' home directories                                 | SSH sessions, development files        |
-| `/root`    | Root user's home directory                                     | Administration                         |
-| `/etc`     | System and service configuration                               | Extremely important for servers        |
-| `/var`     | Changing application/system data                               | Logs, caches, queues, databases        |
-| `/var/log` | System/application logs                                        | Troubleshooting                        |
-| `/tmp`     | Temporary data                                                 | Scripts, temporary processing          |
-| `/usr`     | Programs, libraries, shared data                               | Installed software                     |
-| `/opt`     | Optional/add-on software                                       | Third-party applications               |
-| `/srv`     | Data served by system services                                 | Web/service deployments                |
-| `/run`     | Runtime state created since boot                               | Services and process-related state     |
-| `/proc`    | Kernel/process information exposed as a virtual filesystem     | Process inspection                     |
-| `/sys`     | Kernel/device information exposed through a virtual filesystem | Hardware/kernel inspection             |
-| `/dev`     | Device interfaces                                              | Disks, terminals, pseudo-devices       |
+---
 
-Some of these directories are intentionally only introduced here. For example, `/proc` and `/sys` will become much more useful when you learn process management and system administration.
+## 3. Systematic Reference: Path Navigation & Core Vocabulary
 
-Likewise, **mounts and physical storage are deliberately covered later in Module 12**. For now, concentrate on navigating the namespace.
+| Syntax / Command | Name / Operation | Description | Production Gotcha |
+| :--- | :--- | :--- | :--- |
+| **`/`** | Root directory | Anchor for all absolute paths | Never put unquoted variables before `/` in deletion scripts. |
+| **`.`** | Current directory | The directory your process is currently in | Executing `./binary` prevents `$PATH` lookup spoofing. |
+| **`..`** | Parent directory | One level higher in the directory hierarchy | `cd ../..` moves up two levels. Canonicalize in web APIs. |
+| **`~`** | User home directory | Expands to `/home/$USER` | Shell-expanded; fails when placed inside double or single quotes. |
+| **`-`** | Previous working directory | Returns to the directory you were previously in | `cd -` toggles between two directory paths quickly. |
+| **`pwd -P`** | Physical working directory | Prints the real path resolving all symlinks | Default `pwd -L` prints logical path, which can deceive scripts. |
+| **`ls -la`** | List all with details | Shows permissions, links, owner, size, timestamp | Always check for dotfiles (`.env`, `.git`) when troubleshooting. |
+| **`mkdir -p`** | Parent directory creation | Creates nested paths without failing if they exist | Idempotent; ideal for Dockerfile and Ansible automation. |
+| **`cp -a`** | Archive copy | Preserves timestamps, ownership, modes, and links | Essential when migrating database data directories or config files. |
+| **`find`** | Recursive search engine | Evaluates filesystem trees by name, type, age, size | Use `-exec ... {} +` or `-delete` to avoid shell glob limits. |
 
-### 🧠 3. "Where the data physically lives" is a different question
+---
 
-A common beginner assumption is:
+## 4. Production War Story: The Empty Variable Traversal Catastrophe
 
-> `/var/log` must mean there is physically a disk called "var".
+```mermaid
+sequenceDiagram
+    actor Cron as Production Cron Daemon
+    participant Script as Log Purge Script (cleanup.sh)
+    participant Kernel as Linux Kernel (VFS Syscalls)
+    participant FS as Primary System Disk (ext4 /)
 
-No.
-
-A Linux path is part of the **filesystem namespace**. The underlying data may live on different storage devices or filesystems, but the user sees a unified directory tree.
-
-That distinction becomes important later when you learn mounts, disks, filesystems, containers, and storage.
-
-For now:
-
-**Path = logical location.**
-
-**Storage device = where the bytes are actually backed.**
-
-Do not mix the two.
-
-### 📍 4. Absolute paths
-
-An **absolute path** starts from `/`.
-
-For example:
-
-`/home/tapan/projects/api/server.js`
-
-It describes the complete route from the filesystem root.
-
-Therefore, it does not depend on your current directory.
-
-If you are in `/tmp`, this still points to the same location.
-
-If you are in `/home/tapan`, it still points to the same location.
-
-If you are somewhere inside a Kubernetes container, the same principle applies to that container's filesystem.
-
-### 🧭 5. Relative paths
-
-A **relative path** starts from your current working directory.
-
-Suppose:
-
-`pwd` gives:
-
-`/home/tapan/projects`
-
-Then:
-
-* `api` means `/home/tapan/projects/api`
-* `api/server.js` means `/home/tapan/projects/api/server.js`
-* `../notes.txt` means `/home/tapan/notes.txt`
-
-The same relative path can therefore refer to different locations depending on where you currently are.
-
-This is one of the most important ideas in the module.
-
-### 🪜 6. `.`, `..`, and `~`
-
-Three shortcuts appear everywhere.
-
-| Symbol | Meaning                       |
-| ------ | ----------------------------- |
-| `.`    | Current directory             |
-| `..`   | Parent directory              |
-| `~`    | Current user's home directory |
-
-Examples:
-
-* `cd .` stays where you are.
-* `cd ..` moves one level upward.
-* `cd ../..` moves two levels upward.
-* `cd ~` moves to your home directory.
-* `./script.sh` refers to a script in the current directory.
-
-Suppose you are here:
-
-`/home/tapan/projects/backend`
-
-Then:
-
-```text
-.       → /home/tapan/projects/backend
-..      → /home/tapan/projects
-../..   → /home/tapan
-~/      → /home/tapan/
+    Note over Cron,Script: cleanup.sh scheduled daily at 02:00 UTC
+    Cron->>Script: Run cleanup.sh with APP_LOGS_DIR env variable
+    Note over Script: Deployment regression: APP_LOGS_DIR is unset!
+    Script->>Script: Shell evaluates: rm -rf $APP_LOGS_DIR/
+    Note over Script: $APP_LOGS_DIR expands to empty string "" -> "rm -rf /"!
+    Script->>Kernel: unlinkat("/", ["etc", "bin", "lib", "var"], AT_REMOVEDIR)
+    Kernel->>FS: Unlink inode 2 (Root directory entries)
+    Note over FS: Critical system libraries, glibc, and configs vanish!
+    Note over Kernel: Kernel panics on next page fault; servers drop offline globally!
 ```
 
-Once this clicks, Linux paths stop looking like punctuation soup.
+### The Incident
+At 02:00 UTC, an automated maintenance job intended to clean rotated logs executed on a fleet of 40 bare-metal Kubernetes worker nodes. Within 90 seconds, all 40 nodes transitioned to `NotReady`. Node health checks failed, and SSH access was completely severed.
 
-### 🏡 7. `~` is convenient, but it isn't `/home`
+### The Post-Mortem Data
+* **Severity:** SEV-1 (Global Production Outage)
+* **Mean Time to Detect (MTTD):** 4 minutes (Prometheus blackbox alerts fired)
+* **Mean Time to Resolution (MTTR):** 180 minutes (Physical BMC/IPMI console re-imaging required)
 
-If your username is `tapan`:
-
-`~` expands to `/home/tapan`.
-
-But `/` means the filesystem root.
-
-These are completely different:
-
-* `~/projects`
-* `/projects`
-
-The first means a directory called `projects` inside your home directory.
-
-The second means a directory called `projects` directly under the filesystem root.
-
-That difference matters.
-
-### 👻 8. Hidden files are usually just names beginning with `.`
-
-Linux does not require a special "hidden file" mechanism for the common Unix convention.
-
-A filename beginning with `.` is normally omitted from ordinary `ls` output.
-
-Examples:
-
-* `.bashrc`
-* `.profile`
-* `.git`
-* `.env`
-
-Use:
-
-`ls -a`
-
-to include them.
-
-This becomes especially important when working with Git repositories and application configuration.
-
-> ⚠️ A hidden file is not necessarily a secret file. `.env` may contain secrets, but the leading `.` itself provides no security.
-
-### 🃏 9. Wildcards are expanded by the shell
-
-The shell supports **pathname expansion**, commonly called **globbing**.
-
-The most useful patterns here are:
-
-| Pattern | Meaning                    | Examples            |
-| ------- | -------------------------- | ------------------- |
-| `*`     | Zero or more characters    | `*.log`, `report-*` |
-| `?`     | Exactly one character      | `file?.txt`         |
-| `[abc]` | One character from the set | `file[123].txt`     |
-| `[0-9]` | One character in the range | `file[0-9].txt`     |
-
-For example:
-
-`ls *.log`
-
-might become conceptually:
-
-`ls app.log error.log access.log`
-
-before `ls` receives the arguments.
-
-This is important because **the shell performs the expansion**.
-
-The command itself doesn't necessarily understand `*`.
-
-That distinction becomes extremely useful when debugging shell commands.
-
-### ⚠️ 10. Globbing can also surprise you
-
-Suppose a directory contains:
-
-```text
-report-1.txt
-report-2.txt
-report-3.txt
-```
-
-Then:
-
-`rm report-*.txt`
-
-can remove all three.
-
-That's convenient.
-
-It's also why you should inspect a pattern before using it with destructive commands.
-
-A good habit is:
-
+### The Root Cause
+The maintenance script contained:
 ```bash
-printf '%s\n' report-*.txt
+rm -rf $APP_LOGS_DIR/
+```
+Due to an upstream environment secret rotation, `$APP_LOGS_DIR` was missing from the cron environment. The variable expanded to empty text `""`. The resulting command executed was:
+```bash
+rm -rf /
+```
+GNU `rm` has a safety guard `--preserve-root` (default on `rm -rf /`), but the trailing slash `rm -rf //` or `$VAR/` bypassed older glibc safety checks on the nodes, immediately unlinking `/etc`, `/usr/lib`, and running binaries.
+
+### The Fix & Hardening
+1. **Never use recursive `rm -rf` on variable paths in automated scripts.** Use targeted `find` commands with explicit constraints:
+```bash
+# Hardened log cleanup: Restrict strictly to files under /var/log/app older than 7 days
+find /var/log/app -mindepth 1 -maxdepth 2 -type f -name "*.log" -mtime +7 -delete
+```
+2. **Guard all shell variables with mandatory existence checks:**
+```bash
+TARGET_DIR="${APP_LOGS_DIR:?FATAL: APP_LOGS_DIR environment variable is undefined or empty}"
+# Canonicalize and verify directory boundary
+REAL_PATH=$(realpath "$TARGET_DIR")
+if [[ "$REAL_PATH" == "/" || "$REAL_PATH" == "/home" ]]; then
+    echo "FATAL: Dangerous target path detected: $REAL_PATH" >&2
+    exit 1
+fi
+```
+3. **Mount Root Filesystem as Read-Only (`ro`):** In containerized environments, run microservice containers with read-only root filesystems (`--read-only`), granting write access only to specific `tmpfs` mounts.
+
+---
+
+## 5. Multi-Language Production Code: Safe Path Resolution & Directory Traversal Prevention
+
+When accepting file paths from API clients, user inputs, or configuration files, backend services must sanitize and validate that the resolved path does not traverse outside the intended sandbox boundary (preventing `../../../../etc/passwd` attacks).
+
+### Go
+```go
+package main
+
+import (
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+)
+
+var ErrPathTraversal = errors.New("security violation: path traversal detected")
+
+// ResolveSecurePath canonicalizes a user-supplied relative path and ensures
+// that the physical target remains strictly inside the designated base directory.
+func ResolveSecurePath(baseDir, untrustedInput string) (string, error) {
+	// 1. Resolve base directory to its physical canonical path
+	absBase, err := filepath.Abs(baseDir)
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve base directory: %w", err)
+	}
+	absBase = filepath.Clean(absBase)
+
+	// 2. Join base and untrusted input, then clean all ./ and ../ elements
+	targetPath := filepath.Clean(filepath.Join(absBase, untrustedInput))
+
+	// 3. Security Check: The target must start with the base directory path + separator
+	if targetPath != absBase && !strings.HasPrefix(targetPath, absBase+string(filepath.Separator)) {
+		return "", fmt.Errorf("%w: attempted access to %s outside %s", ErrPathTraversal, targetPath, absBase)
+	}
+
+	return targetPath, nil
+}
+
+func main() {
+	sandbox := "/var/data/uploads"
+
+	// Test 1: Valid relative upload
+	safePath, err := ResolveSecurePath(sandbox, "reports/2026/q1.csv")
+	fmt.Printf("Safe Path Result: %s (Err: %v)\n", safePath, err)
+
+	// Test 2: Malicious path traversal attack
+	maliciousInput := "../../etc/shadow"
+	attackPath, err := ResolveSecurePath(sandbox, maliciousInput)
+	if errors.Is(err, ErrPathTraversal) {
+		fmt.Printf("🛡️ Blocked Traversal Attack: %v\n", err)
+	} else {
+		fmt.Printf("Vulnerability: Resolved to %s\n", attackPath)
+	}
+}
 ```
 
-If the expansion is what you intended, then perform the operation.
+### Node.js / TypeScript
+```typescript
+import * as path from 'path';
+import * as fs from 'fs';
 
-This tiny habit becomes surprisingly valuable on production systems.
+export class PathSanitizer {
+  private readonly baseDir: string;
 
-### 🗺️ 11. Your filesystem workflow
+  constructor(baseDirectory: string) {
+    // Resolve base path to absolute canonical format
+    this.baseDir = path.resolve(baseDirectory);
+  }
 
-When working with files, use this mental loop:
+  /**
+   * Resolves an untrusted user path against the base sandbox.
+   * Throws an error if the path attempts to escape the root boundary.
+   */
+  public resolveSafePath(userPath: string): string {
+    // Normalize and join safely
+    const resolvedPath = path.resolve(this.baseDir, userPath);
 
+    // Boundary validation: Must start with base directory followed by delimiter
+    if (resolvedPath !== this.baseDir && !resolvedPath.startsWith(this.baseDir + path.sep)) {
+      throw new Error(`Security Exception: Directory traversal attempt detected: ${userPath}`);
+    }
+
+    return resolvedPath;
+  }
+}
+
+// Example usage
+const storage = new PathSanitizer('/var/data/storage');
+try {
+  console.log('Valid:', storage.resolveSafePath('user-avatars/avatar_12.png'));
+  console.log('Attack:', storage.resolveSafePath('../../../etc/passwd'));
+} catch (err: any) {
+  console.error(`🛡️ ${err.message}`);
+}
+```
+
+### Python
+```python
+import os
+from pathlib import Path
+from typing import Union
+
+class SecurePathResolver:
+    def __init__(self, base_directory: Union[str, Path]):
+        self.base_dir = Path(base_directory).resolve()
+
+    def resolve_safe(self, untrusted_path: Union[str, Path]) -> Path:
+        """
+        Resolves the user path strictly within the sandbox base directory.
+        Raises PermissionError if a directory traversal is detected.
+        """
+        # Resolve symlinks and normalize path
+        target = (self.base_dir / untrusted_path).resolve()
+
+        # Enforce boundary containment
+        try:
+            target.relative_to(self.base_dir)
+        except ValueError:
+            raise PermissionError(f"Directory traversal blocked: {untrusted_path} escapes {self.base_dir}")
+
+        return target
+
+if __name__ == "__main__":
+    resolver = SecurePathResolver("/tmp/sandbox")
+    
+    # Safe resolution
+    valid = resolver.resolve_safe("documents/statement.pdf")
+    print(f"✅ Safe path resolved: {valid}")
+
+    # Malicious traversal
+    try:
+        resolver.resolve_safe("../../../../etc/hosts")
+    except PermissionError as e:
+        print(f"🛡️ {e}")
+```
+
+---
+
+## 6. Practical Hands-On Verification CLI Workflows
+
+Work in your Ubuntu terminal to practice safe navigation and directory inspection:
+
+### Workflow 1: Build and Inspect a Backend Directory Hierarchy
+```bash
+# 1. Create a simulated microservice layout idempotently
+mkdir -p ~/projects/lab-fs/{configs,logs,src/{controllers,models},build}
+
+# 2. Verify physical working directory (-P resolves physical address)
+cd ~/projects/lab-fs
+pwd -P
+
+# 3. Create dummy files
+touch configs/app.yaml src/controllers/user.go logs/access.log
+ls -lahR .
+```
+**Expected Output:**
 ```text
-┌─────────────────────────────┐
-│  1. WHERE AM I?             │
-│       ↓                     │
-│      pwd                    │
-├─────────────────────────────┤
-│  2. WHAT IS HERE?           │
-│       ↓                     │
-│      ls                     │
-├─────────────────────────────┤
-│  3. WHERE IS THE TARGET?    │
-│       ↓                     │
-│   absolute / relative path  │
-├─────────────────────────────┤
-│  4. WHAT WILL HAPPEN?       │
-│       ↓                     │
-│   inspect → execute → verify│
-└─────────────────────────────┘
+/home/asha/projects/lab-fs
+.:
+total 24K
+drwxr-xr-x 6 asha asha 4.0K Nov 10 15:00 .
+drwxr-xr-x 3 asha asha 4.0K Nov 10 15:00 ..
+drwxr-xr-x 2 asha asha 4.0K Nov 10 15:00 build
+drwxr-xr-x 2 asha asha 4.0K Nov 10 15:00 configs
+drwxr-xr-x 2 asha asha 4.0K Nov 10 15:00 logs
+drwxr-xr-x 4 asha asha 4.0K Nov 10 15:00 src
 ```
 
-This is much more useful than memorizing isolated commands.
-
-When something goes wrong, go back to step 1.
-
-### 🧱 12. Filesystem operations form a small vocabulary
-
-Most everyday navigation tasks fall into a handful of categories:
-
-```text
-NAVIGATE
-  cd
-
-INSPECT
-  pwd, ls
-
-CREATE
-  mkdir, touch
-
-COPY
-  cp
-
-MOVE / RENAME
-  mv
-
-REMOVE
-  rm, rmdir
-
-SEARCH
-  find
-
-MATCH GROUPS OF NAMES
-  globbing: *, ?, [...]
-```
-
-Learn this vocabulary and new commands become easier to place into the bigger picture.
-
-## Command reference
-
-| Command    | Purpose                                                         | Example                      |
-| ---------- | --------------------------------------------------------------- | ---------------------------- |
-| `pwd`      | Print current working directory                                 | `pwd`                        |
-| `cd`       | Change directory                                                | `cd ~/projects`              |
-| `cd ..`    | Move to parent                                                  | `cd ..`                      |
-| `cd ~`     | Move to home directory                                          | `cd ~`                       |
-| `ls`       | List directory contents                                         | `ls`                         |
-| `ls -l`    | Long listing                                                    | `ls -l`                      |
-| `ls -a`    | Include hidden entries                                          | `ls -a`                      |
-| `ls -h`    | Human-readable sizes                                            | `ls -lh`                     |
-| `mkdir`    | Create directory                                                | `mkdir logs`                 |
-| `mkdir -p` | Create missing parents                                          | `mkdir -p app/config/prod`   |
-| `rmdir`    | Remove an empty directory                                       | `rmdir old`                  |
-| `touch`    | Create file or update timestamp                                 | `touch app.log`              |
-| `cp`       | Copy files                                                      | `cp app.conf app.conf.bak`   |
-| `cp -r`    | Recursively copy directories                                    | `cp -r config config.backup` |
-| `mv`       | Move or rename                                                  | `mv old.conf new.conf`       |
-| `rm`       | Remove files                                                    | `rm old.log`                 |
-| `rm -r`    | Recursively remove directories                                  | `rm -r old-build`            |
-| `rm -f`    | Force removal of files without prompting for certain conditions | `rm -f old.log`              |
-| `rm -rf`   | Recursive + force removal                                       | `rm -rf old-build`           |
-| `find`     | Search directory trees                                          | `find . -name "*.log"`       |
-| `tree`     | Display a tree-style directory listing                          | `tree`                       |
-
-The GNU Coreutils documentation provides the detailed behavior and options for commands such as `ls`, `cp`, `mv`, `mkdir`, and `rm`.
-
-> 🚨 **Production rule:** `rm -rf` is not a "delete button". It is a chainsaw. Verify the path first.
-
-## Hands-on exercises
-
-### 1. 📍 Establish your position
-
-Run:
-
+### Workflow 2: Logical vs. Physical Paths Across Symlinks
+Understand how symlinks deceive tools when `-P` is omitted:
 ```bash
-pwd
-whoami
-ls
-```
+# 1. Create a symbolic link pointing to /var/log
+ln -s /var/log ~/projects/lab-fs/system-logs
 
-Answer these questions without looking anything up:
+# 2. Navigate via symlink and compare logical vs physical directory
+cd ~/projects/lab-fs/system-logs
+pwd       # Prints logical path: /home/asha/projects/lab-fs/system-logs
+pwd -P    # Prints real physical path: /var/log
 
-1. What directory are you in?
-2. Which user are you?
-3. What entries are immediately visible?
-
-<details>
-<summary>Answer</summary>
-
-`pwd` tells you your current working directory.
-
-`whoami` tells you the current username.
-
-`ls` lists the visible contents of the current directory.
-
-The important lesson is that before manipulating a filesystem, you should know **who you are and where you are**.
-
-</details>
-
-### 2. 👻 Reveal the invisible
-
-Run:
-
-```bash
-ls
-ls -a
-ls -la
-```
-
-Compare the outputs.
-
-Find:
-
-* `.`
-* `..`
-* at least one hidden file or directory
-
-<details>
-<summary>Answer</summary>
-
-`ls` shows ordinary visible entries.
-
-`ls -a` includes hidden entries.
-
-`ls -la` combines `-l` and `-a`, giving a detailed listing including hidden entries.
-
-`.` means the current directory.
-
-`..` means the parent directory.
-
-</details>
-
-### 3. 🏗️ Build a directory tree
-
-Create this structure:
-
-```text
-~/filesystem-lab/
-├── app/
-│   ├── config/
-│   └── logs/
-├── backups/
-└── tmp/
-```
-
-Do it with as few commands as reasonably possible.
-
-<details>
-<summary>Answer</summary>
-
-One solution is:
-
-```bash
-mkdir -p ~/filesystem-lab/app/config ~/filesystem-lab/app/logs ~/filesystem-lab/backups ~/filesystem-lab/tmp
-```
-
-The important concept is not the exact command. It is understanding that `mkdir -p` can create missing parent directories.
-
-</details>
-
-### 4. 🧭 Navigate without guessing
-
-Starting from wherever you currently are:
-
-1. Go to `~/filesystem-lab/app`.
-2. Move into `config`.
-3. Move back to `app` using `..`.
-4. Move to `logs` using a relative path.
-5. Return directly home using `~`.
-
-Use `pwd` after every move.
-
-<details>
-<summary>Answer</summary>
-
-One possible sequence:
-
-```bash
-cd ~/filesystem-lab/app
-pwd
-cd config
-pwd
+# 3. Step back up using cd ..
 cd ..
-pwd
-cd logs
-pwd
-cd ~
-pwd
+pwd -P    # Notice you are back in /home/asha/projects/lab-fs!
 ```
 
-Notice how both absolute and relative navigation can be mixed.
-
-</details>
-
-### 5. 📝 Create a fake backend project
-
-Inside `~/filesystem-lab/app`, create:
-
-```text
-app/
-├── config/
-│   ├── development.conf
-│   └── production.conf
-├── logs/
-│   ├── app.log
-│   └── error.log
-├── src/
-│   └── server.js
-└── README.md
-```
-
-You are allowed to use `mkdir -p` and `touch`.
-
-Then use `find` to verify the structure.
-
-<details>
-<summary>Answer</summary>
-
-One solution:
-
+### Workflow 3: Enterprise File Discovery with `find`
+Locate files accurately without shell glob limits:
 ```bash
-cd ~/filesystem-lab/app
-mkdir -p config logs src
-touch config/development.conf config/production.conf
-touch logs/app.log logs/error.log
-touch src/server.js README.md
-find .
+# 1. Search for all .go files modified in the last 24 hours
+find ~/projects/lab-fs -type f -name "*.go" -mtime -1
+
+# 2. Calculate directory space usage summarized by top-level item
+du -sh ~/projects/lab-fs/*
 ```
 
-The exercise is really testing whether you can translate a tree diagram into paths.
+---
 
-</details>
-
-### 6. 🔬 Understand absolute vs relative paths
-
-Assume your current directory is:
-
-`~/filesystem-lab/app`
-
-What does each path refer to?
-
-| Path                       | Your answer |
-| -------------------------- | ----------- |
-| `config`                   | ?           |
-| `./config`                 | ?           |
-| `../backups`               | ?           |
-| `~/filesystem-lab/backups` | ?           |
-| `/tmp`                     | ?           |
+## 7. Operational Validation Checkpoint
 
 <details>
-<summary>Answer</summary>
+<summary><strong>Question 1: The Symlink Escape Vulnerability</strong></summary>
 
-* `config` → `~/filesystem-lab/app/config`
-* `./config` → `~/filesystem-lab/app/config`
-* `../backups` → `~/filesystem-lab/backups`
-* `~/filesystem-lab/backups` → the same backup directory, using your home shortcut
-* `/tmp` → the system `/tmp` directory
+**Scenario:** A web server hosts user static uploads under `/var/www/uploads`. An attacker uploads an archive containing a symbolic link:
+`evil_link -> /etc/passwd`.
+When a browser requests `GET /uploads/evil_link`, the backend web server serves the system's sensitive credential file.
 
-The important distinction is whether the path starts from your current directory or from a known root/home location.
+Which Linux command verifies whether a path is a symbolic link, and what web server configuration directive neutralizes this exploit?
 
-</details>
-
-### 7. 📦 Copy before changing
-
-Copy `production.conf` into the backup directory and rename the copy:
-
-`production.conf.backup`
-
-Then verify that both files exist.
-
-<details>
-<summary>Answer</summary>
-
-From `~/filesystem-lab/app`:
-
+**Answer:**
+To verify the link in the terminal:
 ```bash
-cp config/production.conf ~/filesystem-lab/backups/production.conf.backup
-ls -l config/production.conf ~/filesystem-lab/backups/production.conf.backup
+ls -l /var/www/uploads/evil_link
+# Or check the real physical target:
+readlink -f /var/www/uploads/evil_link
 ```
-
-`cp` leaves the original untouched.
-
+In Nginx / Apache, disable symlink following or enforce ownership matching:
+* **Nginx:** `disable_symlinks on;` (or `disable_symlinks if_not_owner;`).
+* **Backend Code:** Always resolve the path with `realpath()` and assert that the physical canonical directory prefix matches `/var/www/uploads`.
 </details>
 
-### 8. ✏️ Rename without copying
-
-Rename:
-
-`development.conf`
-
-to:
-
-`development.local.conf`
-
-Do not create a duplicate.
-
 <details>
-<summary>Answer</summary>
+<summary><strong>Question 2: Shell Glob Argument List Exhaustion</strong></summary>
 
+**Scenario:** An image processing microservice accumulates 450,000 files in `/var/images/processed/`. A maintenance script attempts to clean the directory:
 ```bash
-mv config/development.conf config/development.local.conf
+rm -f /var/images/processed/*.png
 ```
+The command fails immediately with:
+`bash: /bin/rm: Argument list too long`.
 
-`mv` changes the directory entry. When source and destination are on the same filesystem, a rename can often be performed without copying the file's contents.
+Why did this occur, and what is the production-grade command to delete these files safely?
 
-For this beginner exercise, the important idea is simply:
+**Answer:**
+Bash expands wildcards (`*`) **before** invoking the target program. Expanding 450,000 filenames exceeds the Linux kernel's `ARG_MAX` buffer limit (typically 2MB to 4MB of memory allocated for command arguments via `execve`). 
 
-**`mv` can move or rename.**
-
-</details>
-
-### 9. 🃏 Predict a glob before executing it
-
-Inside `~/filesystem-lab/app`, what should this match?
-
-`logs/*.log`
-
-What about:
-
-`logs/app?.log`
-
-And:
-
-`logs/*.txt`
-
-Write your predictions first.
-
-Then run:
-
+**The Production Fix:** Use `find` with `-delete` or `-exec ... +`, which processes items without passing all filenames through shell argument expansion:
 ```bash
-printf '%s\n' logs/*.log
-printf '%s\n' logs/app?.log
-printf '%s\n' logs/*.txt
+find /var/images/processed -maxdepth 1 -type f -name "*.png" -delete
 ```
-
-<details>
-<summary>Answer</summary>
-
-Given the files created earlier:
-
-`logs/*.log` should match:
-
-* `logs/app.log`
-* `logs/error.log`
-
-`logs/app?.log` should match nothing because `app.log` has no extra character between `app` and `.log`.
-
-`logs/*.txt` should match nothing because there are no `.txt` files in `logs`.
-
-This is a useful habit: **predict the expansion before using the glob in a real command.**
-
+This runs directly via kernel filesystem calls without invoking shell tokenization.
 </details>
 
-### 10. 🔎 Search like a backend developer
-
-Pretend you joined a server and need to find all configuration files under your project.
-
-Search for:
-
-* all `.conf` files
-* all `.log` files
-* a file specifically named `server.js`
-
 <details>
-<summary>Answer</summary>
+<summary><strong>Question 3: Inode Exhaustion Despite Free Disk Space</strong></summary>
 
-From `~/filesystem-lab`:
+**Scenario:** A backend monitoring alert fires: `DiskWriteFailed: No space left on device` on `/var`. You run `df -h` and observe that `/var` is only at 28% capacity with 85 GB of free space available. 
 
-```bash
-find . -name "*.conf"
-find . -name "*.log"
-find . -name "server.js"
-```
+What is the underlying cause, what command proves it, and how does filesystem navigation help diagnose the offending directory?
 
-`find` searches recursively through the directory tree.
+**Answer:**
+The filesystem has run out of **inodes (index nodes)**, not raw disk bytes. Every file and directory requires an inode metadata record. If an application generates millions of zero-byte or tiny log/session files, all available inodes are consumed while disk byte capacity remains largely free.
 
-This becomes much more useful later when you combine it with conditions such as file type, size, timestamps, and actions.
-
+1. **Verify with:**
+   ```bash
+   df -i /var
+   ```
+   *(This displays inode usage; `IUse%` will be 100%).*
+2. **Find the offending directory with:**
+   ```bash
+   find /var -xdev -printf '%h\n' | sort | uniq -c | sort -k1 -n | tail -n 10
+   ```
+   *(This counts files per directory to locate the directory hoarding millions of small files).*
 </details>
 
-### 11. 🧨 Test the safe delete boundary
-
-Try:
-
-`rmdir ~/filesystem-lab/app`
-
-What happens?
-
-<details>
-<summary>Answer</summary>
-
-It should fail because `app` is not empty.
-
-`rmdir` only removes empty directories.
-
-That limitation is useful: it gives you a deliberately conservative operation for deleting directories.
-
-</details>
-
-### 12. 🧹 Delete only what you intend
-
-Remove only the temporary directory:
-
-`~/filesystem-lab/tmp`
-
-Then prove that:
-
-* `tmp` is gone
-* `app` still exists
-* `backups` still exists
-
-<details>
-<summary>Answer</summary>
-
-```bash
-rm -r ~/filesystem-lab/tmp
-ls ~/filesystem-lab
-```
-
-You should still see `app` and `backups`.
-
-Notice that the exercise deliberately asks you to verify the surrounding structure. A destructive command should be followed by verification.
-
-</details>
-
-### 13. 🧪 Practice the "inspect first" workflow
-
-Create three files:
-
-```bash
-touch ~/filesystem-lab/remove-me-1.txt \
-      ~/filesystem-lab/remove-me-2.txt \
-      ~/filesystem-lab/keep-me.txt
-```
-
-Now you want to remove only the files beginning with `remove-me-`.
-
-Before deleting anything, inspect the expansion.
-
-<details>
-<summary>Answer</summary>
-
-First:
-
-```bash
-printf '%s\n' ~/filesystem-lab/remove-me-*.txt
-```
-
-You should see only:
-
-* `remove-me-1.txt`
-* `remove-me-2.txt`
-
-Then:
-
-```bash
-rm ~/filesystem-lab/remove-me-*.txt
-```
-
-Finally:
-
-```bash
-ls ~/filesystem-lab
-```
-
-`keep-me.txt` should still exist.
-
-This is the habit we want:
-
-**expand → inspect → execute → verify**
-
-</details>
-
-### 14. 🐳 Think ahead to Docker
-
-Imagine a container contains:
-
-```text
-/
-├── app/
-│   ├── config/
-│   ├── logs/
-│   └── server.js
-├── etc/
-└── tmp/
-```
-
-You are currently inside `/app/logs`.
-
-Without executing anything, determine:
-
-1. The absolute path to `server.js`.
-2. The relative path to `server.js`.
-3. The relative path to `/etc`.
-4. The command that would take you directly to `/app`.
-
-<details>
-<summary>Answer</summary>
-
-1. Absolute path: `/app/server.js`
-2. Relative path: `../server.js`
-3. Relative path: `../../etc`
-4. `cd /app`
-
-This is exactly the sort of path reasoning you'll use inside containers.
-
-</details>
-
-## Independent challenge
-
-### 🚀 The deployment-artifact challenge
-
-You're preparing a fake backend deployment directory.
-
-Build this structure without being given the exact command sequence:
-
-```text
-~/backend-deploy/
-├── current/
-│   ├── app/
-│   │   ├── config/
-│   │   └── logs/
-│   └── release.txt
-├── releases/
-└── backup/
-```
-
-Inside `current/app`, create:
-
-```text
-config/
-├── app.conf
-├── database.conf
-└── redis.conf
-
-logs/
-├── app.log
-├── error.log
-└── access.log
-```
-
-Then complete all of the following:
-
-1. Create a backup of `app.conf` under `backup/`.
-2. Copy every `.log` file into `backup/`.
-3. Rename `release.txt` to `release-current.txt`.
-4. Use `find` to locate every `.conf` file beneath `backend-deploy`.
-5. Use a wildcard to list all log files before copying them.
-6. Verify that the backup contains the expected files.
-7. Delete one deliberately-created temporary directory using the safest appropriate command.
-8. Finish in your home directory.
-
-### Rules
-
-* Do not use absolute paths for every operation. Practice relative paths.
-* Do not manually type every `.log` filename when a glob can express the pattern.
-* Before every destructive operation, inspect what will be affected.
-* If you forget a command option, use `--help` or `man` from Module 01 rather than searching the internet immediately.
-
-<details>
-<summary>One hint</summary>
-
-Think in this order:
-
-**create → populate → inspect → copy → rename → search → verify → clean up**
-
-The challenge is deliberately less prescriptive than the exercises. The goal is to see whether you can construct the solution yourself.
-
-</details>
-
-## Common mistakes & troubleshooting
-
-### ❌ "No such file or directory"
-
-First ask:
-
-**Where am I?**
-
-Run:
-
-`pwd`
-
-Then ask:
-
-**Does the path actually exist from here?**
-
-Run:
-
-`ls`
-
-If necessary, use an absolute path to remove ambiguity.
-
-### ❌ `cd` appears to do nothing
-
-That's normal.
-
-`cd` normally prints nothing after a successful directory change.
-
-Use:
-
-`pwd`
-
-to confirm where you ended up.
-
-### ❌ `cd..` doesn't work
-
-The command and its argument need to be separated:
-
-`cd ..`
-
-not:
-
-`cd..`
-
-Whitespace matters in shell syntax.
-
-### ❌ `rmdir` says "Directory not empty"
-
-That's exactly what `rmdir` is designed to do.
-
-It only removes empty directories.
-
-If you genuinely intend to remove the contents as well, recursive deletion is required. Verify the target before doing so.
-
-### ❌ `cp` says "omitting directory"
-
-You're trying to copy a directory without requesting recursive behavior.
-
-For example:
-
-`cp project project-backup`
-
-does not mean "copy the entire directory tree."
-
-For a simple recursive copy:
-
-`cp -r project project-backup`
-
-### ❌ `rm` says "Is a directory"
-
-You attempted to remove a directory with the non-recursive form of `rm`.
-
-Stop and decide whether you actually intend to remove the directory and everything inside it.
-
-Do not reflexively add `-r`.
-
-### ❌ Your wildcard matched more files than expected
-
-Stop.
-
-Do not immediately run the destructive command.
-
-Preview the expansion:
-
-```bash
-printf '%s\n' *.log
-```
-
-Then reconsider the pattern.
-
-### ❌ Your wildcard matched nothing
-
-If no names match a glob, Bash may pass the pattern itself to the command.
-
-For example:
-
-`ls *.does-not-exist`
-
-may result in an error referring to the literal `*.does-not-exist`.
-
-Check the directory first:
-
-`ls`
-
-### ❌ `~` isn't working inside quotes
-
-The shell performs tilde expansion in specific contexts, and quoting can prevent that expansion.
-
-For example:
-
-`echo ~/projects`
-
-and:
-
-`echo '~/projects'`
-
-do not behave the same way.
-
-You do not need to master shell expansion rules yet, but remember that **quoting changes how the shell interprets characters**. This becomes important in later Bash modules.
-
-### ❌ You accidentally deleted something
-
-Do not keep typing commands and hope it fixes itself.
-
-Stop.
-
-If the data matters, recovery becomes a filesystem/storage problem rather than a shell-navigation problem.
-
-This is why backups, version control, snapshots, and careful destructive-command habits matter in real systems.
-
-## Checkpoint quiz
-
-Try answering without running the commands.
-
-### 1. Path reasoning
-
-You are currently in:
-
-`/home/dev/projects/api`
-
-Where does `../config/app.conf` point?
-
-<details>
-<summary>Answer</summary>
-
-`/home/dev/projects/config/app.conf`
-
-`..` moves from `api` to its parent, `projects`.
-
-</details>
-
-### 2. Absolute or relative?
-
-Which of these is an absolute path?
-
-* `./config`
-* `../config`
-* `/etc/nginx`
-* `~/config`
-
-<details>
-<summary>Answer</summary>
-
-`/etc/nginx` is the absolute path.
-
-`./config` and `../config` are relative paths.
-
-`~/config` uses the home-directory shortcut and is not an absolute path syntactically because it does not begin with `/`.
-
-</details>
-
-### 3. What does `.` mean?
-
-If you run:
-
-`ls .`
-
-what directory are you listing?
-
-<details>
-<summary>Answer</summary>
-
-The current working directory.
-
-</details>
-
-### 4. What does `..` mean?
-
-If you are in:
-
-`/var/log/nginx`
-
-and run:
-
-`cd ..`
-
-where do you end up?
-
-<details>
-<summary>Answer</summary>
-
-`/var/log`
-
-</details>
-
-### 5. Predict the glob
-
-Suppose a directory contains:
-
-```text
-app.log
-error.log
-app.txt
-application.log
-```
-
-Which files does `app?.log` match?
-
-<details>
-<summary>Answer</summary>
-
-`app?.log` matches `app.log` only if the `?` can match the required character structure.
-
-Here, it does **not** match `app.log` because `app.log` contains zero characters between `app` and `.log`.
-
-So it matches nothing.
-
-This is a good example of why you should understand the pattern rather than eyeballing it.
-
-</details>
-
-### 6. What does `*.log` match?
-
-Using the same files, what does `*.log` match?
-
-<details>
-<summary>Answer</summary>
-
-It matches:
-
-* `app.log`
-* `error.log`
-* `application.log`
-
-It does not match `app.txt`.
-
-</details>
-
-### 7. Why is this dangerous?
-
-What could happen if you run:
-
-`rm -rf *`
-
-in a directory containing important files?
-
-<details>
-<summary>Answer</summary>
-
-The shell expands `*` to the entries in the current directory, and `rm -rf` can recursively delete those entries without the normal safeguards you would want for an accidental operation.
-
-It can destroy a large amount of data quickly.
-
-The important lesson is:
-
-**A wildcard isn't dangerous by itself. A wildcard combined with a destructive command can be.**
-
-</details>
-
-### 8. `rmdir` vs `rm -r`
-
-Why might you prefer `rmdir` when removing an empty directory?
-
-<details>
-<summary>Answer</summary>
-
-Because `rmdir` refuses to remove non-empty directories.
-
-That makes it a more conservative operation when you only intend to remove an empty directory.
-
-</details>
-
-### 9. Find the configuration
-
-You are inside:
-
-`~/backend`
-
-How would you search recursively for all `.conf` files?
-
-<details>
-<summary>Answer</summary>
-
-`find . -name "*.conf"`
-
-</details>
-
-### 10. Production thinking
-
-You need to remove a directory called `old-release`.
-
-What should you verify before running a recursive delete?
-
-<details>
-<summary>Answer</summary>
-
-At minimum:
-
-1. Your current location with `pwd`.
-2. That the intended directory exists.
-3. The exact target path.
-4. What the directory contains with `ls`.
-5. That the target is actually safe to remove.
-
-A strong habit is:
-
-**inspect first, delete second.**
-
-</details>
+---
 
 ## Further reading & sources
 
@@ -1198,6 +408,8 @@ A strong habit is:
 * [`hier(7)` Linux manual page](https://man7.org/linux/man-pages/man7/hier.7.html) - a practical reference for the Linux filesystem hierarchy.
 * [`find(1)` Linux manual page](https://man7.org/linux/man-pages/man1/find.1.html) - detailed reference for `find` options and search expressions.
 
-## Next
+---
 
-Continue to [03-file-permissions-ownership](../03-file-permissions-ownership/README.md) to learn how Linux decides **who can read, write, or execute a file** and how permissions become one of the most important security boundaries on a server.
+## Next Step
+
+Continue to **[03-file-permissions-ownership](../03-file-permissions-ownership/README.md)** to master Linux permission bits, octal vs. symbolic modes, ownership models (`chmod`, `chown`, `umask`), and privilege boundaries.

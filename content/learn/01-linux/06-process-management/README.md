@@ -1,216 +1,370 @@
-# Module 06: Process Management
+# Module 06: Process Management and Signal Handling
 
-> 🎯 **Goal:** See what is running, understand its lifecycle, and stop or investigate a program without guessing.
+> **Prerequisites:** Module 04 (Users and Groups), Linux terminal shell.  
+> **Estimated Reading Time:** 25 minutes  
+> **Target Audience:** Backend Engineers, Site Reliability Engineers, DevOps & Container Developers.
 
-By the end of this module, you should be able to identify a process and its PID, interpret basic process state and resource usage, send a graceful termination signal, distinguish a foreground job from a background job, and trace a listening server back to the process that owns it.
+> [!TIP]
+> **The Golden Rule of Process Management:** Never start with `kill -9` (`SIGKILL`). Always escalate deliberately: start with `SIGTERM` (Signal 15) to allow processes to complete in-flight HTTP requests, commit database transactions, flush disk buffers, and close socket listeners. Only if the process fails to terminate after a bounded grace period (typically 10s–30s) should you escalate to `SIGKILL` (Signal 9).
 
 ---
 
-## Why this matters
+## 1. Architectural Mental Model: The Linux Process Lifecycle and Tree
 
-Every command you run, every server you start, and every script that hangs or misbehaves is a process — and eventually you will need to see what's running, figure out why something is eating CPU or won't respond, and stop it safely (or forcefully). This is exactly the skill you'll reach for later when a Docker container's process won't exit cleanly, or a Kubernetes pod is stuck, so building solid intuition here on plain Linux pays off directly in the later tracks.
-
-## Concepts
-
-### Start graceful; escalate deliberately
-
-When a program is stuck, first identify it and ask it to exit with `SIGTERM` (the default `kill` signal). Use `SIGKILL` only when the process cannot respond: it gives the program no chance to flush data, remove temporary files, or release resources. The production habit is: observe → identify → terminate gracefully → verify → escalate only if necessary.
-
-**What a process is.** A process is a running instance of a program. When you type `htop` and press Enter, the shell asks the kernel to load that program into memory and start executing it — that running instance is a process, with its own process ID.
-
-**PID and PPID.** Every process gets a unique number called a PID (process ID) the moment it starts. Every process (except the very first one at boot) is started by some other process, called its parent, whose PID is recorded as the child's PPID (parent process ID). For example, when you run a command in your terminal, your shell (like `bash`) is the parent, and the command you launched is its child. This parent-child relationship forms a tree all the way back to the first process the kernel starts at boot.
-
-```
-PID 1 (init, the first process at boot)
-  └── PID 842  bash (your login shell)          PPID=1
-        ├── PID 1105  htop                       PPID=842
-        └── PID 1201  sleep 300                  PPID=842
-              (backgrounded with &, still a child of bash)
-```
-
-Every box in that tree traces back to PID 1 — this is why `ps aux` output has a PPID column at all, and why closing a parent shell (without `nohup`) tends to take its children down with it.
-
-**Foreground vs background.** A foreground process has control of your terminal — your prompt won't come back until it finishes, and it can read your keyboard input directly. A background process runs without holding onto your terminal, so you get your prompt back immediately and can keep typing other commands while it runs.
-
-**Signals.** A signal is a small, standardized message sent to a process asking it to do something — most commonly, to stop. `SIGTERM` ("terminate") politely asks a process to shut down, giving it a chance to clean up open files or save state before exiting; well-behaved programs honor this. `SIGKILL` is not a request — the kernel terminates the process immediately, with no chance for it to clean up anything. `SIGKILL` is a last resort for processes that ignore `SIGTERM` or are stuck (unresponsive).
-
-**`Ctrl+C` and `Ctrl+Z` from the keyboard.** While a foreground process has your terminal, `Ctrl+C` sends it `SIGINT` (interrupt), which by default also ends the process — this is your everyday "stop this program" keystroke. `Ctrl+Z` is different: it sends `SIGTSTP`, which merely pauses (suspends) the process and hands your prompt back, without ending it — the paused process is still in memory, just not running, until you resume it.
-
-```
-  kill <PID>          SIGTERM (15)   "please stop" — process can catch it,
-                                      clean up, and exit on its own terms
-
-  kill -9 <PID>        SIGKILL (9)   "you're stopped" — kernel ends it
-                                      instantly, no cleanup, can't be caught
-
-  Ctrl+C                SIGINT (2)   "interrupt" — default action ends it,
-                                      same idea as SIGTERM but from a keypress
-
-  Ctrl+Z               SIGTSTP (20)  "pause" — process frozen in memory,
-                                      resume later with fg/bg, not terminated
-```
-
-The escalation path for a stuck process is always: `SIGTERM` first (`kill <PID>`), give it a moment, only reach for `SIGKILL` (`kill -9`) if it truly won't respond.
-
-**Jobs: backgrounding and resuming from your shell.** Your shell keeps track of processes you started from it as numbered "jobs." Appending `&` to a command starts it directly in the background. A process you `Ctrl+Z`-suspended, or backgrounded with `&`, can later be resumed in the foreground or background. This is entirely a convenience your interactive shell provides — it's tracking jobs launched in that shell session.
-
-**Surviving terminal closure with `nohup`.** Normally, when you close your terminal, every process it started (including backgrounded ones) receives a hangup signal and typically dies. `nohup` ("no hangup") runs a command in a way that ignores that signal, so it keeps running even after you log out or close the terminal — useful for a long-running task you want to walk away from.
-
-## Command reference
-
-| Command | What it does | Example |
-|---|---|---|
-| `ps aux` | Lists running processes system-wide with owner, PID, CPU%, memory%, and command. `a` shows processes for all users, `u` gives the user-oriented detailed columns, `x` includes processes not attached to a terminal. | `ps aux` |
-| `top` | Interactive, live-updating table of processes sorted by resource usage; refreshes continuously until you quit. Press `q` to quit. | `top` |
-| `htop` | A friendlier, colorized, scrollable version of `top` (installed via apt in module 05); supports mouse clicks and function-key shortcuts for sorting/killing. Press `F10` or `q` to quit. | `htop` |
-| `command &` | Runs `command` in the background immediately, returning your prompt right away; prints a job number and PID. | `sleep 300 &` |
-| `jobs` | Lists the background/suspended jobs tracked by your current shell session, with job numbers and status (Running/Stopped). | `jobs` |
-| `fg %<n>` | Brings job number `n` into the foreground (omit `%n` to use the most recent job). | `fg %1` |
-| `bg %<n>` | Resumes a suspended (stopped) job, but keeps it running in the background instead of the foreground. | `bg %1` |
-| `Ctrl+C` | Sends `SIGINT` to the foreground process, normally terminating it. | Press while a command is running in your terminal |
-| `Ctrl+Z` | Sends `SIGTSTP` to the foreground process, suspending (pausing) it and returning your prompt. | Press while a command is running in your terminal |
-| `kill <PID>` | Sends a signal (default `SIGTERM`) to a process by PID, asking it to terminate gracefully. | `kill 4821` |
-| `kill -9 <PID>` | Sends `SIGKILL` to a process by PID, forcing immediate termination with no cleanup. `-9` is the numeric signal for `SIGKILL`. | `kill -9 4821` |
-| `killall <name>` | Sends a signal (default `SIGTERM`) to every process matching a program name, instead of needing a PID. | `killall sleep` |
-| `pgrep <pattern>` | Searches running processes by name/pattern and prints matching PIDs, without killing anything. | `pgrep htop` |
-| `pkill <pattern>` | Sends a signal (default `SIGTERM`) to every process whose name matches a pattern, like `pgrep` combined with `kill`. | `pkill -9 sleep` |
-| `nohup <command> &` | Runs `command` immune to the hangup signal sent when your terminal closes, so it keeps running after logout; output is redirected to a file named `nohup.out` unless you redirect it elsewhere. | `nohup sleep 600 &` |
-
-## Hands-on exercises
-
-1. Open your WSL2 Ubuntu terminal. Run `ps aux` and look at the output. Find the line for your current shell (look for `bash` or similar in the command column near the end of the line), and note its PID.
-
-2. Run `ps aux | wc -l` (a small pipe preview — it counts lines) to see roughly how many processes are currently running on your system.
-
-3. Launch `htop`. Take a moment to look at the layout: CPU/memory bars at the top, and the scrollable process table below. Try pressing `F6` (or your version's sort key) to sort by different columns, then press `q` to quit back to your prompt.
-
-4. Start a long-running foreground command: `sleep 60`. Notice your prompt does not return — you're stuck waiting. Press `Ctrl+C` to interrupt it early, and confirm your prompt returns immediately with no "60 seconds" wait.
-
-5. Start another `sleep 300`, and this time press `Ctrl+Z` instead of `Ctrl+C`. Your prompt should return, and the shell should print something like `[1]+  Stopped   sleep 300`. Run `jobs` to confirm it's listed as Stopped. Then run `bg %1` to resume it in the background, and `jobs` again to confirm its status changed to Running.
-
-6. Start a background job directly with `&`: `sleep 120 &`. Note the `[job-number] PID` the shell prints. Run `jobs` and separately `ps aux | grep sleep` (previewing a pipe filter) to see the same process from two different views.
-
-7. Bring that background job to the foreground: `fg %1` (adjust the job number to match what `jobs` shows). Once it's in the foreground, press `Ctrl+C` to end it early instead of waiting out the full duration.
-
-8. Find a process by name instead of by PID: start `sleep 400 &`, then run `pgrep sleep` to find its PID without scanning `ps aux` by eye. Kill it gracefully with `kill <PID>` (using the actual PID pgrep printed), and confirm it's gone by running `pgrep sleep` again (it should print nothing).
-
-9. Break something on purpose: run `kill 999999` (a PID that almost certainly doesn't exist on your system). Read the error message carefully — it should say "No such process," which tells you the PID was invalid, distinct from a permissions error. Then start `sleep 500 &`, find its real PID with `pgrep sleep`, and try `kill -0 <PID>` (signal `0` sends nothing but checks whether the process exists and you have permission to signal it) to confirm it's alive before finally killing it properly with `kill <PID>`.
-
-10. Test `nohup`: run `nohup sleep 120 &`. Confirm a file named `nohup.out` appeared in your current directory (`ls`). Then run `pgrep sleep` to confirm it's running, and clean up with `pkill sleep` to stop it (and optionally `rm nohup.out` to tidy up the file it created).
-
-## Production practice: diagnose before killing
-
-> [!key]
-> A process is an executing program with an identity, a parent, open resources, and a lifecycle. A PID is only a handle—inspect the command and owner before acting on it.
-
-> [!model]
-> A process tree is a family tree. The parent launches a child; a supervisor such as `systemd` may restart that child when it exits. Killing only the child may appear to work briefly if the parent is designed to bring it back.
+In Linux, every program in execution is represented as a `task_struct` inside the kernel and assigned a unique numeric **Process ID (PID)**. The operating system organizes all processes into a strict hierarchical tree rooted at **PID 1** (`systemd` on physical/VM Linux, or your entrypoint command inside Docker).
 
 ```mermaid
-flowchart TD
-    I["systemd (PID 1)"] --> S["myapp.service"]
-    S --> P["myapp process"]
-    P --> W["worker process"]
-    S -. restart on failure .-> P
+stateDiagram-v2
+    [*] --> Created: fork() / clone()
+    Created --> ReadyRunning: execve() [State: R]
+    ReadyRunning --> InterruptibleSleep: Waiting for Event / Network I/O [State: S]
+    ReadyRunning --> UninterruptibleSleep: Blocked on Disk / Hardware I/O [State: D]
+    ReadyRunning --> Stopped: SIGSTOP / Ctrl+Z [State: T]
+
+    InterruptibleSleep --> ReadyRunning: Event Occurs / Signal Received
+    UninterruptibleSleep --> ReadyRunning: Disk I/O Completes (Cannot be killed)
+    Stopped --> ReadyRunning: SIGCONT
+
+    ReadyRunning --> Zombie: exit() called [State: Z]
+    Zombie --> [*]: Parent calls wait() / waitpid() (Reaped from Kernel Table)
 ```
 
-The tree explains who may restart a process. The response flow below explains how to intervene safely.
+### The Fundamental Process States
+* **`R` (Running / Runnable):** The process is either currently executing on a CPU core or waiting in the scheduler's run queue.
+* **`S` (Interruptible Sleep):** The process is paused waiting for an event (e.g. incoming socket connection, sleep timer). It awakens immediately if a signal is sent.
+* **`D` (Uninterruptible Sleep):** The process is blocked awaiting a direct hardware driver or synchronous disk I/O response. **Processes in D state cannot be terminated by `SIGKILL`** until the hardware/kernel call completes.
+* **`Z` (Zombie / Defunct):** The process has finished executing and released its memory, but its entry remains in the kernel's process table because its parent process has not yet read its exit status via the `wait()` or `waitpid()` system call.
+* **`T` (Stopped):** Suspended by a job control signal (`Ctrl+Z` or `SIGSTOP`).
+
+---
+
+## 2. Taxonomic Reference: Essential Linux Signals
+
+Signals are asynchronous notifications dispatched by the kernel or userspace to inform a process of a specific event:
+
+| Signal Number | Signal Name | Default Action | Can be Caught or Blocked? | Production Engineering Use Case |
+| :--- | :--- | :--- | :--- | :--- |
+| **`1`** | **`SIGHUP`** | Terminate | **Yes** | **Configuration Reload:** Nginx, Prometheus, and PostgreSQL reload config files without dropping connections. |
+| **`2`** | **`SIGINT`** | Terminate | **Yes** | **Terminal Interrupt:** Sent when a user presses `Ctrl+C`. Triggers graceful interactive shutdown. |
+| **`3`** | **`SIGQUIT`** | Core Dump | **Yes** | **Diagnostic Dump:** Sent via `Ctrl+\`. Instructs runtimes (Go, JVM) to dump thread stack traces. |
+| **`9`** | **`SIGKILL`** | Terminate | **NO (Kernel Enforced)** | **Forced Termination:** Kernel destroys process memory immediately. Cannot flush buffers or clean temp files. |
+| **`15`** | **`SIGTERM`** | Terminate | **Yes** | **Standard Graceful Termination:** Sent by `systemctl stop`, Docker `docker stop`, and Kubernetes pod teardowns. |
+| **`17`** | **`SIGCHLD`** | Ignore | **Yes** | **Child Death Notification:** Sent to parent process when a child exits so parent can reap zombies. |
+| **`18`** | **`SIGCONT`** | Continue | **Yes** | **Resume Execution:** Resumes execution of a process previously paused by `SIGSTOP`. |
+| **`19`** | **`SIGSTOP`** | Pause | **NO (Kernel Enforced)** | **Uncatchable Pause:** Freezes process execution immediately without terminating it. |
+
+---
+
+## 3. Systematic Reference: Process Diagnostics & Triage Commands
+
+| Command | Purpose | Production Use Case |
+| :--- | :--- | :--- |
+| **`ps aux`** | BSD-style snapshot of all running system processes | Inspect user, PID, %CPU, %MEM, VSZ, RSS, and process status. |
+| **`ps -ef`** | Standard POSIX snapshot displaying Parent PID (PPID) | Tracing zombie processes back to their misbehaving parent. |
+| **`pgrep -l <name>`** | Search for PIDs matching a process name pattern | `pgrep -l node` quickly returns all running Node.js PIDs. |
+| **`pkill -15 -f <name>`** | Send a signal to all processes matching regex string | Send `SIGTERM` to all background Celery workers. |
+| **`pstree -p`** | Visual ASCII tree of processes with their PIDs | Understand parent-child relationships and daemon ancestry. |
+| **`ss -tulpn`** | Show listening TCP/UDP sockets with owning process & PID | Find which process is locking port 8080: `sudo ss -tulpn \| grep :8080`. |
+| **`lsof -i :<port>`** | List open files / sockets for a specific TCP port | Instant lookup: `lsof -i :3000` reveals offending rogue process. |
+
+---
+
+## 4. Production War Story: The PID 1 Zombie Apocalypse Outage
 
 ```mermaid
-flowchart TD
-    A["Unexpected process or port"] --> B["Inspect PID, owner, command"]
-    B --> C{"Should it stop?"}
-    C -->|No| D["Find parent / supervisor"]
-    C -->|Yes| E["SIGTERM"] --> F{"Exited?"}
-    F -->|Yes| G["Verify socket and logs"]
-    F -->|No| H["Investigate; SIGKILL only if necessary"]
+sequenceDiagram
+    actor Kube as Kubernetes Kubelet
+    participant NodeApp as Node.js App (PID 1 in Container)
+    participant Worker as Worker Child Process (PID 42)
+    participant Kernel as Linux Kernel Process Table
+
+    Note over NodeApp: Dockerfile has: ENTRYPOINT ["node", "server.js"]
+    NodeApp->>Kernel: fork() -> Worker child process created (PID 42)
+    Worker->>Worker: Process image thumbnail... Done!
+    Worker->>Kernel: exit(0) -> Worker terminates!
+    Kernel->>NodeApp: Kernel sends SIGCHLD signal to PID 1
+    Note over NodeApp: Node.js standard runtime ignores SIGCHLD and lacks waitpid() loop!
+    Note over Kernel: Worker remains as Z (Zombie) in kernel task table!
+    Note over NodeApp,Worker: After 48 hours of heavy traffic, 32,768 zombies accumulate!
+    NodeApp->>Kernel: fork() -> spawn new worker
+    Kernel-->>NodeApp: EAGAIN: Resource temporarily unavailable (Kernel pid_max exhausted!)
+    Note over Kernel: Host cannot spawn processes! Node health checks fail; node crashes!
 ```
 
-> [!example]
-> A development server keeps port `3000` busy after a terminal closes. `ss -ltnp` identifies the listener and PID; `ps -fp <PID>` confirms it is the old server; `kill <PID>` requests a clean exit; a second `ss` check proves the port is free.
+### The Incident
+A high-throughput video encoding platform running on Kubernetes experienced sudden, cascading node crashes. All nodes in the cluster became unresponsive. SSH sessions were rejected with:
+`-bash: fork: retry: Resource temporarily unavailable`.
 
-> [!pitfall]
-> Do not use `kill -9` as the first response. `SIGKILL` cannot be caught, so an application cannot flush buffered data, remove a lock file, or close a transaction cleanly. Use it only after you have identified the process and a graceful signal did not work.
+### The Post-Mortem Data
+* **Severity:** SEV-1 (Cluster-Wide Infrastructure Collapse)
+* **Mean Time to Detect (MTTD):** 30 minutes (Pods entered `CrashLoopBackOff`)
+* **Mean Time to Resolution (MTTR):** 45 minutes (Node reboots and Dockerfile refactor)
 
-### A focused incident loop
+### The Root Cause
+The microservice Dockerfile specified:
+```dockerfile
+ENTRYPOINT ["node", "server.js"]
+```
+In Linux, **PID 1 is special**: the kernel expects PID 1 to adopt orphaned child processes and reap terminated children by invoking `wait()` or `waitpid()`. Because standard Node.js does not implement an init system's reaping loop, every child process spawned for video transcoding died and remained in the Linux kernel process table as a **Zombie (`Z`)**. 
 
+Over two days, the process table consumed all 32,768 available PIDs on the host operating system (`/proc/sys/kernel/pid_max`), preventing the kernel from creating any new threads or processes.
+
+### The Fix & Hardening
+1. **Use an Init System in Docker Containers:** Prepend lightweight init supervisors such as `dumb-init` or `tini`:
+```dockerfile
+# Hardened Dockerfile
+RUN apt-get update && apt-get install -y dumb-init && rm -rf /var/lib/apt/lists/*
+ENTRYPOINT ["/usr/bin/dumb-init", "--"]
+CMD ["node", "server.js"]
+```
+2. **Or enable Docker's built-in init flag:**
 ```bash
-ps -fp <PID>              # identity, parent, and command
-ps -o pid,ppid,user,stat,%cpu,%mem,command -p <PID>
-ss -ltnp                  # listening TCP processes
-lsof -p <PID>             # open files, when available
-kill -TERM <PID>          # request a clean shutdown
+docker run --init -d my-app:latest
+```
+`dumb-init` runs as PID 1, correctly forwards all signals (`SIGTERM`) to the child application, and continuously reaps zombie processes.
+
+---
+
+## 5. Multi-Language Production Code: Graceful Shutdown & Signal Trapping
+
+In production cloud environments, Kubernetes pods and Docker containers are terminated frequently during autoscaling and deployments. Applications must trap `SIGTERM` and shut down gracefully.
+
+### Go
+```go
+package main
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
+)
+
+func main() {
+	server := &http.Server{
+		Addr: ":8080",
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// Simulate long-running request
+			time.Sleep(2 * time.Second)
+			w.Write([]byte(`{"status":"success"}`))
+		}),
+	}
+
+	// Channel to listen for OS signals
+	shutdownSignal := make(chan os.Signal, 1)
+	signal.Notify(shutdownSignal, syscall.SIGINT, syscall.SIGTERM)
+
+	go func() {
+		fmt.Println("🚀 Server listening on port 8080...")
+		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			fmt.Printf("Fatal server error: %v\n", err)
+		}
+	}()
+
+	// Block until SIGINT or SIGTERM arrives
+	sig := <-shutdownSignal
+	fmt.Printf("\n🛑 Received signal: %v. Initiating graceful shutdown...\n", sig)
+
+	// Grant 10 seconds for in-flight requests to complete
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	if err := server.Shutdown(ctx); err != nil {
+		fmt.Printf("Forced shutdown due to timeout: %v\n", err)
+	} else {
+		fmt.Println("✅ All connections drained cleanly. Exiting safely.")
+	}
+}
 ```
 
-Wait briefly and verify the result. If a process returns, inspect its parent, service manager, or container runtime rather than repeatedly killing it.
+### Node.js / TypeScript
+```typescript
+import * as http from 'http';
 
-> [!exercise]
-> Start `python3 -m http.server 8000` in one terminal. In another, identify its PID from the listening socket, inspect its parent and user, stop it with `SIGTERM`, and prove that `curl http://localhost:8000` now fails because no process owns the port.
+const server = http.createServer((req, res) => {
+  // Simulate active workload
+  setTimeout(() => {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ status: 'completed' }));
+  }, 1500);
+});
 
-> [!interview]
-> Compare `SIGTERM` and `SIGKILL`. Then explain why a process can reappear after being killed and how you would discover what restarted it.
+server.listen(8080, () => {
+  console.log('🚀 HTTP Server listening on port 8080 (PID: ' + process.pid + ')');
+});
 
-> [!check]
-> - Can you find the process listening on a port without guessing its name?
-> - Can you explain the difference between a PID and a process tree?
-> - Do you have a verification command to run after stopping a process?
+function handleGracefulShutdown(signal: string) {
+  console.log(`\n🛑 Received ${signal}. Draining active connections...`);
 
-## Independent challenge
+  // Stop accepting new client connections
+  server.close((err) => {
+    if (err) {
+      console.error('Error during shutdown:', err);
+      process.exit(1);
+    }
+    console.log('✅ Server stopped cleanly. Zero requests dropped.');
+    process.exit(0);
+  });
 
-No commands given here — figure it out yourself using what you know from this module and earlier ones.
+  // Enforce a hard timeout if connections refuse to drain
+  setTimeout(() => {
+    console.error('⚠️  Graceful shutdown timed out. Forcing termination.');
+    process.exit(1);
+  }, 10000).unref(); // unref prevents timeout from keeping event loop open
+}
 
-**Task:** Start three separate background `sleep` processes with three clearly different durations. Without writing any PID down by hand as you launch them, later find and gracefully terminate only the longest-running one, leaving the other two alive and running. Then prove those two survivors are still there. If you'd like a live view of all three at once while you work, use the `htop` tool you installed back in module 05. Do the whole thing without copying the exact command sequence from the exercises above.
+process.on('SIGTERM', () => handleGracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => handleGracefulShutdown('SIGINT'));
+```
+
+### Python
+```python
+import http.server
+import signal
+import sys
+import threading
+import time
+
+class GracefulServer:
+    def __init__(self, port=8080):
+        self.server = http.server.HTTPServer(("0.0.0.0", port), http.server.SimpleHTTPRequestHandler)
+        self.is_running = True
+
+        # Register signal handlers
+        signal.signal(signal.SIGTERM, self._signal_handler)
+        signal.signal(signal.SIGINT, self._signal_handler)
+
+    def _signal_handler(self, signum, frame):
+        sig_name = signal.Signals(signum).name
+        print(f"\n🛑 Intercepted {sig_name}. Initiating graceful teardown...")
+        self.is_running = False
+        threading.Thread(target=self.server.shutdown).start()
+
+    def start(self):
+        print(f"🚀 Server running on port 8080 (PID: {sys.argv[0]})")
+        self.server.serve_forever()
+        print("✅ Server shutdown complete. Resources freed.")
+
+if __name__ == "__main__":
+    app = GracefulServer()
+    app.start()
+```
+
+---
+
+## 6. Practical Hands-On Verification CLI Workflows
+
+Work in your Ubuntu terminal:
+
+### Workflow 1: Process Lifecycles, Backgrounding, and Job Control
+```bash
+# 1. Start a long-running process in the background (&)
+sleep 1000 &
+SLEEP_PID=$!
+echo "Spawned background sleep with PID: $SLEEP_PID"
+
+# 2. View active shell jobs
+jobs -l
+
+# 3. Bring job to foreground, pause it with Ctrl+Z, then resume with bg
+# (Or programmatically pause and continue via signals):
+kill -SIGSTOP $SLEEP_PID
+ps -o pid,stat,cmd -p $SLEEP_PID
+kill -SIGCONT $SLEEP_PID
+ps -o pid,stat,cmd -p $SLEEP_PID
+```
+**Expected Output:**
+```text
+[1]+ 12345 Running                 sleep 1000 &
+  PID STAT CMD
+12345 T    sleep 1000
+  PID STAT CMD
+12345 S    sleep 1000
+```
+
+### Workflow 2: Safe Process Termination Escrow
+```bash
+# 1. Send graceful SIGTERM first
+kill -15 $SLEEP_PID
+sleep 1
+
+# 2. Verify process is gone
+ps -p $SLEEP_PID || echo "Process cleanly terminated via SIGTERM."
+```
+
+### Workflow 3: Discovering Port Ownership
+```bash
+# Identify which process is listening on an HTTP port
+python3 -m http.server 9999 &
+SRV_PID=$!
+sleep 1
+
+# Inspect using ss
+ss -tulpn | grep 9999
+
+# Clean up
+kill -15 $SRV_PID
+```
+
+---
+
+## 7. Operational Validation Checkpoint
 
 <details>
-<summary>Stuck? One hint</summary>
+<summary><strong>Question 1: The Unkillable Process in State D</strong></summary>
 
-`pgrep` can list the PIDs of processes by name after the fact, and `ps` shows you each one's command (including the sleep duration) so you can pick out the longest; then a plain `kill` on just that one PID asks it to stop gracefully.
+**Scenario:** An application server hangs. You run `ps aux` and observe the process state is `D`. You run `kill -9 <PID>` as root, but the process continues to appear in `ps aux` and refuses to terminate.
 
+Why does `kill -9` fail to terminate a process in `D` state, and how can the system recover?
+
+**Answer:**
+A process in **State `D` (Uninterruptible Sleep)** is blocked inside the Linux kernel awaiting hardware I/O (most commonly an unresponsive NFS network mount, a dying physical disk with bad sectors, or a stalled GPU driver). 
+
+The Linux kernel guarantees driver data consistency by **refusing to deliver any signals—including `SIGKILL`—while a thread is in uninterruptible kernel sleep**. 
+
+The process cannot be killed until the underlying hardware system call returns or times out. If the network share or physical device is permanently dead, the only way to clear a D-state process is to fix the underlying hardware connection or **reboot the operating system**.
 </details>
-
-## Common mistakes & troubleshooting
-
-- **Confusing `Ctrl+C` and `Ctrl+Z`:** `Ctrl+C` ends the process; `Ctrl+Z` only pauses it (the process is still alive, just stopped, and will keep occupying resources like open ports until you `fg`/`bg` it or kill it). A "stopped" job left forgotten is a classic source of "why is this port still in use" confusion.
-- **Killing the wrong PID:** PIDs are reused over time as processes come and go, so a PID you saw five minutes ago in `ps aux` output may belong to a completely different process now. Always re-check with a fresh `ps aux`, `pgrep`, or `htop` immediately before killing something specific.
-- **Reaching for `kill -9` first:** `SIGKILL` gives the process zero chance to clean up (e.g. flush a file it was writing, release a lock). Try plain `kill` (`SIGTERM`) first, and only escalate to `-9` if the process ignores it and won't die.
-- **Forgetting a job is only tracked per shell session:** `jobs` only shows jobs started in *that* terminal/shell session — closing the terminal (without `nohup`) or opening a new one means those job numbers are no longer visible or backgrounded there.
-- **Expecting `killall`/`pkill` to match exactly what you typed:** these match by process name/pattern, which can unexpectedly hit more processes than intended if the name is generic (e.g. `pkill python` could kill several unrelated Python scripts at once). Double check with `pgrep <pattern>` first to see exactly what would be affected.
-- **Not redirecting `nohup` output and being surprised by a `nohup.out` file:** if you don't redirect stdout/stderr yourself, `nohup` writes them into `nohup.out` in your current directory by default, which can pile up if forgotten.
-
-## Checkpoint quiz
-
-Write down your answer to each question before expanding it — checking without attempting first is the single easiest way to fool yourself into thinking you've learned this.
-
-1. What's the difference between a process's PID and its PPID?
-2. Why does `Ctrl+Z` not actually end a running program, and what state is that program left in?
-3. You run `kill 4821` and nothing seems to happen — the process is still running a few seconds later. What signal did you just send, and what would be the next reasonable step?
-4. Why is `kill -9` considered a last resort rather than a first choice?
-5. What's the practical difference between checking `ps aux` once versus running `top`/`htop`?
-6. If you background a long task with `sleep 600 &` and then close your terminal, what generally happens to it, and what command would you have used instead to keep it running?
-7. What's the difference between `jobs` and `pgrep`, given that both can tell you about running processes?
-8. Why should you re-check a process's PID with a fresh `ps aux` or `pgrep` right before killing it, rather than trusting a PID you saw a few minutes earlier?
 
 <details>
-<summary>Show answers</summary>
+<summary><strong>Question 2: Zombie Processes and Memory Reclamation</strong></summary>
 
-1. The PID is the process's own unique identifier; the PPID is the PID of the process that started it (its parent). Every process has exactly one PPID but processes can have many children, each with the same PPID pointing back to it.
-2. `Ctrl+Z` sends `SIGTSTP`, which merely suspends (pauses) the process rather than terminating it. The program remains loaded in memory in a "Stopped" state and can later be resumed with `fg` or `bg`; it isn't running or making progress while stopped, but it isn't gone either.
-3. Plain `kill` sends `SIGTERM` by default, which is only a polite request — a process can ignore it (or be too stuck to respond). The next step is to confirm it's still alive (e.g. `ps aux` or `pgrep`) and, if it truly won't terminate, escalate to `kill -9` (`SIGKILL`) to force it.
-4. Because `SIGKILL` terminates a process immediately with no opportunity for it to clean up open files, flush buffered writes, or release locks, which can lead to corrupted data or orphaned resources. It should only be used when a graceful `SIGTERM` request has failed or the process is unresponsive.
-5. `ps aux` is a single point-in-time snapshot of processes at the moment you ran it. `top`/`htop` continuously refresh, showing live, moving CPU/memory usage, which is much more useful for spotting a process that's currently spiking resource usage.
-6. Without `nohup`, closing the terminal typically sends a hangup signal to processes it started (including backgrounded ones), ending them. Running it as `nohup sleep 600 &` instead makes it immune to that hangup, so it keeps running after the terminal closes.
-7. `jobs` lists only the background/suspended processes tracked by your *current shell session*, by job number. `pgrep` searches *all* processes on the system by name/pattern and returns PIDs, regardless of which shell (if any) started them.
-8. Because PIDs get reused as processes start and finish over time; a PID you noted earlier may since have been recycled and now belong to an entirely different, unrelated process, so killing it "from memory" risks terminating the wrong thing.
+**Scenario:** A junior developer alerts you: "Our server has 500 zombie processes (`Z` state)! We must kill them immediately with `kill -9` before they exhaust all of the server's RAM!"
 
+Is the junior developer's concern about memory consumption accurate? Why can you NOT run `kill -9` on a zombie?
+
+**Answer:**
+**The developer is mistaken on both counts:**
+1. **Memory:** Zombie processes consume **zero RAM**. When a process calls `exit()`, the kernel deallocates all of its virtual memory, stack, heap, and open file descriptors. A zombie is merely a single 4KB metadata entry in the kernel's process table waiting for its parent to read its exit code.
+2. **Signal Delivery:** You **cannot kill a zombie with `kill -9` because the process is already dead**. 
+
+To remove zombies, you must either:
+* Send `SIGCHLD` to the **parent process** so it executes `waitpid()`.
+* If the parent process is broken or hung, **terminate the parent process**. When the parent dies, the zombies are reparented to PID 1, which instantly reaps them.
 </details>
 
-## Further reading & sources
+<details>
+<summary><strong>Question 3: Why Container PID 1 Ignores SIGTERM</strong></summary>
 
-- [`man7.org`: signal(7)](https://man7.org/linux/man-pages/man7/signal.7.html) - the full list of Unix signals (this module only covers the four you'll use daily) and how processes can catch or ignore them.
-- [`man7.org`: ps(1)](https://man7.org/linux/man-pages/man1/ps.1.html) - `ps` has dozens of output formats beyond `aux`; worth a skim once `ps aux` feels routine.
-- [htop explained (official site)](https://htop.dev/) - htop's own docs, covering the keyboard shortcuts and columns this module only lightly introduced.
-- [`man7.org`: nohup(1)](https://man7.org/linux/man-pages/man1/nohup.1.html) - the nohup reference; also worth knowing `disown` and `setsid` exist as related tools for detaching processes from a shell.
+**Scenario:** You deploy a microservice inside Docker with `ENTRYPOINT ["./my-service"]`. When you run `docker stop <container>`, Docker waits 10 seconds before forcibly killing the container with `SIGKILL`. Your graceful shutdown logic never executed.
 
-## Next
+Why did the service fail to respond to `SIGTERM` when running as PID 1?
 
-Continue to [07 - I/O Redirection and Pipes](../07-io-redirection-and-pipes/README.md) to learn how to control where a process's input and output actually go — the foundation for chaining commands together.
+**Answer:**
+In Linux, **PID 1 receives special protection from the kernel**: by default, the kernel will NOT deliver any signal to PID 1 for which the process has not installed an **explicit signal handler**. 
+
+For normal processes (PID > 1), receiving `SIGTERM` triggers the kernel's default termination action. But for PID 1, if the binary does not register an explicit handler for `SIGTERM`, the kernel silently drops the signal! 
+
+When `docker stop` sends `SIGTERM`, the application ignores it. After the 10-second grace timeout expires, Docker issues `SIGKILL` (which cannot be ignored), abruptly terminating the container without graceful cleanup.
+
+**The Fix:** Explicitly register a `SIGTERM` handler in application code or run inside an init supervisor like `dumb-init` or `docker run --init`.
+</details>
+
+---
+
+## Next Step
+
+Now that you understand process lifecycles and signal handling, proceed to **[07 · I/O Redirection and Pipes](../07-io-redirection-and-pipes/README.md)** to master standard streams (stdin, stdout, stderr), pipeline composition, file descriptor duplication, and subshells.

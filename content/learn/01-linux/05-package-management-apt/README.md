@@ -1,202 +1,425 @@
 # Module 05: Package Management with APT
 
-> 🎯 **Goal:** Install, update, inspect, and remove Ubuntu software reproducibly without turning your machine into an untracked collection of downloads.
+> **Prerequisites:** Module 04 (Users and Groups), Ubuntu environment with sudo access.  
+> **Estimated Reading Time:** 25 minutes  
+> **Target Audience:** Backend Engineers, DevOps Engineers, Platform / Container Architects.
 
-By the end of this module, you should know the difference between package metadata and installed packages, understand `update` versus `upgrade`, find the package that provides a command, and use APT in a way that transfers cleanly to server provisioning and Dockerfiles.
+> [!TIP]
+> **The Golden Rule of APT Package Management:** `apt update` updates your local index of *metadata*; `apt upgrade` downloads and installs the actual *software packages*. In Dockerfiles and automated infrastructure provisioning, **always combine update, install, and cache cleanup into a single atomic layer**: `apt-get update && apt-get install -y --no-install-recommends <package> && rm -rf /var/lib/apt/lists/*`. Separating them causes stale cache build failures and inflates container images with hundreds of megabytes of junk.
 
 ---
 
-## Why this matters
+## 1. Architectural Mental Model: The APT and Dpkg Lifecycle
 
-Almost no real Linux work happens with only the tools that ship in a base install — you'll constantly need to add editors, monitoring tools, language runtimes, and libraries. Manually downloading binaries from random websites is slow, insecure, and creates dependency and update nightmares. Every Linux engineer relies on a package manager daily, and on Ubuntu (and WSL2's Ubuntu) that's APT — you'll use it in almost every module from here on, including to install the tools this very curriculum needs.
-
-## Concepts
-
-### Treat packages as declared dependencies
-
-On a production machine, an installation command is part of the system's configuration. Prefer packages from trusted, configured repositories; inspect what will change before a broad upgrade; and record tools your project truly depends on in setup documentation or infrastructure code. `sudo apt install` is useful, but it is also a system-wide change—not a disposable experiment.
-
-**What a package manager is, and why it beats manual downloads.** A package is a bundle containing a piece of software, metadata about it (version, description), and a list of other packages it depends on. A package manager is a tool that downloads, installs, upgrades, and removes these packages for you, automatically pulling in anything they depend on. Compare that to manually downloading a program's binary from a website: you'd have to figure out dependencies yourself, there's no easy "uninstall cleanly," no consistent way to check for updates, and no guarantee the file wasn't tampered with. Package managers solve all of this with a curated, verified catalog.
-
-**APT and the Debian/Ubuntu ecosystem.** Ubuntu is built on Debian, and both use the `.deb` package format managed by a lower-level tool called `dpkg`. APT (Advanced Package Tool) sits on top of `dpkg` and adds the parts people actually want: fetching packages from remote servers ("repositories"), resolving dependencies automatically, and upgrading everything in one command. When you type `apt install something`, APT looks up `something` in its local index of available packages, works out anything it needs, downloads it all, and hands it to `dpkg` to actually unpack and install onto your filesystem.
-
-```
-  Remote repositories (Canonical's servers, or a PPA)
-             │
-             │  apt update  (refresh local index)
-             ▼
-  Local package index (metadata cache: names, versions, deps)
-             │
-             │  apt install <pkg>  (resolve deps, download .deb files)
-             ▼
-  APT hands the downloaded .deb files to dpkg
-             │
-             │  dpkg unpacks and registers the package
-             ▼
-  Installed on disk: /usr/bin, /usr/lib, /etc, ...
-```
-
-APT is the layer you talk to; `dpkg` is the layer that actually does the unpacking. You'll rarely call `dpkg` directly except to inspect state (like `dpkg -l`), because APT's dependency resolution is the whole reason it exists on top of `dpkg`.
-
-**The package index and why you `update` before you `upgrade`.** APT doesn't ask the internet "does this package exist" every single time — it keeps a local cache of what's available and at what version, per configured repository. `apt update` refreshes that local cache from the repositories (it does not install or upgrade anything by itself). Only after that cache is fresh does `apt upgrade` know which installed packages have newer versions available. Skipping `update` means you might be told everything is "up to date" when it isn't — the local cache is just stale.
-
-**`upgrade` vs `full-upgrade`.** `apt upgrade` installs newer versions of packages you already have, but it will refuse to remove any currently installed package to do so — if upgrading one package would require removing another, it just leaves that package alone. `apt full-upgrade` (older tutorials may call it `dist-upgrade`) is willing to remove packages if that's what's needed to complete every available upgrade, which matters more when major version jumps happen. For routine updates, `upgrade` is the safer everyday habit.
-
-**Repositories and adding new sources (lightly).** The "repositories" APT downloads from are just servers hosting package catalogs, and Ubuntu's default install already points at Canonical's official ones. Sometimes software isn't in the default repositories, and projects publish their own repository (Ubuntu calls a lightweight, personal one a "PPA" — Personal Package Archive). The command `sudo add-apt-repository ppa:some/ppa` adds one of these as a new source so APT knows to look there too, and you'd normally run `apt update` immediately afterward so APT picks up its new catalog. This curriculum won't need you to add any PPAs, but you should recognize the command when you see it in the wild — and know that adding third-party repositories means trusting whoever publishes them.
-
-**Where installed packages actually go.** APT-installed programs generally place their executable binaries in standard system directories like `/usr/bin` (most user tools) or `/usr/sbin` (system administration tools), with supporting files often under `/usr/lib` or `/etc`. You don't need to hunt these down by hand — `which` and `whereis` do it for you.
-
-**Install vs remove vs purge.** `apt remove` uninstalls a package's program files but leaves its configuration files behind (handy if you plan to reinstall later and want your settings preserved). `apt purge` removes the package *and* its configuration files, for a fully clean slate.
-
-## Command reference
-
-| Command | What it does | Example |
-|---|---|---|
-| `sudo apt update` | Refreshes APT's local index of what packages/versions are available from configured repositories. Installs nothing by itself. | `sudo apt update` |
-| `sudo apt upgrade` | Installs newer versions of already-installed packages, but won't remove any package to do it. | `sudo apt upgrade` |
-| `sudo apt full-upgrade` | Like `upgrade`, but will remove packages if necessary to complete all available upgrades. | `sudo apt full-upgrade` |
-| `sudo apt install <pkg>` | Installs a package (and anything it depends on). Can take multiple package names at once. | `sudo apt install tree curl` |
-| `sudo apt remove <pkg>` | Uninstalls a package's program files, keeping its configuration files behind. | `sudo apt remove tree` |
-| `sudo apt purge <pkg>` | Uninstalls a package and deletes its configuration files too. | `sudo apt purge tree` |
-| `sudo apt autoremove` | Removes packages that were pulled in as dependencies but are no longer needed by anything installed. | `sudo apt autoremove` |
-| `apt search <term>` | Searches package names and descriptions in the local index for a keyword. | `apt search text editor` |
-| `apt show <pkg>` | Shows detailed metadata about a package: version, description, size, dependencies. | `apt show curl` |
-| `apt list --installed` | Lists every package currently installed on the system. | `apt list --installed` (pipe through `grep` to filter, covered in module 07) |
-| `dpkg -l` | Lists installed packages via the lower-level `dpkg` tool, with status flags and version columns; more low-level/verbose than `apt list`. | `dpkg -l | grep curl` (again, piping is previewed here; full detail in module 07) |
-| `sudo add-apt-repository ppa:<name>` | Adds a third-party repository (commonly a PPA) as a new package source so APT can install from it. Run `apt update` afterward. | `sudo add-apt-repository ppa:example/example` |
-| `which <command>` | Prints the full path of the executable that would run for a given command name, based on your `PATH`. | `which htop` might print `/usr/bin/htop` |
-| `whereis <command>` | Similar to `which`, but also shows related binary, source, and manual page locations, not just the one that would run. | `whereis htop` |
-
-## Hands-on exercises
-
-1. Open your WSL2 Ubuntu terminal. Refresh the package index: `sudo apt update`. Read the output — it lists each repository it checked and how many packages were fetched or are upgradable.
-
-2. See what's upgradable on your system: `sudo apt upgrade`. If it lists packages, review the list, then type `y` to confirm (or `N` if you'd rather not upgrade right now — either is fine for this exercise).
-
-3. Search for a package before installing it: `apt search tree`. Look through the results for a line that plainly describes a directory-listing tool (the description should mention displaying directory structure).
-
-4. Look at package details before installing: `apt show tree`. Note the `Version`, `Depends`, and `Description` fields.
-
-5. Install three real tools you'll use in upcoming modules: `sudo apt install tree curl htop`. Watch the output — it should show a plan (packages to be installed, total download size) before actually downloading and unpacking.
-
-6. Confirm they're really there: run `which tree`, `which curl`, and `which htop`. Each should print a path like `/usr/bin/tree`. Then run `tree --help | head -5` (again, a small pipe preview) just to confirm the program runs.
-
-7. Check the installed package list: `apt list --installed` and separately `dpkg -l`. Compare the two outputs' formats — `dpkg -l` shows a status column (`ii` means fully installed) plus version and short description in one table.
-
-8. Break something on purpose: try `sudo apt install thisisnotarealpackage123`. Read the error message carefully — APT should say it's "Unable to locate package," which is different from a network error or a permissions error. This teaches you to distinguish "package doesn't exist" from other kinds of failures.
-
-9. Remove a package but keep its config: `sudo apt remove tree`. Then reinstall it: `sudo apt install tree`, and notice APT still treats it as a fresh install of program files. Now fully purge it instead: `sudo apt purge tree`. Confirm it's gone: `which tree` should print nothing (or exit with no output/an error, depending on your shell).
-
-10. Clean up unused dependencies: run `sudo apt autoremove`, and read whether it reports anything to remove (on a fresh WSL install with only the exercises above, there may be nothing — that's fine, the point is knowing the command exists and what it targets).
-
-## Production practice: reproducible software changes
-
-> [!key]
-> `apt update` refreshes the local catalog of available packages; `apt upgrade` changes installed software. They are related but deliberately separate operations.
-
-> [!model]
-> Think of an APT repository as a signed catalog and your local package cache as a downloaded edition of that catalog. Installing from stale metadata is like ordering from an old menu; updating the cache lets APT resolve current versions and dependencies.
-
-```mermaid
-flowchart LR
-    R["Trusted repository"] --> U["apt update\nlocal package metadata"] --> I["apt install\nselected package + dependencies"] --> V["Verify command or service"]
-```
-
-An installation flow and an upgrade decision are different pieces of the model. Use this decision path before changing a machine that matters.
+APT (Advanced Package Tool) is the high-level front-end that handles dependency resolution and repository fetching over HTTP/HTTPS, while `dpkg` is the low-level engine that unpacks and registers `.deb` archive binaries onto the local filesystem.
 
 ```mermaid
 flowchart TD
-    A["Need software or a fix"] --> B["Refresh metadata"]
-    B --> C["Inspect package + candidate version"]
-    C --> D{"Change understood\nand approved?"}
-    D -->|Yes| E["Install / upgrade narrowly"] --> F["Verify + document"]
-    D -->|No| G["Research or defer"]
+    subgraph Remote["Remote Upstream Mirrors"]
+        Repo["Canonical / Debian Package Archive\n(http://archive.ubuntu.com/ubuntu)"]
+        GPGKey["Repository GPG Public Keys\n(/etc/apt/keyrings/)"]
+    end
+
+    subgraph Metadata["Local APT State"]
+        Sources["Repository Definitions\n(/etc/apt/sources.list & sources.list.d/)"]
+        Lists["Package Index Cache\n(/var/lib/apt/lists/*)"]
+    end
+
+    subgraph Engine["Local Package Manager"]
+        APT["APT Engine\n(Resolves Dependency Graphs, Calculates Upgrades)"]
+        Dpkg["Dpkg Engine\n(Unpacks .deb archives, runs pre/post install scripts)"]
+        DpkgDB["Dpkg State Database\n(/var/lib/dpkg/status)"]
+    end
+
+    subgraph Targets["Target Filesystem"]
+        Bin["/usr/bin/ (Executables)"]
+        Conf["/etc/ (Default Configs)"]
+        Lib["/usr/lib/ (Shared Libraries)"]
+    end
+
+    Sources -->|apt update (fetches Packages.gz)| Repo
+    Repo --> Lists
+    Lists --> APT
+    GPGKey -->|Cryptographic Verification| APT
+    APT -->|apt install (downloads .deb)| Dpkg
+    Dpkg --> DpkgDB
+    Dpkg --> Targets
 ```
 
-> [!example]
-> Before adding `jq` to a troubleshooting image, run `apt-cache policy jq` to see the candidate and installed versions. Then install it from the configured repository and verify the binary with `jq --version`. Record the package name in the image's Dockerfile rather than documenting a manual download.
+### The Two-Tier Package System
+1. **High-Level (`apt` / `apt-get`):** Understands the global dependency graph. If you install `nginx`, APT inspects `/var/lib/apt/lists/`, identifies that `nginx` requires `libssl3` and `nginx-common`, downloads all three `.deb` archives from the network mirror, verifies their GPG checksums, and feeds them to `dpkg` in topological order.
+2. **Low-Level (`dpkg`):** Knows only about local files. It takes a local `.deb` archive, unzips it, copies files into `/usr/bin/` and `/etc/`, and records the installation state in `/var/lib/dpkg/status`. `dpkg` cannot resolve or download remote dependencies.
 
-> [!pitfall]
-> Avoid `curl ... | sudo bash` installers unless you have reviewed and trust the source and there is no safer supported package path. A pipe hides the script before it receives administrator privileges and makes repeatability and auditing harder.
+---
 
-### Safe package-change loop
+## 2. Systematic Reference: Essential APT & Dpkg Commands
 
-1. Refresh metadata: `sudo apt update`.
-2. Inspect the package and candidate version: `apt show <package>` and `apt-cache policy <package>`.
-3. Install or remove one intentional dependency.
-4. Verify the command or service works.
-5. Record the dependency in project setup instructions or configuration automation.
+| Command | Action Performed | Network Call? | Modifies Disk? | Production Engineering Context |
+| :--- | :--- | :--- | :--- | :--- |
+| **`sudo apt update`** | Synchronizes local package metadata against mirrors | **Yes** | Updates `/var/lib/apt/lists/` | Run before any package search or installation. |
+| **`sudo apt upgrade -y`** | Upgrades all installed packages to candidate versions | **Yes** | Modifies all outdated binaries | Standard on VM provisioning; avoid inside container images. |
+| **`sudo apt install -y <pkg>`** | Resolves dependencies, downloads, and installs | **Yes** | Installs binaries & configs | Use `--no-install-recommends` to keep footprints lean. |
+| **`sudo apt remove <pkg>`** | Uninstalls binaries, but **keeps configuration files** | No | Removes `/usr/bin` entries | Leaves config residue in `/etc`. |
+| **`sudo apt purge <pkg>`** | Uninstalls binaries **and purges all configuration files** | No | Deletes configs in `/etc` | Preferred for clean database/service teardowns. |
+| **`sudo apt autoremove -y`** | Removes orphaned dependencies no longer required | No | Frees unneeded libraries | Cleans kernel headers and unused transitive packages. |
+| **`apt-cache policy <pkg>`** | Shows installed version vs available candidate versions | No | Read-only | Essential for debugging version pinning and backports. |
+| **`dpkg -S <file_path>`** | Identifies which package installed a specific file | No | Read-only | Debugging: `dpkg -S /usr/bin/curl` -> `curl`. |
+| **`dpkg -L <package_name>`** | Lists all files installed by a package | No | Read-only | Finding binary locations, default configs, and doc paths. |
 
-For upgrades on a machine that matters, read the proposed changes before accepting them and make sure you have a recovery plan.
+---
 
-> [!exercise]
-> Find which package provides `dig` using `apt-file` if installed, or search the Ubuntu package site. Install the correct package, confirm `dig -v`, then use `apt-cache policy` to identify where its candidate version comes from. Do not remove essential packages as part of this exercise.
+## 3. Production Dockerfile Best Practices: The Lean Layer Rule
 
-> [!interview]
-> Explain why `apt update` alone does not patch a vulnerable installed package, why repositories are preferable to random binaries, and how a Dockerfile should use APT layers predictably.
+In Docker containers, bad APT hygiene creates enormous image bloat and broken build caches:
 
-> [!check]
-> - Can you predict whether `apt update` changes installed software?
-> - Can you inspect the proposed package version before installing?
-> - Can you explain why package installation belongs in documented, repeatable setup?
+```dockerfile
+# ❌ ANTI-PATTERN: Bloated, broken cache layers
+FROM ubuntu:24.04
+RUN apt-get update                    # Layer 1: Cached forever
+RUN apt-get install -y curl python3   # Layer 2: Installs docs, manpages, and uses stale index
+RUN apt-get install -y postgresql-client
+# Result: 350MB of cached index files and unnecessary packages left inside image!
 
-## Independent challenge
+# ✅ PRODUCTION PATTERN: Atomic, non-interactive, lean layer
+FROM ubuntu:24.04
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    python3 \
+    postgresql-client \
+    ca-certificates \
+ && rm -rf /var/lib/apt/lists/*
+# Result: 85MB image footprint; zero stale cache vulnerability; clean audit trail
+```
 
-No commands given here — figure it out yourself using what you know from this module and earlier ones.
+---
 
-**Task:** Pick a small command-line tool you have not installed yet (for example `cowsay`, `ncal`, `jq`, or `figlet`). Before installing anything, inspect its metadata to learn what it does, what it depends on, and how big it is. Then install it, and — using the file-location skills from module 02 combined with this module's tooling — find exactly where its executable landed on disk. Run the program once to confirm it works. Finally, remove it in the way that also wipes any configuration it left behind, and prove the binary is truly gone by trying to locate it again.
+## 4. Production War Story: The Stale Docker Cache CI Meltdown
+
+```mermaid
+sequenceDiagram
+    actor Developer as Software Engineer
+    participant CI as GitHub Actions CI Runner
+    participant Docker as Docker Daemon (BuildKit)
+    participant Mirror as Ubuntu Upstream Mirror
+
+    Note over CI,Docker: Dockerfile has split APT commands across separate lines:
+    Note over Docker: Line 3: RUN apt-get update (Cached 14 days ago)
+    Note over Docker: Line 7: RUN apt-get install -y libpq-dev
+    Developer->>CI: Push Git commit modifying Line 6 (adds package comment)
+    CI->>Docker: docker build -t backend:latest .
+    Note over Docker: Layer 3 (apt-get update) cache is reused from cache!
+    Note over Docker: Layer 7 (install libpq-dev) cache is invalidated!
+    Docker->>Mirror: GET /pool/main/p/postgresql/libpq-dev_16.2-1_amd64.deb
+    Note over Mirror: Upstream mirror patched to 16.2-2! 16.2-1 deleted from pool!
+    Mirror-->>Docker: HTTP 404 Not Found!
+    Note over Docker: Build exits with fatal error: Failed to fetch libpq-dev!
+    Note over CI: SEV-1: All release pipelines blocked globally!
+```
+
+### The Incident
+During a critical sprint release, every microservice build pipeline in GitHub Actions failed simultaneously with:
+`E: Failed to fetch http://archive.ubuntu.com/ubuntu/pool/main/p/postgresql/libpq-dev_16.2-1_amd64.deb 404 Not Found`.
+Developers made no changes to dependencies, leading to hours of finger-pointing between teams and infrastructure providers.
+
+### The Post-Mortem Data
+* **Severity:** SEV-1 (Global Deployment Pipeline Freeze)
+* **Mean Time to Detect (MTTD):** 10 minutes (Failed CI webhooks)
+* **Mean Time to Resolution (MTTR):** 40 minutes (Dockerfile refactoring and cache purge)
+
+### The Root Cause
+The base Dockerfile contained split commands:
+```dockerfile
+RUN apt-get update
+...
+RUN apt-get install -y libpq-dev
+```
+Docker cached the `apt-get update` layer. Two weeks later, Ubuntu mirrors released a minor security revision for `libpq-dev` (`16.2-2`) and pruned the old binary (`16.2-1`) from their HTTP pool. 
+
+When a developer triggered a rebuild that invalidated layer caches after line 3, Docker reused the **stale 14-day-old package metadata** from cache. `apt-get install` attempted to download the deleted version `16.2-1` from the mirror, crashing with `HTTP 404 Not Found`.
+
+### The Fix & Hardening
+1. **Combine Update and Install Atomically:** In the same `RUN` command, execute `apt-get update` immediately prior to `apt-get install`. If the install line changes, the update step is guaranteed to re-run.
+2. **Purge `/var/lib/apt/lists/*` in the Same Layer:**
+```dockerfile
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libpq-dev \
+ && rm -rf /var/lib/apt/lists/*
+```
+3. **Pin Container Base Images by Digest:** Instead of `FROM ubuntu:latest`, use immutable digest hashes (`FROM ubuntu:24.04@sha256:7229788...`) to guarantee bit-for-bit reproducibility.
+
+---
+
+## 5. Multi-Language Production Code: Verifying System Dependencies Programmatically
+
+In enterprise backend applications that rely on native C bindings or system binaries (like `openssl`, `libvips`, or `pg_config`), your application health check or startup script must verify that the underlying system packages are present.
+
+### Go
+```go
+package main
+
+import (
+	"context"
+	"fmt"
+	"os/exec"
+	"strings"
+	"time"
+)
+
+// CheckSystemPackage verifies if a debian/ubuntu package is installed and configured.
+func CheckSystemPackage(ctx context.Context, packageName string) (bool, string, error) {
+	// dpkg-query queries the low-level /var/lib/dpkg/status database directly without network overhead
+	cmd := exec.CommandContext(ctx, "dpkg-query", "-W", "-f=${Status}|${Version}", packageName)
+	output, err := cmd.Output()
+	if err != nil {
+		// Exit code 1 means package is not installed
+		return false, "", nil
+	}
+
+	parts := strings.Split(strings.TrimSpace(string(output)), "|")
+	if len(parts) == 2 && parts[0] == "install ok installed" {
+		return true, parts[1], nil
+	}
+
+	return false, "", nil
+}
+
+func main() {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	packages := []string{"curl", "ca-certificates", "nonexistent-pkg"}
+	for _, pkg := range packages {
+		installed, version, err := CheckSystemPackage(ctx, pkg)
+		if err != nil {
+			fmt.Printf("Error checking %s: %v\n", pkg, err)
+			continue
+		}
+		if installed {
+			fmt.Printf("✅ Package '%s' is active (Version: %s)\n", pkg, version)
+		} else {
+			fmt.Printf("❌ Package '%s' is NOT installed.\n", pkg)
+		}
+	}
+}
+```
+
+### Node.js / TypeScript
+```typescript
+import { execFile } from 'child_process';
+import { promisify } from 'util';
+
+const execFileAsync = promisify(execFile);
+
+interface PackageStatus {
+  name: string;
+  isInstalled: boolean;
+  version?: string;
+}
+
+/**
+ * Validates that required system dependencies are installed via dpkg-query.
+ */
+export async function auditPackage(pkgName: string): Promise<PackageStatus> {
+  try {
+    const { stdout } = await execFileAsync('dpkg-query', [
+      '-W',
+      '-f=${Status};${Version}',
+      pkgName,
+    ]);
+
+    const [status, version] = stdout.trim().split(';');
+    return {
+      name: pkgName,
+      isInstalled: status === 'install ok installed',
+      version,
+    };
+  } catch {
+    return {
+      name: pkgName,
+      isInstalled: false,
+    };
+  }
+}
+
+async function verifyAppDependencies() {
+  const required = ['curl', 'libssl3'];
+  for (const pkg of required) {
+    const res = await auditPackage(pkg);
+    if (!res.isInstalled) {
+      throw new Error(`FATAL: Missing essential operating system package: ${pkg}`);
+    }
+    console.log(`✅ System dependency verified: ${res.name} (v${res.version})`);
+  }
+}
+
+verifyAppDependencies().catch(console.error);
+```
+
+### Python
+```python
+import subprocess
+from typing import Optional, Tuple
+
+def query_dpkg_package(package_name: str) -> Tuple[bool, Optional[str]]:
+    """
+    Directly queries local dpkg status database to determine package availability.
+    """
+    try:
+        proc = subprocess.run(
+            ["dpkg-query", "-W", "-f=${Status}###${Version}", package_name],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=5
+        )
+        if proc.returncode != 0:
+            return False, None
+
+        status, version = proc.stdout.strip().split("###")
+        if status == "install ok installed":
+            return True, version
+        return False, None
+    except (subprocess.SubprocessError, FileNotFoundError):
+        return False, None
+
+if __name__ == "__main__":
+    for pkg in ["ca-certificates", "git", "fake-package-xyz"]:
+        ok, ver = query_dpkg_package(pkg)
+        if ok:
+            print(f"✅ Found '{pkg}': version {ver}")
+        else:
+            print(f"❌ Missing required package: '{pkg}'")
+```
+
+---
+
+## 6. Practical Hands-On Verification CLI Workflows
+
+Follow these workflows in your Ubuntu terminal:
+
+### Workflow 1: Inspect Package Version Policies Before Installing
+```bash
+# 1. Update the local repository index
+sudo apt update
+
+# 2. Check installed vs. available versions for htop
+apt-cache policy htop
+```
+**Expected Output:**
+```text
+htop:
+  Installed: (none)
+  Candidate: 3.3.0-4build1
+  Version table:
+     3.3.0-4build1 500
+        500 http://archive.ubuntu.com/ubuntu noble/main amd64 Packages
+```
+
+### Workflow 2: Find File Ownership and Contents via `dpkg`
+```bash
+# 1. Find which installed package owns the curl binary
+dpkg -S /usr/bin/curl
+
+# 2. List the first 10 files installed by the curl package
+dpkg -L curl | head -n 10
+```
+**Expected Output:**
+```text
+curl: /usr/bin/curl
+/.
+/usr
+/usr/bin
+/usr/bin/curl
+/usr/share
+/usr/share/doc
+...
+```
+
+### Workflow 3: Simulate an Installation Without Touching Disk
+```bash
+# Test installing nginx in dry-run simulation mode
+apt-get install -s nginx
+```
+*(Notice how APT computes the complete dependency graph and displays the exact disk space required without making any filesystem changes).*
+
+---
+
+## 7. Operational Validation Checkpoint
 
 <details>
-<summary>Stuck? One hint</summary>
+<summary><strong>Question 1: The Docker Build Cache 404 Bug</strong></summary>
 
-`apt show` reveals metadata before you commit to installing; `which` reports the on-disk path of an installed command; and the removal variant that also deletes config files is the "purge" one, not plain "remove."
+**Scenario:** A DevOps engineer notices that a team's Docker build passes locally on their laptop, but fails in the cloud CI runner with:
+`E: Failed to fetch http://security.ubuntu.com/... 404 Not Found`.
+The Dockerfile has:
+```dockerfile
+RUN apt-get update
+RUN apt-get install -y nginx
+```
+Explain why this happens and provide the exact production Dockerfile fix.
 
+**Answer:**
+Docker caches intermediate layers by comparing the text of the Dockerfile instructions. 
+
+Because `RUN apt-get update` never changed textually, Docker reuses the layer cached weeks ago from the host's local cache. Meanwhile, upstream mirrors deleted old patch versions when publishing new security updates. When the second command (`apt-get install -y nginx`) runs with invalidated cache, it consults the stale index and requests dead URLs.
+
+**The Fix:** Chain the operations into one atomic command:
+```dockerfile
+RUN apt-get update && apt-get install -y --no-install-recommends nginx \
+ && rm -rf /var/lib/apt/lists/*
+```
 </details>
-
-## Common mistakes & troubleshooting
-
-- **Running `apt install` without `sudo`:** you'll get a permission error, because installing software modifies system directories that ordinary users can't write to. Prefix with `sudo`.
-- **Forgetting `apt update` before `apt upgrade`:** you may see "0 upgraded" even when updates genuinely exist, simply because your local package index is stale. Always `update` first.
-- **Confusing `apt search` with `apt show`:** `search` finds packages by keyword when you don't know the exact name; `show` gives details about a package whose exact name you already know. Running `apt show` on a keyword instead of an exact package name just fails with "Unable to locate package."
-- **Assuming `apt remove` fully uninstalls everything:** configuration files often remain after `remove`. If you want a truly clean removal (e.g. before reinstalling to fix a broken config), use `purge` instead.
-- **Not reading the confirmation summary:** `apt install`/`upgrade` show a plan (what will be installed/upgraded/removed and total size) before doing anything; skimming past it means missing that an upgrade is about to remove a package you wanted, or a full-upgrade is about to make a bigger change than expected.
-- **Typing the wrong package name:** package names are exact and case-sensitive; a typo produces "Unable to locate package," which is your cue to `apt search` for the right name instead of assuming APT itself is broken.
-- **Interrupting an install midway (e.g. closing the terminal):** can leave `dpkg` in a partially-configured state. If a later `apt` command complains about this, `sudo apt --fix-broken install` (or `sudo dpkg --configure -a`) is the standard recovery — good to know exists, even if you don't need it today.
-
-## Checkpoint quiz
-
-Write down your answer to each question before expanding it — checking without attempting first is the single easiest way to fool yourself into thinking you've learned this.
-
-1. Why is a package manager generally safer and more maintainable than manually downloading a binary from a website?
-2. What exactly does `apt update` do, and what does it deliberately not do?
-3. You run `apt upgrade` and see "0 packages upgraded," but you're fairly sure new versions exist. What's the most likely explanation, and what command fixes it?
-4. When would `apt full-upgrade` remove a package that plain `apt upgrade` would have left alone, and why does that difference exist?
-5. What's the practical difference between `apt remove` and `apt purge`?
-6. If you don't know a package's exact name, which command should you reach for first — `apt show` or `apt search` — and why?
-7. After installing `htop`, how would you find out exactly which file on disk is the executable that runs when you type `htop`?
-8. What is a PPA, and what should you keep in mind before adding one as a package source?
 
 <details>
-<summary>Show answers</summary>
+<summary><strong>Question 2: Removing a Service vs. Purging Configuration Residue</strong></summary>
 
-1. A package manager automatically resolves and installs dependencies, verifies package integrity, and gives you a consistent way to upgrade or cleanly uninstall software later. Manually downloaded binaries leave dependency resolution, updates, and clean removal entirely up to you, and offer no built-in verification of trustworthiness.
-2. `apt update` refreshes APT's local index of what package versions are available in the configured repositories. It does not install or upgrade any actual software — it only updates the catalog APT consults.
-3. The local package index is likely stale because `apt update` wasn't run recently, so APT is comparing against outdated information and doesn't see the new versions. Running `sudo apt update` first, then `apt upgrade` again, fixes it.
-4. `full-upgrade` will remove an installed package if that removal is required to complete every available upgrade (e.g. a dependency conflict blocking a version bump); `upgrade` refuses to remove anything and will simply skip that package's upgrade instead, leaving your installed set unchanged in that respect.
-5. `remove` deletes a package's program files but leaves its configuration files on disk; `purge` deletes both the program files and the configuration files, for a completely clean removal.
-6. `apt search`, because it looks through package names and descriptions for a keyword match. `apt show` requires you to already know the exact package name and just displays details about it.
-7. Run `which htop`, which prints the full path (typically `/usr/bin/htop`) of the executable that your shell would actually run for that command.
-8. A PPA (Personal Package Archive) is a third-party repository, often maintained by an individual or small project rather than Canonical/Ubuntu itself. Before adding one, keep in mind you are extending trust to whoever publishes it, since APT will treat packages from it the same as official ones.
+**Scenario:** A developer attempts to reinstall Postgres after accidentally messing up its configuration files. They run:
+```bash
+sudo apt remove postgresql
+sudo apt install postgresql
+```
+To their frustration, the new installation still contains their corrupted configuration files in `/etc/postgresql/`. 
 
+Why did this occur, and what command completely erases both binaries and configuration files?
+
+**Answer:**
+`apt remove` deliberately uninstalls binaries from `/usr/bin` and `/usr/lib`, but **preserves user-modified configuration files in `/etc`** to prevent catastrophic data loss during routine package upgrades or uninstalls. 
+
+**The Fix:** Use `apt purge` (or `apt remove --purge`):
+```bash
+sudo apt purge postgresql postgresql-common
+```
+Purging deletes both binaries and all associated configuration directories under `/etc`.
 </details>
 
-## Further reading & sources
+<details>
+<summary><strong>Question 3: The Hanging Automated Server Provisioning Script</strong></summary>
 
-- [Debian: APT User's Guide](https://www.debian.org/doc/manuals/apt-guide/index.en.html) - the canonical explanation of how APT itself works, written by the Debian project APT originated from.
-- [Ubuntu: Package Management (official docs)](https://ubuntu.com/server/docs/package-management) - Ubuntu-specific coverage including PPAs and `snap` (a different, newer packaging system you'll encounter but that this module intentionally didn't cover).
-- [`man7.org`: apt(8)](https://man7.org/linux/man-pages/man8/apt.8.html) and [dpkg(1)](https://man7.org/linux/man-pages/man1/dpkg.1.html) - full command references beyond this module's table.
-- [DigitalOcean: How To Manage Packages Using APT](https://www.digitalocean.com/community/tutorials/how-to-manage-packages-in-ubuntu-and-debian-with-apt-get-apt) - another worked walkthrough if you want a second explanation of the same commands.
+**Scenario:** An automated Ansible or cloud-init provisioning script hangs indefinitely on:
+`Setting up tzdata (2024a-0ubuntu1) ...`
+`Configuring tzdata`
+`Please select the geographic area in which you live:`
+The deployment times out after 60 minutes and terminates.
 
-## Next
+What environment variable was omitted, and how must automated package scripts be invoked?
 
-Continue to [06 - Process Management](../06-process-management/README.md), where you'll use the `htop` tool you just installed to watch and control running processes.
+**Answer:**
+Package installation tools assume an interactive human terminal by default. When packages like `tzdata` or `debconf` require user configuration, they launch interactive ncurses UI prompts. When run inside non-interactive CI/CD runners or headless scripts, the process blocks waiting for keyboard input that never arrives.
+
+**The Fix:** Set `DEBIAN_FRONTEND=noninteractive`:
+```bash
+export DEBIAN_FRONTEND=noninteractive
+apt-get install -y -q tzdata
+```
+Or in a Dockerfile:
+```dockerfile
+ENV DEBIAN_FRONTEND=noninteractive
+```
+</details>
+
+---
+
+## Next Step
+
+Now that you have mastered package management and dependency isolation, proceed to **[06 · Process Management](../06-process-management/README.md)** to explore the Linux process tree, signals (`SIGTERM`, `SIGKILL`), process lifecycles, and PID tracking.

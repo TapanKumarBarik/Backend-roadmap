@@ -1,338 +1,404 @@
-# Module 09: Bash Scripting
+# Module 09: Bash Scripting and Automation
 
-> 🎯 **Goal:** Turn a repeatable command sequence into a safe, readable automation script.
+> **Prerequisites:** Module 07 (I/O Redirection and Pipes), Module 08 (Text Processing).  
+> **Estimated Reading Time:** 25 minutes  
+> **Target Audience:** DevOps Engineers, Backend Automation Authors, Platform Engineers.
 
-By the end of this module, you should be able to create and run a Bash script, use variables and quoting correctly, branch and loop over data, accept arguments, return useful exit codes, and add the guardrails that make a script safe to run more than once.
+> [!TIP]
+> **The Golden Rule of Defensive Bash Scripting:** Always begin mission-critical scripts with the defensive preamble: `set -euo pipefail` and `IFS=$'\n\t'`. Enforce double quotes around **every single variable expansion** (`"$VAR"`) to neutralize word-splitting and wildcard globbing attacks, and bind a cleanup function to the `EXIT` pseudo-signal (`trap cleanup EXIT`) to guarantee that temporary locks, sockets, and files are purged regardless of how the script terminates.
 
 ---
 
-## Why this matters
+## 1. Architectural Mental Model: The Defensive Script Execution Engine
 
-Every time you find yourself typing the same three commands in a row, that's a script waiting to be written. Bash scripts turn manual, error-prone sequences into repeatable, shareable automation - this is the foundation of DevOps tooling, deployment scripts, and the capstone project later in this track. Once you can write a script with variables, conditionals, and loops, you can automate almost anything you've learned how to do by hand in modules 00-08.
-
-## Concepts
-
-### Scripts are production code at a smaller scale
-
-A shell script can change files, deploy software, or delete data just as effectively as a larger program. Give it a clear purpose, quote variable expansions, validate inputs, write useful messages to stderr, and test it in a temporary directory. Prefer `shellcheck` where available, and use `set -euo pipefail` only once you understand how each option changes error handling.
-
-**A script is just a file of commands.** Anything you can type at the prompt, you can put in a file and run as a batch. The first line, `#!/bin/bash`, is called a shebang - it tells the operating system "use the bash program to interpret the rest of this file." Without it, running the file directly may use the wrong interpreter or fail.
-
-**Making a script runnable.** Module 03 taught you that files have permission bits, including "execute." A script needs its execute bit set (`chmod +x script.sh`) before you can run it as `./script.sh`. Without execute permission, you'd have to run it as `bash script.sh` instead.
-
-```
-  #!/bin/bash                    ← shebang: which interpreter runs this file
-                                 (uses module 06's process-start mechanism)
-  if [ -z "$1" ]; then           ← conditional: test + branch
-    echo "Error: no name"        ← module 01's echo, still just printing text
-    exit 1                        ← exit code, checkable via $? after running
-  fi
-  for name in "$@"; do           ← loop: repeat for each argument
-    echo "Hello, $name!"
-  done
-```
-
-Nothing here is new syntax invented for scripts — it's the same commands and streams from modules 01-08, just written into a file instead of typed one line at a time.
-
-**Variables hold values.** A bash variable is just a name bound to a piece of text. You assign with `name=value` (no spaces around `=`), and you read it back with `$name` or `${name}`. Variables are untyped - everything is text unless you specifically do arithmetic.
-
-**Quoting changes how the shell reads your text.** Double quotes (`"..."`) let variables and command substitutions expand inside them, but protect spaces from being split into separate arguments. Single quotes (`'...'`) turn off all expansion - what you type is exactly what you get, literally. Backticks (`` `command` ``) or the modern equivalent `$(command)` run a command and substitute its output as text - this is called command substitution.
-
-```
-  filename="my file.txt"
-
-  touch $filename    → shell word-splits on the space →
-                        touch "my" "file.txt"   (creates TWO files)
-
-  touch "$filename"  → quotes protect the space →
-                        touch "my file.txt"     (creates ONE file, correctly)
-
-  echo 'Hello $filename'   → single quotes: prints literally, no expansion
-  echo "Hello $filename"   → double quotes: expands to "Hello my file.txt"
-```
-
-**Arguments are how scripts take input.** When you run `./script.sh foo bar`, inside the script `$1` is `foo`, `$2` is `bar`, `$#` is the count of arguments (2), and `$@` expands to all arguments. This is how you make a script flexible instead of hardcoded.
-
-**Conditionals let a script make decisions.** `if`, `elif`, and `else` run different commands depending on whether a test succeeds or fails. The test itself is written with `test` or the shorthand `[ ... ]` (or the more modern, more forgiving `[[ ... ]]`). A test's "success" or "failure" is just an exit code - which brings us to `$?`.
-
-**Every command reports an exit code.** After any command runs, the special variable `$?` holds its exit status: `0` means success, anything else means some kind of failure. Scripts use this constantly - both to check whether a previous command worked, and to report their own success or failure to whoever (or whatever) called them.
-
-**Loops repeat work.** A `for` loop iterates over a fixed list of items (numbers, filenames, arguments). A `while` loop keeps running as long as a condition stays true - useful for "keep going until something happens" logic.
-
-**Functions bundle reusable logic.** Just like you don't want to retype a pipeline every time, you don't want to retype the same block of script logic. A bash function groups commands under a name you can call repeatedly, optionally with its own arguments.
-
-**Reading input interactively.** The `read` builtin pauses a script and waits for the user to type something, storing it in a variable - this is how a script can prompt for input rather than only relying on arguments.
-
-**Arithmetic needs special syntax.** Because bash treats everything as text by default, you need `$(( expression ))` (or the `(( expression ))` form for conditions/increments) to do actual numeric math like addition or comparison.
-
-## Command reference
-
-| Command / Syntax | What it does | Example |
-|---|---|---|
-| `#!/bin/bash` | Shebang line; must be the very first line of a script, tells the OS which interpreter to use. | `#!/bin/bash` at the top of `backup.sh`. |
-| `chmod +x script.sh` | Adds execute permission so the script can be run directly. | `chmod +x backup.sh` then `./backup.sh`. |
-| `./script.sh` | Runs a script in the current directory (requires execute permission and the `./` prefix since the current directory usually isn't in `PATH`). | `./backup.sh` runs the script. |
-| `var=value` | Assigns a value to a variable (no spaces around `=`). | `name="Alice"` sets `name` to Alice. |
-| `$var` / `${var}` | Reads a variable's value; braces are useful when the variable name could be ambiguous. | `echo "Hello, $name"` or `echo "Hello, ${name}!"` - braces avoid `$name!` being misread. |
-| `"$(command)"` | Command substitution - runs `command` and substitutes its stdout as text. | `today="$(date +%F)"` stores today's date, e.g. `2026-07-24`, in `today`. |
-| `$1`, `$2`, ... | Positional arguments passed to the script. | In `./greet.sh Alice`, `$1` is `Alice` inside `greet.sh`. |
-| `$#` | Number of arguments passed to the script. | `echo "$#"` after `./greet.sh Alice Bob` prints `2`. |
-| `$@` | All arguments, expanded as separate words. | `for arg in "$@"; do echo "$arg"; done` loops over every argument. |
-| `$?` | Exit code of the last command (0 = success). | `ls /nope; echo "$?"` prints a non-zero code because `/nope` doesn't exist. |
-| `if [ cond ]; then ... fi` | Runs commands only if the test in `[ ]` succeeds (exit code 0). | `if [ -f file.txt ]; then echo "exists"; fi` checks whether `file.txt` exists. |
-| `if [[ cond ]]; then ... fi` | Like `[ ]` but with more forgiving syntax and extra features (e.g. pattern matching, `&&`/`||` inside the brackets). | `if [[ "$name" == "Alice" ]]; then echo "hi Alice"; fi`. |
-| `-eq -ne -lt -le -gt -ge` | Numeric comparison operators for use inside `[ ]`/`[[ ]]`. | `if [ "$count" -gt 10 ]; then echo "big"; fi` - true if `count` is greater than 10. |
-| `= / == / !=` | String comparison (equal/equal/not-equal) inside `[ ]`/`[[ ]]`. | `if [ "$name" = "Alice" ]; then echo "match"; fi`. |
-| `-f -d -e` | File test operators: `-f` regular file exists, `-d` directory exists, `-e` anything exists. | `if [ -d /tmp ]; then echo "dir exists"; fi`. |
-| `for var in list; do ... done` | Loops over each item in a list, binding it to `var` each time. | `for f in *.txt; do echo "$f"; done` prints each `.txt` filename. |
-| `while [ cond ]; do ... done` | Repeats the loop body as long as the condition is true. | `while [ "$n" -lt 5 ]; do echo "$n"; n=$((n+1)); done` counts 0 to 4. |
-| `function name() { ... }` / `name() { ... }` | Defines a reusable function. | `greet() { echo "Hello, $1"; }` then call it with `greet Alice`. |
-| `read var` | Reads a line of input from the user into `var`. | `read -p "Enter your name: " name` prompts and stores the answer in `name`. |
-| `$(( expr ))` | Evaluates an arithmetic expression and returns the result as text. | `total=$((3 + 4))` sets `total` to `7`. |
-| `exit N` | Ends the script immediately with exit code `N`. | `exit 1` ends the script and reports failure to whatever called it. |
-
-## Hands-on exercises
-
-1. Open your WSL2 Ubuntu terminal. Create a scripts directory: `mkdir -p ~/scripts && cd ~/scripts`.
-
-2. Create your first script with a text editor or heredoc:
-   ```
-   cat > hello.sh << 'EOF'
-   #!/bin/bash
-   echo "Hello, world!"
-   EOF
-   ```
-   Try running it directly: `./hello.sh`. Expect a permission error like `bash: ./hello.sh: Permission denied` - this is expected, since you haven't set the execute bit yet.
-
-3. Fix the permission problem using what you learned in module 03: `chmod +x hello.sh`, then run `./hello.sh` again. Expect it to print `Hello, world!`.
-
-4. Extend the script to use a variable and command substitution:
-   ```
-   cat > hello.sh << 'EOF'
-   #!/bin/bash
-   name="World"
-   today="$(date +%F)"
-   echo "Hello, $name! Today is $today."
-   EOF
-   ```
-   Run `./hello.sh` and confirm today's date appears correctly.
-
-5. Turn it into a script that takes an argument. Rewrite `hello.sh`:
-   ```
-   cat > hello.sh << 'EOF'
-   #!/bin/bash
-   name="$1"
-   echo "Hello, $name! You passed $# argument(s)."
-   EOF
-   ```
-   Run `./hello.sh Alice` and expect `Hello, Alice! You passed 1 argument(s).`. Then run `./hello.sh` with no arguments and observe that `name` is empty - explain to yourself why (`$1` is empty when nothing was passed).
-
-6. Add a conditional so the script handles the missing-argument case gracefully:
-   ```
-   cat > hello.sh << 'EOF'
-   #!/bin/bash
-   if [ -z "$1" ]; then
-     echo "Error: no name provided. Usage: ./hello.sh <name>"
-     exit 1
-   fi
-   name="$1"
-   echo "Hello, $name!"
-   EOF
-   ```
-   Run `./hello.sh` (no args) and confirm you see the error message. Then run `echo $?` and confirm it prints `1`. Then run `./hello.sh Alice` and confirm `echo $?` prints `0`.
-
-7. Add a loop. Extend the script to greet every argument passed in, not just the first:
-   ```
-   cat > hello.sh << 'EOF'
-   #!/bin/bash
-   if [ "$#" -eq 0 ]; then
-     echo "Error: no names provided. Usage: ./hello.sh <name1> <name2> ..."
-     exit 1
-   fi
-   for name in "$@"; do
-     echo "Hello, $name!"
-   done
-   EOF
-   ```
-   Run `./hello.sh Alice Bob Charlie` and expect three greeting lines, one per name.
-
-8. Add a function and simple arithmetic. Create a new script `counter.sh`:
-   ```
-   cat > counter.sh << 'EOF'
-   #!/bin/bash
-   count_up() {
-     local limit="$1"
-     local n=0
-     while [ "$n" -lt "$limit" ]; do
-       echo "Count: $n"
-       n=$((n + 1))
-     done
-   }
-   count_up 5
-   EOF
-   chmod +x counter.sh
-   ./counter.sh
-   ```
-   Expect it to print `Count: 0` through `Count: 4` (5 lines total).
-
-9. Add interactive input. Extend `hello.sh` (or write a new script `interactive.sh`) that asks for input instead of relying only on arguments:
-   ```
-   cat > interactive.sh << 'EOF'
-   #!/bin/bash
-   read -p "Enter your name: " name
-   read -p "Enter your age: " age
-   if [ "$age" -ge 18 ]; then
-     echo "$name, you are an adult."
-   else
-     echo "$name, you are a minor."
-   fi
-   EOF
-   chmod +x interactive.sh
-   ./interactive.sh
-   ```
-   Run it and answer the prompts with a name and an age. Confirm the adult/minor logic works both ways by running it twice with different ages.
-
-10. Break something on purpose to learn quoting rules. Run this directly at the prompt (not in a script):
-    ```
-    filename="my file.txt"
-    touch $filename
-    ls
-    ```
-    Look closely at the output of `ls` - you'll find two files, `my` and `file.txt`, not one file called `my file.txt`. This happens because the unquoted `$filename` was word-split by spaces. Fix it by cleaning up (`rm "my" "file.txt"`) and re-running with quotes: `touch "$filename"`, then `ls` again to confirm a single file named `my file.txt` now exists. Clean up with `rm "my file.txt"`.
-
-11. Combine everything into one incremental capstone-style script. Create `syscheck.sh` that reports basic system info, using a function, a variable, command substitution, and a conditional:
-    ```
-    cat > syscheck.sh << 'EOF'
-    #!/bin/bash
-    check_disk() {
-      local usage
-      usage="$(df -h / | tail -n 1 | awk '{print $5}' | tr -d '%')"
-      if [ "$usage" -ge 80 ]; then
-        echo "Warning: disk usage is ${usage}%, running low on space."
-      else
-        echo "Disk usage OK: ${usage}%."
-      fi
-    }
-    echo "System check for $(hostname) at $(date +%T)"
-    check_disk
-    EOF
-    chmod +x syscheck.sh
-    ./syscheck.sh
-    ```
-    Confirm it prints your hostname, the current time, and a disk usage line. Notice this script reuses `awk` from module 08 inside a bash script - this is exactly how real-world scripts combine tools.
-
-## Production practice: scripts people can trust
-
-> [!key]
-> A reliable Bash script validates inputs, quotes expansions, reports failures clearly, and makes its side effects predictable. Short scripts deserve the same review as other operational code.
-
-> [!model]
-> Variables are containers whose contents may include spaces, wildcards, or empty values. Quoting `"$value"` hands the shell one intended argument; leaving it unquoted invites the shell to split or expand it into something else.
-
-```mermaid
-flowchart LR
-    I["Validate input"] --> Q["Quote variables"] --> W["Perform work"] --> V["Verify result"] --> E["Exit with useful code"]
-```
-
-The execution flow is only half the story. This parsing view shows why quoting changes behavior.
+A production shell script is not a series of loosely typed commands; it is a compiled-on-the-fly program running inside an isolated child shell environment with explicit signal handling and error traps:
 
 ```mermaid
 flowchart TD
-    V["value = release candidate"] --> Q{"Use #quot;$value#quot;?"}
-    Q -->|Yes| A["One argument\nrelease candidate"]
-    Q -->|No| B["Word splitting\nrelease + candidate"]
-    B --> C["Possible glob expansion"]
+    subgraph Boot["1. Bootstrap Phase"]
+        Shebang["#!/usr/bin/env bash\n(Locates portable Bash binary)"]
+        StrictFlags["set -euo pipefail\n(Fatal errors on unsets, non-zero exits, broken pipes)"]
+        TrapSet["trap cleanup EXIT INT TERM\n(Installs unconditional resource reclamation)"]
+    end
+
+    subgraph Validation["2. Input & Argument Validation"]
+        ArgsCheck{"Validate Arguments\n[ $# -ge 2 ]"}
+        EnvCheck{"Verify Environment\n[ -n \"$DATABASE_URL\" ]"}
+    end
+
+    subgraph Execution["3. Core Idempotent Logic"]
+        Task1["Step 1: Create atomic scratch dir: mktemp -d"]
+        Task2["Step 2: Stream database migration"]
+        Task3["Step 3: Update application version state"]
+    end
+
+    subgraph ExitPhase["4. Teardown Phase"]
+        Cleanup["cleanup() Execution\n(rm -rf \"$SCRATCH_DIR\", release locks)"]
+        FinalExit["exit 0 (Success) / exit 1 (Failure)"]
+    end
+
+    Shebang --> StrictFlags --> TrapSet
+    TrapSet --> ArgsCheck --> EnvCheck
+    EnvCheck --> Task1 --> Task2 --> Task3
+    Task3 --> Cleanup --> FinalExit
+    Task2 -.->|Error Encountered| Cleanup
 ```
 
-> [!example]
-> `rm -rf "$target"` is still a dangerous command, but quoting prevents a directory named `release candidate` from becoming two arguments. A safer script validates that `target` is inside an expected workspace before it considers deletion at all.
+---
 
-> [!pitfall]
-> Do not put secrets directly in shell scripts, command-line arguments, or `set -x` traces. Arguments can be visible to other local users through process listings; scripts are often copied or committed. Load secrets through a properly permissioned environment or secret manager instead.
+## 2. Taxonomic Reference: The Defensive Bash Preamble
 
-### A dependable script skeleton
+Never write a production automation script without understanding the four essential safety flags:
 
+| Flag | Name | Failure Prevented Without It | Production Impact |
+| :--- | :--- | :--- | :--- |
+| **`set -e`** | `errexit` | Scripts continue executing subsequent commands after a fatal crash. | Halts execution immediately if any command returns a non-zero exit code. |
+| **`set -u`** | `nounset` | Unset variables silently expand to empty strings (`""`). | Catastrophic typos like `rm -rf "$MNT_DIR/*"` become fatal errors before deletion. |
+| **`set -o pipefail`** | `pipefail` | Pipelines return the exit status of the *last* command only. | If `pg_dump` fails before `gzip`, the pipeline correctly fails with a non-zero status. |
+| **`set -x`** | `xtrace` | Silent debugging during CI/CD failures. | Prints each command and its expanded arguments to stderr before executing. |
+
+---
+
+## 3. Systematic Reference: Parameters and Conditional Operators
+
+### 1. Special Shell Parameters
+* **`$0`**: Path/name of the executing script.
+* **`$1, $2, ... $9`**: Positional arguments passed to the script.
+* **`$#`**: Total number of positional arguments.
+* **`"$@"`**: Expands to all positional arguments as **separate quoted strings** (`"$1" "$2" "$3"`). Always use this for looping!
+* **`"$*"`**: Expands to all arguments joined into a single string (`"$1 $2 $3"`).
+* **`$?`**: Exit status of the most recently executed foreground pipeline (`0` = success).
+* **`$$`**: Process ID (PID) of the current script instance.
+
+### 2. Modern Conditional Tests (`[[ ... ]]`)
+Always prefer double brackets `[[ ... ]]` over legacy POSIX single brackets `[ ... ]`:
+
+| Expression | Meaning | Example |
+| :--- | :--- | :--- |
+| **`-f "$FILE"`** | True if path exists and is a regular file | `[[ -f "/etc/app.yaml" ]]` |
+| **`-d "$DIR"`** | True if path exists and is a directory | `[[ -d "/var/log/nginx" ]]` |
+| **`-z "$STR"`** | True if string length is **zero** (empty) | `[[ -z "$AUTH_TOKEN" ]]` |
+| **`-n "$STR"`** | True if string length is **non-zero** (not empty) | `[[ -n "$CLUSTER_NAME" ]]` |
+| **`"$A" == "$B"`** | String equality | `[[ "$ENV" == "production" ]]` |
+| **`"$A" =~ $REGEX`** | Regular expression match | `[[ "$VERSION" =~ ^v[0-9]+\.[0-9]+ ]]` |
+| **`"$N" -eq "$M"`** | Numeric equality (`-ne`, `-lt`, `-le`, `-gt`, `-ge`) | `[[ "$RETRY_COUNT" -gt 5 ]]` |
+
+---
+
+## 4. Production War Story: The Unquoted Word-Splitting Data Deletion
+
+```mermaid
+sequenceDiagram
+    actor Cron as Automated Backup Rotator
+    participant Script as cleanup-backups.sh
+    participant Kernel as Linux Kernel (VFS Syscalls)
+    participant Disk as Enterprise Shared Storage (/var/backups)
+
+    Note over Cron,Script: cleanup-backups.sh invokes with argument: "/var/backups/tenant alpha/2024"
+    Note over Script: Developer wrote unquoted variable: rm -rf $TARGET_DIR
+    Script->>Script: Shell performs word splitting on whitespace!
+    Note over Script: Expands to: rm -rf "/var/backups/tenant" "alpha/2024"
+    Script->>Kernel: unlinkat("/var/backups/tenant", AT_REMOVEDIR)
+    Kernel->>Disk: Recursively unlinks /var/backups/tenant (All tenants' files!)
+    Note over Disk: 400 customer database dumps destroyed in seconds!
+    Note over Cron: SEV-1: Emergency recovery from tape required!
+```
+
+### The Incident
+An enterprise cloud multi-tenant backup system ran a nightly script to purge customer snapshots older than 30 days. One customer configured their organization display name with a space: `"tenant alpha"`.
+
+### The Post-Mortem Data
+* **Severity:** SEV-1 (Critical Data Loss)
+* **Mean Time to Detect (MTTD):** 10 minutes
+* **Mean Time to Resolution (MTTR):** 90 minutes
+
+### The Root Cause
+The maintenance script contained:
 ```bash
+TARGET_PATH="/var/backups/$CUSTOMER_NAME/$DATE"
+rm -rf $TARGET_PATH
+```
+Because `$TARGET_PATH` was **unquoted**, Bash evaluated whitespace as parameter delimiters during the word-splitting expansion phase. The single argument expanded into:
+```bash
+rm -rf /var/backups/tenant alpha/2024
+```
+The command deleted `/var/backups/tenant`, completely obliterating every single snapshot belonging to every tenant on the system.
+
+### The Fix & Hardening
+1. **Always Quote All Variable Expansions:**
+```bash
+rm -rf "$TARGET_PATH"
+```
+2. **Implement Guardrails Against Dangerous Deletions:**
+```bash
+if [[ -z "$TARGET_PATH" || "$TARGET_PATH" == "/" || "$TARGET_PATH" == "/var/backups" ]]; then
+    echo "FATAL: Dangerous target path blocked: '$TARGET_PATH'" >&2
+    exit 1
+fi
+```
+3. **Mandatory CI/CD Static Analysis:** Enforce `shellcheck` across all repositories to automatically fail builds that contain unquoted variables or unsafe expansion patterns.
+
+---
+
+## 5. Multi-Language Production Code: Scripting & Automation Wrappers
+
+When building production backend tools, engineers often wrap system automation in typed, testable languages.
+
+### Go
+```go
+package main
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"os/exec"
+	"os/signal"
+	"syscall"
+	"time"
+)
+
+// RunAutomationTask executes a system script with strict context timeouts and signal propagation.
+func RunAutomationTask(ctx context.Context, scriptPath string, args ...string) error {
+	cmd := exec.CommandContext(ctx, scriptPath, args...)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	fmt.Printf("🚀 Executing automation: %s %v\n", scriptPath, args)
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("automation failed: %w", err)
+	}
+
+	fmt.Println("✅ Task completed successfully.")
+	return nil
+}
+
+func main() {
+	// Root context with graceful cancellation
+	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer cancel()
+
+	// 30-second execution deadline
+	timeoutCtx, timeoutCancel := context.WithTimeout(ctx, 30*time.Second)
+	defer timeoutCancel()
+
+	if err := RunAutomationTask(timeoutCtx, "/bin/echo", "Automated deployment task active"); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
+}
+```
+
+### Node.js / TypeScript
+```typescript
+import { spawn } from 'child_process';
+
+interface ScriptOptions {
+  timeoutMs?: number;
+  env?: NodeJS.ProcessEnv;
+}
+
+/**
+ * Spawns an automation script with robust error and exit code handling.
+ */
+export function runScript(command: string, args: string[], options: ScriptOptions = {}): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args, {
+      stdio: 'inherit',
+      timeout: options.timeoutMs || 30000,
+      env: { ...process.env, ...options.env },
+    });
+
+    child.on('error', (err) => reject(new Error(`Failed to start process: ${err.message}`)));
+
+    child.on('close', (code) => {
+      if (code === 0) {
+        resolve(code);
+      } else {
+        reject(new Error(`Script ${command} exited with non-zero status code: ${code}`));
+      }
+    });
+  });
+}
+
+async function execute() {
+  try {
+    await runScript('bash', ['-c', 'echo "Deploying version $APP_VER"'], {
+      env: { APP_VER: 'v2.4.1' },
+    });
+    console.log('✅ Deployment script passed.');
+  } catch (err: any) {
+    console.error(`❌ ${err.message}`);
+    process.exit(1);
+  }
+}
+
+execute();
+```
+
+### Python
+```python
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+
+def run_isolated_task(script_content: str, timeout_sec: int = 15) -> int:
+    """
+    Writes script to a safe temporary file, sets execution bits, and runs it safely.
+    """
+    with tempfile.NamedTemporaryFile("w", suffix=".sh", delete=False) as temp_script:
+        temp_script.write("#!/usr/bin/env bash\nset -euo pipefail\n")
+        temp_script.write(script_content)
+        temp_path = Path(temp_script.name)
+
+    try:
+        temp_path.chmod(0o700)
+        proc = subprocess.run(
+            [str(temp_path)],
+            check=True,
+            timeout=timeout_sec,
+            text=True
+        )
+        return proc.returncode
+    except subprocess.CalledProcessError as e:
+        print(f"❌ Script failed with code {e.returncode}", file=sys.stderr)
+        return e.returncode
+    finally:
+        if temp_path.exists():
+            temp_path.unlink()
+
+if __name__ == "__main__":
+    task = """
+    echo "Running data migration..."
+    uname -a
+    """
+    sys.exit(run_isolated_task(task))
+```
+
+---
+
+## 6. Practical Hands-On Verification CLI Workflows
+
+Follow these workflows in your Ubuntu terminal:
+
+### Workflow 1: Author a Production-Grade Defensive Script
+Create an automated backup script with strict parameter guards and cleanup traps:
+```bash
+cat << 'EOF' > ~/projects/safe-backup.sh
 #!/usr/bin/env bash
 set -euo pipefail
+IFS=$'\n\t'
 
-readonly output_dir="${1:?usage: $0 OUTPUT_DIR}"
-[[ -d "$output_dir" ]] || { echo "not a directory: $output_dir" >&2; exit 2; }
-printf 'Writing report to %s\n' "$output_dir"
+# 1. Require target argument
+BACKUP_DIR="${1:?FATAL: You must provide a backup directory argument}"
+
+# 2. Setup atomic scratchpad with guaranteed cleanup trap
+TMP_DIR=$(mktemp -d "/tmp/backup_scratch.XXXXXX")
+cleanup() {
+    echo "🧹 Cleaning temporary scratchpad: $TMP_DIR"
+    rm -rf "$TMP_DIR"
+}
+trap cleanup EXIT INT TERM
+
+# 3. Perform work
+mkdir -p "$BACKUP_DIR"
+echo "Backup Manifest Created: $(date)" > "$TMP_DIR/manifest.txt"
+cp "$TMP_DIR/manifest.txt" "$BACKUP_DIR/"
+echo "✅ Backup successfully archived to $BACKUP_DIR"
+EOF
+
+chmod 755 ~/projects/safe-backup.sh
 ```
 
-Understand each guard before adopting it. In particular, test how your script handles expected non-zero commands inside `if` statements and pipelines.
+### Workflow 2: Test Parameter Enforcement and Trapping
+```bash
+# 1. Test missing argument rejection
+~/projects/safe-backup.sh || echo "Expected: Aborted due to missing argument"
 
-> [!exercise]
-> Write a script that accepts a directory, refuses an empty or nonexistent argument, counts `.log` files without breaking on spaces in names, and prints a clear exit code. Test it with a temporary directory, a name containing a space, and an invalid path.
+# 2. Test successful execution and observe automatic cleanup
+~/projects/safe-backup.sh ~/projects/backup-archive
+ls -l ~/projects/backup-archive/manifest.txt
 
-> [!interview]
-> Explain word splitting and glob expansion. Why does quoting a variable matter even when you are confident its current value has no spaces?
+# 3. Clean up
+rm -rf ~/projects/safe-backup.sh ~/projects/backup-archive
+```
 
-> [!check]
-> - Does your script state its required arguments when they are missing?
-> - Can you point to every place where a variable is intentionally unquoted?
-> - Can you run the script twice without surprising duplicate or destructive effects?
+---
 
-## Independent challenge
-
-No commands given here — figure it out yourself using what you know from this module and earlier ones.
-
-**Task:** Write a script that takes a directory path as its argument and, for every `.log` file it finds in that directory, prints the filename alongside how many of its lines contain the word `ERROR` (reuse the text-filtering tools from module 08 inside the script). Define an error-count threshold of your own; if any single file exceeds it, the script should exit with a non-zero status, otherwise exit zero — so a scheduler could tell "clean" from "problems found." Handle the awkward cases cleanly rather than letting bash spew raw errors: no argument given, or a path that isn't an existing directory. Remember the file needs to be made runnable (module 03) before you can invoke it with `./`.
+## 7. Operational Validation Checkpoint
 
 <details>
-<summary>Stuck? One hint</summary>
+<summary><strong>Question 1: `"$@"` vs `"$*"` in Array Looping</strong></summary>
 
-`grep -c` counts matching lines in a file without you looping over lines yourself; guard the input with a `-z "$1"` check and a `-d "$dir"` test up front, and drive the outcome with `exit 0` versus `exit 1`.
+**Scenario:** A script accepts multiple file names as arguments:
+`./process-files.sh "report 1.pdf" "summary 2.pdf"`
+Inside the script, the developer writes:
+```bash
+for file in "$*"; do
+    echo "Processing: $file"
+done
+```
+The script runs only once, printing: `Processing: report 1.pdf summary 2.pdf`.
 
+Why did the loop not iterate through the two individual files, and what is the fix?
+
+**Answer:**
+`"$*"` joins all positional arguments into a **single string**, separated by the first character of `$IFS` (space by default). Therefore, the `for` loop received exactly one combined string and iterated once.
+
+**The Fix:** Use `"$@"`:
+```bash
+for file in "$@"; do
+    echo "Processing: $file"
+done
+```
+`"$@"` expands to each parameter as an **individual quoted string** (`"report 1.pdf"` `"summary 2.pdf"`), preserving argument boundaries and spaces correctly.
 </details>
-
-## Common mistakes & troubleshooting
-
-- **Spaces around `=` in assignments.** `name = "Alice"` (with spaces) is *not* a variable assignment in bash - it's interpreted as running a command called `name` with arguments `=` and `Alice`, producing a "command not found" error. Always write `name="Alice"` with no spaces.
-- **Forgetting to quote variables.** `$var` without quotes gets word-split and glob-expanded by the shell. Always prefer `"$var"` unless you specifically want that behavior (rare for beginners).
-- **Confusing `=` and `==` and `-eq`.** Use `-eq`/`-ne`/`-lt`/`-gt` for numbers and `=`/`==`/`!=` for strings inside `[ ]`/`[[ ]]`. Using `-eq` on strings or `=` on numbers can silently produce wrong results instead of an obvious error.
-- **Forgetting the execute bit.** A "Permission denied" error when running `./script.sh` almost always means you forgot `chmod +x script.sh`.
-- **Running a script without `./` and getting "command not found."** Bash doesn't search the current directory for commands by default (for security reasons), so you must type `./script.sh`, not just `script.sh`, unless the script's directory is on your `PATH`.
-- **Missing `fi`/`done`/`fi` closing keywords.** Bash control structures must be explicitly closed (`if...fi`, `for...done`, `while...done`). A missing closing keyword produces a confusing "unexpected end of file" error - check that every opener has its matching closer.
-- **Using backticks and forgetting they nest poorly.** `` `command` `` works but is hard to nest and easy to misread; prefer `$(command)`, which nests cleanly, e.g. `$(echo $(date))`.
-- **Comparing an empty variable in `[ ]` without quotes.** `[ $var -eq 5 ]` breaks with a syntax error if `var` is empty, because it becomes `[ -eq 5 ]`. Quoting (`[ "$var" -eq 5 ]`) avoids this, though it still errors if `$var` is genuinely empty or non-numeric - which is often exactly the check you want to add (`-z "$var"`) beforehand.
-
-## Checkpoint quiz
-
-Write down your answer to each question before expanding it — checking without attempting first is the single easiest way to fool yourself into thinking you've learned this.
-
-1. What does the shebang line `#!/bin/bash` actually do, and what happens if you omit it?
-2. Why does `./script.sh` fail with "Permission denied" the first time you create a script, and what fixes it?
-3. What's the difference in behavior between `"$var"` and `$var` (unquoted) when the variable's value contains a space?
-4. If a script runs `exit 1` partway through, what would you check afterward to confirm that, and what value would you expect?
-5. Why would you use `[ "$count" -gt 10 ]` instead of `[ "$count" > 10 ]` when comparing numbers?
-6. What is the difference between a `for` loop and a `while` loop in terms of when each one stops?
-7. Why does `local` matter inside a function (as used in the `count_up` and `check_disk` examples)?
-8. What does `$(( ))` do that plain variable assignment (`total = 3 + 4`) does not?
 
 <details>
-<summary>Show answers</summary>
+<summary><strong>Question 2: The `set -e` Condition Evaluation Bypass</strong></summary>
 
-1. The shebang tells the operating system which interpreter should execute the rest of the file - `#!/bin/bash` means "run this file's contents using the bash program." Without it, running the file via `./script.sh` may use the shell's default interpreter (which might not be bash) or, depending on the system, fail to run predictably; it's best practice to always include it.
-2. New files don't have the execute permission bit set by default, so the OS refuses to run them as a program. `chmod +x script.sh` adds the execute bit, after which `./script.sh` works.
-3. `"$var"` (quoted) preserves the value as a single unit even if it contains spaces, so it's treated as one argument/word. `$var` (unquoted) gets word-split by the shell on spaces, so a value like "my file.txt" becomes two separate words/arguments.
-4. You'd check `$?` immediately after the script finishes (or after the command in question) - it would hold `1`, matching the exit code the script explicitly set with `exit 1`.
-5. `-gt` is the numeric "greater than" operator for use inside `[ ]`. The `>` symbol inside `[ ]` is interpreted as shell output redirection, not comparison, which would create/overwrite a file named `10` instead of comparing numbers - a silent, confusing bug.
-6. A `for` loop iterates over a fixed, predetermined list of items (arguments, filenames, a range) and stops when the list is exhausted. A `while` loop keeps running as long as its condition evaluates to true each time it's checked, and could loop indefinitely if the condition never becomes false.
-7. `local` scopes a variable to the function it's declared in, so it doesn't leak into or collide with variables in the rest of the script (or get overwritten by another function using the same name). Without `local`, function variables are global by default in bash.
-8. `$(( ))` evaluates its contents as an arithmetic expression and returns the numeric result as text, e.g. `$((3 + 4))` becomes `7`. Plain assignment like `total = 3 + 4` isn't valid bash arithmetic syntax at all - bash would try to run `total` as a command with arguments `=`, `3`, `+`, `4`, `5`.
+**Scenario:** A developer relies on `set -e` to stop the script on errors. They write:
+```bash
+set -e
+if grep "database_error" /var/log/app.log; then
+    echo "Errors detected!"
+fi
+echo "Script finished successfully!"
+```
+When `grep` finds no errors, it exits with return code `1`. The developer expects `set -e` to terminate the script, but the script prints `Script finished successfully!`.
 
+Why did `set -e` not abort the script?
+
+**Answer:**
+Under the POSIX specification for `errexit` (`set -e`), the shell will **NOT exit if the failing command is part of a conditional test**, such as the condition of an `if`, `while`, or `until` statement, or on the left-hand side of a `&&` or `||` list. 
+
+The `if` statement's purpose is specifically to inspect and branch on the command's exit status. Therefore, a non-zero exit from `grep` is treated as a boolean `false`, allowing the script to jump over the `then` branch and proceed.
 </details>
 
-## Further reading & sources
+<details>
+<summary><strong>Question 3: The `trap cleanup EXIT` Invariant</strong></summary>
 
-- [GNU Bash Manual](https://www.gnu.org/software/bash/manual/bash.html) - the canonical, complete reference for every construct this module introduced (and many it didn't: arrays, `case` statements, traps).
-- [ShellCheck](https://www.shellcheck.net/) - paste a script in and it flags exactly the kinds of mistakes this module's "Common mistakes" section warns about (unquoted variables, missing `local`, etc.) - worth running on every script you write from here on.
-- [Google Shell Style Guide](https://google.github.io/styleguide/shellguide.html) - a widely-used real-world convention set for writing bash scripts that stay readable as they grow.
-- [`man7.org`: bash(1)](https://man7.org/linux/man-pages/man1/bash.1.html) - the man-page form of the bash reference, useful for quick lookups without leaving the terminal.
-- [Advanced Bash-Scripting Guide (tldp.org)](https://tldp.org/LDP/abs/html/) - older but famously thorough, good for when you outgrow this module and want the deep end (arrays, traps, here-documents in full).
+**Scenario:** A deployment script creates a temporary database lock file `/tmp/deploy.lock`. The developer installs:
+```bash
+trap "rm -f /tmp/deploy.lock" INT TERM
+```
+During deployment, the script crashes due to a syntax error on line 45. The lock file remains on disk, blocking all subsequent automated deployments until manual intervention.
 
-## Next
+Why did the trap not fire, and what is the proper pseudo-signal?
 
-Continue to [10-networking-basics](../10-networking-basics/README.md) to learn how your Linux machine talks to the network - IP addresses, ports, DNS, and WSL2's own networking quirks.
+**Answer:**
+The developer trapped only `INT` (`Ctrl+C`) and `TERM` (`kill -15`). A syntax error or command failure that causes a script to exit naturally (or via `set -e` / `exit 1`) does not generate an `INT` or `TERM` signal. 
+
+**The Fix:** Trap the **`EXIT` pseudo-signal**:
+```bash
+trap "rm -f /tmp/deploy.lock" EXIT
+```
+In Bash, `EXIT` (signal 0) is guaranteed to execute whenever the shell process exits for **any reason whatsoever**—including normal completion, `set -e` failures, syntax errors, or received signals.
+</details>
+
+---
+
+## Next Step
+
+Now that you have mastered shell scripting and automated workflows, proceed to **[10 · Networking Basics](../10-networking-basics/README.md)** to explore TCP/UDP sockets, DNS resolution, IP routing, `ss`, and `curl` wire diagnostics.

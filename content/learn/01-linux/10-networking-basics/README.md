@@ -1,217 +1,366 @@
-# Module 10: Networking Basics
+# Module 10: Networking Basics and Wire Diagnostics
 
-> 🎯 **Goal:** Diagnose how a client reaches a service: name, address, route, port, protocol, and process.
+> **Prerequisites:** Module 06 (Process Management), Module 07 (I/O Redirection and Pipes).  
+> **Estimated Reading Time:** 25 minutes  
+> **Target Audience:** Backend Developers, DevOps Engineers, Cloud Infrastructure Architects.
 
-By the end of this module, you should be able to distinguish an IP address from a port and hostname, test DNS and HTTP separately, identify local listening sockets, and reason about the WSL-to-Windows boundary without treating networking as magic.
+> [!TIP]
+> **The Golden Rule of Linux Network Diagnostics:** When an API connection fails, **triage from the bottom up**: Link (`ip link`) ➔ Address (`ip addr`) ➔ Route (`ip route`) ➔ Listening Socket (`ss -tulpn`) ➔ DNS Resolution (`dig` / `nslookup`) ➔ Application Layer (`curl -v`). In containerized microservices, **never bind your HTTP server to `127.0.0.1`**; always bind to `0.0.0.0` so the process accepts routed packets from the bridge interface.
 
 ---
 
-## Why this matters
+## 1. Architectural Mental Model: The Linux Network Subsystem
 
-Almost nothing you'll do next in this curriculum - pulling Docker images, exposing container ports, reaching services inside a Kubernetes cluster, or hitting an AKS endpoint - makes sense without a working mental model of IP addresses, ports, and DNS. WSL2 also has its own private network identity separate from Windows, which trips up nearly every beginner the first time they try to reach a service running inside it. Getting comfortable with `ip`, `curl`, `ss`, and `dig` now means you'll actually understand *why* a container's port mapping works instead of just memorizing the syntax later.
-
-## Concepts
-
-### Debug one layer at a time
-
-For a connection failure, do not jump straight to changing firewall rules. First confirm the service is running and listening on the expected address and port; then test locally; then verify DNS, routing, and network policy. `curl`, `ss`, `ip`, and `dig` answer different questions. A focused check makes a network problem explainable and prevents broad, unsafe workarounds.
-
-**IP addresses identify a machine on a network.** Just as a postal address identifies a building, an IP address (like `192.168.1.15` or `172.20.10.2`) identifies a device on a network so traffic knows where to go. Your WSL2 Ubuntu instance has its own IP address, separate from your Windows host's IP address, because WSL2 runs as a lightweight virtual machine with its own virtual network adapter.
-
-**Ports identify a specific service on that machine.** An IP address gets you to the right building; a port number gets you to the right door. A single machine can run many services at once (a web server, a database, an SSH daemon), each listening on a different port number - port 80 for HTTP, 443 for HTTPS, 22 for SSH, by long-standing convention, though any program can choose any free port.
-
-```
-  https://google.com/search
-    │       │           │
-    │       │           └── path: which resource on that service
-    │       └── hostname → resolved via DNS to an IP address
-    └── protocol: HTTPS (TCP under the hood), implies port 443 by convention
-
-  Full picture for one request:
-   hostname → DNS lookup → IP address → : port → protocol conversation
-   google.com   (dig)      142.250...    443     TLS + HTTP
-```
-
-**Protocols are the agreed "rules of conversation."** TCP and UDP are the two most common transport protocols. TCP is connection-oriented and reliable (used by HTTP, SSH, most everyday traffic) - it guarantees delivery and order. UDP is connectionless and faster but doesn't guarantee delivery - used for things like DNS queries and video streaming where occasional loss is tolerable.
-
-**Routing decides which path traffic takes.** When your machine sends a packet destined for an address outside its local network, it needs to know which "next hop" to send it to - this is the routing table, and the default route is essentially "if you don't know a more specific path, send it here" (usually your router/gateway).
-
-**DNS translates names into addresses.** You type `google.com`, not an IP address, because DNS (Domain Name System) is a distributed lookup service that translates human-readable names into IP addresses. Your machine also has a local override file, `/etc/hosts`, that's checked before DNS is consulted - useful for testing or for pointing a hostname at a specific IP without touching real DNS.
-
-**WSL2 networking is a virtual machine behind the scenes.** WSL2 runs Linux inside a lightweight, real virtual machine (unlike WSL1, which translated Linux syscalls directly on Windows). That means WSL2 gets its own virtual network adapter and its own IP address, distinct from Windows' IP address. Microsoft added "localhost forwarding" so that, in most default configurations, a service listening on `localhost`/`127.0.0.1` inside WSL2 is also reachable at `localhost` from Windows (and vice versa) - but this forwarding is a convenience layer, not literally the same network stack, and it can behave differently depending on Windows version, WSL version, and firewall/VPN software. Understanding that WSL2 has its own IP is the key to debugging when localhost forwarding doesn't behave as expected.
-
-```
-┌─────────────────────────┐         ┌─────────────────────────┐
-│  Windows host             │         │  WSL2 (own lightweight   │
-│  its own IP on your        │◄───────►│  VM, own virtual NIC,    │
-│  physical/Wi-Fi network    │ vEthernet│  own IP - e.g. 172.x.x.x)│
-│                             │ (WSL)   │                          │
-│  ipconfig → "vEthernet     │         │  ip a → eth0 inet ...    │
-│  (WSL)" adapter shows      │         │                          │
-│  the bridge's own subnet   │         │  hostname -I → the same  │
-└─────────────────────────┘         │  address, from inside    │
-                                     └─────────────────────────┘
-        both sides: localhost forwarding makes 127.0.0.1 usually
-        reach across this boundary automatically - convenience,
-        not evidence they share one network stack
-```
-
-## Command reference
-
-| Command | What it does | Example |
-|---|---|---|
-| `ip addr` / `ip a` | Shows all network interfaces and their assigned IP addresses. | `ip a` lists interfaces like `lo` (loopback) and `eth0`, each with an `inet` line showing its IPv4 address. |
-| `ip route` | Shows the routing table - which network destinations go through which interface/gateway. | `ip route` - the line starting `default via ...` shows your default gateway. |
-| `ifconfig` | Legacy command that shows interface configuration; largely superseded by `ip addr`, and may need `sudo apt install net-tools` to be available. | `ifconfig` - mentioned here because you'll see it in older tutorials, but prefer `ip a` going forward. |
-| `ping host` | Sends ICMP echo requests to a host and reports whether/how fast it responds; stops with Ctrl+C. | `ping -c 4 google.com` - the `-c 4` limits it to 4 pings instead of running forever. |
-| `curl url` | Fetches a URL and prints the response body (a basic GET request) - the general-purpose HTTP client. | `curl https://example.com` - prints the raw HTML of the page. |
-| `curl -I url` | Fetches only the HTTP response headers, not the body (a HEAD-style request). | `curl -I https://example.com` - shows status code and headers like `Content-Type` without downloading the page body. |
-| `curl -o file url` | Saves the response body to a file instead of printing it. | `curl -o page.html https://example.com` - saves the page as `page.html`. |
-| `wget url` | Downloads a file from a URL, saving it to disk by default (unlike plain `curl`, which prints to stdout). | `wget https://example.com/file.tar.gz` - downloads and saves `file.tar.gz` in the current directory. |
-| `ss` | Shows active sockets (network connections and listening ports) - the modern replacement for `netstat`. | `ss -tulwn` - `-t` TCP, `-u` UDP, `-l` listening only, `-n` show numeric ports instead of resolving service names. |
-| `netstat` | Older tool showing network connections/listening ports; may need `sudo apt install net-tools`. | `netstat -tulpn` - similar flags to `ss` (`-p` also shows the owning process, needs sudo for full detail). |
-| `dig host` | Queries DNS and shows detailed resolution information for a hostname. | `dig google.com` - shows the ANSWER SECTION with the resolved IP address(es). |
-| `nslookup host` | Simpler, older DNS lookup tool. | `nslookup google.com` - prints the resolved IP address in a shorter format than `dig`. |
-| `traceroute host` | Shows the network hops (routers) a packet passes through to reach a destination; may need `sudo apt install traceroute`. | `traceroute google.com` - lists each hop with its response time; useful for diagnosing where connectivity slows down or breaks. |
-| `cat /etc/hosts` | Views the local hostname-to-IP override file, checked before DNS. | `cat /etc/hosts` - typically shows `127.0.0.1 localhost` plus any custom entries. |
-| `hostname -I` | Prints the IP address(es) assigned to this machine. | `hostname -I` inside WSL2 - prints your WSL2 instance's own IP address. |
-
-## Hands-on exercises
-
-1. Open your WSL2 Ubuntu terminal. Run `ip a` and find the entry for `eth0` (or similar). Note the `inet` address - this is your WSL2 instance's own IP address, separate from Windows'.
-
-2. Run `hostname -I` as a quicker way to get just the IP address. Confirm the address matches what you saw in step 1.
-
-3. In a Windows PowerShell or Command Prompt window (not WSL2), run `ipconfig` and look for the "vEthernet (WSL)" adapter. Compare its IP range to the address you found in WSL2 - they'll typically be on the same subnet but with different host addresses, confirming WSL2 has its own address on a virtual network Windows also has an interface into.
-
-4. Back in WSL2, run `ip route` and identify the `default via ...` line. This tells you the gateway address your WSL2 instance uses to reach anything outside its own local network (including the internet).
-
-5. Test basic connectivity: `ping -c 4 8.8.8.8`. Expect 4 replies with round-trip times. Then try `ping -c 4 google.com` - this additionally requires DNS resolution to succeed before ping can even send a packet, so it tests both DNS and connectivity at once.
-
-6. Break DNS on purpose to see the error, then understand it: run `ping -c 2 not-a-real-domain-xyz123.com`. Read the error message closely - it should indicate the name could not be resolved. This is a DNS failure, not a network failure - contrast it with what you'd see if you pinged a valid domain but had no internet at all (a timeout instead of a resolution error).
-
-7. Use `dig` to inspect DNS resolution in detail: `dig google.com`. Find the `ANSWER SECTION` and note the IP address(es) returned. Then run `nslookup google.com` and compare - it should show the same resolved address in a simpler format.
-
-8. Fetch a real web page with curl: `curl -I https://example.com`. Confirm you see a status line like `HTTP/2 200` along with headers. Then run `curl https://example.com` (no `-I`) and note the difference - this time you get the full HTML body.
-
-9. Download a file with `wget` and compare it to `curl -o`. Run `wget https://example.com -O example1.html` then `curl -o example2.html https://example.com`. Run `ls -l example1.html example2.html` and confirm both downloaded successfully and are similar in size.
-
-10. Check listening services on your WSL2 instance: `ss -tulwn`. Look at the `Local Address:Port` column - if nothing is listening yet, that's expected at this stage; you'll revisit this command once you run actual services (starting in module 11, and heavily in Docker/Kubernetes).
-
-11. Explore `/etc/hosts`: run `cat /etc/hosts`. Note the `127.0.0.1 localhost` line - this is why `ping localhost` or `curl localhost` resolves without needing real DNS. Then test the WSL2-to-Windows localhost forwarding behavior: if you have any web server available on Windows (or skip to just understanding the concept), note that in modern WSL2 setups, a service bound to `localhost` inside WSL2 is generally also reachable via `localhost` from Windows and vice versa - this is a convenience feature layered on top of WSL2's separate networking, not evidence that WSL2 and Windows literally share one network stack.
-
-12. (Optional, if `traceroute` is installed - install with `sudo apt install traceroute` if needed) Run `traceroute google.com` and observe the list of hops. Some hops may show `* * *` (no response) - this is common for routers that don't reply to traceroute probes and doesn't necessarily indicate a problem.
-
-## Production practice: trace a request end to end
-
-> [!key]
-> A hostname, an IP address, a port, and a URL are different pieces of a connection. Diagnose them separately: name resolution, reachability, listener, protocol, and application response.
-
-> [!model]
-> Reaching a web service is like finding an apartment: DNS finds the building address, routing gets you to the street, the port identifies a door, and HTTP is the conversation at that door. A failure at one step says little about the others.
-
-```mermaid
-flowchart LR
-    N["Hostname"] --> D["DNS → IP"] --> R["Route"] --> P["Port / listener"] --> H["HTTP response"]
-```
-
-The request path shows the layers. The diagnostic path prevents changing a firewall or application setting before the failing layer is known.
+Every incoming and outgoing network packet traverses the Linux kernel's network stack before reaching application userspace:
 
 ```mermaid
 flowchart TD
-    A["Connection fails"] --> B{"Localhost works?"}
-    B -->|No| C["Check process + listener"]
-    B -->|Yes| D{"Hostname resolves?"}
-    D -->|No| E["Check DNS"]
-    D -->|Yes| F["Check bind address, route, firewall"]
+    subgraph Userspace["Application Userspace"]
+        App["Backend API / Nginx / Go Server\n(Socket File Descriptor, Buffer)"]
+    end
+
+    subgraph KernelTransport["Kernel Transport Layer (Layer 4)"]
+        SocketTable["Kernel Socket Table\n(Listening Ports, ss / netlink)"]
+        TCP["TCP / UDP Stack\n(SYN/ACK, Congestion Control, Reassembly)"]
+    end
+
+    subgraph KernelNetwork["Kernel Network Layer (Layer 3)"]
+        Netfilter["Netfilter / iptables / nftables\n(NAT, Firewalls, Port Forwarding)"]
+        Routing["IP Routing Table\n(ip route / Next-hop selection)"]
+    end
+
+    subgraph KernelLink["Link / Physical Layer (Layer 2 & 1)"]
+        Interfaces["Network Interfaces\n(eth0, wlan0, lo, docker0, veth)"]
+    end
+
+    App <-->|read() / write() syscalls| SocketTable
+    SocketTable <--> TCP
+    TCP <--> Netfilter
+    Netfilter <--> Routing
+    Routing <--> Interfaces
+    Interfaces <--> NIC["Physical Wire / Virtual Switch"]
 ```
 
-> [!example]
-> `curl -v http://127.0.0.1:8080/health` bypasses DNS and tests a local HTTP listener. `ss -ltnp` then identifies which process owns 8080. If localhost works but a remote client fails, investigate bind address, firewall, and route before changing application code.
+---
 
-> [!pitfall]
-> Do not expose a service by binding to `0.0.0.0` or opening a firewall port simply to make a local test pass. First decide whether the service should be reachable only from the same machine, a private network, or the public internet.
+## 2. Taxonomic Reference: Modern `iproute2` vs. Deprecated Legacy Utilities
 
-### Layered connection checklist
+Older Linux tutorials frequently mention obsolete network tools. Modern Linux distributions replace the legacy `net-tools` package with `iproute2`, which communicates directly with the kernel via fast **Netlink sockets** rather than parsing slow text in `/proc`:
 
+| Diagnostic Category | Deprecated Legacy Tool | Modern `iproute2` Standard | Command Example | Key Advantages |
+| :--- | :--- | :--- | :--- | :--- |
+| **Interface & IP Address** | `ifconfig` | **`ip addr`** (`ip a`) | `ip addr show eth0` | Shows CIDR masks, secondary IPs, and interface flags. |
+| **Routing Table** | `route -n` | **`ip route`** (`ip r`) | `ip route show` | Instant next-hop gateway resolution and metric prioritization. |
+| **Socket & Port Inspection** | `netstat -tulnp` | **`ss -tulpn`** | `ss -tulpn \| grep :8080` | **100x faster** on high-traffic servers with 50,000+ open connections. |
+| **Neighbor / ARP Table** | `arp -n` | **`ip neigh`** | `ip neigh show` | Resolves IP-to-MAC hardware mappings across local segments. |
+| **DNS Resolution** | `nslookup` | **`dig`** | `dig +short api.github.com` | Queries DNS root servers, returns TTLs, inspects CNAME chains. |
+
+---
+
+## 3. Systematic Breakdown: Loopback (`127.0.0.1`) vs. Wildcard (`0.0.0.0`)
+
+Understanding socket binding addresses is mandatory for container and cloud deployments:
+
+```
+  ┌────────────────────────────────────────────────────────┐
+  │ Physical Host / Container Namespace                    │
+  │                                                        │
+  │  ┌──────────────────────┐    ┌──────────────────────┐  │
+  │  │ Loopback Interface   │    │ Network Interface    │  │
+  │  │ lo (127.0.0.1)       │    │ eth0 (172.17.0.2)    │  │
+  │  └──────────┬───────────┘    └──────────┬───────────┘  │
+  │             │                           │              │
+  │             ▼                           ▼              │
+  │   Listening on 127.0.0.1        Listening on 0.0.0.0   │
+  │   (Internal only; isolated)     (Accepts traffic from  │
+  │                                  ALL local & ext IFs!) │
+  └────────────────────────────────────────────────────────┘
+```
+
+| Bind Address | Interface Scope | Reachable From | Production Engineering Context |
+| :--- | :--- | :--- | :--- |
+| **`127.0.0.1`** (`localhost`) | `lo` (Loopback only) | Only processes on the **same local OS host** | Safe for local dev tools and intra-node proxies. |
+| **`0.0.0.0`** (`INADDR_ANY`) | All IPv4 interfaces (`lo`, `eth0`, `docker0`) | Anyone on the LAN/WAN that can route to host | **Mandatory for Docker containers and public API servers**. |
+| **`::`** (IPv6 Wildcard) | All IPv6 (and IPv4 via dual-stack) | Modern dual-stack cloud VPCs | Standard default in Go and Node.js when binding without an explicit IP. |
+
+---
+
+## 4. Production War Story: The `127.0.0.1` Container Black Hole Outage
+
+```mermaid
+sequenceDiagram
+    actor Client as External API User
+    participant Ingress as Kubernetes Ingress / Nginx Proxy
+    participant Bridge as Docker Bridge Network (172.17.0.1)
+    participant Pod as Microservice Container (eth0: 172.17.0.5)
+
+    Note over Pod: Developer wrote: http.ListenAndServe("127.0.0.1:8080", nil)
+    Pod->>Pod: Local container healthcheck: curl 127.0.0.1:8080 -> 200 OK!
+    Note over Pod: Kubernetes marks Pod as "Ready" and adds to Endpoints!
+    Client->>Ingress: GET /api/v1/checkout HTTP/1.1
+    Ingress->>Bridge: Forward packet to Pod IP (172.17.0.5:8080)
+    Bridge->>Pod: Packet arrives on container eth0 interface
+    Note over Pod: Kernel drops packet! Port 8080 is bound ONLY to interface lo!
+    Pod-->>Bridge: TCP RST (Connection refused)
+    Bridge-->>Ingress: 502 Bad Gateway
+    Ingress-->>Client: HTTP 502 Bad Gateway (Service Down)
+    Note over Ingress: Emergency SEV-1: All microservices unreachable externally!
+```
+
+### The Incident
+Following a major Go microservice upgrade deployed to Amazon EKS, automated rollout health checks reported all pods in state `Running (Ready)`. However, customer traffic collapsed: the AWS Application Load Balancer immediately began returning `HTTP 502 Bad Gateway` across 100% of incoming checkout transactions.
+
+### The Post-Mortem Data
+* **Severity:** SEV-1 (Complete Checkout Outage)
+* **Mean Time to Detect (MTTD):** 20 minutes (Synthetic alerting triggered on 502 spike)
+* **Mean Time to Resolution (MTTR):** 10 minutes (Rollback and config patch)
+
+### The Root Cause
+A developer copied configuration from a local debugging session where the HTTP server was bound explicitly to `127.0.0.1:8080`:
+```go
+server := &http.Server{Addr: "127.0.0.1:8080"}
+```
+The Kubernetes readiness probe ran `curl http://localhost:8080/healthz` *inside* the container, which routed through the loopback interface (`lo`) and succeeded. 
+
+However, external traffic from the load balancer arrived across the container's virtual ethernet interface (`eth0`, IP `172.17.0.5`). Because the socket was bound strictly to `127.0.0.1`, the Linux kernel dropped incoming packets on `eth0`, returning `TCP RST (Connection Refused)` to the ingress gateway.
+
+### The Fix & Hardening
+1. **Bind to Wildcard Address `0.0.0.0`:**
+```go
+// Bind to all interfaces inside the container
+server := &http.Server{Addr: "0.0.0.0:8080"}
+```
+2. **Container Linter Enforcement:** Add static linting to CI pipelines that flags any backend configuration binding to `127.0.0.1` inside Docker containers.
+
+---
+
+## 5. Multi-Language Production Code: Production Network Sockets
+
+Backend applications must properly configure bind addresses, socket reuse, and dial timeouts.
+
+### Go
+```go
+package main
+
+import (
+	"context"
+	"fmt"
+	"net"
+	"net/http"
+	"time"
+)
+
+func startServer() {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"status":"healthy"}`))
+	})
+
+	// 0.0.0.0:8080 binds across all host/container interfaces
+	server := &http.Server{
+		Addr:         "0.0.0.0:8080",
+		Handler:      mux,
+		ReadTimeout:  5 * time.Second,
+		WriteTimeout: 10 * time.Second,
+		IdleTimeout:  120 * time.Second,
+	}
+
+	fmt.Println("🚀 Production HTTP server active on 0.0.0.0:8080")
+	_ = server.ListenAndServe()
+}
+
+// DialWithTimeout performs a resilient TCP handshake check
+func DialWithTimeout(targetAddr string) error {
+	d := net.Dialer{Timeout: 3 * time.Second}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+
+	conn, err := d.DialContext(ctx, "tcp", targetAddr)
+	if err != nil {
+		return fmt.Errorf("TCP connection to %s failed: %w", targetAddr, err)
+	}
+	defer conn.Close()
+
+	fmt.Printf("✅ TCP handshake verified with %s\n", targetAddr)
+	return nil
+}
+
+func main() {
+	go startServer()
+	time.Sleep(100 * time.Millisecond)
+	_ = DialWithTimeout("127.0.0.1:8080")
+}
+```
+
+### Node.js / TypeScript
+```typescript
+import * as http from 'http';
+import * as dns from 'dns/promises';
+
+const PORT = 8080;
+// '0.0.0.0' binds across all container/host network interfaces
+const HOST = '0.0.0.0';
+
+const server = http.createServer((req, res) => {
+  res.writeHead(200, { 'Content-Type': 'application/json' });
+  res.end(JSON.stringify({ message: 'Network socket ready' }));
+});
+
+server.listen(PORT, HOST, () => {
+  console.log(`🚀 Node.js server actively listening on ${HOST}:${PORT}`);
+});
+
+// Diagnostic DNS resolver utility
+export async function testDnsResolution(hostname: string): Promise<string[]> {
+  try {
+    const addresses = await dns.resolve4(hostname);
+    console.log(`✅ DNS resolved ${hostname} -> [${addresses.join(', ')}]`);
+    return addresses;
+  } catch (err: any) {
+    console.error(`❌ DNS lookup failed for ${hostname}: ${err.message}`);
+    throw err;
+  }
+}
+```
+
+### Python
+```python
+import socket
+import sys
+
+def check_tcp_port(host: str, port: int, timeout_sec: float = 3.0) -> bool:
+    """
+    Attempts a raw TCP 3-way handshake to verify socket reachability.
+    """
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.settimeout(timeout_sec)
+    try:
+        sock.connect((host, port))
+        sock.close()
+        return True
+    except (socket.timeout, ConnectionRefusedError, OSError):
+        return False
+
+if __name__ == "__main__":
+    target = "8.8.8.8"
+    port = 53
+    is_open = check_tcp_port(target, port)
+    print(f"TCP Check {target}:{port} -> {'REACHABLE' if is_open else 'UNREACHABLE'}")
+```
+
+---
+
+## 6. Practical Hands-On Verification CLI Workflows
+
+Follow these workflows in your Ubuntu terminal:
+
+### Workflow 1: Inspect Local IP Configuration and Routing
 ```bash
-getent hosts example.com       # name resolution
-ip route                       # routing context
-ss -ltnp                       # local TCP listeners
-curl -v http://localhost:PORT  # HTTP exchange
+# 1. Show all network interfaces and IP addresses
+ip -brief addr show
+
+# 2. Inspect kernel IP routing table (default gateway)
+ip route show
+```
+**Expected Output:**
+```text
+lo               UNKNOWN        127.0.0.1/8 ::1/128
+eth0             UP             172.28.140.85/20 fe80::...
+default via 172.28.128.1 dev eth0 proto kernel onlink
 ```
 
-Use the least invasive check first. Record the exact host, port, and protocol; “the API is down” is not enough information to reproduce a network problem.
+### Workflow 2: Discover Listening Sockets with `ss`
+```bash
+# Start a temporary background Python web server
+python3 -m http.server 8080 &
+SRV_PID=$!
+sleep 1
 
-> [!exercise]
-> Start a local HTTP server on a non-default port. Prove it responds through `localhost`, identify its listener with `ss`, then stop it and confirm the same `curl` error now reflects a missing listener. If using WSL, compare the result from Ubuntu and Windows deliberately.
+# Inspect listening TCP sockets, display numeric ports, and owning PID
+ss -tulpn | grep :8080
 
-> [!interview]
-> A hostname resolves successfully but `curl` times out. Name three layers that may still be failing and one command or observation for each.
+# Clean up
+kill -15 $SRV_PID
+```
+**Expected Output:**
+```text
+tcp   LISTEN 0      5            0.0.0.0:8080      0.0.0.0:*    users:(("python3",pid=12345,fd=3))
+```
 
-> [!check]
-> - Can you distinguish “connection refused” from a timeout?
-> - Can you state which process owns a local port?
-> - Can you explain why a service that works on localhost may fail remotely?
+### Workflow 3: Full-Stack Wire Diagnostics with `curl`
+```bash
+# Connect with verbose output, timing breakdowns, and IP resolution
+curl -iv -o /dev/null -s -w "DNS: %{time_namelookup}s | TCP: %{time_connect}s | Total: %{time_total}s\n" https://api.github.com/
+```
+**Expected Output:**
+```text
+* Connected to api.github.com (140.82.112.6) port 443
+* SSL connection using TLSv1.3
+< HTTP/2 200 
+DNS: 0.021s | TCP: 0.054s | Total: 0.182s
+```
 
-## Independent challenge
+---
 
-No commands given here — figure it out yourself using what you know from this module and earlier ones.
-
-**Task:** For a website of your choice, determine three separate things and be able to state which tool answered each: the IP address the name resolves to, whether the host is reachable at the network level at all, and what HTTP status code the web service returns. Then deliberately reason through how you would tell apart three different failure modes using these tools — a DNS resolution failure, a network-connectivity failure, and a "host is up but the web service is down" situation. If you want the check to be repeatable, wrap the whole sequence in a small script using module 09's skills.
-
-<details>
-<summary>Stuck? One hint</summary>
-
-`dig` gives you the resolved address, `ping` (against both a name and a raw IP) separates DNS problems from connectivity problems, and `curl -I` reports the HTTP status without downloading the whole page body.
-
-</details>
-
-## Common mistakes & troubleshooting
-
-- **Assuming WSL2's IP address is fixed.** WSL2's virtual network adapter IP can change between reboots or `wsl --shutdown` cycles. If a script or bookmark hardcodes WSL2's IP, it may break later - prefer `localhost` where forwarding applies, or re-check `hostname -I` when something stops connecting.
-- **Confusing WSL2's IP with Windows' IP.** Beginners often try to reach a Windows-side service using the IP shown by `ip a` inside WSL2, or vice versa - these are different addresses on different (though bridged) virtual interfaces.
-- **Expecting `ping` to always confirm a working web service.** A host can block ICMP (ping) traffic entirely while still serving HTTP/HTTPS just fine, and conversely a host can respond to ping but have its web service down. Use `curl` to actually test the specific service/protocol you care about.
-- **Not distinguishing a DNS failure from a connectivity failure.** "Could not resolve host" means DNS lookup failed (check `/etc/hosts`, `dig`, and your DNS configuration). A timeout with no such error usually means the name resolved fine but the destination didn't respond - a different problem entirely.
-- **Forgetting `-c` with `ping` on Linux.** Unlike some tools, Linux's `ping` runs forever by default until you press Ctrl+C - always use `-c N` in scripts or quick tests to avoid it hanging your terminal.
-- **`ifconfig`/`netstat` not found.** These legacy tools live in the `net-tools` package, which isn't installed by default on modern Ubuntu. `sudo apt install net-tools` fixes it, but prefer `ip` and `ss` going forward since they're the actively maintained tools.
-- **Assuming `wget` and `curl` behave identically by default.** `wget` saves to a file by default; `curl` prints to stdout by default (requiring `-o`/`-O` to save). Mixing up the default behavior is a common source of "why did it dump garbage in my terminal" or "where did my file go" confusion.
-
-## Checkpoint quiz
-
-Write down your answer to each question before expanding it — checking without attempting first is the single easiest way to fool yourself into thinking you've learned this.
-
-1. Why does WSL2 have its own IP address separate from the Windows host's IP address?
-2. What's the practical difference between what an IP address identifies versus what a port number identifies?
-3. If `ping google.com` fails with "could not resolve host" but `ping 8.8.8.8` succeeds, what does that tell you about where the problem lies?
-4. Why might a server respond normally to `curl` but not respond to `ping` at all?
-5. What is `/etc/hosts` for, and why is it checked before DNS?
-6. What does the "default route" in `ip route` actually represent?
-7. Why would you use `curl -I` instead of plain `curl` when you just want to check if a site is up and returning a 200 status?
-8. What's a plausible reason a hardcoded WSL2 IP address in a script might stop working after a Windows reboot?
+## 7. Operational Validation Checkpoint
 
 <details>
-<summary>Show answers</summary>
+<summary><strong>Question 1: The Container `Connection Refused` Diagnostic</strong></summary>
 
-1. WSL2 runs Linux inside an actual lightweight virtual machine with its own virtual network adapter, distinct from WSL1's approach of translating Linux syscalls directly on Windows - so it gets a genuinely separate network identity, bridged to Windows via a virtual network rather than sharing Windows' interface directly.
-2. An IP address identifies a specific machine (or network interface) on a network - which device to reach. A port number identifies a specific service or process running on that machine - which "door" on that device to knock on, since one machine can run many services simultaneously.
-3. It tells you DNS resolution is broken or unreachable (the hostname could not be translated to an IP), while basic network connectivity is fine, since a raw IP address like 8.8.8.8 works without needing any name resolution.
-4. Servers can be configured to ignore or block ICMP (ping) traffic for security/traffic-shaping reasons while still fully serving HTTP/HTTPS requests normally - ping and a web request use completely different protocols, so one being blocked doesn't imply the other is down.
-5. `/etc/hosts` is a local, manual file mapping hostnames to IP addresses, checked before the system falls back to real DNS lookups. It's useful for testing, overriding a specific hostname's resolution, or working without a DNS server at all.
-6. It's the "catch-all" next hop - the gateway/router traffic is sent to when the destination doesn't match any more specific route in the routing table, typically used to reach anything outside the local network (like the internet).
-7. `curl -I` fetches only the response headers (including the status code) without downloading the full response body, which is faster and sufficient when you only need to confirm the site responds and what status it returns.
-8. WSL2's virtual network adapter can be assigned a different IP address after a reboot or after `wsl --shutdown`, since the address isn't guaranteed to be static across restarts - a script relying on the old hardcoded IP would then fail to connect.
+**Scenario:** A backend API running in container `A` attempts to connect to a Redis database running in container `B`: `redis-cli -h 172.17.0.3 -p 6379`. The command fails with:
+`Error: Connection refused`.
+Inside container `B`, the developer runs `redis-cli ping` and receives `PONG`.
 
+What is the root cause, and how does `ss -tulpn` reveal it?
+
+**Answer:**
+Redis in container `B` is configured to listen strictly on `127.0.0.1` (`bind 127.0.0.1` in `redis.conf`). 
+
+Inside container `B`, `redis-cli ping` uses `localhost` (`lo` interface) and succeeds. However, traffic from container `A` arrives on container `B`'s ethernet interface `172.17.0.3` (`eth0`). Because Redis is not bound to `0.0.0.0`, the kernel immediately rejects the TCP SYN packet with `Connection refused`.
+
+Running `ss -tulpn` inside container `B` will display:
+`tcp LISTEN 127.0.0.1:6379` instead of `0.0.0.0:6379`.
+
+**The Fix:** Set `bind 0.0.0.0` in `redis.conf`.
 </details>
 
-## Further reading & sources
+<details>
+<summary><strong>Question 2: Diagnosing DNS Failure vs. TCP Timeout</strong></summary>
 
-- [Microsoft: Accessing network applications with WSL](https://learn.microsoft.com/en-us/windows/wsl/networking) - the official, current explanation of WSL2 networking modes (NAT vs. mirrored) and localhost forwarding behavior, including known limitations.
-- [`man7.org`: ip(8)](https://man7.org/linux/man-pages/man8/ip.8.html) and [ss(8)](https://man7.org/linux/man-pages/man8/ss.8.html) - full option references for the modern `ip`/`ss` toolset this module favors over the legacy `ifconfig`/`netstat`.
-- [`man7.org`: curl(1)](https://man7.org/linux/man-pages/man1/curl.1.html) - curl has dozens of flags beyond `-I`/`-o`; worth a skim once you start scripting HTTP checks.
-- [Cloudflare Learning: What is DNS?](https://www.cloudflare.com/learning/dns/what-is-dns/) - a clear, vendor-neutral explanation of the DNS resolution process `dig`'s output represents.
-- [Julia Evans: "A few reasons DNS is slow" / networking zines](https://wizardzines.com/zines/dns/) - practitioner-written, approachable deep dives if you want more networking intuition beyond this module.
+**Scenario:** An automated billing cron job fails intermittently. The developer suspects the third-party payment gateway is down. 
+How do you determine from the CLI whether the failure is a **DNS resolution failure** or a **network packet drop / firewall block**?
 
-## Next
+**Answer:**
+Triage the two layers separately:
+1. **Test DNS Resolution:**
+   ```bash
+   dig +short api.stripe.com
+   ```
+   If `dig` returns no IP address or reports `SERVFAIL` / `NXDOMAIN`, the problem is in `/etc/resolv.conf` or the upstream DNS provider.
+2. **Test TCP Connectivity:**
+   ```bash
+   nc -zv -w 3 <RESOLVED_IP> 443
+   ```
+   * If it reports `Connection refused`, the host is reachable but no service is listening.
+   * If it hangs for 3 seconds and times out (`Connection timed out`), packets are being dropped by a firewall, security group, or routing black hole.
+</details>
 
-Continue to [11-systemd-services](../11-systemd-services/README.md) to learn how Linux manages background services - and how to enable and use systemd inside WSL2.
+<details>
+<summary><strong>Question 3: Why `ss` Replaced `netstat` on High-Throughput Linux</strong></summary>
+
+**Scenario:** On a Kubernetes cluster node handling 100,000 active web connections, an engineer runs `netstat -an`. The command takes 45 seconds to finish and pegs the CPU at 100%. When they run `ss -t`, the command finishes in 0.15 seconds.
+
+What is the underlying Linux kernel architectural difference between `netstat` and `ss`?
+
+**Answer:**
+`netstat` is a legacy utility that gathers connection data by opening, reading, and parsing the pseudo-filesystem file `/proc/net/tcp` line by line. On a high-scale server with 100,000 sockets, formatting and parsing this gigantic virtual text file in userspace imposes massive CPU memory-copy overhead.
+
+`ss` (Socket Statistics) bypasses `/proc` entirely. It queries the Linux kernel's networking stack directly using **Netlink kernel sockets (`NETLINK_INET_DIAG`)**. The kernel packages socket metadata as raw binary structs directly from its internal hash tables, eliminating text serialization and returning results in milliseconds.
+</details>
+
+---
+
+## Next Step
+
+Now that you have mastered networking, wire diagnostics, and socket bindings, proceed to **[11 · Systemd Services and Daemons](../11-systemd-services/README.md)** to manage long-running background services, unit files, restarts, and runtime dependencies.

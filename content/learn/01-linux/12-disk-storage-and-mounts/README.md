@@ -1,226 +1,402 @@
-# Module 12: Disk, Storage, and Mounts
+# Module 12: Disk Storage, Mounts, and Filesystems
 
-> 🎯 **Goal:** Find where space went, understand how storage appears in the filesystem, and avoid confusing a link with the data it points to.
+> **Prerequisites:** Module 02 (Filesystem Navigation), Module 06 (Process Management).  
+> **Estimated Reading Time:** 25 minutes  
+> **Target Audience:** Backend Engineers, Site Reliability Engineers, DevOps & Storage Architects.
 
-By the end of this module, you should be able to compare filesystem capacity with directory usage, identify a mount point, reason about WSL's virtual disk, and choose correctly between a hard link and a symbolic link.
+> [!TIP]
+> **The Golden Rule of Linux Storage:** Unlinking a file (`rm`) merely removes its directory entry; the underlying disk blocks are **NOT freed until every process holding an open file descriptor to that file terminates**. When investigating "Disk Full" alerts where `df` reports 100% capacity but `du` cannot find the large files, always run `lsof +L1` (or `lsof \| grep deleted`) to find running daemons holding deleted files in memory.
 
 ---
 
-## Why this matters
+## 1. Architectural Mental Model: Block Devices, Filesystems, and Mounts
 
-Every server you'll ever operate eventually runs low on disk space, mounts the wrong volume, or fills up a log directory until something crashes. Knowing how to see what's using space, understand what a "mount" actually is, and tell a hard link from a symlink is the difference between a two-minute fix and a confused escalation. In WSL2 this also matters for a Windows-specific reason: your Linux filesystem lives inside a virtual disk file that Windows manages, and that file has its own quirks around growing and shrinking.
-
-## Concepts
-
-### Capacity and usage are different questions
-
-`df` reports space available on mounted filesystems; `du` reports how much space a directory tree appears to use. Use both before cleanup. Do not delete files solely because a directory looks large—identify the mount, confirm whether a process still has a deleted file open, and use a backup or retention policy for anything valuable.
-
-**Filesystems and mounting.** A filesystem is the structure that organizes data on a storage device - it's how the raw bytes on a disk become "files" and "directories" you can navigate. "Mounting" is the act of attaching a filesystem to a specific point in your existing directory tree so you can reach it by path. Nothing is available until it's mounted somewhere. When Ubuntu boots, it mounts its root filesystem at `/`, and typically mounts other things (like a separate partition, a USB drive, or - in WSL2's case - your Windows drives) at other points underneath `/`.
-
-**The /mnt convention in WSL2.** You've already used `/mnt/c` to reach your `C:` drive from earlier modules. This is exactly the mounting concept in action: WSL2 takes the Windows filesystem and mounts it at `/mnt/c` (and `/mnt/d`, etc., for other drives), so from Linux's point of view, your Windows files are just another directory tree grafted onto the Linux one. This is why `cd /mnt/c/Users/yourname` gets you to your Windows user folder. The reverse isn't automatic in the same way - Windows sees your WSL2 filesystem through the special `\\wsl$\` or `\\wsl.localhost\` network path, not as a normal drive letter, because the Linux filesystem actually lives inside a virtual disk.
-
-```
-  Windows host
-   C:\ (NTFS, managed by Windows) ─┐
-                                    │ mounted into WSL2 as
-                                    ▼
-  WSL2 filesystem tree:
-   /                        ← ext4, lives inside ext4.vhdx (WSL2's own disk)
-   ├── home/paresh/          ← native Linux files, fast, real ext4
-   ├── etc/, var/, usr/       ← same
-   └── mnt/
-        └── c/                ← YOUR C:\, grafted on via the drvfs driver
-             └── Users/you/    ← reachable as /mnt/c/Users/you
-```
-
-Two different filesystems, two different drivers (`ext4` vs `drvfs`), stitched into one tree by mounting — exactly the "mounting" concept this module defines, made concrete.
-
-**The WSL2 virtual disk.** Your entire Ubuntu installation - `/`, `/home`, `/var`, everything except `/mnt/c` and friends - physically lives inside a single file on your Windows machine called `ext4.vhdx` (a virtual hard disk). WSL2 runs a real, lightweight Linux kernel in a lightweight VM, and that VM's "disk" is this file. This matters for two practical reasons covered in the exercises below: `df -h` inside WSL2 will show usage for this virtual disk, and the `.vhdx` file grows as you use more space but does **not** automatically shrink back down when you delete files.
-
-**Disk usage vs. individual file/directory size.** `df` (disk free) reports usage at the filesystem level - how full each mounted filesystem is, as a whole. `du` (disk usage) reports how much space specific files or directories are consuming, so you can find out *what* is eating the space that `df` says is full. These two tools answer different questions and you'll usually use them together: `df` tells you there's a problem, `du` helps you find where.
-
-**Inodes, briefly.** Every file and directory on a Linux filesystem has metadata - permissions, owner, timestamps, and pointers to where its actual data blocks live - stored in a structure called an inode. The filename you see is really just a label pointing at an inode number. This matters because a filesystem can theoretically run out of inodes (too many small files) even when there's plenty of raw disk space left, though this is rare for a beginner to hit directly. The important takeaway for now: a "file" is really "a name pointing at an inode," and that's what makes hard links possible (see below).
-
-**Hard links vs. symbolic links.** A hard link is a second filename pointing at the *same inode* as an existing file - it's not a copy, it's another name for the identical data on disk. If you edit through one name, the other name shows the same change, because they're the same underlying file. Delete one name, the data survives as long as at least one link remains. A symbolic link (symlink) is different: it's a small special file that just contains a path, pointing at another file by name. If you delete the target, the symlink still exists but becomes "broken" (dangling), because it never held the data itself, just a reference to a path. Think of a hard link as two street addresses for the identical house, and a symlink as a signpost pointing toward an address - if the house at that address gets demolished, the signpost is still standing but now points at nothing.
-
-```
-  Hard link:                          Symlink:
-
-  original.txt ──┐                    original.txt ──► [data]
-  hardlink.txt ──┼──► inode 8842      symlink.txt ────► "original.txt" (a path)
-                 │     [data]                                │
-  same inode,    │                    delete original.txt:   │
-  same data,     │                     symlink.txt still     ▼
-  either name    │                     exists, but now      dangling —
-  keeps it alive │                     points at nothing     points at nothing
-```
-
-**Mounting and unmounting.** `mount` (with no arguments) lists everything currently mounted; with arguments it attaches a filesystem to a directory (a "mount point"). `umount` detaches it. You won't typically need to mount/unmount things by hand in ordinary WSL2 use since Windows drives are already mounted for you, but understanding the command matters for external drives, ISO images, and (later in this curriculum) container volumes and Kubernetes persistent storage, which are all built on this same mounting concept.
-
-## Command reference
-
-| Command | What it does | Example |
-|---|---|---|
-| `df -h` | Shows disk space usage for all mounted filesystems, human-readable (`-h` = sizes in KB/MB/GB instead of raw bytes) | `df -h` |
-| `du -sh <path>` | Shows total disk usage of a directory, summarized (`-s` = summary only, one line) and human-readable (`-h`) | `du -sh /var/log` |
-| `du -h --max-depth=1 <path>` | Shows disk usage broken down one level deep, so you can see which subdirectory is the biggest | `du -h --max-depth=1 /home/yourname` |
-| `lsblk` | Lists block devices (disks and partitions) and their mount points as a tree | `lsblk` |
-| `fdisk -l` | Lists partition tables on disks in detail (requires `sudo`); more low-level than `lsblk` | `sudo fdisk -l` |
-| `mount` | With no arguments, lists all currently mounted filesystems; with arguments, mounts a device or image at a mount point | `mount \| grep ext4` |
-| `umount <path>` | Unmounts a filesystem from the given mount point | `sudo umount /mnt/mydrive` |
-| `ln <target> <linkname>` | Creates a hard link named `linkname` pointing at the same inode as `target` | `ln original.txt hardlink.txt` |
-| `ln -s <target> <linkname>` | Creates a symbolic link named `linkname` that stores the path to `target` (`-s` = symbolic) | `ln -s /mnt/c/Users/you/notes.txt mynotes` |
-| `stat <file>` | Shows detailed metadata about a file, including its inode number | `stat myfile.txt` |
-| `wsl --shutdown` | (Run from Windows, not WSL2) Fully shuts down all WSL2 instances and the underlying lightweight VM | `wsl --shutdown` |
-
-## Hands-on exercises
-
-1. Open your WSL2 Ubuntu terminal. Run `df -h` and look at the output. Find the line for `/` (your root filesystem). Note the `Size`, `Used`, `Avail`, and `Use%` columns. This is your WSL2 virtual disk.
-
-2. Run `df -h /mnt/c`. Compare its `Filesystem` column to the one for `/`. They should look different (one is likely reported as `drvfs`, the WSL2 driver for Windows drives, versus `ext4` for the native Linux disk) - this confirms `/mnt/c` is a genuinely different, separately-mounted filesystem grafted into your tree, not part of your Linux disk.
-
-3. Run `mount | grep -E "on / |on /mnt/c"` and read the two lines. Note the filesystem type shown in parentheses for each (for example `ext4` vs `drvfs` or `9p`). This is the mount command confirming what `df` told you.
-
-4. Run `lsblk`. In WSL2, this output is often minimal or shows only a couple of virtual devices, unlike on a physical machine where you'd see real disks and partitions - WSL2 abstracts the underlying storage, so don't expect a rich device tree here. Make a note in your own words of what you see (or don't see).
-
-5. Run `sudo fdisk -l 2>&1 | head -30`. Again, in WSL2 this may show little or nothing useful compared to bare-metal Linux, because the virtual disk isn't exposed as a raw block device the same way. This is expected - the exercise is to see the limitation firsthand, not to get rich output.
-
-6. Find what's using space in your home directory. Run:
-   ```
-   du -h --max-depth=1 ~ 2>/dev/null | sort -rh
-   ```
-   Read this left to right: `du` computes usage, `--max-depth=1` limits it to immediate subdirectories, `2>/dev/null` throws away "permission denied" noise (from module 07), and `sort -rh` sorts human-readable sizes in reverse (largest first, from module 08). Identify your largest subdirectory.
-
-7. Create a test file and both kinds of links, then prove they behave differently:
-   ```
-   cd ~
-   mkdir -p linktest && cd linktest
-   echo "original data" > original.txt
-   ln original.txt hardlink.txt
-   ln -s original.txt symlink.txt
-   ls -li
-   ```
-   Look at the first column (the inode number) in the `ls -li` output. `original.txt` and `hardlink.txt` should show the **same** inode number. `symlink.txt` will show a different inode number and its own line will display `symlink.txt -> original.txt`.
-
-8. Now break the symlink on purpose. Run:
-   ```
-   rm original.txt
-   cat hardlink.txt
-   cat symlink.txt
-   ```
-   `cat hardlink.txt` should still print `original data` - the data survived because the hard link is another name for the same inode. `cat symlink.txt` should fail with something like `cat: symlink.txt: No such file or directory` - the symlink pointed at a path that no longer resolves. Read that error message carefully; this is the "dangling symlink" failure mode you'll now recognize instantly in the future.
-
-9. Fix the dangling symlink by recreating what it points to, then verify:
-   ```
-   echo "new data" > original.txt
-   cat symlink.txt
-   ```
-   The symlink works again because the path it stores now resolves to a real file again.
-
-10. Clean up and check overall usage reporting one more time: run `cd ~ && rm -rf linktest` then `df -h /`. Confirm the filesystem is still mounted and note that deleting a few small files barely moves the `Used`/`Avail` numbers - real space investigations need `du` on larger directories, which is why you practiced step 6.
-
-## Production practice: find the real storage problem
-
-> [!key]
-> A path belongs to a mounted filesystem. `df` answers “which filesystem is full?”; `du` answers “which visible directory data is large?” Use them together.
-
-> [!model]
-> Mounting attaches another filesystem at a directory. From that point, the mounted filesystem's contents appear there, like opening a doorway into a different storage volume.
+Linux separates physical block storage from the directory tree through three distinct layers: Block Devices, Filesystems, and Mount Points.
 
 ```mermaid
 flowchart TD
-    D["Disk / virtual disk"] --> F["Filesystem"]
-    F --> M["Mount point: /var"]
-    M --> L["Logs, caches, app data"]
-    D --> W["WSL ext4.vhdx on Windows"]
+    subgraph Hardware["1. Hardware / Block Device Layer"]
+        NVMe["/dev/nvme0n1 (Physical NVMe SSD)"]
+        SDA["/dev/sda (Virtual Disk / EBS Volume)"]
+    end
+
+    subgraph Partitions["2. Partition Table (GPT / MBR)"]
+        SDA1["/dev/sda1 (Partition 1: Boot)"]
+        SDA2["/dev/sda2 (Partition 2: Root)"]
+    end
+
+    subgraph FS["3. Filesystem Driver (Superblock & Inodes)"]
+        Ext4["ext4 Filesystem (Superblock, Inode Table, Data Blocks)"]
+        XFS["XFS Filesystem (Scalable Database Storage)"]
+    end
+
+    subgraph VFS["4. Virtual File System Mount Points"]
+        RootMount["/ (Root Mount Point)"]
+        DataMount["/var/lib/postgresql (Dedicated Data Volume Mount)"]
+    end
+
+    SDA --> SDA1 & SDA2
+    SDA2 --> Ext4
+    NVMe --> XFS
+    Ext4 -->|mount /dev/sda2 /| RootMount
+    XFS -->|mount /dev/nvme0n1 /var/lib/postgresql| DataMount
 ```
 
-The storage stack explains where a path lives. This diagnostic flow separates the common “disk full” cases.
+### The Inode vs. Data Block Reality
+Every file on an ext4 or XFS filesystem consists of:
+1. **The Inode (Index Node):** Stores file metadata (size, owner, permissions, timestamps, and pointers to disk blocks). It does **not** store the file name or file data.
+2. **Directory Entry:** A special directory table entry that maps a human-readable file name (e.g. `access.log`) to an inode number (e.g. `inode 140291`).
+3. **Data Blocks:** The actual storage sectors (typically 4 KB blocks) containing file contents.
+
+---
+
+## 2. Hard Links vs. Symbolic (Soft) Links
+
+Understanding links prevents catastrophic data loss and subtle bugs in build caches:
+
+```
+  HARD LINK: Two names pointing to the EXACT SAME INODE
+  "app.log"     ───┐
+                   ├──▶ Inode #45021 [Link Count: 2] ───▶ [ Data Blocks on Disk ]
+  "app.log.bak" ───┘
+
+  SYMBOLIC LINK: A pointer file containing the string path to another file
+  "latest.log" ──▶ Inode #89110 [Content: "/var/log/app-2026.log"]
+                         │
+                         ▼
+                   Inode #45021 ───▶ [ Data Blocks on Disk ]
+```
+
+| Feature | Hard Link (`ln target link`) | Symbolic Link (`ln -s target link`) |
+| :--- | :--- | :--- |
+| **Inode Number** | **Identical** to the target inode | **New, distinct inode** allocated |
+| **Spans Multiple Filesystems?** | **NO** (Inodes are local to a specific filesystem) | **YES** (Simply stores a path string) |
+| **Can Link Directories?** | NO (Prevents filesystem recursion loops) | YES |
+| **What happens if target is deleted?** | Data remains intact! Link count decrements to 1. | **Dangling symlink!** Link breaks (`No such file`). |
+| **Storage Overhead** | Zero additional disk blocks | 1 inode + small path string |
+
+---
+
+## 3. Systematic Reference: Storage Diagnostics & Management
+
+| Command | Action Performed | What it Measures | Production Gotcha |
+| :--- | :--- | :--- | :--- |
+| **`df -h`** | Reports filesystem disk space usage | Free blocks on mounted filesystems | Inspects filesystem superblock; includes unlinked open files! |
+| **`df -i`** | Reports filesystem **inode** capacity | Total free inodes | Server crashes with "No space left" if inodes hit 100% even if 50GB free! |
+| **`du -sh <dir>`** | Sums space consumed by directory tree | Recursively adds sizes of existing files | Does **not** account for deleted files held open by running processes. |
+| **`lsblk -f`** | Lists block devices, partitions, and UUIDs | Filesystem types (ext4, xfs) and mounts | Run before mounting volumes in cloud instances. |
+| **`lsof +L1`** | Finds open files with link count `< 1` | Unlinked files consuming active disk space | Identifies rogue processes holding deleted log files. |
+
+---
+
+## 4. Production War Story: The Deleted-Yet-Open Log File Disk Exhaustion Outage
 
 ```mermaid
-flowchart TD
-    A["Disk-full symptom"] --> B["df -h path"]
-    B --> C{"Filesystem full?"}
-    C -->|Yes| D["du -xhd1 mount point"]
-    C -->|No| E["Check inodes: df -ih"]
-    D --> F{"Visible data explains use?"}
-    F -->|No| G["Check deleted open files"]
-    F -->|Yes| H["Apply retention / cleanup policy"]
+sequenceDiagram
+    actor SRE as On-Call SRE Engineer
+    participant Disk as Physical Storage Volume (/var 100% Full)
+    participant Nginx as Nginx Web Server (PID 1420)
+    participant Kernel as Linux Kernel Virtual File System
+
+    Note over Disk: Alert fires: Disk Space Critical (/var/log at 99.8%)!
+    SRE->>Disk: rm /var/log/nginx/access.log (250 GB file)
+    Disk->>Kernel: unlinkat("access.log")
+    Note over Kernel: Inode link count drops from 1 to 0!
+    Note over Kernel: BUT Nginx (PID 1420) still holds open File Descriptor (FD 3)!
+    Note over Kernel: Kernel REFUSES to deallocate data blocks while FD is open!
+    SRE->>Disk: df -h -> Still reports 100% Full!
+    Note over SRE: SRE runs du -sh /var/log -> reports only 200 MB used!
+    Note over SRE,Disk: Confusion! Where did 250 GB go?
+    Note over Disk: 15 minutes later: PostgreSQL crashes with "No space left on device"!
+    Note over SRE: Emergency SEV-1: Multi-tenant database outage!
 ```
 
-> [!example]
-> `df -h /var` can show that `/var` is nearly full. `sudo du -xhd1 /var | sort -h` then narrows the visible consumers without crossing into another mounted filesystem. Check log retention or application behavior before deleting anything.
+### The Incident
+A high-throughput e-commerce gateway triggered an automated pager alert: `/var` disk usage reached **99.8%**. The on-call engineer connected via SSH, located a 250 GB log file `/var/log/nginx/access.log`, and executed:
+```bash
+sudo rm /var/log/nginx/access.log
+```
+The file disappeared from `ls`. However, running `df -h` continued to show **99.8% disk usage**. Ten minutes later, PostgreSQL crashed when its write-ahead log (WAL) could not allocate disk space, causing a global checkout blackout.
 
-> [!pitfall]
-> A deleted file can still consume space while a process holds it open. If `df` says a filesystem is full but `du` cannot find the expected data, inspect open deleted files with `lsof +L1` (where available) and restart the owning service only after identifying it.
+### The Post-Mortem Data
+* **Severity:** SEV-1 (Global Production Database Crash)
+* **Mean Time to Detect (MTTD):** 15 minutes
+* **Mean Time to Resolution (MTTR):** 25 minutes
 
-> [!exercise]
-> In a practice directory, create a file, a hard link, and a symbolic link. Compare `ls -li`, then delete the original filename and explain which link still reaches the data and why. Do not experiment with system paths.
+### The Root Cause
+In Linux, **deleting a file name unlinks the directory reference, but does not free disk blocks if any process holds an open file descriptor to that inode**. Nginx maintained an open file handle to `access.log`. Because Nginx was never signaled or reloaded, the kernel kept all 250 GB of disk blocks allocated to the open inode.
 
-> [!interview]
-> Explain why `du` and `df` can disagree, and compare hard links with symbolic links in terms of what each points to and what happens when the original pathname is removed.
+### The Fix & Hardening
+1. **Locate Holding Processes with `lsof`:**
+```bash
+sudo lsof +L1
+# Output: nginx 1420 www-data 3w REG 8,1 268435456000 0 /var/log/nginx/access.log (deleted)
+```
+2. **Truncate Files Instead of Unlinking Them:**
+If a process is holding an active log file that cannot be stopped immediately, **truncate the inode directly without removing the link**:
+```bash
+# Truncates file length to 0 bytes instantly while preserving the open file descriptor!
+: > /var/log/nginx/access.log
+# Or:
+truncate -s 0 /var/log/nginx/access.log
+```
+3. **Signal Daemons to Reopen Logs:**
+```bash
+sudo nginx -s reopen
+```
 
-> [!check]
-> - Can you find the filesystem that contains a path?
-> - Can you distinguish capacity, inode exhaustion, and visible directory usage?
-> - Can you state when a symlink can become dangling?
+---
 
-## Independent challenge
+## 5. Multi-Language Production Code: Inspecting Disk & Inode Metrics
 
-No commands given here — figure it out yourself using what you know from this module and earlier ones.
+Production backend microservices should inspect local storage capacity in health checks to avert database corruption.
 
-**Task:** Find the three largest immediate subdirectories under `/var` without eyeballing everything by hand — build a single pipeline that measures their sizes and ranks them largest-first (lean on module 08's sorting and module 07's pipes to do the ranking). Then create a symbolic link in your home directory that points at whichever one came out largest, so you can reach it quickly by a short name. Finally, prove the key property of a symlink: delete the link and confirm the real directory it pointed at is completely untouched.
+### Go
+```go
+package main
+
+import (
+	"fmt"
+	"golang.org/x/sys/unix"
+)
+
+// StorageStats holds filesystem disk capacity metrics
+type StorageStats struct {
+	TotalBytes     uint64
+	AvailableBytes uint64
+	UsedPercent    float64
+	TotalInodes    uint64
+	FreeInodes     uint64
+	InodePercent   float64
+}
+
+// CheckStorageCapacity queries the filesystem superblock using statfs(2).
+func CheckStorageCapacity(mountPath string) (*StorageStats, error) {
+	var stat unix.Statfs_t
+	if err := unix.Statfs(mountPath, &stat); err != nil {
+		return nil, fmt.Errorf("statfs failed on %s: %w", mountPath, err)
+	}
+
+	totalBytes := stat.Blocks * uint64(stat.Bsize)
+	availBytes := stat.Bavail * uint64(stat.Bsize)
+	usedBytes := totalBytes - availBytes
+	usedPct := (float64(usedBytes) / float64(totalBytes)) * 100
+
+	totalInodes := stat.Files
+	freeInodes := stat.Ffree
+	usedInodes := totalInodes - freeInodes
+	inodePct := (float64(usedInodes) / float64(totalInodes)) * 100
+
+	return &StorageStats{
+		TotalBytes:     totalBytes,
+		AvailableBytes: availBytes,
+		UsedPercent:    usedPct,
+		TotalInodes:    totalInodes,
+		FreeInodes:     freeInodes,
+		InodePercent:   inodePct,
+	}, nil
+}
+
+func main() {
+	stats, err := CheckStorageCapacity("/")
+	if err != nil {
+		fmt.Printf("Error: %v\n", err)
+		return
+	}
+
+	fmt.Printf("[Storage Audit for /]\n")
+	fmt.Printf(" - Disk Space: %.2f%% used (%.2f GB available)\n",
+		stats.UsedPercent, float64(stats.AvailableBytes)/(1024*1024*1024))
+	fmt.Printf(" - Inodes: %.2f%% used (%d free inodes)\n", stats.InodePercent, stats.FreeInodes)
+
+	if stats.UsedPercent > 90.0 || stats.InodePercent > 90.0 {
+		fmt.Println("⚠️  CRITICAL STORAGE THRESHOLD EXCEEDED!")
+	} else {
+		fmt.Println("✅ Storage health verified.")
+	}
+}
+```
+
+### Node.js / TypeScript
+```typescript
+import * as fs from 'fs/promises';
+
+interface DiskHealth {
+  path: string;
+  freeBytes: bigint;
+  totalBytes: bigint;
+  usedPercentage: number;
+}
+
+/**
+ * Evaluates storage metrics using Node's fs.statfs API.
+ */
+export async function auditDiskSpace(mountPath = '/'): Promise<DiskHealth> {
+  const stats = await fs.statfs(mountPath);
+  const total = stats.bsize * stats.blocks;
+  const free = stats.bsize * stats.bavail;
+  const used = total - free;
+  const usedPercentage = Number((used * 100n) / total);
+
+  return {
+    path: mountPath,
+    freeBytes: free,
+    totalBytes: total,
+    usedPercentage,
+  };
+}
+
+auditDiskSpace().then((health) => {
+  console.log(`[Disk Audit] Mount: ${health.path} | Used: ${health.usedPercentage}%`);
+  if (health.usedPercentage >= 90) {
+    console.warn('⚠️  ALERT: Low disk space threshold reached!');
+  }
+});
+```
+
+### Python
+```python
+import shutil
+import os
+import sys
+
+def check_filesystem_health(mount_point: str = "/") -> dict:
+    """
+    Checks byte storage and inode capacity on target filesystem mount.
+    """
+    total, used, free = shutil.disk_usage(mount_point)
+    used_pct = (used / total) * 100
+
+    # Inode inspection via statvfs
+    vfs = os.statvfs(mount_point)
+    total_inodes = vfs.f_files
+    free_inodes = vfs.f_ffree
+    used_inodes = total_inodes - free_inodes
+    inode_pct = (used_inodes / total_inodes) * 100 if total_inodes > 0 else 0
+
+    return {
+        "mount": mount_point,
+        "disk_used_percent": round(used_pct, 2),
+        "inode_used_percent": round(inode_pct, 2),
+        "free_gb": round(free / (1024**3), 2)
+    }
+
+if __name__ == "__main__":
+    h = check_filesystem_health()
+    print(f"Mount '{h['mount']}': {h['disk_used_percent']}% bytes used, {h['inode_used_percent']}% inodes used.")
+```
+
+---
+
+## 6. Practical Hands-On Verification CLI Workflows
+
+Follow these workflows in your Ubuntu terminal:
+
+### Workflow 1: Inspect Filesystem and Inode Capacity
+```bash
+# 1. Inspect human-readable disk capacity
+df -h
+
+# 2. Inspect inode capacity
+df -i
+```
+
+### Workflow 2: Demonstrate Hard Link vs. Symlink Inode Identity
+```bash
+# 1. Create a base file
+mkdir -p /tmp/link-lab && cd /tmp/link-lab
+echo "Original data payload" > base.txt
+
+# 2. Create a hard link and a symbolic link
+ln base.txt hardlink.txt
+ln -s base.txt symlink.txt
+
+# 3. Inspect inode numbers (-i displays inode)
+ls -li base.txt hardlink.txt symlink.txt
+```
+**Expected Output:**
+```text
+45021 -rw-r--r-- 2 asha asha 22 Nov 10 16:00 base.txt
+45021 -rw-r--r-- 2 asha asha 22 Nov 10 16:00 hardlink.txt
+89110 lrwxrwxrwx 1 asha asha  8 Nov 10 16:00 symlink.txt -> base.txt
+```
+*(Notice that `base.txt` and `hardlink.txt` share inode `45021` and report link count `2`, while `symlink.txt` has its own inode `89110`).*
+
+### Workflow 3: Delete Target and Observe Link Behavior
+```bash
+# 1. Delete original file
+rm base.txt
+
+# 2. Test reading hard link (data persists!)
+cat hardlink.txt
+
+# 3. Test reading symlink (broken link!)
+cat symlink.txt || echo "Symlink is broken!"
+
+# 4. Clean up
+cd ~ && rm -rf /tmp/link-lab
+```
+
+---
+
+## 7. Operational Validation Checkpoint
 
 <details>
-<summary>Stuck? One hint</summary>
+<summary><strong>Question 1: Why `df` and `du` Disagree on Disk Usage</strong></summary>
 
-`du --max-depth=1` on `/var` gives per-subdirectory sizes, and piping that into `sort -rh` then `head` ranks and trims them; `ln -s` makes the pointer, and removing a symlink only removes the pointer, never the target.
+**Scenario:** During an incident, `df -h /var` reports that the volume is 100% full with 0 bytes free. However, running `sudo du -sh /var` reports that the total sum of all directories under `/var` is only 12 GB on a 100 GB disk.
 
+What accounts for this 88 GB discrepancy, and how do you recover the space?
+
+**Answer:**
+`du` (Disk Usage) traverses the visible filesystem tree and sums the sizes of files it can locate by name. 
+
+`df` (Disk Free) queries the filesystem superblock directly, which accounts for **all allocated disk blocks—including deleted files that are still held open by running processes**. 
+
+If a 88 GB log file was unlinked with `rm`, it disappears from directory listings (so `du` cannot see it), but its blocks remain allocated on disk until the holding process closes its file descriptor.
+
+**Recovery:** Run `sudo lsof +L1` to identify the process holding the deleted file, and reload or restart that service (`sudo systemctl restart <service>`) or truncate the file descriptor directly via `/proc/<PID>/fd/<FD>`.
 </details>
-
-## Common mistakes & troubleshooting
-
-- **Expecting `lsblk` or `fdisk -l` to show a real disk layout in WSL2.** They usually won't, because WSL2 storage is virtualized differently than bare-metal Linux. Don't assume your WSL2 skills transfer 1:1 to disk partitioning on a real server without checking - the concepts do, the specific output often won't.
-- **Confusing `df` and `du`.** `df` tells you how full a filesystem is overall; `du` tells you how big a specific directory or file is. If `df` says you're low on space, use `du` to hunt down the culprit - don't expect `df` itself to tell you *what* is using the space.
-- **Forgetting `-h` and reading raw byte counts as if they were KB.** Without `-h`, both commands print raw block counts, which are easy to misread. Always use `-h` unless you have a specific scripting reason not to.
-- **Deleting the target of a hard link and expecting the other name to disappear too.** It won't - that's the entire point of a hard link. Only when *all* names (links) to an inode are removed does the underlying data actually get freed.
-- **Deleting the target of a symlink and being surprised it "breaks."** A symlink holds a path, not data. If you move or rename the target instead of deleting it, the symlink breaks the same way - it doesn't track renames.
-- **Expecting the WSL2 virtual disk to shrink automatically after deleting large files.** The `.vhdx` file grows as needed but does not shrink itself back down by default. If you need to reclaim that Windows-side disk space, you run `wsl --shutdown` from a Windows PowerShell/CMD prompt (not from inside Ubuntu) to fully stop the VM, and then optionally compact the `.vhdx` using Windows' `diskpart` tool (an advanced, occasional-maintenance step, not something you need for daily work).
-- **Running `mount` or `umount` on system paths without understanding the effect.** Unmounting `/` or `/mnt/c` while you're actively using them can break your shell session. Practice mount/unmount concepts on things you create yourself, not on paths you rely on.
-
-## Checkpoint quiz
-
-Write down your answer to each question before expanding it — checking without attempting first is the single easiest way to fool yourself into thinking you've learned this.
-
-1. What's the conceptual difference between what `df` reports and what `du` reports?
-2. Why does `/mnt/c` show a different filesystem type than `/` when you run `df -h` or `mount`?
-3. If you have a hard link and a symlink both pointing at the same original file, and you delete the original file, what happens to each link and why?
-4. What is an inode, in your own words?
-5. Why might `lsblk` and `fdisk -l` show little useful output inside WSL2 compared to a physical Linux machine?
-6. You deleted a 20 GB file inside WSL2 but Windows still shows your `ext4.vhdx` file as just as large as before. Is this a bug? What would you do about it?
-7. You run `du -h --max-depth=1 /var | sort -rh` and see `/var/log` is unusually large. What would your next command be to find the specific file(s) responsible?
 
 <details>
-<summary>Show answers</summary>
+<summary><strong>Question 2: Inode Exhaustion Outage</strong></summary>
 
-1. `df` reports how full entire mounted filesystems are (aggregate space used/available per filesystem); `du` reports how much disk space a specific file or directory tree consumes. `df` tells you there's a space problem at the filesystem level; `du` helps you locate which files/directories are responsible.
-2. Because they're genuinely different filesystems mounted at different points: `/` is the native Linux `ext4` filesystem living inside the WSL2 virtual disk, while `/mnt/c` is Windows' NTFS filesystem exposed into WSL2 through a translation driver (commonly shown as `drvfs` or `9p`), not a native Linux filesystem.
-3. The hard link still works and shows the original content, because a hard link is another name for the same inode/data - the data isn't gone until every hard link to it is removed. The symlink breaks ("No such file or directory") because it only stored a path to the original filename, and that path no longer resolves to anything.
-4. An inode is the metadata structure the filesystem uses to represent a file - permissions, owner, timestamps, and pointers to the actual data blocks. A filename is just a label that points at an inode; multiple filenames (hard links) can point at the same inode.
-5. Because WSL2 doesn't expose real physical disks/partitions to the Linux kernel the way bare metal does - the Linux filesystem lives inside a single virtual disk file managed by the Windows host, so there isn't a rich set of real block devices/partitions for these tools to enumerate.
-6. Not a bug - it's expected behavior. The WSL2 virtual disk (`ext4.vhdx`) grows to accommodate data but doesn't automatically shrink when you free space. To reclaim the space on the Windows side, shut down WSL2 with `wsl --shutdown` (from Windows, not Ubuntu) and optionally compact the `.vhdx` file using Windows' `diskpart`.
-7. `du -h --max-depth=1 /var/log | sort -rh` to drill one level further into `/var/log` and see which specific log subdirectory or file is large, repeating/drilling down as needed until you find the actual large file(s).
+**Scenario:** A backend service crashes with:
+`Fatal error: No space left on device`.
+You run `df -h` and observe that the disk is only 30% full with 70 GB of free space available. 
 
+What command diagnoses the real problem, and what application pattern typically causes it?
+
+**Answer:**
+Run:
+```bash
+df -i
+```
+The filesystem has run out of **Inodes (`IUse% = 100%`)**, not disk bytes. 
+
+This is typically caused by applications that generate millions of tiny files without cleanup (such as unpurged PHP/Node.js session files, orphaned cache chunks, or millions of zero-byte temporary files in `/tmp` or `/var/spool/clientmqueue`). Each file requires an inode metadata structure; once the inode table is exhausted, no new files can be created regardless of free byte capacity.
 </details>
 
-## Further reading & sources
+<details>
+<summary><strong>Question 3: Why Hard Links Cannot Span Filesystems</strong></summary>
 
-- [Microsoft: File system support in WSL](https://learn.microsoft.com/en-us/windows/wsl/filesystems) - the official explanation of `/mnt/c`, `drvfs`, `\\wsl$\`, and why cross-filesystem performance differs.
-- [`man7.org`: mount(8)](https://man7.org/linux/man-pages/man8/mount.8.html) and [df(1)](https://man7.org/linux/man-pages/man1/df.1.html) / [du(1)](https://man7.org/linux/man-pages/man1/du.1.html) - full option references beyond this module's `-h`/`--max-depth`.
-- [`man7.org`: ln(1)](https://man7.org/linux/man-pages/man1/ln.1.html) and [inode(7)](https://man7.org/linux/man-pages/man7/inode.7.html) - the hard-link/symlink mechanics and the inode structure underpinning them.
-- [Microsoft: Compact a WSL2 virtual hard disk](https://learn.microsoft.com/en-us/windows/wsl/disk-space) - the official steps for reclaiming space from `ext4.vhdx` after deleting large files, referenced in this module's troubleshooting section.
+**Scenario:** A developer attempts to create a hard link from an external NVMe mount to their home directory:
+`ln /mnt/nvme/large_dataset.bin ~/dataset.bin`
+The command fails with:
+`ln: failed to create hard link: Invalid cross-device link`.
 
-## Next
+Why does the Linux kernel forbid hard links across different filesystems?
 
-Continue to [13-ssh-remote-access](../13-ssh-remote-access/README.md) to learn how to securely connect to and from remote machines using SSH.
+**Answer:**
+A hard link is simply a directory entry that points directly to a numeric **inode number**. 
+
+Inode numbers are **unique only within a single filesystem instance**. Filesystem A (`/`) and Filesystem B (`/mnt/nvme`) each maintain their own independent inode tables; inode `45021` on `/mnt/nvme` refers to completely different physical disk blocks than inode `45021` on `/`. Allowing cross-device hard links would corrupt filesystem data structures.
+
+**The Fix:** Use a **Symbolic Link** (`ln -s`), which stores a path string and resolves across different mount points seamlessly.
+</details>
+
+---
+
+## Next Step
+
+Now that you understand block storage, mounts, filesystems, and inodes, proceed to **[13 · SSH and Remote Access](../13-ssh-remote-access/README.md)** to master public-key authentication, key generation, host verification, and bastion configuration.
