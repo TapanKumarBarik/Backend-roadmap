@@ -1,417 +1,651 @@
 # Module 00: The OWASP Top 10 as a Way of Thinking
 
-## Why this matters
+> **Prerequisites**: [Track 03: Authentication & Authorization](../../03-auth-and-access-control/README.md) (AuthN/AuthZ, JWTs, sessions, RBAC/ABAC).  
+> **Estimated Reading Time**: 35 minutes.  
+> **Target Audience**: Backend Engineers, Platform Engineers, and Application Security Practitioners.
 
-Track 03 taught you to answer *who is this caller* and *what may they do*. This
-track answers a harder, adjacent question: **assuming your auth is perfect, how
-does an attacker get in anyway?** They don't. They attack the code *around* the
-auth — the query that trusts a URL parameter, the template that echoes a
-comment unescaped, the endpoint that fetches a URL the user supplied, the
-password reset with no rate limit. Correct authentication (track 03) is
-necessary and nowhere near sufficient.
+---
 
-The **OWASP Top 10** is the industry's shared vocabulary for those attacks — a
-periodically-updated, data-driven list of the ten categories of web-application
-security risk that show up most in real breaches. Nearly every job that touches
-a backend will, at some point, expect you to know what "A03: Injection" or
-"broken access control" means and roughly how to defend it. But the Top 10 is
-routinely misused as a checklist you tick once and forget. That misses the
-point. The value isn't the list; it's the **mental model** underneath it —
-every item is a specific failure of one idea: *you trusted something you
-shouldn't have.* This module installs that model so the rest of the track (each
-module a deep dive into one or two categories) hangs off a single mental
-skeleton instead of feeling like ten unrelated tricks.
+> [!TIP]
+> **The Golden Rule of Application Security Architecture**  
+> Every security vulnerability in the OWASP Top 10 fundamentally reduces to a single violation: **untrusted input crossing a trust boundary and being interpreted as executable instructions rather than passive data**. Never rely on frontend constraints as security controls—the browser is a client-side convenience, not an execution boundary. Secure your systems by design through defense-in-depth: validate and type-cast at the edge, strictly decouple code from data using parameterized parsers, enforce authorization checks scoped to the authenticated principal at the resource layer, and apply the principle of least privilege everywhere.
 
-## Concepts
+---
 
-### What the OWASP Top 10 is — and what it is not
+## 1. Architectural Blueprint & Trust Boundary Models
 
-OWASP (the Open Worldwide Application Security Project) is a nonprofit that
-publishes free security guidance. Its flagship document, the **Top 10**, is a
-*ranked awareness document*: OWASP gathers vulnerability data from hundreds of
-organizations, groups the findings into categories, and ranks them by how
-prevalent and impactful they are. The current edition (the 2021 list, with a
-2025 refresh in progress) is the reference this track uses.
+Application security begins by establishing precise architectural boundaries between the untrusted outside world (browsers, mobile clients, third-party webhooks, network proxies) and your internal execution environment.
 
-Crucially, it is **not**:
+```mermaid
+flowchart TD
+    subgraph UntrustedZone ["Untrusted Outside World (Zero Trust)"]
+        Browser["Web Browser (DOM / JS)"]
+        Attacker["Hostile Actor (Raw cURL / Scripts)"]
+        Webhook["External Webhook / 3rd Party API"]
+    end
 
-- **Not a standard or a certification.** "OWASP Top 10 compliant" is not a
-  thing you can be. It's an awareness list, not a spec. (The real OWASP
-  *standard* for that is the **ASVS** — Application Security Verification
-  Standard — which is far more detailed.)
-- **Not exhaustive.** Ten categories cannot cover every risk. Something absent
-  from the Top 10 (say, a business-logic flaw) can still ruin you.
-- **Not a checklist you complete once.** Security is not a state you reach; it's
-  a property you continuously maintain as code and dependencies change. Treating
-  the Top 10 as a one-time audit is the single most common way engineers misuse
-  it.
+    subgraph Perimeter ["Edge & Transport Boundary"]
+        WAF["Edge WAF / CDN / Cloudflare"]
+        TLS["TLS Termination & Header Hardening"]
+    end
 
-Think of it as the *ten questions worth asking about every feature you ship*,
-not ten boxes to tick before launch.
+    subgraph InternalApp ["Application Trust Boundary (Trusted Zone)"]
+        Gateway["API Gateway / AuthN Verifier"]
+        AuthZ["Central Authorization & Context Engine"]
+        
+        subgraph Interpreters ["Downstream Execution Subsystems"]
+            SQL["SQL Engine (RDBMS)<br/>Risk: A03 SQLi"]
+            HTML["Client Browser Engine<br/>Risk: A03 XSS"]
+            OSCmd["OS Process Shell<br/>Risk: A03 Command Injection"]
+            HTTPClient["Outbound HTTP Client<br/>Risk: A10 SSRF"]
+            Unpickle["Object Deserializer<br/>Risk: A08 Insecure Deserialization"]
+            DataLayer["Tenant Data Store<br/>Risk: A01 Broken Access Control / IDOR"]
+        end
+    end
 
-### The 2021 categories, walked through as a backend engineer
-
-You don't need to memorize the exact ranking, but you should recognize each
-category and know which are *your* problem as a backend engineer (most of them
-are — the Top 10 is overwhelmingly a server-side list):
-
-- **A01 Broken Access Control** — the #1 risk. A caller does something they
-  shouldn't: reading another user's order by changing an ID in the URL (IDOR),
-  hitting an admin route with no role check, editing a field they don't own.
-  This is track 03's authorization material (RBAC/ABAC, the centralized
-  permission layer, stopping IDOR) — the reason this track *depends on* track
-  03 rather than re-teaching it.
-- **A02 Cryptographic Failures** — sensitive data exposed because crypto was
-  missing or wrong: plaintext passwords, no TLS, weak hashing, secrets in the
-  clear. Track 03's password hashing lives here; this track's secrets-management
-  module (05) extends it.
-- **A03 Injection** — untrusted input interpreted as *code*: SQL, OS commands,
-  NoSQL queries, and (OWASP folds it in here) XSS. **Module 01** and **02**.
-- **A04 Insecure Design** — the flaw is in the *design*, not a bug in the code:
-  a password reset with no rate limit, a "transfer money" flow with no
-  confirmation, missing threat modeling. Can't be patched after the fact; has to
-  be designed out. This is the "secure-by-design" theme running through the
-  whole track.
-- **A05 Security Misconfiguration** — default passwords, verbose error pages in
-  production, unnecessary features enabled, **missing security headers**.
-  **Module 06**.
-- **A06 Vulnerable and Outdated Components** — you shipped a dependency with a
-  known CVE. **Module 06** (dependency scanning).
-- **A07 Identification and Authentication Failures** — weak login: no MFA,
-  credential stuffing allowed, session fixation, guessable tokens. This is
-  track 03's core; **module 04** (rate limiting) hardens it further.
-- **A08 Software and Data Integrity Failures** — trusting code/data you
-  shouldn't: insecure deserialization (Python `pickle`!), unsigned updates, a
-  CI pipeline that runs untrusted code. **Module 03**.
-- **A09 Security Logging and Monitoring Failures** — you got breached and
-  *didn't notice*, or can't reconstruct what happened. Track 03's audit logging
-  and track 08's observability.
-- **A10 Server-Side Request Forgery (SSRF)** — you made your server fetch a URL
-  the attacker chose, and it reached somewhere it shouldn't (internal services,
-  cloud metadata). **Module 03**.
-
-Notice how many collapse into one sentence: *the server trusted input it
-shouldn't have.*
-
-### The unifying model: trust boundaries and untrusted input
-
-Here is the idea the whole list reduces to. Draw your system as regions
-separated by **trust boundaries** — lines where data crosses from a place you
-*don't* control into a place you *do*. The browser, the query string, request
-headers, an uploaded file, a webhook body, a third-party API's response, even a
-value you read back out of your own database that a user put there earlier — all
-of it is **untrusted input** the moment it crosses into your code.
-
-```
-  UNTRUSTED (you don't control)     TRUST BOUNDARY      TRUSTED (your app)
-  browser / query string / headers ──────┐
-  uploaded file / webhook body ──────────┤   ┌─► SQL interpreter    (A03 injection)
-  a third-party API's response ──────────┼───┼─► browser HTML parser (A03 XSS)
-  a value a user stored earlier ─────────┘   ├─► HTTP client         (A10 SSRF)
-                                             └─► deserializer        (A08 integrity)
-       every Top 10 category = one crossing where "untrusted" wasn't enforced
+    Browser -->|"HTTP Request"| WAF
+    Attacker -->|"Crafted Malicious Payload"| WAF
+    Webhook -->|"POST /webhooks"| WAF
+    WAF --> TLS
+    TLS --> Gateway
+    Gateway -->|"Extract & Verify JWT / Session"| AuthZ
+    AuthZ -->|"Scoped DB Query"| DataLayer
+    AuthZ -->|"Parameterized Query"| SQL
+    AuthZ -->|"Sanitized URL"| HTTPClient
+    AuthZ -->|"Safe JSON Unmarshal"| Unpickle
 ```
 
-Almost every Top 10 category is a specific failure to treat untrusted input as
-untrusted at a specific boundary:
+### The Anatomy of an Insecure Trust Boundary Crossing
 
-- Injection (A03): untrusted input crosses into a **SQL/shell/query
-  interpreter** and gets treated as code.
-- XSS (A03): untrusted input crosses into a **browser's HTML/JS parser** and
-  gets treated as markup.
-- SSRF (A10): an untrusted **URL** crosses into your **HTTP client** and gets
-  treated as a legitimate destination.
-- Deserialization (A08): untrusted **bytes** cross into a **deserializer** and
-  get treated as trusted objects/code.
-- Broken access control (A01): an untrusted **identifier** crosses into a data
-  lookup and is trusted to be one the caller owns.
+When an endpoint relies solely on client-side constraints or implicit trust, an attacker circumvents the UI entirely:
 
-So the defensive reflex the whole track trains is a single habit: **at every
-trust boundary, identify what's untrusted, and neutralize it for the specific
-interpreter it's about to reach.** "Neutralize" is context-specific —
-parameterize for SQL, escape for HTML, allowlist for URLs, `safe_load` for
-data — which is exactly why there are ten categories and not one fix. But the
-*question* is always the same.
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Attacker as Hostile Actor
+    participant Edge as API Gateway / Load Balancer
+    participant App as Backend Service
+    participant Auth as AuthZ Guard
+    participant DB as Postgres Database
 
-### Attacker mindset vs the checklist mindset
-
-The checklist mindset asks "did I add input validation?" and ticks the box. The
-attacker mindset asks a different, more productive question: **"if I wanted to
-abuse this endpoint, what would I try?"** That reframing is the actual skill.
-For any feature, run through it:
-
-- What does this trust? (The user id in the token? A field in the body? A
-  header? A filename?)
-- What's the worst thing that happens if that trusted thing is a lie?
-- Can the caller reach something they shouldn't by changing an input?
-- What am I *assuming* the client will send, that a `curl` command need not
-  respect?
-
-That last one is the crux: your frontend is a *convenience*, not a *control*.
-Every constraint enforced only in JavaScript — the dropdown that limits choices,
-the disabled button, the client-side length check — is trivially bypassed by an
-attacker who talks to your API directly. **All security controls must live on
-the server.** A huge fraction of real breaches are just someone `curl`-ing the
-endpoint the UI never intended them to reach.
-
-```
-  What the UI lets a user do:   dropdown ─► [3 valid choices] ─► POST ─► server
-  What curl can actually send:  anything ──────────────────────► POST ─► server
-                                     ▲ the JS constraint never reaches the boundary
-   the attacker mindset: find the boundary the frontend "guards" but the server doesn't
+    Attacker->>Edge: GET /api/v1/invoices/9924 (Auth Bearer Token: User 104)
+    Note over Attacker,Edge: Attacker uses raw HTTP request to bypass UI dropdown
+    Edge->>App: Forward request with validated JWT Claims (sub=104)
+    Note over App: Vulnerable Code: trusts raw path parameter invoice_id=9924
+    alt Insecure Implementation (A01 IDOR)
+        App->>DB: SELECT * FROM invoices WHERE id = 9924;
+        DB-->>App: Return Invoice 9924 (Owned by User 550)
+        App-->>Attacker: 200 OK (Confidential financial records of User 550)
+    else Hardened Implementation (Defense-in-Depth)
+        App->>Auth: ValidateAccess(Caller: 104, Resource: Invoice 9924)
+        Auth->>DB: SELECT * FROM invoices WHERE id = 9924 AND owner_id = 104;
+        DB-->>Auth: Zero rows returned
+        Auth-->>App: AccessDenied / ResourceNotFound
+        App-->>Attacker: 404 Not Found (Leak no object metadata)
+    end
 ```
 
-### Defense in depth and secure-by-design
+---
 
-Two principles that recur in every remaining module:
+## 2. Systematic Taxonomic Reference Grids
 
-- **Defense in depth** — never rely on a single control. `SameSite` cookies
-  *and* CSRF tokens; input validation *and* parameterized queries *and* least-
-  privilege DB accounts. If one layer fails, the next still holds. The Top 10
-  categories overlap on purpose; so should your defenses.
-- **Secure by design (A04)** — the cheapest vulnerability to fix is the one you
-  designed out before writing code. Rate limiting isn't a feature you bolt on
-  after a brute-force incident; a "delete account" flow that requires
-  re-authentication isn't a nice-to-have. Security decisions belong in the
-  design phase, threat-modeled up front — because A04-class flaws (missing a
-  control entirely) can't be patched, only redesigned. This is why every module
-  in this track leads with *why the attack works* before *how to defend*: you
-  can't design against a threat you don't understand.
+### OWASP Top 10 (2021) Threat Taxonomy for Backend Engineers
 
-## Command reference
+| OWASP Category | Vulnerability Type | Interpreter / Boundary at Risk | Primary Defensive Reflex | Failure Impact |
+| :--- | :--- | :--- | :--- | :--- |
+| **A01: Broken Access Control** | IDOR, missing function-level authorization, path traversal. | Application data access layer & business logic. | Enforce authorization scoped to the authenticated caller on every access; deny by default. | Complete tenant data isolation breach, unauthorized horizontal/vertical privilege escalation. |
+| **A02: Cryptographic Failures** | Cleartext storage, weak hashing algorithms, insufficient entropy. | Data storage at rest and network in transit. | Use industry-standard algorithms (Argon2id for passwords, AES-256-GCM / ChaCha20 for data, TLS 1.3). | Mass credential harvesting, session hijacking, regulatory compliance failure (GDPR, PCI-DSS). |
+| **A03: Injection** | SQLi, Command Injection, NoSQL injection, XSS. | SQL parser, OS shell, NoSQL interpreter, Browser DOM. | Strict separation of code from data via parameterized statements and contextual output encoding. | Remote Code Execution (RCE), full database dump, browser session token theft. |
+| **A04: Insecure Design** | Missing rate limits, flawed recovery flows, absence of threat modeling. | System business logic and architecture. | Threat modeling early in lifecycle (STRIDE), secure-by-design patterns, defensive architectural guardrails. | Flaws that cannot be patched via simple bugfixes and require fundamental architectural redesign. |
+| **A05: Security Misconfiguration** | Default passwords, verbose debug stack traces, missing headers. | Web server, reverse proxy, OS container environment. | Automated hardening scripts, environment parity, strict security headers (CSP, HSTS). | Information disclosure, unauthenticated administrative access, credential leakage. |
+| **A06: Vulnerable & Outdated Components** | Unpatched third-party dependencies, malicious supply-chain packages. | Third-party software packages and package managers. | Software Bill of Materials (SBOM), continuous dependency scanning (Dependabot, Snyk, Grype). | Known CVE exploitation, remote compromise via transitive libraries. |
+| **A07: Identification & Auth Failures** | Credential stuffing, weak passwords, session fixation. | Authentication endpoints, session token handlers. | Multi-Factor Authentication (MFA), strict rate limiting, cryptographically random session IDs. | Account takeover, credential brute-forcing, identity impersonation. |
+| **A08: Software & Data Integrity Failures** | Insecure deserialization, untrusted CI/CD pipelines, unsigned code. | Object deserializers (Python `pickle`, Java serialized objects). | Avoid polymorphic deserialization; use safe formats (JSON, Protobuf); cryptographically sign artifacts. | Arbitrary object instantiation leading to immediate Remote Code Execution (RCE). |
+| **A09: Security Logging & Monitoring Failures** | Unaudited actions, missing alerting, logs lacking context. | Observability pipeline, SIEM, audit log collectors. | Centralized immutable audit trails, real-time alert thresholds on repeated auth failures. | Delayed breach detection (industry average 200+ days), impossible post-incident forensics. |
+| **A10: Server-Side Request Forgery (SSRF)** | Arbitrary outbound HTTP fetches directed at internal resources. | Outbound HTTP client libraries, image/webhook processors. | Strict URL allowlists, DNS resolution validation (prevent DNS rebinding), network firewalling (block 169.254.169.254). | Internal microservice exposure, cloud provider IAM credential theft via instance metadata. |
 
-There's no single tool for "the Top 10" — that's the point. This table maps
-each category to the module and the core defensive reflex; treat it as the map
-for the rest of the track.
+---
 
-| Category | Core failure | Primary defense | Covered in |
-|---|---|---|---|
-| A01 Broken Access Control | trusting an identifier/role | centralized authZ checks, deny by default | track 03 (m06/07) |
-| A02 Cryptographic Failures | secrets/data in the clear | TLS, argon2, encrypt at rest | track 03 (m05), this m05 |
-| A03 Injection (SQL/cmd/NoSQL) | input treated as code | parameterize / separate code from data | m01 |
-| A03 Injection (XSS) | input treated as HTML/JS | output-encode, CSP | m02 |
-| A04 Insecure Design | control missing by design | threat model, secure-by-design | whole track |
-| A05 Security Misconfiguration | unsafe defaults, no headers | harden config, security headers | m06 |
-| A06 Vulnerable Components | known-CVE dependency | scan + patch dependencies | m06 |
-| A07 AuthN Failures | weak login | MFA, rate limit, lockout | track 03, m04 |
-| A08 Integrity Failures | trusting untrusted code/data | no `pickle`, sign artifacts | m03 |
-| A09 Logging/Monitoring | can't detect/investigate | audit log, alerting | track 03, track 08 |
-| A10 SSRF | fetching an attacker's URL | allowlist egress, block metadata | m03 |
+## 3. Production War Story: The Multi-Tenant IDOR Breach
 
-A minimal "what does this endpoint trust?" annotation habit, in code — a comment
-discipline you can adopt today:
+### Incident Post-Mortem
+
+- **Severity**: SEV-1 (High-Profile Security Incident & Data Breach)
+- **Time to Detect (TTD)**: 14 days (Discovered via external security researcher report)
+- **Time to Mitigate (TTM)**: 35 minutes
+- **Scope**: 4.2 Million customer invoices containing PII, corporate tax identification numbers, and banking details exposed.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Attacker as Malicious Scraping Bot
+    participant Edge as Edge CDN & Gateway
+    participant API as Invoicing Microservice
+    participant AuthContext as AuthContext Filter
+    participant DB as Customer PostgreSQL DB
+
+    Attacker->>Edge: Authenticates legitimately as free-tier User 104
+    Edge->>Attacker: Issues valid JWT (sub=104, role=user)
+    loop Sequential Scraping Loop (100 req/sec)
+        Attacker->>Edge: GET /api/v1/invoices/{id} (Iterating id 1 to 4,200,000)
+        Edge->>API: Valid JWT passed; request forwarded
+        API->>AuthContext: Is token valid?
+        AuthContext-->>API: YES (User 104 is authenticated)
+        Note over API: Handler executes: SELECT * FROM invoices WHERE id = $id
+        API->>DB: Query executes with no tenant constraint
+        DB-->>API: Returns confidential invoice of User 89123
+        API-->>Attacker: 200 OK (Confidential PII & Tax Data)
+    end
+```
+
+#### What Happened & Root Cause
+A commercial SaaS invoicing platform deployed a new REST endpoint: `GET /api/v1/invoices/{id}`. The development team implemented authentication middleware that verified user JWT signatures. However, the database query inside the handler was written as:
+```sql
+-- VULNERABLE: Direct Object Lookup without Ownership Clause
+SELECT id, amount, customer_name, ssn, iban 
+FROM invoices 
+WHERE id = $1;
+```
+Because the team assumed that passing an authentication check meant the user was trusted, they neglected to scope the SQL lookup to the caller's organization. An external automated script iterated through consecutive integer IDs, exfiltrating 4.2 million confidential customer records.
+
+#### The Fix & Architectural Hardening
+1. **Enforce Tenant-Scoped Data Access**: Re-engineered all database queries to enforce compound keys including the authenticated tenant/user ID:
+   ```sql
+   -- HARDENED: Scoped query prevents horizontal access bypass
+   SELECT id, amount, customer_name, ssn, iban 
+   FROM invoices 
+   WHERE id = $1 AND organization_id = $2;
+   ```
+2. **Obfuscate Public Identifiers**: Replaced sequential integer IDs with cryptographically secure, non-sequential UUIDv4 / ULID identifiers to eliminate enumeration attacks.
+3. **Defense-in-Depth Authorization Middleware**: Introduced centralized resource-level authorization interceptors that enforce access control policies prior to reaching handler logic.
+4. **Rate Limiting & Anomaly Detection**: Configured IP and user-based token bucket rate limiters to flag and throttle callers requesting more than 60 object retrievals per minute.
+
+---
+
+## 4. Multi-Language Production Implementations: Defense-in-Depth Trust Boundary Guard
+
+The following production-ready examples demonstrate how to construct an airtight trust boundary layer across **Go**, **Node.js/TypeScript**, **Python**, and **C#**. Each implementation validates authentication tokens, checks resource-level tenant authorization, sanitizes untrusted input, and issues structured security audit events.
+
+### Go Implementation
+
+```go
+package security
+
+import (
+	"context"
+	"database/sql"
+	"errors"
+	"fmt"
+	"log/slog"
+	"net/http"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/google/uuid"
+)
+
+var (
+	ErrUnauthorized = errors.New("unauthorized")
+	ErrForbidden    = errors.New("forbidden: cross-tenant access denied")
+	ErrNotFound     = errors.New("resource not found")
+)
+
+type UserClaims struct {
+	UserID         string
+	OrganizationID string
+	Role           string
+}
+
+type InvoiceRecord struct {
+	ID             string    `json:"id"`
+	OrganizationID string    `json:"organization_id"`
+	AmountCents    int64     `json:"amount_cents"`
+	Currency       string    `json:"currency"`
+	CreatedAt      time.Time `json:"created_at"`
+}
+
+type SecureInvoiceRepository struct {
+	db     *sql.DB
+	logger *slog.Logger
+}
+
+func NewSecureInvoiceRepository(db *sql.DB, logger *slog.Logger) *SecureInvoiceRepository {
+	return &SecureInvoiceRepository{db: db, logger: logger}
+}
+
+// GetInvoiceScoped enforces strict tenant boundary and SQL parameterization
+func (r *SecureInvoiceRepository) GetInvoiceScoped(
+	ctx context.Context, 
+	claims UserClaims, 
+	rawInvoiceID string,
+) (*InvoiceRecord, error) {
+	// 1. Boundary Defense: Validate & sanitize input syntax
+	cleanedID := strings.TrimSpace(rawInvoiceID)
+	if _, err := uuid.Parse(cleanedID); err != nil {
+		r.logger.WarnContext(ctx, "security.input_validation_failed",
+			slog.String("raw_id", rawInvoiceID),
+			slog.String("user_id", claims.UserID),
+		)
+		return nil, ErrNotFound // Avoid leaking format validation details
+	}
+
+	// 2. Boundary Defense: Parameterized Query strictly scoped to tenant OrganizationID
+	const query = `
+		SELECT id, organization_id, amount_cents, currency, created_at
+		FROM invoices
+		WHERE id = $1 AND organization_id = $2
+		LIMIT 1;
+	`
+
+	var record InvoiceRecord
+	err := r.db.QueryRowContext(ctx, query, cleanedID, claims.OrganizationID).Scan(
+		&record.ID,
+		&record.OrganizationID,
+		&record.AmountCents,
+		&record.Currency,
+		&record.CreatedAt,
+	)
+
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			// Structured Audit Log: Trace potential IDOR enumeration probe
+			r.logger.InfoContext(ctx, "security.access_denied_or_missing",
+				slog.String("invoice_id", cleanedID),
+				slog.String("caller_org", claims.OrganizationID),
+				slog.String("caller_user", claims.UserID),
+			)
+			return nil, ErrNotFound
+		}
+		return nil, fmt.Errorf("database query failure: %w", err)
+	}
+
+	return &record, nil
+}
+```
+
+---
+
+### Node.js / TypeScript Implementation
+
+```typescript
+import { Request, Response, NextFunction } from 'express';
+import { Pool } from 'pg';
+import { validate as isValidUUID } from 'uuid';
+
+export interface AuthenticatedUser {
+  userId: string;
+  organizationId: string;
+  role: 'admin' | 'user';
+}
+
+export interface AuthenticatedRequest extends Request {
+  user?: AuthenticatedUser;
+}
+
+export class InvoiceSecurityController {
+  private pool: Pool;
+
+  constructor(pool: Pool) {
+    this.pool = pool;
+  }
+
+  public getInvoiceById = async (
+    req: AuthenticatedRequest,
+    res: Response,
+    next: NextFunction
+  ): Promise<void> => {
+    try {
+      const user = req.user;
+      if (!user || !user.organizationId) {
+        res.status(401).json({ error: 'Unauthorized: Missing or invalid authentication token' });
+        return;
+      }
+
+      const { invoiceId } = req.params;
+
+      // 1. Input Validation Barrier: UUID compliance
+      if (!invoiceId || !isValidUUID(invoiceId)) {
+        res.status(404).json({ error: 'Resource not found' });
+        return;
+      }
+
+      // 2. Tenant Scoping Barrier: Parameterized query isolating by organizationId
+      const sqlQuery = `
+        SELECT id, organization_id, amount_cents, currency, status, created_at
+        FROM invoices
+        WHERE id = $1 AND organization_id = $2
+        LIMIT 1;
+      `;
+
+      const result = await this.pool.query(sqlQuery, [invoiceId, user.organizationId]);
+
+      if (result.rows.length === 0) {
+        // Log telemetry for anomaly / IDOR detection
+        console.warn(JSON.stringify({
+          event: 'SECURITY_AUDIT_RESOURCE_NOT_FOUND',
+          timestamp: new Date().toISOString(),
+          requestedId: invoiceId,
+          callerOrg: user.organizationId,
+          callerUser: user.userId,
+          ip: req.ip,
+        }));
+
+        // Return generic 404 to prevent resource existence enumeration
+        res.status(404).json({ error: 'Resource not found' });
+        return;
+      }
+
+      res.status(200).json({ data: result.rows[0] });
+    } catch (err) {
+      next(err);
+    }
+  };
+}
+```
+
+---
+
+### Python Implementation
 
 ```python
-from fastapi import APIRouter, Depends, Request
-router = APIRouter()
+import uuid
+import logging
+from typing import Optional
+from fastapi import APIRouter, Depends, HTTPException, status
+from pydantic import BaseModel, Field
+from sqlalchemy.orm import Session
+from sqlalchemy import text
 
-@router.get("/orders/{order_id}")
-def get_order(order_id: int, user=Depends(current_user)):
-    # TRUST BOUNDARY: order_id comes from the URL — UNTRUSTED.
-    #   Risk: A01 (IDOR) — caller may pass an order_id they don't own.
-    #   Defense: scope the lookup to the authenticated user, never trust
-    #   the id alone. `user` came from a verified token (track 03) — trusted.
-    order = orders.get(id=order_id, owner_id=user.id)   # not orders.get(id=order_id)
-    if order is None:
-        raise HTTPException(404)      # 404 not 403 — don't confirm the row exists
-    return order
+logger = logging.getLogger("security.audit")
+
+class UserTokenContext(BaseModel):
+    user_id: str
+    organization_id: str
+    role: str
+
+class InvoiceSchema(BaseModel):
+    id: str
+    organization_id: str
+    amount_cents: int
+    currency: str
+
+def get_current_user_context() -> UserTokenContext:
+    # Simulated extraction from validated JWT / Session
+    return UserTokenContext(
+        user_id="usr_88192a",
+        organization_id="org_7721bc",
+        role="standard_user"
+    )
+
+router = APIRouter(prefix="/api/v1/invoices", tags=["Invoices"])
+
+@router.get("/{invoice_id}", response_model=InvoiceSchema)
+def get_invoice(
+    invoice_id: str,
+    db: Session,
+    user: UserTokenContext = Depends(get_current_user_context)
+):
+    # 1. Input Boundary Validation: Syntax and UUID conformance
+    try:
+        parsed_uuid = str(uuid.UUID(invoice_id))
+    except (ValueError, AttributeError):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Invoice not found"
+        )
+
+    # 2. Scoped Database Query: Parameterized SQL bound to organization_id
+    query = text("""
+        SELECT id, organization_id, amount_cents, currency
+        FROM invoices
+        WHERE id = :inv_id AND organization_id = :org_id
+        LIMIT 1;
+    """)
+
+    result = db.execute(query, {"inv_id": parsed_uuid, "org_id": user.organization_id}).mappings().first()
+
+    if not result:
+        logger.warning(
+            "Access violation or missing document",
+            extra={
+                "event": "IDOR_PROBE_OR_404",
+                "invoice_id": parsed_uuid,
+                "caller_org": user.organization_id,
+                "caller_user": user.user_id,
+            }
+        )
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Invoice not found"
+        )
+
+    return InvoiceSchema(**result)
 ```
 
-## Hands-on exercises
+---
 
-You'll build/keep a small FastAPI app across this whole track — call it
-`sec-track`. Reuse the `auth-track` you built in track 03 if you still have it;
-these attacks are far more instructive against an app that actually has auth,
-sessions, and a database. This first module is mostly analysis — you're building
-the *lens* the later hands-on modules use.
+### C# / .NET Implementation
 
-### 1. Inventory your trust boundaries
+```csharp
+using System;
+using System.Security.Claims;
+using System.Threading;
+using System.Threading.Tasks;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Logging;
+using Npgsql;
 
-Take `auth-track` (or any FastAPI app you have). List every place external data
-enters: path/query params, request bodies, headers, cookies, uploaded files,
-values read from the DB that a user wrote. For each, write one line: *what is
-this, and what interpreter does it eventually reach* (SQL? HTML? shell? an HTTP
-client?). Expected: a one-page map of untrusted inputs — this is a threat model
-in miniature.
+namespace SecurityTrack.Controllers
+{
+    public record InvoiceResponse(
+        Guid Id, 
+        Guid OrganizationId, 
+        long AmountCents, 
+        string Currency
+    );
 
-### 2. Map your endpoints to the Top 10
+    [Authorize]
+    [ApiController]
+    [Route("api/v1/invoices")]
+    public class InvoicesController : ControllerBase
+    {
+        private readonly NpgsqlDataSource _dataSource;
+        private readonly ILogger<InvoicesController> _logger;
 
-For each endpoint in your app, note which Top 10 categories it could plausibly
-fall to. A `/search?q=` that hits the DB → A03. A `/orders/{id}` → A01. A
-profile page rendering a user's bio → A03/XSS. Expected: you'll find most
-endpoints expose two or three categories at once — that's normal, and it's why
-defense in depth matters.
+        public InvoicesController(NpgsqlDataSource dataSource, ILogger<InvoicesController> logger)
+        {
+            _dataSource = dataSource;
+            _logger = logger;
+        }
 
-### 3. Rank your own risks
+        [HttpGet("{invoiceId:guid}")]
+        public async Task<IActionResult> GetInvoiceById(Guid invoiceId, CancellationToken ct)
+        {
+            // 1. Extract and verify authenticated claims
+            var orgIdClaim = User.FindFirstValue("organization_id");
+            var userIdClaim = User.FindFirstValue(ClaimTypes.NameIdentifier);
 
-Given your map, rank *your* app's top three risks by likelihood × impact — not
-by OWASP's global ranking. OWASP ranks by what's common *across all apps*; your
-app's real risk order depends on what it does. Expected: a personalized top-3
-that may look nothing like A01/A02/A03, and a written justification for each.
+            if (!Guid.TryParse(orgIdClaim, out var organizationId))
+            {
+                return Unauthorized(new { error = "Missing valid organization tenant context" });
+            }
 
-### 4. Frontend-is-not-a-control audit
+            // 2. Parameterized Query strictly scoped to OrganizationId
+            const string sql = @"
+                SELECT id, organization_id, amount_cents, currency
+                FROM invoices
+                WHERE id = @invoiceId AND organization_id = @orgId
+                LIMIT 1;";
 
-Find one constraint your app (or `auth-track`) enforces only client-side — a
-max length, a hidden field, a role-gated button, a dropdown of allowed values.
-Reproduce a request that violates it with `curl` or the interactive docs,
-bypassing the UI entirely. Expected: the "impossible" request succeeds,
-viscerally proving that client-side constraints are cosmetic.
+            await using var cmd = _dataSource.CreateCommand(sql);
+            cmd.Parameters.AddWithValue("invoiceId", invoiceId);
+            cmd.Parameters.AddWithValue("orgId", organizationId);
 
-### 5. Attacker-mindset pass on one feature
+            await using var reader = await cmd.ExecuteReaderAsync(ct);
+            if (!await reader.ReadAsync(ct))
+            {
+                _logger.LogWarning(
+                    "Security audit: Object lookup failed or cross-tenant access attempted. Resource: {InvoiceId}, Org: {OrgId}, User: {UserId}",
+                    invoiceId, organizationId, userIdClaim);
 
-Pick your most sensitive endpoint (login, password reset, or a money/data-
-changing action). Write down five things an attacker would *try* against it —
-not defenses, *attacks*. Then note which Top 10 category each maps to. Expected:
-a threat list per feature — the input to designing defenses, and a preview of
-modules 01-06.
+                // Return 404 to avoid confirming existence to unauthorized callers
+                return NotFound(new { error = "Invoice not found" });
+            }
 
-### 6. Defense-in-depth for one input
+            var record = new InvoiceResponse(
+                reader.GetGuid(0),
+                reader.GetGuid(1),
+                reader.GetInt64(2),
+                reader.GetString(3)
+            );
 
-Take a single untrusted input from exercise 1 and design *three independent*
-controls that would each independently blunt its worst-case abuse. Expected: you
-can articulate why any one alone is insufficient (what breaks if it's the only
-layer) — the definition of defense in depth.
-
-### 7. Diagnose and fix: read the incident like an analyst
-
-You're handed this endpoint and a one-line incident report: *"a user reported
-seeing someone else's invoice, and our logs show a spike of requests to
-`/invoices/` with sequential ids."* Name the Top 10 category, explain the
-attack in one sentence, and give the fix.
-
-```python
-@app.get("/invoices/{invoice_id}")
-def get_invoice(invoice_id: int, user=Depends(current_user)):
-    # auth (track 03) is correct: `user` is a verified, logged-in caller
-    return db.query(Invoice).filter(Invoice.id == invoice_id).first()
+            return Ok(record);
+        }
+    }
+}
 ```
 
-<details>
-<summary>Solution</summary>
+---
 
-Category: **A01 Broken Access Control** — specifically an **IDOR** (Insecure
-Direct Object Reference). The attack: the caller is genuinely authenticated
-(auth is fine), but the lookup trusts `invoice_id` alone and never checks that
-the invoice *belongs to* the caller — so incrementing the id in the URL walks
-straight through everyone's invoices. The "logs show sequential ids" is the
-signature of exactly this enumeration. Fix: scope every object lookup to the
-authenticated principal —
-`db.query(Invoice).filter(Invoice.id == invoice_id, Invoice.owner_id == user.id).first()`
-— and return `404` (not `403`) on a miss so you don't even confirm the row
-exists. Note that no amount of *authentication* hardening (track 03) fixes this;
-it's an *authorization* failure, which is why A01 sits atop a list that assumes
-your login already works.
+## 5. Practical Hands-On Verification CLI Workflows
+
+To prove the core premise—that frontend validation is not a security control—execute these direct command workflows against an API target.
+
+### Step 1: Simulate Frontend vs. Direct CLI Boundary Probe
+
+When a frontend form has a client-side limit (`max="100"`), test if the backend blindly trusts the input:
+
+```bash
+# Direct HTTP bypass attempt using curl: Send malicious/out-of-bounds quantity
+curl -s -X POST "http://localhost:8080/api/v1/orders" \
+  -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..." \
+  -H "Content-Type: application/json" \
+  -d '{
+    "item_sku": "SKU-9901",
+    "quantity": -50,
+    "discount_code": "ADMIN_OVERRIDE"
+  }' | jq .
+```
+
+**Expected Wire Output (Vulnerable App):**
+```json
+{
+  "order_id": "ord_882910",
+  "total_price": -499.50,
+  "status": "confirmed"
+}
+```
+
+**Expected Wire Output (Hardened Server-Side Validation):**
+```json
+{
+  "error": "ValidationFailed",
+  "detail": [
+    {
+      "field": "quantity",
+      "message": "Quantity must be a positive integer between 1 and 100"
+    }
+  ]
+}
+```
+
+---
+
+### Step 2: Test for Insecure Direct Object References (IDOR)
+
+Attempt horizontal privilege escalation by requesting consecutive resource identifiers:
+
+```bash
+# Caller authenticates as User A (Tenant 100) and attempts to fetch Tenant 200's record
+curl -s -w "\nHTTP Status: %{http_code}\n" -X GET "http://localhost:8080/api/v1/invoices/00000000-0000-0000-0000-000000000200" \
+  -H "Authorization: Bearer <TOKEN_USER_A>" | jq .
+```
+
+**Expected Output (Hardened):**
+```json
+{
+  "error": "Invoice not found"
+}
+HTTP Status: 404
+```
+*(Notice: The server returns 404 instead of 403 Forbidden, revealing nothing about whether the ID belongs to another tenant).*
+
+---
+
+## 6. Operational Validation Checkpoints (Scenario Quizzes)
+
+### Checkpoint 1: Authentication vs. Authorization Failure
+<details>
+<summary><strong>Scenario Assessment:</strong> A penetration test reveals that any logged-in user can submit <code>PATCH /api/users/{id}</code> with another user's ID and change their email address. The backend developer defends the code: "Our JWT middleware runs on every route and returns 401 if the signature is invalid." Which OWASP category applies, and why is the developer's argument invalid?</summary>
+
+```
+Options:
+A) A02 Cryptographic Failure; the JWT secret key is compromised.
+B) A07 Identification and Authentication Failure; the JWT token should expire after 60 seconds.
+C) A01 Broken Access Control; authentication verifies identity, but authorization verifies permissions over the requested resource.
+D) A05 Security Misconfiguration; the CORS header allowed PATCH methods.
+```
+
+**Answer:**
+**C is correct.** Authentication (Track 03) answers *who the user is* (identity verification). Authorization answers *what that identified user is permitted to do*. A valid JWT confirms identity, but fails to prevent an authorized User A from updating User B's record unless the handler explicitly validates that the resource ID matches the caller's verified subject ID (`claims.user_id == target_id` or role is `admin`). This is a classic Broken Access Control (A01) vulnerability.
 
 </details>
 
-## Independent challenge
+---
 
-No code given. Produce a **one-page threat model** for `auth-track` (or your
-own FastAPI app). Enumerate its trust boundaries (exercise 1), list every
-endpoint with the Top 10 categories it's exposed to (exercise 2), and for your
-top three risks specify the *primary* defense and one *secondary* defense each
-(defense in depth). Then write a short paragraph identifying one **A04 Insecure
-Design** flaw — a control that's missing *by design*, not a code bug — and
-explain why it can't simply be patched later. Reach back to **track 03's
-authorization material** (RBAC and the centralized permission layer): show where
-in your model the A01 defenses live, and why "we authenticate every request" is
-not an answer to A01.
-
+### Checkpoint 2: The Fallacy of Client-Side Security Controls
 <details>
-<summary>Hint</summary>
+<summary><strong>Scenario Assessment:</strong> A frontend team disables the "Delete Project" button in the React UI for users who lack the "Project Owner" role. In the backend, the endpoint <code>DELETE /api/projects/:id</code> deletes the row if the user is authenticated. How easily can an attacker bypass this?</summary>
 
-The trap in this exercise is treating "we have login" as covering A01 — it
-doesn't. Authentication tells you *who*; A01 is entirely about *what they may
-do once identified*, so its defenses are authorization checks scoped to the
-resource, applied consistently and deny-by-default at a central chokepoint (not
-sprinkled per-handler where one will inevitably be forgotten). For the A04
-flaw, look for a control whose *absence* is the vulnerability — no rate limit on
-login, no re-auth before a destructive action, no cap on password-reset
-requests. You can't "fix the code" for these because there's no buggy line;
-the design simply never included the control, so the fix is a design change.
+```
+Options:
+A) An attacker cannot bypass this because modern browsers sanitize the DOM tree.
+B) An attacker can bypass this instantly by firing a direct HTTP DELETE request using cURL or Postman with their valid session cookie/token.
+C) The attack only works if Cross-Origin Resource Sharing (CORS) is set to `*`.
+D) An attacker must perform a Man-in-the-Middle (MITM) attack to alter the JavaScript bundle in transit.
+```
+
+**Answer:**
+**B is correct.** The browser DOM and client-side JavaScript are untrusted execution environments controlled entirely by the end user. Any restriction enforced only in the UI (disabled buttons, hidden form fields, client-side input length limits) is trivially bypassed by issuing the HTTP request directly to the server. All security controls and authorization checks must be enforced authoritatively on the backend.
 
 </details>
 
-## Common mistakes & troubleshooting
+---
 
-- **Treating the Top 10 as a checklist you complete once.** It's an awareness
-  document, not a certification or a done-state. Security is maintained
-  continuously as code and dependencies change.
-- **Thinking "we have authentication, so we're secure."** AuthN (track 03) is
-  necessary and nowhere near sufficient — A01 (authZ), A03 (injection), and most
-  of the list assume your login already works and attack everything else.
-- **Enforcing controls only in the frontend.** Client-side validation is UX,
-  not security; every control must be re-enforced server-side because an
-  attacker talks to your API directly.
-- **Relying on a single control.** One defense will eventually fail or be
-  bypassed; layer independent controls so a single failure isn't fatal.
-- **Confusing the list's global ranking with your app's risk.** OWASP ranks by
-  cross-industry prevalence; your actual top risks depend on what your app does
-  — rank them yourself.
-- **Ignoring A04 (Insecure Design).** The cheapest, most dangerous flaws are the
-  controls you never designed in. Threat-model before you build, not after the
-  incident.
-
-## Checkpoint quiz
-
-Write down your answer to each question before expanding it — checking without attempting first is the single easiest way to fool yourself into thinking you've learned this.
-
-1. What is the OWASP Top 10, and name two things it is *not*.
-2. State the single mental model that unifies most of the Top 10 categories, and
-   apply it to injection and to SSRF.
-3. Why is "we authenticate every request" not a defense against A01 Broken
-   Access Control?
-4. What does "the frontend is not a security control" mean in practice, and how
-   would you prove it about a specific constraint?
-5. Give an example of an A04 Insecure Design flaw and explain why it can't be
-   patched after the fact.
-6. What is defense in depth, and why do the Top 10 categories deliberately
-   overlap?
-
+### Checkpoint 3: Insecure Design vs. Implementation Bugs
 <details>
-<summary>Answers</summary>
+<summary><strong>Scenario Assessment:</strong> A fintech application allows users to reset their forgotten password by entering their email address. The backend immediately generates a new temporary password and sends it to the user's phone via SMS. There is no rate limiter, no CAPTCHA, and no secondary confirmation required. An automated bot abuses this to flood thousands of users with SMS messages, generating an \$85,000 carrier bill. Which category does this represent?</summary>
 
-1. A ranked, data-driven *awareness document* of the ten most prevalent/
-   impactful categories of web-app security risk, maintained by OWASP. It is
-   *not* a standard/certification (you can't be "Top 10 compliant"), *not*
-   exhaustive, and *not* a one-time checklist.
-2. **Untrusted input crossing a trust boundary into an interpreter that treats
-   it as more than data.** Injection: user input crosses into a SQL/shell
-   interpreter and is executed as code. SSRF: an attacker-chosen URL crosses
-   into your HTTP client and is fetched as a legitimate destination.
-3. Because authentication only establishes *who* the caller is; A01 is about
-   *what an already-identified caller is allowed to do*. A logged-in user
-   changing an id in the URL to read someone else's record is fully
-   authenticated — the failure is a missing authorization check scoped to the
-   resource.
-4. Any constraint enforced only in JavaScript (length limits, hidden fields,
-   disabled buttons, dropdown choices) is trivially bypassed by talking to the
-   API directly, so all controls must be re-enforced server-side. Prove it by
-   reproducing a UI-forbidden request with `curl`/the docs and watching it
-   succeed.
-5. E.g. a password-reset or login endpoint with no rate limit, or a destructive
-   action with no re-authentication. There's no buggy line to patch — the
-   control was simply never part of the design — so the fix is a design change,
-   not a code fix.
-6. Layering multiple independent controls so that if one fails or is bypassed,
-   another still holds (e.g. `SameSite` cookies *and* CSRF tokens). The
-   categories overlap because real attacks chain across them, so your defenses
-   should overlap too — no single control covers everything.
+```
+Options:
+A) A03 Injection; the phone number was not parameterized.
+B) A04 Insecure Design; the application lacks defensive controls by design rather than due to a syntax or logical coding bug.
+C) A08 Software and Data Integrity Failures; the SMS gateway serialized payload unsafely.
+D) A06 Vulnerable Components; the SMS SDK has an unpatched CVE.
+```
+
+**Answer:**
+**B is correct.** This is an **A04: Insecure Design** flaw. The code operates exactly as programmed without memory leaks or syntax bugs; however, the business architecture failed to include abuse deterrence, rate limiting, and cost controls during the initial design and threat modeling phases. Such flaws cannot be resolved with a simple bugfix—they require architectural redesign of the password recovery workflow.
 
 </details>
 
-## Further reading & sources
+---
 
-- [OWASP Top 10](https://owasp.org/www-project-top-ten/) - the canonical awareness document this whole module and track are built around.
-- [OWASP Application Security Verification Standard (ASVS)](https://owasp.org/www-project-application-security-verification-standard/) - the detailed, testable *standard* the Top 10 is often mistaken for.
-- [OWASP Cheat Sheet Series](https://cheatsheetseries.owasp.org/) - practical, per-topic defensive guidance you'll return to for every later module.
-- [OWASP Threat Modeling](https://owasp.org/www-community/Threat_Modeling) - how to systematically find trust boundaries and enumerate what crosses them.
-- [CWE - Common Weakness Enumeration](https://cwe.mitre.org/) - MITRE's catalog of specific weakness classes each Top 10 category maps onto.
+## 7. Further Reading & Sources
 
-## Next
+- [OWASP Top 10 (2021 Official Specification)](https://owasp.org/www-project-top-ten/)
+- [OWASP Application Security Verification Standard (ASVS 4.0)](https://owasp.org/www-project-application-security-verification-standard/)
+- [OWASP Cheat Sheet Series: Authorization & Input Validation](https://cheatsheetseries.owasp.org/)
+- [Microsoft Threat Modeling: The STRIDE Methodology](https://learn.microsoft.com/en-us/azure/security/develop/threat-modeling-tool-threats)
+- [CWE-284: Improper Access Control (MITRE Common Weakness Enumeration)](https://cwe.mitre.org/data/definitions/284.html)
 
-[01-injection-attacks](../01-injection-attacks/README.md) — with the
-trust-boundary lens installed, we start at the top of the injection family
-(A03): SQL, command, and NoSQL injection. You'll write the vulnerable version,
-exploit it yourself, then apply the one fix that kills the entire class —
-separating code from data — with parameterized queries and ORMs.
+---
+
+## Next Steps
+
+Now that you have installed the trust boundary mental model, proceed to deep dive into the primary interpreter attack vector:
+
+- Next Module: **[01-injection-attacks](../01-injection-attacks/README.md)** (SQL, Command, and NoSQL injection, and how parameterization creates absolute mathematical separation between code and data).
+- Track Index: [README.md](../README.md)

