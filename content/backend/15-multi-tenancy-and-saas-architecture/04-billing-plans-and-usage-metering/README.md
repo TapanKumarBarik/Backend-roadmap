@@ -1,363 +1,958 @@
 # Module 04: Billing, Plans, and Usage Metering
 
-## Why this matters
+> **Prerequisites:** [00-tenancy-models-and-decision-framework](../00-tenancy-models-and-decision-framework/README.md), [01-tenant-identification-and-request-routing](../01-tenant-identification-and-request-routing/README.md), [02-auth-and-authorization-across-tenants](../02-auth-and-authorization-across-tenants/README.md), and [03-provisioning-and-onboarding-automation](../03-provisioning-and-onboarding-automation/README.md).  
+> **Estimated Reading Time:** 30 minutes  
+> **Target Audience:** Backend engineers and systems architects designing usage-based billing models, atomic quota enforcement engines, and resilient payment webhook reconcilers.
 
-A provisioned tenant (module 03) with isolated data (module 04-10) and
-tenant-scoped auth (module 02) is a working product — but not yet a
-business. Almost every real SaaS charges by **plan tier** (Free/Pro/
-Enterprise) with **quotas** (seats, API calls, storage) attached, and
-needs to **meter** actual usage against those quotas in real time, not
-just at invoice time. Get metering wrong and you either under-charge
-(a Free-tier tenant quietly using Enterprise-tier resources forever) or
-over-block (a paying customer hitting a phantom limit because a counter
-never reset). This module builds plan/quota data structures, a metering
-mechanism that's accurate under concurrent requests, and the shape of a
-real billing-provider integration (Stripe-style) without requiring an
-actual Stripe account to complete the exercises.
+> [!TIP]
+> **The Golden Rule of Multi-Tenant Billing:** Model plans, entitlements, and quotas as immutable database configuration, never hardcoded application logic. Enforce resource limits atomically at the database or distributed cache layer using single-statement compare-and-increment operations, and treat the external billing gateway (e.g., Stripe) as an asynchronous system of record synchronized via idempotent, signature-verified webhooks.
 
-## Concepts
+---
 
-### Plans and quotas as data, not code
+## Visual Mental Models & Architecture
 
-Hard-coding "Free tier gets 3 projects" as an `if` statement scattered
-across handlers means every new plan requires a code change and a
-deploy. Model plans and their limits as data instead:
+### Atomic Quota Metering & Request Flow
 
-```sql
-CREATE TABLE plans (
-    id TEXT PRIMARY KEY,           -- 'free', 'pro', 'enterprise'
-    max_projects INT,              -- NULL = unlimited
-    max_api_calls_per_month INT,
-    max_seats INT
-);
+In a multi-tenant platform, high-concurrency requests competing for limited plan allocations must be validated atomically. A naive read-then-write approach (`SELECT count; if count < max: UPDATE`) creates a classic race window allowing tenants to exceed tier entitlements.
 
-INSERT INTO plans VALUES
-    ('free', 3, 1000, 2),
-    ('pro', 50, 100000, 20),
-    ('enterprise', NULL, NULL, NULL);
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Client as Tenant Client
+    participant MW as Tenant & Quota Middleware
+    participant DB as Multi-Tenant Database
+    participant Handler as Business Logic Handler
 
-ALTER TABLE tenants ADD COLUMN plan_id TEXT NOT NULL REFERENCES plans(id) DEFAULT 'free';
+    Client->>MW: POST /api/v1/projects (Host: acme.saas.com)
+    MW->>MW: 1. Resolve Tenant Context ('t_acme') & Plan ('free')
+    MW->>DB: 2. Atomic Increment & Quota Check Query:<br/>INSERT ... ON CONFLICT DO UPDATE SET count = count + 1 RETURNING count
+    
+    alt Under Quota (count <= max_projects)
+        DB-->>MW: 3. Return New Count: 3 (Limit: 5)
+        MW->>Handler: 4. Forward Request with Enforced Context
+        Handler->>DB: 5. Create Project Record
+        Handler-->>Client: 201 Created: Project Initialized
+    else Quota Exceeded (count > max_projects)
+        DB-->>MW: 3. Return New Count: 6 (Limit: 5)
+        MW->>DB: 4. Compensating Decrement (Roll back count - 1)
+        MW-->>Client: 402 Payment Required: {"error": "Plan limit reached. Upgrade to Pro."}
+        Note over MW,Client: Request short-circuited! Handler never executed.
+    end
 ```
 
-A handler checking a quota reads the tenant's plan row, not a hard-coded
-constant — changing what "Free" includes becomes a data update, not a
-deploy.
+### Resilient Billing Webhook Synchronization Architecture
 
-### Metering: counting usage accurately, per tenant, per period
+Your billing provider (such as Stripe) processes recurring renewals, upgrades, cancellations, and payment failures asynchronously. Your application must process incoming webhook events idempotently without trusting unverified payloads.
 
-A usage counter needs a period boundary (usually monthly, resetting on
-the billing cycle) and must be safe under concurrent requests — two
-simultaneous requests from the same tenant must not both read "9 of 10
-used" and both proceed, ending up at 11.
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Stripe as Stripe Billing Gateway
+    participant Ingress as Public Webhook Ingress
+    participant DB as System Database
+    participant Cache as Tenant Cache / Redis
 
-```sql
-CREATE TABLE usage_counters (
-    tenant_id UUID NOT NULL REFERENCES tenants(id),
-    metric TEXT NOT NULL,         -- 'api_calls', 'projects_created'
-    period_start DATE NOT NULL,   -- first day of the billing month
+    Stripe->>Ingress: POST /webhooks/stripe (Stripe-Signature: t=...,v1=...)
+    
+    Ingress->>Ingress: 1. Verify HMAC-SHA256 Signature with Webhook Secret
+    alt Invalid Signature
+        Ingress-->>Stripe: 400 Bad Request: Invalid Signature
+    else Valid Signature
+        Ingress->>DB: 2. Check Event Idempotency (SELECT 1 FROM processed_webhooks WHERE event_id=...)
+        alt Event Already Processed
+            Ingress-->>Stripe: 200 OK: Event Acknowledged (Safe No-Op)
+        else First Event Delivery
+            Ingress->>DB: 3. BEGIN TRANSACTION
+            Ingress->>DB: - INSERT INTO processed_webhooks (event_id, event_type, processed_at)
+            Ingress->>DB: - UPDATE tenants SET plan_id = 'pro', status = 'active' WHERE stripe_customer_id = ...
+            Ingress->>DB: 4. COMMIT TRANSACTION
+            Ingress->>Cache: 5. Invalidate Cached Tenant Plan Context ('tenant:t_acme:plan')
+            Ingress-->>Stripe: 200 OK: Event Processed Successfully
+        end
+    end
+```
+
+---
+
+## Systematic Taxonomic Reference Grids
+
+### Entitlement & Quota Classification Taxonomy
+
+| Quota Category | Measurement Unit | Enforcement Mechanism | Failure Response Code | Typical Business Domain Examples |
+| :--- | :--- | :--- | :--- | :--- |
+| **Hard Allocation Quota** | Absolute Entity Count | Atomic DB check inside transaction | `402 Payment Required` | Maximum projects, maximum active users/seats, active workspaces. |
+| **Metered Consumption Quota** | Aggregated Volume per Billing Period | Atomic counter (Redis or Postgres `ON CONFLICT`) | `402 Payment Required` | Monthly API calls, total AI tokens consumed, SMS messages sent. |
+| **Transient Rate Limit** | Requests per second / minute | In-memory token bucket / sliding log (Redis) | `429 Too Many Requests` | Burst traffic protection, endpoint hammering defense. |
+| **Storage & Bandwidth Quota** | Bytes consumed (Gigabytes) | Asynchronous reconciliation / soft warning | `402 Payment Required` | Cloud storage disk space, video streaming egress bandwidth. |
+| **Feature Entitlement Flag** | Boolean capability | In-memory plan check / JWT claim | `403 Forbidden` | SSO/SAML login, audit logging, custom domain support. |
+
+### HTTP Rejection Status Code Matrix: 402 vs 403 vs 429
+
+Frontend applications and API clients must receive distinct, actionable signals when an operation cannot be completed.
+
+| HTTP Code | Semantic Meaning | Why Triggered in Multi-Tenant Context | Client Recovery Action |
+| :--- | :--- | :--- | :--- |
+| **`402 Payment Required`** | Commercial quota or plan entitlement reached | Tenant has exceeded free tier projects or monthly API allowance | Present upgrade modal or direct user to billing checkout portal. |
+| **`403 Forbidden`** | Authorization / Permission violation | User has insufficient role (e.g., `member` attempting admin operation) or feature not available on plan | Inform user they lack permissions; contacting tenant admin required. |
+| **`429 Too Many Requests`** | Velocity / Rate limit threshold exceeded | Tenant or user is bursting requests faster than the per-second token bucket | Back off exponentially; retry after duration indicated in `Retry-After`. |
+
+### Billing Gateway Webhook Event Matrix
+
+| Webhook Event Name | Source Trigger | Application Action | Tenant State Transition |
+| :--- | :--- | :--- | :--- |
+| `customer.subscription.created` | Customer completes checkout session | Store `stripe_subscription_id`, assign paid `plan_id` | `pending_payment` $\rightarrow$ `active` |
+| `customer.subscription.updated` | Customer upgrades or downgrades plan tier | Update `plan_id`, update entitlement limits in cache | `active` (Tier upgraded or downgraded) |
+| `invoice.payment_failed` | Recurring monthly charge declined | Increment failed attempt counter, trigger warning banner | `active` $\rightarrow$ `past_due` |
+| `customer.subscription.deleted` | Subscription canceled or churned past grace period | Downgrade to `free` plan or suspend tenant access | `past_due` $\rightarrow$ `suspended` / `free` |
+
+---
+
+## Production War Stories: Incident Post-Mortem
+
+### SEV-1 Post-Mortem: The Concurrency Race Over-Allocation and Out-of-Sync Plan Webhook Drop
+
+#### Incident Overview
+* **Severity:** SEV-1 (Systemic Revenue Loss & Infrastructure Over-Provisioning)
+* **Detection Time:** 14 days post-billing-refactor
+* **Resolution Time:** 4 hours 45 minutes
+* **Impact:** 410 free-tier accounts provisioned over 1,800 enterprise compute clusters without paying, costing the platform \$128,000 in unrecoverable cloud compute costs.
+
+#### What Happened
+A cloud IDE and developer tooling SaaS offered 1 free project per account, charging \$49/month for additional projects. Their project creation handler checked plan limits before inserting the new project row:
+
+```python
+# The Flawed Read-Then-Write Quota Check
+@app.post("/projects")
+async def create_project(payload: ProjectCreate, tenant = Depends(get_tenant)):
+    # STEP 1: Read current project count
+    current_count = await db.fetch_val(
+        "SELECT count(*) FROM projects WHERE tenant_id = :tid", 
+        {"tid": tenant.id}
+    )
+    plan = await get_plan(tenant.plan_id) # Free tier max_projects = 1
+    
+    # STEP 2: Non-atomic verification
+    if current_count >= plan.max_projects:
+        raise HTTPException(status_code=402, detail="Project limit reached")
+    
+    # STEP 3: Create project and provision underlying cloud resources
+    project = await db.execute(
+        "INSERT INTO projects (tenant_id, name) VALUES (:tid, :name) RETURNING id",
+        {"tid": tenant.id, "name": payload.name}
+    )
+    await provision_cloud_vm(project.id)
+    return project
+```
+
+A user wrote a bash script using `curl` that dispatched 50 simultaneous `POST /projects` requests within a 10-millisecond window. Because all 50 requests executed Step 1 concurrently before any request reached Step 3, all 50 threads read `current_count = 0`. 
+
+All 50 threads passed the check, and the database committed 50 project records, spinning up 50 expensive cloud virtual machines for a single free-tier account. The script was shared on developer forums, resulting in hundreds of users automating the bypass.
+
+Compounding the disaster, when paying users downgraded their subscriptions on Stripe, the application's webhook listener suffered unhandled JSON parsing errors on specific payload updates. Because the webhook endpoint returned `500 Internal Server Error`, Stripe retried for 72 hours and then stopped delivering events, leaving hundreds of churned accounts on perpetual Enterprise access.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Attacker as Free-Tier Tenant
+    participant W1 as Worker Thread 1
+    participant W2 as Worker Thread 2
+    participant W3 as Worker Thread 50
+    participant DB as Postgres Database
+
+    Attacker->>W1: POST /projects (Concurrent Req 1)
+    Attacker->>W2: POST /projects (Concurrent Req 2)
+    Attacker->>W3: POST /projects (Concurrent Req 50)
+    
+    W1->>DB: SELECT count(*) -> Returns 0 (Limit: 1)
+    W2->>DB: SELECT count(*) -> Returns 0 (Limit: 1)
+    W3->>DB: SELECT count(*) -> Returns 0 (Limit: 1)
+    
+    Note over W1,W3: Race Condition! All 50 threads pass the check!
+    
+    W1->>DB: INSERT INTO projects ... (1 Committed)
+    W2->>DB: INSERT INTO projects ... (2 Committed)
+    W3->>DB: INSERT INTO projects ... (50 Committed)
+    
+    W1-->>Attacker: 201 Created
+    W2-->>Attacker: 201 Created
+    W3-->>Attacker: 201 Created (50 VMs Provisioned for $0!)
+```
+
+#### Root Cause Analysis
+1. **Time-of-Check to Time-of-Use (TOCTOU) Race Condition:** The quota validation and project creation were decoupled into separate, non-isolated database interactions without row locking or transactional serialization.
+2. **Missing Database Integrity Constraints:** The database schema did not enforce quota limits via conditional triggers or atomic counter increment tables.
+3. **Fragile Webhook Ingress Architecture:** The webhook endpoint lacked signature verification, durable logging, and idempotency tracking tables, causing event drops upon transient schema parsing bugs.
+
+#### The Fix & Architectural Hardening
+1. **Atomic Usage Counters with Postgres Upsert:** Implemented a dedicated `usage_counters` table incremented via `INSERT ... ON CONFLICT (...) DO UPDATE SET count = usage_counters.count + 1 RETURNING count`. If the returned value exceeds the plan limit, a compensating rollback decrements the counter and immediately returns `402 Payment Required`.
+2. **Postgres Partial Unique Indices & Triggers:** Added database-level trigger checks for hard entity limits.
+3. **Idempotent Webhook Processing Engine:** Built a resilient webhook ingress with strict HMAC-SHA256 signature checking, storing raw event payloads in an immutable `processed_webhooks` audit log before triggering asynchronous event workers.
+
+---
+
+## Multi-Language Production Code Tabs
+
+The following production implementations demonstrate:
+1. **Concurrency-safe atomic quota incrementing using PostgreSQL upserts.**
+2. **Quota enforcement middleware returning `402 Payment Required`.**
+3. **Cryptographically verified, idempotent webhook ingestion for billing providers.**
+
+### Production Billing & Quota Engines
+
+````carousel
+```go
+// Go: Concurrency-Safe Quota Metering & Stripe Webhook Ingestion
+package main
+
+import (
+	"crypto/hmac"
+	"crypto/sha256"
+	"database/sql"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"net/http"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/google/uuid"
+	_ "github.com/lib/pq"
+)
+
+type QuotaService struct {
+	db *sql.DB
+}
+
+// CheckAndIncrement atomically records consumption and evaluates quota
+func (s *QuotaService) CheckAndIncrement(tenantID, metric string, limit int) (bool, int, error) {
+	periodStart := time.Now().UTC().Format("2006-01-01") // Monthly boundary
+
+	query := `
+		INSERT INTO usage_counters (tenant_id, metric, period_start, count)
+		VALUES ($1, $2, $3, 1)
+		ON CONFLICT (tenant_id, metric, period_start)
+		DO UPDATE SET count = usage_counters.count + 1
+		RETURNING count;
+	`
+
+	var currentCount int
+	err := s.db.QueryRow(query, tenantID, metric, periodStart).Scan(&currentCount)
+	if err != nil {
+		return false, 0, fmt.Errorf("failed to increment usage: %w", err)
+	}
+
+	if limit > 0 && currentCount > limit {
+		// Quota exceeded: atomically roll back the increment
+		decrementQuery := `
+			UPDATE usage_counters
+			SET count = count - 1
+			WHERE tenant_id = $1 AND metric = $2 AND period_start = $3;
+		`
+		_, _ = s.db.Exec(decrementQuery, tenantID, metric, periodStart)
+		return false, currentCount - 1, nil
+	}
+
+	return true, currentCount, nil
+}
+
+// VerifyStripeSignature checks HMAC-SHA256 signature from Stripe
+func VerifyStripeSignature(payload []byte, sigHeader, secret string) bool {
+	var timestamp string
+	var signatures []string
+
+	pairs := strings.Split(sigHeader, ",")
+	for _, pair := range pairs {
+		parts := strings.SplitN(pair, "=", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		if parts[0] == "t" {
+			timestamp = parts[1]
+		} else if parts[0] == "v1" {
+			signatures = append(signatures, parts[1])
+		}
+	}
+
+	if timestamp == "" || len(signatures) == 0 {
+		return false
+	}
+
+	// Signed payload is timestamp.payload
+	signedPayload := fmt.Sprintf("%s.%s", timestamp, string(payload))
+	mac := hmac.New(sha256.New, []byte(secret))
+	mac.Write([]byte(signedPayload))
+	expectedSig := hex.EncodeToString(mac.Sum(nil))
+
+	for _, sig := range signatures {
+		if hmac.Equal([]byte(sig), []byte(expectedSig)) {
+			return true
+		}
+	}
+	return false
+}
+
+// HandleBillingWebhook processes incoming Stripe events idempotently
+func (s *QuotaService) HandleBillingWebhook(w http.ResponseWriter, r *http.Request, webhookSecret string) {
+	sig := r.Header.Get("Stripe-Signature")
+	var payload []byte
+	_, _ = r.Body.Read(payload)
+
+	if !VerifyStripeSignature(payload, sig, webhookSecret) {
+		http.Error(w, "Invalid signature", http.StatusBadRequest)
+		return
+	}
+
+	var event struct {
+		ID   string `json:"id"`
+		Type string `json:"type"`
+		Data struct {
+			Object struct {
+				CustomerID string `json:"customer"`
+				Plan       struct {
+					ID string `json:"id"`
+				} `json:"plan"`
+			} `json:"object"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(payload, &event); err != nil {
+		http.Error(w, "Invalid JSON payload", http.StatusBadRequest)
+		return
+	}
+
+	// Idempotency: Insert into processed_webhooks
+	tx, err := s.db.Begin()
+	if err != nil {
+		http.Error(w, "Database error", http.StatusInternalServerError)
+		return
+	}
+	defer tx.Rollback()
+
+	var exists bool
+	_ = tx.QueryRow("SELECT true FROM processed_webhooks WHERE event_id = $1", event.ID).Scan(&exists)
+	if exists {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"status": "already_processed"}`))
+		return
+	}
+
+	_, err = tx.Exec("INSERT INTO processed_webhooks (event_id, event_type, processed_at) VALUES ($1, $2, NOW())", event.ID, event.Type)
+	if err != nil {
+		http.Error(w, "Failed to register webhook event", http.StatusInternalServerError)
+		return
+	}
+
+	// Update tenant plan
+	if event.Type == "customer.subscription.updated" {
+		_, err = tx.Exec("UPDATE tenants SET plan_id = $1 WHERE stripe_customer_id = $2", event.Data.Object.Plan.ID, event.Data.Object.CustomerID)
+		if err != nil {
+			http.Error(w, "Failed to update tenant plan", http.StatusInternalServerError)
+			return
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		http.Error(w, "Commit failed", http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte(`{"status": "success"}`))
+}
+```
+<!-- slide -->
+```typescript
+// TypeScript/Node.js: Atomic Quota Guard & Stripe Webhook Ingress
+import { Pool } from 'pg';
+import * as crypto from 'crypto';
+import { Request, Response, NextFunction } from 'express';
+
+export class BillingService {
+  constructor(private pool: Pool) {}
+
+  /**
+   * Atomically increments metric consumption and evaluates against plan threshold
+   */
+  public async checkAndIncrement(
+    tenantId: string,
+    metric: string,
+    maxLimit: number | null
+  ): Promise<{ allowed: boolean; currentCount: number }> {
+    const periodStart = new Date().toISOString().slice(0, 7) + '-01'; // 'YYYY-MM-01'
+
+    const client = await this.pool.connect();
+    try {
+      const upsertSql = `
+        INSERT INTO usage_counters (tenant_id, metric, period_start, count)
+        VALUES ($1, $2, $3, 1)
+        ON CONFLICT (tenant_id, metric, period_start)
+        DO UPDATE SET count = usage_counters.count + 1
+        RETURNING count;
+      `;
+      const res = await client.query(upsertSql, [tenantId, metric, periodStart]);
+      const currentCount = parseInt(res.rows[0].count, 10);
+
+      if (maxLimit !== null && currentCount > maxLimit) {
+        // Compensate by decrementing back
+        await client.query(
+          `UPDATE usage_counters SET count = count - 1 
+           WHERE tenant_id = $1 AND metric = $2 AND period_start = $3`,
+          [tenantId, metric, periodStart]
+        );
+        return { allowed: false, currentCount: currentCount - 1 };
+      }
+
+      return { allowed: true, currentCount };
+    } finally {
+      client.release();
+    }
+  }
+
+  /**
+   * Express Middleware to enforce quota limits
+   */
+  public createQuotaGuard(metric: string) {
+    return async (req: Request, res: Response, next: NextFunction) => {
+      const tenant = (req as any).tenant;
+      if (!tenant) {
+        return res.status(500).json({ error: 'Tenant context missing' });
+      }
+
+      // Fetch plan limit
+      const planRes = await this.pool.query(
+        `SELECT max_${metric} AS limit FROM plans WHERE id = $1`,
+        [tenant.plan_id]
+      );
+      const limit = planRes.rows[0]?.limit ?? null;
+
+      const { allowed, currentCount } = await this.checkAndIncrement(tenant.id, metric, limit);
+      if (!allowed) {
+        return res.status(402).json({
+          error: 'Quota Exceeded',
+          message: `Tenant has reached the limit of ${limit} for ${metric}. Please upgrade.`,
+          currentCount,
+          limit
+        });
+      }
+
+      next();
+    };
+  }
+
+  /**
+   * Idempotent Stripe Webhook Ingestion
+   */
+  public async handleStripeWebhook(req: Request, res: Response, webhookSecret: string): Promise<void> {
+    const signature = req.headers['stripe-signature'] as string;
+    const rawBody = (req as any).rawBody || JSON.stringify(req.body);
+
+    if (!this.verifyStripeSignature(rawBody, signature, webhookSecret)) {
+      res.status(400).send('Invalid signature');
+      return;
+    }
+
+    const event = req.body;
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+
+      // Idempotency check
+      const check = await client.query(
+        'SELECT 1 FROM processed_webhooks WHERE event_id = $1',
+        [event.id]
+      );
+      if (check.rows.length > 0) {
+        await client.query('ROLLBACK');
+        res.status(200).json({ status: 'already_processed' });
+        return;
+      }
+
+      await client.query(
+        'INSERT INTO processed_webhooks (event_id, event_type, processed_at) VALUES ($1, $2, NOW())',
+        [event.id, event.type]
+      );
+
+      if (event.type === 'customer.subscription.updated') {
+        const sub = event.data.object;
+        await client.query(
+          'UPDATE tenants SET plan_id = $1 WHERE stripe_customer_id = $2',
+          [sub.plan.id, sub.customer]
+        );
+      }
+
+      await client.query('COMMIT');
+      res.status(200).json({ received: true });
+    } catch (err) {
+      await client.query('ROLLBACK');
+      res.status(500).json({ error: 'Failed to process webhook' });
+    } finally {
+      client.release();
+    }
+  }
+
+  private verifyStripeSignature(payload: string, header: string, secret: string): boolean {
+    if (!header) return false;
+    const parts = header.split(',');
+    const timestamp = parts.find(p => p.startsWith('t='))?.split('=')[1];
+    const signature = parts.find(p => p.startsWith('v1='))?.split('=')[1];
+
+    if (!timestamp || !signature) return false;
+    const expected = crypto
+      .createHmac('sha256', secret)
+      .update(`${timestamp}.${payload}`)
+      .digest('hex');
+
+    return crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected));
+  }
+}
+```
+<!-- slide -->
+```python
+# Python: Atomic Postgres Upsert Quota Engine & FastAPI Dependency
+from datetime import date
+import hmac
+import hashlib
+from fastapi import FastAPI, Depends, HTTPException, Request, Header
+from sqlalchemy.ext.asyncio import AsyncEngine
+from sqlalchemy import text
+
+class BillingQuotaManager:
+    def __init__(self, engine: AsyncEngine):
+        self.engine = engine
+
+    async def check_and_increment(self, tenant_id: str, metric: str, limit: int | None) -> tuple[bool, int]:
+        period_start = date.today().replace(day=1)
+        
+        async with self.engine.begin() as conn:
+            # Atomic Postgres UPSERT with single-statement RETURNING
+            upsert_query = text("""
+                INSERT INTO usage_counters (tenant_id, metric, period_start, count)
+                VALUES (:tid, :metric, :period, 1)
+                ON CONFLICT (tenant_id, metric, period_start)
+                DO UPDATE SET count = usage_counters.count + 1
+                RETURNING count;
+            """)
+            result = await conn.execute(upsert_query, {
+                "tid": tenant_id, "metric": metric, "period": period_start
+            })
+            new_count = result.scalar_one()
+
+            # Quota threshold evaluation
+            if limit is not None and new_count > limit:
+                # Compensating decrement rollback
+                await conn.execute(text("""
+                    UPDATE usage_counters
+                    SET count = count - 1
+                    WHERE tenant_id = :tid AND metric = :metric AND period_start = :period
+                """), {"tid": tenant_id, "metric": metric, "period": period_start})
+                return False, new_count - 1
+
+            return True, new_count
+
+    def require_quota(self, metric: str):
+        """FastAPI Dependency for mid-request quota enforcement"""
+        async def dependency(request: Request):
+            tenant = getattr(request.state, "tenant", None)
+            if not tenant:
+                raise HTTPException(status_code=500, detail="Missing tenant context")
+
+            # Resolve plan limits
+            async with self.engine.connect() as conn:
+                res = await conn.execute(
+                    text(f"SELECT max_{metric} FROM plans WHERE id = :pid"),
+                    {"pid": tenant.plan_id}
+                )
+                limit = res.scalar_one_or_none()
+
+            allowed, count = await self.check_and_increment(tenant.id, metric, limit)
+            if not allowed:
+                raise HTTPException(
+                    status_code=402,
+                    detail={
+                        "error": "Quota Exceeded",
+                        "metric": metric,
+                        "limit": limit,
+                        "current_usage": count,
+                        "upgrade_url": f"https://billing.saas.com/upgrade?tenant={tenant.slug}"
+                    }
+                )
+            return count
+        return dependency
+
+    async def process_stripe_webhook(self, raw_body: bytes, stripe_signature: str, secret: str) -> dict:
+        # Cryptographic Signature Verification
+        parts = dict(x.split("=", 1) for x in stripe_signature.split(",") if "=" in x)
+        timestamp = parts.get("t")
+        expected_sig = parts.get("v1")
+        if not timestamp or not expected_sig:
+            raise ValueError("Malformed Stripe-Signature header")
+
+        computed_sig = hmac.new(
+            secret.encode("utf-8"),
+            f"{timestamp}.".encode("utf-8") + raw_body,
+            hashlib.sha256
+        ).hexdigest()
+
+        if not hmac.compare_digest(computed_sig, expected_sig):
+            raise ValueError("Invalid webhook signature")
+
+        import json
+        event = json.loads(raw_body.decode("utf-8"))
+        event_id = event["id"]
+
+        # Transactional Idempotency Gate
+        async with self.engine.begin() as conn:
+            check = await conn.execute(
+                text("SELECT 1 FROM processed_webhooks WHERE event_id = :id"),
+                {"id": event_id}
+            )
+            if check.scalar_one_or_none():
+                return {"status": "already_processed"}
+
+            await conn.execute(
+                text("INSERT INTO processed_webhooks (event_id, event_type, processed_at) VALUES (:id, :t, NOW())"),
+                {"id": event_id, "t": event["type"]}
+            )
+
+            if event["type"] == "customer.subscription.updated":
+                sub = event["data"]["object"]
+                await conn.execute(
+                    text("UPDATE tenants SET plan_id = :plan WHERE stripe_customer_id = :cust"),
+                    {"plan": sub["plan"]["id"], "cust": sub["customer"]}
+                )
+
+        return {"status": "success"}
+```
+<!-- slide -->
+```csharp
+// C#: Concurrency-Safe Quota Engine & Webhook Verification
+using System;
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
+using System.Threading.Tasks;
+using Npgsql;
+
+public class QuotaService
+{
+    private readonly NpgsqlDataSource _dataSource;
+
+    public QuotaService(NpgsqlDataSource dataSource)
+    {
+        _dataSource = dataSource;
+    }
+
+    public async Task<(bool Allowed, long CurrentCount)> CheckAndIncrementAsync(
+        Guid tenantId, string metric, int? maxLimit)
+    {
+        var periodStart = new DateTime(DateTime.UtcNow.Year, DateTime.UtcNow.Month, 1);
+
+        await using var conn = await _dataSource.OpenConnectionAsync();
+        await using var tx = await conn.BeginTransactionAsync();
+
+        try
+        {
+            const string upsertSql = @"
+                INSERT INTO usage_counters (tenant_id, metric, period_start, count)
+                VALUES (@tid, @metric, @period, 1)
+                ON CONFLICT (tenant_id, metric, period_start)
+                DO UPDATE SET count = usage_counters.count + 1
+                RETURNING count;";
+
+            await using var cmd = new NpgsqlCommand(upsertSql, conn, tx);
+            cmd.Parameters.AddWithValue("tid", tenantId);
+            cmd.Parameters.AddWithValue("metric", metric);
+            cmd.Parameters.AddWithValue("period", periodStart);
+
+            var count = (long)(await cmd.ExecuteScalarAsync())!;
+
+            if (maxLimit.HasValue && count > maxLimit.Value)
+            {
+                // Compensating decrement
+                const string decSql = @"
+                    UPDATE usage_counters
+                    SET count = count - 1
+                    WHERE tenant_id = @tid AND metric = @metric AND period_start = @period;";
+                await using var decCmd = new NpgsqlCommand(decSql, conn, tx);
+                decCmd.Parameters.AddWithValue("tid", tenantId);
+                decCmd.Parameters.AddWithValue("metric", metric);
+                decCmd.Parameters.AddWithValue("period", periodStart);
+                await decCmd.ExecuteNonQueryAsync();
+
+                await tx.CommitAsync();
+                return (false, count - 1);
+            }
+
+            await tx.CommitAsync();
+            return (true, count);
+        }
+        catch
+        {
+            await tx.RollbackAsync();
+            throw;
+        }
+    }
+
+    public static bool VerifyStripeSignature(string payload, string sigHeader, string secret)
+    {
+        string? timestamp = null;
+        string? signature = null;
+
+        foreach (var item in sigHeader.Split(','))
+        {
+            var parts = item.Split('=', 2);
+            if (parts.Length != 2) continue;
+            if (parts[0].Trim() == "t") timestamp = parts[1].Trim();
+            if (parts[0].Trim() == "v1") signature = parts[1].Trim();
+        }
+
+        if (timestamp == null || signature == null) return false;
+
+        using var hmac = new HMACSHA256(Encoding.UTF8.GetBytes(secret));
+        var hash = hmac.ComputeHash(Encoding.UTF8.GetBytes($"{timestamp}.{payload}"));
+        var computedSig = Convert.ToHexString(hash).ToLowerInvariant();
+
+        return CryptographicOperations.FixedTimeEquals(
+            Encoding.UTF8.GetBytes(signature),
+            Encoding.UTF8.GetBytes(computedSig)
+        );
+    }
+}
+```
+````
+
+---
+
+## Practical Hands-On Verification CLI Workflows
+
+Follow this hands-on workflow to test concurrency-safe counter increments, simulate quota enforcement triggering `402 Payment Required`, and verify webhook idempotency.
+
+### Step 1: Initialize Database Tables and Plan Seed Data
+
+```bash
+docker exec -i saas-onboarding-test psql -U postgres -d saas_db << 'EOF'
+CREATE TABLE IF NOT EXISTS plans (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    max_projects INT, -- NULL = Unlimited
+    max_api_calls_per_month INT
+);
+
+INSERT INTO plans (id, name, max_projects, max_api_calls_per_month) VALUES
+    ('free', 'Free Starter', 2, 100),
+    ('pro', 'Professional', 50, 50000)
+ON CONFLICT (id) DO NOTHING;
+
+CREATE TABLE IF NOT EXISTS usage_counters (
+    tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+    metric TEXT NOT NULL,
+    period_start DATE NOT NULL,
     count BIGINT NOT NULL DEFAULT 0,
     PRIMARY KEY (tenant_id, metric, period_start)
 );
+
+CREATE TABLE IF NOT EXISTS processed_webhooks (
+    event_id TEXT PRIMARY KEY,
+    event_type TEXT NOT NULL,
+    processed_at TIMESTAMPTZ NOT NULL
+);
+EOF
 ```
 
-The atomic, concurrency-safe increment-and-check, using Postgres's
-`INSERT ... ON CONFLICT` to avoid a separate SELECT-then-UPDATE race
-(the same read-then-write race track `05-caching-and-performance` and
-module 04-10's transaction module both warn about):
+### Step 2: Seed a Free-Tier Test Tenant
 
-```python
-async def check_and_increment(db, tenant_id: str, metric: str, limit: int | None) -> bool:
-    period_start = date.today().replace(day=1)
-    row = await db.fetch_one(
-        """
-        INSERT INTO usage_counters (tenant_id, metric, period_start, count)
-        VALUES (:tid, :metric, :period, 1)
-        ON CONFLICT (tenant_id, metric, period_start)
-        DO UPDATE SET count = usage_counters.count + 1
-        RETURNING count
-        """,
-        {"tid": tenant_id, "metric": metric, "period": period_start},
-    )
-    if limit is not None and row["count"] > limit:
-        return False  # over quota — caller should reject/degrade, and may want to decrement back
-    return True
+```bash
+docker exec -i saas-onboarding-test psql -U postgres -d saas_db << 'EOF'
+INSERT INTO tenants (id, slug, name, plan_id, status)
+VALUES ('e0000000-0000-0000-0000-000000000001', 'acme-labs', 'Acme Labs', 'free', 'active')
+ON CONFLICT (id) DO UPDATE SET plan_id = 'free';
+EOF
 ```
 
-`INSERT ... ON CONFLICT ... DO UPDATE` performs the increment atomically
-at the database level — there's no window between "read the current
-count" and "write the incremented count" for a second concurrent request
-to land in, unlike a naive `SELECT count; if count < limit: UPDATE count = count + 1`.
+### Step 3: Verify Single-Statement Atomic Increment & Quota Threshold
 
-### Enforcing a quota mid-request
+Execute two legitimate increments and one over-quota increment to observe counter behavior:
 
-```python
-from fastapi import Depends, HTTPException
+```bash
+docker exec -i saas-onboarding-test psql -U postgres -d saas_db << 'EOF'
+-- Attempt 1: Increment project creation count
+INSERT INTO usage_counters (tenant_id, metric, period_start, count)
+VALUES ('e0000000-0000-0000-0000-000000000001', 'projects', '2026-11-01', 1)
+ON CONFLICT (tenant_id, metric, period_start)
+DO UPDATE SET count = usage_counters.count + 1
+RETURNING count;
 
-def enforce_quota(metric: str):
-    async def dependency(tenant = Depends(get_current_tenant)):
-        plan = await get_plan(tenant.plan_id)
-        limit = getattr(plan, f"max_{metric}", None)
-        ok = await check_and_increment(db, tenant.id, metric, limit)
-        if not ok:
-            raise HTTPException(
-                status_code=402,  # Payment Required — deliberately distinct from 403
-                detail=f"{metric} quota exceeded for the {plan.id} plan",
-            )
-    return dependency
-
-@app.post("/projects")
-async def create_project(
-    tenant = Depends(get_current_tenant),
-    _quota = Depends(enforce_quota("projects")),
-):
-    ...
+-- Attempt 2: Increment project creation count
+INSERT INTO usage_counters (tenant_id, metric, period_start, count)
+VALUES ('e0000000-0000-0000-0000-000000000001', 'projects', '2026-11-01', 1)
+ON CONFLICT (tenant_id, metric, period_start)
+DO UPDATE SET count = usage_counters.count + 1
+RETURNING count;
+EOF
 ```
 
-`402 Payment Required` (rather than 403) is a deliberate signal to API
-clients and your own frontend: this isn't "you're not allowed," it's
-"you're allowed, but you've used up what your plan includes" — a
-distinction that changes what the client should show the user (an
-upgrade prompt, not an access-denied page).
+**Expected Wire Output:**
+```text
+ count 
+-------
+     1
+(1 row)
 
-### Wiring metering into a real billing provider
-
-You don't need a live Stripe account to learn the shape of this
-integration — the pattern is what matters:
-
-- **Subscription objects** — each tenant maps to one Stripe (or similar)
-  `Customer` + `Subscription`, storing the provider's IDs on your
-  `tenants` row (`stripe_customer_id`, `stripe_subscription_id`).
-- **Usage-based billing via metered events** — for pay-per-use metrics
-  (API calls beyond a plan's included amount), your app reports usage
-  events to the provider (`stripe.SubscriptionItem.create_usage_record(...)`)
-  instead of computing the bill yourself — the provider aggregates and
-  invoices.
-- **Webhooks drive plan changes, not your own UI directly** — when a
-  customer upgrades/downgrades/cancels through Stripe's hosted billing
-  portal, Stripe sends your app a webhook (`customer.subscription.updated`)
-  that updates `tenants.plan_id` — your app's plan is a *reflection* of
-  the billing provider's state, not the other way around, so it can never
-  drift out of sync with what's actually being charged.
-
-```python
-@app.post("/webhooks/stripe")
-async def stripe_webhook(request: Request):
-    event = verify_and_parse(request)  # signature verification is mandatory — never trust an unverified webhook body
-    if event["type"] == "customer.subscription.updated":
-        stripe_sub_id = event["data"]["object"]["id"]
-        new_plan_id = map_stripe_price_to_plan(event["data"]["object"]["items"])
-        await db.execute(
-            "UPDATE tenants SET plan_id = :plan WHERE stripe_subscription_id = :sub",
-            {"plan": new_plan_id, "sub": stripe_sub_id},
-        )
-    return {"received": True}
+ count 
+-------
+     2
+(1 row)
 ```
 
-## Command reference
+Now, simulate the 3rd attempt breaching the Free tier quota limit (`max_projects = 2`):
 
-| Concern | Snippet / detail |
-|---|---|
-| Plans as data | `plans` table, `tenants.plan_id` foreign key |
-| Atomic usage increment | `INSERT ... ON CONFLICT ... DO UPDATE SET count = count + 1` |
-| Quota-exceeded status code | `402 Payment Required` (not 403) |
-| Billing provider linkage | `tenants.stripe_customer_id`, `tenants.stripe_subscription_id` |
-| Provider is source of truth for plan | webhook-driven `plan_id` updates, never set directly by app UI |
-| Webhook trust | always verify signature before trusting payload |
+```bash
+docker exec -i saas-onboarding-test psql -U postgres -d saas_db << 'EOF'
+DO $$
+DECLARE
+    v_count INT;
+    v_limit INT := 2; -- Free tier limit
+BEGIN
+    INSERT INTO usage_counters (tenant_id, metric, period_start, count)
+    VALUES ('e0000000-0000-0000-0000-000000000001', 'projects', '2026-11-01', 1)
+    ON CONFLICT (tenant_id, metric, period_start)
+    DO UPDATE SET count = usage_counters.count + 1
+    RETURNING count INTO v_count;
 
-## Hands-on exercises
-
-Build on module 03's app and database.
-
-### 1. Build plans/quotas and enforce a limit
-
-Create the `plans` and `usage_counters` tables, seed `free`/`pro`/
-`enterprise` as above, and add `enforce_quota("projects")` to a
-`POST /projects` route. Create 3 projects on a `free`-plan tenant (limit
-3) and confirm the 4th returns `402`.
-
-### 2. Prove the atomic increment is race-safe
-
-Fire 20 concurrent `POST /projects` requests (e.g. with `asyncio.gather`
-or a small load script) against a *fresh* free-tier tenant (limit 3).
-Confirm **exactly 3** succeed and the rest all return `402` — not 4 or 5
-succeeding, which is what a naive SELECT-then-UPDATE implementation would
-allow under concurrency. This exercise is the actual proof the atomic
-`ON CONFLICT` approach matters, not just a claim.
-
-### 3. Confirm period reset behavior
-
-Manually insert a `usage_counters` row for `period_start` = last month
-with `count = 3` (at the free-tier limit). Confirm a new request this
-month is **not** blocked — the quota check reads/writes the *current*
-month's `period_start`, so last month's usage doesn't carry over.
-
-### 4. Simulate a plan upgrade via "webhook"
-
-Without a real Stripe account, simulate the webhook: call your
-`/webhooks/stripe`-equivalent handler directly with a hand-built payload
-that maps to `plan_id = 'pro'`. Confirm the tenant's `plan_id` updates and
-that project creation, previously blocked at 3, now succeeds past that
-count (up to `pro`'s limit of 50).
-
-### 5. Diagnose and fix: the double-charge race
-
-A team implemented quota checking as:
-
-```python
-usage = await db.fetch_one("SELECT count FROM usage_counters WHERE ...")
-if usage["count"] >= limit:
-    raise HTTPException(402)
-await db.execute("UPDATE usage_counters SET count = count + 1 WHERE ...")
+    IF v_count > v_limit THEN
+        -- Rollback decrement
+        UPDATE usage_counters SET count = count - 1 
+        WHERE tenant_id = 'e0000000-0000-0000-0000-000000000001' AND metric = 'projects' AND period_start = '2026-11-01';
+        RAISE EXCEPTION 'HTTP 402: Quota exceeded for plan free (limit: %, requested count: %)', v_limit, v_count;
+    END IF;
+END $$;
+EOF
 ```
 
-Under load testing, they found tenants exceeding their plan's project
-limit by 2-4 projects. Explain the bug and connect it to exercise 2.
+**Expected Wire Output:**
+```text
+ERROR:  HTTP 402: Quota exceeded for plan free (limit: 2, requested count: 3)
+CONTEXT:  PL/pgSQL function inline_code_block line 15 at RAISE
+```
+
+Verify that the counter was preserved at 2:
+```bash
+docker exec -i saas-onboarding-test psql -U postgres -d saas_db -c "
+SELECT metric, period_start, count FROM usage_counters WHERE tenant_id = 'e0000000-0000-0000-0000-000000000001';
+"
+```
+
+**Expected Wire Output:**
+```text
+  metric  | period_start | count 
+----------+--------------+-------
+ projects | 2026-11-01   |     2
+(1 row)
+```
+
+### Step 4: Verify Idempotent Webhook Processing
+
+Simulate an incoming Stripe `customer.subscription.updated` event upgrading `acme-labs` to `pro`:
+
+```bash
+docker exec -i saas-onboarding-test psql -U postgres -d saas_db << 'EOF'
+-- Run Webhook Ingestion for Event evt_test_101
+INSERT INTO processed_webhooks (event_id, event_type, processed_at)
+VALUES ('evt_test_101', 'customer.subscription.updated', NOW());
+
+UPDATE tenants SET plan_id = 'pro' WHERE id = 'e0000000-0000-0000-0000-000000000001';
+EOF
+```
+
+Verify that replaying the identical webhook event is safely caught:
+```bash
+docker exec -i saas-onboarding-test psql -U postgres -d saas_db << 'EOF'
+DO $$
+BEGIN
+    IF EXISTS (SELECT 1 FROM processed_webhooks WHERE event_id = 'evt_test_101') THEN
+        RAISE NOTICE 'Idempotency gate: Webhook event evt_test_101 already processed. Skipping update.';
+        RETURN;
+    END IF;
+    -- Would execute updates if not caught
+END $$;
+EOF
+```
+
+**Expected Wire Output:**
+```text
+NOTICE:  Idempotency gate: Webhook event evt_test_101 already processed. Skipping update.
+DO
+```
+
+---
+
+## Operational Validation Checkpoints (Scenario Quizzes)
 
 <details>
-<summary>Solution</summary>
+<summary><strong>Checkpoint 1: The SELECT-Then-UPDATE Quota Race Window</strong></summary>
 
-This is a classic read-then-write race: two (or more) concurrent requests
-can each run the `SELECT` and see `count = 2` (below a limit of 3) before
-either has run its `UPDATE` — both then pass the check and both create a
-project, and both then run their `UPDATE`, leaving `count = 4` instead of
-correctly rejecting the second one at the boundary. The number of
-over-limit creations scales with how many concurrent requests land inside
-that read-write gap, which is exactly what exercise 2's 20-concurrent-
-request test is designed to expose. The fix is the atomic
-`INSERT ... ON CONFLICT ... DO UPDATE ... RETURNING count` pattern, which
-makes the increment and the read of the *new* count a single, indivisible
-database operation — no other request's increment can land between them.
+**Scenario:** An engineering team implements quota checking in application code:
+```python
+current_count = await db.fetch_val("SELECT count FROM usage WHERE tenant_id = :tid", {"tid": tenant_id})
+if current_count >= limit:
+    raise QuotaExceededException()
+await db.execute("UPDATE usage SET count = count + 1 WHERE tenant_id = :tid", {"tid": tenant_id})
+```
+Under what operational traffic condition will this code fail to enforce the limit, and what specific SQL construction guarantees correctness without setting pessimistic table locks?
 
-</details>
-
-## Independent challenge
-
-No code given. Design metering and quota enforcement for a metric that
-can't be atomically pre-checked the way project count can: **storage
-used**, measured in bytes, where a single file upload might be 500MB and
-a tenant is 50MB under a 1GB limit. Should the upload be rejected before
-it starts, allowed to complete and then rejected retroactively, or
-something else? Write out your design and justify it against the two
-failure modes: rejecting a valid, under-limit upload unnecessarily vs.
-letting a tenant significantly exceed their quota.
-
-<details>
-<summary>Stuck? One hint</summary>
-
-A common real answer: check `current_usage + declared_upload_size >
-limit` **before** accepting the upload (using the file's declared
-`Content-Length`, not its actual bytes yet), rejecting up front rather
-than after transferring 500MB just to discard it — this avoids wasting
-bandwidth/storage on a doomed upload. Accept that this check has a
-small race window (two large concurrent uploads could both pass the
-pre-check and jointly exceed the limit) and treat *storage* quotas as
-"soft, checked-at-write-time with periodic reconciliation" rather than
-demanding the same hard atomicity as a simple counter like project count
-— the actual bytes-on-disk total, computed periodically by a background
-job, is the real source of truth, and the pre-check is a best-effort
-guard against the common case, not an absolute guarantee. Explicitly
-naming which metrics need hard atomic enforcement (project/seat counts —
-this module's exercises) versus which are acceptable as soft/
-best-effort (storage, bandwidth) is the actual design skill this
-challenge is testing.
-
-</details>
-
-## Common mistakes & troubleshooting
-
-- **Hard-coding plan limits as `if` statements in handlers.** Every plan
-  change becomes a code change and deploy — model plans/limits as data
-  (the `plans` table) instead.
-- **Read-then-write quota checks.** Exercise 5's bug — always use an
-  atomic increment-and-check (`INSERT ... ON CONFLICT ... DO UPDATE
-  ... RETURNING`), never a separate `SELECT` followed by an `UPDATE`.
-- **Returning 403 instead of 402 for quota-exceeded.** They mean different
-  things to a client — 403 says "you may never do this," 402 says "you
-  could if you upgraded," and UI/UX built on the wrong code shows the
-  wrong message to the user.
-- **Letting your own app's UI set `plan_id` directly** instead of treating
-  the billing provider's webhook as the source of truth. This lets your
-  app's idea of a tenant's plan drift out of sync with what's actually
-  being billed — always let the provider drive plan changes.
-- **Not verifying webhook signatures.** An unverified webhook endpoint is
-  an open door for anyone to POST a fake "plan upgraded" event and get
-  Enterprise-tier access for free — signature verification is mandatory,
-  not optional, on every billing webhook.
-- **Treating every metric as needing the same enforcement strength.** The
-  independent challenge's point — hard atomic counters fit small, cheap-
-  to-check metrics; storage/bandwidth-style metrics are usually better as
-  soft, periodically-reconciled checks.
-
-## Checkpoint quiz
-
-<details>
-<summary>Show questions</summary>
-
-1. Why should plan limits be modeled as data (a `plans` table) rather than
-   hard-coded in handler logic?
-2. What SQL pattern makes a usage-counter increment safe under concurrent
-   requests, and what race does it avoid?
-3. Why does this module use `402 Payment Required` instead of `403
-   Forbidden` for a quota-exceeded response?
-4. Why should a tenant's `plan_id` be updated by a billing-provider
-   webhook rather than directly by your own application's upgrade UI?
-5. Why might a "storage used" quota reasonably be enforced more loosely
-   (soft, periodically reconciled) than a "projects created" quota (hard,
-   atomically enforced)?
-
-</summary>
+<strong>Answer:</strong>
+This code is vulnerable to a Time-of-Check to Time-of-Use (TOCTOU) race condition whenever a tenant dispatches multiple concurrent requests. If a tenant on a plan with a limit of 10 currently has 9 used units and sends 10 concurrent requests simultaneously, all 10 threads can execute the `SELECT` statement before any thread executes the `UPDATE`. All 10 threads see `current_count = 9 < 10` and proceed to increment, resulting in a final count of 19 (a 90% quota overrun). The correct design uses PostgreSQL's atomic single-statement upsert:
+```sql
+INSERT INTO usage_counters (tenant_id, metric, period_start, count)
+VALUES (:tid, :metric, :period, 1)
+ON CONFLICT (tenant_id, metric, period_start)
+DO UPDATE SET count = usage_counters.count + 1
+RETURNING count;
+```
+Because PostgreSQL executes row-level upserts with an internal exclusive write lock on the target index tuple, all concurrent updates are serialized atomically at the storage engine level.
 </details>
 
 <details>
-<summary>Show answers</summary>
+<summary><strong>Checkpoint 2: The Direct UI Plan Assignment Anti-Pattern</strong></summary>
 
-1. Because plan limits change over time (new tiers, adjusted limits,
-   promotional overrides) — modeling them as rows in a `plans` table
-   means those changes are data updates, not code changes requiring a
-   deploy, and lets you introspect/report on plan configuration without
-   reading source code.
-2. `INSERT ... ON CONFLICT (...) DO UPDATE SET count = count + 1
-   RETURNING count` — an atomic, single-statement increment. It avoids
-   the read-then-write race where two concurrent requests both read the
-   same "below limit" count before either writes back the increment,
-   letting both proceed and pushing the true count above the limit
-   (exercise 5's bug).
-3. `402` communicates "this action is allowed in principle, you've simply
-   used up what your current plan includes" (i.e., upgrading would fix
-   it), whereas `403` communicates "you are not permitted to do this at
-   all" (e.g., a role/permission failure) — client and frontend code can
-   use the distinction to show an upgrade prompt for 402 versus an
-   access-denied message for 403.
-4. Because the billing provider (e.g. Stripe) is the actual system of
-   record for what a tenant is being charged for — if your app's UI could
-   set `plan_id` directly, it could drift out of sync with what's
-   genuinely billed (e.g. showing Enterprise features to a tenant whose
-   payment actually failed and whose Stripe subscription was downgraded).
-   Webhook-driven updates keep your app's plan state a strict reflection
-   of the provider's actual billing state.
-5. Because storage/bandwidth-style metrics are expensive or impossible to
-   check with the same atomic-counter precision as a simple integer count
-   (a large upload's exact size may only be known after most of it has
-   transferred), and a small, brief overage is generally an acceptable
-   cost — enforcing a best-effort pre-check plus periodic reconciliation
-   avoids either wasting resources rejecting valid uploads over a race
-   window or over-engineering hard atomicity for a metric where it isn't
-   worth the cost.
+**Scenario:** A SaaS frontend allows administrators to click "Upgrade to Enterprise". Upon receiving the request, the backend immediately executes `UPDATE tenants SET plan_id = 'enterprise' WHERE id = :tid;` and redirects the user to Stripe Checkout to enter payment details. Why is this a severe architectural flaw, and how does webhook-driven reconciliation resolve it?
 
+<strong>Answer:</strong>
+Allowing the application to update `plan_id` before receiving confirmed settlement from the payment gateway decouples entitlement from payment state:
+1. **Unpaid Entitlement Exploitation:** If the user closes the browser at the Stripe Checkout screen, submits a stolen card that is rejected, or triggers 3D-Secure failure, the application has already granted Enterprise capabilities.
+2. **State Drift:** If payment fails on subscription renewal 30 days later, the application has no mechanism to downgrade the tenant unless it listens to gateway events.
+
+The billing gateway (Stripe) must remain the authoritative system of record for commercial subscriptions. The application must only transition `plan_id` upon receiving and cryptographically verifying an authoritative webhook event (`checkout.session.completed` or `customer.subscription.updated`).
 </details>
 
-## Further reading & sources
+<details>
+<summary><strong>Checkpoint 3: Soft vs. Hard Quota Architecture for Storage</strong></summary>
 
-- [Stripe docs: Usage-based billing](https://stripe.com/docs/billing/subscriptions/usage-based) - the metered-billing pattern this module's provider-integration section is modeled on.
-- [Stripe docs: Webhooks](https://stripe.com/docs/webhooks) - signature verification and event handling for the plan-sync pattern.
-- [Track 05, backend: caching and performance](../../05-caching-and-performance/README.md) - the same read-then-write race class discussed there for caches applies to naive quota counters here.
+**Scenario:** You are architecting a SaaS platform that charges for two resources: Active Team Members (seats) and Object Storage (gigabytes of uploaded media). Why is it acceptable—and often necessary—to enforce team seats with a hard atomic database lock, while storage consumption is typically enforced via soft reconciliation?
+
+<strong>Answer:</strong>
+The difference stems from transaction boundaries and observability:
+* **Active Seats (Hard Quota):** Inviting a user is a discrete, low-frequency metadata operation. Checking `SELECT count(*) FROM users WHERE tenant_id = :tid` inside the user invitation transaction is fast (< 2ms), predictable, and zero-byte overhead. Breaches are unacceptable because seats directly determine authorization and licensing.
+* **Storage Consumption (Soft Quota):** A user uploading a 2 GB file via chunked multipart upload transmits data over minutes. The exact post-compression storage size may not be known upfront. Enforcing atomic database locks on every chunked HTTP upload would create massive database lock contention across storage nodes. Instead, systems perform a fast pre-flight authorization check, ingest the file, calculate usage asynchronously via storage bucket metrics or background event streams, and apply soft enforcement (e.g., warning banners or disabling future uploads if over quota) rather than violently dropping an in-flight 2 GB transfer mid-stream.
+</details>
+
+---
 
 ## Free PDF notes
 
 Download these notes as a printable PDF, with every diagram and interview questions: [SD-C-014: Throttling vs Rate Limiting vs Quotas](https://backendroadmap.com/notes/system-design/SD-C-014.pdf). Each section in one file: [Phase 2, APIs (PDF)](https://backendroadmap.com/notes/system-design/Phase2_APIs_Notes.pdf).
 
+---
+
+## Further Reading & Sources
+
+- [Stripe Documentation: Usage-Based Billing Patterns](https://stripe.com/docs/billing/subscriptions/usage-based) — Metered billing and aggregation models.
+- [Stripe Documentation: Webhook Signatures](https://stripe.com/docs/webhooks) — Cryptographic verification and replay prevention.
+- [Track 05, Backend: Caching and Performance](../../05-caching-and-performance/README.md) — Concurrency control and race condition mitigations.
+
+---
+
 ## Next
 
-[05-scaling-and-noisy-neighbor-at-the-app-layer](../05-scaling-and-noisy-neighbor-at-the-app-layer/README.md) —
-now that usage is measured per tenant, module 05 uses that same per-tenant
-signal to prevent one tenant's load from degrading everyone else's.
+Continue to [05-scaling-and-noisy-neighbor-at-the-app-layer](../05-scaling-and-noisy-neighbor-at-the-app-layer/README.md) — now that usage is measured per tenant, learn how to prevent a single noisy tenant's traffic from degrading API availability and worker capacity for everyone else.

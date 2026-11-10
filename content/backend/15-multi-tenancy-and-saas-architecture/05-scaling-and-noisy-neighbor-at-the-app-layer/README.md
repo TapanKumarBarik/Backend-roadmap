@@ -1,347 +1,791 @@
 # Module 05: Scaling and the Noisy-Neighbor Problem at the App Layer
 
-## Why this matters
+> **Prerequisites:** [00-tenancy-models-and-decision-framework](../00-tenancy-models-and-decision-framework/README.md), [01-tenant-identification-and-request-routing](../01-tenant-identification-and-request-routing/README.md), [02-auth-and-authorization-across-tenants](../02-auth-and-authorization-across-tenants/README.md), [04-billing-plans-and-usage-metering](../04-billing-plans-and-usage-metering/README.md), and [Track 05: Caching and Performance](../../05-caching-and-performance/README.md).  
+> **Estimated Reading Time:** 28 minutes  
+> **Target Audience:** Senior backend engineers and platform architects designing multi-tenant resource governors, distributed rate limiters, tiered worker pools, and feature gating engines.
 
-Module 04-10 introduced the noisy-neighbor problem at the **database**
-layer — one tenant's heavy query degrading another tenant's response time
-on the same shared Postgres instance — and gave you `statement_timeout`
-and connection-pool partitioning as mitigations. That's half the problem.
-Above the database, your **application servers** are also shared
-infrastructure: one tenant hammering your API, running an expensive
-report endpoint in a tight loop, or triggering a burst of background jobs
-can exhaust worker threads, connection pool slots, or CPU that every other
-tenant's requests are also waiting on — with the database itself
-completely healthy the whole time. This module closes that gap: per-tenant
-rate limiting, tiered infrastructure for especially heavy tenants, and
-feature flags that scale what a tenant can *do* (not just how much) by
-plan.
+> [!TIP]
+> **The Golden Rule of Application-Layer Tenant Isolation:** Never limit traffic solely by client IP or individual user ID. Multi-tenant capacity must be governed at the **tenant boundary**: enforce distributed rate limiting keyed by `tenant_id` scaled by plan tier, isolate expensive asynchronous workloads into partitioned worker queues, and implement circuit breakers to shed pathological tenant traffic before it exhausts shared application thread pools.
 
-## Concepts
+---
 
-### Per-tenant rate limiting, not just per-user
+## Visual Mental Models & Architecture
 
-Track `09-security-deep-dive` covers rate limiting per user/IP. Multi-
-tenancy needs the same mechanism keyed one level up — per **tenant** —
-because a tenant with 50 seats sending legitimate traffic from 50
-different users would otherwise blow past a per-user limit's aggregate
-intent, or conversely, a single malicious/misconfigured user within a
-tenant could be rate-limited individually while 49 other users in the
-same tenant keep piling on load the per-user limit never sees in
-aggregate.
+### The Multi-Tenant Application Layer Governor Architecture
 
-```python
-import time
-from collections import defaultdict
+When multiple organizations share common API ingress nodes and background worker clusters, an unthrottled burst or pathological query pattern from one organization can consume all available socket connections, CPU threads, and memory allocations.
 
-class TenantRateLimiter:
-    """Token bucket per tenant_id. Same algorithm as track 09/14's rate
-    limiter, keyed by tenant instead of user — the mechanism doesn't
-    change, only what identifies the bucket."""
+```mermaid
+flowchart TD
+    subgraph Ingress["Traffic Ingress & Reverse Proxy"]
+        ReqA["Tenant A: Free Starter<br/>(Bursting 500 req/s)"]
+        ReqB["Tenant B: Enterprise<br/>(Steady 50 req/s)"]
+    end
 
-    def __init__(self, capacity: int, refill_per_sec: float):
-        self.capacity = capacity
-        self.refill_per_sec = refill_per_sec
-        self.buckets: dict[str, tuple[float, float]] = {}  # tenant_id -> (tokens, last_refill)
+    subgraph Gateway["Tenant-Aware API Gateway"]
+        MW["Tenant Context Resolver"]
+        RL["Distributed Token Bucket Limiter<br/>(Redis Cluster)"]
+    end
 
-    def allow(self, tenant_id: str) -> bool:
-        now = time.monotonic()
-        tokens, last = self.buckets.get(tenant_id, (self.capacity, now))
-        tokens = min(self.capacity, tokens + (now - last) * self.refill_per_sec)
-        if tokens < 1:
-            self.buckets[tenant_id] = (tokens, now)
-            return False
-        self.buckets[tenant_id] = (tokens - 1, now)
-        return True
+    subgraph IsolationLayer["Tiered Execution & Queue Bulkheads"]
+        SharedPool["Shared HTTP Worker Pool<br/>(Default & Free Tiers)"]
+        DedicatedPool["Dedicated Enterprise Worker Pool<br/>(Siloed Compute)"]
+        VIPQueue["High-Priority Worker Queue<br/>(Enterprise Async Jobs)"]
+        StandardQueue["Best-Effort Worker Queue<br/>(Free/Starter Jobs)"]
+    end
+
+    ReqA --> MW
+    ReqB --> MW
+    MW --> RL
+
+    RL -- "Tenant A (Cap: 30 rpm) Exceeded" --> DropA["429 Too Many Requests<br/>(Retry-After: 20s)"]
+    RL -- "Tenant A Allowed (Within Limit)" --> SharedPool
+    RL -- "Tenant B (Cap: 3000 rpm) Allowed" --> DedicatedPool
+
+    SharedPool -- "Async Task" --> StandardQueue
+    DedicatedPool -- "Async Task" --> VIPQueue
 ```
 
-In production this bucket state lives in Redis (shared across app server
-instances, same as track 09's distributed rate limiter), not local
-process memory — a per-process-only limiter lets a tenant get
-`capacity * number_of_app_servers` effective throughput, which defeats
-the point once you're running more than one instance.
+### Distributed Per-Tenant Token Bucket State Flow
 
-### Per-plan rate limits, not one global limit
+Using in-process memory for rate limiting leads to dramatic leakage in horizontally scaled architectures. A distributed Redis-backed sliding token bucket maintains strict tenant quotas across any number of application replicas.
 
-Combine module 04's plan data with this module's limiter: the bucket
-capacity itself comes from the tenant's plan, so "Enterprise gets a
-10x higher rate limit than Free" is a data-driven config, not a special
-code path.
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Client as Tenant A User
+    participant App as API Server Replica #4
+    participant Redis as Central Redis Cluster
+    participant Handler as Route Handler
 
-```python
-async def enforce_rate_limit(tenant = Depends(get_current_tenant)):
-    plan = await get_plan(tenant.plan_id)
-    limiter = get_limiter_for_capacity(plan.rate_limit_per_min)  # one limiter instance per distinct capacity tier
-    if not limiter.allow(tenant.id):
-        raise HTTPException(status_code=429, detail="Rate limit exceeded — retry after a moment")
+    Client->>App: GET /api/v1/analytics (Host: acme.saas.com)
+    App->>App: 1. Extract tenant_id ('t_acme') & plan ('starter')
+    App->>Redis: 2. EVALSHA rate_limit.lua 'rate:t_acme' capacity=60 refill=1.0 now=1731234000
+    
+    activate Redis
+    Note over Redis: Atomic Lua Script:<br/>1. Calculate elapsed time since last_refill<br/>2. Add regenerated tokens to bucket<br/>3. IF tokens >= 1 THEN deduct 1 token ELSE reject
+    Redis-->>App: Return: [allowed=0, remaining=0, retry_after=12]
+    deactivate Redis
+
+    alt Allowed (tokens >= 1)
+        App->>Handler: Forward to Handler
+        Handler-->>Client: 200 OK
+    else Throttled (tokens < 1)
+        App-->>Client: 429 Too Many Requests<br/>(X-RateLimit-Limit: 60, Retry-After: 12)
+        Note over App,Client: Dropped at gateway! Core application CPU preserved!
+    end
 ```
 
-`429 Too Many Requests` is the correct status here — distinct from module
-04's `402` (quota exhausted for the billing period) and track 03's `403`
-(not permitted at all). All three are "request rejected," but each tells
-the client a different thing to do next: 429 says "slow down and retry
-shortly," 402 says "upgrade your plan," 403 says "this will never
-succeed no matter what you do."
+---
 
-### Tiered infrastructure: routing heavy tenants away from everyone else
+## Systematic Taxonomic Reference Grids
 
-Rate limiting caps how much load *any single tenant* can generate, but
-even within their limit, one Enterprise tenant's legitimately heavy,
-sustained usage can still crowd out a large number of small Free-tier
-tenants sharing the same worker pool. The escalation, mirroring module
-04-10's "move the noisy tenant to its own schema/database":
+### Noisy-Neighbor Failure Modes at the Application Layer
 
-- **Dedicated worker pools by tier** — route Enterprise-tier traffic to a
-  separate set of application server instances (behind the same API, via
-  a header/tenant lookup at the load balancer or an API gateway layer)
-  so a burst from one tier can't starve another tier's shared pool.
-- **Dedicated queues for background jobs** — module 03's provisioning
-  jobs, and any other per-tenant background work, go through per-tier
-  (or, for the largest tenants, per-tenant) queues rather than one global
-  FIFO queue a single heavy tenant could fill up.
-- **Per-tenant circuit breakers** — if one tenant's requests are
-  consistently slow/erroring (e.g. they're hitting a pathological query
-  pattern), a circuit breaker that degrades or sheds *that tenant's*
-  traffic specifically protects the shared pool for everyone else, rather
-  than letting one tenant's bad pattern cascade into a general outage.
+| Failure Mode | Failure Mechanism | Root Cause | Architectural Defense |
+| :--- | :--- | :--- | :--- |
+| **HTTP Thread Pool Starvation** | Tenant runs 100 concurrent slow CSV exports; exhausts WSGI/worker threads | Unbounded concurrency per tenant on shared API servers | Per-tenant concurrent request caps (`MaxConcurrentRequests = 10`) and async job offloading. |
+| **Worker Queue Starvation** | Free tenant enqueues 50,000 webhook jobs; enterprise tasks delayed 4 hours | Single global FIFO background queue | Fair-share queuing or per-tier queue partitioning (VIP vs Standard). |
+| **Memory / OOM Cascades** | Large tenant queries 1,000,000 rows into application heap memory | Missing streaming or pagination guards on endpoints | Strict cursor pagination (`limit <= 100`) and per-tenant memory quotas. |
+| **Connection Pool Exhaustion** | Pathological queries hold open database connections indefinitely | Missing tenant-level connection limits or `statement_timeout` | Proxy pooling (PgBouncer) with aggressive per-tenant statement timeouts (e.g., 5s). |
+| **Feature Consumption Abuse** | Lower-tier tenant invokes computationally expensive feature in tight loop | Feature enabled globally without plan gating | Plan-based feature flags (`require_feature("bulk_export")`) returning `402`. |
 
-### Feature flags by plan: scaling capability, not just volume
+### Systematic Comparison of Multi-Tenant Throttling Algorithms
 
-Not every noisy-neighbor mitigation is about request *volume* — some
-features are inherently expensive per-invocation (a bulk CSV export, a
-cross-project analytics report) and belong behind a plan-gated feature
-flag regardless of how well-behaved the tenant's overall traffic is:
+| Algorithm | Redis Memory Footprint | Concurrency Safety | Burst Handling Capability | Best Suited Multi-Tenant Use Case |
+| :--- | :--- | :--- | :--- | :--- |
+| **Token Bucket** | Minimal (2 keys: `tokens`, `last_updated`) | High (Single atomic Lua script) | Excellent; permits bursts up to capacity, refills smoothly | **Default standard** for general API rate limiting by plan tier. |
+| **Leaky Bucket** | Minimal (1 FIFO queue or counter) | High | Zero burst; enforces perfectly smooth, constant egress rate | Data streaming ingestion, outbound third-party webhook dispatchers. |
+| **Sliding Window Log** | High (1 sorted set per tenant containing timestamps) | High | Absolute precision; eliminates edge-of-window doubling | High-value security endpoints (e.g., password reset, 2FA validation). |
+| **Sliding Window Counter** | Low (Hash counters for current & previous windows) | High | Smooth approximation (< 0.05% error) | High-throughput distributed API gateways (e.g., Kong, Envoy). |
 
-```python
-FEATURE_GATES = {
-    "bulk_export": {"pro", "enterprise"},
-    "advanced_analytics": {"enterprise"},
+### Infrastructure Isolation Tiers Comparison
+
+| Isolation Tier | Deployment Model | Cost per Tenant | Blast Radius Containment | Target Tenant Archetype |
+| :--- | :--- | :--- | :--- | :--- |
+| **Shared Pool (Pooled)** | All tenants share API pods, workers, and queues | Lowest (\$0.01 – \$0.10 / mo) | Low; software rate limiting is the sole barrier | Free, Starter, Self-serve Pro tiers. |
+| **Tiered Partitioning** | Dedicated worker queues and app pods per plan tier | Moderate (\$10 – \$50 / mo) | High; Free tier storms cannot impact Enterprise pods | High-volume Pro and Mid-Market tiers. |
+| **Dedicated Silo** | Dedicated Kubernetes pods and isolated database | High (\$200 – \$2,000+ / mo) | Total (100% hardware & process isolation) | Enterprise, HIPAA/SOC2 compliant accounts. |
+
+---
+
+## Production War Stories: Incident Post-Mortem
+
+### SEV-1 Post-Mortem: The Enterprise CSV Export Thread Starvation & Black Hole Outage
+
+#### Incident Overview
+* **Severity:** SEV-1 (Total Multi-Tenant Platform Outage)
+* **Detection Time:** 6 minutes post-incident onset
+* **Resolution Time:** 2 hours 10 minutes
+* **Impact:** 14,000 business accounts worldwide suffered complete HTTP 504 timeouts for 130 minutes.
+
+#### What Happened
+A multi-tenant project management SaaS operated 24 containerized application instances behind an AWS Application Load Balancer. Each container ran a Python Gunicorn server configured with 4 worker processes and 2 threads per worker (a maximum platform capacity of $24 \times 8 = 192$ concurrent execution threads).
+
+An automated ETL script operated by a legitimate Enterprise tenant launched a cron job at 02:00 UTC. The script initiated 200 parallel HTTP requests to:
+```http
+GET /api/v1/projects/export?format=csv
+Host: megacorp.saasplatform.com
+```
+
+This endpoint:
+1. Ran an unindexed multi-table JOIN query spanning 500,000 task records.
+2. Formatted the resulting rows into CSV strings in application memory.
+3. Held open the active HTTP thread for approximately 42 seconds per request.
+
+Within 4 seconds of the cron job firing, all 192 application worker threads across all 24 nodes were occupied servicing MegaCorp's 200 export requests.
+
+When users from other organizations (Acme, Globex, Initech) attempted simple, sub-10ms requests (e.g., `GET /api/v1/tasks/123`), their requests queued at the load balancer socket backlog. Because no application threads were available to accept connections, the load balancer returned `HTTP 504 Gateway Timeout` to all 14,000 tenants globally.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor MegaCorp as MegaCorp ETL (Tenant A)
+    actor OtherTenants as 14,000 Other Tenants
+    participant ALB as Application Load Balancer
+    participant AppPool as Shared App Cluster (192 Threads Max)
+    participant DB as Postgres Database
+
+    MegaCorp->>ALB: 200 Concurrent Heavy CSV Requests
+    ALB->>AppPool: Dispatches 192 Requests Across Cluster
+    Note over AppPool: ALL 192 Worker Threads Occupied!<br/>Running 42-second CSV generation queries!
+    
+    OtherTenants->>ALB: GET /tasks/123 (Sub-10ms queries)
+    ALB->>AppPool: Forward request...
+    Note over ALB,AppPool: Queue Full! Zero Available Worker Threads!
+    
+    ALB-->>OtherTenants: 504 Gateway Timeout (Platform Outage!)
+    Note over OtherTenants: 14,000 innocent tenants locked out!
+```
+
+#### Root Cause Analysis
+1. **Unbounded Per-Tenant Concurrency:** The platform had no limit on how many concurrent execution slots a single tenant could consume. A single tenant occupied 100% of global thread capacity.
+2. **Synchronous Heavy Export Execution:** A 42-second bulk export was executed directly inside synchronous HTTP request-response worker threads instead of being offloaded to an asynchronous background worker pool.
+3. **Missing Circuit Breaker & Bulkheads:** There was no tenant-level concurrency bulkhead or execution timeout to shed heavy workloads during thread exhaustion.
+
+#### The Fix & Architectural Hardening
+1. **Offloaded Heavy Workloads to Asynchronous Queues:** Re-architected `/export` to return `202 Accepted` immediately with a `job_id`, delegating the CSV generation to background Celery workers.
+2. **Per-Tenant Concurrency Bulkhead:** Implemented a Redis semaphore limiting each tenant to a maximum of 5 concurrent in-flight requests on heavy endpoints.
+3. **Tiered Worker Queues:** Created dedicated Celery queues for Enterprise vs. Free tier exports to guarantee enterprise operations never block basic operations.
+4. **Feature Gating by Plan:** Placed bulk export behind `require_feature("bulk_export")`, rejecting unauthorized lower-tier attempts with `402 Payment Required`.
+
+---
+
+## Multi-Language Production Code Tabs
+
+The following implementations demonstrate:
+1. **Distributed per-tenant token bucket rate limiting using Redis and atomic Lua scripting.**
+2. **Plan-aware dynamic rate limit configuration (Free vs. Pro vs. Enterprise).**
+3. **Plan-based feature gating middleware returning `402 Payment Required`.**
+
+### Production Rate Limiting & Governor Engines
+
+````carousel
+```go
+// Go: Distributed Per-Tenant Redis Token Bucket & Feature Gate
+package main
+
+import (
+	"context"
+	"fmt"
+	"net/http"
+	"strconv"
+	"time"
+
+	"github.com/go-redis/redis/v8"
+)
+
+// Atomic Token Bucket Lua Script
+const tokenBucketLua = `
+local key = KEYS[1]
+local capacity = tonumber(ARGV[1])
+local refill_rate = tonumber(ARGV[2])
+local cost = tonumber(ARGV[3])
+local now = tonumber(ARGV[4])
+
+local data = redis.call("HMGET", key, "tokens", "last_updated")
+local tokens = tonumber(data[1])
+local last_updated = tonumber(data[2])
+
+if tokens == nil then
+    tokens = capacity
+    last_updated = now
+else
+    local elapsed = math.max(0, now - last_updated)
+    tokens = math.min(capacity, tokens + elapsed * refill_rate)
+    last_updated = now
+end
+
+if tokens >= cost then
+    tokens = tokens - cost
+    redis.call("HMSET", key, "tokens", tokens, "last_updated", last_updated)
+    redis.call("EXPIRE", key, math.ceil(capacity / refill_rate) * 2)
+    return {1, math.floor(tokens), 0}
+else
+    local retry_after = math.ceil((cost - tokens) / refill_rate)
+    return {0, math.floor(tokens), retry_after}
+end
+`
+
+type GovernorService struct {
+	rdb         *redis.Client
+	scriptSHA   string
+	planLimits  map[string]int // plan_id -> requests per minute
+	featureGate map[string][]string
 }
 
-def require_feature(feature: str):
-    async def dependency(tenant = Depends(get_current_tenant)):
-        plan = await get_plan(tenant.plan_id)
-        if plan.id not in FEATURE_GATES.get(feature, set()):
-            raise HTTPException(status_code=402, detail=f"{feature} requires a higher plan")
-    return dependency
+func NewGovernorService(rdb *redis.Client) (*GovernorService, error) {
+	ctx := context.Background()
+	sha, err := rdb.ScriptLoad(ctx, tokenBucketLua).Result()
+	if err != nil {
+		return nil, fmt.Errorf("failed to load rate limit lua: %w", err)
+	}
 
-@app.post("/reports/bulk-export")
-async def bulk_export(_ = Depends(require_feature("bulk_export"))):
-    ...
+	return &GovernorService{
+		rdb:       rdb,
+		scriptSHA: sha,
+		planLimits: map[string]int{
+			"free":       30,   // 30 requests / minute
+			"pro":        300,  // 300 requests / minute
+			"enterprise": 3000, // 3000 requests / minute
+		},
+		featureGate: map[string][]string{
+			"bulk_export": {"pro", "enterprise"},
+			"audit_logs":  {"enterprise"},
+		},
+	}, nil
+}
+
+func (g *GovernorService) RateLimitMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		tenantID := r.Header.Get("X-Tenant-ID")
+		planID := r.Header.Get("X-Tenant-Plan")
+		if tenantID == "" || planID == "" {
+			http.Error(w, "Missing tenant headers", http.StatusBadRequest)
+			return
+		}
+
+		limitRPM, ok := g.planLimits[planID]
+		if !ok {
+			limitRPM = 30
+		}
+
+		capacity := float64(limitRPM)
+		refillRate := capacity / 60.0 // tokens per second
+		now := float64(time.Now().Unix())
+
+		key := fmt.Sprintf("ratelimit:%s", tenantID)
+		res, err := g.rdb.EvalSha(r.Context(), g.scriptSHA, []string{key}, capacity, refillRate, 1, now).Result()
+		if err != nil {
+			http.Error(w, "Rate limiter error", http.StatusInternalServerError)
+			return
+		}
+
+		vals := res.([]interface{})
+		allowed := vals[0].(int64) == 1
+		remaining := vals[1].(int64)
+		retryAfter := vals[2].(int64)
+
+		w.Header().Set("X-RateLimit-Limit", strconv.Itoa(limitRPM))
+		w.Header().Set("X-RateLimit-Remaining", strconv.FormatInt(remaining, 10))
+
+		if !allowed {
+			w.Header().Set("Retry-After", strconv.FormatInt(retryAfter, 10))
+			http.Error(w, "Rate limit exceeded. Slow down.", http.StatusTooManyRequests)
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
+}
+
+func (g *GovernorService) RequireFeature(featureName string, next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		planID := r.Header.Get("X-Tenant-Plan")
+		allowedPlans := g.featureGate[featureName]
+
+		hasAccess := false
+		for _, p := range allowedPlans {
+			if p == planID {
+				hasAccess = true
+				break
+			}
+		}
+
+		if !hasAccess {
+			w.WriteHeader(http.StatusPaymentRequired)
+			w.Write([]byte(fmt.Sprintf(`{"error": "Feature '%s' requires plan upgrade"}`, featureName)))
+			return
+		}
+
+		next(w, r)
+	}
+}
+```
+<!-- slide -->
+```typescript
+// TypeScript/Node.js: Distributed Redis Token Bucket & Express Guard
+import { Request, Response, NextFunction } from 'express';
+import Redis from 'ioredis';
+
+const TOKEN_BUCKET_LUA = `
+local key = KEYS[1]
+local capacity = tonumber(ARGV[1])
+local refill_rate = tonumber(ARGV[2])
+local cost = tonumber(ARGV[3])
+local now = tonumber(ARGV[4])
+
+local data = redis.call("HMGET", key, "tokens", "last_updated")
+local tokens = tonumber(data[1])
+local last_updated = tonumber(data[2])
+
+if tokens == nil then
+    tokens = capacity
+    last_updated = now
+else
+    local elapsed = math.max(0, now - last_updated)
+    tokens = math.min(capacity, tokens + elapsed * refill_rate)
+    last_updated = now
+end
+
+if tokens >= cost then
+    tokens = tokens - cost
+    redis.call("HMSET", key, "tokens", tokens, "last_updated", last_updated)
+    redis.call("EXPIRE", key, math.ceil(capacity / refill_rate) * 2)
+    return {1, math.floor(tokens), 0}
+else
+    local retry_after = math.ceil((cost - tokens) / refill_rate)
+    return {0, math.floor(tokens), retry_after}
+end
+`;
+
+export class TenantGovernor {
+  private scriptSha: string = '';
+  private planRpmLimits: Record<string, number> = {
+    free: 30,
+    pro: 300,
+    enterprise: 3000,
+  };
+  private featureGates: Record<string, string[]> = {
+    bulk_export: ['pro', 'enterprise'],
+    audit_logs: ['enterprise'],
+  };
+
+  constructor(private redis: Redis) {
+    this.initLua();
+  }
+
+  private async initLua() {
+    this.scriptSha = await this.redis.script('LOAD', TOKEN_BUCKET_LUA) as string;
+  }
+
+  public rateLimitMiddleware() {
+    return async (req: Request, res: Response, next: NextFunction) => {
+      const tenant = (req as any).tenant;
+      if (!tenant) {
+        return res.status(500).json({ error: 'Tenant context missing' });
+      }
+
+      const limitRpm = this.planRpmLimits[tenant.plan_id] || 30;
+      const capacity = limitRpm;
+      const refillRate = capacity / 60.0;
+      const now = Math.floor(Date.now() / 1000);
+
+      const redisKey = `ratelimit:${tenant.id}`;
+      const result = await this.redis.evalsha(
+        this.scriptSha,
+        1,
+        redisKey,
+        capacity.toString(),
+        refillRate.toString(),
+        '1',
+        now.toString()
+      ) as [number, number, number];
+
+      const [allowed, remaining, retryAfter] = result;
+      res.setHeader('X-RateLimit-Limit', limitRpm.toString());
+      res.setHeader('X-RateLimit-Remaining', remaining.toString());
+
+      if (allowed !== 1) {
+        res.setHeader('Retry-After', retryAfter.toString());
+        return res.status(429).json({
+          error: 'Too Many Requests',
+          message: `Tenant rate limit exceeded. Retry after ${retryAfter} seconds.`,
+        });
+      }
+
+      next();
+    };
+  }
+
+  public requireFeature(feature: string) {
+    return (req: Request, res: Response, next: NextFunction) => {
+      const tenant = (req as any).tenant;
+      const eligiblePlans = this.featureGates[feature] || [];
+
+      if (!tenant || !eligiblePlans.includes(tenant.plan_id)) {
+        return res.status(402).json({
+          error: 'Payment Required',
+          message: `Feature '${feature}' is restricted to higher tier plans. Upgrade required.`,
+        });
+      }
+      next();
+    };
+  }
+}
+```
+<!-- slide -->
+```python
+# Python: Redis Token Bucket & Plan Feature Guard with FastAPI
+import time
+from typing import Set, Dict
+import redis.asyncio as aioredis
+from fastapi import Request, HTTPException, Depends
+
+TOKEN_BUCKET_LUA = """
+local key = KEYS[1]
+local capacity = tonumber(ARGV[1])
+local refill_rate = tonumber(ARGV[2])
+local cost = tonumber(ARGV[3])
+local now = tonumber(ARGV[4])
+
+local data = redis.call("HMGET", key, "tokens", "last_updated")
+local tokens = tonumber(data[1])
+local last_updated = tonumber(data[2])
+
+if tokens == nil then
+    tokens = capacity
+    last_updated = now
+else
+    local elapsed = math.max(0, now - last_updated)
+    tokens = math.min(capacity, tokens + elapsed * refill_rate)
+    last_updated = now
+end
+
+if tokens >= cost then
+    tokens = tokens - cost
+    redis.call("HMSET", key, "tokens", tokens, "last_updated", last_updated)
+    redis.call("EXPIRE", key, math.ceil(capacity / refill_rate) * 2)
+    return {1, math.floor(tokens), 0}
+else
+    local retry_after = math.ceil((cost - tokens) / refill_rate)
+    return {0, math.floor(tokens), retry_after}
+end
+"""
+
+class TenantGovernor:
+    def __init__(self, redis_client: aioredis.Redis):
+        self.redis = redis_client
+        self.script_sha = None
+        self.plan_rpm: Dict[str, int] = {
+            "free": 30,
+            "pro": 300,
+            "enterprise": 3000
+        }
+        self.feature_gates: Dict[str, Set[str]] = {
+            "bulk_export": {"pro", "enterprise"},
+            "custom_domain": {"enterprise"}
+        }
+
+    async def initialize(self):
+        self.script_sha = await self.redis.script_load(TOKEN_BUCKET_LUA)
+
+    async def enforce_rate_limit(self, request: Request):
+        tenant = getattr(request.state, "tenant", None)
+        if not tenant:
+            raise HTTPException(status_code=500, detail="Missing tenant context")
+
+        limit_rpm = self.plan_rpm.get(tenant.plan_id, 30)
+        capacity = float(limit_rpm)
+        refill_rate = capacity / 60.0
+        now = time.time()
+
+        key = f"ratelimit:{tenant.id}"
+        allowed, remaining, retry_after = await self.redis.evalsha(
+            self.script_sha, 1, key, capacity, refill_rate, 1, int(now)
+        )
+
+        request.state.rate_limit_remaining = remaining
+        if allowed != 1:
+            raise HTTPException(
+                status_code=429,
+                detail="Rate limit exceeded",
+                headers={
+                    "Retry-After": str(retry_after),
+                    "X-RateLimit-Limit": str(limit_rpm),
+                    "X-RateLimit-Remaining": str(remaining),
+                }
+            )
+
+    def require_feature(self, feature_name: str):
+        async def dependency(request: Request):
+            tenant = getattr(request.state, "tenant", None)
+            if not tenant:
+                raise HTTPException(status_code=500, detail="Missing tenant context")
+
+            allowed_plans = self.feature_gates.get(feature_name, set())
+            if tenant.plan_id not in allowed_plans:
+                raise HTTPException(
+                    status_code=402,
+                    detail={
+                        "error": "Payment Required",
+                        "message": f"Feature '{feature_name}' requires plan upgrade.",
+                        "allowed_plans": list(allowed_plans)
+                    }
+                )
+        return dependency
+```
+<!-- slide -->
+```csharp
+// C#: High-Performance Distributed Rate Limiter with StackExchange.Redis
+using System;
+using System.Collections.Generic;
+using System.Threading.Tasks;
+using Microsoft.AspNetCore.Http;
+using StackExchange.Redis;
+
+public class TenantGovernor
+{
+    private const string TokenBucketLua = @"
+        local key = KEYS[1]
+        local capacity = tonumber(ARGV[1])
+        local refill_rate = tonumber(ARGV[2])
+        local cost = tonumber(ARGV[3])
+        local now = tonumber(ARGV[4])
+
+        local data = redis.call('HMGET', key, 'tokens', 'last_updated')
+        local tokens = tonumber(data[1])
+        local last_updated = tonumber(data[2])
+
+        if tokens == nil then
+            tokens = capacity
+            last_updated = now
+        else
+            local elapsed = math.max(0, now - last_updated)
+            tokens = math.min(capacity, tokens + elapsed * refill_rate)
+            last_updated = now
+        end
+
+        if tokens >= cost then
+            tokens = tokens - cost
+            redis.call('HMSET', key, 'tokens', tokens, 'last_updated', last_updated)
+            redis.call('EXPIRE', key, math.ceil(capacity / refill_rate) * 2)
+            return {1, math.floor(tokens), 0}
+        else
+            local retry_after = math.ceil((cost - tokens) / refill_rate)
+            return {0, math.floor(tokens), retry_after}
+        end";
+
+    private readonly IConnectionMultiplexer _redis;
+    private readonly LuaScript _preparedScript;
+    private readonly Dictionary<string, int> _planRpmLimits = new()
+    {
+        { "free", 30 },
+        { "pro", 300 },
+        { "enterprise", 3000 }
+    };
+
+    public TenantGovernor(IConnectionMultiplexer redis)
+    {
+        _redis = redis;
+        _preparedScript = LuaScript.Prepare(TokenBucketLua);
+    }
+
+    public async Task<bool> CheckRateLimitAsync(HttpContext context, string tenantId, string planId)
+    {
+        int limitRpm = _planRpmLimits.GetValueOrDefault(planId, 30);
+        double capacity = limitRpm;
+        double refillRate = capacity / 60.0;
+        long now = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+
+        var db = _redis.GetDatabase();
+        var key = (RedisKey)$"ratelimit:{tenantId}";
+
+        var result = (RedisResult[]?)await db.ScriptEvaluateAsync(
+            _preparedScript,
+            new { key = key, capacity = capacity, refill_rate = refillRate, cost = 1, now = now }
+        );
+
+        if (result == null || result.Length < 3) return false;
+
+        bool allowed = (int)result[0] == 1;
+        long remaining = (long)result[1];
+        long retryAfter = (long)result[2];
+
+        context.Response.Headers["X-RateLimit-Limit"] = limitRpm.ToString();
+        context.Response.Headers["X-RateLimit-Remaining"] = remaining.ToString();
+
+        if (!allowed)
+        {
+            context.Response.Headers["Retry-After"] = retryAfter.ToString();
+            context.Response.StatusCode = StatusCodes.Status429TooManyRequests;
+            await context.Response.WriteAsync("Rate limit exceeded.");
+            return false;
+        }
+
+        return true;
+    }
+}
+```
+````
+
+---
+
+## Practical Hands-On Verification CLI Workflows
+
+Follow this hands-on workflow to start a local Redis container, evaluate token bucket consumption under burst traffic, and observe deterministic HTTP 429 throttling.
+
+### Step 1: Start Redis Container for Distributed Governor State
+
+```bash
+docker run -d --name saas-governor-redis -p 6379:6379 redis:7-alpine
 ```
 
-This reuses module 04's `402` convention deliberately — a feature gate is
-conceptually the same "you could, if you upgraded" signal as a quota
-limit, just gating a capability instead of a count.
+### Step 2: Load and Execute Token Bucket Lua Script via Redis CLI
 
-## Command reference
+Execute the token bucket script directly to simulate rapid burst requests from Tenant A (`t_acme`, Free Tier: capacity = 3 tokens, refill rate = 0.5 tokens/sec):
 
-| Concern | Snippet / detail |
-|---|---|
-| Per-tenant token bucket | keyed by `tenant_id`, capacity from `plan.rate_limit_per_min` |
-| Shared limiter state across instances | Redis-backed bucket, not local process memory |
-| Rate-limit status code | `429 Too Many Requests` |
-| Quota-exceeded status code (module 04) | `402 Payment Required` |
-| No-permission status code (track 03) | `403 Forbidden` |
-| Feature gating by plan | `FEATURE_GATES` lookup, `402` on denial |
-| Tiered worker routing | separate app-server pools/queues by plan tier, routed at the gateway/LB |
+```bash
+# Request 1: Should be allowed (Remaining: 2)
+docker exec -i saas-governor-redis redis-cli EVAL "
+local key = KEYS[1]
+local capacity = tonumber(ARGV[1])
+local refill_rate = tonumber(ARGV[2])
+local cost = tonumber(ARGV[3])
+local now = tonumber(ARGV[4])
 
-## Hands-on exercises
+local data = redis.call('HMGET', key, 'tokens', 'last_updated')
+local tokens = tonumber(data[1])
+local last_updated = tonumber(data[2])
 
-Build on module 04's app. `pip install redis` if testing the distributed
-variant (a local in-memory dict is fine for exercises 1-3; exercise 4
-requires Redis).
+if tokens == nil then
+    tokens = capacity
+    last_updated = now
+else
+    local elapsed = math.max(0, now - last_updated)
+    tokens = math.min(capacity, tokens + elapsed * refill_rate)
+    last_updated = now
+end
 
-### 1. Build and prove the per-tenant limiter
+if tokens >= cost then
+    tokens = tokens - cost
+    redis.call('HMSET', key, 'tokens', tokens, 'last_updated', last_updated)
+    redis.call('EXPIRE', key, 60)
+    return {1, math.floor(tokens), 0}
+else
+    local retry_after = math.ceil((cost - tokens) / refill_rate)
+    return {0, math.floor(tokens), retry_after}
+end
+" 1 "ratelimit:t_acme" 3 0.5 1 1000
+```
 
-Implement `TenantRateLimiter` with capacity=5, refill_per_sec=0. Send 6
-rapid requests from the same tenant to any endpoint gated with
-`enforce_rate_limit`. Confirm the first 5 succeed and the 6th returns
-`429`. Send 5 requests from a *different* tenant immediately after —
-confirm they all succeed, proving the limiter is keyed per-tenant, not
-global.
+**Expected Wire Output (Request 1):**
+```text
+1) (integer) 1   # Allowed = true
+2) (integer) 2   # Remaining tokens = 2
+3) (integer) 0   # Retry-After = 0
+```
 
-### 2. Prove plan-based capacity differences
+Execute Requests 2 and 3 in the same second:
+```bash
+# Request 2 (Remaining: 1)
+docker exec -i saas-governor-redis redis-cli EVAL "$(cat << 'EOF'
+local key = KEYS[1]; local capacity = tonumber(ARGV[1]); local refill_rate = tonumber(ARGV[2]); local cost = tonumber(ARGV[3]); local now = tonumber(ARGV[4]); local data = redis.call('HMGET', key, 'tokens', 'last_updated'); local tokens = tonumber(data[1]); local last_updated = tonumber(data[2]); if tokens == nil then tokens = capacity; last_updated = now; else local elapsed = math.max(0, now - last_updated); tokens = math.min(capacity, tokens + elapsed * refill_rate); last_updated = now; end; if tokens >= cost then tokens = tokens - cost; redis.call('HMSET', key, 'tokens', tokens, 'last_updated', last_updated); redis.call('EXPIRE', key, 60); return {1, math.floor(tokens), 0}; else local retry_after = math.ceil((cost - tokens) / refill_rate); return {0, math.floor(tokens), retry_after}; end
+EOF
+)" 1 "ratelimit:t_acme" 3 0.5 1 1000
 
-Give `free` a `rate_limit_per_min` of 5 and `pro` a `rate_limit_per_min`
-of 50 (module 04's `plans` table). Confirm a free-tier tenant is limited
-at 5 rapid requests while a pro-tier tenant with identical request
-timing sustains 50 before hitting 429.
+# Request 3 (Remaining: 0)
+docker exec -i saas-governor-redis redis-cli EVAL "$(cat << 'EOF'
+local key = KEYS[1]; local capacity = tonumber(ARGV[1]); local refill_rate = tonumber(ARGV[2]); local cost = tonumber(ARGV[3]); local now = tonumber(ARGV[4]); local data = redis.call('HMGET', key, 'tokens', 'last_updated'); local tokens = tonumber(data[1]); local last_updated = tonumber(data[2]); if tokens == nil then tokens = capacity; last_updated = now; else local elapsed = math.max(0, now - last_updated); tokens = math.min(capacity, tokens + elapsed * refill_rate); last_updated = now; end; if tokens >= cost then tokens = tokens - cost; redis.call('HMSET', key, 'tokens', tokens, 'last_updated', last_updated); redis.call('EXPIRE', key, 60); return {1, math.floor(tokens), 0}; else local retry_after = math.ceil((cost - tokens) / refill_rate); return {0, math.floor(tokens), retry_after}; end
+EOF
+)" 1 "ratelimit:t_acme" 3 0.5 1 1000
+```
 
-### 3. Add a feature gate and confirm plan-based denial
+Now execute **Request 4** within the same second:
+```bash
+docker exec -i saas-governor-redis redis-cli EVAL "$(cat << 'EOF'
+local key = KEYS[1]; local capacity = tonumber(ARGV[1]); local refill_rate = tonumber(ARGV[2]); local cost = tonumber(ARGV[3]); local now = tonumber(ARGV[4]); local data = redis.call('HMGET', key, 'tokens', 'last_updated'); local tokens = tonumber(data[1]); local last_updated = tonumber(data[2]); if tokens == nil then tokens = capacity; last_updated = now; else local elapsed = math.max(0, now - last_updated); tokens = math.min(capacity, tokens + elapsed * refill_rate); last_updated = now; end; if tokens >= cost then tokens = tokens - cost; redis.call('HMSET', key, 'tokens', tokens, 'last_updated', last_updated); redis.call('EXPIRE', key, 60); return {1, math.floor(tokens), 0}; else local retry_after = math.ceil((cost - tokens) / refill_rate); return {0, math.floor(tokens), retry_after}; end
+EOF
+)" 1 "ratelimit:t_acme" 3 0.5 1 1000
+```
 
-Add `require_feature("bulk_export")` to a route, restricted to `pro`/
-`enterprise`. Confirm a `free`-tier tenant gets `402` and a `pro`-tier
-tenant succeeds — with **no rate-limit check even relevant** to this
-denial (the free tenant is blocked regardless of how few requests
-they've sent).
+**Expected Wire Output (Throttled!):**
+```text
+1) (integer) 0   # Allowed = false (Throttled!)
+2) (integer) 0   # Remaining tokens = 0
+3) (integer) 2   # Retry-After = 2 seconds
+```
 
-### 4. (Optional, needs Redis) Prove the multi-instance leak with a local-only limiter
+### Step 3: Verify Tenant Boundary Isolation
 
-Run two instances of your app (two processes, e.g. two `uvicorn` workers
-on different ports) both using the **local, in-memory** `TenantRateLimiter`
-from exercise 1, capacity=5. Send 5 requests to instance A, then 5 more to
-instance B, all from the same tenant, all within the same second. Confirm
-**10** requests succeed total — proving a per-process limiter gives a
-tenant `capacity * instance_count` effective throughput. Then swap the
-limiter's storage to a Redis-backed implementation (`INCR` + `EXPIRE`, or
-a Lua script for atomicity) and repeat: confirm only 5 succeed total
-across both instances.
+Immediately execute the identical script for a different tenant (`ratelimit:t_globex`):
+```bash
+docker exec -i saas-governor-redis redis-cli EVAL "$(cat << 'EOF'
+local key = KEYS[1]; local capacity = tonumber(ARGV[1]); local refill_rate = tonumber(ARGV[2]); local cost = tonumber(ARGV[3]); local now = tonumber(ARGV[4]); local data = redis.call('HMGET', key, 'tokens', 'last_updated'); local tokens = tonumber(data[1]); local last_updated = tonumber(data[2]); if tokens == nil then tokens = capacity; last_updated = now; else local elapsed = math.max(0, now - last_updated); tokens = math.min(capacity, tokens + elapsed * refill_rate); last_updated = now; end; if tokens >= cost then tokens = tokens - cost; redis.call('HMSET', key, 'tokens', tokens, 'last_updated', last_updated); redis.call('EXPIRE', key, 60); return {1, math.floor(tokens), 0}; else local retry_after = math.ceil((cost - tokens) / refill_rate); return {0, math.floor(tokens), retry_after}; end
+EOF
+)" 1 "ratelimit:t_globex" 3 0.5 1 1000
+```
 
-### 5. Diagnose and fix: the fair-limit-that-wasn't
+**Expected Wire Output:**
+```text
+1) (integer) 1   # Allowed = true (Globex is completely unaffected by Acme's burst!)
+2) (integer) 2   # Remaining tokens = 2
+3) (integer) 0
+```
 
-A team rate-limits per **user**, not per tenant, reasoning "each user gets
-a fair slice." An Enterprise customer with 200 seats complains their
-whole organization is being throttled far more aggressively in aggregate
-than a Free-tier tenant with 2 users, even though the Enterprise tenant
-is paying far more and has an explicitly higher-tier plan. Explain the
-mismatch and the fix.
+---
 
-<details>
-<summary>Solution</summary>
-
-A per-user limit doesn't scale with organization size the way a
-per-tenant limit (with plan-based capacity) does — 200 users each capped
-at a small per-user rate individually adds up to a much smaller *effective
-tenant-wide* ceiling than intended, while a 2-user Free tenant's users
-individually hit the same per-user cap but the tenant's aggregate usage
-never approaches anything meaningful. The fix is this module's actual
-mechanism: rate-limit at the tenant level, with capacity driven by the
-tenant's plan (exercise 2), so a 200-seat Enterprise tenant's *aggregate*
-throughput reflects what they're paying for, independent of how many
-individual users happen to be active — per-user limiting is still useful
-as a secondary, tighter safeguard against one abusive user *within* a
-tenant, but it shouldn't be the only or primary limit for a multi-user
-tenant's overall capacity.
-
-</details>
-
-## Independent challenge
-
-No code given. A single Enterprise tenant, well within their generous
-rate limit and well within their storage/API quotas (module 04), runs a
-legitimate but expensive nightly analytics job that measurably slows down
-API response times for every other tenant sharing the same application
-server pool — this is the noisy-neighbor problem at the app layer, not a
-quota or rate-limit violation at all (they're not over any limit). Design
-a mitigation. Should this tenant be rate-limited harder (even though
-they're not abusing anything)? Moved to dedicated infrastructure? Should
-the nightly job itself be redesigned? Justify your choice, and explain
-why this scenario proves rate limiting and quotas alone are not
-sufficient noisy-neighbor protection.
+## Operational Validation Checkpoints (Scenario Quizzes)
 
 <details>
-<summary>Stuck? One hint</summary>
+<summary><strong>Checkpoint 1: The Multi-Instance Rate Limiter Leak</strong></summary>
 
-A common real answer: this specific tenant is a candidate for the
-dedicated-worker-pool escalation from the Concepts section — not because
-they've violated any limit (they haven't), but because their legitimate,
-sustained resource profile doesn't fit the shared pool's assumptions. A
-tighter rate limit would be the wrong tool (it would throttle behavior
-that's genuinely within their paid-for allowance) and redesigning "their"
-job assumes you control it, which you may not for a customer-run
-analytics workload. This scenario is exactly why the Concepts section
-treats tiered infrastructure as a separate mitigation from rate
-limiting/quotas: rate limits cap *abuse or runaway* usage, quotas cap
-*volume* against a plan, but neither protects against a *legitimate*,
-*within-limit* tenant whose usage pattern simply doesn't belong on shared
-infrastructure with everyone else.
+**Scenario:** A company configures an in-memory rate limiter using a Python dictionary inside their FastAPI application:
+```python
+tenant_buckets = defaultdict(lambda: TokenBucket(capacity=10))
+```
+The application is deployed to an AWS ECS cluster running 8 auto-scaled container instances behind a round-robin load balancer. If an automated script belonging to Tenant A transmits 80 requests in a 1-second burst, why do all 80 requests succeed instead of being capped at 10?
 
-</details>
-
-## Common mistakes & troubleshooting
-
-- **Rate-limiting per user instead of (or without also) per tenant.**
-  Exercise 5's bug — a multi-seat tenant's aggregate load isn't capped
-  correctly by a purely per-user limit.
-- **A local, in-process rate limiter behind multiple app server
-  instances.** Exercise 4's leak — a tenant gets `capacity * instance
-  count` effective throughput, since each process tracks its own,
-  unsynchronized bucket state.
-- **Conflating 429 (rate limit), 402 (quota/plan), and 403 (permission)
-  into one generic error response.** Each tells the client a genuinely
-  different next action (retry shortly / upgrade / never going to work),
-  and collapsing them removes information the client needs.
-- **Assuming rate limits and quotas are sufficient noisy-neighbor
-  protection.** The independent challenge's point — a tenant can be
-  fully within every limit and still degrade shared infrastructure by
-  its resource *pattern*, not its *volume*, which is exactly what tiered
-  infrastructure exists to address.
-- **Feature-gating only in the frontend UI, not the backend.** A hidden
-  button is not access control — `require_feature` (or equivalent) must
-  be enforced server-side on the actual endpoint, since a client can
-  always call the API directly regardless of what the UI shows.
-
-## Checkpoint quiz
-
-<details>
-<summary>Show questions</summary>
-
-1. Why does rate limiting need to be keyed per tenant rather than (or in
-   addition to) per user?
-2. Why must a per-tenant rate limiter's state be shared (e.g. via Redis)
-   across application server instances rather than kept in local process
-   memory?
-3. What do the status codes 429, 402, and 403 each communicate to a
-   client, and why does using the wrong one matter?
-4. Give an example of a noisy-neighbor scenario where a tenant is fully
-   within their rate limit and quota, yet still degrades shared
-   infrastructure — and name the mitigation category that actually
-   addresses it.
-5. Why is a feature flag like `require_feature("bulk_export")` still
-   necessary on the backend even if the frontend already hides the
-   button for lower-tier plans?
-
-</summary>
+<strong>Answer:</strong>
+Because the token bucket state is stored in the local volatile memory heap of each individual Python process. The 8 container instances share zero state. When the round-robin load balancer distributes the 80 requests across the 8 containers, each container receives approximately 10 requests. Each container evaluates its own isolated local `TokenBucket` for Tenant A, observes that only 10 requests have arrived, and approves them all. Consequently, the tenant achieves an effective burst capacity of $\text{Capacity} \times \text{Instances} = 10 \times 8 = 80$ requests. To enforce a true tenant-level ceiling across a scaled cluster, the rate limiter state must reside in a centralized, shared distributed store (such as Redis) evaluated via atomic Lua scripts.
 </details>
 
 <details>
-<summary>Show answers</summary>
+<summary><strong>Checkpoint 2: The Per-User vs. Per-Tenant Throttling Paradox</strong></summary>
 
-1. Because a per-user limit doesn't reflect a multi-seat tenant's true
-   aggregate load — many users each individually under a per-user cap can
-   still sum to load far beyond what a tenant's plan is meant to allow
-   (or, conversely, a large tenant's per-user cap can throttle them far
-   more aggressively in aggregate than intended relative to a small
-   tenant), so tenant-level limiting, sized by plan, is needed to reflect
-   what's actually being paid for and intended.
-2. Because each application server instance would otherwise track its
-   own, independent bucket state — a tenant hitting different instances
-   (normal under load balancing) would get `capacity * number of
-   instances` effective throughput instead of the intended single shared
-   limit, defeating the limiter's purpose once you run more than one
-   instance.
-3. `429` means "you're sending requests too fast right now — slow down
-   and retry shortly." `402` means "this would work, but your plan's
-   quota/feature access doesn't currently include it — upgrading would
-   fix it." `403` means "you are not permitted to do this at all,
-   regardless of timing or plan." Using the wrong code tells the client
-   (and its UI) the wrong thing to do next — e.g. showing a "try again in
-   a moment" message for what's actually a permanent permission denial.
-4. A tenant running a legitimate, sustained, resource-heavy workload
-   (e.g. a nightly analytics job) that's fully within their rate limit
-   and quota but still measurably slows shared infrastructure for other
-   tenants sharing the same worker pool. Rate limiting and quotas don't
-   address this because no limit is actually being violated — the fix is
-   tiered infrastructure (dedicated worker pools/queues for that tenant
-   or tier), not a tighter limit.
-5. Because a client can always call the backend API directly, bypassing
-   whatever the frontend UI shows or hides — a hidden button is a UX
-   convenience, not an access-control mechanism. The actual enforcement
-   has to happen server-side, on the endpoint itself, or a user with
-   access to the API (not just the UI) could invoke a feature their plan
-   doesn't include.
+**Scenario:** An engineering team implements rate limiting strictly at the user level: `Limit = 60 requests/minute per user`. An Enterprise customer with 500 active employees begins reporting that their employees frequently receive `429 Too Many Requests` during normal morning work, while a competing Free-tier tenant with 2 users experiences zero throttling even when running data-scraping scripts. What is the architectural flaw in this design?
 
+<strong>Answer:</strong>
+Rate limiting strictly by `user_id` ignores organizational topology and commercial entitlements:
+1. **Per-User Limits Do Not Scale with Seat Count:** A 500-seat organization running collaborative workflows naturally generates high aggregate request volume across shared data assets. If internal batch tools or integrations run under a single service account or user session, that user is throttled at 60 rpm—a rate appropriate for a free consumer, not an enterprise organization paying for massive capacity.
+2. **Missing Aggregate Boundary:** Conversely, 2 users in a free account each staying just below 60 rpm generate 120 rpm, while a single enterprise user hitting 61 rpm is blocked.
+The correct multi-tenant design enforces **hierarchical rate limiting**: a primary bucket keyed by `tenant_id` where capacity is determined by the purchased plan tier (e.g., Free = 60 rpm, Enterprise = 10,000 rpm), supplemented by a secondary, generous per-user safety ceiling to prevent an individual compromised user from exhausting the organization's entire shared quota.
 </details>
 
-## Further reading & sources
+<details>
+<summary><strong>Checkpoint 3: The Legitimate Noisy Neighbor on Shared Compute</strong></summary>
 
-- [Track 09, backend: security deep dive](../../09-security-deep-dive/README.md) - the per-user rate-limiting foundation this module extends to per-tenant.
-- [Module 10, 04-databases-and-data-layer](../../04-databases-and-data-layer/10-multi-tenancy-patterns/README.md) - the database-layer half of the noisy-neighbor problem this module addresses at the application layer.
-- [AWS: SaaS tenant isolation strategies](https://docs.aws.amazon.com/wellarchitected/latest/saas-lens/tenant-isolation.html) - covers tiered/siloed infrastructure patterns for noisy-neighbor mitigation.
+**Scenario:** An Enterprise customer runs a nightly database reconciliation query at 01:00 UTC. The customer is well within their purchased rate limit (50 req/sec out of 500 allowed) and well within their monthly API quota. However, because the reconciliation query does a full table scan, CPU on the shared PostgreSQL cluster surges to 100%, causing HTTP response times for 300 smaller tenants sharing the database to increase from 20ms to 8,000ms. Why will rate limiting and billing quotas fail to solve this problem, and what architectural pattern is required?
+
+<strong>Answer:</strong>
+Rate limiting and quotas fail here because the customer is **not violating any volume thresholds**. They are generating low request velocity within their paid contractual limits. The problem is an architectural mismatch in **workload resource intensity**:
+1. **Why Rate Limiting Fails:** Lowering their rate limit would throttle legitimate business operations they are contractually entitled to run.
+2. **Required Architectural Mitigation (Tiered Infrastructure & Read Replicas):**
+   * **Database Layer:** Route all analytical/reconciliation queries away from the primary transactional database to a dedicated, asynchronously replicated Read Replica.
+   * **Compute Layer (Dedicated Silo):** Migrate the Enterprise customer to a dedicated application worker pool or dedicated database partition (schema-per-tenant or database-per-tenant, as explored in Module 00).
+   * **Execution Timeouts:** Enforce an aggressive `statement_timeout = 2s` on the shared transactional pool; require long-running batch jobs to run through isolated background workers with separate connection pools.
+</details>
+
+---
+
+## Further Reading & Sources
+
+- [Track 09, Backend: Security Deep Dive](../../09-security-deep-dive/README.md) — Rate limiting fundamentals and security defenses.
+- [Track 05, Backend: Caching and Performance](../../05-caching-and-performance/README.md) — Redis distributed lock patterns and high-performance caching.
+- [AWS Well-Architected Framework: SaaS Tenant Isolation](https://docs.aws.amazon.com/wellarchitected/latest/saas-lens/tenant-isolation.html) — Tiered and siloed infrastructure patterns.
+
+---
 
 ## Next
 
-[06-capstone-build-a-small-saas](../06-capstone-build-a-small-saas/README.md) —
-every mechanism from modules 00-05 (tenancy model choice, routing, auth,
-provisioning, billing, scaling) gets wired together into one small,
-working multi-tenant SaaS app, built step by step.
+Continue to [06-capstone-build-a-small-saas](../06-capstone-build-a-small-saas/README.md) — wire together every mechanism from modules 00 through 05 (isolation models, routing, auth, provisioning, billing, and scaling governors) into a production-grade multi-tenant B2B SaaS application.

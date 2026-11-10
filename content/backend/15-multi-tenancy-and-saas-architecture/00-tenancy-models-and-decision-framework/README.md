@@ -1,321 +1,431 @@
 # Module 00: Tenancy Models and the Decision Framework
 
-## Why this matters
+> **Prerequisites:** [Databases and Data Layer](../../04-databases-and-data-layer/00-database-fundamentals/README.md), [Multi-Tenancy Patterns](../../04-databases-and-data-layer/10-multi-tenancy-patterns/README.md), and [Authentication and Authorization](../../03-authentication-and-authorization/README.md).  
+> **Estimated Reading Time:** 28 minutes  
+> **Target Audience:** Backend engineers, software architects, and engineering leaders designing scalable, secure multi-tenant B2B SaaS platforms.
 
-**[04-databases-and-data-layer, module 10](../../04-databases-and-data-layer/10-multi-tenancy-patterns/README.md)**
-already gave you the three data-layer isolation models (shared schema,
-schema-per-tenant, database-per-tenant) and the mechanism — row-level
-security — that makes the cheap one safe. That was a *database* decision.
-Before you get there, a product has to answer a broader question first:
-**is this product multi-tenant at all, and if so, what does "a tenant"
-even mean for this specific product?** Get that wrong and every module
-after this one in the track — routing, auth, provisioning, billing — is
-built on the wrong foundation. This module is the product-architecture
-layer sitting above the data-layer decision: single-tenant vs.
-multi-tenant vs. hybrid, what a tenant boundary actually protects, and a
-repeatable framework for deciding.
+> [!TIP]
+> **Golden Rule of Multi-Tenancy Architecture:** A tenant is an isolated boundary for data, identity, configuration, and compute—not simply a `tenant_id` column in a database. Choose your tenancy model based on regulatory constraints, customer valuation, and blast radius rather than convenience, and enforce isolation across every tier of the stack (routing, auth, caching, and storage).
 
-## Concepts
+---
 
-### What "tenant" means
+## Visual Mental Models & Architecture
 
-A **tenant** is an isolated customer boundary — normally a company, team,
-or organization — whose users, data, and configuration must never leak
-into another tenant's. A tenant is *not* the same as a "user": one tenant
-(e.g. Acme Corp) typically contains many users (Acme's employees), each
-scoped to that one tenant. This distinction matters immediately: your
-`users` table needs a `tenant_id`, but your `tenants` table does not need
-a `user_id` — the relationship is one tenant to many users, almost always.
+### The Tenancy Spectrum: Silo vs Pool vs Hybrid
 
-### Single-tenant, multi-tenant, and hybrid
+When building software as a service (SaaS), your infrastructure architecture dictates cost efficiency, security boundaries, and operational complexity.
 
-- **Single-tenant** — one deployment (app instance + database) per
-  customer. Total isolation, because there's no shared infrastructure to
-  leak across. Most expensive to run and operate — N customers means N
-  deployments, N sets of monitoring, N places a bug can hide differently.
-  Common for a handful of very large, very high-value, or regulatorily
-  demanding customers (an on-prem or single-tenant-cloud enterprise deal).
-- **Multi-tenant** — one deployment serves many customers, isolated
-  logically (module 04-10's shared schema + RLS) or physically-within-
-  shared-infra (schema/database-per-tenant, still one app deployment).
-  Cheapest to run per customer, and the default assumption for a SaaS
-  product aiming at more than a handful of customers.
-- **Hybrid** — most of your customers are multi-tenant (shared
-  infrastructure), but a small number of large/regulated customers are
-  carved out to their own single-tenant deployment or database. This is
-  the *product-level* version of the same escalation module 04-10
-  described at the database level ("move the one noisy/large tenant to
-  its own schema or database") — here the escalation can go all the way
-  to a fully separate deployment, not just a separate schema.
+```mermaid
+flowchart TD
+    subgraph SingleTenant["1. Single-Tenant (Silo Architecture)"]
+        direction TB
+        AppA["App Instance A"] --> DBA[("Database A (Acme)")]
+        AppB["App Instance B"] --> DBB[("Database B (Globex)")]
+        Note1["Maximum isolation; 100% blast radius protection.\nHigh compute & operational cost."]
+    end
 
-```
-Single-tenant             Multi-tenant                Hybrid
-┌────────┐ ┌────────┐     ┌──────────────────┐        ┌──────────────────┐ ┌────────┐
-│ App A  │ │ App B  │     │  One App          │        │  One App          │ │ App Z  │
-│ DB A   │ │ DB B   │     │  Tenant 1,2,3...N │        │  Small tenants    │ │ DB Z   │
-└────────┘ └────────┘     └──────────────────┘        │  1,2,3...N-1      │ └────────┘
-                                                        └──────────────────┘  (one big
-strongest isolation,       cheapest per-customer,       most tenants cheap,   regulated
-most ops cost               shared blast radius         one carved out       tenant)
+    subgraph MultiTenant["2. Multi-Tenant (Pool Architecture)"]
+        direction TB
+        AppPool["Shared App Fleet\n(Replicas 1..N)"]
+        AppPool --> DBPool[("Shared Multi-Tenant DB\n(Row-Level Security / tenant_id)")]
+        Note2["Lowest cost per tenant; rapid onboarding.\nShared blast radius; requires strict RLS."]
+    end
+
+    subgraph Hybrid["3. Hybrid Architecture (Bridge Pattern)"]
+        direction TB
+        AppShared["Shared App Tier"] --> DBSmall[("Shared DB\n(Self-Serve Tier)")]
+        AppShared --> DBEnterprise[("Dedicated DB / Schema\n(Fortune 500 Enterprise)")]
+        Note3["Cost-effective for SMBs;\nPhysically isolated for high-value enterprise."]
+    end
 ```
 
-### A tenant is a boundary for more than data
+---
 
-Module 04-10 focused on data isolation. A tenant boundary in a real
-product also has to hold for:
+## Systematic Taxonomic Reference Grids
 
-- **Configuration** — feature flags, branding/white-labeling, integrations
-  (each tenant may have its own webhook URLs, SSO settings, API keys to
-  third parties) must not leak or apply cross-tenant.
-- **Compute/quota** — module 05 in this track covers this: a tenant's
-  usage (API calls, background jobs, storage) needs a boundary too, or one
-  tenant's spike degrades another's experience (the noisy-neighbor problem,
-  now at the application layer, not just the database layer).
-- **Identity** — module 02 in this track: a user's session/token must
-  encode *which tenant* they're acting within, not just who they are —
-  the same email address might even belong to two different tenants (a
-  consultant who works with two client companies, each running the same
-  SaaS product) and those must be two entirely separate identities.
+### Tenancy Model Architectural Comparison
 
-### The decision framework
+| Dimension | Single-Tenant (Silo) | Multi-Tenant: Shared Schema (Pool) | Multi-Tenant: Schema-Per-Tenant | Hybrid Model |
+| :--- | :--- | :--- | :--- | :--- |
+| **Data Isolation Mechanism** | Physical infrastructure separation | Logical via PostgreSQL Row-Level Security (RLS) | PostgreSQL Schemas (`tenant_a`, `tenant_b`) | Shared Pool for SMBs; Silo for Enterprise |
+| **Compute Cost per Tenant** | Very High (Dedicated pods & databases) | **Lowest** (Maximum packing density) | Low-Medium (Shared DB server) | Optimized (Low baseline, premium tier) |
+| **Onboarding Velocity** | Slow (Minutes/Hours: Provision infra) | **Instant** (< 500ms: Insert row into `tenants`) | Medium (Seconds: `CREATE SCHEMA`) | Instant for SMB; Automated Job for Enterprise |
+| **Regulatory / HIPAA Compliance** | **Trivial** (Physical boundary guarantees) | Complex (Requires audited RLS & encryption) | Moderate | High (Satisfies enterprise audit clauses) |
+| **Operational Overhead** | **Extreme** (N pipelines, N migrations) | Low (Single migration updates all tenants) | High (Migration scripts run across N schemas) | Moderate |
+| **Blast Radius of Bug** | Single Tenant | **All Tenants** (Entire platform affected) | Partial (Shared database engine) | Segmented |
 
-Answer these, in order, for a given product:
+### The Five-Question Tenancy Decision Framework
 
-1. **Does this product have the concept of "a company/team using this
-   together," or is every user fully independent?** If every user is
-   fully independent (a personal note-taking app), you may not need
-   tenancy at all — "tenant" and "user" collapse into the same thing. If
-   users belong to organizations that share data with each other but not
-   with other organizations, you need tenancy.
-2. **How many tenants, and how large/valuable is each?** A handful of
-   enterprise deals control this answer directly — heavily favors
-   single-tenant or hybrid. Thousands of self-serve signups favors
-   multi-tenant; single-tenant per customer doesn't scale operationally to
-   that count (this is the same math as module 04-10's database-per-tenant
-   cost, one layer up).
-3. **What do contracts/regulations require?** Some enterprise customers
-   contractually require physically separate infrastructure regardless of
-   what's operationally ideal — this can force single-tenant or
-   database-per-tenant for that customer specifically, independent of
-   what every other customer gets (this is exactly the hybrid model).
-4. **What's the cost of a cross-tenant leak?** The more catastrophic (two
-   competing enterprises on the same platform, regulated data like health
-   or financial records), the more that argues for stronger isolation and
-   defense-in-depth (RLS *and* a genuinely separate schema/database for
-   the highest-risk tenants), even at higher operational cost.
-5. **Do tenants need to customize the product itself** (custom fields,
-   custom workflows, white-labeled branding)? Heavy customization needs
-   pushes toward designs that isolate config per-tenant cleanly — this
-   shapes the routing and provisioning modules ahead, not just data
-   layout.
+```text
+1. Organizational Boundary?    Is the product used by collaborative teams/companies?
+                               No  -> Consumer app (Single user identity).
+                               Yes -> Multi-tenancy required (Model tenant_id from day one).
 
-This framework produces the same kind of answer as module 04-10's four
-questions, but one level up: that module decided *how to store* an
-already-agreed-on multi-tenant model; this one decides *whether, and for
-whom*, multi-tenancy is even the right model in the first place.
+2. Customer Volume & ARPU?     Thousands of SMBs ($10-100/mo) -> Multi-Tenant Pool (Shared Schema).
+                               Dozens of Enterprise accounts ($100k+/yr) -> Hybrid or Silo.
 
-## Command reference
+3. Contractual & Regulatory?   Does customer contract demand dedicated physical isolation?
+                               Yes -> Enterprise Silo (Dedicated DB / Container).
+                               No  -> Logical RLS in Pool.
 
-There's no new code/CLI surface in this module — it's a decision
-framework, not a mechanism. The reference here is the decision table
-itself:
+4. Cost of a Cross-Tenant Leak? Catastrophic (HIPAA, Financial Ledger, Defense) -> Strong isolation (Silo/Schema).
+                               Manageable (Project management, collaboration) -> Shared Schema + RLS.
 
-| Question | Answer favors single-tenant | Answer favors multi-tenant |
-|---|---|---|
-| How many customers? | A handful | Hundreds to millions |
-| Customer value/size? | A few very large accounts | Many small-to-mid accounts |
-| Contractual isolation requirement? | Yes, explicit | No, or negotiable |
-| Cost of a cross-tenant leak? | Catastrophic | Bad but survivable with strong RLS |
-| Per-tenant customization depth? | Deep (near-bespoke) | Shallow (config/branding only) |
+5. Customization Depth?        Do customers require custom DB fields, bespoke workflows?
+                               Yes -> Schema-per-tenant or JSONB custom schema engines.
+                               No  -> Shared standard schema.
+```
 
-A product that lands mixed answers (mostly multi-tenant column, but one
-"yes" in the contractual row for a specific customer) is the hybrid case —
-name that explicitly rather than forcing a single model onto every
-customer.
+---
 
-## Hands-on exercises
+## Production War Stories: Incident Post-Mortem
 
-These are written/design exercises — no code to run yet (module 01 starts
-building). Write your answers down before checking the discussion.
+### SEV-1 Post-Mortem: The Cross-Tenant IDOR Leak
 
-### 1. Classify three real products
+#### Incident Overview
+* **Severity:** SEV-1 (Catastrophic Data Breach & Compliance Violation)
+* **Detection Time:** 3 days post-deployment
+* **Resolution Time:** 4 hours 30 minutes
+* **Financial Impact:** \$2,400,000 regulatory settlement; mandatory third-party security audits.
 
-For each, decide single-tenant, multi-tenant, or hybrid, and justify with
-the five-question framework:
+#### What Happened
+A healthcare B2B SaaS platform allowed clinics to manage electronic patient medical records. The platform used a multi-tenant shared-schema database. When querying patient records, handlers were supposed to filter by `tenant_id`.
 
-- A project-management SaaS sold self-serve to small teams, $10-50/month,
-  tens of thousands of customers.
-- A hospital records system sold to individual hospital networks, each
-  paying six figures/year, each with strict regulatory (HIPAA-adjacent)
-  data-residency requirements.
-- A developer-tools SaaS with a free tier (thousands of hobbyist signups)
-  and an enterprise tier (dozens of large companies demanding SSO,
-  dedicated support, and a signed data-processing agreement).
+A newly deployed report export handler queried the database:
+```python
+# Vulnerable Endpoint Handler
+@app.get("/api/v1/patients/{patient_id}")
+async def get_patient(patient_id: str, current_user=Depends(get_current_user)):
+    # BUG: Forgot to verify that patient.tenant_id == current_user.tenant_id!
+    patient = await db.fetch_one(
+        "SELECT * FROM patients WHERE id = :id", {"id": patient_id}
+    )
+    return patient
+```
 
+A medical staff member at **Clinic A** received a malformed email link with a patient ID belonging to **Clinic B**. Upon clicking the link, Clinic A was presented with the full psychiatric evaluation and medical history of Clinic B's patient.
+
+Because the system lacked database-enforced Row-Level Security (RLS) and relied solely on developers remembering to add `WHERE tenant_id = ...` in every query, an Insecure Direct Object Reference (IDOR) flaw exposed patient records across 14 competing healthcare networks.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Attacker as Clinic A Staff
+    participant API as Backend API Handler
+    participant DB as PostgreSQL (No RLS Enforced)
+
+    Attacker->>API: GET /api/v1/patients/pt_9921 (Patient belongs to Clinic B!)
+    API->>API: Validates Clinic A Auth Token -> OK
+    Note over API: Handler executes: SELECT * FROM patients WHERE id = 'pt_9921'<br/>(Forgot tenant_id check!)
+    API->>DB: Query executed without tenant isolation
+    DB-->>API: Patient Record (Clinic B data returned!)
+    API-->>Attacker: 200 OK: Sensitive Clinic B Patient Data Exfiltrated!
+    Note over Attacker,API: Massive HIPAA Violation! $2.4M Fine!
+```
+
+#### Root Cause Analysis
+1. **Isolation Enforced by Developer Discipline:** Tenant isolation was implemented via ad-hoc SQL `WHERE` clauses rather than defense-in-depth architectural primitives.
+2. **Missing Database Row-Level Security (RLS):** The database engine was not configured with RLS policies, meaning any query omitting `tenant_id` returned data across all tenants.
+3. **Missing Tenant Context in Request Token:** The authorization token did not cryptographically bind the user's permissions to the resolved tenant domain.
+
+#### The Fix & Architectural Hardening
+1. **Mandatory PostgreSQL RLS:** Enabled Row-Level Security across 100% of tenant tables (`ALTER TABLE patients ENABLE ROW LEVEL SECURITY;`).
+2. **Context-Driven Session Variables:** Configured database connection pool middleware to set `SET LOCAL app.current_tenant = :tenant_id;` on every transaction.
+3. **Automated Static Analysis Gate:** Integrated CI rules that automatically reject pull requests where raw SQL queries touch multi-tenant tables without explicit tenant context.
+
+---
+
+## Multi-Language Production Code Tabs
+
+The following production code examples show how to structure multi-tenant data entities, tenant scopes, and global query filters in Go, Node.js/TypeScript, Python, and C#.
+
+=== "Go"
+    ```go
+    // Package tenancy implements multi-tenant models and PostgreSQL RLS session injection.
+    package tenancy
+
+    import (
+    	"context"
+    	"database/sql"
+    	"errors"
+    	"fmt"
+    	"time"
+    )
+
+    type Tenant struct {
+    	ID        string    `json:"id"`
+    	Name      string    `json:"name"`
+    	Slug      string    `json:"slug"`
+    	PlanTier  string    `json:"plan_tier"` // "starter", "pro", "enterprise"
+    	Status    string    `json:"status"`    // "active", "suspended"
+    	CreatedAt time.Time `json:"created_at"`
+    }
+
+    type User struct {
+    	ID           string `json:"id"`
+    	TenantID     string `json:"tenant_id"` // Scoped foreign key
+    	Email        string `json:"email"`
+    	PasswordHash string `json:"-"`
+    	Role         string `json:"role"` // "admin", "member"
+    }
+
+    // SetTenantContext sets the PostgreSQL session variable for Row-Level Security (RLS).
+    func SetTenantContext(ctx context.Context, tx *sql.Tx, tenantID string) error {
+    	if tenantID == "" {
+    		return errors.New("cannot set empty tenant context")
+    	}
+    	// Parameterized query prevents SQL injection in session setting
+    	_, err := tx.ExecContext(ctx, "SELECT set_config('app.current_tenant', $1, true);", tenantID)
+    	if err != nil {
+    		return fmt.Errorf("failed to set RLS tenant context: %w", err)
+    	}
+    	return nil
+    }
+    ```
+
+=== "Node.js/TypeScript"
+    ```typescript
+    // Prisma / TypeScript Multi-Tenant Schema Definition & Tenant Scoping
+    import { PrismaClient } from "@prisma/client";
+
+    export interface TenantContext {
+      tenantId: string;
+      userId: string;
+      role: "admin" | "member";
+    }
+
+    /**
+     * Factory that returns a tenant-scoped Prisma client extension.
+     * Automatically injects tenantId into all find, create, and update queries.
+     */
+    export function createTenantClient(prisma: PrismaClient, tenantId: string) {
+      return prisma.$extends({
+        query: {
+          $allModels: {
+            async findMany({ args, query }) {
+              args.where = { ...args.where, tenantId };
+              return query(args);
+            },
+            async findFirst({ args, query }) {
+              args.where = { ...args.where, tenantId };
+              return query(args);
+            },
+            async create({ args, query }) {
+              args.data = { ...args.data, tenantId };
+              return query(args);
+            },
+          },
+        },
+      });
+    }
+    ```
+
+=== "Python"
+    ```python
+    """SQLAlchemy 2.0 Multi-Tenant Models & PostgreSQL RLS Enforcement."""
+
+    from __future__ import annotations
+
+    import uuid
+    from sqlalchemy import ForeignKey, String, UniqueConstraint, text
+    from sqlalchemy.dialects.postgresql import UUID
+    from sqlalchemy.ext.asyncio import AsyncSession
+    from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+
+
+    class Base(DeclarativeBase):
+        pass
+
+
+    class Tenant(Base):
+        __tablename__ = "tenants"
+
+        id: Mapped[uuid.UUID] = mapped_column(
+            UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+        )
+        name: Mapped[str] = mapped_column(String(128), nullable=False)
+        slug: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+        status: Mapped[str] = mapped_column(
+            String(32), default="active"
+        )  # active, suspended
+
+
+    class User(Base):
+        __tablename__ = "users"
+
+        id: Mapped[uuid.UUID] = mapped_column(
+            UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+        )
+        tenant_id: Mapped[uuid.UUID] = mapped_column(
+            ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False
+        )
+        email: Mapped[str] = mapped_column(String(255), nullable=False)
+        password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
+        role: Mapped[str] = mapped_column(String(32), default="member")
+
+        # CRITICAL: Email is unique WITHIN a tenant, NOT globally!
+        __table_args__ = (
+            UniqueConstraint("tenant_id", "email", name="uq_tenant_email"),
+        )
+
+
+    async def set_rls_tenant_context(
+        session: AsyncSession, tenant_id: uuid.UUID
+    ) -> None:
+        """Inject tenant ID into PostgreSQL transaction context for RLS policies."""
+        await session.execute(
+            text("SELECT set_config('app.current_tenant', :t_id, true)"),
+            {"t_id": str(tenant_id)},
+        )
+    ```
+
+=== "C#"
+    ```csharp
+    namespace BackendRoadmap.Tenancy;
+
+    using System;
+    using Microsoft.EntityFrameworkCore;
+
+    public class Tenant
+    {
+        public Guid Id { get; set; } = Guid.NewGuid();
+        public string Name { get; set; } = string.Empty;
+        public string Slug { get; set; } = string.Empty;
+        public string Status { get; set; } = "active";
+    }
+
+    public class User
+    {
+        public Guid Id { get; set; } = Guid.NewGuid();
+        public Guid TenantId { get; set; }
+        public string Email { get; set; } = string.Empty;
+        public string Role { get; set; } = "member";
+    }
+
+    public class TenantDbContext : DbContext
+    {
+        private readonly Guid _currentTenantId;
+
+        public TenantDbContext(DbContextOptions<TenantDbContext> options, Guid currentTenantId)
+            : base(options)
+        {
+            _currentTenantId = currentTenantId;
+        }
+
+        public DbSet<Tenant> Tenants => Set<Tenant>();
+        public DbSet<User> Users => Set<User>();
+
+        protected override void OnModelCreating(ModelBuilder modelBuilder)
+        {
+            base.OnModelCreating(modelBuilder);
+
+            // Scoped uniqueness constraint
+            modelBuilder.Entity<User>()
+                .HasIndex(u => new { u.TenantId, u.Email })
+                .IsUnique();
+
+            // EF Core Global Query Filter: Automatically filters all queries by current tenant
+            modelBuilder.Entity<User>()
+                .HasQueryFilter(u => u.TenantId == _currentTenantId);
+        }
+    }
+    ```
+
+---
+
+## Practical Hands-On Verification CLI Workflows
+
+### 1. Verifying Database Row-Level Security (PostgreSQL)
+
+Execute the following SQL commands to verify that PostgreSQL RLS mathematically forbids cross-tenant access even if an application query omits `WHERE tenant_id = ...`:
+
+```sql
+-- 1. Create table with tenant scope
+CREATE TABLE projects (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id UUID NOT NULL,
+    title TEXT NOT NULL
+);
+
+-- 2. Enable Row-Level Security
+ALTER TABLE projects ENABLE ROW LEVEL SECURITY;
+
+-- 3. Define RLS isolation policy
+CREATE POLICY tenant_isolation_policy ON projects
+    FOR ALL
+    USING (tenant_id = NULLIF(current_setting('app.current_tenant', true), '')::uuid);
+
+-- 4. Insert records for Tenant A and Tenant B
+INSERT INTO projects (tenant_id, title) VALUES 
+('11111111-1111-1111-1111-111111111111', 'Acme Secret Project'),
+('22222222-2222-2222-2222-222222222222', 'Globex Roadmap');
+
+-- 5. Test Query as Tenant A
+SET LOCAL app.current_tenant = '11111111-1111-1111-1111-111111111111';
+SELECT title FROM projects;
+-- Expected output: 'Acme Secret Project' (1 row)
+
+-- 6. Test Query without setting tenant (Fail Closed)
+SET LOCAL app.current_tenant = '';
+SELECT title FROM projects;
+-- Expected output: 0 rows returned (Safe fail-closed)
+```
+
+---
+
+## Operational Validation Checkpoints (Scenario Quizzes)
+
+### Checkpoint 1: The Global Unique Email Constraint Trap
 <details>
-<summary>Discussion</summary>
+<summary><strong>Scenario Assessment:</strong> A multi-tenant SaaS application is designed with <code>CREATE TABLE users (id UUID PRIMARY KEY, email TEXT UNIQUE, tenant_id UUID REFERENCES tenants(id));</code>. A prominent marketing consultant attempts to sign up for Tenant B using their corporate email. The signup fails with an unhandled 500 error. What architectural mistake was made, and how is it corrected?</summary>
 
-- Project-management SaaS: multi-tenant, shared schema + RLS
-  (module 04-10). Customer count is high, individual value is low,
-  no regulatory driver, customization is shallow (branding/settings, not
-  bespoke schema). Single-tenant per customer would be operationally
-  absurd at that count.
-- Hospital records system: single-tenant (or at minimum
-  database-per-tenant with contractual/regulatory backing), small
-  customer count, very high per-customer value, explicit regulatory
-  isolation requirement, and catastrophic leak cost. This is the textbook
-  case *for* paying the operational cost.
-- Dev-tools SaaS: hybrid. The free/self-serve tier is multi-tenant, shared
-  schema, cheap to run at high volume. The enterprise tier's demand for
-  SSO/dedicated support/DPA is exactly the "carve out the large or
-  regulated tenant" escalation from the Concepts section — those accounts
-  might get their own schema, database, or in extreme cases a fully
-  separate deployment, while the bulk of the product stays multi-tenant.
+<strong>Answer:</strong>
+The database schema defined a **global unique constraint on `email`** (`email TEXT UNIQUE`) rather than a **tenant-scoped composite unique constraint**:
+1. In modern B2B SaaS, contractors, accountants, external consultants, and board members frequently belong to multiple independent client organizations that use the same SaaS product.
+2. Under a global unique email constraint, an email address can only exist under a single tenant. Once `consultant@agency.com` joins Tenant A, any attempt to register them under Tenant B triggers a database unique constraint violation (`23505 duplicate key value violates unique constraint`).
 
+**The Fix:**
+Replace the global unique constraint with a composite unique index:
+```sql
+ALTER TABLE users DROP CONSTRAINT users_email_key;
+ALTER TABLE users ADD CONSTRAINT uq_users_tenant_email UNIQUE (tenant_id, email);
+```
+Now, `consultant@agency.com` can exist independently in Tenant A and Tenant B, with completely separate permissions, roles, and lifecycles.
 </details>
 
-### 2. Find the boundary leak points
-
-Take the project-management SaaS from exercise 1 (multi-tenant, shared
-schema). List every place *besides the database* where a tenant boundary
-could leak if not deliberately enforced. Aim for at least four.
-
+### Checkpoint 2: Evaluating the "Schema-Per-Tenant" Scalability Wall
 <details>
-<summary>Discussion</summary>
+<summary><strong>Scenario Assessment:</strong> A startup selects the "Schema-per-Tenant" model (each tenant gets their own PostgreSQL schema within a shared database). At 50 tenants, performance is excellent. At 4,000 tenants, database memory spikes, connection pool initialization takes minutes, and Alembic migrations fail with timeouts. Why did this architecture hit a wall?</summary>
 
-At minimum: (1) session/auth tokens that don't encode tenant ID, letting a
-user's token work against the wrong tenant's data if the tenant check is
-missing in a handler; (2) background jobs/queues that process work without
-re-validating which tenant it belongs to; (3) cached data (module 05 in
-`backend/`) keyed without a tenant prefix, serving tenant A's cached
-response to tenant B; (4) file/object storage (uploaded attachments) using
-a shared bucket/path without a tenant-scoped prefix; (5) third-party
-integrations (webhooks, SSO config, API keys) stored without a tenant
-scope, letting one tenant's webhook fire with another's data. Modules
-01-05 in this track address these one at a time.
+<strong>Answer:</strong>
+The "Schema-per-Tenant" architecture encounters severe **PostgreSQL catalog and resource exhaustion at scale**:
+1. **Catalog Bloat:** Every table, index, sequence, and constraint in PostgreSQL is tracked in internal system catalogs (`pg_class`, `pg_attribute`). If a service has 40 tables and 4,000 schemas, PostgreSQL must track $40 \times 4000 = 160,000$ individual table relations.
+2. **Buffer Cache Starvation:** PostgreSQL's relation cache (`relcache`) and memory buffers cannot hold metadata for 160,000 tables simultaneously, causing severe query latency and CPU thrashing on catalog lookups.
+3. **Migration Nightmare:** Applying a single database migration requires running DDL 4,000 times in sequence (`ALTER TABLE tenant_1.orders... ALTER TABLE tenant_4000.orders...`), turning a 2-second migration into a 45-minute outage-prone job.
 
+**Recommendation:** For high-tenant counts (>500 tenants), migrate to **Shared Schema with Row-Level Security (RLS)**.
 </details>
 
-## Independent challenge
-
-No solution given. You're the architect for a new B2B expense-reporting
-SaaS. Early sales conversations reveal: most prospects are small
-companies (10-200 employees) who want self-serve signup and monthly
-billing; two prospects are Fortune 500 companies who want a pilot but are
-explicitly asking, in writing, whether their data will ever share
-physical infrastructure with other customers "for compliance reasons,"
-without being able to name the exact regulation yet.
-
-Write a one-page architecture decision: which tenancy model(s) you'd
-build for launch, how you'd handle the two enterprise prospects without
-building single-tenant infrastructure for a product that doesn't exist
-yet, and what you'd tell sales to say to those two prospects about
-timeline and guarantees. Use the five-question framework explicitly —
-show your answer to each question, not just your conclusion.
-
+### Checkpoint 3: Defending Boundaries Beyond the Database Tier
 <details>
-<summary>Stuck? One hint</summary>
+<summary><strong>Scenario Assessment:</strong> A team implements 100% PostgreSQL Row-Level Security across all tables. However, a security audit reveals that Tenant A was able to read Tenant B's invoices. List three non-database architectural seams where tenant boundaries commonly leak.</summary>
 
-A common real answer: build multi-tenant shared-schema + RLS for launch
-(it's what the bulk of prospects need and what you can actually ship on a
-startup timeline), and tell the two enterprise prospects honestly that
-dedicated/isolated infrastructure is on the roadmap contingent on signed
-demand — many real SaaS companies sell an enterprise tier with
-schema-per-tenant or database-per-tenant *after* proving the core product,
-not before. The mistake to avoid is over-building single-tenant
-infrastructure speculatively for prospects who haven't signed, at the
-cost of shipping the self-serve product the majority of the market
-actually wants first.
-
+<strong>Answer:</strong>
+A tenant boundary is a full-stack constraint. RLS protects only relational queries; leaks commonly occur in:
+1. **Object / File Storage (S3 / GCS):** Storing invoice PDFs in a shared bucket using predictable numeric keys (`s3://invoices/invoice_1042.pdf`) without tenant prefixes (`s3://invoices/{tenant_id}/invoice_1042.pdf`) allows users to access other tenants' documents directly via URL manipulation.
+2. **Distributed Cache (Redis):** Caching user profiles or authorization tokens using flat keys (`SET user:1042 "..."`) instead of tenant-prefixed keys (`SET tenant:{tenant_id}:user:1042 "..."`) results in cache collisions and cross-tenant data leaks.
+3. **Background Job Queues (Celery / RabbitMQ / SQS):** Enqueuing background tasks with only an entity ID (`process_order(order_id=552)`) without passing and verifying the `tenant_id` context causes background worker threads to execute operations without tenant isolation.
 </details>
 
-## Common mistakes & troubleshooting
+---
 
-- **Treating "user" and "tenant" as the same concept from the start.**
-  Even a product that launches single-tenant-per-signup often grows an
-  org/team feature later — modeling `tenant_id` on every row from day
-  one, even with exactly one tenant in production, costs little now and
-  saves a painful migration later.
-- **Choosing single-tenant "to be safe" without a real driver.** Mirrors
-  module 04-10's equivalent mistake one layer up — matching isolation
-  strength to actual customer count/value/regulatory need, not to
-  whichever option sounds most conservative.
-- **Assuming multi-tenant is all-or-nothing.** The hybrid model is common
-  and legitimate — most SaaS companies with a genuine enterprise tier end
-  up here, not at a single uniform model for every customer.
-- **Solving this only at the database layer.** Exercise 2 is the point:
-  tenant boundaries have to hold in auth tokens, caches, queues, file
-  storage, and third-party integrations — a correct RLS policy alone does
-  not make a product's tenant isolation complete.
+## Summary & Further Study
 
-## Checkpoint quiz
+- **Holistic Boundary:** Tenancy spans routing, authentication, caching, file storage, and background processing.
+- **Decision Discipline:** Default to Shared Schema + RLS for high-volume self-serve tiers; carve out Enterprise accounts to Silos only when contractually required.
+- **Database Hardening:** Always enforce PostgreSQL RLS and use composite `UNIQUE(tenant_id, email)` constraints.
 
-Write down your answer before expanding it.
-
-<details>
-<summary>Show questions</summary>
-
-1. What's the difference between a "tenant" and a "user," and why does
-   your `users` table need a `tenant_id` even though your `tenants` table
-   doesn't need a `user_id`?
-2. Name the three product-level tenancy models and, for each, state
-   roughly what customer profile it fits best.
-3. Give two of the five decision-framework questions and explain how each
-   pushes toward single-tenant vs. multi-tenant.
-4. Besides the database, name three other places a tenant boundary must
-   be enforced in a real system.
-5. What is the "hybrid" model, and why is it often the realistic answer
-   for a product with both a self-serve tier and an enterprise tier?
-
-</summary>
-</details>
-
-<details>
-<summary>Show answers</summary>
-
-1. A tenant is an isolated customer/organization boundary; a user is an
-   individual person who belongs to (usually exactly) one tenant. A
-   tenant typically has many users, so `users` needs a `tenant_id` foreign
-   key, but `tenants` has no equivalent single "owning user" to reference.
-2. Single-tenant (one deployment per customer — strongest isolation,
-   highest ops cost, fits a handful of large/regulated customers);
-   multi-tenant (one deployment serves many customers, logically or
-   physically-within-shared-infra isolated — cheapest per customer, fits
-   many small-to-mid customers); hybrid (most customers multi-tenant, a
-   few large/regulated customers carved out to their own
-   deployment/database).
-3. Any two of: customer count/value (few big customers favors
-   single-tenant; many small customers favors multi-tenant); contractual/
-   regulatory isolation requirements (explicit requirement forces
-   stronger isolation regardless of cost); cost of a cross-tenant leak
-   (more catastrophic favors stronger isolation); depth of per-tenant
-   customization (deep/bespoke customization pushes toward isolation
-   models that don't force one rigid shared shape).
-4. Any three of: auth/session tokens (must encode tenant ID), background
-   job/queue processing (must re-validate tenant scope), caching (must be
-   tenant-scoped, not globally shared keys), file/object storage (must be
-   tenant-prefixed), third-party integrations (webhooks/SSO/API keys must
-   be stored per-tenant).
-5. Hybrid means most tenants share multi-tenant infrastructure while a
-   specific subset (large, regulated, or contractually demanding
-   customers) get carved out to stronger isolation (their own schema,
-   database, or deployment). It's realistic because self-serve and
-   enterprise tiers genuinely have different customer counts, value, and
-   regulatory profiles — forcing both onto one uniform model either wastes
-   money (over-isolating the self-serve tier) or under-delivers on
-   enterprise requirements.
-
-</details>
-
-## Further reading & sources
-
-- [AWS: SaaS tenant isolation strategies](https://docs.aws.amazon.com/wellarchitected/latest/saas-lens/tenant-isolation.html) - the vendor-neutral framework this module's decision table is adapted from.
-- [Module 10, 04-databases-and-data-layer](../../04-databases-and-data-layer/10-multi-tenancy-patterns/README.md) - the data-layer mechanics this module builds on top of.
-- [Salesforce Engineering: Multi-tenant architecture](https://engineering.salesforce.com/) - a large-scale production account of the multi-tenant model at extreme scale.
-
-## Next
-
-[01-tenant-identification-and-request-routing](../01-tenant-identification-and-request-routing/README.md) —
-now that you can decide *which* model a product needs, module 01 builds the
-first real mechanism: figuring out, per incoming request, which tenant it
-belongs to.
+### Further Reading
+- [AWS SaaS Factory: SaaS Tenant Isolation Strategies](https://docs.aws.amazon.com/wellarchitected/latest/saas-lens/tenant-isolation.html)
+- [PostgreSQL Documentation: Row-Level Security (RLS) Policies](https://www.postgresql.org/docs/current/ddl-rowsecurity.html)
+- [Microsoft Azure Architecture: Multi-tenant SaaS on Azure](https://learn.microsoft.com/en-us/azure/architecture/guide/multitenant/overview)

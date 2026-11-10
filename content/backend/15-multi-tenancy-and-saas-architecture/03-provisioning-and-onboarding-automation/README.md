@@ -1,329 +1,907 @@
 # Module 03: Provisioning and Onboarding Automation
 
-## Why this matters
+> **Prerequisites:** [00-tenancy-models-and-decision-framework](../00-tenancy-models-and-decision-framework/README.md), [01-tenant-identification-and-request-routing](../01-tenant-identification-and-request-routing/README.md), [02-auth-and-authorization-across-tenants](../02-auth-and-authorization-across-tenants/README.md), and [Background Processing and Real-Time Systems](../../06-background-processing-and-realtime/README.md).  
+> **Estimated Reading Time:** 28 minutes  
+> **Target Audience:** Backend engineers and infrastructure architects designing resilient, atomic, self-serve tenant onboarding pipelines and background provisioning workers.
 
-Modules 01 and 02 assumed a tenant and its users already exist. Somewhere,
-the very first row in `tenants` and the very first row in `users` for that
-tenant have to get created — and for a self-serve SaaS product, that has
-to happen the moment someone submits a signup form, correctly, every time,
-with no human running SQL by hand. "Provisioning" is everything that has
-to happen atomically (or safely recoverably) between "someone submitted a
-signup form" and "that someone can log in and see an empty, ready-to-use
-account": creating the tenant row, creating their schema/RLS setup if your
-isolation model needs one (module 04-10), seeding any default data, and
-creating their first admin user. Doing this by hand does not survive past
-your tenth signup; doing it wrong (partially) leaves broken, half-created
-tenants that are worse than no tenant at all.
+> [!TIP]
+> **The Golden Rule of Multi-Tenant Provisioning:** Treat tenant onboarding as an idempotent, asynchronous state machine, never a synchronous request handler script. Enclose atomic state transitions (tenant row, admin user, seed configuration, idempotency marker) within a single database transaction, while keeping irreversible side effects (email dispatch, DNS configuration, billing webhooks) strictly outside, guarded by durable message queues and explicit compensating rollbacks.
 
-## Concepts
+---
 
-### Provisioning is a workflow, not a single INSERT
+## Visual Mental Models & Architecture
 
-Even in the cheapest isolation model (shared schema, module 04-10),
-provisioning a tenant is multiple steps that must all succeed together:
+### The Asynchronous Provisioning Pipeline with Idempotency Guard
 
-1. Create the `tenants` row (slug, name, plan, status).
-2. Create the first admin `users` row, scoped to that tenant (module 02).
-3. Seed any default data the product needs on day one (a default project,
-   default settings/feature flags).
-4. Send the welcome/verification email.
+When a customer completes a signup form, provisioning transforms an unverified visitor into an isolated tenant entity with dedicated data partitions, an administrator account, default role templates, and initial billing allocations.
 
-In schema-per-tenant or database-per-tenant models, step 1 additionally
-requires running every existing migration against the *new* schema/
-database before it's usable — module 04-10 already showed you this is the
-operational cost that scales with tenant count; provisioning is where that
-cost is actually paid, once per signup, automatically.
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User as Prospective Admin
+    participant API as Ingress API Gateway
+    participant Queue as Durable Job Queue
+    participant Worker as Provisioning Worker
+    participant DB as Multi-Tenant Database
+    participant Mail as External Mail Gateway
 
-### Provisioning belongs in a background job, not the request handler
+    User->>API: POST /api/v1/signup (Company: "Acme", Slug: "acme", Email: "admin@acme.com")
+    API->>API: 1. Validate Payload & Reserved Slugs ("admin", "api", "www")
+    API->>DB: 2. Create Provisioning Job (Status: 'pending', Idempotency Key: 'job_acme_123')
+    API->>Queue: 3. Enqueue Provisioning Task ('job_acme_123')
+    API-->>User: 202 Accepted: {"status": "provisioning", "job_id": "job_acme_123"}
 
-A signup request that synchronously runs schema creation, N migrations,
-and an email send is slow, and — worse — if step 3 of 4 fails, the
-customer got an HTTP error but step 1 and 2 already committed, leaving a
-half-created tenant. Track `06-background-processing-and-realtime`
-covered exactly this shape: the request handler does the minimum
-synchronous work (validate input, return "check your email"), and a
-background job does the actual provisioning:
-
-```python
-from fastapi import FastAPI, BackgroundTasks
-import uuid
-
-app = FastAPI()
-
-@app.post("/signup")
-async def signup(payload: SignupRequest, background_tasks: BackgroundTasks):
-    provisioning_id = str(uuid.uuid4())
-    background_tasks.add_task(provision_tenant, provisioning_id, payload)
-    return {"status": "provisioning", "provisioning_id": provisioning_id}
+    Note over Queue,Worker: Asynchronous Processing Decoupled from Ingress HTTP Thread
+    Queue->>Worker: Dispatch Provisioning Task ('job_acme_123')
+    
+    Worker->>DB: 4. Check Idempotency Marker (SELECT * FROM provisioning_jobs WHERE id=...)
+    alt Already Processed
+        Worker-->>Queue: Ack & Terminate (No-Op)
+    else First Processing Attempt
+        Worker->>DB: 5. BEGIN TRANSACTION
+        Worker->>DB: - INSERT INTO tenants (id, slug, name, status='active')
+        Worker->>DB: - INSERT INTO users (id, tenant_id, email, password_hash, role='admin')
+        Worker->>DB: - INSERT INTO projects (tenant_id, name) VALUES ('General')
+        Worker->>DB: - UPDATE provisioning_jobs SET status='completed', completed_at=NOW()
+        Worker->>DB: 6. COMMIT TRANSACTION
+        
+        Worker->>Mail: 7. Send Welcome & Email Verification (External Side Effect)
+        Worker-->>Queue: 8. Ack Message
+    end
 ```
 
-For a real product this is a durable queue (Celery/RQ/Azure Service Bus —
-track `06-background-processing-and-realtime`'s task-queue module), not
-`BackgroundTasks` (which is in-process and lost on a crash) — `BackgroundTasks`
-is used here only because this module doesn't want to re-teach queue setup;
-swap in a real queue for anything beyond a learning exercise.
+### Tenant Lifecycle State Machine
 
-### Idempotency: a provisioning job must be safe to retry
+A tenant does not immediately transition from non-existence to fully active operations. Infrastructure provisioning, schema migrations, and billing verifications require deterministic state progression.
 
-Background jobs get retried — a worker crashes mid-job, a queue redelivers
-a message, a user double-clicks submit. A provisioning job that isn't
-idempotent creates duplicate tenants or duplicate admin users on retry.
-The fix, same idempotency-key pattern as track `10-distributed-systems-
-patterns`:
+```mermaid
+stateDiagram-v2
+    [*] --> ProvisioningRequested: POST /signup
+    ProvisioningRequested --> PendingValidation: Payload & Slug Check
+    PendingValidation --> Failed: Reserved Slug / Duplicate Slug
+    PendingValidation --> Provisioning: Enqueued to Worker
+    
+    state Provisioning {
+        [*] --> CreatingTenantRecord
+        CreatingTenantRecord --> ExecutingMigrations: Schema-Per-Tenant Only
+        CreatingTenantRecord --> SeedingDefaults: Shared-Schema RLS
+        ExecutingMigrations --> SeedingDefaults: Migrations Successful
+        ExecutingMigrations --> RollingBack: Migration Error
+        RollingBack --> [*]
+        SeedingDefaults --> CommittingTransaction
+        CommittingTransaction --> [*]
+    }
 
+    Provisioning --> Failed: DB Error / Rollback Executed
+    Provisioning --> Active: Transaction Committed & State Verified
+    
+    Active --> Suspended: Delinquent Payment / Quota Abuse
+    Suspended --> Active: Invoice Paid
+    Active --> MarkedForDeletion: Customer Cancellation
+    Suspended --> MarkedForDeletion: 90-Day Dormant Timeout
+    MarkedForDeletion --> [*]: Automated Hard Purge
+```
+
+---
+
+## Systematic Taxonomic Reference Grids
+
+### Provisioning Step Taxonomy & Fault Boundaries
+
+| Pipeline Step | Architectural Layer | Atomicity Boundary | Failure Mode | Recovery & Compensation Strategy |
+| :--- | :--- | :--- | :--- | :--- |
+| **Slug & Syntax Validation** | Ingress API Gateway | Synchronous (Pre-DB) | Malformed regex or reserved namespace collision | Reject immediately with `400 Bad Request` or `422 Unprocessable Entity`. |
+| **Idempotency Registration** | Ingress API Gateway | Synchronous DB Write | Duplicate signup submission | Return existing `job_id` with `200 OK` or `202 Accepted`; no re-enqueue. |
+| **Tenant Record Creation** | Provisioning Worker | Core DB Transaction | Unique slug constraint violation | Roll back transaction; update job state to `failed`. |
+| **Schema Creation & Migration** *(Schema-per-tenant)* | Provisioning Worker | DDL / Isolation Step | Migration syntax error or timeout | Execute compensating rollback: `DROP SCHEMA IF EXISTS tenant_xxx CASCADE`. |
+| **Initial Admin User Creation** | Provisioning Worker | Core DB Transaction | Password hashing failure or email syntax invalid | Roll back transaction; no orphan tenant row left behind. |
+| **Default Seed Data** | Provisioning Worker | Core DB Transaction | Foreign key violation or missing seed template | Roll back transaction; revert tenant and user creation atomically. |
+| **Welcome Email Dispatch** | Provisioning Worker | External Non-Atomic | SMTP timeout or external mail API 5xx | Catch exception, log warning, schedule dedicated email retry; **do not roll back DB**. |
+| **Billing Subscription Setup** | Ingress / Webhook | External Third-Party | Payment gateway rejection | Set tenant `status = 'suspended'` or `'trialing'`; resolve via webhook reconciliation. |
+
+### Synchronous vs. Asynchronous Tenant Provisioning Comparison
+
+| Engineering Dimension | Synchronous Provisioning (Anti-Pattern) | Asynchronous Worker Provisioning (Production Standard) |
+| :--- | :--- | :--- |
+| **Ingress HTTP Latency** | High (2,000ms – 15,000ms depending on migration count). | Ultra-low (< 50ms); returns immediately with `202 Accepted`. |
+| **Gateway Timeout Exposure** | Extreme; reverse proxies (Cloudflare, ALB) time out at 30s. | Zero; long-running initialization executes in dedicated background process. |
+| **Partial Failure Vulnerability** | Critical; partial writes leave half-configured "zombie" tenants. | Low; transactional rollback or compensating sagas clean up failures. |
+| **Retry Safety** | Dangerous; client retries create duplicate rows and race conditions. | Safe; message queues and idempotency keys ensure exactly-once execution. |
+| **Resource Isolation** | Web server threads block during DDL execution and network I/O. | Dedicated background worker pools consume tasks at a controlled, decoupled rate. |
+
+### Reserved Slug & Namespace Denylist
+
+A tenant slug dictates subdomains (`acme.saas.com`) or URI paths (`saas.com/tenants/acme`). Without strict namespace enforcement, a malicious or accidental registration can hijack platform routing or impersonate infrastructure endpoints.
+
+| Namespace Category | Reserved Keywords | Security / Operational Risk |
+| :--- | :--- | :--- |
+| **System & Infrastructure** | `api`, `admin`, `app`, `auth`, `portal`, `status`, `health`, `gateway`, `edge` | Intercepts internal routing paths or collides with API load balancers. |
+| **Web Standards & Protocols** | `www`, `ftp`, `mail`, `smtp`, `imap`, `pop3`, `autodiscover`, `localhost` | Collides with standard DNS records, email routing, or MX records. |
+| **Authentication & IAM** | `login`, `logout`, `signin`, `signup`, `register`, `oauth`, `saml`, `sso`, `idp` | Phishing vector; attacker presents fake tenant login page resembling global SSO. |
+| **Security & Operations** | `security`, `abuse`, `noc`, `hostmaster`, `postmaster`, `root`, `administrator` | Bypasses automated certificate issuance verification (e.g., Let's Encrypt validation). |
+| **Billing & Commercial** | `billing`, `pricing`, `checkout`, `subscribe`, `payments`, `invoice` | Mimics core commercial interfaces to conduct credit card phishing. |
+
+---
+
+## Production War Stories: Incident Post-Mortem
+
+### SEV-1 Post-Mortem: The Duplicate Tenant Onboarding Storm & Phantom Billing Spiral
+
+#### Incident Overview
+* **Severity:** SEV-1 (Data Duplication, Race Condition, Duplicate Customer Invoicing)
+* **Detection Time:** 45 minutes post-deployment
+* **Resolution Time:** 3 hours 20 minutes
+* **Impact:** 230 enterprise signups spawned 1,150 duplicate tenant databases, 4,600 duplicate admin records, and triggered \$34,500 in duplicate Stripe subscription charges.
+
+#### What Happened
+A fast-growing B2B analytics platform transitioned to a self-serve onboarding flow. Their engineering team implemented the signup handler synchronously inside the API gateway:
 ```python
-async def provision_tenant(provisioning_id: str, payload: SignupRequest):
-    # Idempotency check FIRST: has this exact provisioning_id already run?
-    existing = await db.fetch_one(
-        "SELECT tenant_id FROM provisioning_jobs WHERE id = :id",
-        {"id": provisioning_id},
-    )
-    if existing:
-        return  # already provisioned — safe no-op on retry
-
-    async with db.transaction():
-        tenant_id = await create_tenant_row(payload.company_name, payload.slug)
-        await create_admin_user(tenant_id, payload.email, payload.password)
-        await seed_default_data(tenant_id)
-        await db.execute(
-            "INSERT INTO provisioning_jobs (id, tenant_id, completed_at) VALUES (:id, :tid, now())",
-            {"id": provisioning_id, "tid": tenant_id},
-        )
+# The Flawed Synchronous Signup Handler
+@app.post("/api/signup")
+async def signup(payload: SignupSchema):
+    tenant = await create_tenant(payload.slug, payload.name)
+    schema = await create_tenant_schema_and_migrate(tenant.id)
+    user = await create_admin_user(tenant.id, payload.email, payload.password)
+    subscription = await stripe.Subscription.create(customer=tenant.stripe_id, items=[{"price": "plan_pro"}])
     await send_welcome_email(payload.email)
+    return {"status": "ok", "tenant_id": tenant.id}
 ```
 
-The database transaction wraps steps that must succeed or fail together
-(tenant + admin user + seed data + the idempotency marker); the email send
-is deliberately *outside* the transaction — you cannot roll back an
-already-sent email, so it's treated as a best-effort final step, not part
-of the atomic core. If the email step fails, the tenant is still validly
-provisioned; a separate retry/resend path handles the email specifically,
-rather than re-running the whole job.
+During a major marketing product launch, database CPU surged to 95%. Creating the schema and running 28 historical Alembic migrations took 14 seconds per signup. 
 
-### Partial-failure recovery
+Because client browsers and automated API integration scripts had a default 10-second HTTP timeout, clients timed out while the server was still running migration step 18. The browser client automatically retried the `POST /api/signup` request 3 to 5 times. 
 
-Even with a transaction around the core steps, provisioning can fail
-*before* the transaction (e.g. slug already taken — caught earlier by a
-validation step) or in ways that need cleanup outside the DB (e.g. a
-schema-per-tenant model where `CREATE SCHEMA` succeeded but the migration
-run against it then failed). Design explicitly for this:
+Each retry executed concurrently on separate worker threads:
+1. Thread 1 was still executing migrations for Tenant A.
+2. Thread 2 checked if the slug was taken. Because Thread 1 had not committed its transaction or had failed mid-way, Thread 2 proceeded.
+3. Thread 2 called `stripe.Subscription.create()` without an idempotency key, charging the customer a second time.
+4. When Thread 1 finally completed or errored out, Thread 2 created duplicate records, duplicate billing agreements, and duplicate welcome emails.
 
-- **Validate everything you can before touching any state** (slug
-  uniqueness, email format) so most failures never reach the transactional
-  core at all.
-- **For schema/database-per-tenant models, treat schema creation +
-  migration as its own inner transaction/step with a clear rollback**
-  (`DROP SCHEMA IF EXISTS ... CASCADE` on failure) rather than leaving an
-  empty, half-migrated schema behind.
-- **Track provisioning status explicitly** (`tenants.status = 'provisioning'
-  | 'active' | 'failed'`) so a stuck or failed tenant is visible and
-  operable (retry, or flag for manual cleanup) rather than silently
-  invisible.
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Browser as Client Browser
+    participant API1 as Ingress Worker 1
+    participant API2 as Ingress Worker 2
+    participant DB as Postgres
+    participant Stripe as Stripe Billing Gateway
 
-### Slug collisions and reserved words
+    Browser->>API1: POST /signup (Slug: "globex", Plan: "pro")
+    API1->>DB: CREATE SCHEMA tenant_globex; Run Migrations (Slow: 14s)
+    
+    Note over Browser: 10s HTTP Timeout Expires! Browser Retries!
+    Browser->>API2: POST /signup (Slug: "globex", Plan: "pro") [RETRY]
+    
+    API2->>DB: CREATE SCHEMA tenant_globex_retry...
+    API1->>Stripe: Subscription.create(customer="globex") -> Charged $150!
+    API2->>Stripe: Subscription.create(customer="globex") -> Charged $150! (Duplicate!)
+    
+    API1-->>Browser: [Connection Dropped by Client]
+    API2-->>Browser: 200 OK (With duplicate credentials and tenant ID)
+```
 
-The tenant slug (module 01's subdomain/path identifier) needs its own
-validation pass: uniqueness (obviously), but also a reserved-word list
-(`www`, `api`, `admin`, `app` must never be assignable as a tenant slug,
-or a tenant could claim a subdomain that collides with your own
-infrastructure) and a format check (matching module 01's
-`[a-z0-9-]+` regex, so every provisioned slug is guaranteed routable by
-the middleware that already exists).
+#### Root Cause Analysis
+1. **Synchronous Long-Running Orchestration in Ingress Thread:** Running DDL schema migrations (14 seconds) synchronously inside the web request loop guaranteed client-side timeouts under moderate load.
+2. **Missing Idempotency Controls:** The endpoint did not accept or enforce client-provided or hash-based idempotency keys. Retried requests were treated as brand-new onboarding workflows.
+3. **External Side Effects Inside Request Handlers:** Calling third-party financial APIs (`stripe.Subscription.create`) directly inside an un-fenced HTTP handler without `Idempotency-Key` headers guaranteed duplicate billing events upon network retries.
 
-## Command reference
+#### The Fix & Architectural Hardening
+1. **Asynchronous Decoupling:** Converted the `/signup` endpoint to a 10ms dispatcher: validate slug, register a pending `provisioning_jobs` row, and push the job ID to a Redis-backed worker queue.
+2. **Deterministic Database Transactions:** Bound the tenant record, user record, initial settings, and job status update into an atomic database transaction.
+3. **Distributed Lock on Tenant Slug:** Implemented an upfront distributed lock in Redis keyed by `slug` during the validation phase to drop concurrent duplicate submissions immediately with `409 Conflict`.
+4. **Out-of-Transaction Billing with Idempotency Keys:** Moved billing creation to a post-provisioning worker step, passing `idempotency_key=f"sub_{tenant_id}"` directly to Stripe.
 
-| Concern | Snippet / detail |
-|---|---|
-| Idempotency marker table | `provisioning_jobs (id, tenant_id, completed_at)`, checked first |
-| Atomic core steps | tenant row + admin user + seed data + idempotency marker, one transaction |
-| Non-atomic final step | welcome email, outside the transaction, retried independently on failure |
-| Reserved slugs | explicit denylist (`www`, `api`, `admin`, `app`, ...) checked before uniqueness |
-| Provisioning status | `tenants.status`: `'provisioning' \| 'active' \| 'failed'` |
-| Schema-per-tenant rollback | `DROP SCHEMA IF EXISTS tenant_x CASCADE` on migration failure |
+---
 
-## Hands-on exercises
+## Multi-Language Production Code Tabs
 
-Build on modules 01-02's app plus a real Postgres (as in module 04-10's
-exercises).
+The following production implementations demonstrate a resilient, idempotent onboarding workflow. Each implementation enforces:
+1. **Slug format verification and reserved keyword denylisting.**
+2. **Atomic database transaction** (Tenant creation, Admin User provisioning, Default Workspace seeding, Idempotency Job completion).
+3. **Asynchronous side-effect containment** (Welcome email dispatch handled independently without rolling back valid database transactions).
+
+### Production Provisioning Engine Implementations
+
+````carousel
+```go
+// Go: Production Provisioning Engine with Atomic Transactions & Idempotency
+package main
+
+import (
+	"context"
+	"database/sql"
+	"errors"
+	"fmt"
+	"log"
+	"regexp"
+	"strings"
+	"time"
+
+	"github.com/google/uuid"
+	_ "github.com/lib/pq"
+	"golang.org/x/crypto/bcrypt"
+)
+
+var (
+	slugRegex     = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$`)
+	reservedSlugs = map[string]bool{
+		"admin": true, "api": true, "app": true, "auth": true,
+		"billing": true, "portal": true, "status": true, "www": true,
+	}
+)
+
+type ProvisioningPayload struct {
+	JobID       string
+	Slug        string
+	CompanyName string
+	AdminEmail  string
+	Password    string
+}
+
+type ProvisioningService struct {
+	db *sql.DB
+}
+
+func (s *ProvisioningService) ValidateSlug(slug string) error {
+	clean := strings.ToLower(strings.TrimSpace(slug))
+	if !slugRegex.MatchString(clean) {
+		return errors.New("slug must be 3-63 characters of alphanumeric or hyphen characters")
+	}
+	if reservedSlugs[clean] {
+		return fmt.Errorf("slug '%s' is a reserved system identifier", clean)
+	}
+	return nil
+}
+
+func (s *ProvisioningService) ExecuteProvisioning(ctx context.Context, p ProvisioningPayload) error {
+	if err := s.ValidateSlug(p.Slug); err != nil {
+		return fmt.Errorf("validation failed: %w", err)
+	}
+
+	// 1. Idempotency Check: Has this job already succeeded?
+	var status string
+	err := s.db.QueryRowContext(ctx, "SELECT status FROM provisioning_jobs WHERE id = $1", p.JobID).Scan(&status)
+	if err == nil && status == "completed" {
+		log.Printf("[Idempotency] Job %s already completed. Skipping processing.", p.JobID)
+		return nil
+	}
+
+	// 2. Hash admin password
+	hash, err := bcrypt.GenerateFromPassword([]byte(p.Password), bcrypt.DefaultCost)
+	if err != nil {
+		return fmt.Errorf("failed to hash password: %w", err)
+	}
+
+	// 3. Begin Atomic Database Transaction
+	tx, err := s.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback() // Safe: no-op if committed
+
+	tenantID := uuid.New().String()
+	adminID := uuid.New().String()
+	projectID := uuid.New().String()
+
+	// 3a. Insert Tenant Record
+	_, err = tx.ExecContext(ctx, `
+		INSERT INTO tenants (id, slug, name, plan_id, status)
+		VALUES ($1, $2, $3, 'free', 'active')
+	`, tenantID, p.Slug, p.CompanyName)
+	if err != nil {
+		return fmt.Errorf("failed to insert tenant: %w", err)
+	}
+
+	// 3b. Insert Scoped Admin User
+	_, err = tx.ExecContext(ctx, `
+		INSERT INTO users (id, tenant_id, email, password_hash, role)
+		VALUES ($1, $2, $3, $4, 'admin')
+	`, adminID, tenantID, p.AdminEmail, string(hash))
+	if err != nil {
+		return fmt.Errorf("failed to insert admin user: %w", err)
+	}
+
+	// 3c. Seed Default Data (General Project)
+	_, err = tx.ExecContext(ctx, `
+		INSERT INTO projects (id, tenant_id, name)
+		VALUES ($1, $2, 'General Workspace')
+	`, projectID, tenantID)
+	if err != nil {
+		return fmt.Errorf("failed to seed initial workspace: %w", err)
+	}
+
+	// 3d. Update Idempotency Job Record
+	_, err = tx.ExecContext(ctx, `
+		INSERT INTO provisioning_jobs (id, tenant_id, status, completed_at)
+		VALUES ($1, $2, 'completed', NOW())
+		ON CONFLICT (id) DO UPDATE SET
+			status = 'completed',
+			completed_at = NOW(),
+			tenant_id = EXCLUDED.tenant_id
+	`, p.JobID, tenantID)
+	if err != nil {
+		return fmt.Errorf("failed to mark provisioning job complete: %w", err)
+	}
+
+	// Commit Transaction
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("transaction commit failed: %w", err)
+	}
+
+	// 4. Non-Atomic Post-Commit Side Effects (Email Dispatch)
+	s.dispatchWelcomeEmail(p.AdminEmail, p.CompanyName)
+
+	log.Printf("[Provisioning Success] Tenant %s (%s) provisioned successfully.", p.CompanyName, tenantID)
+	return nil
+}
+
+func (s *ProvisioningService) dispatchWelcomeEmail(email, company string) {
+	// Must not bubble errors that would invalidate the already-committed tenant
+	go func() {
+		log.Printf("[Mail Gateway] Welcome email successfully dispatched to %s for %s", email, company)
+	}()
+}
+```
+<!-- slide -->
+```typescript
+// TypeScript/Node.js: Robust Provisioning Pipeline with pg Pool & Transactions
+import { Pool, PoolClient } from 'pg';
+import * as bcrypt from 'bcrypt';
+import { randomUUID } from 'crypto';
+
+interface ProvisioningPayload {
+  jobId: string;
+  slug: string;
+  companyName: string;
+  adminEmail: string;
+  passwordPlain: string;
+}
+
+const RESERVED_SLUGS = new Set([
+  'admin', 'api', 'app', 'auth', 'billing', 'portal', 'status', 'www'
+]);
+const SLUG_REGEX = /^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$/;
+
+export class ProvisioningService {
+  constructor(private pool: Pool) {}
+
+  public validateSlug(slug: string): void {
+    const clean = slug.toLowerCase().trim();
+    if (!SLUG_REGEX.test(clean)) {
+      throw new Error(`Invalid slug format: ${slug}. Must be 3-63 alphanumeric/hyphen chars.`);
+    }
+    if (RESERVED_SLUGS.has(clean)) {
+      throw new Error(`Slug '${clean}' is reserved by the platform.`);
+    }
+  }
+
+  public async executeProvisioning(payload: ProvisioningPayload): Promise<void> {
+    this.validateSlug(payload.slug);
+
+    // 1. Idempotency Check
+    const existing = await this.pool.query(
+      'SELECT status FROM provisioning_jobs WHERE id = $1',
+      [payload.jobId]
+    );
+    if (existing.rows.length > 0 && existing.rows[0].status === 'completed') {
+      console.log(`[Idempotency] Job ${payload.jobId} already executed. Skipping.`);
+      return;
+    }
+
+    const passwordHash = await bcrypt.hash(payload.passwordPlain, 10);
+    const client: PoolClient = await this.pool.connect();
+
+    try {
+      // 2. Begin Atomic Transaction
+      await client.query('BEGIN');
+
+      const tenantId = randomUUID();
+      const adminId = randomUUID();
+      const defaultProjectId = randomUUID();
+
+      // Step A: Insert Tenant
+      await client.query(
+        `INSERT INTO tenants (id, slug, name, plan_id, status)
+         VALUES ($1, $2, $3, 'free', 'active')`,
+        [tenantId, payload.slug, payload.companyName]
+      );
+
+      // Step B: Insert Tenant Scoped Admin User
+      await client.query(
+        `INSERT INTO users (id, tenant_id, email, password_hash, role)
+         VALUES ($1, $2, $3, $4, 'admin')`,
+        [adminId, tenantId, payload.adminEmail, passwordHash]
+      );
+
+      // Step C: Seed Default Resources
+      await client.query(
+        `INSERT INTO projects (id, tenant_id, name)
+         VALUES ($1, $2, 'General Workspace')`,
+        [defaultProjectId, tenantId]
+      );
+
+      // Step D: Record Job Completion
+      await client.query(
+        `INSERT INTO provisioning_jobs (id, tenant_id, status, completed_at)
+         VALUES ($1, $2, 'completed', NOW())
+         ON CONFLICT (id) DO UPDATE SET 
+            status = 'completed', 
+            completed_at = NOW(), 
+            tenant_id = EXCLUDED.tenant_id`,
+        [payload.jobId, tenantId]
+      );
+
+      await client.query('COMMIT');
+    } catch (err) {
+      await client.query('ROLLBACK');
+      console.error(`[Provisioning Error] Transaction rolled back for ${payload.slug}:`, err);
+      throw err;
+    } finally {
+      client.release();
+    }
+
+    // 3. Out-of-Transaction Side Effect: Email
+    this.dispatchWelcomeEmail(payload.adminEmail, payload.companyName).catch((err) => {
+      console.warn(`[Mail Error] Non-fatal welcome email failed to send: ${err.message}`);
+    });
+  }
+
+  private async dispatchWelcomeEmail(email: string, company: string): Promise<void> {
+    // Simulated Mail Sending Logic
+    console.log(`[Mail Gateway] Dispatched welcome email to ${email} for tenant ${company}.`);
+  }
+}
+```
+<!-- slide -->
+```python
+# Python: Asynchronous Provisioning Pipeline with SQLAlchemy / Asyncpg
+import re
+import uuid
+import logging
+from typing import Set
+from sqlalchemy.ext.asyncio import AsyncEngine
+from sqlalchemy import text
+from passlib.context import CryptContext
+
+logger = logging.getLogger("provisioning")
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+RESERVED_SLUGS: Set[str] = {
+    "admin", "api", "app", "auth", "billing", "portal", "status", "www"
+}
+SLUG_REGEX = re.compile(r"^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$")
+
+class ProvisioningService:
+    def __init__(self, engine: AsyncEngine):
+        self.engine = engine
+
+    def validate_slug(self, slug: str) -> None:
+        clean = slug.strip().lower()
+        if not SLUG_REGEX.match(clean):
+            raise ValueError(f"Invalid slug format: '{clean}'. Must be 3-63 alphanumeric/hyphen chars.")
+        if clean in RESERVED_SLUGS:
+            raise ValueError(f"Slug '{clean}' is a reserved platform identifier.")
+
+    async def execute_provisioning(self, job_id: str, slug: str, company_name: str, admin_email: str, password: str) -> None:
+        self.validate_slug(slug)
+        
+        async with self.engine.connect() as conn:
+            # 1. Idempotency Pre-Check
+            check_stmt = text("SELECT status FROM provisioning_jobs WHERE id = :id")
+            result = await conn.execute(check_stmt, {"id": job_id})
+            row = result.fetchone()
+            if row and row.status == "completed":
+                logger.info("Job %s already completed. Skipping idempotent replay.", job_id)
+                return
+
+        hashed_pw = pwd_context.hash(password)
+        tenant_id = str(uuid.uuid4())
+        admin_id = str(uuid.uuid4())
+        project_id = str(uuid.uuid4())
+
+        # 2. Atomic Core Transaction
+        async with self.engine.begin() as conn:
+            # Step A: Insert Tenant Record
+            await conn.execute(
+                text("""
+                    INSERT INTO tenants (id, slug, name, plan_id, status)
+                    VALUES (:tid, :slug, :name, 'free', 'active')
+                """),
+                {"tid": tenant_id, "slug": slug, "name": company_name}
+            )
+
+            # Step B: Insert Tenant Admin User
+            await conn.execute(
+                text("""
+                    INSERT INTO users (id, tenant_id, email, password_hash, role)
+                    VALUES (:uid, :tid, :email, :pw, 'admin')
+                """),
+                {"uid": admin_id, "tid": tenant_id, "email": admin_email, "pw": hashed_pw}
+            )
+
+            # Step C: Seed Default Workspace
+            await conn.execute(
+                text("""
+                    INSERT INTO projects (id, tenant_id, name)
+                    VALUES (:pid, :tid, 'General Workspace')
+                """),
+                {"pid": project_id, "tid": tenant_id}
+            )
+
+            # Step D: Mark Idempotency Record
+            await conn.execute(
+                text("""
+                    INSERT INTO provisioning_jobs (id, tenant_id, status, completed_at)
+                    VALUES (:jid, :tid, 'completed', NOW())
+                    ON CONFLICT (id) DO UPDATE SET
+                        status = 'completed',
+                        completed_at = NOW(),
+                        tenant_id = EXCLUDED.tenant_id
+                """),
+                {"jid": job_id, "tid": tenant_id}
+            )
+
+        # 3. Post-Commit Non-Transactional Side Effect
+        await self.dispatch_welcome_email(admin_email, company_name)
+        logger.info("Provisioning completed successfully for tenant '%s' (%s).", company_name, tenant_id)
+
+    async def dispatch_welcome_email(self, email: str, company: str) -> None:
+        try:
+            logger.info("[Mail Gateway] Dispatched welcome email to %s for tenant %s.", email, company)
+        except Exception as exc:
+            logger.warning("[Mail Gateway] Failed to deliver welcome email: %s", exc)
+```
+<!-- slide -->
+```csharp
+// C#: Resilient Multi-Tenant Provisioning Service with Npgsql & Transactions
+using System;
+using System.Collections.Generic;
+using System.Data;
+using System.Text.RegularExpressions;
+using System.Threading.Tasks;
+using Npgsql;
+
+public class ProvisioningPayload
+{
+    public Guid JobId { get; set; }
+    public string Slug { get; set; } = string.Empty;
+    public string CompanyName { get; set; } = string.Empty;
+    public string AdminEmail { get; set; } = string.Empty;
+    public string PasswordPlain { get; set; } = string.Empty;
+}
+
+public class ProvisioningService
+{
+    private static readonly Regex SlugPattern = new Regex("^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$", RegexOptions.Compiled);
+    private static readonly HashSet<string> ReservedSlugs = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+    {
+        "admin", "api", "app", "auth", "billing", "portal", "status", "www"
+    };
+
+    private readonly NpgsqlDataSource _dataSource;
+
+    public ProvisioningService(NpgsqlDataSource dataSource)
+    {
+        _dataSource = dataSource;
+    }
+
+    public void ValidateSlug(string slug)
+    {
+        var clean = slug.Trim().ToLowerInvariant();
+        if (!SlugPattern.IsMatch(clean))
+            throw new ArgumentException($"Invalid slug format: '{clean}'. Must be 3-63 chars.");
+        if (ReservedSlugs.Contains(clean))
+            throw new InvalidOperationException($"Slug '{clean}' is reserved by platform routing.");
+    }
+
+    public async Task ExecuteProvisioningAsync(ProvisioningPayload payload)
+    {
+        ValidateSlug(payload.Slug);
+
+        // 1. Idempotency Verification
+        await using (var checkCmd = _dataSource.CreateCommand("SELECT status FROM provisioning_jobs WHERE id = @id"))
+        {
+            checkCmd.Parameters.AddWithValue("id", payload.JobId);
+            var status = (string?)await checkCmd.ExecuteScalarAsync();
+            if (status == "completed")
+            {
+                Console.WriteLine($"[Idempotency] Job {payload.JobId} already processed. Exiting.");
+                return;
+            }
+        }
+
+        string passwordHash = BCrypt.Net.BCrypt.HashPassword(payload.PasswordPlain);
+        Guid tenantId = Guid.NewGuid();
+        Guid adminId = Guid.NewGuid();
+        Guid defaultProjectId = Guid.NewGuid();
+
+        // 2. Execute Atomic Transaction
+        await using var connection = await _dataSource.OpenConnectionAsync();
+        await using var transaction = await connection.BeginTransactionAsync(IsolationLevel.ReadCommitted);
+
+        try
+        {
+            // A. Insert Tenant Record
+            await using (var cmd = new NpgsqlCommand(
+                "INSERT INTO tenants (id, slug, name, plan_id, status) VALUES (@id, @slug, @name, 'free', 'active')",
+                connection, transaction))
+            {
+                cmd.Parameters.AddWithValue("id", tenantId);
+                cmd.Parameters.AddWithValue("slug", payload.Slug);
+                cmd.Parameters.AddWithValue("name", payload.CompanyName);
+                await cmd.ExecuteNonQueryAsync();
+            }
+
+            // B. Insert Admin User Record
+            await using (var cmd = new NpgsqlCommand(
+                "INSERT INTO users (id, tenant_id, email, password_hash, role) VALUES (@id, @tid, @email, @hash, 'admin')",
+                connection, transaction))
+            {
+                cmd.Parameters.AddWithValue("id", adminId);
+                cmd.Parameters.AddWithValue("tid", tenantId);
+                cmd.Parameters.AddWithValue("email", payload.AdminEmail);
+                cmd.Parameters.AddWithValue("hash", passwordHash);
+                await cmd.ExecuteNonQueryAsync();
+            }
+
+            // C. Seed Initial Project
+            await using (var cmd = new NpgsqlCommand(
+                "INSERT INTO projects (id, tenant_id, name) VALUES (@id, @tid, 'General Workspace')",
+                connection, transaction))
+            {
+                cmd.Parameters.AddWithValue("id", defaultProjectId);
+                cmd.Parameters.AddWithValue("tid", tenantId);
+                await cmd.ExecuteNonQueryAsync();
+            }
+
+            // D. Complete Idempotency Job Marker
+            await using (var cmd = new NpgsqlCommand(@"
+                INSERT INTO provisioning_jobs (id, tenant_id, status, completed_at)
+                VALUES (@id, @tid, 'completed', NOW())
+                ON CONFLICT (id) DO UPDATE SET status = 'completed', completed_at = NOW(), tenant_id = EXCLUDED.tenant_id",
+                connection, transaction))
+            {
+                cmd.Parameters.AddWithValue("id", payload.JobId);
+                cmd.Parameters.AddWithValue("tid", tenantId);
+                await cmd.ExecuteNonQueryAsync();
+            }
+
+            await transaction.CommitAsync();
+        }
+        catch (Exception ex)
+        {
+            await transaction.RollbackAsync();
+            Console.Error.WriteLine($"[Rollback] Failed provisioning for slug {payload.Slug}: {ex.Message}");
+            throw;
+        }
+
+        // 3. Out-of-Transaction Best-Effort Side Effects
+        _ = DispatchWelcomeEmailAsync(payload.AdminEmail, payload.CompanyName);
+    }
+
+    private Task DispatchWelcomeEmailAsync(string email, string company)
+    {
+        Console.WriteLine($"[Mail Gateway] Dispatched welcome email to {email} for {company}.");
+        return Task.CompletedTask;
+    }
+}
+```
+````
+
+---
+
+## Practical Hands-On Verification CLI Workflows
+
+Follow this step-by-step verification workflow using local PostgreSQL and `psql` to test transaction atomicity, idempotency protection, and reserved namespace rejection.
+
+### Step 1: Start Isolated PostgreSQL Instance
 
 ```bash
-docker run -d --name saas-onboarding-pg -e POSTGRES_PASSWORD=devpass -e POSTGRES_DB=saas -p 5432:5432 postgres:16
+docker run -d --name saas-onboarding-test \
+  -e POSTGRES_PASSWORD=devpass \
+  -e POSTGRES_DB=saas_db \
+  -p 5432:5432 postgres:16
 ```
 
-### 1. Build the atomic provisioning core and prove it's transactional
+### Step 2: Initialize Relational Onboarding Schema
 
-Create `tenants`, `users` (from module 02), and `provisioning_jobs`
-tables. Implement `provision_tenant` as above. Deliberately raise an
-exception *inside* `seed_default_data` (e.g. `raise RuntimeError("boom")`)
-and confirm, by querying directly, that **neither** the tenant row nor the
-admin user row exists afterward — the transaction rolled back all three
-together, not just the step that failed.
+Execute the following DDL script to establish the required tables:
 
-### 2. Prove idempotency under retry
+```bash
+docker exec -i saas-onboarding-test psql -U postgres -d saas_db << 'EOF'
+CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
-Call `provision_tenant` twice with the **same** `provisioning_id` and
-signup payload (simulating a redelivered queue message). Confirm exactly
-one tenant and one admin user exist afterward, not two, and that the
-second call returned immediately via the idempotency check rather than
-re-running the creation steps.
+CREATE TABLE IF NOT EXISTS tenants (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    slug TEXT UNIQUE NOT NULL,
+    name TEXT NOT NULL,
+    plan_id TEXT NOT NULL DEFAULT 'free',
+    status TEXT NOT NULL DEFAULT 'active'
+);
 
-### 3. Add reserved-slug and uniqueness validation
+CREATE TABLE IF NOT EXISTS users (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+    email TEXT NOT NULL,
+    password_hash TEXT NOT NULL,
+    role TEXT NOT NULL DEFAULT 'member',
+    UNIQUE (tenant_id, email)
+);
 
-Add a `RESERVED_SLUGS = {"www", "api", "admin", "app"}` check and a
-uniqueness check, both running **before** the transaction even opens.
-Confirm signing up with slug `api` is rejected with a clear error before
-any database write happens, and confirm a second signup with an
-already-taken slug is rejected the same way.
+CREATE TABLE IF NOT EXISTS projects (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+    name TEXT NOT NULL
+);
 
-### 4. Simulate the async email failure and confirm the tenant still works
+CREATE TABLE IF NOT EXISTS provisioning_jobs (
+    id UUID PRIMARY KEY,
+    tenant_id UUID REFERENCES tenants(id) ON DELETE SET NULL,
+    status TEXT NOT NULL DEFAULT 'pending',
+    completed_at TIMESTAMPTZ
+);
+EOF
+```
 
-Make `send_welcome_email` raise an exception unconditionally. Confirm the
-tenant and admin user were still created successfully (the transaction
-already committed before the email step ran) and that the exception is
-caught/logged rather than crashing the whole provisioning job — a failed
-email should never un-provision an otherwise-successful signup.
+### Step 3: Verify Transactional Rollback Under Partial Failure
 
-### 5. Diagnose and fix: the duplicate-tenant bug
+Simulate a provisioning workflow that fails at step 3 (default workspace seeding). Confirm that the tenant and user records are cleanly rolled back.
 
-A team's first version of `/signup` did the provisioning work
-synchronously, directly in the request handler, with no idempotency
-check. Under load, a slow request caused a client's HTTP library to time
-out and automatically retry the POST — and the team found two tenants
-created for the same company, with two different admin passwords, a few
-seconds apart.
+```bash
+docker exec -i saas-onboarding-test psql -U postgres -d saas_db << 'EOF'
+DO $$
+DECLARE
+    v_tenant_id UUID := gen_random_uuid();
+    v_user_id UUID := gen_random_uuid();
+BEGIN
+    -- Step 1: Insert Tenant
+    INSERT INTO tenants (id, slug, name) VALUES (v_tenant_id, 'failing-corp', 'Failing Corp');
+    
+    -- Step 2: Insert User
+    INSERT INTO users (id, tenant_id, email, password_hash, role) 
+    VALUES (v_user_id, v_tenant_id, 'admin@failing.com', 'hash123', 'admin');
+    
+    -- Step 3: Deliberate Failure (Simulating schema or constraint violation)
+    RAISE EXCEPTION 'Simulated failure during workspace configuration';
+EXCEPTION
+    WHEN OTHERS THEN
+        RAISE NOTICE 'Caught deliberate error: %, rolling back transaction.', SQLERRM;
+        -- PL/pgSQL rolls back subtransactions automatically on unhandled EXCEPTION
+END $$;
+EOF
+```
+
+Verify that zero orphaned rows exist in `tenants` or `users`:
+
+```bash
+docker exec -i saas-onboarding-test psql -U postgres -d saas_db -c "
+SELECT count(*) AS orphaned_tenants FROM tenants WHERE slug = 'failing-corp';
+SELECT count(*) AS orphaned_users FROM users WHERE email = 'admin@failing.com';
+"
+```
+
+**Expected Wire Output:**
+```text
+ orphaned_tenants 
+------------------
+                0
+(1 row)
+
+ orphaned_users 
+----------------
+              0
+(1 row)
+```
+
+### Step 4: Verify Idempotent Execution Under Rapid Retries
+
+Execute the atomic block twice using the same static Job UUID (`a0000000-0000-0000-0000-000000000001`):
+
+```bash
+docker exec -i saas-onboarding-test psql -U postgres -d saas_db << 'EOF'
+-- Run 1: First Attempt
+BEGIN;
+INSERT INTO provisioning_jobs (id, status) VALUES ('a0000000-0000-0000-0000-000000000001', 'pending');
+INSERT INTO tenants (id, slug, name) VALUES ('b0000000-0000-0000-0000-000000000001', 'acme-tools', 'Acme Tools');
+INSERT INTO users (id, tenant_id, email, password_hash, role) 
+VALUES ('c0000000-0000-0000-0000-000000000001', 'b0000000-0000-0000-0000-000000000001', 'alice@acme.com', '$2b$10$xyz', 'admin');
+UPDATE provisioning_jobs SET status = 'completed', completed_at = NOW(), tenant_id = 'b0000000-0000-0000-0000-000000000001' 
+WHERE id = 'a0000000-0000-0000-0000-000000000001';
+COMMIT;
+
+-- Run 2: Replay Attempt (Must be intercepted by idempotency check)
+DO $$
+DECLARE
+    v_status TEXT;
+BEGIN
+    SELECT status INTO v_status FROM provisioning_jobs WHERE id = 'a0000000-0000-0000-0000-000000000001';
+    IF v_status = 'completed' THEN
+        RAISE NOTICE 'Idempotency caught replay! Skipping execution.';
+        RETURN;
+    END IF;
+    -- If reached, it would throw duplicate key exception
+    INSERT INTO tenants (slug, name) VALUES ('acme-tools', 'Acme Tools');
+END $$;
+EOF
+```
+
+**Expected Wire Output:**
+```text
+NOTICE:  Idempotency caught replay! Skipping execution.
+DO
+```
+
+Confirm that exactly one tenant record exists:
+```bash
+docker exec -i saas-onboarding-test psql -U postgres -d saas_db -c "
+SELECT id, slug, status FROM tenants WHERE slug = 'acme-tools';
+"
+```
+
+**Expected Wire Output:**
+```text
+                  id                  |    slug    | status 
+--------------------------------------+------------+--------
+ b0000000-0000-0000-0000-000000000001 | acme-tools | active
+(1 row)
+```
+
+---
+
+## Operational Validation Checkpoints (Scenario Quizzes)
 
 <details>
-<summary>Solution</summary>
+<summary><strong>Checkpoint 1: The Out-of-Band Welcome Email Dilemma</strong></summary>
 
-The client-side retry sent a second, functionally-identical signup
-request before the first one's response came back, and with no
-idempotency key or check, the server had no way to recognize "this is the
-same signup, already in progress/done" — it just ran the full creation
-logic twice. The fix is exercise 2's mechanism: generate (or accept from
-the client) a stable idempotency key for the signup attempt, check for a
-completed job under that key *before* doing any creation work, and treat
-a retry with the same key as a no-op returning the original result. This
-is the same idempotency-key pattern track 10's distributed-systems module
-teaches for payment/order APIs — signup is just another "must not
-double-execute under retry" operation.
+**Scenario:** A junior developer wraps the entire provisioning logic in a single transaction block:
+```python
+async with db.transaction():
+    tenant = await create_tenant(slug)
+    user = await create_admin_user(tenant.id)
+    await seed_settings(tenant.id)
+    await email_service.send_welcome_email(user.email) # Network HTTP call to SendGrid
+```
+During a brief SendGrid network hiccup, `send_welcome_email` raises an HTTP 504 Gateway Timeout. What happens to the tenant in the database, and why is this design a severe anti-pattern?
 
-</details>
-
-## Independent challenge
-
-No code given. Extend the provisioning flow for a schema-per-tenant
-product (module 04-10's middle isolation model). On signup, the job must:
-create the tenant row, `CREATE SCHEMA tenant_<slug>`, run every existing
-Alembic migration against that new schema, then proceed with admin-user
-creation as before. Design what happens if migration step N of 12 fails
-partway through — write out the exact recovery sequence (what gets
-rolled back, what state the tenant is left in, and whether the job is
-safe to simply retry from the top). Explicitly connect your answer to
-module 04-10's "migrations must run once per schema" cost.
-
-<details>
-<summary>Stuck? One hint</summary>
-
-A common real answer: wrap the schema creation + full migration run as
-its own step with an explicit try/except; on any failure, `DROP SCHEMA
-tenant_<slug> CASCADE` to remove the half-migrated schema entirely (rather
-than leaving it in an ambiguous partial state), mark
-`tenants.status = 'failed'`, and make the job safe to retry from the top
-specifically *because* the failure path always returns to "no schema
-exists" — so a retry's `CREATE SCHEMA` starts clean rather than colliding
-with a half-built one. This mirrors module 04-10's point that migrations
-multiply per schema: provisioning for this model must treat "run all N
-migrations against one new schema" as a single atomic unit of work, not N
-independent steps that could each partially succeed.
-
-</details>
-
-## Common mistakes & troubleshooting
-
-- **Running provisioning synchronously in the request handler.** Slow
-  under load, and a mid-request failure risks the exact half-created-
-  tenant problem this module exists to prevent. Use a background job
-  (a real durable queue in production, per track 06).
-- **No idempotency key/check.** Exercise 5's bug — any retry (client-side
-  timeout retry, queue redelivery) re-runs the full creation logic and
-  produces duplicates.
-- **Wrapping the welcome email inside the same transaction as tenant
-  creation.** You cannot roll back a sent email — keep non-transactional,
-  irreversible side effects outside the atomic core, and handle their
-  failure independently (exercise 4).
-- **No reserved-slug list.** Without one, a signup could claim `api` or
-  `admin` as their tenant slug, colliding with your own infrastructure's
-  routes under module 01's subdomain-based resolution.
-- **Leaving a half-migrated schema behind on failure**, in
-  schema/database-per-tenant models — the independent challenge's core
-  concern. Always define an explicit rollback for the schema/migration
-  step specifically, not just the row-level transaction.
-
-## Checkpoint quiz
-
-<details>
-<summary>Show questions</summary>
-
-1. List the steps a provisioning job typically has to perform, and which
-   of them belong inside one atomic transaction versus outside it.
-2. Why does provisioning belong in a background job rather than directly
-   in the `/signup` request handler?
-3. What does it mean for a provisioning job to be idempotent, and what
-   real-world event makes idempotency necessary here (not just a
-   theoretical concern)?
-4. Why does a tenant slug need a reserved-word denylist in addition to a
-   uniqueness check?
-5. In a schema-per-tenant model, what's the recommended recovery when
-   migration step N of 12 fails partway through provisioning?
-
-</summary>
+<strong>Answer:</strong>
+The database transaction rolls back completely. The customer's tenant, admin user, and initial workspace settings are destroyed simply because an external notification service timed out. Furthermore, holding an open database transaction while awaiting an external network round-trip exhausts connection pool slots. If SendGrid takes 5 seconds to time out, the database connection is held idle for 5 seconds. The correct architectural pattern is: **Commit the core database transaction first**, then invoke the email service asynchronously in the background. If the email fails, log the error and enqueue an email retry task; never destroy an otherwise successfully provisioned tenant.
 </details>
 
 <details>
-<summary>Show answers</summary>
+<summary><strong>Checkpoint 2: Compensating Actions in Schema-Per-Tenant Models</strong></summary>
 
-1. Create the tenant row, create the first admin user, seed default data,
-   send a welcome email (and, for schema/database-per-tenant models,
-   create + migrate the tenant's schema/database). The tenant row, admin
-   user, seed data, and idempotency marker belong inside one atomic
-   transaction; the welcome email (and, in the independent challenge's
-   model, the schema/migration step) is handled outside that transaction
-   with its own explicit success/failure handling, since it can't simply
-   be rolled back the way a database transaction can.
-2. Because it's slow (schema creation, migrations, seeding) and, more
-   importantly, because a request handler doing this synchronously risks
-   leaving a half-created tenant behind if a later step fails after
-   earlier steps already committed — a background job with its own
-   transaction and idempotency handling can retry safely without that
-   risk.
-3. Idempotent means running the same provisioning job twice (with the
-   same key/input) produces exactly one tenant, not two — the second run
-   is a safe no-op. It's necessary because retries are a normal event in
-   real systems: client-side HTTP timeouts triggering automatic retries,
-   or a message queue redelivering a job after a worker crash, both
-   genuinely happen and would otherwise double-provision a tenant
-   (exercise 5's bug).
-4. Because a tenant is free to choose almost any slug value, and without
-   a denylist a tenant could claim a slug like `api`, `admin`, or `www`
-   that collides with your own product's existing routes/subdomains
-   under module 01's subdomain-based resolution, breaking your own
-   infrastructure rather than just being a cosmetic problem.
-5. Roll back the entire schema/migration step as one unit — drop the
-   half-migrated schema entirely (`DROP SCHEMA ... CASCADE`) rather than
-   leaving it in a partial, ambiguous state — mark the tenant as failed,
-   and make the job safe to retry from the top specifically because the
-   rollback always returns to a clean "no schema exists" starting state.
+**Scenario:** You operate a B2B SaaS platform using PostgreSQL with the schema-per-tenant isolation model. During customer signup, the provisioning worker creates `CREATE SCHEMA tenant_acme`, successfully applies 14 migrations, but fails on migration 15 due to a malformed column default. What state is the database left in if no explicit compensation logic exists, and how should your onboarding worker recover?
 
+<strong>Answer:</strong>
+In PostgreSQL, while DDL is transactional, multi-statement migrations run across multiple migration files or connections may leave the schema in a partially migrated state. If the worker simply crashes or marks the job failed, `tenant_acme` remains in the catalog with 14 half-baked tables. If the user or an automated retry mechanism attempts to re-provision `tenant_acme`, `CREATE SCHEMA tenant_acme` fails immediately with `schema "tenant_acme" already exists`. The recommended recovery pattern is an explicit **compensating rollback**: in the error-handling block of the worker, execute `DROP SCHEMA IF EXISTS tenant_acme CASCADE;`, update `tenants.status = 'failed'`, and record the migration error log. This restores the database to a clean baseline so that subsequent retries execute from a known zero-state.
 </details>
 
-## Further reading & sources
+<details>
+<summary><strong>Checkpoint 3: The Reserved Subdomain Takeover Vector</strong></summary>
 
-- [Track 06, backend: background processing](../../06-background-processing-and-realtime/README.md) - the task-queue foundation this module's job runs on.
-- [Track 10, backend: distributed systems patterns](../../10-distributed-systems-patterns/README.md) - the idempotency-key pattern this module reuses for provisioning.
-- [Module 10, 04-databases-and-data-layer](../../04-databases-and-data-layer/10-multi-tenancy-patterns/README.md) - the migration-per-schema cost that provisioning has to pay for schema/database-per-tenant models.
+**Scenario:** An attacker discovers that your multi-tenant SaaS resolves tenants via subdomains (`{slug}.saasplatform.com`). The attacker registers an account with the slug `api`. What immediate security and operational vulnerabilities does this introduce, and at what architectural layers must this be prevented?
+
+<strong>Answer:</strong>
+Allowing a tenant to register `api` introduces severe routing hijack vulnerabilities:
+1. **Routing Interception:** Traffic intended for the platform's core public API (`api.saasplatform.com`) may route directly to the attacker's tenant boundary depending on load balancer and wildcard DNS rules.
+2. **Cookie Theft & Session Hijacking:** The attacker can set cookies with domain `.saasplatform.com`, potentially reading or corrupting parent-domain authorization tokens or spoofing corporate identity.
+3. **Phishing & Brand Impersonation:** Legitimate users can be deceived into sending credentials to `api.saasplatform.com/login`.
+
+This must be prevented at **two layers**:
+* **Layer 1 (Ingress Validation):** An explicit denylist containing infrastructure words (`api`, `admin`, `app`, `www`, `auth`, `status`, `portal`) and protocol names (`mail`, `ftp`, `smtp`) must reject the request synchronously before reaching the database.
+* **Layer 2 (Database Constraint / Catalog Guard):** A table-level check constraint or dedicated reserved slug table prevents bypass even if internal admin APIs or migration scripts attempt manual registration.
+</details>
+
+---
+
+## Further Reading & Sources
+
+- [Track 06, Backend: Background Processing and Real-Time Systems](../../06-background-processing-and-realtime/README.md) — The durable queue foundation that decouples ingress from provisioning.
+- [Track 10, Backend: Distributed Systems Patterns](../../10-distributed-systems-patterns/README.md) — The distributed idempotency key and saga compensation patterns.
+- [Module 10, 04-databases-and-data-layer](../../04-databases-and-data-layer/10-multi-tenancy-patterns/README.md) — Migration per schema trade-offs and operational costs.
+
+---
 
 ## Next
 
-[04-billing-plans-and-usage-metering](../04-billing-plans-and-usage-metering/README.md) —
-now that a tenant can sign up and provision itself automatically, module
-04 covers charging them for it: plan tiers, quotas, and usage metering.
+Continue to [04-billing-plans-and-usage-metering](../04-billing-plans-and-usage-metering/README.md) — now that a tenant can sign up and provision itself automatically, learn how to meter usage, enforce plan quotas, and integrate subscription webhooks.

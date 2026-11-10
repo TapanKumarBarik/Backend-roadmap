@@ -1,383 +1,480 @@
 # Module 01: Tenant Identification and Request Routing
 
-## Why this matters
+> **Prerequisites:** [00-tenancy-models-and-decision-framework](../00-tenancy-models-and-decision-framework/README.md), [API Layer and Request Handling](../../02-api-layer-and-request-handling/02-middleware-and-request-pipelines/README.md), and [Authentication and Authorization](../../03-authentication-and-authorization/README.md).  
+> **Estimated Reading Time:** 28 minutes  
+> **Target Audience:** Backend engineers and API architects implementing front-door multi-tenant request resolution and context propagation pipelines.
 
-Every module after this one assumes a single fact is already known before
-any handler code runs: **which tenant is this request for.** Auth (module
-02) can't check "does this user belong to this tenant" without a resolved
-tenant to check against. Data access (module 04-10's RLS) can't set
-`app.current_tenant` without knowing what to set it to. Billing (module 04)
-can't meter usage against the right account. Get tenant resolution wrong —
-or skip it and let each handler figure it out independently — and you get
-exactly the kind of leak module 04-10's exercise 6 described: one endpoint
-that forgot the check. This module makes tenant resolution a single,
-mandatory, front-door mechanism: middleware that runs before every handler,
-resolves the tenant once, and fails closed if it can't.
+> [!TIP]
+> **Golden Rule of Tenant Resolution:** Resolve the tenant once, at the front door, in a single mandatory middleware pipeline before any route handler executes. Always fail closed—an unresolvable, unrecognized, or suspended tenant must be rejected immediately (HTTP 400/404/403) and must never, under any circumstances, fall back to a default tenant.
 
-## Concepts
+---
 
-### Three ways to identify a tenant from a request
+## Visual Mental Models & Architecture
 
-- **Subdomain-based** — `acme.yourapp.com`, `globex.yourapp.com`. The
-  tenant slug lives in the `Host` header. Most common for B2B SaaS —
-  looks professional, tenant-branded, and the tenant is visible before
-  any request body is even read. Requires wildcard DNS (`*.yourapp.com`)
-  and a wildcard TLS cert.
-- **Path-based** — `yourapp.com/acme/...`, `yourapp.com/globex/...`. No
-  DNS/cert complexity, works identically in every environment (including
-  `localhost` during development). Slightly less "branded" feeling, and
-  every route in your API gains a leading `/{tenant_slug}` segment.
-- **Header-based** — a custom header like `X-Tenant-ID` on every request.
-  Common for API-only products (no browser UI to carry a subdomain/path
-  naturally) or internal service-to-service calls. Requires every client
-  to know to send it — not suitable for a product where a human types a
-  URL into a browser.
+### The Front-Door Tenant Resolution Pipeline
 
-Most consumer-facing SaaS products use subdomain; most pure API products
-use header-based, often *alongside* a subdomain for the human-facing part
-of the same product. Path-based is the easiest to prototype with and a
-completely legitimate permanent choice for internal tools.
+Every incoming request must be identified, authenticated, and verified against an active tenant before touching downstream business logic or database layers.
 
-### Resolve once, in middleware, before any handler runs
-
-The mistake module 04-10 warned about (isolation enforced by convention,
-in each handler, individually) applies just as much here. The fix is the
-same shape: a single piece of middleware that runs for **every** request,
-resolves the tenant, and either attaches it to the request or rejects the
-request outright — no handler is ever given the chance to "forget."
-
-```python
-from fastapi import FastAPI, Request, HTTPException
-from starlette.middleware.base import BaseHTTPMiddleware
-import re
-
-SUBDOMAIN_RE = re.compile(r"^([a-z0-9-]+)\.yourapp\.com$")
-
-class TenantResolutionMiddleware(BaseHTTPMiddleware):
-    def __init__(self, app, tenant_lookup):
-        super().__init__(app)
-        self.tenant_lookup = tenant_lookup  # slug -> Tenant | None
-
-    async def dispatch(self, request: Request, call_next):
-        host = request.headers.get("host", "")
-        match = SUBDOMAIN_RE.match(host)
-        if not match:
-            raise HTTPException(status_code=400, detail="Unresolvable tenant from host")
-
-        slug = match.group(1)
-        tenant = await self.tenant_lookup(slug)
-        if tenant is None:
-            # Fail closed: an unknown slug is a 404, never "fall through" to some default tenant.
-            raise HTTPException(status_code=404, detail="Unknown tenant")
-        if tenant.status != "active":
-            raise HTTPException(status_code=403, detail="Tenant suspended")
-
-        request.state.tenant = tenant
-        return await call_next(request)
+```mermaid
+flowchart TD
+    Req["Incoming HTTP Request"] --> AllowlistCheck{"Is Path in Tenant-Agnostic\nAllowlist? (/health, /signup)"}
+    
+    AllowlistCheck -- Yes --> PassThrough["Bypass Tenant Resolution\nExecute Handler Directly"]
+    AllowlistCheck -- No --> ExtractSignal["Extract Tenant Identifier\n(Subdomain Host / URL Path / X-Tenant-ID)"]
+    
+    ExtractSignal --> MatchSignal{"Valid Identifier\nFormat?"}
+    MatchSignal -- No / Empty --> Reject400["Fail Closed: 400 Bad Request\n(Unresolvable Host / Missing Header)"]
+    
+    MatchSignal -- Yes --> LookupTenant[("Lookup Tenant by Slug/ID\n(Redis Cache -> Database)")]
+    
+    LookupTenant --> ExistCheck{"Tenant Exists?"}
+    ExistCheck -- No --> Reject404["Fail Closed: 404 Not Found\n(Unknown Tenant Slug)"]
+    
+    ExistCheck -- Yes --> StatusCheck{"Tenant Status\nActive?"}
+    StatusCheck -- Suspended / Inactive --> Reject403["Fail Closed: 403 Forbidden\n(Tenant Suspended / Overdue)"]
+    
+    StatusCheck -- Active --> BindContext["Bind to request.state.tenant\nSet ContextVar / ThreadLocal"]
+    BindContext --> Handler["Execute Downstream Route Handler"]
+    Handler --> Teardown["Finally: Reset ContextVar\n(Prevent Leaking into Next Async Worker!)"]
 ```
 
-The two failure-closed decisions in that snippet matter more than the
-happy path: an unresolvable host is rejected, not routed to a default
-tenant; an unknown slug is rejected, not silently treated as tenant 1.
-Both are "fail closed" choices — the alternative (fail open) is exactly
-how a missing-filter bug becomes a cross-tenant leak.
+---
 
-### Carrying the resolved tenant through the request
+## Systematic Taxonomic Reference Grids
 
-Once middleware resolves the tenant, every downstream piece — handlers,
-the repository layer, module 04-10's `tenant_session` — needs access to it
-without re-resolving it. Two common mechanisms:
+### Tenant Identification Strategies Matrix
 
-- **Request state** (the `request.state.tenant` above) — simplest, works
-  naturally with FastAPI's dependency injection (`Depends(get_current_tenant)`
-  reads `request.state.tenant`).
-- **`contextvars`** — needed when tenant context must be visible *outside*
-  the request/response cycle proper — e.g. inside a background task
-  spawned from the request (module 06, `backend/`) where you don't have a
-  `Request` object to read `.state` from.
+| Identification Mechanism | Example Request Wire Format | User Experience & Branding | Infrastructure & DNS Requirement | Recommended Production Fit |
+| :--- | :--- | :--- | :--- | :--- |
+| **Subdomain-Based** | `Host: acme.saasplatform.com` | High (Professional, custom company domain branding) | Requires Wildcard DNS (`*.saasplatform.com`) & Wildcard TLS | **Default choice for B2B Web SaaS applications.** |
+| **Path-Based** | `GET /api/v1/acme/projects` | Medium (Obvious tenant in URL; less branded) | Zero infrastructure setup; works identically on `localhost` | Internal management tools, rapid prototyping. |
+| **Header-Based** | `X-Tenant-ID: 1111-2222-3333` | Low (Hidden from human browser view) | Zero infrastructure setup; requires explicit client SDK support | **Pure B2B APIs, mobile app backends, microservices.** |
+| **Custom Vanity Domain** | `Host: app.acmewidgets.com` | Premium (White-labeled enterprise branding) | Complex (CNAME verification, dynamic TLS cert issuance) | Enterprise tier add-on. |
 
+### HTTP Status Code Taxonomy for Tenant Failures
+
+| Scenario | HTTP Code | Error Response Message | Operational & Security Rationale |
+| :--- | :--- | :--- | :--- |
+| **Unparseable Host Header** | `400 Bad Request` | `{"detail": "Unresolvable tenant from host"}` | The client communicated via an unsupported host or malformed URL. |
+| **Unknown / Non-Existent Slug** | `404 Not Found` | `{"detail": "Unknown tenant"}` | The tenant slug does not exist in system records (e.g. `nosuchcompany.saas.com`). |
+| **Suspended / Paused Account** | `403 Forbidden` | `{"detail": "Tenant account suspended"}` | The tenant exists but is locked due to non-payment or administrative hold. |
+| **Tenant Context Omitted** | `500 Server Error` | `{"detail": "Tenant resolution did not run"}` | Defense-in-depth safety catch: handler was reached without middleware execution. |
+
+---
+
+## Production War Stories: Incident Post-Mortem
+
+### SEV-1 Post-Mortem: The "Helpful" Default Fallback Tenant Disaster
+
+#### Incident Overview
+* **Severity:** SEV-1 (Catastrophic Enterprise Privacy Violation & Account Takeover)
+* **Detection Time:** 8 hours post-deployment
+* **Resolution Time:** 1 hour 15 minutes
+* **Impact:** 3,200 external public visitors exposed to the private financial reports of the company's largest flagship customer.
+
+#### What Happened
+During early development, a SaaS engineering team added a "convenience fallback" to their tenant resolution middleware so developers didn't have to configure mock subdomains on `localhost`:
 ```python
-from contextvars import ContextVar
-
-current_tenant: ContextVar[str | None] = ContextVar("current_tenant", default=None)
-
-# set once, in middleware, after resolution:
-token = current_tenant.set(tenant.id)
-try:
-    response = await call_next(request)
-finally:
-    current_tenant.reset(token)  # always clear it — never leak into the next request
+# The Catastrophic "Helpful" Fallback Anti-Pattern
+slug = extract_subdomain(request.headers.get("host"))
+tenant = await tenant_repo.find_by_slug(slug)
+if tenant is None:
+    # "Fallback to our demo/flagship account for convenience"
+    tenant = await tenant_repo.find_by_slug("acme-corp")
+request.state.tenant = tenant
 ```
 
-The `reset()` in a `finally` block is not optional — `contextvars` values
-can otherwise leak across requests reusing the same worker/task under some
-async runtimes, which would be a tenant-isolation bug in the resolution
-mechanism itself.
+This code survived code review and shipped directly to production.
 
-### Routing tenant-scoped vs. tenant-agnostic paths
+Two weeks later, a marketing team sent an email newsletter containing a broken tracking link: `https://mail-click-tracker.saasplatform.com/dashboard`.
+1. When 3,200 recipients clicked the link, their browsers sent `Host: mail-click-tracker.saasplatform.com`.
+2. The regex failed to match any known tenant slug (`mail-click-tracker` was not a tenant).
+3. Instead of failing closed with a `404 Not Found`, the middleware executed the fallback: it assigned the request to **`acme-corp`** (the platform's largest enterprise customer).
+4. Thousands of unauthenticated external users landed on Acme Corp's private financial dashboard, viewing internal enterprise payroll reports and confidential customer lists.
 
-Not every route belongs to a tenant. `/health`, `/signup`, and the
-marketing site's routes have no tenant yet (signup is *how* a tenant gets
-created — module 03). The middleware needs an explicit allowlist of
-tenant-agnostic paths, checked *before* attempting resolution — this is
-also a fail-closed design: paths default to "tenant required," and only
-an explicit, reviewed list opts out.
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User as External Public User
+    participant Ingress as Ingress Router
+    participant MW as Vulnerable Tenant Middleware
+    participant AcmeDB as Acme Corp Financial Records
 
-```python
-TENANT_AGNOSTIC_PATHS = {"/health", "/signup", "/login"}
-
-async def dispatch(self, request, call_next):
-    if request.url.path in TENANT_AGNOSTIC_PATHS:
-        return await call_next(request)
-    # ... resolution logic as above
+    User->>Ingress: GET /dashboard (Host: mail-tracker.saas.com)
+    Ingress->>MW: Process Request
+    Note over MW: Subdomain 'mail-tracker' not found in database!
+    MW->>MW: Fallback Triggered: tenant = "acme-corp" (DISASTER!)
+    MW->>AcmeDB: Query financial reports for tenant "acme-corp"
+    AcmeDB-->>MW: Acme Corp Payroll & Financial Data
+    MW-->>User: 200 OK: Acme Corp Private Data Rendered to Public!
 ```
 
-## Command reference
+#### Root Cause Analysis
+1. **Violation of the Fail-Closed Security Invariant:** The middleware failed open by substituting a default tenant when identification failed, rather than throwing an immediate HTTP exception.
+2. **Missing Production Hardening:** Development shortcuts were not gated by environment checks (`if config.APP_ENV == "dev"`).
+3. **Absence of Negative Security Integration Tests:** The test suite had zero tests verifying that an unrecognized subdomain returns `404 Not Found`.
 
-| Concern | Snippet |
-|---|---|
-| Subdomain match | `re.compile(r"^([a-z0-9-]+)\.yourapp\.com$")` |
-| Attach resolved tenant to request | `request.state.tenant = tenant` |
-| Read resolved tenant in a handler | `Depends(lambda r: r.state.tenant)` or a small `get_current_tenant` dependency |
-| Cross-request-boundary tenant context | `ContextVar("current_tenant")`, set/reset per request |
-| Fail-closed on unresolvable host | `raise HTTPException(400, ...)` — never fall through |
-| Fail-closed on unknown slug | `raise HTTPException(404, ...)` — never default to a tenant |
-| Tenant-agnostic path allowlist | explicit `set` checked first, before resolution logic |
+#### The Fix & Architectural Hardening
+1. **Strict Fail-Closed Enforcement:** Removed all fallback logic permanently. Any unrecognized slug raises `HTTPException(status_code=404, detail="Unknown tenant")`.
+2. **Automated Negative Test Gates:** Added automated integration tests that fire requests with invalid, empty, and spoofed `Host` headers, asserting HTTP 400 and 404 responses.
 
-A `get_current_tenant` FastAPI dependency, used by every tenant-scoped
-handler from here forward:
+---
 
-```python
-from fastapi import Depends, Request, HTTPException
+## Multi-Language Production Code Tabs
 
-def get_current_tenant(request: Request):
-    tenant = getattr(request.state, "tenant", None)
-    if tenant is None:
-        # Should be unreachable if middleware is correctly registered on every route —
-        # this is a defense-in-depth check, not the primary enforcement mechanism.
-        raise HTTPException(status_code=500, detail="Tenant middleware did not run")
-    return tenant
+The following production code examples demonstrate fail-closed tenant resolution middleware with allowlist filtering and asynchronous context binding in Go, Node.js/TypeScript, Python, and C#.
 
-@app.get("/projects")
-async def list_projects(tenant = Depends(get_current_tenant)):
-    ...
-```
+=== "Go"
+    ```go
+    // Package middleware implements fail-closed subdomain tenant resolution in Go.
+    package middleware
 
-## Hands-on exercises
+    import (
+    	"context"
+    	"net/http"
+    	"regexp"
+    	"strings"
+    )
 
-`pip install fastapi uvicorn`. No database needed yet — this module is
-pure request-routing, module 03 adds real provisioning.
+    type tenantContextKey struct{}
 
-### 1. Build subdomain resolution and prove fail-closed behavior
+    type Tenant struct {
+    	ID     string
+    	Slug   string
+    	Status string // "active", "suspended"
+    }
 
-Build a minimal app with the `TenantResolutionMiddleware` above, backed by
-an in-memory `{"acme": Tenant(...), "globex": Tenant(...)}` lookup. Add one
-route, `GET /whoami`, returning the resolved tenant's slug.
+    type TenantFinder func(ctx context.Context, slug string) (*Tenant, error)
 
-```python
-import uvicorn
-from dataclasses import dataclass
+    var subdomainRegex = regexp.MustCompile(`^([a-z0-9-]+)\.saasplatform\.com$`)
 
-@dataclass
-class Tenant:
-    id: str
-    slug: str
-    status: str = "active"
+    func TenantResolution(lookup TenantFinder, allowlist map[string]bool) func(http.Handler) http.Handler {
+    	return func(next http.Handler) http.Handler {
+    		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+    			// 1. Bypass tenant resolution for allowlisted paths
+    			if allowlist[r.URL.Path] {
+    				next.ServeHTTP(w, r)
+    				return
+    			}
 
-TENANTS = {
-    "acme": Tenant(id="t1", slug="acme"),
-    "globex": Tenant(id="t2", slug="globex"),
-}
+    			// 2. Extract subdomain from Host header
+    			host := strings.Split(r.Host, ":")[0] // Strip port if present
+    			matches := subdomainRegex.FindStringSubmatch(host)
+    			if len(matches) < 2 {
+    				http.Error(w, `{"error":"Unresolvable tenant from host"}`, http.StatusBadRequest)
+    				return
+    			}
 
-async def lookup(slug: str) -> Tenant | None:
-    return TENANTS.get(slug)
+    			slug := matches[1]
 
-app = FastAPI()
-app.add_middleware(TenantResolutionMiddleware, tenant_lookup=lookup)
+    			// 3. Resolve tenant (Fail Closed)
+    			tenant, err := lookup(r.Context(), slug)
+    			if err != nil || tenant == nil {
+    				http.Error(w, `{"error":"Unknown tenant"}`, http.StatusNotFound)
+    				return
+    			}
 
-@app.get("/whoami")
-async def whoami(tenant = Depends(get_current_tenant)):
-    return {"tenant": tenant.slug}
-```
+    			// 4. Verify account status
+    			if tenant.Status != "active" {
+    				http.Error(w, `{"error":"Tenant account suspended"}`, http.StatusForbidden)
+    				return
+    			}
 
-Since `*.yourapp.com` doesn't resolve on your machine, test by sending an
-explicit `Host` header instead of relying on real DNS:
+    			// 5. Bind tenant to request context
+    			ctx := context.WithValue(r.Context(), tenantContextKey{}, tenant)
+    			next.ServeHTTP(w, r.WithContext(ctx))
+    		})
+    	}
+    }
+    ```
+
+=== "Node.js/TypeScript"
+    ```typescript
+    // TypeScript / Express Tenant Resolution with AsyncLocalStorage Context
+    import { Request, Response, NextFunction } from "express";
+    import { AsyncLocalStorage } from "node:async_hooks";
+
+    export interface Tenant {
+      id: string;
+      slug: string;
+      status: "active" | "suspended";
+    }
+
+    export const tenantStorage = new AsyncLocalStorage<Tenant>();
+
+    const SUBDOMAIN_REGEX = /^([a-z0-9-]+)\.saasplatform\.com$/i;
+    const ALLOWLISTED_PATHS = new Set(["/health", "/signup", "/api/v1/auth/login"]);
+
+    export function createTenantMiddleware(
+      findTenant: (slug: string) => Promise<Tenant | null>
+    ) {
+      return async (req: Request, res: Response, next: NextFunction) => {
+        // 1. Allowlist bypass
+        if (ALLOWLISTED_PATHS.has(req.path)) {
+          return next();
+        }
+
+        // 2. Extract subdomain from Host header
+        const host = req.hostname;
+        const match = host.match(SUBDOMAIN_REGEX);
+        if (!match) {
+          return res.status(400).json({ error: "Unresolvable tenant from host" });
+        }
+
+        const slug = match[1].toLowerCase();
+
+        // 3. Lookup tenant
+        const tenant = await findTenant(slug);
+        if (!tenant) {
+          return res.status(404).json({ error: "Unknown tenant" });
+        }
+
+        // 4. Status verification
+        if (tenant.status !== "active") {
+          return res.status(403).json({ error: "Tenant account suspended" });
+        }
+
+        // 5. Execute downstream within AsyncLocalStorage context
+        tenantStorage.run(tenant, () => {
+          (req as any).tenant = tenant;
+          next();
+        });
+      };
+    }
+    ```
+
+=== "Python"
+    ```python
+    """FastAPI / Starlette Middleware for Subdomain Tenant Resolution."""
+
+    from __future__ import annotations
+
+    from contextvars import ContextVar
+    import re
+    from typing import Callable
+    from fastapi import FastAPI, HTTPException, Request, Response
+    from starlette.middleware.base import BaseHTTPMiddleware
+
+    # Asynchronous context variable for background tasks
+    current_tenant_ctx: ContextVar[str | None] = ContextVar(
+        "current_tenant_ctx", default=None
+    )
+
+    SUBDOMAIN_PATTERN = re.compile(r"^([a-z0-9-]+)\.saasplatform\.com$")
+    TENANT_AGNOSTIC_PATHS = {"/health", "/signup", "/login"}
+
+
+    class TenantResolutionMiddleware(BaseHTTPMiddleware):
+
+        def __init__(self, app: FastAPI, tenant_lookup: Callable):
+            super().__init__(app)
+            self.tenant_lookup = tenant_lookup
+
+        async def dispatch(self, request: Request, call_next) -> Response:
+            # 1. Bypass tenant resolution for tenant-agnostic paths
+            if request.url.path in TENANT_AGNOSTIC_PATHS:
+                return await call_next(request)
+
+            # 2. Extract host header
+            host = request.headers.get("host", "").split(":")[0]
+            match = SUBDOMAIN_PATTERN.match(host)
+            if not match:
+                raise HTTPException(
+                    status_code=400, detail="Unresolvable tenant from host"
+                )
+
+            slug = match.group(1).lower()
+
+            # 3. Lookup tenant record (Fail Closed: 404 on missing)
+            tenant = await self.tenant_lookup(slug)
+            if tenant is None:
+                raise HTTPException(status_code=404, detail="Unknown tenant")
+
+            # 4. Enforce account status
+            if tenant.status != "active":
+                raise HTTPException(
+                    status_code=403, detail="Tenant account suspended"
+                )
+
+            # 5. Bind context with guaranteed teardown reset
+            request.state.tenant = tenant
+            token = current_tenant_ctx.set(tenant.id)
+            try:
+                response = await call_next(request)
+                return response
+            finally:
+                current_tenant_ctx.reset(token)  # CRITICAL: Prevent async task leaks!
+    ```
+
+=== "C#"
+    ```csharp
+    namespace BackendRoadmap.Tenancy;
+
+    using System.Text.RegularExpressions;
+    using System.Threading.Tasks;
+    using Microsoft.AspNetCore.Http;
+
+    public class TenantResolutionMiddleware
+    {
+        private readonly RequestDelegate _next;
+        private static readonly Regex SubdomainRegex = new(@"^([a-z0-9-]+)\.saasplatform\.com$", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+        private static readonly HashSet<string> Allowlist = new() { "/health", "/signup", "/login" };
+
+        public TenantResolutionMiddleware(RequestDelegate next)
+        {
+            _next = next;
+        }
+
+        public async Task InvokeAsync(HttpContext context, ITenantRepository repo, TenantContext currentContext)
+        {
+            // 1. Allowlist check
+            if (Allowlist.Contains(context.Request.Path.Value?.ToLowerInvariant() ?? ""))
+            {
+                await _next(context);
+                return;
+            }
+
+            // 2. Extract host
+            string host = context.Request.Host.Host;
+            var match = SubdomainRegex.Match(host);
+            if (!match.Success)
+            {
+                context.Response.StatusCode = StatusCodes.Status400BadRequest;
+                await context.Response.WriteAsJsonAsync(new { error = "Unresolvable tenant from host" });
+                return;
+            }
+
+            string slug = match.Groups[1].Value.ToLowerInvariant();
+
+            // 3. Lookup Tenant
+            var tenant = await repo.FindBySlugAsync(slug);
+            if (tenant == null)
+            {
+                context.Response.StatusCode = StatusCodes.Status404NotFound;
+                await context.Response.WriteAsJsonAsync(new { error = "Unknown tenant" });
+                return;
+            }
+
+            if (tenant.Status != "active")
+            {
+                context.Response.StatusCode = StatusCodes.Status403Forbidden;
+                await context.Response.WriteAsJsonAsync(new { error = "Tenant account suspended" });
+                return;
+            }
+
+            // 4. Bind to Scoped Context Service
+            currentContext.CurrentTenant = tenant;
+            await _next(context);
+        }
+    }
+    ```
+
+---
+
+## Practical Hands-On Verification CLI Workflows
+
+### Testing Fail-Closed Tenant Resolution via `curl`
+
+Verify that tenant resolution strictly enforces isolation boundaries without DNS configuration by overriding the `Host` header:
 
 ```bash
-curl -H "Host: acme.yourapp.com" http://localhost:8000/whoami
-curl -H "Host: globex.yourapp.com" http://localhost:8000/whoami
-curl -H "Host: nosuchtenant.yourapp.com" http://localhost:8000/whoami
-curl -H "Host: totallywrong.example.com" http://localhost:8000/whoami
+# 1. Valid active tenant request (Expect 200 OK)
+curl -i -H "Host: acme.saasplatform.com" http://localhost:8000/api/whoami
+
+# 2. Valid second tenant request (Expect 200 OK with distinct tenant slug)
+curl -i -H "Host: globex.saasplatform.com" http://localhost:8000/api/whoami
+
+# 3. Non-existent tenant slug (Expect 404 Not Found)
+curl -i -H "Host: nonexistent.saasplatform.com" http://localhost:8000/api/whoami
+
+# 4. Suspended tenant slug (Expect 403 Forbidden)
+curl -i -H "Host: suspended-corp.saasplatform.com" http://localhost:8000/api/whoami
+
+# 5. Malformed Host header omitting subdomain (Expect 400 Bad Request)
+curl -i -H "Host: saasplatform.com" http://localhost:8000/api/whoami
+
+# 6. Tenant-Agnostic health check without tenant host (Expect 200 OK)
+curl -i -H "Host: localhost" http://localhost:8000/health
 ```
 
-Expected: the first two return the right slug each; the third returns
-`404 Unknown tenant`; the fourth returns `400 Unresolvable tenant from
-host` (the regex doesn't match at all). Confirm you get **exactly** those
-codes, not a default tenant or a 200 for any of the failure cases.
+**Expected Wire Output (Testing Fail-Closed Invariants):**
+```text
+HTTP/1.1 200 OK
+{"tenant_slug":"acme","tenant_id":"t1"}
 
-### 2. Add a suspended tenant and confirm it's blocked
+HTTP/1.1 404 Not Found
+{"detail":"Unknown tenant"}
 
-Add a third tenant with `status="suspended"`. Confirm the middleware
-returns `403`, not `200` and not `404` — a suspended tenant is a distinct
-failure mode from an unknown one (billing/support flows need to tell them
-apart: "you don't exist" vs. "you exist but are paused").
+HTTP/1.1 403 Forbidden
+{"detail":"Tenant account suspended"}
 
-### 3. Switch to path-based routing and compare
+HTTP/1.1 400 Bad Request
+{"detail":"Unresolvable tenant from host"}
+```
 
-Rewrite the middleware to resolve from `request.url.path.split("/")[1]`
-instead of the `Host` header (`GET /acme/whoami`). Keep the same
-fail-closed behavior for unknown/suspended tenants. Note in your own
-words: what changes about how your route table looks (every route now
-needs a `/{tenant_slug}` prefix) versus what stays identical (the
-fail-closed resolution logic itself is unchanged) — the identification
-*mechanism* changes, the *guarantee* it provides doesn't.
+---
 
-### 4. Add the tenant-agnostic allowlist
+## Operational Validation Checkpoints (Scenario Quizzes)
 
-Add `/health` and `/signup` routes and confirm they work with **no** Host
-header tenant match at all (e.g. `Host: localhost`) once added to
-`TENANT_AGNOSTIC_PATHS`, while `/whoami` still correctly requires
-resolution.
+### Checkpoint 1: Why ContextVar Must Be Reset in a Finally Block
+<details>
+<summary><strong>Scenario Assessment:</strong> In an async Python backend (FastAPI/Tornado), an engineer binds tenant context via <code>current_tenant_ctx.set(tenant.id)</code> inside middleware, but omits the <code>finally: current_tenant_ctx.reset(token)</code> cleanup block. Under high concurrency, Tenant B occasionally sees Tenant A's cached background jobs. How did this context leak occur?</summary>
 
-### 5. Diagnose and fix: the default-tenant bug
+<strong>Answer:</strong>
+In modern asynchronous event loops, **coroutines are scheduled cooperatively across a fixed pool of OS worker threads**:
+1. When a request completes, the underlying worker thread or task context is not destroyed; it is recycled to handle subsequent incoming requests.
+2. If `current_tenant_ctx.set()` is executed without a matching `.reset(token)`, the context variable retains Tenant A's ID on that thread.
+3. If the next request to land on that worker thread hits a tenant-agnostic path (like `/health`) or an unauthenticated background task that does not explicitly overwrite `current_tenant_ctx`, it inherits Tenant A's active tenant context.
+4. Any background queries spawned from that context will execute with Tenant A's permissions.
 
-A junior engineer's first draft of tenant resolution looked like this:
-
+**The Fix:** Always wrap request execution in a `try...finally` block to ensure the context variable token is reset to its original state:
 ```python
-tenant = TENANTS.get(slug, TENANTS["acme"])  # "just use acme as a fallback for now"
+token = current_tenant_ctx.set(tenant.id)
+try:
+    return await call_next(request)
+finally:
+    current_tenant_ctx.reset(token)
 ```
-
-Explain, concretely, what this bug causes in production the first time a
-real customer's subdomain has a typo in a marketing email or a DNS
-misconfiguration routes an unexpected `Host` header to your app.
-
-<details>
-<summary>Solution</summary>
-
-Any request with an unresolvable or unrecognized slug silently becomes a
-request *as Acme* — reading Acme's data, and depending on how far this bug
-reaches, potentially writing to Acme's data too. This is a cross-tenant
-leak caused by a "helpful" fallback exactly like module 04-10's leaked
-CSV-export endpoint, except at the routing layer instead of the query
-layer: fail-open masquerading as a convenience default. The fix is
-exercise 1's behavior: an unresolvable/unknown tenant is always a hard
-error (400/404), never a fallback to any real tenant, defaulted or
-otherwise.
-
 </details>
 
-## Independent challenge
-
-No code given. Design (in a short written plan, then implement it) tenant
-resolution for a product that must support **both** subdomain-based
-routing for its browser-facing dashboard *and* header-based routing for
-its public API (the same backend serves both). Decide: does the
-middleware try subdomain first and fall back to header, or are they two
-separate middleware stacks mounted on different route groups? Justify
-which failure-closed behavior applies when *neither* signal is present,
-and when *both* are present but disagree (subdomain says `acme`, header
-says `globex`).
-
+### Checkpoint 2: Conflicting Tenant Signals (Subdomain vs Header)
 <details>
-<summary>Stuck? One hint</summary>
+<summary><strong>Scenario Assessment:</strong> A public API service supports both subdomain routing (<code>acme.api.com</code>) and custom headers (<code>X-Tenant-ID: globex</code>). An incoming HTTP request arrives with <code>Host: acme.api.com</code> but sets <code>X-Tenant-ID: globex</code>. How must the middleware resolve this discrepancy?</summary>
 
-A common real answer: mount two separate route groups (e.g. `/api/*` for
-the header-based public API, everything else for the subdomain-based
-dashboard) rather than one middleware trying both signals on every
-request — simpler to reason about, and avoids the ambiguous-signal case
-almost entirely by construction. For the case where both are somehow
-present and disagree on the API route group: treat it as fail-closed too
-(reject with 400) rather than picking one arbitrarily — an API client
-sending conflicting tenant signals is either a bug in that client or a
-security probe, and neither should be quietly resolved by pick-one logic.
-
+<strong>Answer:</strong>
+The middleware must **FAIL CLOSED immediately with HTTP 400 Bad Request**:
+1. **Never Arbitrarily Pick One:** Silently picking the header over the subdomain (or vice versa) creates a critical ambiguity vulnerability. The client may believe it is operating on Globex data while the security proxy authenticated Acme.
+2. **Security Probe or Misconfigured Client:** A request with conflicting tenant signals indicates either a severe bug in the API client integration or an intentional spoofing attempt by an attacker testing access boundaries.
+3. **Fail-Closed Resolution:**
+   ```python
+   if header_tenant and subdomain_tenant and header_tenant != subdomain_tenant:
+       raise HTTPException(
+           status_code=400,
+           detail="Conflicting tenant identification signals in request",
+       )
+```
 </details>
 
-## Common mistakes & troubleshooting
-
-- **Falling back to a default tenant on resolution failure.** Exercise 5's
-  bug, and the single most dangerous mistake in this module — always fail
-  closed (4xx), never fall through to any real tenant.
-- **Resolving the tenant separately in every handler instead of once in
-  middleware.** The exact per-endpoint-convention failure mode module
-  04-10 warned about at the database layer, recurring at the routing
-  layer — one handler that's added later and forgets the check is a leak.
-- **Forgetting to reset a `ContextVar` after the request.** Async runtimes
-  can reuse workers/tasks; a `set()` without a matching `reset()` in a
-  `finally` block can leak one request's tenant context into the next.
-- **Treating "unknown tenant" and "suspended tenant" as the same error.**
-  They're operationally different (a typo/attack vs. a real, billing-
-  paused customer) and downstream support/billing flows need to
-  distinguish them — exercise 2.
-- **No explicit allowlist for tenant-agnostic routes**, leading to either
-  overly broad exceptions (regex hacks in the resolution logic itself) or
-  signup/health-check endpoints breaking because they got treated as
-  tenant-scoped by accident.
-
-## Checkpoint quiz
-
+### Checkpoint 3: Subdomain vs Path Routing in Mobile & Desktop Apps
 <details>
-<summary>Show questions</summary>
+<summary><strong>Scenario Assessment:</strong> An engineering team is designing a B2B SaaS platform that will serve both a React browser web application and native iOS/Android mobile apps. Why does using path-based routing (<code>/api/v1/{tenant_slug}/...</code>) or header-based routing (<code>X-Tenant-ID</code>) provide superior operational reliability for mobile apps compared to dynamic subdomains?</summary>
 
-1. Name the three ways to identify a tenant from a request and one product
-   type that typically fits each.
-2. Why must tenant resolution happen in middleware, once, rather than in
-   each handler individually?
-3. What does "fail closed" mean in the context of tenant resolution, and
-   give the two specific failure cases this module fails closed on.
-4. Why is a `ContextVar` used instead of (or alongside) `request.state` in
-   some designs, and what's the one thing you must never forget to do
-   with it?
-5. Why should "unknown tenant" and "suspended tenant" return different
-   status codes instead of both just being "denied"?
-
-</summary>
+<strong>Answer:</strong>
+Dynamic subdomains (`acme.saas.com`) introduce **severe operational friction in mobile and native client development**:
+1. **Dynamic Network Base URLs:** Mobile app networking stacks (e.g. Retrofit, Alamofire) expect a static, pinned API base URL (`https://api.saasplatform.com`). Dynamically reconstructing base URLs per tenant requires complex app-level cache routing.
+2. **Wildcard TLS & Certificate Pinning:** Mobile enterprise apps frequently use TLS Certificate Pinning for security. Managing certificate pinning against dynamic wildcard subdomains across different CDN providers is notoriously error-prone.
+3. **Cookie and Storage Partitioning:** Native webviews isolate storage per domain. Using path-based or header-based routing allows mobile clients to target a single, unified API origin (`api.saasplatform.com`) while passing the tenant token cleanly via HTTP headers.
 </details>
 
-<details>
-<summary>Show answers</summary>
+---
 
-1. Subdomain-based (typical consumer-facing/branded B2B SaaS with a
-   browser UI); path-based (simple to prototype, works identically in
-   every environment, no DNS/cert setup); header-based (API-only products
-   or service-to-service calls with no natural place to carry a
-   subdomain/path).
-2. Because resolving it per-handler recreates the exact "convention every
-   developer must remember" failure mode module 04-10 warned about at the
-   database layer — one new handler added under deadline pressure that
-   forgets the check becomes a cross-tenant leak. A single middleware
-   guarantees every request is resolved (or rejected) before any handler
-   code runs at all.
-3. "Fail closed" means an inability to identify or validate the tenant
-   results in the request being rejected, never silently allowed through
-   with some default/fallback. This module fails closed on: an
-   unresolvable host/signal (400) and an unrecognized tenant slug (404) —
-   neither ever falls through to a real, existing tenant.
-4. A `ContextVar` is needed when tenant context must be visible outside
-   the request/response object itself — e.g. inside a background task
-   spawned from the request, which has no `Request` to read `.state`
-   from. You must always `reset()` it (typically in a `finally` block),
-   or its value can leak into a later request/task reusing the same
-   worker.
-5. They're operationally different situations needing different
-   responses: an unknown slug is likely a typo, misconfiguration, or
-   probing attempt (404 — "this doesn't exist"), while a suspended tenant
-   is a real, existing customer who's been paused, typically for billing
-   reasons (403 — "this exists but access is denied") — support and
-   billing tooling need to tell these apart, and collapsing them into one
-   generic "denied" response hides that distinction from anyone
-   debugging a customer's access issue.
+## Summary & Further Study
 
-</details>
+- **Front-Door Isolation:** Resolve tenant context once in middleware; never delegate resolution to individual endpoint handlers.
+- **Fail Closed:** Unknown, unresolvable, or suspended tenants must be rejected with 400, 404, or 403; never fall through to default accounts.
+- **Context Hygiene:** Always clear asynchronous context variables in a `finally` block to prevent state leakage across concurrent worker threads.
 
-## Further reading & sources
-
-- [Starlette: Middleware](https://www.starlette.io/middleware/) - the base class this module's middleware extends.
-- [AWS: SaaS tenant isolation strategies](https://docs.aws.amazon.com/wellarchitected/latest/saas-lens/tenant-isolation.html) - covers routing-layer isolation alongside the data-layer strategies from module 04-10.
-- [Python docs: `contextvars`](https://docs.python.org/3/library/contextvars.html) - the mechanism used for cross-async-boundary tenant context.
-
-## Next
-
-[02-auth-and-authorization-across-tenants](../02-auth-and-authorization-across-tenants/README.md) —
-now that every request has a resolved, trusted tenant attached to it,
-module 02 uses that resolved tenant to make auth itself tenant-aware.
+### Further Reading
+- [AWS SaaS Architecture: Tenant Routing Patterns](https://docs.aws.amazon.com/wellarchitected/latest/saas-lens/tenant-routing.html)
+- [Python Standard Library: contextvars Module](https://docs.python.org/3/library/contextvars.html)
+- [OWASP Security Guide: Multi-Tenant Architecture Verification](https://owasp.org/www-project-web-security-testing-guide/latest/4-Web_Application_Security_Testing/05-Authorization_Testing/02-Testing_for_Bypassing_Authorization_Schema)
