@@ -1,503 +1,683 @@
 # 05 - ConfigMaps and Secrets
 
-## Why this matters
+> **Prerequisites**: [02 - Pods & Workloads](../02-pods-and-workloads/README.md), [03 - Deployments & ReplicaSets](../03-deployments-and-replicasets/README.md), [04 - Services & Networking](../04-services-and-networking/README.md).  
+> **Target Audience**: Backend Engineers, DevOps Architects, and Security Engineers decoupling runtime state, credentials, and configuration from immutable container images.  
+> **Estimated Deep-Dive Time**: 40 minutes.
 
-You already know from the Docker track not to bake environment-specific
-values into an image — that's why `docker run -e` and `.env` files exist.
-Kubernetes has the same principle at cluster scale: ConfigMaps and
-Secrets let the same Pod template (same image, same Deployment YAML) run
-in different environments with different configuration, without ever
-rebuilding the image. Secrets additionally give you a (mildly) safer way
-to handle credentials than plain environment variables baked into a
-manifest committed to git.
+---
 
-## Concepts
+> [!TIP]
+> **The Golden Rule of Kubernetes Configuration**: **Base64 is an encoding, never an encryption mechanism.** Never commit raw Secret or ConfigMap manifests to public or private version control. Store non-sensitive configuration in ConfigMaps, treat Secrets as sensitive payloads requiring KMS envelope encryption at rest in `etcd`, and prefer **Volume Projection** over environment variables to enable zero-downtime, live-updating atomic configuration hot-reloads without Pod restarts.
 
-**A ConfigMap is just a named bag of key-value data**, stored in the
-cluster (in etcd, via the API server, exactly like every other object
-from module 01). It holds no logic — it's a place to put configuration
-so it's decoupled from your Pod template and your image, similar in
-spirit to a `.env` file, except it lives in the cluster instead of on
-disk.
+---
 
-**A Secret is structurally almost identical to a ConfigMap** — same
-shape, same ways to consume it — but intended for sensitive values
-(passwords, tokens, keys). The values are stored base64-encoded, which is
-**encoding, not encryption** — anyone who can read the Secret object via
-the API can trivially decode it. Base64 exists so binary data survives
-transport in YAML/JSON, not for security. Real protection comes from
-restricting *who can read Secret objects at all* (RBAC, module 11) and,
-in production clusters, encrypting etcd at rest — a cluster-admin-level
-concern, not something you configure per-Secret.
+## 1. Visual Mental Models: Storage, Projection, and Hot-Reloading
 
-**Three ways to consume either one in a Pod**:
-1. **As environment variables** — one at a time (`env.valueFrom`) or all
-   keys at once (`envFrom`). Simple, but the Pod must be restarted to
-   pick up changes, and env vars are visible in `kubectl describe pod`
-   and process listings inside the container (a mild exposure concern
-   for Secrets).
-2. **As mounted files** — each key becomes a file in a directory inside
-   the container, with the key's value as file content. Files *can*
-   update live when the ConfigMap/Secret changes (the kubelet
-   periodically syncs mounted ConfigMaps/Secrets), without a Pod
-   restart, though your application still needs to notice the file
-   changed.
-3. **Referenced directly by other objects** — e.g., an `imagePullSecrets`
-   entry referencing a Secret holding registry credentials, which is how
-   a Pod authenticates to pull an image from a private registry like
-   Azure Container Registry.
+In containerized architectures, the Twelve-Factor App methodology mandates strict separation of config from code. Kubernetes fulfills this with two foundational primitives: `ConfigMap` and `Secret`.
 
-```
-   ConfigMap / Secret            how the Pod consumes it
-   ┌────────────────┐
-   │ LOG_LEVEL=debug│──► env vars ──► $LOG_LEVEL in the container
-   │ password=***** │       (read once at container start)
-   │                │
-   │                │──► volume  ──► /etc/config/LOG_LEVEL  (a file)
-   │                │    mount       /etc/secrets/password  (a file)
-   └────────────────┘       (files can update live, no restart)
+### Secret Lifecycle & Volume Projection (Atomic Symlink Swapping)
 
-   env-var values are frozen at start; mounted files re-sync
+When Kubernetes mounts a ConfigMap or Secret as a volume, the `kubelet` writes the data to a memory-backed file system (`tmpfs`) on the node. It uses a triple-symlink indirection scheme to swap updated files atomically without partial reads or race conditions:
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Admin as SRE / CI/CD
+    participant API as K8s API Server (etcd)
+    participant Kubelet as Node Kubelet Daemon
+    participant Tmpfs as Pod tmpfs Mount (/etc/config)
+    participant App as Application Container Process
+
+    Admin->>API: kubectl apply -f configmap.yaml (key: LOG_LEVEL=debug)
+    API->>Kubelet: Watch Event: ConfigMap updated to ResourceVersion 49102
+    Kubelet->>Tmpfs: Create new timestamp directory (..2026_11_10_12_00)
+    Kubelet->>Tmpfs: Write keys as individual files inside new timestamp directory
+    Kubelet->>Tmpfs: Atomically swap symlink: ..data_tmp -> ..2026_11_10_12_00
+    Kubelet->>Tmpfs: Rename ..data_tmp to ..data (Atomic rename syscall)
+    Note over Tmpfs: /etc/config/LOG_LEVEL -> ..data/LOG_LEVEL -> ..2026_11_10...
+    App->>Tmpfs: inotify / fsnotify triggers or file re-read
+    Tmpfs-->>App: Reads new content "debug" with zero locks or partial writes!
 ```
 
-**Why the split into two object types at all**, given they're
-structurally so similar: it's a signal to humans and tooling. RBAC rules
-(module 11) commonly grant broad read access to ConfigMaps but restrict
-Secret reads tightly; tools that scan manifests for accidentally-committed
-credentials look specifically for Secret objects. Using a Secret for
-anything sensitive — even if a ConfigMap would technically work — is the
-convention that keeps those protections meaningful.
+---
 
-**Immutable ConfigMaps/Secrets** (`immutable: true`) tell the API server
-to reject any future updates to the object — useful for config you
-version by creating a new object (e.g. `app-config-v2`) rather than
-editing in place, which also lets the kubelet skip watching it for
-changes, a minor performance win at cluster scale.
+### Environmental Injection vs Volume Projection
 
-## Command reference
+```mermaid
+flowchart TD
+    subgraph K8sCore ["Kubernetes API Server & etcd"]
+        CM["ConfigMap: app-config<br/>(Plaintext JSON/YAML)"]
+        SEC["Secret: db-credentials<br/>(Base64 encoded / KMS encrypted)"]
+    end
 
-| Command | What it does | Example |
-|---|---|---|
-| `kubectl create configmap <name> --from-literal=<k>=<v>` | Creates a ConfigMap from literal key/value pairs | `kubectl create configmap app-config --from-literal=LOG_LEVEL=debug` |
-| `kubectl create configmap <name> --from-file=<path>` | Creates a ConfigMap from a file (filename becomes the key) | `kubectl create configmap nginx-conf --from-file=nginx.conf` |
-| `kubectl create secret generic <name> --from-literal=<k>=<v>` | Creates a generic Secret from literal values | `kubectl create secret generic db-creds --from-literal=password=s3cr3t` |
-| `kubectl create secret docker-registry <name> --docker-server=... --docker-username=... --docker-password=...` | Creates a Secret usable as `imagePullSecrets` | `kubectl create secret docker-registry acr-secret --docker-server=myregistry.azurecr.io --docker-username=... --docker-password=...` |
-| `kubectl get configmaps` / `kubectl get secrets` | Lists ConfigMaps/Secrets | `kubectl get cm; kubectl get secrets` |
-| `kubectl describe configmap <name>` | Shows keys and (for ConfigMaps) values | `kubectl describe cm app-config` |
-| `kubectl get secret <name> -o jsonpath='{.data.<key>}' \| base64 -d` | Decodes a Secret value for inspection | `kubectl get secret db-creds -o jsonpath='{.data.password}' \| base64 -d` |
-| `envFrom.configMapRef` / `envFrom.secretRef` | Injects every key in a ConfigMap/Secret as env vars | see exercises |
-| `env[].valueFrom.configMapKeyRef` / `secretKeyRef` | Injects one specific key as one env var | see exercises |
-| `volumes[].configMap` / `volumes[].secret` | Mounts a ConfigMap/Secret as files in a volume | see exercises |
-| `spec.imagePullSecrets` | References a docker-registry Secret for pulling private images | `imagePullSecrets: [{name: acr-secret}]` |
+    subgraph PodBoundary ["Pod Boundary"]
+        subgraph Mode1 ["Path A: Environment Variable Injection"]
+            EnvVar["Container Process Environment<br/>($DB_PASSWORD, $LOG_LEVEL)"]
+            EnvNote["⚠️ Frozen at container start.<br/>Requires full Pod restart to update.<br/>Visible via /proc/1/environ."]
+        end
 
-## Hands-on exercises
+        subgraph Mode2 ["Path B: Volume Projection (Recommended)"]
+            VolMount["Node tmpfs Volume<br/>(/etc/secrets/db-pass)<br/>(/etc/config/app.json)"]
+            VolNote["✅ Live auto-updating via Kubelet.<br/>Atomic symlink swap prevents corruption.<br/>Integrates with inotify hot-reload."]
+        end
+    end
 
-Continue in namespace `demo`.
-
-### 1. Create a ConfigMap two ways
-
-```bash
-kubectl create configmap app-config --from-literal=LOG_LEVEL=debug --from-literal=GREETING="hello from configmap"
-kubectl get configmap app-config -o yaml
+    CM -->|envFrom / valueFrom| EnvVar
+    SEC -->|envFrom / valueFrom| EnvVar
+    CM -->|volumes.configMap| VolMount
+    SEC -->|volumes.secret| VolMount
+    EnvVar --- EnvNote
+    VolMount --- VolNote
 ```
 
-Expected: a `data` section with both keys, in plain text (ConfigMaps are
-never encoded).
+---
 
-### 2. Consume it as environment variables (all keys at once)
+## 2. Technical Comparison: ConfigMap vs Secret vs External Vaults
+
+### Primitives Specification Matrix
+
+| Feature | `ConfigMap` | `Secret` (Opaque) | External Secrets Operator (Vault/KMS) |
+| :--- | :--- | :--- | :--- |
+| **Primary Intent** | Non-confidential app config, flags, server files | Passwords, TLS certificates, OAuth tokens | Enterprise-grade key management & auto-rotation |
+| **Storage in etcd** | Plaintext JSON | Base64 encoded (Plaintext unless KMS enabled) | Encrypted at rest in Cloud KMS / Vault |
+| **Payload Size Limit** | 1 MiB total manifest size | 1 MiB total manifest size | Unlimited (stored externally; synced on demand) |
+| **Live Dynamic Reload** | Supported when mounted as volume | Supported when mounted as volume | Supported with automated rotation triggers |
+| **GitOps Safety** | Safe to commit (no secrets) | ❌ **UNSAFE**: Base64 is trivially decoded | Safe: manifest holds external references only |
+| **Recommended Access** | Read by broad internal developers | Strict RBAC isolation per namespace | IAM token exchange + automated ephemeral leases |
+
+---
+
+### Secret Types Taxonomy
+
+Kubernetes provides built-in Secret types that enforce schema validation:
 
 ```yaml
-# pod-cm-env.yaml
+# 1. kubernetes.io/dockerconfigjson (Container Registry Auth)
+apiVersion: v1
+kind: Secret
+metadata:
+  name: acr-registry-auth
+type: kubernetes.io/dockerconfigjson
+data:
+  .dockerconfigjson: eyJhdXRocyI6... # Base64 of ~/.docker/config.json
+
+---
+# 2. kubernetes.io/tls (HTTPS Ingress & Service Mesh MTLS)
+apiVersion: v1
+kind: Secret
+metadata:
+  name: api-tls-cert
+type: kubernetes.io/tls
+data:
+  tls.crt: LS0tLS1CRUdJTi... # Base64 of public PEM certificate
+  tls.key: LS0tLS1CRUdJTi... # Base64 of private RSA/ECDSA key
+
+---
+# 3. Opaque (Arbitrary Key-Value Credentials)
+apiVersion: v1
+kind: Secret
+metadata:
+  name: db-credentials
+type: Opaque
+stringData:                 # stringData allows plaintext input; K8s encodes on save!
+  DB_USERNAME: "postgres"
+  DB_PASSWORD: "SuperSecretPassword123!"
+```
+
+---
+
+## 3. Production War Story: The Plaintext Git Leak & The Broken Hotfix
+
+### Incident Overview
+A Series-B marketplace platform experienced a credential exfiltration incident followed by a production crash across 60 microservices. An engineer pushed a Kubernetes `Secret` manifest containing AWS production root credentials directly to a public GitHub repository. 
+
+To mitigate the leak, another engineer hastily executed `kubectl edit configmap global-config` to change database endpoints and set `immutable: true`. The ensuing configuration drift triggered widespread `CreateContainerConfigError` loops, knocking the platform offline for 48 minutes.
+
+### The Catastrophic Failure Sequence
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Dev as Developer
+    participant Git as GitHub (Public)
+    participant Hacker as Automated Credential Scraper
+    participant SRE as On-Call SRE
+    participant K8s as Cluster API Server
+    participant Pods as 60 Production Pods
+
+    Dev->>Git: Commit secret.yaml (Base64 encoded AWS keys)
+    Hacker->>Git: Scraped within 12 seconds: Decoded via base64 -d
+    Hacker->>Dev: Spawns rogue crypto-miners on AWS account!
+    SRE->>K8s: Panic edit: kubectl apply -f secret.yaml with typo 'DB_URL'
+    SRE->>K8s: Marks ConfigMap immutable: true
+    K8s->>Pods: Deployments rolling update initiated...
+    Note over K8s,Pods: Pods fail to start: Key 'DATABASE_URL' missing from ConfigMap!<br/>API Server blocks updates due to immutable flag!
+    Pods-->>K8s: Status: CreateContainerConfigError
+    K8s-->>SRE: 100% Outage: Inability to roll forward or roll back!
+```
+
+### Root Cause Analysis
+1. **Base64 Confusion**: The team treated Base64 encoding as security, believing it obfuscated credentials from casual git history scans.
+2. **Missing Invariant Validation**: The application referenced `DATABASE_URL` via `env.valueFrom.configMapKeyRef`. The hasty fix renamed the key to `DB_URL`. When a pod spec references a non-existent key, Kubernetes enters `CreateContainerConfigError` and refuses to start the container.
+3. **Lockout via Immutable Flag**: Marking the ConfigMap `immutable: true` prevented live emergency hot-patching via `kubectl edit`.
+
+### The Remediation & Modern Hardening Pattern
+1. **KMS Envelope Encryption**: Configured `etcd` encryption providers with AWS KMS / GCP Cloud KMS so that raw etcd disk dumps reveal zero cleartext secrets.
+2. **Adopted External Secrets Operator (ESO)**: Secret definitions are replaced with `ExternalSecret` custom resources that pull credentials dynamically from HashiCorp Vault or Cloud Secret Manager at runtime.
+3. **Automated Secret Scanning**: Pre-commit hooks (`gitleaks`, `trufflehog`) running locally and in CI to block Base64/plaintext credentials from entering git history.
+
+---
+
+## 4. Multi-Language In-Memory Config Hot-Reloading
+
+When mounting ConfigMaps as volumes, modifying the ConfigMap causes the file contents on the volume to update automatically within 10–60 seconds (kubelet sync period). Production applications should watch the file descriptor using OS filesystem notifications (`inotify`) to hot-reload configuration in memory without incurring Pod restarts.
+
+### Go Implementation (fsnotify)
+
+```go
+// internal/config/watcher.go
+package config
+
+import (
+	"context"
+	"encoding/json"
+	"log"
+	"os"
+	"path/filepath"
+	"sync"
+
+	"github.com/fsnotify/fsnotify"
+)
+
+type DynamicAppConfig struct {
+	mu       sync.RWMutex
+	LogLevel string `json:"log_level"`
+	MaxConns int    `json:"max_conns"`
+}
+
+type ConfigWatcher struct {
+	filePath string
+	config   *DynamicAppConfig
+	watcher  *fsnotify.Watcher
+}
+
+func NewConfigWatcher(filePath string) (*ConfigWatcher, error) {
+	w, err := fsnotify.NewWatcher()
+	if err != nil {
+		return nil, err
+	}
+
+	cw := &ConfigWatcher{
+		filePath: filePath,
+		config:   &DynamicAppConfig{},
+		watcher:  w,
+	}
+
+	if err := cw.reload(); err != nil {
+		return nil, err
+	}
+
+	// Kubernetes swaps the parent symlink (..data), so we watch the directory!
+	dir := filepath.Dir(filePath)
+	if err := w.Add(dir); err != nil {
+		return nil, err
+	}
+
+	return cw, nil
+}
+
+func (cw *ConfigWatcher) reload() error {
+	cw.config.mu.Lock()
+	defer cw.config.mu.Unlock()
+
+	data, err := os.ReadFile(cw.filePath)
+	if err != nil {
+		return err
+	}
+
+	if err := json.Unmarshal(data, cw.config); err != nil {
+		return err
+	}
+
+	log.Printf("[Config Hot-Reload] Successfully loaded: LogLevel=%s, MaxConns=%d",
+		cw.config.LogLevel, cw.config.MaxConns)
+	return nil
+}
+
+func (cw *ConfigWatcher) StartWatching(ctx context.Context) {
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				cw.watcher.Close()
+				return
+			case event, ok := <-cw.watcher.Events:
+				if !ok {
+					return
+				}
+				// Kubernetes atomic symlink swaps emit CREATE/RENAME events on ..data
+				if event.Has(fsnotify.Create) || event.Has(fsnotify.Write) {
+					if filepath.Base(event.Name) == "..data" || event.Name == cw.filePath {
+						_ = cw.reload()
+					}
+				}
+			case err, ok := <-cw.watcher.Errors:
+				if !ok {
+					return
+				}
+				log.Printf("[Config Hot-Reload ERROR] Watch error: %v", err)
+			}
+		}
+	}()
+}
+```
+
+---
+
+### Node.js / TypeScript Implementation (chokidar)
+
+```typescript
+// src/config/dynamicConfig.ts
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import chokidar from 'chokidar';
+
+export interface AppConfig {
+  logLevel: string;
+  cacheTtlSeconds: number;
+}
+
+export class DynamicConfigManager {
+  private currentConfig: AppConfig = { logLevel: 'info', cacheTtlSeconds: 300 };
+  private readonly configPath: string;
+
+  constructor(filePath: string) {
+    this.configPath = path.resolve(filePath);
+    this.loadInitial();
+    this.initWatcher();
+  }
+
+  private async loadInitial(): Promise<void> {
+    try {
+      const raw = await fs.readFile(this.configPath, 'utf8');
+      this.currentConfig = JSON.parse(raw);
+      console.log(`[Config Initialized] LogLevel: ${this.currentConfig.logLevel}`);
+    } catch (err) {
+      console.error(`[Config Error] Failed initial load from ${this.configPath}`, err);
+    }
+  }
+
+  private initWatcher(): void {
+    const parentDir = path.dirname(this.configPath);
+
+    // Watch directory for K8s ..data symlink rotation
+    const watcher = chokidar.watch(parentDir, {
+      ignoreInitial: true,
+      depth: 1,
+      usePolling: false,
+    });
+
+    watcher.on('all', async (event, changedPath) => {
+      if (changedPath.endsWith('..data') || changedPath === this.configPath) {
+        try {
+          const raw = await fs.readFile(this.configPath, 'utf8');
+          this.currentConfig = JSON.parse(raw);
+          console.log(`[Config Hot-Reload] Config refreshed live without restart!`, this.currentConfig);
+        } catch (err) {
+          console.error('[Config Hot-Reload] Failed to parse updated config file:', err);
+        }
+      }
+    });
+  }
+
+  public get<K extends keyof AppConfig>(key: K): AppConfig[K] {
+    return this.currentConfig[key];
+  }
+}
+```
+
+---
+
+### Python Implementation (watchdog)
+
+```python
+# config/dynamic_config.py
+import json
+import logging
+import os
+import threading
+from typing import Any, Dict
+from watchdog.observers import Observer
+from watchdog.events import FileSystemEventHandler
+
+logger = logging.getLogger("config-watcher")
+
+
+class K8sConfigEventHandler(FileSystemEventHandler):
+    def __init__(self, target_file: str, callback):
+        self.target_file = os.path.abspath(target_file)
+        self.callback = callback
+
+    def on_any_event(self, event):
+        # Kubernetes updates mounted volumes via atomic symlink swaps on "..data"
+        if event.src_path.endswith("..data") or os.path.abspath(event.src_path) == self.target_file:
+            self.callback()
+
+
+class DynamicConfig:
+    def __init__(self, file_path: str):
+        self.file_path = os.path.abspath(file_path)
+        self._lock = threading.Lock()
+        self._config: Dict[str, Any] = {}
+        self._reload()
+
+        # Watch the parent directory
+        parent_dir = os.path.dirname(self.file_path)
+        self.observer = Observer()
+        event_handler = K8sConfigEventHandler(self.file_path, self._reload)
+        self.observer.schedule(event_handler, path=parent_dir, recursive=False)
+        self.observer.start()
+
+    def _reload(self):
+        try:
+            with open(self.file_path, "r", encoding="utf-8") as f:
+                new_data = json.load(f)
+            with self._lock:
+                self._config = new_data
+            logger.info("[Config Hot-Reload] Loaded configuration: %s", self._config)
+        except Exception as exc:
+            logger.error("[Config Hot-Reload Failed] %s", exc)
+
+    def get(self, key: str, default: Any = None) -> Any:
+        with self._lock:
+            return self._config.get(key, default)
+```
+
+---
+
+## 5. Practical Hands-On Verification Laboratory
+
+In this lab, you will configure a `ConfigMap` and a `Secret`, inject them as both environment variables and projected volumes, inspect the underlying Linux atomic symlink tree, and observe live updates without restarting the Pod.
+
+### Step 1: Create ConfigMap & Secret with Plaintext `stringData`
+
+Create `05-config-demo.yaml`:
+
+```yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: app-settings
+  namespace: default
+data:
+  APP_ENV: "production"
+  CACHE_ENABLED: "true"
+  app_config.json: |
+    {
+      "log_level": "info",
+      "timeout_ms": 3500
+    }
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: app-secrets
+  namespace: default
+type: Opaque
+stringData:
+  DB_PASSWORD: "CorrectHorseBatteryStaple!"
+  API_KEY: "live_sk_9481948194"
+```
+
+Apply to the cluster:
+
+```bash
+kubectl apply -f 05-config-demo.yaml
+```
+
+*Expected Terminal Output:*
+```text
+configmap/app-settings created
+secret/app-secrets created
+```
+
+---
+
+### Step 2: Deploy Workload Consuming Both via Env & Volume
+
+Create `05-workload.yaml`:
+
+```yaml
 apiVersion: v1
 kind: Pod
 metadata:
-  name: cm-env-demo
+  name: config-explorer
+  namespace: default
 spec:
   containers:
-    - name: app
-      image: busybox:1.36
-      command: ["sh", "-c", "env | grep -E 'LOG_LEVEL|GREETING'; sleep 3600"]
-      envFrom:
-        - configMapRef:
-            name: app-config
-```
-
-```bash
-kubectl apply -f pod-cm-env.yaml
-kubectl logs cm-env-demo
-```
-
-Expected: `LOG_LEVEL=debug` and `GREETING=hello from configmap` printed.
-
-### 3. Consume one specific key
-
-```yaml
-# pod-cm-onekey.yaml
-apiVersion: v1
-kind: Pod
-metadata:
-  name: cm-onekey-demo
-spec:
-  containers:
-    - name: app
-      image: busybox:1.36
-      command: ["sh", "-c", "echo \"level is: $MY_LOG_LEVEL\"; sleep 3600"]
+    - name: explorer
+      image: alpine:latest
+      command: ["/bin/sh", "-c", "sleep 3600"]
+      # 1. Environment Variable Injection
       env:
-        - name: MY_LOG_LEVEL
+        - name: RUNTIME_ENV
           valueFrom:
             configMapKeyRef:
-              name: app-config
-              key: LOG_LEVEL
-```
-
-```bash
-kubectl apply -f pod-cm-onekey.yaml
-kubectl logs cm-onekey-demo
-```
-
-Expected: `level is: debug` — note the env var name (`MY_LOG_LEVEL`) can
-differ from the ConfigMap key name (`LOG_LEVEL`).
-
-### 4. Mount a ConfigMap as files
-
-```yaml
-# pod-cm-volume.yaml
-apiVersion: v1
-kind: Pod
-metadata:
-  name: cm-volume-demo
-spec:
-  containers:
-    - name: app
-      image: busybox:1.36
-      command: ["sh", "-c", "sleep 3600"]
-      volumeMounts:
-        - name: config-vol
-          mountPath: /etc/app-config
-  volumes:
-    - name: config-vol
-      configMap:
-        name: app-config
-```
-
-```bash
-kubectl apply -f pod-cm-volume.yaml
-kubectl exec cm-volume-demo -- ls /etc/app-config
-kubectl exec cm-volume-demo -- cat /etc/app-config/GREETING
-```
-
-Expected: files named `LOG_LEVEL` and `GREETING`, each containing that
-key's value.
-
-### 5. Create and inspect a Secret
-
-```bash
-kubectl create secret generic db-creds --from-literal=username=admin --from-literal=password='S3cr3tP@ss'
-kubectl get secret db-creds -o yaml
-```
-
-Expected: `data` section shows base64 strings, not plaintext. Decode one:
-
-```bash
-kubectl get secret db-creds -o jsonpath='{.data.password}' | base64 -d; echo
-```
-
-Expected: `S3cr3tP@ss` prints — proving base64 is not real protection,
-just encoding.
-
-### 6. Consume a Secret as env vars and as a mounted file
-
-```yaml
-# pod-secret-demo.yaml
-apiVersion: v1
-kind: Pod
-metadata:
-  name: secret-demo
-spec:
-  containers:
-    - name: app
-      image: busybox:1.36
-      command: ["sh", "-c", "sleep 3600"]
-      env:
-        - name: DB_USERNAME
+              name: app-settings
+              key: APP_ENV
+        - name: DATABASE_SECRET
           valueFrom:
             secretKeyRef:
-              name: db-creds
-              key: username
+              name: app-secrets
+              key: DB_PASSWORD
+      # 2. Volume Projection
       volumeMounts:
-        - name: secret-vol
-          mountPath: /etc/secrets
+        - name: config-volume
+          mountPath: /etc/app/config
+          readOnly: true
+        - name: secret-volume
+          mountPath: /etc/app/secrets
           readOnly: true
   volumes:
-    - name: secret-vol
-      secret:
-        secretName: db-creds
-```
-
-```bash
-kubectl apply -f pod-secret-demo.yaml
-kubectl exec secret-demo -- sh -c 'echo $DB_USERNAME; cat /etc/secrets/password'
-```
-
-Expected: `admin` then `S3cr3tP@ss` — both files under
-`/etc/secrets/` already decoded, not base64.
-
-### 7. Live-update a mounted ConfigMap without restarting the Pod
-
-```bash
-kubectl create configmap live-config --from-literal=MESSAGE="version 1"
-```
-
-```yaml
-# pod-live.yaml
-apiVersion: v1
-kind: Pod
-metadata:
-  name: live-demo
-spec:
-  containers:
-    - name: app
-      image: busybox:1.36
-      command: ["sh", "-c", "while true; do cat /etc/live/MESSAGE; sleep 5; done"]
-      volumeMounts:
-        - name: live-vol
-          mountPath: /etc/live
-  volumes:
-    - name: live-vol
+    - name: config-volume
       configMap:
-        name: live-config
+        name: app-settings
+    - name: secret-volume
+      secret:
+        secretName: app-secrets
 ```
+
+Apply and verify:
 
 ```bash
-kubectl apply -f pod-live.yaml
-kubectl logs live-demo --follow &
-kubectl patch configmap live-config --type=merge -p '{"data":{"MESSAGE":"version 2"}}'
+kubectl apply -f 05-workload.yaml
+kubectl wait --for=condition=Ready pod/config-explorer --timeout=30s
 ```
 
-Expected: within roughly a minute (the kubelet's sync interval), the
-looped output changes from `version 1` to `version 2` with no Pod
-restart. Stop following logs with Ctrl+C (or `kill %1`) when you've
-confirmed it.
+---
 
-### 8. Use a Secret for private registry pulls (as you'd do for ACR)
+### Step 3: Inspect Injected Env Vars & Projected Atomic Symlinks
+
+Execute commands inside the running container to inspect the environment and filesystem:
 
 ```bash
-kubectl create secret docker-registry acr-secret \
-  --docker-server=myregistry.azurecr.io \
-  --docker-username=myuser \
-  --docker-password=mypassword \
-  --docker-email=me@example.com
-kubectl get secret acr-secret -o yaml
+# Verify environment variables
+kubectl exec config-explorer -- env | grep -E "RUNTIME_ENV|DATABASE_SECRET"
 ```
 
-Expected: a Secret of type `kubernetes.io/dockerconfigjson`. Reference it
-in a Pod spec (don't actually run this one against a real private image
-unless you have one available):
-
-```yaml
-spec:
-  imagePullSecrets:
-    - name: acr-secret
-  containers:
-    - name: app
-      image: myregistry.azurecr.io/myapp:1.0
+*Expected Output:*
+```text
+RUNTIME_ENV=production
+DATABASE_SECRET=CorrectHorseBatteryStaple!
 ```
 
-This is exactly what you'll do in the AKS track to pull images from
-Azure Container Registry — the mechanism doesn't change, only that
-there you'll typically wire ACR access via AKS's managed identity
-instead of a manually-created Secret.
-
-### 9. Diagnose and fix: env var referencing a missing key
-
-```yaml
-# pod-badref.yaml
-apiVersion: v1
-kind: Pod
-metadata:
-  name: badref-demo
-spec:
-  containers:
-    - name: app
-      image: busybox:1.36
-      command: ["sh", "-c", "sleep 3600"]
-      env:
-        - name: MY_VALUE
-          valueFrom:
-            configMapKeyRef:
-              name: app-config
-              key: DOES_NOT_EXIST
-```
+Now inspect the filesystem volume structure in `/etc/app/config`:
 
 ```bash
-kubectl apply -f pod-badref.yaml
-kubectl get pod badref-demo
+kubectl exec config-explorer -- ls -la /etc/app/config
 ```
 
-Expected: `STATUS: CreateContainerConfigError`. Diagnose:
+*Expected Output:*
+```text
+total 4
+drwxrwxrwx    3 root     root          4096 Nov 10 06:40 .
+drwxr-xr-x    4 root     root          4096 Nov 10 06:40 ..
+drwxr-xr-x    2 root     root          4096 Nov 10 06:40 ..2026_11_10_06_40_12.394109827
+lrwxrwxrwx    1 root     root            31 Nov 10 06:40 ..data -> ..2026_11_10_06_40_12.394109827
+lrwxrwxrwx    1 root     root            14 Nov 10 06:40 APP_ENV -> ..data/APP_ENV
+lrwxrwxrwx    1 root     root            20 Nov 10 06:40 CACHE_ENABLED -> ..data/CACHE_ENABLED
+lrwxrwxrwx    1 root     root            22 Nov 10 06:40 app_config.json -> ..data/app_config.json
+```
+
+Notice how `APP_ENV` points to `..data/APP_ENV`, which points to the versioned directory `..2026_11_10_...`!
+
+---
+
+### Step 4: Mutate ConfigMap and Observe Live Hot-Reload
+
+Update the ConfigMap in place:
 
 ```bash
-kubectl describe pod badref-demo
+kubectl patch configmap app-settings --type merge -p '{"data":{"APP_ENV":"disaster-recovery"}}'
 ```
 
-Expected: an event like `Error: couldn't find key DOES_NOT_EXIST in
-ConfigMap demo/app-config`. Fix by correcting the key name to one that
-actually exists (`LOG_LEVEL` or `GREETING`), re-apply, and confirm
-`Running`.
-
-### 10. Diagnose and fix: referencing a Secret/ConfigMap in the wrong namespace
+Wait ~15–30 seconds for the kubelet sync loop, then re-check both the file and the environment variable:
 
 ```bash
-kubectl create namespace other
+# 1. Check mounted file (Updates automatically without restart!)
+kubectl exec config-explorer -- cat /etc/app/config/APP_ENV
+
+# 2. Check environment variable (STAYS STALE!)
+kubectl exec config-explorer -- sh -c 'echo $RUNTIME_ENV'
 ```
 
-```yaml
-# pod-wrongns.yaml
-apiVersion: v1
-kind: Pod
-metadata:
-  name: wrongns-demo
-  namespace: demo
-spec:
-  containers:
-    - name: app
-      image: busybox:1.36
-      command: ["sh", "-c", "sleep 3600"]
-      envFrom:
-        - configMapRef:
-            name: config-that-lives-in-other-namespace
+*Expected Output:*
+```text
+disaster-recovery
+production
 ```
 
-First create the referenced ConfigMap only in `other`, not `demo`:
+> [!IMPORTANT]
+> The mounted file updated live to `disaster-recovery`, while the environment variable remained stale at `production`. To update environment variables, you **must** trigger a rollout restart (`kubectl rollout restart deployment/<name>`).
 
-```bash
-kubectl create configmap config-that-lives-in-other-namespace --from-literal=X=1 -n other
-kubectl apply -f pod-wrongns.yaml
-kubectl get pod wrongns-demo -n demo
+---
+
+## 6. Command Quick-Reference Cheat Sheet
+
+| Command | Action / Objective | Example Scenario |
+| :--- | :--- | :--- |
+| `kubectl create cm <name> --from-literal=k=v` | Fast imperative ConfigMap creation | Quick testing in local development |
+| `kubectl create cm <name> --from-file=cfg.json` | Load entire configuration file as key | Nginx, Envoy, or Redis config files |
+| `kubectl create secret generic <name> --from-literal=k=v` | Imperative Secret creation | Avoid committing plaintext to YAML |
+| `kubectl create secret docker-registry <name> ...` | Create container registry auth token | Private image pulling (`imagePullSecrets`) |
+| `kubectl get secret <name> -o jsonpath='{.data.<k>}' \| base64 -d` | Direct CLI Secret decoding | Inspecting encoded credentials |
+| `kubectl rollout restart deployment <name>` | Force restart pods to pick up new env vars | Applying non-volume config updates |
+
+---
+
+## 7. Operational Validation Checkpoints
+
+### Scenario 1: The `CreateContainerConfigError` Stalemate
+**Context:** During an automated CD promotion to staging, several new Pods fail to start, hanging in `CreateContainerConfigError`. The container logs cannot be retrieved (`container not found`).
+
 ```
-
-Expected: `CreateContainerConfigError` again — ConfigMaps/Secrets are
-namespaced objects, invisible across namespace boundaries. Diagnose with
-`kubectl describe pod wrongns-demo -n demo` (event mentions the
-ConfigMap not found), fix by creating an equivalent ConfigMap inside
-`demo` itself:
-
-```bash
-kubectl create configmap config-that-lives-in-other-namespace --from-literal=X=1 -n demo
-kubectl delete pod wrongns-demo -n demo
-kubectl apply -f pod-wrongns.yaml
-kubectl get pod wrongns-demo -n demo
+$ kubectl get pods
+NAME                             READY   STATUS                       RESTARTS   AGE
+billing-worker-674b5c7f8-r8q2m   0/1     CreateContainerConfigError   0          2m
 ```
-
-Expected: `Running`. Clean up this module's objects:
-
-```bash
-kubectl delete pod cm-env-demo cm-onekey-demo cm-volume-demo secret-demo live-demo badref-demo wrongns-demo -n demo
-kubectl delete configmap app-config live-config config-that-lives-in-other-namespace -n demo
-kubectl delete secret db-creds acr-secret -n demo
-kubectl delete namespace other
-```
-
-## Independent challenge
-
-No YAML or commands given here — figure it out yourself using what you
-know from this module and earlier ones.
-
-**Task:** Deploy a small web application (a Deployment, not a bare Pod)
-whose container reads a non-sensitive setting (say, a `LOG_LEVEL`) from a
-ConfigMap as an environment variable, and reads a database password from a
-Secret as a mounted file. Put a Service in front of it. Now change the
-`LOG_LEVEL` value in the ConfigMap and get the running Pods to actually
-pick up the new value — reasoning first about whether an env-var
-consumer can see the change without a restart, and doing whatever is
-required to make it take effect. This combines this module's ConfigMap/
-Secret consumption with Deployments (module 03) and Services (module 04).
 
 <details>
-<summary>Stuck? One hint</summary>
+<summary>View Diagnostic Workflow & Resolution</summary>
 
-Env-var values are read only at container start, so a ConfigMap edit
-alone won't reach a running Pod — you need to roll the Deployment's Pods
-(e.g. `kubectl rollout restart deployment/<name>`); mounted-file
-consumption would have updated on its own.
+**Root Cause:**  
+The Pod definition contains an `env.valueFrom.configMapKeyRef` or `secretKeyRef` referencing a key or resource name that does not exist or has a typographical error. Unlike volume mounts where a missing ConfigMap by default blocks scheduling with a mount warning, a missing `configMapKeyRef` triggers `CreateContainerConfigError`.
 
+**Diagnostic Commands:**
+```bash
+# Inspect the Pod's specific Kubernetes events:
+kubectl describe pod billing-worker-674b5c7f8-r8q2m | grep -A 8 Events:
+# Output:
+# Warning  Failed     2m   kubelet  Error: configmap "billing-flags" not found
+# (or: Error: couldn't find key STRIPE_SECRET_KEY in Secret default/billing-secrets)
+```
+
+**Resolution Steps:**
+1. If the key is truly optional, update the Pod manifest to set `optional: true`:
+   ```yaml
+   valueFrom:
+     secretKeyRef:
+       name: billing-secrets
+       key: STRIPE_SECRET_KEY
+       optional: true
+   ```
+2. Otherwise, provision the missing ConfigMap/Secret or correct the spelling mismatch in the manifest.
 </details>
 
-## Common mistakes & troubleshooting
+---
 
-- **Treating base64 as encryption**: anyone with API read access to a
-  Secret can decode it trivially. Restrict Secret access with RBAC
-  (module 11); don't rely on base64 for confidentiality.
-- **Referencing a key that doesn't exist**: results in
-  `CreateContainerConfigError`, not a clear "typo" message — always
-  cross-check the exact key names with `kubectl describe
-  configmap/secret <name>`.
-- **Forgetting ConfigMaps/Secrets are namespaced**: a Pod in namespace
-  `demo` cannot reference a ConfigMap/Secret that only exists in
-  namespace `other` — you need one in each namespace that needs it, or a
-  templating tool (Helm, module 07) to keep them in sync.
-- **Expecting env-var consumption to update live**: it won't — Pods only
-  read env vars at container start, so a ConfigMap/Secret change
-  requires a Pod restart (a rolling restart of a Deployment) to take
-  effect when consumed as env vars, unlike mounted-file consumption.
-- **Committing plaintext Secret manifests to git**: a Secret's `data` is
-  only base64, so a committed manifest is functionally a committed
-  plaintext credential — treat Secret YAML the same as any other
-  credential file (don't commit it; use e.g. `kubectl create secret` in
-  a pipeline, or a proper secrets-management tool in production).
-
-## Checkpoint quiz
-
-Write down your answer to each question before expanding it — checking without attempting first is the single easiest way to fool yourself into thinking you've learned this.
-
-1. Structurally, what's actually different between a ConfigMap and a
-   Secret?
-2. Why doesn't base64 encoding provide real security for Secret values?
-3. Name the three ways a Pod can consume a ConfigMap or Secret.
-4. If you update a ConfigMap that's mounted as a volume in a running
-   Pod, does the Pod need to restart to see the new value? What about if
-   it's consumed as an environment variable?
-5. Why did `pod-wrongns-demo` fail even though the ConfigMap it
-   referenced definitely existed in the cluster?
-6. What Secret type would you create to let a Pod pull an image from
-   Azure Container Registry, and what object field references it?
+### Scenario 2: TLS Secret Rotation Ignored by Long-Lived Connections
+**Context:** Your security team rotated the ingress TLS certificate Secret `api-tls-cert`. Running `kubectl describe secret api-tls-cert` confirms the new certificate is active in the cluster. However, external monitoring alerts report that browsers are still receiving the old, expiring certificate.
 
 <details>
-<summary>Show answers</summary>
+<summary>View Diagnostic Workflow & Resolution</summary>
 
-1. Almost nothing structurally — a Secret's values are stored
-   base64-encoded and it's conventionally treated (and restricted via
-   RBAC) as sensitive; a ConfigMap stores plaintext and is treated as
-   general configuration.
-2. Base64 is a reversible encoding, not encryption — anyone with read
-   access to the Secret object can decode it in one command; it exists
-   so arbitrary data survives YAML/JSON transport, not to hide the value.
-3. As environment variables (one key or all keys), as mounted files in a
-   volume, or referenced directly by another field (e.g.
-   `imagePullSecrets`).
-4. Mounted-file consumption updates automatically (via the kubelet's
-   periodic sync) without a Pod restart, though the app must notice the
-   file changed; env-var consumption requires a Pod restart because env
-   vars are only read at container start.
-5. ConfigMaps and Secrets are namespaced objects — a Pod can only
-   reference one that exists in its own namespace, regardless of what
-   exists elsewhere in the cluster.
-6. A `kubernetes.io/dockerconfigjson` Secret, created with `kubectl
-   create secret docker-registry ...`, referenced via
-   `spec.imagePullSecrets` in the Pod spec.
+**Root Cause:**  
+While Kubernetes updates the projected certificate files in `/etc/tls/` inside the Ingress Controller Pods, many reverse proxies (such as older NGINX ingress configurations or custom Envoy builds) only read certificates into memory upon daemon initialization or require an explicit `SIGHUP` signal / administrative reload call. Furthermore, clients with open HTTP/2 multiplexed connections retain the initial TLS handshake session ticket.
 
+**Diagnostic Commands:**
+```bash
+# Query certificate directly from pod disk:
+kubectl exec -it <ingress-controller-pod> -n ingress-nginx -- openssl x509 -in /etc/ingress-controller/ssl/default-api-tls-cert.pem -noout -dates
+
+# Check live served TLS certificate over the wire:
+echo | openssl s_client -servername api.example.com -connect api.example.com:443 2>/dev/null | openssl x509 -noout -dates
+```
+
+**Resolution Steps:**
+1. Ensure the Ingress Controller has hot-reload watchers enabled or execute a graceful rollout restart:
+   ```bash
+   kubectl rollout restart deployment ingress-nginx-controller -n ingress-nginx
+   ```
+2. For custom Go/Node applications serving TLS directly, implement `tls.Config.GetCertificate` to dynamically read updated disk files for every new TLS ClientHello handshake.
 </details>
 
-## Further reading & sources
+---
 
-- [ConfigMaps](https://kubernetes.io/docs/concepts/configuration/configmap/) - the concept page for storing non-sensitive configuration in the cluster.
-- [Secrets](https://kubernetes.io/docs/concepts/configuration/secret/) - what Secrets are, their types, and why base64 is encoding not encryption.
-- [Configure a Pod to Use a ConfigMap](https://kubernetes.io/docs/tasks/configure-pod-container/configure-pod-configmap/) - the task guide for env-var and volume consumption.
-- [Pull an Image from a Private Registry](https://kubernetes.io/docs/tasks/configure-pod-container/pull-image-private-registry/) - creating and using a docker-registry Secret, as you will for ACR.
-- [Encrypting Confidential Data at Rest](https://kubernetes.io/docs/tasks/administer-cluster/encrypt-data/) - the cluster-admin control that gives Secrets real protection in production.
+### Scenario 3: Cross-Namespace Secret Referencing Attempt
+**Context:** A team creates a shared database password Secret in namespace `infra`. An application in namespace `tenant-a` attempts to reference it via:
+```yaml
+env:
+  - name: DB_PASSWORD
+    valueFrom:
+      secretKeyRef:
+        name: infra/shared-db-creds
+        key: password
+```
+The manifest fails to apply or the Pod fails with `Secret "infra/shared-db-creds" not found`.
+
+<details>
+<summary>View Diagnostic Workflow & Resolution</summary>
+
+**Root Cause:**  
+Kubernetes ConfigMaps and Secrets are strictly **namespaced resources**. A Pod in namespace `tenant-a` can **only** mount or reference ConfigMaps and Secrets that reside in `tenant-a`. The `name` field cannot take slash-delimited namespace paths.
+
+**Resolution Steps:**
+1. Do not duplicate secrets manually across namespaces. Use a Kubernetes-native replication operator such as `Reflector` or `External Secrets Operator` (ClusterSecretStore) to automatically mirror approved secrets from `infra` into authorized tenant namespaces.
+2. In GitOps pipelines, generate the required Secret into each target namespace using sealed-secrets or SOPS encryption.
+</details>
+
+---
+
+## 8. Further Reading & Official Documentation
+
+- [Kubernetes Official Documentation: ConfigMaps](https://kubernetes.io/docs/concepts/configuration/configmap/)
+- [Kubernetes Official Documentation: Secrets](https://kubernetes.io/docs/concepts/configuration/secret/)
+- [Encrypting Confidential Data at Rest in etcd](https://kubernetes.io/docs/tasks/administer-cluster/encrypt-data/)
+- [External Secrets Operator (ESO) Multi-Cloud Sync](https://external-secrets.io/)
+- [Atomic Volume Projection and Inotify in Linux Kernels](https://kubernetes.io/docs/concepts/storage/volumes/#projected)
+
+---
 
 ## Next
 
-[06-storage-pv-and-pvc](../06-storage-pv-and-pvc/README.md) — configuration
-is externalized; next, give Pods durable storage that survives beyond a
-single Pod's lifetime.
+Continue to [06 - Persistent Storage (PV, PVC, and StorageClass)](../06-storage-pv-and-pvc/README.md) to provide stateful database and message broker workloads with durable disk storage that survives Pod restarts and node evictions.

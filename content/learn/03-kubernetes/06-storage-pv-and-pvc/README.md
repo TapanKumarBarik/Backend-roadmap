@@ -1,122 +1,382 @@
-# 06 - Storage: PersistentVolumes and PersistentVolumeClaims
+# 06 - Storage: PersistentVolumes, PVCs, and StorageClasses
 
-## Why this matters
+> **Prerequisites**: [02 - Pods & Workloads](../02-pods-and-workloads/README.md), [03 - Deployments & ReplicaSets](../03-deployments-and-replicasets/README.md).  
+> **Target Audience**: Infrastructure Architects, Database Administrators, and Senior Backend Engineers designing durable storage, stateful services, and disaster recovery on Kubernetes.  
+> **Estimated Deep-Dive Time**: 40 minutes.
 
-You've used `emptyDir` volumes already (module 02's sidecar exercise) to
-share files between containers *within* a Pod — but that storage dies
-with the Pod. Databases, uploaded files, and anything that must survive
-a Pod being deleted and recreated need storage that outlives any single
-Pod. Kubernetes' PV/PVC system is how you request and bind that durable
-storage without hardcoding *where* it physically lives into your
-application manifests.
+---
 
-## Concepts
+> [!TIP]
+> **The Golden Rule of Kubernetes Storage**: **Decouple storage requirements from storage mechanics.** Applications must only declare abstract storage requests via `PersistentVolumeClaims` (PVCs); infrastructure engines fulfill them dynamically via `StorageClasses` and Container Storage Interface (CSI) drivers. In multi-availability-zone clusters, **always set `volumeBindingMode: WaitForFirstConsumer`** to prevent catastrophic cross-AZ volume scheduling deadlocks.
 
-**`emptyDir`, recap and its limit**: an `emptyDir` volume is created
-fresh when a Pod starts and is deleted permanently when that Pod is
-removed from a node — great for scratch space or sharing files between
-sidecars, useless for anything that needs to survive a Pod restart or
-rescheduling.
+---
 
-**A PersistentVolume (PV)** is a piece of actual storage in the cluster —
-a chunk of disk, a network share, whatever the underlying platform
-provides — represented as a Kubernetes object independent of any Pod.
-Think of it as a physical hard drive that exists whether or not anything
-is currently using it.
+## 1. Visual Mental Models: The Dynamic Provisioning Pipeline
 
-**A PersistentVolumeClaim (PVC)** is a *request* for storage made by a
-user/Pod: "I need 5Gi, with these access characteristics." It's not the
-storage itself — it's a claim ticket that gets matched ("bound") to an
-actual PV that satisfies it. This split exists so application authors
-write PVCs (portable, describing *needs*) without knowing or caring
-which specific disk/backend actually provides it (cluster operators or
-StorageClasses handle that).
+Unlike stateless web tiers, stateful workloads (PostgreSQL, Kafka, Elasticsearch, Redis) require data on disk to persist across Pod restarts, node evictions, and cluster upgrades.
 
-**A StorageClass** describes *how* to dynamically provision a PV on
-demand, instead of a cluster operator manually pre-creating PVs for every
-possible request. When a PVC references a StorageClass, a
-**provisioner** creates a matching PV automatically the moment the PVC is
-created — this is "dynamic provisioning," and it's the normal mode on
-every real cloud cluster (AKS's default StorageClass provisions real
-Azure Disks this way). Local kind clusters ship a default StorageClass
-(usually named `standard`, backed by the `rancher.local-path-provisioner`
-project) that provisions storage as a directory on the kind node
-container's filesystem — functionally durable across Pod restarts, but
-tied to that one node and gone if you delete the whole kind cluster.
+### The Dynamic Provisioning & Volume Attachment Lifecycle
 
-```
-   dynamic provisioning chain (bottom drives the one above it):
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Dev as Developer / Manifest
+    participant API as K8s API Server
+    participant SC as StorageClass Controller
+    participant CSI as Cloud CSI Driver (EBS / AzureDisk / GPD)
+    participant Kubelet as Worker Node Kubelet
+    participant Pod as Application Pod
 
-   Pod  ──references──► PVC  ──bound to──► PV  ──backed by──► real disk
-   spec.volumes         "I need           "here is           (local dir,
-   .persistentVolume     5Gi RWO"          5Gi RWO"           Azure Disk…)
-   Claim.claimName          │                 ▲
-                            │   StorageClass  │
-                            └──► provisioner ─┘  creates the PV on demand
+    Dev->>API: Apply PersistentVolumeClaim (10Gi, RWO)
+    API->>SC: PVC created with StorageClass 'fast-nvme'
+    Note over SC: Evaluates volumeBindingMode:<br/>WaitForFirstConsumer waits for Pod schedule
+    Dev->>API: Apply Pod referencing PVC
+    API->>SC: Pod scheduled onto Node 2 (Zone us-east-1a)
+    SC->>CSI: CreateVolume(Capacity: 10Gi, Zone: us-east-1a)
+    CSI-->>SC: Volume ID: vol-09f482a1 created
+    SC->>API: Create PersistentVolume (PV) bound to PVC
+    API->>CSI: AttachVolume(vol-09f482a1 -> Node 2)
+    CSI-->>Kubelet: Block device attached as /dev/xvdf
+    Kubelet->>Kubelet: Format ext4 & Mount to /var/lib/kubelet/pods/...
+    Kubelet->>Pod: Mount into container at /var/lib/data
+    Pod-->>Dev: Ready to write persistent database files!
 ```
 
-**Access modes** describe how many nodes can mount a volume at once and
-how:
-- `ReadWriteOnce` (RWO): read-write by a single node at a time (most
-  common — a typical database volume).
-- `ReadOnlyMany` (ROX): read-only by many nodes simultaneously.
-- `ReadWriteMany` (RWX): read-write by many nodes simultaneously
-  (requires a backend that supports it — local-path-provisioner on kind
-  does not, so RWX PVCs will stay `Pending` locally).
+---
 
-**Reclaim policy** decides what happens to the underlying storage once
-its PVC is deleted: `Delete` (the PV and its underlying storage are
-destroyed — the default for dynamically-provisioned volumes) or
-`Retain` (the PV and its data survive the PVC's deletion, for manual
-recovery/inspection — a safety choice for data you can't afford to lose
-by accident).
+### PersistentVolume Lifecycle State Machine
 
-**How a PVC actually gets used**: you don't attach a PV directly to a
-Pod. You reference a PVC by name in the Pod's `spec.volumes`, and mount
-it into a container like any other volume. StatefulSets (not covered in
-depth in this track, but worth knowing the name) automate creating a
-distinct PVC *per replica* for stateful apps like databases run with
-multiple replicas — out of scope here, but a natural next topic once
-you're comfortable with the plain PVC pattern below.
+A PersistentVolume transitions through four discrete phases managed by the volume controller:
 
-## Command reference
+```mermaid
+stateDiagram-v2
+    [*] --> Available: Admin pre-provisions or StorageClass dynamically provisions PV
+    Available --> Bound: PVC matches criteria & binds to PV
+    Bound --> Released: User deletes PVC; PV retains data
+    Released --> Retained: ReclaimPolicy = Retain (Manual recovery / inspection)
+    Released --> [*]: ReclaimPolicy = Delete (CSI deletes real cloud disk)
+    Bound --> Failed: Automated reclamation error or disk failure
+    Failed --> [*]
+```
 
-| Command | What it does | Example |
-|---|---|---|
-| `kubectl get storageclass` | Lists available StorageClasses and which is default | `kubectl get sc` |
-| `kubectl get pv` | Lists PersistentVolumes cluster-wide (not namespaced) | `kubectl get pv` |
-| `kubectl get pvc` | Lists PersistentVolumeClaims in the current namespace | `kubectl get pvc` |
-| `kubectl describe pvc <name>` | Shows binding status, capacity, and events | `kubectl describe pvc data-claim` |
-| `kubectl describe pv <name>` | Shows a PV's backing details, capacity, reclaim policy | `kubectl describe pv <pv-name>` |
-| `kubectl delete pvc <name>` | Deletes a claim (may trigger PV deletion depending on reclaim policy) | `kubectl delete pvc data-claim` |
-| `spec.accessModes` | Access pattern requested/provided: `ReadWriteOnce`, `ReadOnlyMany`, `ReadWriteMany` | `accessModes: ["ReadWriteOnce"]` |
-| `spec.resources.requests.storage` | Amount of storage requested by a PVC | `storage: 1Gi` |
-| `spec.storageClassName` | Which StorageClass should provision the volume | `storageClassName: standard` |
-| `spec.persistentVolumeReclaimPolicy` | What happens to storage after the PVC is deleted | `persistentVolumeReclaimPolicy: Retain` |
-| `volumes[].persistentVolumeClaim.claimName` | References a PVC from a Pod spec | see exercises |
+---
 
-## Hands-on exercises
+### Storage Access Modes Architecture
 
-Continue in namespace `demo`.
+```mermaid
+flowchart TD
+    subgraph StorageBackends ["Physical & Cloud Storage Backends"]
+        BlockStorage["Cloud Block Storage<br/>(AWS EBS / Azure Managed Disk / GCP PD)"]
+        FileStorage["Network File Storage<br/>(NFS / AWS EFS / Azure Files / CephFS)"]
+    end
 
-### 1. Check what your cluster provides by default
+    subgraph AccessModes ["Kubernetes Access Modes"]
+        RWO["ReadWriteOnce (RWO)<br/>Mounted by 1 Node only"]
+        ROX["ReadOnlyMany (ROX)<br/>Read-only across multiple Nodes"]
+        RWX["ReadWriteMany (RWX)<br/>Read-write across multiple Nodes concurrently"]
+        RWOP["ReadWriteOncePod (RWOP)<br/>Strictly 1 single Pod on 1 Node"]
+    end
+
+    subgraph Workloads ["Target Workloads"]
+        DB["RDBMS / Caches<br/>(PostgreSQL, Redis, MySQL)"]
+        SharedMedia["Content Management / Shared Assets<br/>(WordPress uploads, Machine Learning datasets)"]
+    end
+
+    BlockStorage --> RWO
+    BlockStorage --> RWOP
+    FileStorage --> RWX
+    FileStorage --> ROX
+    RWO --> DB
+    RWOP --> DB
+    RWX --> SharedMedia
+```
+
+---
+
+## 2. Technical Comparison: StorageClasses, Provisioners & Policies
+
+### StorageClass Specification Matrix
+
+| Feature | AWS EBS CSI (`ebs.csi.aws.com`) | Azure Disk CSI (`disk.csi.azure.com`) | GCP PD CSI (`pd.csi.storage.gke.io`) | Local Path (`rancher.io/local-path`) |
+| :--- | :--- | :--- | :--- | :--- |
+| **Backend Type** | Cloud Block Volume (gp3/io2) | Managed Disk (Premium_LRS) | Persistent Disk (pd-ssd) | Local Node Directory (`/opt/local-path`) |
+| **Supported Access Modes** | `RWO`, `RWOP` | `RWO`, `RWOP` | `RWO`, `RWOP` | `RWO` only |
+| **Multi-Node Sharing (RWX)** | ❌ No (Requires EFS CSI) | ❌ No (Requires Azure File CSI) | ❌ No (Requires Filestore CSI) | ❌ No |
+| **Volume Expansion** | Supported (`AllowVolumeExpansion: true`) | Supported | Supported | Not supported |
+| **Snapshot Support** | Supported via VolumeSnapshot | Supported | Supported | ❌ No |
+| **Node Failure Survival** | Detaches and re-attaches to new node in same AZ | Detaches and re-attaches | Detaches and re-attaches | ❌ Bound permanently to node filesystem |
+
+---
+
+### Reclaim Policies & Binding Modes
+
+```yaml
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: production-sc
+provisioner: ebs.csi.aws.com
+reclaimPolicy: Retain              # 'Delete' (default) destroys disk; 'Retain' keeps it for safety
+volumeBindingMode: WaitForFirstConsumer # DELAYS volume creation until Pod is scheduled!
+allowVolumeExpansion: true         # Allows resizing PVC online without data loss
+parameters:
+  type: gp3
+  iops: "3000"
+  throughput: "125"
+```
+
+1. **`reclaimPolicy: Delete`**: As soon as the developer deletes the PVC, the underlying cloud disk is permanently destroyed. Recommended for ephemeral preview environments.
+2. **`reclaimPolicy: Retain`**: When the PVC is deleted, the PV transitions to `Released`. The underlying cloud disk remains untouched in AWS/Azure/GCP, allowing platform engineers to salvage raw database files.
+3. **`volumeBindingMode: Immediate`**: The storage backend provisions the disk the moment the PVC is created. If your cluster is multi-AZ, the disk may be provisioned in `us-east-1a`, while your Pod is later scheduled in `us-east-1b`, resulting in a fatal mounting deadlock!
+4. **`volumeBindingMode: WaitForFirstConsumer`**: Kubernetes delays disk provisioning until the Pod is placed onto a specific node by `kube-scheduler`, guaranteeing zone alignment.
+
+---
+
+## 3. Production War Story: The Cross-AZ Multi-Attach Deadlock
+
+### Incident Overview
+An e-commerce order processing database running on PostgreSQL was scheduled for a rolling upgrade during Black Friday preparations. Within 60 seconds of triggering `kubectl rollout restart deployment/order-db`, the database went completely dark. Upstream checkout services cascaded into 500 errors. Total downtime: 38 minutes.
+
+### The Catastrophic Failure Sequence
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor CI as CI/CD Pipeline
+    participant API as K8s API Server
+    participant Scheduler as kube-scheduler
+    participant NodeA as Node 1 (AZ us-east-1a)
+    participant NodeB as Node 2 (AZ us-east-1b)
+    participant CSI as AWS EBS CSI Driver
+
+    CI->>API: kubectl rollout restart deployment order-db
+    Scheduler->>NodeB: Schedules new Pod (order-db-v2) on Node 2 in Zone us-east-1b
+    Note over NodeB: order-db-v2 requests volume pvc-order-data
+    API->>CSI: AttachVolume(vol-0849204a to Node 2)
+    CSI-->>API: ERROR: Volume in us-east-1a cannot attach to Node in us-east-1b!
+    Note over NodeA: Old Pod (order-db-v1) is still terminating on Node 1 in us-east-1a
+    CSI-->>API: ERROR: Multi-Attach error: Volume already attached to Node 1
+    Note over API,NodeB: Pod hangs perpetually in ContainerCreating!<br/>Old Pod terminated -> Zero active databases running!
+```
+
+### Root Cause Analysis
+1. The original StorageClass was configured with `volumeBindingMode: Immediate`. The EBS volume had been pre-allocated in Availability Zone `us-east-1a`.
+2. When the Deployment rollout triggered, `kube-scheduler` scheduled the replacement Pod on a worker node in `us-east-1b` because `us-east-1a` had higher CPU pressure.
+3. Cloud block storage (AWS EBS, Azure Disk) cannot cross physical availability zone boundaries. The volume could physically never attach to Node 2.
+4. Furthermore, because a `Deployment` was used instead of a `StatefulSet`, the new Pod attempted to attach the `ReadWriteOnce` volume before the old Pod had unmounted and detached it, causing the Linux kernel and cloud hypervisor to throw `Multi-Attach error for volume`.
+
+### The Remediation & Permanent Prevention
+1. The platform team rebuilt the StorageClass with `volumeBindingMode: WaitForFirstConsumer`.
+2. Stateful workloads were migrated from `Deployment` to `StatefulSet` with `volumeClaimTemplates` to ensure strict single-replica termination before re-attachment (`OrderedReady`).
+3. Node affinity and zone constraints were explicitly injected to lock stateful workloads to their persistent volume's topology zone:
+
+```yaml
+spec:
+  affinity:
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+          - matchExpressions:
+              - key: topology.kubernetes.io/zone
+                operator: In
+                values:
+                  - us-east-1a
+```
+
+---
+
+## 4. Multi-Language Resilient Disk I/O Implementations
+
+When writing data to network-attached or cloud-managed persistent volumes, backend applications must guarantee that buffers are committed to non-volatile storage (`fsync`) and use atomic file swapping (`write-to-temp + rename`) to prevent partial writes during unexpected Pod evictions.
+
+### Go Implementation
+
+```go
+// internal/storage/persistent_writer.go
+package storage
+
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"syscall"
+)
+
+type AtomicPersistentWriter struct {
+	baseDir string
+}
+
+func NewAtomicPersistentWriter(mountPath string) (*AtomicPersistentWriter, error) {
+	if err := os.MkdirAll(mountPath, 0755); err != nil {
+		return nil, fmt.Errorf("failed to initialize mount dir: %w", err)
+	}
+	return &AtomicPersistentWriter{baseDir: mountPath}, nil
+}
+
+// WriteAtomic writes data to a temporary file, flushes to disk (fsync), and renames atomically.
+func (w *AtomicPersistentWriter) WriteAtomic(filename string, data []byte) error {
+	finalPath := filepath.Join(w.baseDir, filename)
+	tmpPath := filepath.Join(w.baseDir, fmt.Sprintf(".%s.tmp", filename))
+
+	// 1. Open temporary file with exclusive write lock
+	f, err := os.OpenFile(tmpPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+	if err != nil {
+		return fmt.Errorf("cannot create tmp file: %w", err)
+	}
+	defer os.Remove(tmpPath) // Cleanup if error occurs before rename
+
+	// Lock file to avoid concurrent writes from multiple goroutines
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX); err != nil {
+		f.Close()
+		return fmt.Errorf("file lock failed: %w", err)
+	}
+	defer syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
+
+	// 2. Write payload
+	if _, err := f.Write(data); err != nil {
+		f.Close()
+		return fmt.Errorf("write payload failed: %w", err)
+	}
+
+	// 3. Force kernel dirty pages to flush to physical cloud storage (fsync)
+	if err := f.Sync(); err != nil {
+		f.Close()
+		return fmt.Errorf("fsync failed: %w", err)
+	}
+	f.Close()
+
+	// 4. POSIX atomic rename replaces destination without race conditions
+	if err := os.Rename(tmpPath, finalPath); err != nil {
+		return fmt.Errorf("atomic rename failed: %w", err)
+	}
+
+	return nil
+}
+```
+
+---
+
+### Node.js / TypeScript Implementation
+
+```typescript
+// src/storage/resilientStorage.ts
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import crypto from 'node:crypto';
+
+export class ResilientStorageManager {
+  private readonly mountPath: string;
+
+  constructor(mountPath: string) {
+    this.mountPath = path.resolve(mountPath);
+  }
+
+  async saveRecordAtomic(recordId: string, payload: Record<string, unknown>): Promise<void> {
+    const finalFile = path.join(this.mountPath, `${recordId}.json`);
+    const tempFile = path.join(this.mountPath, `.${recordId}.${crypto.randomUUID()}.tmp`);
+
+    const serialized = JSON.stringify(payload, null, 2);
+
+    let fileHandle;
+    try {
+      // 1. Open temp file
+      fileHandle = await fs.open(tempFile, 'w');
+
+      // 2. Write buffer
+      await fileHandle.writeFile(serialized, 'utf8');
+
+      // 3. Issue OS sync syscall to guarantee cloud disk persistence
+      await fileHandle.sync();
+      await fileHandle.close();
+      fileHandle = undefined;
+
+      // 4. Atomic directory entry swap
+      await fs.rename(tempFile, finalFile);
+    } catch (error) {
+      if (fileHandle) {
+        await fileHandle.close();
+      }
+      // Clean up orphaned temp file
+      await fs.unlink(tempFile).catch(() => {});
+      throw new Error(`Atomic write to PVC at [${finalFile}] failed: ${(error as Error).message}`);
+    }
+  }
+}
+```
+
+---
+
+### Python Implementation
+
+```python
+# storage/resilient_storage.py
+import json
+import os
+import tempfile
+from typing import Any, Dict
+
+
+class ResilientPvcStorage:
+    """Production-grade persistent file storage for K8s PVC mounts."""
+
+    def __init__(self, mount_path: str):
+        self.mount_path = os.path.abspath(mount_path)
+        os.makedirs(self.mount_path, exist_ok=True)
+
+    def write_atomic(self, filename: str, data: Dict[str, Any]) -> str:
+        final_path = os.path.join(self.mount_path, filename)
+        dir_name = os.path.dirname(final_path)
+
+        # 1. Create secure temp file in the same filesystem (same PVC mount)
+        with tempfile.NamedTemporaryFile("w", dir=dir_name, delete=False, encoding="utf-8") as tf:
+            temp_name = tf.name
+            json.dump(data, tf, indent=2)
+            tf.flush()
+            # 2. Force hardware/CSI sync
+            os.fsync(tf.fileno())
+
+        # 3. Atomic rename guarantees no readers see half-written files
+        try:
+            os.replace(temp_name, final_path)
+            return final_path
+        except Exception as ex:
+            if os.path.exists(temp_name):
+                os.remove(temp_name)
+            raise IOError(f"Failed atomic swap to {final_path}: {ex}") from ex
+```
+
+---
+
+## 5. Practical Hands-On Verification Laboratory
+
+In this lab, you will inspect your cluster's default `StorageClass`, dynamically allocate a 1Gi `PersistentVolumeClaim`, run a Pod that writes persistent state, destroy the Pod, and verify that a newly provisioned Pod mounts the same volume with 100% data integrity.
+
+### Step 1: Inspect Cluster StorageClasses
+
+Check what dynamic provisioners exist in your cluster:
 
 ```bash
 kubectl get storageclass
 ```
 
-Expected: a StorageClass (commonly `standard`, marked
-`(default)`) — this is what kind installs out of the box so dynamic
-provisioning works with zero extra setup.
+*Expected Terminal Output (e.g. on kind / AKS):*
+```text
+NAME                 PROVISIONER             RECLAIMPOLICY   VOLUMEBINDINGMODE      ALLOWVOLUMEEXPANSION   AGE
+standard (default)   rancher.io/local-path   Delete          WaitForFirstConsumer   false                  14d
+```
 
-### 2. Request storage with a PVC (dynamic provisioning)
+---
+
+### Step 2: Create PersistentVolumeClaim (PVC)
+
+Save the manifest as `06-storage-claim.yaml`:
 
 ```yaml
-# pvc-data.yaml
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: data-claim
+  name: app-data-pvc
+  namespace: default
 spec:
   accessModes:
     - ReadWriteOnce
@@ -125,358 +385,245 @@ spec:
       storage: 1Gi
 ```
 
-```bash
-kubectl apply -f pvc-data.yaml
-kubectl get pvc data-claim
-```
-
-Expected: `STATUS` becomes `Bound` (may briefly show `Pending` first).
-Note you never specified `storageClassName` — it used the cluster's
-default StorageClass.
-
-### 3. See the PV that got created for you
+Apply and inspect:
 
 ```bash
-kubectl get pv
-kubectl describe pv $(kubectl get pvc data-claim -o jsonpath='{.spec.volumeName}')
+kubectl apply -f 06-storage-claim.yaml
+kubectl get pvc app-data-pvc
 ```
 
-Expected: a PV whose `Claim` field references `demo/data-claim`, capacity
-`1Gi`, and `Reclaim Policy: Delete`. Notice the PV was created
-automatically — you never wrote a PV manifest.
+*Expected Terminal Output:*
+```text
+NAME           STATUS    VOLUME   CAPACITY   ACCESS MODES   STORAGECLASS   AGE
+app-data-pvc   Pending                                      standard       5s
+```
 
-### 4. Mount the PVC in a Pod and write data
+> [!NOTE]
+> The status is `Pending` because `volumeBindingMode` is set to `WaitForFirstConsumer`! It is waiting for a Pod to be scheduled before creating the PV.
+
+---
+
+### Step 3: Run Pod to Write Persistent State
+
+Create `06-writer-pod.yaml`:
 
 ```yaml
-# pod-writer.yaml
 apiVersion: v1
 kind: Pod
 metadata:
-  name: writer
+  name: data-writer
+  namespace: default
 spec:
   containers:
-    - name: app
-      image: busybox:1.36
-      command: ["sh", "-c", "echo \"written at $(date)\" >> /data/log.txt; sleep 3600"]
+    - name: writer
+      image: alpine:latest
+      command:
+        - "/bin/sh"
+        - "-c"
+        - |
+          echo "Persisted Transaction: TX-90021-SUCCESS" >> /data/transactions.log
+          echo "Pod $(hostname) wrote entry at $(date)" >> /data/transactions.log
+          sleep 3600
       volumeMounts:
         - name: storage
           mountPath: /data
   volumes:
     - name: storage
       persistentVolumeClaim:
-        claimName: data-claim
+        claimName: app-data-pvc
 ```
+
+Apply and watch binding:
 
 ```bash
-kubectl apply -f pod-writer.yaml
-kubectl exec writer -- cat /data/log.txt
+kubectl apply -f 06-writer-pod.yaml
+kubectl wait --for=condition=Ready pod/data-writer --timeout=60s
+kubectl get pvc app-data-pvc
+kubectl get pv
 ```
 
-Expected: one line with a timestamp.
+*Expected Terminal Output:*
+```text
+pod/data-writer condition met
 
-### 5. Prove the data survives the Pod being deleted and recreated
+NAME           STATUS   VOLUME                                     CAPACITY   ACCESS MODES   STORAGECLASS   AGE
+app-data-pvc   Bound    pvc-89b5c328-98e1-456c-bc4a-912a784d14e1   1Gi        RWO            standard       45s
+
+NAME                                       CAPACITY   ACCESS MODES   RECLAIMPOLICY   STATUS   CLAIM                  STORAGECLASS
+pvc-89b5c328-98e1-456c-bc4a-912a784d14e1   1Gi        RWO            Delete          Bound    default/app-data-pvc   standard
+```
+
+---
+
+### Step 4: Destroy the Pod and Validate Data Survival
+
+Delete the writer Pod:
 
 ```bash
-kubectl delete pod writer
-kubectl apply -f pod-writer.yaml
-kubectl exec writer -- cat /data/log.txt
+kubectl delete pod data-writer
 ```
 
-Expected: **two** lines now — the original from step 4 plus a new one
-from this recreation's startup command, proving the PVC's data outlived
-the deleted Pod (unlike `emptyDir`, which would have started empty).
-
-### 6. Share the same PVC from a second Pod (read)
+Now, create a second reader Pod (`06-reader-pod.yaml`) referencing the identical PVC:
 
 ```yaml
-# pod-reader.yaml
 apiVersion: v1
 kind: Pod
 metadata:
-  name: reader
+  name: data-reader
+  namespace: default
 spec:
   containers:
-    - name: app
-      image: busybox:1.36
-      command: ["sh", "-c", "sleep 3600"]
-      volumeMounts:
-        - name: storage
-          mountPath: /data
-          readOnly: true
-  volumes:
-    - name: storage
-      persistentVolumeClaim:
-        claimName: data-claim
-```
-
-```bash
-kubectl apply -f pod-reader.yaml
-kubectl exec reader -- cat /data/log.txt
-```
-
-Expected: since this PVC's access mode is `ReadWriteOnce`, this works
-only as long as both Pods land on the same node — on this single-node
-kind cluster that's guaranteed, but it's worth noting RWO's real
-constraint: on a multi-node cluster, a second Pod scheduled to a
-*different* node would fail to mount it simultaneously.
-
-### 7. Explicit StorageClass and reclaim policy on a PVC
-
-```yaml
-# pvc-explicit.yaml
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: data-claim-explicit
-spec:
-  storageClassName: standard
-  accessModes:
-    - ReadWriteOnce
-  resources:
-    requests:
-      storage: 2Gi
-```
-
-```bash
-kubectl apply -f pvc-explicit.yaml
-kubectl get pvc data-claim-explicit
-kubectl get pv
-```
-
-Expected: bound the same way, this time with the StorageClass named
-explicitly instead of relying on the default.
-
-### 8. Delete a PVC and observe reclaim policy in action
-
-```bash
-kubectl delete pod writer reader
-kubectl get pv
-kubectl delete pvc data-claim
-kubectl get pv
-```
-
-Expected: after deleting the PVC, the PV that was bound to it also
-disappears (or moves to `Released`/is cleaned up shortly after) — because
-the default reclaim policy for dynamically-provisioned volumes here is
-`Delete`. The underlying data on the node's local-path directory is gone.
-
-### 9. Diagnose and fix: PVC stuck Pending (unsatisfiable request)
-
-```yaml
-# pvc-toobig.yaml
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: too-big-claim
-spec:
-  accessModes:
-    - ReadWriteMany
-  resources:
-    requests:
-      storage: 10Gi
-```
-
-```bash
-kubectl apply -f pvc-toobig.yaml
-kubectl get pvc too-big-claim
-```
-
-Expected: `STATUS: Pending`, staying that way. Diagnose:
-
-```bash
-kubectl describe pvc too-big-claim
-```
-
-Expected: an event like `waiting for a volume to be created, either by
-external provisioner "rancher.io/local-path" or manually created by
-system administrator` combined with the access mode being the real
-blocker — local-path-provisioner only supports `ReadWriteOnce`, not
-`ReadWriteMany`. Fix by changing the access mode:
-
-```yaml
-spec:
-  accessModes:
-    - ReadWriteOnce
-  resources:
-    requests:
-      storage: 10Gi
-```
-
-```bash
-kubectl delete pvc too-big-claim
-kubectl apply -f pvc-toobig.yaml    # after fixing accessModes
-kubectl get pvc too-big-claim
-```
-
-Expected: `Bound`. This is a good example of a limitation specific to
-the local storage provisioner — the same manifest with `ReadWriteMany`
-might work fine against a cloud backend that supports it (e.g. Azure
-Files on AKS).
-
-### 10. Diagnose and fix: Pod stuck Pending because of an unbound PVC
-
-```yaml
-# pod-stuck.yaml
-apiVersion: v1
-kind: Pod
-metadata:
-  name: stuck-pod
-spec:
-  containers:
-    - name: app
-      image: busybox:1.36
-      command: ["sh", "-c", "sleep 3600"]
+    - name: reader
+      image: alpine:latest
+      command:
+        - "/bin/sh"
+        - "-c"
+        - "cat /data/transactions.log && sleep 3600"
       volumeMounts:
         - name: storage
           mountPath: /data
   volumes:
     - name: storage
       persistentVolumeClaim:
-        claimName: does-not-exist-claim
+        claimName: app-data-pvc
 ```
+
+Apply and inspect logs:
 
 ```bash
-kubectl apply -f pod-stuck.yaml
-kubectl get pod stuck-pod
+kubectl apply -f 06-reader-pod.yaml
+kubectl wait --for=condition=Ready pod/data-reader --timeout=30s
+kubectl logs data-reader
 ```
 
-Expected: `STATUS: Pending`, indefinitely. Diagnose:
-
-```bash
-kubectl describe pod stuck-pod
+*Expected Output:*
+```text
+Persisted Transaction: TX-90021-SUCCESS
+Pod data-writer wrote entry at Tue Nov 10 06:50:14 UTC 2026
 ```
 
-Expected: an event like `persistentvolumeclaim "does-not-exist-claim"
-not found`. Fix by creating the referenced PVC (or correcting the name
-to `data-claim-explicit`, which you created in exercise 7):
+The data written by `data-writer` survived the complete destruction of the Pod and was seamlessly read by `data-reader`.
 
-```bash
-kubectl delete pod stuck-pod
-```
+---
 
-Edit `claimName` to `data-claim-explicit`, then:
+## 6. Command Quick-Reference Cheat Sheet
 
-```bash
-kubectl apply -f pod-stuck.yaml
-kubectl get pod stuck-pod
-```
+| Command | Action / Objective | Example Scenario |
+| :--- | :--- | :--- |
+| `kubectl get sc` | List all StorageClasses & identify default | Check cluster storage provisioners |
+| `kubectl get pv,pvc` | List physical storage volumes & claims | Debug volume binding issues |
+| `kubectl describe pvc <name>` | View dynamic provisioning events | Diagnose `FailedBinding` errors |
+| `kubectl describe pv <name>` | Inspect underlying cloud volume ID | Map PV to AWS EBS / Azure Disk ID |
+| `kubectl patch pv <name> -p '{"spec":{"persistentVolumeReclaimPolicy":"Retain"}}'` | Change reclaim policy on live PV | Prevent accidental data loss before deleting claim |
+| `kubectl patch pvc <name> -p '{"spec":{"resources":{"requests":{"storage":"20Gi"}}}}'` | Trigger online volume expansion | Resize disk without downtime (if supported) |
 
-Expected: `Running`. Clean up everything from this module:
+---
 
-```bash
-kubectl delete pod stuck-pod
-kubectl delete pvc data-claim-explicit too-big-claim
-```
+## 7. Operational Validation Checkpoints
 
-## Independent challenge
-
-No YAML or commands given here — figure it out yourself using what you
-know from this module and earlier ones.
-
-**Task:** Stand up a tiny "notes" service backed by durable storage:
-a Deployment whose container appends a startup timestamp to a file on a
-mounted PersistentVolumeClaim every time it starts, fronted by a Service.
-Write at least one line, then prove the data is genuinely persistent by
-forcing the Pod to be replaced (not just restarted in place) and reading
-the file back to confirm the earlier line is still there alongside the new
-one. Finally, explain — before you test it — what you'd expect to happen
-to that data if you deleted the PVC given the default reclaim policy your
-kind cluster uses. This combines this module's PVC mechanics with
-Deployments (module 03) and Services (module 04).
+### Scenario 1: `Multi-Attach error for volume` During Rolling Deployment
+**Context:** You deploy a rolling update to a stateful database running with `replicas: 1` as a `Deployment`. The new Pod stays in `ContainerCreating` for over 10 minutes. Running `kubectl describe pod` reveals:
+`Multi-Attach error for volume "pvc-xyz". Volume is already exclusively attached to one node and can't be attached to another.`
 
 <details>
-<summary>Stuck? One hint</summary>
+<summary>View Diagnostic Workflow & Resolution</summary>
 
-Deleting the Pod (or `kubectl rollout restart` on the Deployment) forces a
-brand-new Pod that re-mounts the same claim by `claimName`; check the
-bound PV's reclaim policy with `kubectl get pv` — on kind it defaults to
-`Delete`.
+**Root Cause:**  
+`Deployment` controllers use a rolling update strategy (`maxSurge: 25%`), which spins up the replacement Pod *before* terminating the existing Pod. Because the volume access mode is `ReadWriteOnce` (RWO), the cloud hypervisor refuses to attach the disk to the second node while the first node holds the block lock.
 
+**Diagnostic Commands:**
+```bash
+# Check VolumeAttachment objects:
+kubectl get volumeattachments
+# Identify node holding lock:
+kubectl describe volumeattachment <attachment-id>
+```
+
+**Resolution Steps:**
+1. Stateful databases must **never** be managed by standard `Deployment` objects with rolling updates. Migrate to a `StatefulSet`.
+2. If forced to use a `Deployment`, change the strategy to `type: Recreate`:
+   ```yaml
+   spec:
+     strategy:
+       type: Recreate
+   ```
+   This guarantees Kubernetes terminates the old Pod and detaches the disk before attempting to start the new Pod.
 </details>
 
-## Common mistakes & troubleshooting
+---
 
-- **Confusing a PVC with the storage itself**: a PVC is a request/claim;
-  the PV is the actual storage. A `Pending` PVC means no PV has been
-  bound yet — usually because dynamic provisioning is still running, or
-  because the request (size, access mode) can't be satisfied.
-- **Requesting `ReadWriteMany` against a backend that doesn't support
-  it**: local-path-provisioner (kind's default) only supports
-  `ReadWriteOnce` — a PVC requesting RWX will sit `Pending` forever
-  locally, which is exactly what you reproduced in exercise 9.
-  Cloud-backed StorageClasses (Azure Files, NFS-backed classes) do
-  support RWX.
-- **Forgetting the reclaim policy before deleting a PVC**: with the
-  default `Delete` policy, deleting a PVC destroys its data
-  permanently and immediately — there's no recycle bin. For anything you
-  can't afford to lose, use/patch a StorageClass or PV with
-  `persistentVolumeReclaimPolicy: Retain`.
-- **Referencing a PVC name that doesn't exist (or is in another
-  namespace)**: identical failure mode to module 05's ConfigMap
-  namespace mistake — PVCs are namespaced, and a typo or wrong namespace
-  leaves the Pod `Pending` with an event pointing at the missing claim.
-- **Assuming storage follows the Pod across nodes automatically**: an
-  `RWO` volume is only mountable by one node at a time; on a multi-node
-  cluster a Pod using it can get stuck `Pending` if the scheduler can't
-  place it on the node currently holding the volume (or if that node is
-  down) — a real operational constraint you'll meet again with
-  StatefulSets.
+### Scenario 2: Volume Stuck in `Pending` Due to StorageClass Mismatch
+**Context:** A developer submits a PVC manifest requesting `storageClassName: fast-nvme`. The PVC remains in `Pending` indefinitely. No error events appear on the PVC.
 
-## Checkpoint quiz
-
-Write down your answer to each question before expanding it — checking without attempting first is the single easiest way to fool yourself into thinking you've learned this.
-
-1. What is the difference between a PersistentVolume and a
-   PersistentVolumeClaim?
-2. What does a StorageClass actually do, and why does dynamic
-   provisioning matter compared to manually pre-creating PVs?
-3. What happened to your first PVC's data when you deleted the Pod
-   using it in exercise 5? What would have happened if it had used
-   `emptyDir` instead?
-4. What does `ReadWriteOnce` actually restrict, precisely?
-5. What's the practical difference between reclaim policies `Delete` and
-   `Retain`, and when would you prefer `Retain`?
-6. In exercise 9, why did the PVC stay `Pending` even though there was
-   plenty of disk space free on the node?
+```
+$ kubectl get pvc
+NAME           STATUS    VOLUME   CAPACITY   ACCESS MODES   STORAGECLASS   AGE
+cache-claim    Pending                                      fast-nvme      15m
+```
 
 <details>
-<summary>Show answers</summary>
+<summary>View Diagnostic Workflow & Resolution</summary>
 
-1. A PersistentVolume represents actual storage in the cluster; a
-   PersistentVolumeClaim is a request for storage (size, access mode)
-   that gets matched/bound to a PV satisfying it.
-2. A StorageClass defines how to automatically provision a new PV the
-   moment a matching PVC is created, instead of requiring a human to
-   pre-create PVs for every possible future request — this is what makes
-   storage self-service instead of a manual, ticket-driven process.
-3. The data persisted — the second Pod using the same PVC saw both the
-   original and new log lines. With `emptyDir` instead, the data would
-   have been deleted along with the first Pod, and the recreated Pod
-   would start empty.
-4. It restricts the volume to being mounted read-write by only one node
-   at a time — not one Pod; multiple Pods on the *same* node can still
-   share it.
-5. `Delete` destroys the underlying storage as soon as the bound PVC is
-   deleted; `Retain` keeps the storage (and PV object, marked
-   `Released`) around for manual recovery/inspection. Prefer `Retain`
-   for data where accidental deletion would be costly.
-6. The PVC requested `ReadWriteMany`, which the cluster's default
-   provisioner (local-path-provisioner) doesn't support at all — no
-   amount of free disk space fixes an access mode the provisioner can't
-   offer.
+**Root Cause:**  
+The requested `StorageClass` does not exist in the cluster, or its provisioner plugin is not installed. When a non-existent StorageClass is specified, the PVC controller waits indefinitely without throwing a hard validation error.
 
+**Diagnostic Commands:**
+```bash
+# Check if StorageClass exists:
+kubectl get storageclass fast-nvme
+# Output: Error from server (NotFound): storageclasses.storage.k8s.io "fast-nvme" not found
+
+# View PVC events:
+kubectl describe pvc cache-claim | grep -A 5 Events:
+# Output: Warning  ProvisioningFailed  storageclass.storage.k8s.io "fast-nvme" not found
+```
+
+**Resolution Steps:**
+1. List available StorageClasses (`kubectl get sc`).
+2. Update the PVC manifest with a valid StorageClass name or omit the field to use the cluster's default StorageClass.
 </details>
 
-## Further reading & sources
+---
 
-- [Persistent Volumes](https://kubernetes.io/docs/concepts/storage/persistent-volumes/) - the authoritative reference for PVs, PVCs, access modes, and reclaim policies.
-- [Storage Classes](https://kubernetes.io/docs/concepts/storage/storage-classes/) - how dynamic provisioning is configured and defaulted.
-- [Configure a Pod to Use a PersistentVolume for Storage](https://kubernetes.io/docs/tasks/configure-pod-container/configure-persistent-volume-storage/) - a hands-on task mirroring this module's exercises.
-- [local-path-provisioner (Rancher)](https://github.com/rancher/local-path-provisioner) - the default provisioner kind ships, including its RWO-only limitation.
-- [StatefulSets](https://kubernetes.io/docs/concepts/workloads/controllers/statefulset/) - the natural next topic for per-replica PVCs with stateful workloads.
+### Scenario 3: Accidental PVC Deletion with `ReclaimPolicy: Retain`
+**Context:** An engineer accidentally runs `kubectl delete pvc prod-db-claim`. The application crashes. The engineer realizes the PV had `persistentVolumeReclaimPolicy: Retain`. The underlying data still exists, but the PV is stuck in status `Released`. How do you re-bind it to a new PVC?
+
+<details>
+<summary>View Diagnostic Workflow & Resolution</summary>
+
+**Root Cause:**  
+When a PVC bound to a `Retain` PV is deleted, the PV transitions to `Released`, not `Available`. It retains a claim reference pointer (`spec.claimRef`) to the deleted PVC, preventing any new PVC from claiming it.
+
+**Diagnostic Commands:**
+```bash
+kubectl get pv
+# STATUS: Released
+```
+
+**Resolution Steps:**
+1. Strip the old `claimRef` from the PV spec so Kubernetes marks it `Available` again:
+   ```bash
+   kubectl patch pv <pv-name> --type json -p '[{"op": "remove", "path": "/spec/claimRef"}]'
+   ```
+2. Verify the PV status changes from `Released` to `Available`:
+   ```bash
+   kubectl get pv <pv-name>
+   ```
+3. Re-create the PVC with the exact same name, capacity, and access mode. It will instantly re-bind to the existing PV with all data intact.
+</details>
+
+---
+
+## 8. Further Reading & Official Documentation
+
+- [Kubernetes Persistent Volumes Official Reference](https://kubernetes.io/docs/concepts/storage/persistent-volumes/)
+- [Kubernetes Storage Classes Guide](https://kubernetes.io/docs/concepts/storage/storage-classes/)
+- [Container Storage Interface (CSI) Specification](https://kubernetes.io/docs/concepts/storage/volumes/#csi)
+- [Managing Stateful Applications with StatefulSets](https://kubernetes.io/docs/concepts/workloads/controllers/statefulset/)
+- [Kubernetes Volume Snapshots and Restores](https://kubernetes.io/docs/concepts/storage/volume-snapshots/)
+
+---
 
 ## Next
 
-[07-helm-package-manager](../07-helm-package-manager/README.md) — you've
-now hand-written a lot of YAML across five object types; Helm lets you
-template and package all of it into a single reusable, versioned unit.
+Continue to [07 - Helm: The Kubernetes Package Manager](../07-helm-package-manager/README.md) to package, template, parameterize, and version entire stacks of Kubernetes manifests into reusable charts.

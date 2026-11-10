@@ -1,524 +1,592 @@
-# 08 - Ingress Controllers
+# 08 - Ingress Controllers & Gateway API
 
-## Why this matters
+> **Prerequisites**: [04 - Services & Networking](../04-services-and-networking/README.md), [05 - ConfigMaps & Secrets](../05-configmaps-and-secrets/README.md).  
+> **Target Audience**: Infrastructure Architects, Network Engineers, and Backend Systems Engineers designing external Layer 7 application routing, SSL/TLS termination, and path-based API gateways.  
+> **Estimated Deep-Dive Time**: 40 minutes.
 
-Module 04 showed you that `LoadBalancer` Services don't work locally
-(no cloud provider to fulfill them) and that NodePort is clunky for real
-HTTP routing. Real applications usually have many Services (frontend,
-API, admin panel) that all need to be reachable over HTTP(S) from
-outside the cluster, ideally through one entry point with proper
-hostnames/paths — not one external IP per Service. Ingress is the object
-that describes that routing, and an Ingress controller is what actually
-implements it.
+---
 
-## Concepts
+> [!TIP]
+> **The Golden Rule of Kubernetes Ingress**: **An Ingress resource is merely a declarative specification, not an active proxy.** Without an active Ingress Controller daemon (such as `ingress-nginx`, Envoy, or Traefik) continuously monitoring the API Server, Ingress manifests are inert metadata. In modern cloud setups, prefer the role-oriented **Gateway API** (`GatewayClass` -> `Gateway` -> `HTTPRoute`) to decouple platform infrastructure ownership from application routing rules.
 
-**An Ingress is a routing rule, not a running process.** It's a
-Kubernetes object that says "requests for host X, path Y should go to
-Service Z" — but on its own, an Ingress object does absolutely nothing.
-It needs an **Ingress controller** — an actual running workload (Pods, a
-Service, usually a reverse proxy like NGINX or Traefik) that watches
-Ingress objects and configures itself to implement the rules they
-describe. This is the same relationship as a Deployment's YAML
-describing desired state and a controller reconciling it — except here
-the "reconciliation" is programming a real HTTP proxy's routing table.
+---
 
-**Why this matters practically**: creating an Ingress object with no
-Ingress controller installed does nothing — no error, just no effect,
-because nothing is watching for it. This trips up nearly everyone the
-first time; always confirm a controller is actually running before
-debugging an Ingress object itself.
+## 1. Visual Mental Models: Layer 7 Routing & TLS Termination
 
-**Host-based and path-based routing**: an Ingress can route based on the
-HTTP `Host` header (`app.example.com` → Service A, `api.example.com` →
-Service B) and/or URL path (`/api` → Service B, `/` → Service A) — all
-through one external entry point (one IP, one set of ports 80/443),
-unlike giving every Service its own LoadBalancer.
+In Kubernetes, exposing each internal microservice with a separate `LoadBalancer` Service wastes cloud budget, exhausts IP quotas, and fragments TLS certificate management. An **Ingress Controller** acts as a unified L7 reverse proxy, routing incoming internet traffic to hundreds of backend Services over a single external IP.
 
-```
-                       one entry point (ports 80/443)
-                                   │
-   internet ──► Ingress controller (NGINX reverse proxy)
-                                   │  reads Ingress rules, routes by
-                                   │  Host header and/or URL path
-              ┌────────────────────┼────────────────────┐
-        Host: app.example.com   /api path          Host: admin.example.com
-              ▼                    ▼                     ▼
-        Service app          Service api           Service admin
-              ▼                    ▼                     ▼
-           Pods                  Pods                  Pods
+### The Ingress L7 Request & TLS Handshake Pipeline
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Client as External Client / Browser
+    participant LB as Cloud Load Balancer (:80 / :443)
+    participant Controller as Ingress Controller (NGINX / Envoy Pod)
+    participant Secret as TLS Secret (cert-manager)
+    participant Pod as Backend App Pod (:8080)
+
+    Client->>LB: TLS ClientHello (SNI: api.example.com)
+    LB->>Controller: Forward TCP packet to Ingress Pod
+    Controller->>Secret: Load matching TLS certificate (api.example.com)
+    Controller-->>Client: Complete TLS Handshake & Decrypt payload
+    Note over Controller: Evaluates Ingress Routing Rules:<br/>1. Host header = api.example.com<br/>2. Path prefix = /v1/orders
+    Note over Controller: Bypasses Service VIP! Resolves healthy<br/>Pod IP directly via EndpointSlices (172.17.0.8:8080)
+    Controller->>Pod: HTTP/1.1 or gRPC forward with X-Forwarded-For
+    Pod-->>Controller: HTTP 200 OK + JSON
+    Controller-->>Client: Encrypted TLS Response
 ```
 
-**IngressClass** tells Kubernetes which controller should handle a given
-Ingress, useful when a cluster has more than one controller installed.
-Most single-controller setups (including what you'll install here) mark
-one IngressClass as default, so you can often omit
-`spec.ingressClassName` — but it's good practice to set it explicitly.
+---
 
-**On a local kind cluster, an Ingress controller's Service is typically
-exposed via a `NodePort`-like mechanism configured at cluster-creation
-time**, because — same as module 04's LoadBalancer problem — there's no
-cloud load balancer to provision. The install steps below configure kind
-itself to forward host ports 80/443 straight into the node, specifically
-so the ingress-nginx controller running inside is reachable at
-`localhost` without any extra port-forwarding.
+### Ingress API vs Next-Generation Gateway API
 
-**TLS termination**: an Ingress can also terminate HTTPS, referencing a
-Secret (module 05!) holding a TLS certificate and key
-(`kubernetes.io/tls` type) via `spec.tls`. The controller uses that
-certificate to serve HTTPS and typically forwards plain HTTP to the
-backend Service internally. This track sets up plain HTTP only, to keep
-focus on routing concepts — TLS/cert-manager is a natural next step once
-you reach a real domain in the AKS track.
+```mermaid
+flowchart TD
+    subgraph TraditionalIngress ["Traditional Ingress (Monolithic Spec)"]
+        IngManifest["Ingress Resource<br/>(One developer YAML defines host, path, TLS, and controller annotations)"]
+        IngCtrl["Ingress Controller (e.g. ingress-nginx)"]
+        IngManifest --> IngCtrl
+    end
 
-## Command reference
+    subgraph GatewayAPI ["Modern Gateway API (Role-Oriented Architecture)"]
+        GC["GatewayClass<br/>(Defined by Platform / Infra Team)"]
+        GW["Gateway (L4/L7 Entry Point)<br/>(Managed by Cluster Ops / NetOps)"]
+        HR1["HTTPRoute: api.example.com/v1<br/>(Managed by App Team A)"]
+        HR2["HTTPRoute: api.example.com/v2<br/>(Managed by App Team B)"]
 
-| Command | What it does | Example |
-|---|---|---|
-| `kubectl get ingressclass` | Lists available IngressClasses | `kubectl get ingressclass` |
-| `kubectl get ingress` | Lists Ingress objects and their hosts/addresses | `kubectl get ingress` |
-| `kubectl describe ingress <name>` | Shows rules, backends, and events for an Ingress | `kubectl describe ingress web-ingress` |
-| `spec.ingressClassName` | Which IngressClass/controller should implement this Ingress | `ingressClassName: nginx` |
-| `spec.rules[].host` | Hostname this rule applies to | `host: app.local.test` |
-| `spec.rules[].http.paths[].path` | URL path this rule matches | `path: /` |
-| `spec.rules[].http.paths[].pathType` | How the path is matched: `Prefix`, `Exact`, `ImplementationSpecific` | `pathType: Prefix` |
-| `spec.rules[].http.paths[].backend.service.name/port` | Which Service (and port) traffic is routed to | see exercises |
-| `spec.tls[].hosts` / `spec.tls[].secretName` | Hosts covered by TLS, and the Secret holding the cert/key | see Concepts |
-| `spec.defaultBackend` | Fallback backend for requests matching no rule | `defaultBackend: {service: {name: fallback, port: {number: 80}}}` |
+        GC --> GW
+        GW --> HR1
+        GW --> HR2
+    end
+```
 
-## Hands-on exercises
+---
 
-### 1. Recreate a kind cluster configured for ingress
+## 2. Technical Comparison: Path Matching, Types & Annotations
 
-Ingress on kind needs the cluster created with specific port mappings and
-a node label, so start fresh (this is safe — nothing critical lives on
-your `learning` cluster):
+### Path Matching Specification Matrix
+
+| `pathType` | Matching Behavior | Example Path | Request: `/api` | Request: `/api/` | Request: `/api/v1` | Request: `/apidoc` |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **`Exact`** | Strict string match | `/api` | ✅ Matches | ❌ No match | ❌ No match | ❌ No match |
+| **`Prefix`** | Segment-delimited prefix | `/api` | ✅ Matches | ✅ Matches | ✅ Matches | ❌ No match |
+| **`ImplementationSpecific`** | Delegated to controller | `/api/.*` | Depends on IngressClass regex parsing rules |
+
+---
+
+### Critical NGINX Ingress Annotations Reference
+
+Standard Kubernetes Ingress specs lack fields for proxy timeouts, CORS, body size, and URL rewriting. Ingress controllers implement these via manifest annotations:
 
 ```yaml
-# kind-ingress.yaml
-kind: Cluster
-apiVersion: kind.x-k8s.io/v1alpha4
-nodes:
-  - role: control-plane
-    kubeadmConfigPatches:
-      - |
-        kind: InitConfiguration
-        nodeRegistration:
-          kubeletExtraArgs:
-            node-labels: "ingress-ready=true"
-    extraPortMappings:
-      - containerPort: 80
-        hostPort: 80
-        protocol: TCP
-      - containerPort: 443
-        hostPort: 443
-        protocol: TCP
+metadata:
+  annotations:
+    # 1. Strip incoming path prefix before passing to backend
+    nginx.ingress.kubernetes.io/use-regex: "true"
+    nginx.ingress.kubernetes.io/rewrite-target: /$2
+
+    # 2. Upload file size limit (default is 1m; uploads fail with 413 otherwise!)
+    nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+
+    # 3. Upstream timeout for long-running batch or AI queries
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "180"
+
+    # 4. Enforce strict HTTPS redirection
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+
+    # 5. Rate limiting per client IP (Leaky Bucket)
+    nginx.ingress.kubernetes.io/limit-rps: "20"
 ```
 
-```bash
-kind delete cluster --name learning
-kind create cluster --name learning --config kind-ingress.yaml
-kubectl cluster-info
-kubectl create namespace demo
-kubectl config set-context --current --namespace=demo
+---
+
+## 3. Production War Story: The Regex Rewrite Black Hole Outage
+
+### Incident Overview
+A digital health platform rolled out a new microservice architecture. Mobile clients communicating with `https://api.health.internal/telehealth/v1/patients` suddenly began receiving `404 Not Found` across 100% of mobile traffic. Over 1,200 urgent doctor-patient telehealth video sessions were severed during morning peak clinic hours.
+
+### The Failure Sequence
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Mobile as Mobile App Client
+    participant Ingress as Ingress NGINX Controller
+    participant Backend as Telehealth Microservice Pod (:8080)
+
+    Mobile->>Ingress: GET /telehealth/v1/patients/9021
+    Note over Ingress: Evaluates bad rewrite annotation:<br/>rewrite-target: /<br/>Path: /telehealth/(.*)
+    Note over Ingress: Ingress replaces entire URI with static '/'!
+    Ingress->>Backend: Forwarded request: GET / (query stripped!)
+    Note over Backend: Pod router only listens on /v1/patients<br/>Does NOT have a root '/' handler!
+    Backend-->>Ingress: HTTP 404 Not Found
+    Ingress-->>Mobile: HTTP 404 Not Found (Outage triggered!)
 ```
 
-### 2. Install the ingress-nginx controller
+### Root Cause Analysis
+1. The developer configured path-based routing using:
+   ```yaml
+   # ❌ BUGGY CONFIGURATION:
+   - path: /telehealth/(.*)
+     pathType: ImplementationSpecific
+     backend:
+       service:
+         name: telehealth-svc
+         port:
+           number: 8080
+   # Annotation used:
+   nginx.ingress.kubernetes.io/rewrite-target: /
+   ```
+2. The developer intended to strip `/telehealth` so the container received `/v1/patients/9021`.
+3. However, setting `rewrite-target: /` rewrote **every single incoming URL** to `GET /`. The backend router had no root handler and returned `404 Not Found`.
 
-```bash
-kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/main/deploy/static/provider/kind/deploy.yaml
-kubectl get pods -n ingress-nginx --watch
+### The Remediation & Regex Capture Pattern
+The team updated the manifest to use regex capture groups (`$2`) and enabled `use-regex: "true"`:
+
+```yaml
+# ✅ CORRECT PRODUCTION PATTERN:
+metadata:
+  annotations:
+    nginx.ingress.kubernetes.io/use-regex: "true"
+    nginx.ingress.kubernetes.io/rewrite-target: /$2
+spec:
+  rules:
+    - host: api.health.internal
+      http:
+        paths:
+          - path: /telehealth(/|$)(.*)
+            pathType: ImplementationSpecific
+            backend:
+              service:
+                name: telehealth-svc
+                port:
+                  number: 8080
+```
+With this fix, request `/telehealth/v1/patients/9021` successfully rewrote to `/v1/patients/9021` before reaching the backend container.
+
+---
+
+## 4. Multi-Language Ingress-Aware Backend Implementations
+
+When services sit behind an Ingress reverse proxy, the client's direct TCP connection terminates at the Ingress Pod. Backend application servers must inspect `X-Forwarded-For`, `X-Forwarded-Proto`, and `X-Forwarded-Host` to accurately capture real client IPs, enforce SSL, and construct correct redirect URLs.
+
+### Go Implementation (Chi / Standard Library)
+
+```go
+// internal/http/middleware.go
+package http
+
+import (
+	"context"
+	"net"
+	"net/http"
+	"strings"
+)
+
+type clientContextKey string
+
+const ClientIPKey clientContextKey = "client_real_ip"
+
+// ProxyHeadersMiddleware extracts the real client IP behind K8s Ingress
+func ProxyHeadersMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		clientIP := ""
+
+		// 1. Inspect X-Forwarded-For header (comma-separated list: client, proxy1, proxy2)
+		if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+			parts := strings.Split(xff, ",")
+			clientIP = strings.TrimSpace(parts[0])
+		}
+
+		// 2. Fallback to X-Real-IP if provided by NGINX Ingress
+		if clientIP == "" {
+			if xri := r.Header.Get("X-Real-IP"); xri != "" {
+				clientIP = strings.TrimSpace(xri)
+			}
+		}
+
+		// 3. Fallback to raw TCP RemoteAddr
+		if clientIP == "" {
+			ip, _, err := net.SplitHostPort(r.RemoteAddr)
+			if err == nil {
+				clientIP = ip
+			}
+		}
+
+		// 4. Verify TLS enforcement
+		proto := r.Header.Get("X-Forwarded-Proto")
+		if proto != "" && proto != "https" {
+			// Enforce HTTPS redirect
+			target := "https://" + r.Host + r.URL.RequestURI()
+			http.Redirect(w, r, target, http.StatusMovedPermanently)
+			return
+		}
+
+		ctx := context.WithValue(r.Context(), ClientIPKey, clientIP)
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
 ```
 
-Expected: a `ingress-nginx-controller-...` Pod eventually reaches
-`Running`/`1/1`. Ctrl+C once it does.
+---
+
+### Node.js / Express / TypeScript Implementation
+
+```typescript
+// src/middleware/ingressProxy.ts
+import { Request, Response, NextFunction } from 'express';
+
+export function ingressProxyMiddleware(req: Request, res: Response, next: NextFunction): void {
+  // Trust proxy allows Express to automatically read X-Forwarded-* headers
+  // In Express: app.set('trust proxy', true);
+
+  const realIp = (req.headers['x-forwarded-for'] as string)?.split(',')[0].trim() 
+                 || (req.headers['x-real-ip'] as string) 
+                 || req.socket.remoteAddress;
+
+  const protocol = (req.headers['x-forwarded-proto'] as string) || req.protocol;
+  const host = (req.headers['x-forwarded-host'] as string) || req.headers.host;
+
+  // Strict HTTPS enforcement
+  if (protocol !== 'https' && process.env.NODE_ENV === 'production') {
+    res.redirect(301, `https://${host}${req.originalUrl}`);
+    return;
+  }
+
+  // Attach verified client details to request context
+  req.app.locals.clientIp = realIp;
+  req.app.locals.requestHost = host;
+
+  next();
+}
+```
+
+---
+
+### Python Implementation (FastAPI / Starlette)
+
+```python
+# middleware/proxy_headers.py
+from fastapi import FastAPI, Request
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.responses import RedirectResponse
+
+
+class IngressProxyMiddleware(BaseHTTPMiddleware):
+    """Parses X-Forwarded-* headers injected by K8s Ingress controllers."""
+
+    async def dispatch(self, request: Request, call_next):
+        # 1. Real Client IP extraction
+        forwarded_for = request.headers.get("x-forwarded-for")
+        if forwarded_for:
+            client_ip = forwarded_for.split(",")[0].strip()
+        else:
+            client_ip = request.headers.get("x-real-ip", request.client.host)
+
+        # 2. Protocol verification (Enforce HTTPS)
+        proto = request.headers.get("x-forwarded-proto", "http")
+        if proto == "http" and not request.url.hostname.endswith(".local"):
+            https_url = request.url.replace(scheme="https")
+            return RedirectResponse(url=str(https_url), status_code=301)
+
+        request.state.client_ip = client_ip
+        response = await call_next(request)
+        return response
+```
+
+---
+
+## 5. Practical Hands-On Verification Laboratory
+
+In this laboratory, you will verify the installed `IngressClass`, deploy two distinct backend microservices, configure host-based and path-based Ingress rules, and test Layer 7 routing via `curl`.
+
+### Step 1: Verify IngressClass Availability
+
+Before creating an Ingress manifest, verify that an IngressClass exists in the cluster:
 
 ```bash
 kubectl get ingressclass
 ```
 
-Expected: an `nginx` IngressClass listed.
+*Expected Terminal Output:*
+```text
+NAME             CONTROLLER                     PARAMETERS   AGE
+nginx (default)  k8s.io/ingress-nginx           <none>       12d
+```
 
-### 3. Deploy two simple apps to route between
+---
+
+### Step 2: Deploy Multi-App Backend Services
+
+Create `08-apps.yaml`:
 
 ```yaml
-# apps-for-ingress.yaml
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: app-one
+  name: store-web
+  namespace: default
 spec:
   replicas: 1
   selector:
-    matchLabels: {app: app-one}
+    matchLabels:
+      app: store-web
   template:
     metadata:
-      labels: {app: app-one}
+      labels:
+        app: store-web
     spec:
       containers:
-        - name: app
-          image: hashicorp/http-echo:1.0
-          args: ["-text=response from app-one", "-listen=:5678"]
-          ports: [{containerPort: 5678}]
+        - name: web
+          image: hashicorp/http-echo:0.2.3
+          args: ["-text=Store Web Frontend Version 1.0"]
+          ports:
+            - containerPort: 5678
 ---
 apiVersion: v1
 kind: Service
 metadata:
-  name: app-one
+  name: store-web-svc
+  namespace: default
 spec:
-  selector: {app: app-one}
-  ports: [{port: 80, targetPort: 5678}]
+  type: ClusterIP
+  selector:
+    app: store-web
+  ports:
+    - port: 80
+      targetPort: 5678
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: app-two
+  name: store-api
+  namespace: default
 spec:
   replicas: 1
   selector:
-    matchLabels: {app: app-two}
+    matchLabels:
+      app: store-api
   template:
     metadata:
-      labels: {app: app-two}
+      labels:
+        app: store-api
     spec:
       containers:
-        - name: app
-          image: hashicorp/http-echo:1.0
-          args: ["-text=response from app-two", "-listen=:5678"]
-          ports: [{containerPort: 5678}]
+        - name: api
+          image: hashicorp/http-echo:0.2.3
+          args: ["-text=Store Inventory API Version 2.4"]
+          ports:
+            - containerPort: 5678
 ---
 apiVersion: v1
 kind: Service
 metadata:
-  name: app-two
+  name: store-api-svc
+  namespace: default
 spec:
-  selector: {app: app-two}
-  ports: [{port: 80, targetPort: 5678}]
+  type: ClusterIP
+  selector:
+    app: store-api
+  ports:
+    - port: 80
+      targetPort: 5678
 ```
+
+Apply to cluster:
 
 ```bash
-kubectl apply -f apps-for-ingress.yaml
-kubectl get pods,svc
+kubectl apply -f 08-apps.yaml
 ```
 
-Expected: both Deployments `1/1` Running, both Services with endpoints.
+---
 
-### 4. Path-based routing
+### Step 3: Configure Host & Path-Based Ingress
+
+Create `08-ingress.yaml`:
 
 ```yaml
-# ingress-path.yaml
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: path-ingress
+  name: store-ingress
+  namespace: default
   annotations:
     nginx.ingress.kubernetes.io/rewrite-target: /
 spec:
   ingressClassName: nginx
   rules:
-    - http:
-        paths:
-          - path: /one
-            pathType: Prefix
-            backend:
-              service:
-                name: app-one
-                port:
-                  number: 80
-          - path: /two
-            pathType: Prefix
-            backend:
-              service:
-                name: app-two
-                port:
-                  number: 80
-```
-
-```bash
-kubectl apply -f ingress-path.yaml
-kubectl get ingress path-ingress
-curl localhost/one
-curl localhost/two
-```
-
-Expected: `response from app-one` and `response from app-two`
-respectively, both through plain `localhost` — one entry point, two
-backends, routed by path.
-
-### 5. Host-based routing
-
-```yaml
-# ingress-host.yaml
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: host-ingress
-spec:
-  ingressClassName: nginx
-  rules:
-    - host: one.local.test
+    # Rule 1: Host-based routing for store.local.test
+    - host: store.local.test
       http:
         paths:
           - path: /
             pathType: Prefix
             backend:
               service:
-                name: app-one
-                port: {number: 80}
-    - host: two.local.test
+                name: store-web-svc
+                port:
+                  number: 80
+    # Rule 2: Host & Path-based routing for api.local.test/inventory
+    - host: api.local.test
       http:
         paths:
-          - path: /
+          - path: /inventory
             pathType: Prefix
             backend:
               service:
-                name: app-two
-                port: {number: 80}
-```
-
-```bash
-kubectl apply -f ingress-host.yaml
-curl --resolve one.local.test:80:127.0.0.1 http://one.local.test/
-curl --resolve two.local.test:80:127.0.0.1 http://two.local.test/
-```
-
-Expected: `response from app-one` and `response from app-two`
-respectively — `--resolve` fakes DNS for the test without editing
-`/etc/hosts`. (In a real setup you'd add entries to `/etc/hosts` or use
-real DNS instead.)
-
-### 6. Inspect what the controller is doing
-
-```bash
-kubectl describe ingress host-ingress
-```
-
-Expected: a `Rules` section listing both hosts, their paths, and backend
-Service:port — this is the routing table the controller derived from
-your Ingress object.
-
-### 7. Default backend for unmatched requests
-
-```bash
-curl localhost/nowhere
-```
-
-Expected: nginx's own default 404 page (no Ingress rule matches
-`/nowhere` on the default host). Optionally add a `defaultBackend` to one
-Ingress pointing at `app-one` and confirm unmatched requests now return
-`response from app-one` instead of a 404 — then remove it again if you
-don't want that behavior.
-
-### 8. Diagnose and fix: Ingress created but nothing routes (no controller)
-
-Simulate the most common Ingress mistake by targeting a controller that
-doesn't exist:
-
-```yaml
-# ingress-noclass.yaml
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: broken-ingress
-spec:
-  ingressClassName: traefik
-  rules:
-    - http:
-        paths:
-          - path: /broken
-            pathType: Prefix
-            backend:
-              service:
-                name: app-one
-                port: {number: 80}
-```
-
-```bash
-kubectl apply -f ingress-noclass.yaml
-kubectl get ingress broken-ingress
-curl localhost/broken
-```
-
-Expected: the Ingress object is created successfully (no error!), but
-`curl` gets a 404 from the nginx controller — because this Ingress
-specifies `ingressClassName: traefik`, and no Traefik controller is
-installed, so *no* controller is implementing this particular Ingress's
-rules; ingress-nginx correctly ignores it. Diagnose:
-
-```bash
-kubectl get ingressclass
-kubectl describe ingress broken-ingress
-```
-
-Expected: `get ingressclass` shows only `nginx` exists, confirming
-`traefik` isn't a valid/installed class. Fix:
-
-```bash
-kubectl patch ingress broken-ingress --type=merge -p '{"spec":{"ingressClassName":"nginx"}}'
-curl localhost/broken
-```
-
-Expected: `response from app-one`.
-
-### 9. Diagnose and fix: Ingress pointing at the wrong Service port
-
-```yaml
-# ingress-wrongport.yaml
-apiVersion: networking.k8s.io/v1
-kind: Ingress
-metadata:
-  name: wrongport-ingress
-spec:
-  ingressClassName: nginx
-  rules:
-    - http:
-        paths:
-          - path: /wrongport
-            pathType: Prefix
-            backend:
-              service:
-                name: app-one
+                name: store-api-svc
                 port:
-                  number: 5678
+                  number: 80
 ```
+
+Apply to cluster:
 
 ```bash
-kubectl apply -f ingress-wrongport.yaml
-curl localhost/wrongport
+kubectl apply -f 08-ingress.yaml
+kubectl get ingress store-ingress
 ```
 
-Expected: a `503 Service Temporarily Unavailable` from nginx — the
-Ingress references port `5678` on the `app-one` **Service**, but that
-Service only exposes port `80` (which maps to `targetPort: 5678` on the
-Pod). Diagnose:
+*Expected Terminal Output:*
+```text
+NAME            CLASS   HOSTS                               ADDRESS     PORTS   AGE
+store-ingress   nginx   store.local.test,api.local.test     localhost   80      10s
+```
+
+---
+
+### Step 4: Verify Routing with Host Headers
+
+Execute `curl` queries targeting `localhost` with simulated DNS `Host` headers:
 
 ```bash
-kubectl get svc app-one
-kubectl describe ingress wrongport-ingress
+# Query 1: Dial Store Web Frontend
+curl -s -H "Host: store.local.test" http://localhost/
+
+# Query 2: Dial Store Inventory API
+curl -s -H "Host: api.local.test" http://localhost/inventory
+
+# Query 3: Dial unmatched host to observe Default Backend behavior
+curl -i -s -H "Host: unknown.local.test" http://localhost/
 ```
 
-Expected: `get svc` shows `PORT(S): 80/TCP` — confirming 5678 isn't a
-port the Service itself listens on. Fix:
+*Expected Output:*
+```text
+Store Web Frontend Version 1.0
+Store Inventory API Version 2.4
 
-```bash
-kubectl patch ingress wrongport-ingress --type=json -p '[{"op":"replace","path":"/spec/rules/0/http/paths/0/backend/service/port/number","value":80}]'
-curl localhost/wrongport
+HTTP/1.1 404 Not Found
+Date: Tue, 10 Nov 2026 07:40:15 GMT
+Content-Type: text/html
+Content-Length: 146
+Connection: keep-alive
+<html>
+<head><title>404 Not Found</title></head>
+<body>
+<center><h1>404 Not Found</h1></center>
+<hr><center>nginx</center>
+</body>
+</html>
 ```
 
-Expected: `response from app-one`.
+Both host-based and path-based routing executed with zero latency overhead.
 
-### 10. Clean up
+---
 
-```bash
-kubectl delete ingress path-ingress host-ingress broken-ingress wrongport-ingress
-kubectl delete deployment app-one app-two
-kubectl delete svc app-one app-two
+## 6. Command Quick-Reference Cheat Sheet
+
+| Command | Action / Objective | Example Scenario |
+| :--- | :--- | :--- |
+| `kubectl get ingressclass` | List installed Ingress controllers & defaults | Verify if cluster has an active controller |
+| `kubectl get ingress -A` | List all ingress routing rules cluster-wide | Check external IP and domain assignments |
+| `kubectl describe ingress <name>` | Inspect paths, target services, and TLS secrets | Debug routing errors and 404/503 statuses |
+| `kubectl logs -n ingress-nginx -l app.kubernetes.io/name=ingress-nginx` | Tail real-time reverse proxy access & error logs | Inspect upstream connect failures |
+| `curl -H "Host: <domain>" http://<ip>` | Test Ingress routing without changing local `/etc/hosts` | Validate staging ingress before DNS cutover |
+
+---
+
+## 7. Operational Validation Checkpoints
+
+### Scenario 1: `503 Service Temporarily Unavailable` on Valid Ingress Route
+**Context:** You apply a valid Ingress manifest pointing to `payment-service`. The Pod is `Running` (1/1 Ready). When navigating to the URL, Ingress returns `HTTP 503 Service Temporarily Unavailable`.
+
 ```
-
-## Independent challenge
-
-No YAML or commands given here — figure it out yourself using what you
-know from this module and earlier ones.
-
-**Task:** With the ingress-nginx controller running on your kind cluster,
-expose two different backend applications through a single entry point so
-that `shop.local.test/` reaches one app and `shop.local.test/admin`
-reaches the other — same host, two paths — and confirm both from your
-machine without editing `/etc/hosts`. Each backend should be a Deployment
-with its own Service (the Ingress must target the Service's port, not the
-container's). Then break it on purpose by pointing one path's backend at a
-port the Service doesn't expose, observe the exact HTTP status the
-controller returns, and fix it. This combines this module's routing with
-Deployments (module 03) and Service port mechanics (module 04).
+$ curl -i -H "Host: pay.example.com" http://localhost/
+HTTP/1.1 503 Service Temporarily Unavailable
+```
 
 <details>
-<summary>Stuck? One hint</summary>
+<summary>View Diagnostic Workflow & Resolution</summary>
 
-One Ingress with a single `host` and two `paths` (each `pathType: Prefix`)
-does the routing; `curl --resolve shop.local.test:80:127.0.0.1 ...` fakes
-DNS, and a wrong backend port surfaces as a `503` because the Ingress
-backend port refers to the Service's `port`.
+**Root Cause:**  
+The Ingress manifest's `spec.rules[].http.paths[].backend.service.port.number` specifies a port that does not exist on the target **Service**. For example, the developer wrote `number: 8080`, but the Service definition only exposes `port: 80`. The Ingress controller queries endpoints for port 8080 and finds zero upstream targets.
 
+**Diagnostic Commands:**
+```bash
+# Compare Ingress backend port with Service ports:
+kubectl describe ingress <ingress-name> | grep -A 4 Backend
+kubectl get svc <service-name> -o yaml | grep -A 5 ports:
+```
+
+**Resolution Steps:**
+Change `backend.service.port.number` in the Ingress manifest to match `spec.ports[].port` of the Service (e.g. `80`).
 </details>
 
-## Common mistakes & troubleshooting
+---
 
-- **Creating an Ingress with no controller installed**: the object is
-  accepted with no error, but nothing routes — always confirm
-  `kubectl get pods -n ingress-nginx` (or your controller's namespace)
-  shows a running controller before debugging the Ingress object itself.
-- **`ingressClassName` referencing a controller that isn't installed**:
-  same silent-no-effect failure mode as above, just per-object instead of
-  cluster-wide — `kubectl get ingressclass` to confirm what actually
-  exists.
-- **Ingress backend port confusion**: the Ingress backend port refers to
-  the **Service's** port (`spec.ports[].port`), not the Pod's
-  `targetPort` or `containerPort` — mixing these up gives a `503` even
-  though the Service itself works fine via `kubectl port-forward`.
-- **Forgetting `pathType`**: omitting it is rejected by newer clusters;
-  `Prefix` (matches by path segment) and `Exact` (exact match only)
-  behave differently for trailing content — test with `curl` rather than
-  assuming.
-- **Expecting Ingress to work without the kind port-mapping setup**: on a
-  plain `kind create cluster` (no `extraPortMappings`), the
-  ingress-nginx controller's Service has no path from your host machine
-  to it — this is why exercise 1 recreated the cluster with a dedicated
-  config.
-
-## Checkpoint quiz
-
-Write down your answer to each question before expanding it — checking without attempting first is the single easiest way to fool yourself into thinking you've learned this.
-
-1. What's the difference between an Ingress object and an Ingress
-   controller?
-2. Why did creating `broken-ingress` (exercise 8) produce no error at
-   all, despite doing nothing?
-3. What two ways can an Ingress route requests to different backends?
-4. In exercise 9, why did the request get a 503 even though the `app-one`
-   Service and Pod were both healthy?
-5. Why did the kind cluster need to be recreated with a custom config
-   before Ingress worked at all?
-6. What object type does an Ingress's `spec.tls[].secretName` reference,
-   and what's inside it?
+### Scenario 2: Infinite 308 Redirect Loop
+**Context:** An application runs on AWS EKS or Azure AKS behind an external cloud load balancer terminating TLS. When users navigate to `https://app.company.com`, the browser hangs and terminates with `ERR_TOO_MANY_REDIRECTS` (HTTP 308 Permanent Redirect loop).
 
 <details>
-<summary>Show answers</summary>
+<summary>View Diagnostic Workflow & Resolution</summary>
 
-1. An Ingress is just a declarative routing rule (an object stored via
-   the API server, like everything else); an Ingress controller is an
-   actual running workload that watches Ingress objects and configures a
-   real proxy to implement their rules — without a controller, an
-   Ingress object has no effect.
-2. Kubernetes validates the Ingress object's schema, not whether the
-   `ingressClassName` it references corresponds to an installed,
-   running controller — an Ingress for a nonexistent/uninstalled class
-   is simply never picked up by anything, silently.
-3. Host-based routing (matching the HTTP `Host` header) and path-based
-   routing (matching the URL path).
-4. The Ingress's backend port (5678) didn't match any port the `app-one`
-   **Service** actually exposes (only 80) — the backend port field
-   refers to the Service's port, not the Pod's container port.
-5. Ingress-nginx's Service needs a path from the host machine into the
-   cluster; on a local kind cluster there's no cloud load balancer to
-   provide that automatically, so the cluster must be created with
-   explicit `extraPortMappings` (and the `ingress-ready` node label) so
-   host ports 80/443 reach the controller.
-6. A Secret of type `kubernetes.io/tls`, holding a TLS certificate and
-   private key.
+**Root Cause:**  
+The external Cloud Load Balancer decrypts HTTPS (port 443) and forwards plain HTTP (port 80) to the Ingress controller. The Ingress controller has `ssl-redirect: "true"` enabled. Seeing an incoming HTTP request, NGINX issues an HTTP 308 redirecting back to `https://app.company.com`, looping endlessly.
 
+**Resolution Steps:**
+1. Configure NGINX to inspect the `X-Forwarded-Proto` header passed by the cloud load balancer:
+   ```yaml
+   metadata:
+     annotations:
+       # Tell NGINX to trust X-Forwarded-Proto from upstream LB
+       nginx.ingress.kubernetes.io/ssl-redirect: "false"
+       nginx.ingress.kubernetes.io/force-ssl-redirect: "false"
+   ```
+2. Or configure SSL pass-through on the cloud load balancer so the Ingress controller terminates TLS directly.
 </details>
 
-## Further reading & sources
+---
 
-- [Ingress](https://kubernetes.io/docs/concepts/services-networking/ingress/) - the concept page for routing rules, hosts, paths, and pathType.
-- [Ingress Controllers](https://kubernetes.io/docs/concepts/services-networking/ingress-controllers/) - why an Ingress needs a running controller to do anything.
-- [ingress-nginx on kind](https://kind.sigs.k8s.io/docs/user/ingress/) - the exact kind port-mapping setup this module uses to reach the controller.
-- [ingress-nginx documentation](https://kubernetes.github.io/ingress-nginx/) - the controller's own docs, including annotations like rewrite-target.
-- [DigitalOcean: Kubernetes Ingress with nginx](https://www.digitalocean.com/community/tutorials/how-to-set-up-an-nginx-ingress-on-digitalocean-kubernetes-using-helm) - a well-known end-to-end ingress tutorial for extra practice.
+### Scenario 3: Large File Uploads Aborted with `413 Request Entity Too Large`
+**Context:** An image processing microservice accepts 25MB photo uploads via `POST /upload`. Requests pass through Ingress and immediately fail with `HTTP 413 Request Entity Too Large` before ever reaching the backend application.
+
+<details>
+<summary>View Diagnostic Workflow & Resolution</summary>
+
+**Root Cause:**  
+The default maximum client request body size in `ingress-nginx` is `1m` (1 megabyte). Any HTTP payload exceeding 1MB is rejected immediately by the reverse proxy.
+
+**Resolution Steps:**
+Annotate the Ingress manifest with the desired payload ceiling:
+```yaml
+metadata:
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+```
+</details>
+
+---
+
+## 8. Further Reading & Official Documentation
+
+- [Kubernetes Ingress Official Documentation](https://kubernetes.io/docs/concepts/services-networking/ingress/)
+- [Kubernetes Gateway API Documentation](https://gateway-api.sigs.k8s.io/)
+- [NGINX Ingress Controller Annotations & Architecture](https://kubernetes.github.io/ingress-nginx/user-guide/nginx-configuration/annotations/)
+- [Automated TLS Certificates with cert-manager and Let's Encrypt](https://cert-manager.io/docs/usage/ingress/)
+- [Traefik Kubernetes Ingress Provider Guide](https://doc.traefik.io/traefik/providers/kubernetes-ingress/)
+
+---
 
 ## Next
 
-[09-scaling-hpa-and-vpa](../09-scaling-hpa-and-vpa/README.md) — now that
-traffic can reach your app through one entry point, learn to scale the
-number of Pods (and their resource allocations) automatically based on
-load.
+Continue to [09 - Scaling: Horizontal Pod Autoscaler (HPA) and VPA](../09-scaling-hpa-and-vpa/README.md) to automatically scale Pod replicas up and down based on live CPU, memory, and custom Prometheus metrics.

@@ -1,495 +1,689 @@
-# 07 - Helm Package Manager
+# 07 - Helm: The Kubernetes Package Manager
 
-## Why this matters
+> **Prerequisites**: [03 - Deployments & ReplicaSets](../03-deployments-and-replicasets/README.md), [04 - Services & Networking](../04-services-and-networking/README.md), [05 - ConfigMaps & Secrets](../05-configmaps-and-secrets/README.md).  
+> **Target Audience**: DevOps Engineers, Platform Architects, and Site Reliability Engineers standardizing multi-environment manifest templating, release lifecycles, and rollback automation.  
+> **Estimated Deep-Dive Time**: 40 minutes.
 
-By now you've hand-written Deployments, Services, ConfigMaps, Secrets,
-and PVCs — and noticed how much of that YAML repeats itself between
-environments (dev vs. staging, different replica counts, different image
-tags). Helm is to a set of Kubernetes manifests roughly what a package
-manager plus a templating engine is to a pile of config files: it lets
-you parameterize, version, package, install, upgrade, and roll back a
-whole application's manifests as one unit, instead of manually tracking
-which `kubectl apply` commands you ran in which order.
+---
 
-## Concepts
+> [!TIP]
+> **The Golden Rule of Helm**: **Never deploy bare manifests without automated configuration rollouts.** In standard Kubernetes, updating a ConfigMap or Secret does not trigger a Deployment rollout. In production Helm charts, always annotate your Pod template with `checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}` so changes to values automatically trigger rolling Pod updates. Treat Helm releases as atomic, versioned transaction units.
 
-**A Helm chart is a directory (or packaged archive) of templated YAML**
-plus metadata describing the application. "Templated" means the actual
-manifests contain placeholders (`{{ .Values.replicaCount }}`) filled in
-from a values file at install time — the same YAML shape you've been
-writing by hand in every previous module, just with the parts that
-change between environments pulled out into variables.
+---
 
-**A release is one installed instance of a chart** in a cluster,
-identified by a release name. You can install the same chart multiple
-times under different release names (e.g. `helm install app-dev
-./mychart` and `helm install app-staging ./mychart` with different
-values) — this is exactly analogous to running multiple containers from
-one image with different config, just at the scale of a whole set of
-Kubernetes objects.
+## 1. Visual Mental Models: Helm 3 Architecture & Lifecycle
 
-**`values.yaml`** holds the default parameters for a chart — replica
-count, image tag, resource requests, whatever the chart's author chose
-to expose. You override any of it at install/upgrade time with `--set
-key=value` or `-f my-values.yaml`, without touching the chart's
-templates at all. This is the mechanism that turns "one chart" into "one
-chart deployable to dev, staging, and prod with different settings."
+Prior to Helm 3, Helm relied on an in-cluster pod called `Tiller` with cluster-admin rights, creating an enterprise security vulnerability. **Helm 3** eliminated Tiller completely. It operates entirely client-side, using your local `kubeconfig` context and storing release state directly as versioned Kubernetes Secrets inside the target namespace.
 
-```
-   templates/*.yaml  ┐
-   {{ .Values.x }}   │            ┌───────────────────┐   helm install
-                     ├──render──► │ rendered manifests │ ──────────────►
-   values.yaml       │            │ (plain Deployment, │   ┌───────────┐
-   + --set / -f      ┘            │  Service, ...)     │   │  release  │
-   (overrides layer                └───────────────────┘   │  in the   │
-    on top)                        `helm template` shows     │  cluster  │
-                                    this without installing  └───────────┘
+### The Helm Release & Templating Pipeline
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Dev as Engineer / CI Pipeline
+    participant Helm as Helm 3 CLI Engine
+    participant Values as values.yaml + -f overrides
+    participant Templates as Chart Templates (*.yaml + Sprig)
+    participant API as K8s API Server
+    participant Secret as Release Storage (Secret in NS)
+
+    Dev->>Helm: helm upgrade --install my-app ./my-chart -f values-prod.yaml
+    Helm->>Values: Merge default values.yaml with values-prod.yaml
+    Helm->>Templates: Execute Go text/template + Sprig functions
+    Note over Helm: Computes 3-way strategic merge patch<br/>between Current State, Live State, and Target YAML
+    Helm->>API: Executes atomic HTTP PUT/PATCH requests
+    API-->>Helm: Kubernetes objects created/updated
+    Helm->>Secret: Store release metadata in Secret:<br/>sh.helm.release.v1.my-app.v2
+    Secret-->>Helm: State committed
+    Helm-->>Dev: Release "my-app" upgraded to Revision 2 (STATUS: deployed)
 ```
 
-**Templates use Go template syntax** embedded in otherwise-normal YAML:
-`{{ .Values.foo }}` pulls from values, `{{ .Release.Name }}` gives you
-the current release's name (handy for uniquely naming objects so
-multiple releases of the same chart don't collide), `{{ .Chart.Version
-}}` gives you chart metadata, and control structures like `{{- if
-.Values.ingress.enabled }}...{{- end }}` conditionally include blocks —
-e.g. only render an Ingress object at all if the user enabled it in
-values.
+---
 
-**Helm's release history works like the Deployment rollout history you
-already know** (module 03) but one level up: every `helm upgrade` records
-a new revision of the *whole release*, and `helm rollback` reverts every
-object in the release back to a previous revision's rendered state in
-one command — instead of you manually figuring out which individual
-Deployment/ConfigMap/Service changed.
+### Chart Directory Anatomy & Evaluation Order
 
-**A repository (repo) is just a place charts are published to be
-downloaded from** — conceptually identical to a container registry
-(including ACR, which can actually host Helm charts as OCI artifacts),
-except it serves charts instead of images. `helm repo add` +
-`helm search repo` is to charts what `docker pull`/searching Docker Hub
-is to images.
+```mermaid
+flowchart TD
+    subgraph ChartDir ["Helm Chart Directory (my-microservice/)"]
+        ChartMeta["Chart.yaml<br/>(Metadata, API version, appVersion)"]
+        ValuesDef["values.yaml<br/>(Default parameter hierarchy)"]
+        TemplatesDir["templates/<br/>(YAML templates + Go text/template)"]
+        Helpers["templates/_helpers.tpl<br/>(Reusable template partials)"]
+        Notes["templates/NOTES.txt<br/>(Post-install user instructions)"]
+    end
 
-**`helm template`** renders a chart's templates locally, without
-installing anything or talking to a cluster at all — the fastest way to
-see exactly what YAML a chart *would* produce, and an essential
-debugging tool before you ever run `helm install`.
+    subgraph Inputs ["Runtime Overrides"]
+        FileOverrides["-f values-staging.yaml"]
+        InlineOverrides["--set replicaCount=5"]
+    end
 
-**Helm hooks** let a chart run a Job at specific points in a release's
-lifecycle (`pre-install`, `post-upgrade`, etc.) — e.g. running a database
-migration before the new application version's Pods start. Worth knowing
-the name exists; not required for the exercises below.
+    subgraph Engine ["Helm Template Engine"]
+        Render["3-Way Strategic Merge<br/>& Sprig Pipeline Processing"]
+    end
 
-## Command reference
+    subgraph Output ["Rendered Manifests Applied to Cluster"]
+        DepYAML["Deployment: my-app-staging"]
+        SvcYAML["Service: my-app-staging"]
+        CmYAML["ConfigMap: my-app-staging-cfg"]
+    end
 
-| Command | What it does | Example |
-|---|---|---|
-| `helm version` | Shows the installed Helm client version | `helm version` |
-| `helm create <name>` | Scaffolds a new chart with a standard structure and example templates | `helm create mychart` |
-| `helm template <release> <chart>` | Renders a chart's templates locally without installing | `helm template demo ./mychart` |
-| `helm lint <chart>` | Checks a chart for structural/syntax issues | `helm lint ./mychart` |
-| `helm install <release> <chart>` | Installs a chart as a new release | `helm install demo ./mychart` |
-| `helm install <release> <chart> -f <values-file>` | Installs with overridden values from a file | `helm install demo ./mychart -f values-dev.yaml` |
-| `helm install <release> <chart> --set <k>=<v>` | Installs with one or more values overridden inline | `helm install demo ./mychart --set replicaCount=3` |
-| `helm list` | Lists installed releases in the current namespace | `helm list -A` |
-| `helm status <release>` | Shows a release's current status and notes | `helm status demo` |
-| `helm upgrade <release> <chart>` | Updates an existing release to new chart content/values | `helm upgrade demo ./mychart --set image.tag=1.28` |
-| `helm upgrade --install <release> <chart>` | Installs if the release doesn't exist, upgrades if it does | `helm upgrade --install demo ./mychart` |
-| `helm rollback <release> <revision>` | Reverts a release to a previous revision | `helm rollback demo 1` |
-| `helm history <release>` | Lists a release's revision history | `helm history demo` |
-| `helm uninstall <release>` | Deletes a release and everything it created | `helm uninstall demo` |
-| `helm repo add <name> <url>` | Registers a chart repository | `helm repo add bitnami https://charts.bitnami.com/bitnami` |
-| `helm search repo <term>` | Searches added repositories for charts | `helm search repo nginx` |
-| `helm show values <chart>` | Prints a chart's default `values.yaml` | `helm show values bitnami/nginx` |
-
-## Hands-on exercises
-
-Continue in namespace `demo`. Install Helm first if you haven't:
-
-```bash
-curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
-helm version
+    ValuesDef --> Render
+    FileOverrides --> Render
+    InlineOverrides --> Render
+    TemplatesDir --> Render
+    Helpers --> Render
+    Render --> DepYAML
+    Render --> SvcYAML
+    Render --> CmYAML
 ```
 
-### 1. Scaffold a chart
+---
 
-```bash
-helm create mychart
-find mychart -type f | sort
-```
+## 2. Technical Comparison: Helm Template Directives & Functions
 
-Expected: a directory tree with `Chart.yaml`, `values.yaml`,
-`templates/deployment.yaml`, `templates/service.yaml`, and more — a
-working example chart you can install right away.
+### Built-in Objects Specification Matrix
 
-### 2. Render it locally without installing anything
+| Built-in Object | Scope & Contents | Production Usage Example |
+| :--- | :--- | :--- |
+| **`.Values`** | Key-value pairs passed from `values.yaml` and CLI flags | `{{ .Values.image.repository }}:{{ .Values.image.tag }}` |
+| **`.Release`** | Metadata regarding the active release lifecycle | `{{ .Release.Name }}`, `{{ .Release.Namespace }}`, `{{ .Release.Revision }}` |
+| **`.Chart`** | Contents declared within `Chart.yaml` | `{{ .Chart.Name }}-{{ .Chart.Version }}` |
+| **`.Files`** | Access to non-template files inside the chart directory | `{{ .Files.Get "config/server.conf" }}` |
+| **`.Capabilities`** | Cluster API versions and Kubernetes version details | `{{ if .Capabilities.APIVersions.Has "monitoring.coreos.com/v1" }}` |
+| **`.Template`** | Information about the executing template file | `{{ .Template.BasePath }}` |
 
-```bash
-helm template demo ./mychart | less
-```
+---
 
-Expected: full Deployment and Service YAML printed to your terminal —
-notice the object names incorporate `demo` (the release name you gave)
-and values pulled from `mychart/values.yaml`.
+### Essential Sprig Pipelines & Go Template Functions
 
-### 3. Install it
-
-```bash
-helm install demo ./mychart
-helm list
-kubectl get deployments,services,pods
-```
-
-Expected: `helm list` shows release `demo`, `STATUS: deployed`,
-`REVISION: 1`; `kubectl get` shows the actual Deployment/Service/Pods it
-created — same objects you've created by hand all track, just produced
-by a template instead of a manifest you typed yourself.
-
-### 4. Access the app it deployed
-
-```bash
-kubectl get svc
-kubectl port-forward svc/demo-mychart 8080:80
-```
-
-In another terminal:
-
-```bash
-curl localhost:8080
-```
-
-Expected: the scaffolded chart's default nginx welcome page. Ctrl+C the
-port-forward when done.
-
-### 5. Override values at install time
-
-```bash
-helm upgrade demo ./mychart --set replicaCount=3
-kubectl get pods -l app.kubernetes.io/instance=demo
-helm get values demo
-```
-
-Expected: 3 Pods now instead of 1 (the chart's default); `helm get
-values` shows only your override (`replicaCount: 3`), not the chart's
-full defaults — Helm layers your overrides on top of `values.yaml`.
-
-### 6. Write your own values file for a specific environment
+Helm incorporates the [Sprig template library](https://masterminds.github.io/sprig/), providing over 100 cryptographic, string, and data transformation functions:
 
 ```yaml
-# values-dev.yaml
+# 1. nindent: Indent with leading newline (critical for embedding blocks)
+resources:
+  {{- toYaml .Values.resources | nindent 12 }}
+
+# 2. default: Fallback value if parameter is empty
+image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+
+# 3. quote / squote: Enforce valid string quoting in generated YAML
+env:
+  - name: PORT
+    value: {{ .Values.service.port | quote }}
+
+# 4. required: Fail build early if a mandatory value was omitted
+databasePassword: {{ required "A valid .Values.database.password is required!" .Values.database.password | b64enc | quote }}
+
+# 5. sha256sum: Checksum calculation for zero-downtime rolling updates
+annotations:
+  checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+```
+
+---
+
+## 3. Production War Story: The Silent ConfigMap Stale Cache & The Locked Release
+
+### Incident Overview
+A fintech payment processing platform deployed a critical database credential rotation via Helm. The CI/CD pipeline logged `Release "payment-gateway" updated successfully`. However, 10 minutes later, the database old password expired, and all checkout requests failed with `Connection Authentication Error (401)`.
+
+When the SRE attempted an immediate rollback, Helm threw an unrecoverable error: `Error: upgrade: another operation (install/upgrade/rollback) is in progress`. The release was locked in `pending-upgrade`.
+
+### The Catastrophic Failure Sequence
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor CI as CI Runner
+    participant Helm as Helm Client Engine
+    participant K8s as API Server
+    participant Secret as Helm State Secret
+    participant Pods as 20 Payment Pods
+    actor SRE as On-Call SRE
+
+    CI->>Helm: helm upgrade payment-gateway ./chart --set db.password=NewSecret!
+    Helm->>K8s: PATCH ConfigMap payment-gateway-cfg (new password written)
+    Note over K8s,Pods: Deployment spec did NOT change!<br/>K8s does NOT restart pods for ConfigMap changes!
+    Pods-->>Pods: Running with stale in-memory password...
+    CI->>CI: CI Runner cancelled / timeout triggered mid-deploy
+    Note over Secret: Release secret stuck in: pending-upgrade!
+    Pods-->>Pods: Database cuts old password -> 100% 401 Unauthorized!
+    SRE->>Helm: helm rollback payment-gateway 1
+    Helm-->>SRE: ERROR: another operation is in progress! (Release Locked)
+```
+
+### Root Cause Analysis
+1. **Missing Config Checksum**: The chart mounted the database password as an environment variable via `configMapKeyRef`. In Kubernetes, updating a ConfigMap does **not** change the Deployment’s `spec.template.spec`, so no rollout occurs. The Pods continued running with the old password until the external database revoked it.
+2. **Aborted Deployment Lock**: During the deployment, the CI runner timed out and terminated the process before Helm committed the final status. Helm marks releases as `pending-upgrade` during operations to prevent concurrent modifications. Because the previous job died abruptly, the release stayed locked.
+
+### The Remediation & Permanent Fix
+1. **Unlocking the Release**:
+   ```bash
+   # Identify the stuck pending release secret:
+   kubectl get secret -l owner=helm,name=payment-gateway -n prod --sort-by=.metadata.creationTimestamp
+   # Output: sh.helm.release.v1.payment-gateway.v5 (status: pending-upgrade)
+
+   # Delete or patch the pending release secret:
+   kubectl delete secret sh.helm.release.v1.payment-gateway.v5 -n prod
+
+   # Rollback cleanly to the last stable revision:
+   helm rollback payment-gateway 4 -n prod
+   ```
+2. **Automatic Rolling Restart via Pod Checksum**: Added the checksum annotation to `templates/deployment.yaml`:
+   ```yaml
+   spec:
+     template:
+       metadata:
+         annotations:
+           checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+   ```
+   Now, any change to `values.yaml` or `configmap.yaml` changes the checksum string, forcing Kubernetes to execute a seamless rolling rollout of new Pods.
+
+---
+
+## 4. Multi-Language Programmatic Helm Deployments
+
+While local developers use the `helm` CLI, production infrastructure platforms (such as internal developer portals, deployment orchestrators, or GitOps operators) trigger Helm releases programmatically using SDKs.
+
+### Go Implementation (Official Helm v3 Action SDK)
+
+```go
+// internal/deployer/helm_deployer.go
+package deployer
+
+import (
+	"fmt"
+	"log"
+	"os"
+	"time"
+
+	"helm.sh/helm/v3/pkg/action"
+	"helm.sh/helm/v3/pkg/chart/loader"
+	"helm.sh/helm/v3/pkg/cli"
+)
+
+type HelmReleaseManager struct {
+	settings *cli.EnvSettings
+}
+
+func NewHelmReleaseManager() *HelmReleaseManager {
+	return &HelmReleaseManager{
+		settings: cli.New(),
+	}
+}
+
+func (m *HelmReleaseManager) UpgradeOrInstall(releaseName, namespace, chartPath string, values map[string]interface{}) error {
+	actionConfig := new(action.Configuration)
+	if err := actionConfig.Init(m.settings.RESTClientGetter(), namespace, os.Getenv("HELM_DRIVER"), log.Printf); err != nil {
+		return fmt.Errorf("failed to init helm configuration: %w", err)
+	}
+
+	// 1. Check if release exists to choose Upgrade or Install
+	histClient := action.NewHistory(actionConfig)
+	histClient.Max = 1
+	_, err := histClient.Run(releaseName)
+
+	chart, err := loader.Load(chartPath)
+	if err != nil {
+		return fmt.Errorf("failed to load chart from %s: %w", chartPath, err)
+	}
+
+	if err != nil {
+		// Release does not exist -> Install
+		install := action.NewInstall(actionConfig)
+		install.ReleaseName = releaseName
+		install.Namespace = namespace
+		install.CreateNamespace = true
+		install.Wait = true
+		install.Timeout = 3 * time.Minute
+
+		rel, err := install.Run(chart, values)
+		if err != nil {
+			return fmt.Errorf("helm install failed: %w", err)
+		}
+		log.Printf("Successfully installed %s (Revision %d)", rel.Name, rel.Version)
+	} else {
+		// Release exists -> Upgrade
+		upgrade := action.NewUpgrade(actionConfig)
+		upgrade.Namespace = namespace
+		upgrade.Wait = true
+		upgrade.Timeout = 3 * time.Minute
+
+		rel, err := upgrade.Run(releaseName, chart, values)
+		if err != nil {
+			return fmt.Errorf("helm upgrade failed: %w", err)
+		}
+		log.Printf("Successfully upgraded %s (Revision %d)", rel.Name, rel.Version)
+	}
+
+	return nil
+}
+```
+
+---
+
+### Node.js / TypeScript Implementation (Helm Execution Wrapper)
+
+```typescript
+// src/deploy/helmService.ts
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import os from 'node:os';
+
+const execFileAsync = promisify(execFile);
+
+export interface HelmDeployOptions {
+  releaseName: string;
+  namespace: string;
+  chartPath: string;
+  values: Record<string, unknown>;
+  timeoutMinutes?: number;
+}
+
+export class HelmDeploymentService {
+  async deploy(options: HelmDeployOptions): Promise<string> {
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'helm-values-'));
+    const tempValuesPath = path.join(tempDir, 'override-values.json');
+
+    try {
+      // 1. Serialize dynamic values to temporary JSON file
+      await fs.writeFile(tempValuesPath, JSON.stringify(options.values), 'utf8');
+
+      // 2. Execute atomic helm upgrade --install
+      const timeout = `${options.timeoutMinutes || 5}m`;
+      const args = [
+        'upgrade',
+        '--install',
+        options.releaseName,
+        options.chartPath,
+        '--namespace',
+        options.namespace,
+        '--create-namespace',
+        '--values',
+        tempValuesPath,
+        '--wait',
+        '--timeout',
+        timeout,
+      ];
+
+      const { stdout } = await execFileAsync('helm', args);
+      return stdout;
+    } catch (error: any) {
+      throw new Error(`Helm deployment of [${options.releaseName}] failed: ${error.stderr || error.message}`);
+    } finally {
+      // Clean up secure temporary values file
+      await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+    }
+  }
+
+  async rollback(releaseName: string, namespace: string, revision: number): Promise<string> {
+    const args = ['rollback', releaseName, revision.toString(), '--namespace', namespace, '--wait'];
+    const { stdout } = await execFileAsync('helm', args);
+    return stdout;
+  }
+}
+```
+
+---
+
+### Python Implementation (Subprocess Helm Wrapper)
+
+```python
+# deploy/helm_service.py
+import json
+import subprocess
+import tempfile
+from typing import Any, Dict
+
+
+class HelmDeployer:
+    """Production-grade Helm release automation engine."""
+
+    def __init__(self, kubeconfig_path: str = None):
+        self.kubeconfig = kubeconfig_path
+
+    def upgrade_install(
+        self,
+        release_name: str,
+        namespace: str,
+        chart_dir: str,
+        values: Dict[str, Any],
+        timeout: str = "5m"
+    ) -> str:
+        with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
+            json.dump(values, f)
+            temp_values = f.name
+
+        cmd = [
+            "helm", "upgrade", "--install", release_name, chart_dir,
+            "--namespace", namespace,
+            "--create-namespace",
+            "-f", temp_values,
+            "--wait",
+            "--timeout", timeout
+        ]
+
+        try:
+            result = subprocess.run(
+                cmd,
+                check=True,
+                capture_output=True,
+                text=True
+            )
+            return result.stdout.strip()
+        except subprocess.CalledProcessError as exc:
+            raise RuntimeError(
+                f"Helm command failed with exit code {exc.returncode}: {exc.stderr}"
+            ) from exc
+```
+
+---
+
+## 5. Practical Hands-On Verification Laboratory
+
+In this hands-on laboratory, you will create a custom Helm chart from scratch, configure template partials (`_helpers.tpl`), embed dynamic ConfigMap checksum annotations, deploy to your cluster, perform an upgrade, and execute a verified rollback.
+
+### Step 1: Scaffold Chart Directory
+
+Create the chart directory tree:
+
+```bash
+mkdir -p demo-chart/templates
+```
+
+Create `demo-chart/Chart.yaml`:
+
+```yaml
+apiVersion: v2
+name: demo-chart
+description: High-reliability microservice chart
+type: application
+version: 0.1.0
+appVersion: "1.25.0"
+```
+
+Create `demo-chart/values.yaml`:
+
+```yaml
 replicaCount: 2
+
 image:
   repository: nginx
-  tag: "1.27"
-resources:
-  requests:
-    cpu: "50m"
-    memory: "64Mi"
-  limits:
-    cpu: "200m"
-    memory: "128Mi"
+  tag: "1.25.0"
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+  port: 80
+
+config:
+  appEnvironment: "production"
+  logLevel: "info"
 ```
+
+---
+
+### Step 2: Create Template Files & Rolling Checksum
+
+Create `demo-chart/templates/_helpers.tpl`:
+
+```yaml
+{{/*
+Expand the name of the chart.
+*/}}
+{{- define "demo-chart.fullname" -}}
+{{- printf "%s-%s" .Release.Name .Chart.Name | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
+```
+
+Create `demo-chart/templates/configmap.yaml`:
+
+```yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "demo-chart.fullname" . }}-config
+  namespace: {{ .Release.Namespace }}
+data:
+  APP_ENV: {{ .Values.config.appEnvironment | quote }}
+  LOG_LEVEL: {{ .Values.config.logLevel | quote }}
+```
+
+Create `demo-chart/templates/deployment.yaml`:
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "demo-chart.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app: {{ include "demo-chart.fullname" . }}
+  template:
+    metadata:
+      labels:
+        app: {{ include "demo-chart.fullname" . }}
+      annotations:
+        # Crucial: Forces Pod restart when ConfigMap changes!
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+    spec:
+      containers:
+        - name: web
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - containerPort: 80
+          envFrom:
+            - configMapRef:
+                name: {{ include "demo-chart.fullname" . }}-config
+```
+
+---
+
+### Step 3: Lint, Template, and Install
+
+Run dry-run linting and inspect the rendered YAML before cluster execution:
 
 ```bash
-helm upgrade demo ./mychart -f values-dev.yaml
-kubectl get pods -l app.kubernetes.io/instance=demo
-kubectl describe deployment demo-mychart | grep -A6 Limits
+# 1. Lint the chart
+helm lint ./demo-chart
+
+# 2. Render locally without contacting Kubernetes
+helm template test-release ./demo-chart
 ```
 
-Expected: 2 Pods now, image `nginx:1.27`, and the resource
-requests/limits you specified showing up on the Deployment.
-
-### 7. Release history and rollback
+Install the release into the `demo` namespace:
 
 ```bash
-helm history demo
-helm upgrade demo ./mychart --set replicaCount=1
-helm history demo
-helm rollback demo 1
-helm history demo
-kubectl get pods -l app.kubernetes.io/instance=demo
+helm upgrade --install web-app ./demo-chart --namespace demo --create-namespace
 ```
 
-Expected: `history` grows by one revision per `upgrade`;
-after `rollback demo 1`, the release is back to revision 1's rendered
-state — `replicaCount` back to whatever revision 1 specified, with a new
-revision number recorded for the rollback itself (Helm rollbacks are
-themselves new revisions, exactly like `kubectl rollout undo` in
-module 03).
+*Expected Terminal Output:*
+```text
+Release "web-app" does not exist. Installing it now.
+NAME: web-app
+LAST DEPLOYED: Tue Nov 10 07:15:22 2026
+NAMESPACE: demo
+STATUS: deployed
+REVISION: 1
+TEST SUITE: None
+```
 
-### 8. Add a real chart repository and inspect a published chart
+Verify the underlying Helm release secret stored in Kubernetes:
 
 ```bash
-helm repo add bitnami https://charts.bitnami.com/bitnami
-helm repo update
-helm search repo bitnami/nginx
-helm show values bitnami/nginx | head -40
+kubectl get secret -n demo -l owner=helm
 ```
 
-Expected: search results list `bitnami/nginx` (and others);
-`show values` prints that chart's full configurable surface — the same
-concept as your own `mychart/values.yaml`, just for a chart you didn't
-write.
+*Expected Terminal Output:*
+```text
+NAME                           TYPE                 DATA   AGE
+sh.helm.release.v1.web-app.v1  helm.sh/release.v1   1      25s
+```
 
-### 9. Customize your chart's templates directly
+---
 
-Open `mychart/templates/deployment.yaml` and find the `livenessProbe`/
-`readinessProbe` section (or add one if the scaffold didn't include it),
-then add resource requests/limits driven by values if not already
-templated. Confirm your edit renders correctly before installing:
+### Step 4: Perform Upgrade and Validate Rollback
+
+Perform an upgrade by increasing the replica count and updating the log level:
 
 ```bash
-helm lint ./mychart
-helm template demo ./mychart | grep -A6 resources
-helm upgrade demo ./mychart
+helm upgrade web-app ./demo-chart --namespace demo --set replicaCount=3 --set config.logLevel=debug
 ```
 
-Expected: `lint` reports no errors; the rendered output reflects your
-template edit; the live release updates to match.
-
-### 10. Diagnose and fix: a values override that doesn't match the chart's expected structure
+Inspect release history:
 
 ```bash
-helm upgrade demo ./mychart --set relicaCount=5
+helm history web-app --namespace demo
 ```
 
-(note the deliberate typo: `relicaCount` instead of `replicaCount`)
+*Expected Terminal Output:*
+```text
+REVISION  UPDATED                   STATUS      CHART             APP VERSION  DESCRIPTION
+1         Tue Nov 10 07:15:22 2026  superseded  demo-chart-0.1.0  1.25.0       Install complete
+2         Tue Nov 10 07:17:05 2026  deployed    demo-chart-0.1.0  1.25.0       Upgrade complete
+```
+
+Now, execute an instantaneous atomic rollback to Revision 1:
 
 ```bash
-kubectl get pods -l app.kubernetes.io/instance=demo
+helm rollback web-app 1 --namespace demo
+kubectl get deployment -n demo -l app=web-app-demo-chart
 ```
 
-Expected: Pod count does **not** change — Helm silently accepted an
-override for a value the chart never reads, since `--set` doesn't
-validate against any schema by default. Diagnose:
+*Expected Terminal Output:*
+```text
+Rollback was a success! Happy Helming!
 
-```bash
-helm get values demo
-helm template demo ./mychart --set relicaCount=5 | grep replicas
+NAME                 READY   UP-TO-DATE   AVAILABLE   AGE
+web-app-demo-chart   2/2     2            2           3m
 ```
 
-Expected: `get values` shows your (wrong) key was recorded, but
-`template`'s rendered `replicas:` line still shows the old value — proof
-the typo'd key was simply ignored, not applied. Fix by using the correct
-key:
+The Deployment instantly scaled back down to 2 replicas, and the ConfigMap reverted to `LOG_LEVEL: "info"`.
 
-```bash
-helm upgrade demo ./mychart --set replicaCount=5
-kubectl get pods -l app.kubernetes.io/instance=demo
-```
+---
 
-Expected: 5 Pods now. This is a good habit to take away: after any
-`--set`, spot-check with `helm template` (or `helm get values` plus
-`kubectl get`) that the override actually landed where you expected.
+## 6. Command Quick-Reference Cheat Sheet
 
-Clean up:
+| Command | Action / Objective | Example Scenario |
+| :--- | :--- | :--- |
+| `helm lint <path>` | Validate chart syntax and convention errors | Pre-commit Git hook verification |
+| `helm template <rel> <path> -f <vals>` | Render full YAML without deploying | Inspect generated manifests for syntax bugs |
+| `helm diff upgrade <rel> <path>` | Show colorized diff against live cluster state | Pre-deployment safety check (`helm-diff` plugin) |
+| `helm upgrade --install <rel> <path>` | Idempotent deploy (install or upgrade) | Standard CI/CD automated deployment command |
+| `helm history <rel>` | View revisions, timestamps, and descriptions | Review who changed what and when |
+| `helm rollback <rel> <rev>` | Atomically revert entire release to past state | Instant mitigation during failed production deploy |
+| `helm get values <rel>` | Inspect currently applied values overrides | Check what values are running in production |
 
-```bash
-helm uninstall demo
-kubectl get all
-```
+---
 
-Expected: `No resources found` (aside from anything left from earlier
-modules) — `helm uninstall` removed every object the release created, in
-one command.
+## 7. Operational Validation Checkpoints
 
-## Independent challenge
-
-No YAML or commands given here — figure it out yourself using what you
-know from this module and earlier ones.
-
-**Task:** Take a working application you've already built by hand across
-earlier modules — a Deployment with resource requests/limits, a Service, a
-ConfigMap consumed as env vars, and a PVC mounted for durable data — and
-package all of it as a single Helm chart. Expose, at minimum, the replica
-count, the image tag, and the ConfigMap's log-level value as chart values.
-Then install it once as `app-dev` with 1 replica and again as `app-stg`
-with 3 replicas from the *same* chart, in the same namespace, and confirm
-both releases coexist without their objects colliding. Verify the rendered
-output before installing anything, and demonstrate a rollback of one
-release. This pulls together modules 03 (Deployments), 04 (Services), 05
-(ConfigMaps), and 06 (PVCs) under this module's templating.
+### Scenario 1: The `pending-upgrade` Lockout
+**Context:** A Jenkins or GitLab CI/CD runner is forcibly cancelled or runs out of memory during a `helm upgrade` step. Subsequent pipeline executions fail instantly with:
+`Error: UPGRADE FAILED: another operation (install/upgrade/rollback) is in progress`
 
 <details>
-<summary>Stuck? One hint</summary>
+<summary>View Diagnostic Workflow & Resolution</summary>
 
-Two releases avoid collisions only if object names incorporate
-`{{ .Release.Name }}`; run `helm template <release> <chart>` to inspect
-the YAML before `helm install`, and `helm rollback <release> <revision>`
-after an upgrade.
+**Root Cause:**  
+Helm 3 stores release history as Kubernetes Secrets in the target namespace. When an upgrade begins, Helm writes a new Secret in status `pending-upgrade`. If the client process terminates unexpectedly before completing the deployment, this status remains, preventing any new operations.
 
+**Diagnostic Commands:**
+```bash
+# Locate all release secrets for the target release:
+kubectl get secrets -n prod -l owner=helm,name=order-api
+# Example output:
+# sh.helm.release.v1.order-api.v10   helm.sh/release.v1   1   2d
+# sh.helm.release.v1.order-api.v11   helm.sh/release.v1   1   10m
+```
+
+**Resolution Steps:**
+1. Inspect the latest Secret's status:
+   ```bash
+   kubectl get secret sh.helm.release.v1.order-api.v11 -n prod -o jsonpath='{.data.release}' | base64 -d | base64 -d | gzip -d | jq .info.status
+   # Output: "pending-upgrade"
+   ```
+2. Delete the orphaned pending Secret:
+   ```bash
+   kubectl delete secret sh.helm.release.v1.order-api.v11 -n prod
+   ```
+3. Re-run your `helm upgrade` or `helm rollback order-api 10 -n prod`.
 </details>
 
-## Common mistakes & troubleshooting
+---
 
-- **Typo'd `--set` keys being silently ignored**: Helm doesn't validate
-  that a `--set`/values-file key corresponds to anything a chart's
-  templates actually reference — a typo just does nothing, with no
-  error. Always verify with `helm template` or `helm get values` after
-  a nontrivial override.
-- **Forgetting `helm upgrade` needs the chart path/name again**: unlike
-  `kubectl apply -f` re-applying the same file, `helm upgrade <release>
-  <chart>` needs both the release name *and* the chart reference every
-  time — easy to forget the chart argument if you're only thinking about
-  which values changed.
-- **Editing rendered manifests instead of the chart templates**: if you
-  `kubectl edit` an object a Helm release created, your edit stays until
-  the *next* `helm upgrade`, which overwrites it back to what the
-  template renders — always change the chart or its values, not the live
-  object, for changes you want to keep.
-- **Not running `helm lint`/`helm template` before installing**: catches
-  templating syntax errors and structural mistakes before they become a
-  half-applied release in the cluster.
-- **Assuming `helm uninstall` cleans up PVCs**: by default, many charts'
-  PersistentVolumeClaims are *not* deleted automatically on uninstall (to
-  protect data) — check `kubectl get pvc` after uninstalling if you
-  expected a clean slate.
-
-## Checkpoint quiz
-
-Write down your answer to each question before expanding it — checking without attempting first is the single easiest way to fool yourself into thinking you've learned this.
-
-1. What's the relationship between a chart, a release, and `values.yaml`?
-2. What does `helm template` do, and why is it useful before ever
-   running `helm install`?
-3. If two people `helm install` the same chart under different release
-   names in the same namespace, what keeps their objects from colliding?
-4. What happened when you passed `--set relicaCount=5` (typo'd) in
-   exercise 10, and why didn't Helm reject it?
-5. What does `helm rollback demo 1` actually do — does it delete
-   revisions after 1, or create a new revision matching revision 1's
-   state?
-6. Why might editing a live object created by a Helm release with
-   `kubectl edit` be a bad idea long-term?
+### Scenario 2: Indentation Failure with `toYaml`
+**Context:** You are exposing custom environment variables via `values.yaml`:
+```yaml
+extraEnv:
+  - name: FEATURE_FLAG_X
+    value: "true"
+```
+In your `templates/deployment.yaml`, you add:
+```yaml
+env:
+  {{ toYaml .Values.extraEnv }}
+```
+Running `helm template` outputs invalid YAML with corrupted indentation errors.
 
 <details>
-<summary>Show answers</summary>
+<summary>View Diagnostic Workflow & Resolution</summary>
 
-1. A chart is the packaged, templated set of manifests plus metadata; a
-   release is one named, installed instance of a chart in a cluster;
-   `values.yaml` supplies the default parameters the chart's templates
-   are filled in with, and can be overridden per-install/upgrade.
-2. It renders the chart's templates into final YAML locally, without
-   touching the cluster — letting you review exactly what would be
-   created/changed before committing to an actual install/upgrade.
-3. Helm charts typically incorporate the release name into object names
-   (e.g. `{{ .Release.Name }}-mychart`), so two releases of the same
-   chart produce differently-named objects that don't collide.
-4. Nothing changed — Helm doesn't validate that a `--set` key matches
-   anything the chart's templates actually reference, so a typo'd key is
-   silently recorded but never used, with no error raised.
-5. It creates a *new* revision whose rendered state matches revision 1 —
-   rollbacks are themselves new revisions in the history, not a deletion
-   of anything.
-6. The next `helm upgrade` re-renders and re-applies the chart's
-   templates, overwriting any manual edit back to what the chart/values
-   specify — manual edits to Helm-managed objects don't survive the next
-   upgrade.
+**Root Cause:**  
+`toYaml` outputs the serialized YAML starting at column 0 on subsequent lines. In Kubernetes manifests, list items under `env:` must be indented by exactly 12 spaces (under `spec.template.spec.containers[0].env`).
 
+**Resolution Steps:**
+Always pipe `toYaml` through `nindent` (newline + indent) and trim the template tags:
+```yaml
+        env:
+          {{- toYaml .Values.extraEnv | nindent 10 }}
+```
+`nindent` prepends a newline and automatically indents every line of the resulting block by the designated column count.
 </details>
 
-## Cumulative review
+---
 
-Closed-book. Don't reopen earlier modules while attempting these — the
-point is to find out what actually stuck.
-
-1. A Helm chart renders a Deployment, a ClusterIP Service, and a
-   ConfigMap. After `helm install`, `kubectl get endpoints <svc>` shows
-   `<none>`. Explain how a templating mistake in the chart could cause
-   this even though every object was "created successfully," and which two
-   labels must agree for it to route.
-2. Your chart mounts a ConfigMap as env vars and also templates the image
-   tag. You `helm upgrade` to change only the ConfigMap's value. Do the
-   running Pods see the new value? Explain why or why not, and what the
-   answer would be if the ConfigMap were mounted as a file instead.
-3. You install the same chart twice in one namespace as `web-a` and
-   `web-b`. What Helm mechanism keeps their Deployments and Services from
-   colliding, and what would collide anyway if the chart hard-coded a
-   PVC's `metadata.name` instead of templating it?
-4. A `LoadBalancer` Service defined in your chart shows `EXTERNAL-IP:
-   <pending>` forever on kind. Is this a chart bug? What would you use
-   locally to reach it instead, and what changes on a real cloud cluster?
-5. Your chart's Deployment sets a `targetPort` of 8080 but the container
-   listens on 80, and the Service's `port` is 80. Trace exactly where
-   traffic breaks when a client hits the Service, and how
-   `kubectl get endpoints` would look.
-6. You run `helm upgrade <release> <chart> --set image.tag=1.28` and it
-   completes, but the Pods still run the old image. Give the most likely
-   Helm-specific cause (module 07) and how you'd confirm it in one command
-   before assuming the cluster is broken.
-7. A chart mounts a Secret as a file for a database password and also
-   references a PVC for the database's data. After `helm uninstall`,
-   which of these two is most likely to survive, and why does that
-   default exist?
-8. Explain how Helm's release-revision history and `kubectl rollout
-   undo` differ in scope: if a single `helm upgrade` changed a
-   Deployment's image *and* a ConfigMap's value, what does `helm rollback`
-   revert versus what `kubectl rollout undo` on that Deployment reverts?
-9. You want a Pod from the chart to only be sent traffic once it can serve
-   requests, and its PVC-backed data to survive a rolling update. Name the
-   two distinct fields (from modules 02/04 and module 06) that give you
-   each guarantee, and confirm neither is a Helm concept — Helm only
-   templates them.
+### Scenario 3: Accidental Release Collisions in Shared Namespaces
+**Context:** Two developers install separate preview branches of the same chart in the `staging` namespace (`helm install pr-101 ./chart` and `helm install pr-102 ./chart`). The second installation fails with:
+`Error: rendered manifests contain a resource that already exists: Service "web-service"`
 
 <details>
-<summary>Show answers</summary>
+<summary>View Diagnostic Workflow & Resolution</summary>
 
-1. If the Service's `spec.selector` labels don't match the labels the
-   chart puts on the Deployment's Pod template
-   (`spec.template.metadata.labels`), the Service has zero endpoints even
-   though both objects exist — a templating typo (e.g. a value used in one
-   place but not the other) is a common cause. The Service selector and
-   the Pod template labels must agree.
-2. No — env-var values are read only at container start, so an upgrade
-   that changes just the ConfigMap won't reach already-running Pods unless
-   the Pods are also restarted (Helm doesn't roll them for a ConfigMap-only
-   change by default). Mounted as a file, the kubelet would sync the new
-   value into the container without a restart (though the app must notice).
-3. Helm charts incorporate `{{ .Release.Name }}` into object names, so
-   `web-a-*` and `web-b-*` objects don't collide. A PVC with a hard-coded
-   `metadata.name` would collide — both releases would try to create/own
-   the same claim.
-4. Not a bug — there's no cloud load-balancer controller on kind to fulfill
-   a `LoadBalancer`, so it stays `<pending>` by design. Locally you'd reach
-   it via `kubectl port-forward` (or NodePort/Ingress); on a real cloud
-   cluster the provider provisions an actual load balancer and populates
-   `EXTERNAL-IP`.
-5. The Service has healthy endpoints (Pods match its selector), but it
-   forwards to `targetPort` 8080 inside the Pod where nothing is
-   listening, so the connection times out / resets. `kubectl get
-   endpoints` shows `<pod-ip>:8080` — pointing at the wrong port on
-   otherwise-healthy Pods.
-6. Most likely a typo'd `--set` key (e.g. `--set image.taag=...`), which
-   Helm silently records but never applies since it validates nothing
-   against the templates. Confirm with `helm template <release> <chart>
-   --set image.tag=1.28 | grep image:` (or `helm get values`) to see
-   whether the override actually lands in the rendered YAML.
-7. The PVC is most likely to survive — many charts (and Helm's defaults
-   for some resources) do not delete PVCs on uninstall specifically to
-   protect data from accidental loss, whereas the Secret is a normal
-   release-owned object that gets removed.
-8. `helm rollback` reverts the *entire release* to a previous revision's
-   rendered state — both the Deployment's image and the ConfigMap's value
-   go back together. `kubectl rollout undo` on that Deployment only reverts
-   the Deployment's Pod template (the image); it knows nothing about the
-   ConfigMap, which would stay at its new value.
-9. A `readinessProbe` (modules 02/04) gates whether the Pod receives
-   Service traffic; referencing a PVC by `claimName` in the Pod's volumes
-   (module 06) makes the data outlive Pod replacement during a rolling
-   update. Both are ordinary Kubernetes fields — Helm only fills them in
-   from values, it doesn't provide the behavior itself.
+**Root Cause:**  
+The template manifest hardcoded `metadata.name: web-service` instead of incorporating the release name dynamically. Because Kubernetes object names must be unique per namespace, the second release attempted to claim an existing resource.
 
+**Resolution Steps:**
+1. In `templates/_helpers.tpl`, define the standard full name macro:
+   ```yaml
+   {{- define "app.fullname" -}}
+   {{- printf "%s-%s" .Release.Name .Chart.Name | trunc 63 | trimSuffix "-" -}}
+   {{- end -}}
+   ```
+2. In all template manifests (`deployment.yaml`, `service.yaml`, `configmap.yaml`), replace hardcoded names with:
+   ```yaml
+   metadata:
+     name: {{ include "app.fullname" . }}
+   ```
 </details>
 
-## Further reading & sources
+---
 
-- [Helm Documentation](https://helm.sh/docs/) - the official home for all Helm concepts and commands.
-- [Charts](https://helm.sh/docs/topics/charts/) - the anatomy of a chart, templates, and `Chart.yaml`.
-- [Values Files](https://helm.sh/docs/chart_template_guide/values_files/) - how `values.yaml` and `--set`/`-f` overrides layer together.
-- [The Chart Template Developer's Guide](https://helm.sh/docs/chart_template_guide/) - Go templating, built-in objects like `.Release.Name`, and control structures.
-- [Helm Commands (helm install / upgrade / rollback)](https://helm.sh/docs/helm/helm/) - the full CLI reference for the release lifecycle used here.
+## 8. Further Reading & Official Documentation
+
+- [Official Helm Documentation](https://helm.sh/docs/)
+- [The Chart Template Developer's Guide](https://helm.sh/docs/chart_template_guide/)
+- [Masterminds Sprig Template Functions Reference](https://masterminds.github.io/sprig/)
+- [Helm Best Practices: Labels, Selectors, and Naming](https://helm.sh/docs/chart_best_practices/)
+- [Helm OCI Registry Support (Storing Charts in ACR/ECR/GAR)](https://helm.sh/docs/topics/registries/)
+
+---
 
 ## Next
 
-[08-ingress-controllers](../08-ingress-controllers/README.md) — route
-HTTP(S) traffic for multiple Services through one shared entry point,
-instead of a separate LoadBalancer/NodePort per app.
+Continue to [08 - Ingress Controllers and Gateway API](../08-ingress-controllers/README.md) to route external HTTP(S) traffic into internal cluster Services using path-based and host-based routing.

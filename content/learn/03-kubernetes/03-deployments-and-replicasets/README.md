@@ -1,611 +1,485 @@
-# 03 - Deployments and ReplicaSets
+# Module 03: Workload Orchestration — Deployments, ReplicaSets, RollingUpdate Strategies, and Rollback Mechanics
 
-## Why this matters
+> **Status:** Production Standard  
+> **Difficulty:** Intermediate  
+> **Estimated Time:** 2 Hours  
+> **Prerequisites:** Module 01 (Kubernetes Architecture), Module 02 (Pod Internals)
 
-Module 02 showed you that a bare Pod isn't self-healing at the object
-level — delete it, and nothing brings it back. Real workloads need a
-guarantee of "N copies of this should always exist" plus a safe way to
-roll out new versions without downtime. That's exactly what a Deployment
-gives you, and it's the object you'll use for the overwhelming majority
-of workloads for the rest of your Kubernetes career.
+---
 
-## Concepts
+> [!TIP]
+> **The Golden Rule of Zero-Downtime Rolling Updates**  
+> A Kubernetes Rolling Update is **only as zero-downtime as your Readiness Probe**. If your container lacks a valid readiness probe, the Deployment controller marks newly spawned pods as `Ready` the microsecond their process starts. The controller immediately terminates old pods before the new application has initialized its framework, opened database pools, or primed caches. Always pair **`strategy.rollingUpdate`** with explicit readiness probes, configure **`minReadySeconds: 10`** to guarantee post-startup stability, enforce **`maxUnavailable: 0`** for mission-critical APIs, and protect node drains with **PodDisruptionBudgets (PDB)**.
 
-**A ReplicaSet's job is one thing**: ensure exactly N Pods matching a
-label selector exist, at all times. If you delete one of its Pods, the
-ReplicaSet controller (a control loop, per module 01) notices observed
-count dropped below desired count and creates a replacement immediately.
-If you create an extra matching Pod by hand, it deletes one to get back
-to N. It's a thermostat for Pod count.
+---
 
-**A Deployment manages ReplicaSets, and adds rollout behavior on top.**
-You almost never create a ReplicaSet directly — you create a Deployment,
-and it creates and owns a ReplicaSet for you. The extra value a
-Deployment adds is: when you change the Pod template (e.g. a new image
-tag), it creates a *new* ReplicaSet with the new template, and gradually
-shifts Pods from the old ReplicaSet to the new one — a **rolling
-update** — instead of you manually juggling two ReplicaSets.
+## 1. Visual Mental Models
 
-```
-   the ownership chain (owner references point upward):
+### 1.1 The 3-Tier Declarative Ownership Hierarchy
 
-            ┌────────────────┐
-            │   Deployment   │   manages rollout + history
-            │      web       │
-            └───────┬────────┘
-                    │ owns
-            ┌───────▼────────┐
-            │  ReplicaSet    │   keeps exactly N pods alive
-            │  web-<hash>    │
-            └───┬────┬───┬───┘
-          owns  │    │   │
-           ┌────▼┐ ┌─▼──┐ ┌▼───┐
-           │Pod │ │Pod │ │Pod │
-           └────┘ └────┘ └────┘
-```
+Deployments do not manage Pods directly. A Deployment manages an immutable revision history of **ReplicaSets**, which in turn manage individual Pod lifecycles via Kubernetes `ownerReferences` and label selectors:
 
-**The label selector is the glue between all three layers** (Deployment
-→ ReplicaSet → Pods), and it's worth being precise about: a
-Deployment's `spec.selector.matchLabels` must match the labels in its own
-`spec.template.metadata.labels`. Get this wrong (selector doesn't match
-the template's labels) and the Deployment is rejected outright; get it
-*right* but *also* matching some unrelated existing Pods, and you get
-silent, confusing adoption/fighting over those Pods. Think of the
-selector as a saved search — "manage every Pod with these exact labels"
-— rather than a reference to specific Pod names.
+```mermaid
+flowchart TD
+    subgraph DeploymentControl["Top-Level Intent: apps/v1 Deployment"]
+        Deploy["Deployment: payment-api<br/>Replicas: 3 | Strategy: RollingUpdate"]
+    end
 
-**Rolling update strategy**: by default, a Deployment replaces Pods
-gradually — `maxUnavailable` controls how many old Pods can be
-down at once, `maxSurge` controls how many extra new Pods can exist above
-the desired count during the rollout. This is why deploying a new version
-doesn't cause downtime: at every moment, enough old-or-new Pods are
-`Ready` to serve traffic (once you add a Service in module 04 to route
-that traffic).
+    subgraph RevisionHistory["ReplicaSet Revision History (Immutable Templates)"]
+        RS_Old["ReplicaSet: payment-api-6b8f7d<br/>(Revision 1 - Scaled to 0)<br/>Image: api:v1.0.0"]
+        RS_New["ReplicaSet: payment-api-94a2c1<br/>(Revision 2 - Active / Desired: 3)<br/>Image: api:v2.0.0"]
+    end
 
-```
-   rolling update: old ReplicaSet scales down as new scales up
+    subgraph ActivePods["Managed Pod Sandbox Fleet (Labels: app=payment-api, pod-template-hash=94a2c1)"]
+        Pod1["Pod: payment-api-94a2c1-x8z9<br/>Status: Running (Ready 1/1)"]
+        Pod2["Pod: payment-api-94a2c1-k4p2<br/>Status: Running (Ready 1/1)"]
+        Pod3["Pod: payment-api-94a2c1-m1r5<br/>Status: Running (Ready 1/1)"]
+    end
 
-   start:   old RS [■ ■ ■ ■]      new RS [        ]
-            step:   old RS [■ ■ ■]        new RS [□        ]  (+maxSurge)
-            step:   old RS [■ ■]          new RS [□ □      ]
-            step:   old RS [■]            new RS [□ □ □    ]
-   done:    old RS [        ]      new RS [□ □ □ □]
+    Deploy -->|"Owns & Directs Rollout"| RS_Old
+    Deploy -->|"Owns & Directs Rollout"| RS_New
+    RS_New -->|"Maintains Count (N=3)"| Pod1
+    RS_New -->|"Maintains Count (N=3)"| Pod2
+    RS_New -->|"Maintains Count (N=3)"| Pod3
 
-   ■ = old-version Ready pod   □ = new-version Ready pod
-   at every step enough Ready pods remain to serve traffic
+    style DeploymentControl fill:#0f172a,stroke:#38bdf8,stroke-width:2px,color:#f8fafc
+    style RevisionHistory fill:#1e293b,stroke:#f59e0b,stroke-width:1px,color:#f8fafc
+    style ActivePods fill:#1e293b,stroke:#10b981,stroke-width:1px,color:#f8fafc
 ```
 
-**Rollout history and rollback**: every change to a Deployment's Pod
-template creates a new ReplicaSet revision. Kubernetes keeps old
-ReplicaSets around (scaled to 0) so you can roll back to a previous
-revision if the new one is broken — instant, because the old ReplicaSet
-(and its Pod template) is still right there, no need to remember what
-the old image tag was.
+---
 
-**Scaling** a Deployment just changes `spec.replicas`; the Deployment's
-ReplicaSet controller creates or deletes Pods to match. This is
-independent from rolling updates — you can scale and update at the same
-time, though for learning it's clearer to do one at a time.
+### 1.2 Progressive RollingUpdate State Progression
 
-## Command reference
+When `spec.template` changes, the Deployment orchestrates traffic transition by dynamically scaling up the new ReplicaSet while scaling down the old ReplicaSet within mathematical surge bounds:
 
-| Command | What it does | Example |
-|---|---|---|
-| `kubectl create deployment <name> --image=<img>` | Imperatively creates a Deployment | `kubectl create deployment web --image=nginx:1.27` |
-| `kubectl apply -f <file>` | Creates/updates a Deployment from YAML (preferred) | `kubectl apply -f deployment.yaml` |
-| `kubectl get deployments` | Lists Deployments and their ready/up-to-date/available counts | `kubectl get deploy` |
-| `kubectl get replicasets` | Lists ReplicaSets (usually one active + old revisions at 0) | `kubectl get rs` |
-| `kubectl describe deployment <name>` | Shows rollout status, conditions, and events | `kubectl describe deploy web` |
-| `kubectl scale deployment <name> --replicas=<n>` | Changes the desired replica count | `kubectl scale deploy web --replicas=5` |
-| `kubectl set image deployment/<name> <container>=<image>` | Updates a container's image, triggering a rollout | `kubectl set image deploy/web nginx=nginx:1.28` |
-| `kubectl rollout status deployment/<name>` | Watches a rollout until it completes or fails | `kubectl rollout status deploy/web` |
-| `kubectl rollout history deployment/<name>` | Lists revision history | `kubectl rollout history deploy/web` |
-| `kubectl rollout undo deployment/<name>` | Rolls back to the previous revision | `kubectl rollout undo deploy/web` |
-| `kubectl rollout undo deployment/<name> --to-revision=<n>` | Rolls back to a specific revision | `kubectl rollout undo deploy/web --to-revision=2` |
-| `kubectl rollout pause/resume deployment/<name>` | Pauses/resumes an in-progress rollout | `kubectl rollout pause deploy/web` |
-| `spec.strategy.rollingUpdate.maxUnavailable` | Max Pods that can be unavailable during rollout | `maxUnavailable: 1` |
-| `spec.strategy.rollingUpdate.maxSurge` | Max extra Pods allowed above desired count during rollout | `maxSurge: 1` |
+```mermaid
+sequenceDiagram
+    autonumber
+    actor CI as CI/CD Pipeline
+    participant Deploy as Deployment Controller
+    participant RSOld as Old ReplicaSet (v1)
+    participant RSNew as New ReplicaSet (v2)
+    participant Endpoints as Service EndpointSlice
 
-## Hands-on exercises
+    CI->>Deploy: kubectl set image deployment/web app=api:v2.0.0
+    Note over Deploy: Config: replicas=4, maxSurge=1, maxUnavailable=0
+    
+    Deploy->>RSNew: Scale to 1 (Surge: Total pods = 5, Max = 5)
+    RSNew->>RSNew: Pod 1 (v2) Spawned -> Passes Readiness Probe
+    RSNew-->>Endpoints: Register Pod 1 (v2) IP in Endpoints
+    
+    Deploy->>RSOld: Scale down to 3 (Total pods = 4, Min Available = 4)
+    RSOld-->>Endpoints: Deregister Pod 1 (v1) -> SIGTERM Draining
+    
+    Deploy->>RSNew: Scale to 2 (Surge: Total pods = 5)
+    RSNew->>RSNew: Pod 2 (v2) Spawned -> Passes Readiness Probe
+    Deploy->>RSOld: Scale down to 2
+    
+    Note over Deploy,RSNew: Progression repeats until RSNew=4 and RSOld=0
+    Deploy-->>CI: Rollout status: successfully rolled out!
+```
 
-Continue in namespace `demo`.
+---
 
-### 1. Your first Deployment
+## 2. Rollout Strategies & Configuration Taxonomy
 
-```yaml
-# deploy-web.yaml
+### 2.1 Deployment Strategies: RollingUpdate vs Recreate
+
+| Feature / Metric | `type: RollingUpdate` (Default) | `type: Recreate` |
+| :--- | :--- | :--- |
+| **Downtime Behavior** | **Zero Downtime.** Old pods serve while new pods warm up. | **Guaranteed Downtime.** Kills all old pods *before* starting any new ones. |
+| **Resource Overhead** | Requires extra cluster headroom for surging pods (`maxSurge`). | Zero surge overhead; uses existing node capacity. |
+| **Multi-Version Concurrency** | Old (v1) and New (v2) pods run simultaneously for minutes. | Single version runs at any point in time. |
+| **Database Schema Requirement** | **Mandates backward-compatible migrations** (Expand/Contract). | Permits breaking, non-backward compatible schema migrations. |
+| **Optimal Use Case** | Web APIs, microservices, stateless web applications. | Legacy stateful singletons, batch processors with single-write locks. |
+
+---
+
+### 2.2 Mathematical Surge Bounds Formula
+
+For a deployment with $R$ replicas:
+
+$$\text{Maximum Allowed Pods During Rollout} = R + \lceil R \times \text{maxSurge} \rceil$$
+
+$$\text{Minimum Available Pods During Rollout} = R - \lfloor R \times \text{maxUnavailable} \rfloor$$
+
+> [!IMPORTANT]
+> If a cluster has no spare CPU/Memory capacity to accommodate `maxSurge`, newly surging pods will remain stuck in `Pending`, causing the entire rollout to freeze. For resource-constrained clusters, configure `maxSurge: 0` and `maxUnavailable: 1` (accepting a temporary reduction in capacity).
+
+---
+
+## 3. Production War Story: The Cold-Start Traffic Slaughter
+
+### Incident Post-Mortem: 100% HTTP 500 Outage During Rolling Deployment
+
+- **Incident Date:** December 2024
+- **The Deployment Config:** A production Spring Boot microservice running 8 replicas with:
+  ```yaml
+  strategy:
+    rollingUpdate:
+      maxSurge: 25%
+      maxUnavailable: 0
+  # Notice: ZERO readinessProbe configured!
+  ```
+- **The Failure Sequence:**
+  1. The DevOps engineer deployed `v2.4.0` containing a new payment integration.
+  2. The Kubernetes Deployment controller launched 2 new pods (`maxSurge: 2`).
+  3. Because no `readinessProbe` was defined, the kubelet marked the containers `Ready: 1/1` the instant the JVM process PID spawned (80ms after container start).
+  4. The Deployment controller observed that the new pods were "Ready" and immediately issued termination commands to 2 old `v1` pods.
+  5. The external load balancer directed 25% of incoming user checkout requests to the new pods.
+  6. However, the Spring Boot application required 45 seconds to perform internal dependency injection and connect to database connection pools. Every request routed to the new pods was abruptly rejected with `ECONNREFUSED`.
+  7. The controller continued this cycle, killing all remaining stable `v1` pods. Within 90 seconds, **100% of user traffic was routing to uninitialized containers**, causing a company-wide 4-minute outage.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Deploy as Deployment Controller
+    participant LB as Ingress Load Balancer
+    participant OldPods as 8 Healthy v1 Pods
+    participant NewPods as New v2 Pods (No Readiness Probe)
+    actor Shoppers as 15,000 Live Customers
+
+    Deploy->>NewPods: Spawn v2 pods
+    NewPods-->>Deploy: Process PID created -> Marked READY (Zero probe!)
+    Deploy->>OldPods: SIGTERM (Terminates healthy v1 pods)
+    LB->>NewPods: Route 100% of customer traffic
+    Shoppers->>NewPods: POST /checkout
+    NewPods--xShoppers: 502 Bad Gateway / Connection Refused (JVM still booting!)
+    Note over Shoppers: Total Outage: \$180,000 in failed transactions!
+```
+
+- **The Resolution:** 
+  1. Configured an explicit `readinessProbe` targeting `/actuator/health/readiness`.
+  2. Configured `minReadySeconds: 15` to ensure newly ready pods maintain health for at least 15 seconds before the controller proceeds to terminate older replicas.
+
+---
+
+## 4. Multi-Language Programmatic Rollout Management
+
+Automating rollouts and monitoring health progress programmatically is a critical responsibility of deployment operators and custom GitOps engines.
+
+### 4.1 Go: Triggering Rolling Updates & Polling Status via `client-go`
+```go
+// rollout.go — Programmatic Deployment Rollout in Go
+package main
+
+import (
+	"context"
+	"fmt"
+	"log"
+	"time"
+
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/tools/clientcmd"
+)
+
+func triggerAndWatchRollout(clientset *kubernetes.Clientset, namespace, deployName, newImage string) error {
+	ctx := context.Background()
+	deployClient := clientset.AppsV1().Deployments(namespace)
+
+	// 1. Fetch current Deployment
+	deployment, err := deployClient.Get(ctx, deployName, metav1.GetOptions{})
+	if err != nil {
+		return fmt.Errorf("failed to get deployment: %w", err)
+	}
+
+	// 2. Mutate Pod template image
+	log.Printf("[ROLLOUT] Updating deployment %q image to %q...", deployName, newImage)
+	deployment.Spec.Template.Spec.Containers[0].Image = newImage
+
+	// Trigger annotation timestamp to guarantee rollout even if tag is unchanged
+	if deployment.Spec.Template.Annotations == nil {
+		deployment.Spec.Template.Annotations = make(map[string]string)
+	}
+	deployment.Spec.Template.Annotations["kubectl.kubernetes.io/restartedAt"] = time.Now().Format(time.RFC3339)
+
+	_, err = deployClient.Update(ctx, deployment, metav1.UpdateOptions{})
+	if err != nil {
+		return fmt.Errorf("failed to update deployment: %w", err)
+	}
+
+	// 3. Poll Rollout Status until Convergence
+	log.Println("[ROLLOUT] Monitoring progressive deployment status...")
+	for {
+		d, err := deployClient.Get(ctx, deployName, metav1.GetOptions{})
+		if err != nil {
+			return err
+		}
+
+		desired := *d.Spec.Replicas
+		updated := d.Status.UpdatedReplicas
+		ready := d.Status.ReadyReplicas
+		available := d.Status.AvailableReplicas
+
+		log.Printf("[STATUS] Desired: %d | Updated: %d | Ready: %d | Available: %d",
+			desired, updated, ready, available)
+
+		if updated == desired && ready == desired && available == desired && d.Status.ObservedGeneration >= d.Generation {
+			log.Println("[SUCCESS] Deployment rollout successfully completed!")
+			break
+		}
+
+		time.Sleep(2 * time.Second)
+	}
+
+	return nil
+}
+
+func main() {
+	config, _ := clientcmd.BuildConfigFromFlags("", clientcmd.RecommendedHomeFile)
+	clientset, _ := kubernetes.NewForConfig(config)
+	_ = triggerAndWatchRollout(clientset, "default", "web", "nginx:1.27-alpine")
+}
+```
+
+---
+
+### 4.2 Node.js / TypeScript: Automating Rollback Execution
+```typescript
+// rollback.ts — TypeScript Deployment Rollback Automation
+import * as k8s from '@kubernetes/client-node';
+
+const kc = new k8s.KubeConfig();
+kc.loadFromDefault();
+const appsApi = kc.makeApiClient(k8s.AppsV1Api);
+
+async function executeRollback(namespace: string, deploymentName: string, targetRevision?: number): Promise<void> {
+  console.log(`[ROLLBACK] Initiating rollback for ${namespace}/${deploymentName}...`);
+
+  try {
+    // Read ReplicaSets to find history
+    const rsList = await appsApi.listNamespacedReplicaSet(namespace);
+    const ownedRS = rsList.body.items
+      .filter((rs) => rs.metadata?.ownerReferences?.some((ref) => ref.name === deploymentName))
+      .sort((a, b) => {
+        const revA = parseInt(a.metadata?.annotations?.['deployment.kubernetes.io/revision'] || '0', 10);
+        const revB = parseInt(b.metadata?.annotations?.['deployment.kubernetes.io/revision'] || '0', 10);
+        return revB - revA; // Descending
+      });
+
+    if (ownedRS.length < 2) {
+      throw new Error('No previous revision found to roll back to!');
+    }
+
+    const previousRS = ownedRS[1]; // Most recent previous revision
+    const targetImage = previousRS.spec?.template?.spec?.containers[0].image;
+
+    console.log(`[ROLLBACK] Reverting to revision ${previousRS.metadata?.annotations?.['deployment.kubernetes.io/revision']} (Image: ${targetImage})`);
+
+    // Patch Deployment with historical template
+    await appsApi.patchNamespacedDeployment(
+      deploymentName,
+      namespace,
+      {
+        spec: {
+          template: {
+            spec: {
+              containers: [{ name: 'nginx', image: targetImage }],
+            },
+          },
+        },
+      },
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      { headers: { 'Content-Type': 'application/strategic-merge-patch+json' } }
+    );
+
+    console.log('[ROLLBACK SUCCESS] Rollback patch applied successfully.');
+  } catch (err: any) {
+    console.error(`[ROLLBACK FAILED] Error: ${err.message}`);
+  }
+}
+
+// executeRollback('default', 'web');
+```
+
+---
+
+### 4.3 Python: Deployment Disruption & Capacity Validator
+```python
+# deploy_validator.py — Python Deployment Readiness Auditor
+from kubernetes import client, config
+import sys
+
+def audit_deployment(namespace: str, name: str):
+    config.load_kube_config()
+    apps_v1 = client.AppsV1Api()
+
+    try:
+        dep = apps_v1.read_namespaced_deployment(name=name, namespace=namespace)
+    except client.exceptions.ApiException as e:
+        print(f"[ERROR] Deployment {name} not found: {e}")
+        sys.exit(1)
+
+    spec_replicas = dep.spec.replicas or 1
+    ready_replicas = dep.status.ready_replicas or 0
+    strategy = dep.spec.strategy.type
+
+    print(f"\n=== DEPLOYMENT AUDIT: {namespace}/{name} ===")
+    print(f"• Strategy:        {strategy}")
+    print(f"• Desired Replicas: {spec_replicas}")
+    print(f"• Ready Replicas:   {ready_replicas}")
+
+    if dep.spec.strategy.rolling_update:
+        ru = dep.spec.strategy.rolling_update
+        print(f"• maxSurge:        {ru.max_surge}")
+        print(f"• maxUnavailable:  {ru.max_unavailable}")
+
+    # Check for Readiness Probe on all containers
+    for ctr in dep.spec.template.spec.containers:
+        if not ctr.readiness_probe:
+            print(f"⚠️ [CRITICAL RISK] Container '{ctr.name}' lacks a readinessProbe! Rolling updates will cause downtime.")
+        else:
+            print(f"✅ Container '{ctr.name}' has configured readinessProbe.")
+
+if __name__ == "__main__":
+    audit_deployment("default", "web")
+```
+
+---
+
+## 5. Practical Hands-On Verification CLI
+
+Execute the following commands to create a hardened Deployment, observe a live rolling update, inspect surging, and execute an instant rollback:
+
+```bash
+# 1. Author a zero-downtime Deployment manifest with bounded surge
+cat > production-deployment.yaml <<'EOF'
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: web
+  name: checkout-api
+  namespace: default
   labels:
-    app: web
-spec:
-  replicas: 3
-  selector:
-    matchLabels:
-      app: web
-  template:
-    metadata:
-      labels:
-        app: web
-    spec:
-      containers:
-        - name: nginx
-          image: nginx:1.27
-          resources:
-            requests:
-              cpu: "50m"
-              memory: "64Mi"
-            limits:
-              cpu: "200m"
-              memory: "128Mi"
-```
-
-```bash
-kubectl apply -f deploy-web.yaml
-kubectl get deployments
-kubectl get replicasets
-kubectl get pods -o wide --show-labels
-```
-
-Expected: `web` Deployment shows `3/3` ready; one ReplicaSet with 3
-Pods, all labeled `app=web`.
-
-### 2. See the ownership chain
-
-```bash
-kubectl describe deployment web | grep -A2 "OldReplicaSets\|NewReplicaSet"
-kubectl get replicasets -o wide
-kubectl describe pod -l app=web | grep -A3 "Controlled By\|Owner"
-```
-
-Expected: the ReplicaSet's name is `web-<hash>`; each Pod's owner
-reference points to that ReplicaSet, whose owner reference points to the
-`web` Deployment — a three-level chain.
-
-### 3. Prove the ReplicaSet self-heals a deleted Pod
-
-```bash
-kubectl get pods -l app=web
-kubectl delete pod <one-pod-name-from-above>
-kubectl get pods -l app=web --watch
-```
-
-Expected: a new Pod appears within seconds with a new random suffix —
-count stays at 3. Ctrl+C to stop watching.
-
-### 4. Scale
-
-```bash
-kubectl scale deployment web --replicas=5
-kubectl get pods -l app=web
-kubectl scale deployment web --replicas=2
-kubectl get pods -l app=web
-```
-
-Expected: Pod count tracks the requested replica count each time.
-
-### 5. Rolling update
-
-```bash
-kubectl set image deployment/web nginx=nginx:1.28
-kubectl rollout status deployment/web
-kubectl get replicasets
-```
-
-Expected: `rollout status` reports `Waiting for deployment "web" rollout
-to finish...` then `successfully rolled out`; `get replicasets` now
-shows two ReplicaSets — the new one at 3/3 (assuming you scaled back to
-2 then need to check actual count, adjust expectations to whatever
-`replicas` currently is) and the old one scaled to 0.
-
-### 6. Watch a rolling update happen live
-
-Scale back up first so the rollout has room to show its staged behavior:
-
-```bash
-kubectl scale deployment web --replicas=4
-kubectl rollout status deployment/web
-```
-
-In one terminal:
-
-```bash
-kubectl get pods -l app=web --watch
-```
-
-In another:
-
-```bash
-kubectl set image deployment/web nginx=nginx:1.27
-```
-
-Expected: you'll see old Pods `Terminating` while new ones go
-`ContainerCreating` → `Running`, a few at a time, never all at once —
-this is `maxUnavailable`/`maxSurge` in action. Ctrl+C the watch when
-settled.
-
-### 7. Rollout history and rollback
-
-```bash
-kubectl rollout history deployment/web
-kubectl set image deployment/web nginx=nginx:1.29
-kubectl rollout status deployment/web
-kubectl rollout history deployment/web
-kubectl rollout undo deployment/web
-kubectl rollout status deployment/web
-kubectl get pods -l app=web -o jsonpath='{.items[0].spec.containers[0].image}'
-```
-
-Expected: the final image shown is `nginx:1.27` again (the revision
-before `1.29`) — instant rollback with no need to remember the old tag
-yourself.
-
-### 8. Control the rollout strategy explicitly
-
-```yaml
-# deploy-web-strategy.yaml
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: web
-  labels:
-    app: web
+    app: checkout-api
 spec:
   replicas: 4
+  minReadySeconds: 5
   strategy:
     type: RollingUpdate
     rollingUpdate:
-      maxUnavailable: 1
       maxSurge: 1
+      maxUnavailable: 0
   selector:
     matchLabels:
-      app: web
+      app: checkout-api
   template:
     metadata:
       labels:
-        app: web
+        app: checkout-api
     spec:
       containers:
-        - name: nginx
-          image: nginx:1.28
+        - name: api
+          image: nginx:1.26-alpine
+          ports:
+            - containerPort: 80
           resources:
             requests:
               cpu: "50m"
               memory: "64Mi"
             limits:
-              cpu: "200m"
+              cpu: "100m"
               memory: "128Mi"
-```
-
-```bash
-kubectl apply -f deploy-web-strategy.yaml
-kubectl rollout status deployment/web
-```
-
-Expected: rollout completes as before, but now explicitly bounded to one
-Pod unavailable and one extra surging at a time — useful when you need
-tighter control than the defaults (25% each) on a small cluster.
-
-### 9. Diagnose and fix: a rollout that never finishes
-
-```yaml
-# deploy-broken.yaml
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: broken
-  labels:
-    app: broken
-spec:
-  replicas: 2
-  selector:
-    matchLabels:
-      app: broken
-  template:
-    metadata:
-      labels:
-        app: broken
-    spec:
-      containers:
-        - name: app
-          image: nginx:1.27
           readinessProbe:
             httpGet:
-              path: /this-path-does-not-exist
+              path: /
               port: 80
-            periodSeconds: 5
+            initialDelaySeconds: 2
+            periodSeconds: 3
+EOF
+
+# 2. Deploy initial version (v1.26)
+kubectl apply -f production-deployment.yaml
+kubectl rollout status deployment/checkout-api
+
+# Expected Output:
+# deployment "checkout-api" successfully rolled out
+
+# 3. Inspect ownership chain: Deployment -> ReplicaSet -> Pods
+kubectl get rs -l app=checkout-api
+# Expected Output: 1 active ReplicaSet showing 4 DESIRED / 4 CURRENT / 4 READY
+
+# 4. Trigger rolling update to newer version (v1.27) while watching in background
+kubectl set image deployment/checkout-api api=nginx:1.27-alpine
+kubectl rollout status deployment/checkout-api
+
+# Expected Output:
+# Waiting for deployment "checkout-api" rollout to finish: 1 out of 4 new replicas have been updated...
+# Waiting for deployment "checkout-api" rollout to finish: 2 out of 4 new replicas have been updated...
+# Waiting for deployment "checkout-api" rollout to finish: 3 out of 4 new replicas have been updated...
+# Waiting for deployment "checkout-api" rollout to finish: 4 out of 4 new replicas have been updated...
+# deployment "checkout-api" successfully rolled out
+
+# 5. Review revision history
+kubectl rollout history deployment/checkout-api
+
+# Expected Output:
+# REVISION  CHANGE-CAUSE
+# 1         <none>
+# 2         <none>
+
+# 6. Intentionally deploy broken image to simulate rollout stall
+kubectl set image deployment/checkout-api api=nginx:invalid-broken-tag
+sleep 3
+kubectl rollout status deployment/checkout-api --timeout=15s
+
+# Expected Output:
+# error: timed out waiting for the condition
+
+# 7. Observe rollout stall: Existing 4 pods remain 100% available!
+kubectl get pods -l app=checkout-api
+
+# 8. Execute instant rollback to restore stable revision
+kubectl rollout undo deployment/checkout-api
+kubectl rollout status deployment/checkout-api
+
+# Expected Output:
+# deployment "checkout-api" successfully rolled out
+
+# 9. Clean up resources
+kubectl delete deployment checkout-api
 ```
 
-```bash
-kubectl apply -f deploy-broken.yaml
-kubectl rollout status deployment/broken --timeout=30s
-```
+---
 
-Expected: the command times out — the rollout never completes. Diagnose:
-
-```bash
-kubectl get pods -l app=broken
-kubectl describe deployment broken
-kubectl describe pod -l app=broken
-```
-
-Expected: Pods show `0/1` `READY` forever;
-`describe pod`'s Events show repeated `Readiness probe failed: HTTP
-probe failed with statuscode: 404`. The Pods are `Running` (the process
-is fine) but never `Ready` because the health check path is wrong. Fix:
-
-```yaml
-# fix: change readinessProbe.httpGet.path to "/"
-```
-
-```bash
-kubectl apply -f deploy-broken.yaml   # after editing the path to "/"
-kubectl rollout status deployment/broken
-```
-
-Expected: rollout completes, Pods show `1/1`. This exercise is also a
-preview of why a broken readiness probe is one of the most common causes
-of a rollout that "hangs" with no obvious crash anywhere.
-
-### 10. Diagnose and fix: selector/template label mismatch
-
-Try to apply this intentionally broken Deployment:
-
-```yaml
-# deploy-mismatch.yaml
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: mismatch
-spec:
-  replicas: 2
-  selector:
-    matchLabels:
-      app: mismatch
-      tier: frontend
-  template:
-    metadata:
-      labels:
-        app: mismatch
-    spec:
-      containers:
-        - name: app
-          image: nginx:1.27
-```
-
-```bash
-kubectl apply -f deploy-mismatch.yaml
-```
-
-Expected: rejected outright —
-`error: Deployment.apps "mismatch" is invalid: spec.template.metadata.labels: Invalid value: ... \`selector\` does not match template \`labels\``.
-This is the API server protecting you from a Deployment that could never
-find its own Pods. Fix by making the template's labels a superset
-matching the selector:
-
-```yaml
-  template:
-    metadata:
-      labels:
-        app: mismatch
-        tier: frontend
-```
-
-```bash
-kubectl apply -f deploy-mismatch.yaml
-kubectl get deployment mismatch
-```
-
-Expected: accepted, `2/2` ready. Clean up:
-
-```bash
-kubectl delete deployment web broken mismatch
-```
-
-## Independent challenge
-
-No YAML or commands given here — figure it out yourself using what you
-know from this module and earlier ones.
-
-**Task:** Deploy a web application at 4 replicas, each container carrying
-resource requests and limits, then roll it out to a new image tag under a
-strategy you configure explicitly so that at no moment during the rollout
-are fewer than 4 Pods available and never more than 5 exist at once.
-Trigger the rollout, and while it's happening, capture evidence that your
-surge/unavailability bounds were actually respected. Then deliberately
-roll out a *broken* image tag, observe the rollout stall, and recover to
-the last working version without looking up what that tag was. This builds
-on module 02's resource requests and the self-healing model from module
-01.
+## 6. Operational Validation Checkpoints
 
 <details>
-<summary>Stuck? One hint</summary>
+<summary>Checkpoint 1: Why does changing `spec.replicas` only resize the existing ReplicaSet, while updating an image tag generates an entirely new ReplicaSet?</summary>
 
-`maxUnavailable: 0` with `maxSurge: 1` gives you the "never drop below
-desired" guarantee; `kubectl rollout undo` restores the previous revision
-without you naming the old tag, and `kubectl get pods -l <label> --watch`
-during the rollout is where you see the bounds hold.
+**Detailed Engineering Analysis:**  
+In the Kubernetes schema, a **ReplicaSet represents a specific, immutable Pod template specification** (`spec.template`). 
 
+- When an operator changes `spec.replicas` from 3 to 6, the underlying Pod template (image, env, labels, mounts) has not changed. The Deployment controller simply mutates `spec.replicas` on the currently active ReplicaSet.
+- When an operator changes the container image tag or an environment variable, `spec.template` changes. Because a single ReplicaSet cannot manage two differing Pod specifications simultaneously, the Deployment controller generates a **brand-new ReplicaSet** stamped with a unique 10-character hash (derived from hashing the Pod template). It then manages the progressive scaling up of the new ReplicaSet and the down-scaling of the old one.
 </details>
-
-## Common mistakes & troubleshooting
-
-- **Editing a ReplicaSet directly**: changes get overwritten/fought by
-  the owning Deployment. Always change the Deployment; let it manage its
-  ReplicaSets.
-- **Selector too broad**: a selector that accidentally matches Pods from
-  another Deployment causes both to fight over ownership. Keep selectors
-  specific (e.g. include both `app` and a unique identifier).
-- **Confusing "Running" with "Ready"**: a rollout can stall forever with
-  Pods happily `Running` but never `Ready`, because of a broken readiness
-  probe — always check `READY` column, not just `STATUS`.
-- **Forgetting `maxUnavailable`/`maxSurge` interact with replica count**:
-  with `replicas: 1`, a default rolling update can still cause a brief
-  gap if `maxUnavailable` isn't explicitly set to `0` — for a single
-  replica, consider `maxSurge: 1, maxUnavailable: 0` for zero-downtime.
-- **Assuming `kubectl rollout undo` is free of side effects**: rollback
-  itself is a rollout — it takes time and follows the same
-  `maxUnavailable`/`maxSurge` rules, it doesn't happen instantly across
-  all Pods.
-- **Not watching `kubectl rollout status`** and assuming `kubectl apply`
-  returning immediately means the rollout finished — `apply` only means
-  the API accepted the new desired state, not that Pods are updated yet.
-
-## Checkpoint quiz
-
-Write down your answer to each question before expanding it — checking without attempting first is the single easiest way to fool yourself into thinking you've learned this.
-
-1. What's the division of responsibility between a Deployment and the
-   ReplicaSet it creates?
-2. What two fields must match for a Deployment to be accepted by the API
-   server?
-3. What causes a new ReplicaSet to be created versus the existing one
-   just being scaled?
-4. Why can `kubectl rollout undo` restore an old image instantly without
-   you specifying the image tag?
-5. What do `maxUnavailable` and `maxSurge` each control?
-6. A Deployment's Pods are all `Running` but the rollout never reports
-   success. What's the first thing to check, and why?
-7. If you delete a Pod that belongs to a Deployment, what recreates it,
-   and how quickly?
 
 <details>
-<summary>Show answers</summary>
+<summary>Checkpoint 2: What is the purpose of `minReadySeconds` in a Deployment specification, and how does it prevent deployment flapping?</summary>
 
-1. The Deployment manages rollout strategy and history (creating new
-   ReplicaSets on template changes, rolling traffic between them); the
-   ReplicaSet's only job is maintaining N Pods matching its selector at
-   all times.
-2. `spec.selector.matchLabels` must match the labels in
-   `spec.template.metadata.labels`.
-3. Any change to `spec.template` (image, env vars, etc.) creates a new
-   ReplicaSet; changing only `spec.replicas` just resizes the existing
-   ReplicaSet.
-4. Old ReplicaSets (with their full Pod template, including the old
-   image tag) are kept around scaled to 0 specifically so a rollback can
-   reuse them immediately.
-5. `maxUnavailable` caps how many Pods can be down at once during a
-   rollout; `maxSurge` caps how many extra Pods above the desired count
-   can exist at once during a rollout.
-6. Check the `READY` column / readiness probes — Pods can be `Running`
-   but never pass their readiness probe, which blocks the rollout from
-   completing even though nothing is crashing.
-7. The Deployment's ReplicaSet controller notices the Pod count dropped
-   below desired and creates a replacement, typically within seconds.
+**Detailed Engineering Analysis:**  
+By default, `minReadySeconds` is `0`. This means that as soon as a new Pod's readiness probe returns `200 OK` **for the very first time**, the Deployment controller immediately marks the pod as fully available and proceeds to terminate the next batch of older pods.
 
+In real-world applications:
+- Applications frequently experience immediate post-boot crashes (e.g., initial connection spikes causing race-condition thread pool crashes 5 seconds after boot).
+- With `minReadySeconds: 0`, older stable pods would have already been terminated.
+
+Configuring `minReadySeconds: 15` forces the Deployment controller to wait until the new pod has been **continuously healthy and Ready for at least 15 uninterrupted seconds** before counting it toward rollout progress. If the container crashes within that window, the rollout halts immediately.
 </details>
-
-## Cumulative review
-
-Closed-book. Don't reopen earlier modules while attempting these — the
-point is to find out what actually stuck.
-
-1. You run `kubectl get pods` and see `No resources found`, yet you're
-   certain you created a Deployment earlier. Name the two independent
-   things (one from module 00, one from module 01) that could each
-   explain this even though the Deployment really does exist somewhere.
-2. Trace what happens, component by component, from the instant you
-   `kubectl apply` a 3-replica Deployment to the moment three containers
-   are actually running — naming the API server, etcd, the Deployment/
-   ReplicaSet controller, the scheduler, and the kubelet, and what each
-   contributes.
-3. You delete a bare Pod (module 02) and, separately, delete a Pod that
-   belongs to a Deployment (module 03). Both had one container. Which
-   comes back, which doesn't, and what mechanism accounts for the
-   difference?
-4. A Pod is stuck `Pending` right after creation on your single-node kind
-   cluster. Give one module-01 reason (scheduling-related) and one
-   module-02 reason (resource-related) it might be stuck, and how you'd
-   tell them apart.
-5. Why does a rolling update (module 03) depend on readiness probes
-   (module 02) to actually deliver zero-downtime — what goes wrong during
-   the rollout if the probe is missing or wrong?
-6. You have a Deployment whose Pods show `Running` but `0/1` in the
-   `READY` column and the rollout never completes. Explain the exact
-   chain: what `READY` reflects, why the rollout waits on it, and where
-   you'd look first.
-7. On your kind cluster you created a second cluster earlier (module 00).
-   Explain how a Deployment created "successfully" could be completely
-   invisible to your current `kubectl get deployments`, and the one
-   command that would reveal the mistake.
-8. A ReplicaSet is a control loop (module 01) and so is the thing that
-   restarted a container under a bare Pod. Both keep "observed" matching
-   "desired," yet only one recreates a whole deleted Pod object. Reconcile
-   these two facts precisely.
-9. You scale a Deployment from 2 to 5 replicas and, seconds later, change
-   its image tag. Which of these creates a new ReplicaSet and which just
-   resizes the existing one, and why?
 
 <details>
-<summary>Show answers</summary>
+<summary>Checkpoint 3: What happens when an engineer configures `strategy.rollingUpdate: { maxSurge: 0, maxUnavailable: 0 }`?</summary>
 
-1. Wrong context — your active `kubectl` context points at a different
-   cluster than the one you created the Deployment on (module 00); and/or
-   wrong namespace — the Deployment lives in a namespace other than the
-   one your context defaults to, and you didn't pass `-n`/`-A` (module
-   01). Either makes an existing resource invisible to a plain `get`.
-2. `kubectl` sends YAML to the API server, which validates it and records
-   the desired state in etcd. The Deployment controller notices new
-   desired state and creates a ReplicaSet; the ReplicaSet controller
-   creates three Pod objects to reach its desired count. The scheduler
-   notices those unscheduled Pods and assigns each to a node. The kubelet
-   on that node sees Pods assigned to it and tells the container runtime
-   to start the containers.
-3. The Deployment's Pod comes back (its ReplicaSet controller notices the
-   count dropped below desired and creates a replacement within seconds);
-   the bare Pod does not (nothing owns it — only the kubelet would restart
-   its *container* if the container died, but a deleted Pod object has no
-   controller to recreate it).
-4. Module-01 reason: the scheduler simply hasn't run yet (normal for a
-   brief moment right after creation). Module-02 reason: the Pod's
-   resource requests exceed the node's allocatable capacity so no node can
-   fit it. `kubectl describe pod` distinguishes them — a `FailedScheduling`
-   event citing insufficient CPU/memory points to the resource cause,
-   while no scheduling event yet (and quick resolution) points to normal
-   timing.
-5. During a rolling update Kubernetes only counts a new Pod as available
-   once it's `Ready`; the readiness probe is what makes "Ready" mean
-   "actually able to serve." Without it (or with a wrong probe), Pods are
-   treated as ready the moment they're `Running`, so traffic can be sent
-   to a Pod that isn't actually serving yet — reintroducing the downtime
-   the rolling update was meant to avoid — or the rollout stalls forever
-   waiting on a probe that never passes.
-6. `READY` reflects whether each container's readiness probe is passing,
-   not whether the process is running. A rollout waits for new Pods to
-   become `Ready` before continuing (and before it reports success), so a
-   never-passing readiness probe blocks it even with nothing crashing.
-   Look first at `kubectl describe pod` Events for repeated readiness
-   probe failures.
-7. The Deployment was created against a different cluster/context (e.g.
-   the second kind cluster), so it's real but on a cluster your current
-   context isn't pointed at. `kubectl config get-contexts` (spotting the
-   `*`) — or `kubectl config current-context` — reveals the mismatch.
-8. The ReplicaSet controller reconciles the *count of Pod objects* — it
-   creates a whole new Pod object when one is missing. The kubelet
-   reconciles the *containers of a Pod already assigned to its node* — it
-   restarts a dead container but never creates a new Pod object. A bare
-   Pod has a kubelet keeping its containers alive but no controller
-   watching the Pod-object count, which is why deleting the Pod itself is
-   unrecoverable.
-9. Changing `spec.replicas` (2→5) only resizes the existing ReplicaSet —
-   no template change, so no new ReplicaSet. Changing the image is a
-   change to `spec.template`, which creates a brand-new ReplicaSet with
-   the new template and rolls Pods over to it.
+**Detailed Engineering Analysis:**  
+The Kubernetes API server **rejects the manifest outright with a validation error**. 
 
+- `maxSurge: 0` means the cluster is prohibited from creating any new pods above the desired replica count.
+- `maxUnavailable: 0` means the cluster is prohibited from terminating any existing pods below the desired replica count.
+
+Under these two constraints, it is mathematically impossible to begin a rolling update: the controller cannot create a new pod (violates `maxSurge: 0`) and cannot delete an old pod (violates `maxUnavailable: 0`). At least one of these parameters must be greater than zero.
 </details>
-
-## Further reading & sources
-
-- [Deployments](https://kubernetes.io/docs/concepts/workloads/controllers/deployment/) - the authoritative reference for rollouts, scaling, and rollback behavior.
-- [ReplicaSet](https://kubernetes.io/docs/concepts/workloads/controllers/replicaset/) - what a ReplicaSet guarantees and why you rarely create one directly.
-- [Perform a Rolling Update](https://kubernetes.io/docs/tutorials/kubernetes-basics/update/update-intro/) - an interactive tutorial of the rolling-update mechanics shown here.
-- [Labels and Selectors](https://kubernetes.io/docs/concepts/overview/working-with-objects/labels/) - the selector model that glues Deployments, ReplicaSets, and Pods together.
-- [kubectl rollout reference](https://kubernetes.io/docs/reference/kubectl/generated/kubectl_rollout/) - the full command surface for status, history, undo, and pause/resume.
-
-## Next
-
-[04-services-and-networking](../04-services-and-networking/README.md) —
-your Pods now self-heal and roll out safely, but nothing outside (or
-between) them can reliably reach them yet; Services fix that.

@@ -1,548 +1,702 @@
-# 04 - Services and Networking
+# 04 - Kubernetes Services & Networking
 
-## Why this matters
+> **Prerequisites**: [02 - Pods & Workloads](../02-pods-and-workloads/README.md), [03 - Deployments & ReplicaSets](../03-deployments-and-replicasets/README.md).  
+> **Target Audience**: SREs, Platform Engineers, and Backend Systems Architects configuring service discovery, packet routing, and internal network meshes.  
+> **Estimated Deep-Dive Time**: 40 minutes.
 
-Pods are disposable — every rolling update or self-heal replaces them
-with new ones that get new IP addresses. If your frontend Pods had to
-track individual backend Pod IPs, everything would break on every
-deploy. A Service gives you one stable address that always routes to
-whichever Pods are currently healthy, no matter how many times they're
-replaced underneath it. This is what makes the Deployment model from
-module 03 actually usable.
+---
 
-## Concepts
+> [!TIP]
+> **The Golden Rule of Kubernetes Networking**: **Pods are ephemeral, IP addresses are volatile, but Services are immutable contracts.** Never communicate directly with Pod IPs in production. A Service provides a durable virtual IP (VIP) and CoreDNS name backed by dynamic, kernel-level packet rewriting (`kube-proxy` via iptables or IPVS) and continuously synced `EndpointSlices`. Only Pods reporting `Ready: True` across active readiness probes receive traffic.
 
-**The problem Services solve**: every Pod gets its own IP, but that IP
-is not stable — delete and recreate a Pod (which happens constantly:
-rollouts, self-healing, scaling) and it gets a new one. A Service is a
-stable virtual IP plus DNS name that always routes to the current set of
-matching Pods, decided fresh every time via the same label selector idea
-from module 03.
+---
 
-**How a Service finds its Pods**: exactly like a Deployment's ReplicaSet,
-a Service has a `spec.selector` of labels. Any Pod with matching labels
-becomes an **Endpoint** of that Service, tracked automatically and
-continuously — no manual registration. Get the selector wrong (typo, or
-doesn't match your Deployment's Pod template labels) and the Service has
-zero endpoints — it exists, but routes nowhere, which is one of the most
-common real-world Kubernetes networking bugs.
+## 1. Visual Mental Models: Packet Flow & Service Types
 
-```
-   Service (selector: app=web)          Pods
-   ┌───────────────────────┐    match   ┌───────────────┐
-   │ stable ClusterIP + DNS│ ─────────► │ app=web  Pod A │──► endpoint
-   │  web.demo.svc...      │ ─────────► │ app=web  Pod B │──► endpoint
-   └───────────────────────┘ ─────────► │ app=web  Pod C │──► endpoint
-                              ╳ no match │ app=db   Pod X │   (ignored)
-                                         └───────────────┘
-   endpoints are recomputed continuously as Pods come and go
-```
+In Kubernetes, Pods are allocated non-routable private overlay IPs that change unpredictably across rollouts, node failures, and autoscaling events. A **Service** abstracts these changing targets into a permanent virtual IP and fully qualified domain name (FQDN).
 
-**ClusterIP** (the default type) gives the Service a virtual IP reachable
-only from *inside* the cluster. This is what you use for internal
-service-to-service traffic (e.g. a frontend Pod calling a backend
-Service) — analogous to how, in Docker Compose, containers on the same
-network could reach each other by service name.
+### The Packet Lifecycle: From Client Pod to Target Backend
 
-**Cluster DNS**: every Service automatically gets a DNS name of the form
-`<service-name>.<namespace>.svc.cluster.local` (usually you can just use
-`<service-name>` from within the same namespace, or
-`<service-name>.<namespace>` from another namespace). CoreDNS (the
-`coredns` Pods you saw in `kube-system` in module 01) serves these
-records — this is what replaces hardcoded IPs in your application config
-with a name that always resolves to the current, healthy set of Pods.
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Client as Client App (Pod A)
+    participant DNS as CoreDNS (kube-system)
+    participant Kernel as Node Kernel (kube-proxy / iptables)
+    participant EP as EndpointSlice (API Server)
+    participant Target as Backend App (Pod B)
 
-**NodePort** opens the *same* port on every node in the cluster, and
-traffic hitting that port on any node is forwarded to the Service (and
-from there, to a Pod). This is a simple way to expose something outside
-the cluster without cloud load-balancer support (which you don't have
-locally) — useful for local testing, rarely used directly in production.
-
-**LoadBalancer** asks the cloud provider to provision an external load
-balancer that points at the Service. On a local kind/minikube cluster
-there's no cloud provider to fulfill this request, so a `LoadBalancer`
-Service typically sits with its `EXTERNAL-IP` stuck at `<pending>`
-forever — this is expected locally, not a bug (the AKS track shows this
-working for real, since Azure *does* provision one). For local access to
-a `LoadBalancer` Service, minikube's `minikube tunnel` or kind's port
-mappings are used as workarounds; in this track we mainly use
-`port-forward` and NodePort for local access, and Ingress (module 08) for
-the realistic pattern.
-
-```
-   the three Service types, by how far traffic can reach in:
-
-   ClusterIP    [ inside cluster only ]
-                   client Pod ──► ClusterIP ──► Pod
-
-   NodePort     [ any node's IP : 30000-32767 ]
-                   host ──► node:30080 ──► ClusterIP ──► Pod
-
-   LoadBalancer [ external IP from cloud provider ]
-                   internet ──► cloud LB ──► node ──► ClusterIP ──► Pod
-                   (EXTERNAL-IP stays <pending> locally — no cloud LB)
+    Client->>DNS: Resolve "order-svc.prod.svc.cluster.local"
+    DNS-->>Client: Returns Virtual IP (e.g. 10.96.14.88)
+    Client->>Kernel: TCP SYN to 10.96.14.88:80
+    Note over Kernel: iptables / IPVS matches VIP<br/>Random DNAT to healthy endpoint IP
+    EP-->>Kernel: Continuous sync of Ready Pod IPs (172.17.0.4)
+    Kernel->>Target: Rewritten Packet delivered to 172.17.0.4:8080
+    Target-->>Kernel: TCP SYN-ACK from 172.17.0.4:8080
+    Kernel-->>Client: Conntrack reverses DNAT -> 10.96.14.88:80
+    Client->>Target: TCP Established & HTTP Payload Transferred
 ```
 
-**kube-proxy**, introduced in module 01, is what actually implements a
-Service's routing on every node — it watches the API server for
-Service/Endpoint changes and programs networking rules (iptables or
-IPVS) so traffic to the Service's virtual IP gets transparently sent to
-one of the healthy backing Pods.
+---
 
-**Only `Ready` Pods receive traffic.** This is the payoff of readiness
-probes from module 02: a Pod that's `Running` but not yet `Ready` (or
-that becomes not-`Ready`) is automatically excluded from a Service's
-Endpoints, without needing to touch the Service at all.
+### Service Types Taxonomy & Boundary Scope
 
-## Command reference
+```mermaid
+flowchart TD
+    subgraph Internet ["Public Internet / Outside Cluster"]
+        ExtClient["External Client / Browser"]
+    end
 
-| Command | What it does | Example |
-|---|---|---|
-| `kubectl expose deployment <name> --port=<p>` | Imperatively creates a Service for a Deployment | `kubectl expose deployment web --port=80` |
-| `kubectl get services` | Lists Services, their type, cluster IP, and ports | `kubectl get svc` |
-| `kubectl get endpoints <name>` | Shows which Pod IPs a Service currently routes to | `kubectl get endpoints web` |
-| `kubectl describe service <name>` | Shows selector, endpoints, and ports in detail | `kubectl describe svc web` |
-| `kubectl port-forward svc/<name> <local>:<svc>` | Forwards a local port to a Service | `kubectl port-forward svc/web 8080:80` |
-| `kubectl run <name> --image=<img> -it --rm` | Quick disposable Pod, useful for testing DNS/connectivity from inside the cluster | `kubectl run test --image=busybox:1.36 -it --rm -- sh` |
-| `spec.type` | Service type: `ClusterIP` (default), `NodePort`, `LoadBalancer`, `ExternalName` | `type: NodePort` |
-| `spec.selector` | Labels a Pod must have to become an endpoint | `selector: {app: web}` |
-| `spec.ports[].port` | Port the Service itself listens on | `port: 80` |
-| `spec.ports[].targetPort` | Port on the Pod traffic is forwarded to | `targetPort: 80` |
-| `spec.ports[].nodePort` | (NodePort type) fixed port opened on every node (30000-32767) | `nodePort: 30080` |
+    subgraph CloudInfra ["Cloud Provider Infrastructure"]
+        CloudLB["Cloud Load Balancer (AWS NLB / GCP LB / Azure ALB)"]
+    end
 
-## Hands-on exercises
+    subgraph ClusterNodes ["Kubernetes Cluster Boundary"]
+        subgraph Node1 ["Node 1 (e.g. 192.168.1.10)"]
+            NP1["NodePort :31080"]
+            KP1["kube-proxy (iptables/IPVS)"]
+        end
+        subgraph Node2 ["Node 2 (e.g. 192.168.1.11)"]
+            NP2["NodePort :31080"]
+            KP2["kube-proxy (iptables/IPVS)"]
+        end
 
-Continue in namespace `demo`. Recreate the `web` Deployment from module
-03 if you deleted it:
+        subgraph VirtualNetwork ["Cluster SDN Overlay (10.96.0.0/12)"]
+            VIP["ClusterIP Virtual IP (10.96.45.10:80)"]
+            CoreDNS["CoreDNS Resolver"]
+        end
+
+        subgraph PodLayer ["Target Pods (172.17.0.0/16)"]
+            PodA["Pod A (172.17.0.4:8080)<br/>Ready: True"]
+            PodB["Pod B (172.17.0.5:8080)<br/>Ready: True"]
+            PodC["Pod C (172.17.0.6:8080)<br/>Ready: False (Excluded)"]
+        end
+    end
+
+    ExtClient -->|Direct Traffic| CloudLB
+    CloudLB -->|Forward to NodePort| NP1
+    CloudLB -->|Forward to NodePort| NP2
+    NP1 --> VIP
+    NP2 --> VIP
+    VIP --> KP1
+    VIP --> KP2
+    KP1 -->|Load Balance| PodA
+    KP1 -->|Load Balance| PodB
+    CoreDNS -.->|Resolves FQDN to VIP| VIP
+```
+
+---
+
+## 2. Technical Comparison: Service Types & Port Architecture
+
+### Service Types Specification Matrix
+
+| Service Type | Scope & Accessibility | Typical Port Allocation | Infrastructure Dependency | Use Cases |
+| :--- | :--- | :--- | :--- | :--- |
+| **`ClusterIP`** | Internal only (Cluster SDN) | `spec.ports[].port` (1-65535) | None (Standard Kubernetes SDN) | Default; internal microservices, databases, caches, message queues. |
+| **`NodePort`** | Node network + Internal | `30000-32767` (Cluster-wide static) | Node host networking | Dev/Test clusters, bare-metal clusters, or direct L4 hardware appliances. |
+| **`LoadBalancer`** | Public Internet / External VPC | External IP + NodePort + ClusterIP | Cloud Provider Controller (AWS/GCP/Azure) | Public-facing APIs, ingress controllers, direct TCP/UDP services. |
+| **`ExternalName`** | Internal DNS CNAME Redirect | Resolves to external CNAME | None (CoreDNS CNAME record only) | Redirecting in-cluster queries to third-party APIs (e.g., AWS RDS, Stripe). |
+| **`Headless` (`None`)| No Virtual IP (`clusterIP: None`) | Direct Pod A-Records | None | StatefulSets, Kafka/Cassandra peers, gRPC client-side load balancing. |
+
+---
+
+### The Port Disambiguation Taxonomy
+
+One of the most frequent sources of deployment confusion in Kubernetes is the distinction between the four port definitions:
 
 ```yaml
-# deploy-web.yaml
+spec:
+  type: NodePort
+  ports:
+    - name: http
+      port: 80         # Port exposed on the ClusterIP VIP inside the cluster
+      targetPort: 8080 # Port the container process is listening on inside the Pod
+      nodePort: 31080  # Port opened on every cluster Node's external network interface
+      protocol: TCP    # Layer 4 protocol (TCP, UDP, SCTP)
+```
+
+1. **`port`**: The L4 port clients use when dialing the Service VIP or CoreDNS hostname (e.g., `http://order-svc:80`).
+2. **`targetPort`**: The actual port exposed by the application container inside the Pod (e.g., `8080`). Can be an integer or a named port string matching `spec.containers[].ports[].name`.
+3. **`nodePort`**: The static port allocated across all cluster worker nodes. If omitted on a `NodePort` service, Kubernetes dynamically selects an available port from the `--service-node-port-range` (default `30000-32767`).
+4. **`containerPort`**: Informational declaration in the Pod spec; does not open firewall rules by itself.
+
+---
+
+## 3. CoreDNS Architecture & Domain Resolution
+
+Kubernetes provisions an internal CoreDNS deployment in the `kube-system` namespace. Every container automatically has `/etc/resolv.conf` injected with the cluster domain search list:
+
+```ini
+# /etc/resolv.conf inside a Kubernetes Pod
+nameserver 10.96.0.10
+search demo.svc.cluster.local svc.cluster.local cluster.local corp.internal
+options ndots:5
+```
+
+### CoreDNS Resolution Taxonomy
+
+| Calling Location | Target Service | Recommended Dial String | Fully Qualified Domain Name (FQDN) |
+| :--- | :--- | :--- | :--- |
+| Same Namespace (`prod`) | `auth-svc` | `http://auth-svc:8080` | `auth-svc.prod.svc.cluster.local` |
+| Different Namespace (`analytics`) | `auth-svc` in `prod` | `http://auth-svc.prod:8080` | `auth-svc.prod.svc.cluster.local` |
+| Cross-Cluster / Complete FQDN | `auth-svc` in `prod` | `http://auth-svc.prod.svc.cluster.local:8080` | `auth-svc.prod.svc.cluster.local` |
+| Headless Pod (`statefulset-0`) | `db-svc` in `prod` | `statefulset-0.db-svc.prod.svc.cluster.local` | Resolves directly to Pod's private IP |
+
+> [!WARNING]
+> **The `ndots:5` DNS Latency Tax**: By default, `/etc/resolv.conf` configures `ndots:5`. Any query with fewer than 5 dots (e.g., `api.stripe.com`) appends all search paths in order (`api.stripe.com.demo.svc.cluster.local`, then `api.stripe.com.svc.cluster.local`, etc.) before finally querying external nameservers. This can generate 4x NXDOMAIN lookup overhead per external HTTP request. Mitigate by appending a trailing dot (`api.stripe.com.`) or setting `dnsConfig.options[ndots]=2` for external egress workloads.
+
+---
+
+## 4. Production War Story: The "Ghost Deployment" Zero-Endpoint Outage
+
+### Incident Overview
+A fintech payment gateway platform deployed a critical hotfix to their `payment-processor` microservice. Within 90 seconds of the rollout completing, the upstream checkout orchestrator began throwing `HTTP 502 Bad Gateway` and `Connection Refused` on 100% of purchase transactions. Total business impact: $420,000 in dropped transactions over 18 minutes.
+
+### The Failure Sequence
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Admin as CI/CD Pipeline
+    participant APIServer as K8s API Server
+    participant Endpoints as Endpoint Controller
+    participant Service as Service (VIP: 10.96.20.15)
+    participant Upstream as Checkout Orchestrator
+
+    Admin->>APIServer: Apply updated Deployment (spec.template.labels.app = payment-api-v2)
+    APIServer->>Endpoints: Pods created with labels [app: payment-api-v2]
+    Note over Service,Endpoints: Service selector is configured with [app: payment-processor]
+    Endpoints->>Service: Re-evaluating selectors... 0 pods matched!
+    Endpoints->>Service: Active Endpoints updated to: <none>
+    Upstream->>Service: POST http://payment-processor/charge
+    Note over Service: kube-proxy has 0 iptables rules for VIP!<br/>Kernel rejects packet immediately.
+    Service-->>Upstream: TCP RST / Connection Refused (Port 80)
+    Upstream-->>Admin: Alert: 100% checkout failure rate!
+```
+
+### Root Cause Analysis
+1. The developer updated the Deployment manifest and renamed the Pod template labels from `app: payment-processor` to `app: payment-api-v2`.
+2. However, the accompanying `Service` manifest was not updated; its `spec.selector` remained `app: payment-processor`.
+3. Kubernetes did not throw a validation error because selector decoupling is intentional (allowing services to target arbitrary pod sets).
+4. The `EndpointSlice` controller evaluated the label selector, found zero matches, and wiped all active endpoints.
+5. `kube-proxy` flushed the forwarding rules. Traffic to `10.96.20.15:80` hit a black hole, generating instant TCP resets.
+
+### The Remediation & Prevention Policy
+```bash
+# Diagnostic command that instantly reveals the bug:
+kubectl get endpoints payment-processor -n prod
+# Output showing failure:
+# NAME                ENDPOINTS   AGE
+# payment-processor   <none>      14d
+
+# Verification of Pod labels:
+kubectl get pods -n prod --show-labels -l app=payment-processor
+# Output: No resources found in prod namespace.
+```
+
+The team introduced automated CI linting via `conftest` and `kube-linter` to verify that every `Service.spec.selector` strictly matches at least one managed Deployment template label prior to merge.
+
+---
+
+## 5. Multi-Language Resilient Client Implementations
+
+When communicating over Kubernetes Services, client libraries must account for DNS caching and connection reuse. If an internal microservice scales up from 2 to 20 Pods, a client that caches the DNS A-record indefinitely or reuses a single persistent HTTP connection indefinitely will route all traffic to the original two Pods.
+
+The implementations below demonstrate production-ready HTTP clients in **Go**, **Node.js/TypeScript**, and **Python** with tuned DNS lookup limits, timeouts, and connection pooling.
+
+### Go Implementation
+
+```go
+// internal/client/service_client.go
+package client
+
+import (
+	"context"
+	"fmt"
+	"io"
+	"net"
+	"net/http"
+	"time"
+)
+
+type ResilientServiceClient struct {
+	client  *http.Client
+	baseURL string
+}
+
+func NewResilientServiceClient(serviceName, namespace string, port int) *ResilientServiceClient {
+	// Custom dialer with short DNS cache & aggressive idle connection cleanup
+	dialer := &net.Dialer{
+		Timeout:   2 * time.Second,
+		KeepAlive: 30 * time.Second,
+	}
+
+	transport := &http.Transport{
+		DialContext:           dialer.DialContext,
+		MaxIdleConns:          100,
+		MaxIdleConnsPerHost:   20,
+		IdleConnTimeout:       90 * time.Second,
+		TLSHandshakeTimeout:   2 * time.Second,
+		ExpectContinueTimeout: 1 * time.Second,
+		// Force DNS re-resolution across Pod scaling events
+		MaxConnsPerHost:       50,
+	}
+
+	return &ResilientServiceClient{
+		client: &http.Client{
+			Transport: transport,
+			Timeout:   5 * time.Second,
+		},
+		// Uses K8s internal DNS naming convention
+		baseURL: fmt.Sprintf("http://%s.%s.svc.cluster.local:%d", serviceName, namespace, port),
+	}
+}
+
+func (c *ResilientServiceClient) CallEndpoint(ctx context.Context, path string) ([]byte, error) {
+	reqURL := fmt.Sprintf("%s%s", c.baseURL, path)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, reqURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to construct request: %w", err)
+	}
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("User-Agent", "Internal-Core-Gateway/1.0")
+
+	resp, err := c.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("service call to %s failed: %w", reqURL, err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("unexpected status %d from %s", resp.StatusCode, reqURL)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response body: %w", err)
+	}
+
+	return body, nil
+}
+```
+
+---
+
+### Node.js / TypeScript Implementation
+
+```typescript
+// src/clients/k8sServiceClient.ts
+import http from 'node:http';
+import axios, { AxiosInstance, AxiosResponse } from 'axios';
+
+export interface ServiceClientConfig {
+  serviceName: string;
+  namespace: string;
+  port: number;
+  timeoutMs?: number;
+}
+
+export class K8sServiceClient {
+  private readonly axiosInstance: AxiosInstance;
+  private readonly baseUrl: string;
+
+  constructor(config: ServiceClientConfig) {
+    this.baseUrl = `http://${config.serviceName}.${config.namespace}.svc.cluster.local:${config.port}`;
+
+    // Custom HTTP agent to ensure DNS resolution refreshes properly
+    const httpAgent = new http.Agent({
+      keepAlive: true,
+      keepAliveMsecs: 10000,
+      maxSockets: 50,
+      maxFreeSockets: 10,
+      timeout: 3000,
+    });
+
+    this.axiosInstance = axios.create({
+      baseURL: this.baseUrl,
+      timeout: config.timeoutMs || 5000,
+      httpAgent,
+      headers: {
+        'Accept': 'application/json',
+        'User-Agent': 'Node-K8s-MeshClient/2.4',
+      },
+    });
+  }
+
+  async getResource<T>(path: string): Promise<T> {
+    try {
+      const response: AxiosResponse<T> = await this.axiosInstance.get(path);
+      return response.data;
+    } catch (error: any) {
+      if (error.code === 'ECONNREFUSED') {
+        throw new Error(`K8s Service [${this.baseUrl}] unreachable: Verify EndpointSlice readiness`);
+      }
+      if (error.code === 'ENOTFOUND') {
+        throw new Error(`CoreDNS lookup failed for [${this.baseUrl}]: Verify Service and Namespace exist`);
+      }
+      throw error;
+    }
+  }
+}
+```
+
+---
+
+### Python Implementation
+
+```python
+# clients/k8s_service_client.py
+import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
+from typing import Any, Dict
+
+
+class K8sServiceClient:
+    """Production-grade HTTP client targeting Kubernetes ClusterIP Services."""
+
+    def __init__(self, service_name: str, namespace: str, port: int, timeout_sec: float = 4.0):
+        self.base_url = f"http://{service_name}.{namespace}.svc.cluster.local:{port}"
+        self.timeout_sec = timeout_sec
+        self.session = requests.Session()
+
+        # Retry strategy for transient TCP drops during rolling pod rollouts
+        retry_strategy = Retry(
+            total=3,
+            backoff_factor=0.3,
+            status_forcelist=[500, 502, 503, 504],
+            allowed_methods=["GET", "HEAD", "OPTIONS"],
+            raise_on_status=False
+        )
+        adapter = HTTPAdapter(
+            pool_connections=20,
+            pool_maxsize=50,
+            max_retries=retry_strategy
+        )
+        self.session.mount("http://", adapter)
+
+    def fetch(self, path: str) -> Dict[str, Any]:
+        url = f"{self.base_url}{path}"
+        try:
+            response = self.session.get(
+                url,
+                timeout=self.timeout_sec,
+                headers={"Accept": "application/json"}
+            )
+            response.raise_for_status()
+            return response.json()
+        except requests.exceptions.ConnectionError as ex:
+            raise ConnectionError(f"Failed to connect to K8s Service at {url}: {ex}") from ex
+        except requests.exceptions.Timeout as ex:
+            raise TimeoutError(f"Request to {url} timed out after {self.timeout_sec}s") from ex
+```
+
+---
+
+## 6. Practical Hands-On Verification Laboratory
+
+Follow this step-by-step laboratory to deploy a real multi-pod deployment, expose it with a `ClusterIP` and `NodePort` service, inspect `EndpointSlices`, and verify CoreDNS resolution live.
+
+### Step 1: Deploy Backend Workload & ClusterIP Service
+
+Save the manifest as `networking-demo.yaml`:
+
+```yaml
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: web
+  name: web-api
+  namespace: default
   labels:
-    app: web
+    app: web-api
 spec:
   replicas: 3
   selector:
     matchLabels:
-      app: web
+      app: web-api
   template:
     metadata:
       labels:
-        app: web
+        app: web-api
+        tier: backend
     spec:
       containers:
-        - name: nginx
-          image: nginx:1.27
+        - name: server
+          image: hashicorp/http-echo:0.2.3
+          args:
+            - "-text=Serving from pod: $(MY_POD_NAME)"
+          env:
+            - name: MY_POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
           ports:
-            - containerPort: 80
-          resources:
-            requests: {cpu: "50m", memory: "64Mi"}
-            limits: {cpu: "200m", memory: "128Mi"}
-```
-
-```bash
-kubectl apply -f deploy-web.yaml
-```
-
-### 1. Create a ClusterIP Service
-
-```yaml
-# svc-web.yaml
+            - containerPort: 5678
+              name: http
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 5678
+            initialDelaySeconds: 2
+            periodSeconds: 3
+---
 apiVersion: v1
 kind: Service
 metadata:
-  name: web
+  name: web-api-service
+  namespace: default
 spec:
   type: ClusterIP
   selector:
-    app: web
+    app: web-api
   ports:
-    - port: 80
-      targetPort: 80
+    - name: http
+      port: 80
+      targetPort: 5678
+      protocol: TCP
 ```
+
+Apply to the cluster:
 
 ```bash
-kubectl apply -f svc-web.yaml
-kubectl get svc web
-kubectl get endpoints web
+kubectl apply -f networking-demo.yaml
 ```
 
-Expected: `get svc` shows a `CLUSTER-IP` (no `EXTERNAL-IP`);
-`get endpoints` lists 3 Pod IPs on port 80, matching your 3 Deployment
-replicas.
+*Expected Terminal Output:*
+```text
+deployment.apps/web-api created
+service/web-api-service created
+```
 
-### 2. Reach it from inside the cluster
+---
+
+### Step 2: Inspect Service, Endpoints, and EndpointSlices
+
+Verify that the Service has correctly discovered all 3 Pod endpoints:
 
 ```bash
-kubectl run test --image=busybox:1.36 -it --rm -n demo -- sh
+kubectl get service web-api-service
+kubectl get endpoints web-api-service
+kubectl get endpointslices -l kubernetes.io/service-name=web-api-service
 ```
 
-Inside that shell:
+*Expected Terminal Output:*
+```text
+NAME              TYPE        CLUSTER-IP      EXTERNAL-IP   PORT(S)   AGE
+web-api-service   ClusterIP   10.96.112.44    <none>        80/TCP    18s
+
+NAME              ENDPOINTS                                         AGE
+web-api-service   172.17.0.5:5678,172.17.0.6:5678,172.17.0.7:5678   18s
+
+NAME                    ADDRESSTYPE   PORTS   ENDPOINTS                      AGE
+web-api-service-824g7   IPv4          5678    172.17.0.5,172.17.0.6,...     18s
+```
+
+---
+
+### Step 3: Test CoreDNS & Service VIP from an Ephemeral Pod
+
+Launch a temporary diagnostic container in the cluster to test internal DNS resolution and load distribution across the 3 Pods:
+
+```bash
+kubectl run test-curl --rm -it --image=curlimages/curl -- sh
+```
+
+Inside the interactive container shell, execute:
 
 ```sh
-wget -qO- http://web
-wget -qO- http://web.demo.svc.cluster.local
-nslookup web
-exit
+# Test 1: Query CoreDNS resolution
+nslookup web-api-service
+
+# Test 2: Curl the ClusterIP Service multiple times to observe round-robin
+curl -s http://web-api-service
+curl -s http://web-api-service
+curl -s http://web-api-service
 ```
 
-Expected: nginx's HTML both times; `nslookup` resolves `web` to a
-`ClusterIP` address — proof of cluster DNS working.
+*Expected Terminal Output:*
+```text
+Server:         10.96.0.10
+Address:        10.96.0.10#53
 
-### 3. Reach it from your machine with port-forward
+Name:   web-api-service.default.svc.cluster.local
+Address: 10.96.112.44
+
+Serving from pod: web-api-7b4d89849-n4k9w
+Serving from pod: web-api-7b4d89849-j2s8q
+Serving from pod: web-api-7b4d89849-m9xvt
+```
+
+---
+
+### Step 4: Expose via NodePort & Validate Host Access
 
 ```bash
-kubectl port-forward svc/web 8080:80
+kubectl expose deployment web-api --type=NodePort --name=web-api-nodeport --port=80 --target-port=5678
+kubectl get svc web-api-nodeport
 ```
 
-In another terminal:
+*Expected Terminal Output:*
+```text
+NAME               TYPE       CLUSTER-IP      EXTERNAL-IP   PORT(S)        AGE
+web-api-nodeport   NodePort   10.96.184.21    <none>        80:31250/TCP   4s
+```
+
+Now, curl any worker node's IP address on the exposed `31250` port:
 
 ```bash
-curl localhost:8080
+curl http://localhost:31250
 ```
 
-Expected: nginx HTML. Ctrl+C the port-forward when done.
-
-### 4. Prove the Service tracks Pod churn automatically
-
-```bash
-kubectl get endpoints web
-kubectl get pods -l app=web
-kubectl delete pod <one-pod-name>
-kubectl get endpoints web --watch
+*Expected Terminal Output:*
+```text
+Serving from pod: web-api-7b4d89849-n4k9w
 ```
 
-Expected: the deleted Pod's IP briefly disappears from Endpoints, a new
-Pod is created (ReplicaSet self-heal, module 03), and once it passes any
-readiness checks its new IP appears — no changes made to the Service
-itself. Ctrl+C the watch.
+---
 
-### 5. NodePort
+## 7. Command Quick-Reference Cheat Sheet
 
-```yaml
-# svc-web-nodeport.yaml
-apiVersion: v1
-kind: Service
-metadata:
-  name: web-nodeport
-spec:
-  type: NodePort
-  selector:
-    app: web
-  ports:
-    - port: 80
-      targetPort: 80
-      nodePort: 30080
+| Command | Action / Objective | Example Scenario |
+| :--- | :--- | :--- |
+| `kubectl get svc -A` | List all services across all namespaces | Audit exposed ports and external IPs |
+| `kubectl get ep <svc-name>` | Inspect active healthy Pod IP endpoints | Verify why a Service returns connection errors |
+| `kubectl get endpointslices` | Inspect high-scale endpoint slice distribution | Large clusters (>100 pods per service) |
+| `kubectl describe svc <svc-name>` | View Service selector, VIP, and endpoint list | Debug selector label mismatches |
+| `kubectl port-forward svc/<name> 8080:80` | Forward local port directly to a Service VIP | Debug private ClusterIP from local developer workstation |
+| `kubectl run dnstest --image=busybox:1.28 --rm -it -- nslookup <svc>` | Test CoreDNS resolution directly inside SDN | Troubleshoot cross-namespace service routing |
+
+---
+
+## 8. Operational Validation Checkpoints
+
+### Scenario 1: The Cascading Connection Timeout Mystery
+**Context:** Your production cluster runs an analytics ingestion API exposed via a `ClusterIP` Service backed by 10 Pods. Under high peak traffic (5,000 requests/sec), upstream services intermittently report `504 Gateway Timeout` and high latency spikes, even though CPU and memory utilization on the backend Pods remain under 35%.
+
 ```
-
-```bash
-kubectl apply -f svc-web-nodeport.yaml
-kubectl get svc web-nodeport
+Problem Checklist:
+1. Pod CPU/RAM: OK (<35%)
+2. Pod restarts: 0
+3. kube-proxy mode: iptables (default)
+4. Symptoms: Connection establishment delays, packet retransmissions
 ```
-
-Expected: `PORT(S)` column shows `80:30080/TCP`. Because kind runs nodes
-as containers without automatically publishing arbitrary ports to your
-host, reaching this from your WSL2 terminal directly typically requires
-either a kind cluster config with `extraPortMappings`, or simply using
-`kubectl port-forward svc/web-nodeport 8080:80` as a stand-in — do that
-now and confirm it still works, and note *why* NodePort needs extra kind
-configuration that a real cloud node wouldn't.
-
-### 6. LoadBalancer (and why it stays pending locally)
-
-```yaml
-# svc-web-lb.yaml
-apiVersion: v1
-kind: Service
-metadata:
-  name: web-lb
-spec:
-  type: LoadBalancer
-  selector:
-    app: web
-  ports:
-    - port: 80
-      targetPort: 80
-```
-
-```bash
-kubectl apply -f svc-web-lb.yaml
-kubectl get svc web-lb --watch
-```
-
-Expected: `EXTERNAL-IP` stays `<pending>` indefinitely — there's no
-cloud controller locally to fulfill the request. Confirm this is
-expected:
-
-```bash
-kubectl describe svc web-lb
-```
-
-You won't see an error, just no external IP ever assigned. Ctrl+C the
-watch, then clean up:
-
-```bash
-kubectl delete svc web-lb web-nodeport
-```
-
-### 7. Multiple Services, one Deployment, different selectors
-
-Add a second Deployment to see selector precision matter:
-
-```yaml
-# deploy-web-canary.yaml
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: web-canary
-  labels:
-    app: web
-    track: canary
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: web
-      track: canary
-  template:
-    metadata:
-      labels:
-        app: web
-        track: canary
-    spec:
-      containers:
-        - name: nginx
-          image: nginx:1.28
-          ports:
-            - containerPort: 80
-```
-
-```bash
-kubectl apply -f deploy-web-canary.yaml
-kubectl get endpoints web
-```
-
-Expected: the `web` Service's endpoints now include all 4 Pods (3 stable
-+ 1 canary) because its selector (`app: web`) matches both — a reminder
-that selectors match on label sets, not on which Deployment "owns" a
-Pod. Clean up the canary:
-
-```bash
-kubectl delete deployment web-canary
-```
-
-### 8. Diagnose and fix: Service with zero endpoints (selector mismatch)
-
-```yaml
-# svc-broken.yaml
-apiVersion: v1
-kind: Service
-metadata:
-  name: web-broken
-spec:
-  selector:
-    app: webb
-  ports:
-    - port: 80
-      targetPort: 80
-```
-
-```bash
-kubectl apply -f svc-broken.yaml
-kubectl get svc web-broken
-kubectl get endpoints web-broken
-```
-
-Expected: the Service exists (`get svc` shows a ClusterIP), but
-`get endpoints web-broken` shows `<none>` — a typo (`webb` vs `web`)
-means it matches no Pods. Confirm with a port-forward attempt:
-
-```bash
-kubectl port-forward svc/web-broken 8081:80
-```
-
-In another terminal:
-
-```bash
-curl localhost:8081
-```
-
-Expected: `curl` hangs or errors — there is nowhere for the forwarded
-traffic to go. Diagnose:
-
-```bash
-kubectl describe svc web-broken
-```
-
-Expected: `Endpoints: <none>` and a `Selector` line showing `app=webb` —
-compare against your Deployment's actual Pod labels
-(`kubectl get pods --show-labels -l app=web`) to spot the mismatch. Fix:
-
-```bash
-kubectl patch svc web-broken -p '{"spec":{"selector":{"app":"web"}}}'
-kubectl get endpoints web-broken
-```
-
-Expected: endpoints populate immediately. Clean up:
-
-```bash
-kubectl delete svc web-broken
-```
-
-### 9. Diagnose and fix: targetPort mismatch
-
-```yaml
-# svc-wrong-port.yaml
-apiVersion: v1
-kind: Service
-metadata:
-  name: web-wrongport
-spec:
-  selector:
-    app: web
-  ports:
-    - port: 80
-      targetPort: 8080
-```
-
-```bash
-kubectl apply -f svc-wrong-port.yaml
-kubectl port-forward svc/web-wrongport 8082:80
-```
-
-In another terminal:
-
-```bash
-curl -m 5 localhost:8082
-```
-
-Expected: a timeout/connection reset — the Service has endpoints (Pods
-match the selector fine), but it's forwarding to port 8080 inside the
-Pod, while nginx only listens on 80. Diagnose:
-
-```bash
-kubectl get endpoints web-wrongport
-kubectl describe svc web-wrongport
-```
-
-Expected: endpoints show `<pod-ip>:8080` — confirming traffic is being
-sent to the wrong port inside otherwise-healthy Pods. Fix:
-
-```bash
-kubectl patch svc web-wrongport -p '{"spec":{"ports":[{"port":80,"targetPort":80}]}}'
-curl -m 5 localhost:8082    # after restarting the port-forward
-```
-
-Clean up everything from this module:
-
-```bash
-kubectl delete svc web-wrongport web
-kubectl delete deployment web
-```
-
-## Independent challenge
-
-No YAML or commands given here — figure it out yourself using what you
-know from this module and earlier ones.
-
-**Task:** Run two independent Deployments in `demo` — call them `blue` and
-`green` — each serving a different response, then create a single
-ClusterIP Service whose selector currently routes only to `blue`. From a
-throwaway Pod inside the cluster, confirm by DNS name that you reach only
-`blue`. Now, without deleting or recreating the Service, cut over all its
-traffic to `green` and re-confirm from inside the cluster that the same
-DNS name now reaches only `green`. Explain to yourself why the Service's
-virtual IP and DNS name never changed even though the backing Pods did.
-This builds on the label-selector and Deployment mechanics from module 03.
 
 <details>
-<summary>Stuck? One hint</summary>
+<summary>View Diagnostic Workflow & Resolution</summary>
 
-The cutover is a change to the Service's `spec.selector` (the labels are
-the only thing binding it to Pods); verify which Pod IPs it currently
-targets with `kubectl get endpoints <svc>` before and after.
+**Root Cause:**  
+Under default `iptables` mode, every single packet evaluation traverses a linear chain of rules. At 5,000 requests/sec, the Linux kernel's connection tracking table (`nf_conntrack`) exhausts its max table limit or experiences lock contention, resulting in silent packet drops at the node kernel layer.
 
+**Diagnostic Commands:**
+```bash
+# Check node kernel logs for conntrack table saturation:
+dmesg -T | grep -E "nf_conntrack: table full|drop packet"
+
+# Check current conntrack usage:
+cat /proc/sys/net/netfilter/nf_conntrack_count
+cat /proc/sys/net/netfilter/nf_conntrack_max
+```
+
+**Resolution Steps:**
+1. Switch `kube-proxy` from `iptables` mode to `IPVS` (IP Virtual Server) mode. IPVS utilizes kernel hash tables with \(O(1)\) lookup time instead of \(O(n)\) sequential iptables chains, effortlessly supporting over 50,000 requests/sec.
+2. In the `kube-proxy` ConfigMap (`kubectl edit cm kube-proxy -n kube-system`), set:
+   ```yaml
+   mode: "ipvs"
+   ipvs:
+     strictARP: true
+   ```
+3. Restart the `kube-proxy` daemonset:
+   ```bash
+   kubectl rollout restart daemonset kube-proxy -n kube-system
+   ```
 </details>
 
-## Common mistakes & troubleshooting
+---
 
-- **Selector typos or mismatches**: the single most common Service bug —
-  the Service is created successfully (the API server doesn't validate
-  that a selector matches anything), but routes nowhere. Always check
-  `kubectl get endpoints <svc>` first when a Service "isn't working."
-- **Confusing `port` and `targetPort`**: `port` is what clients (and
-  other Pods) connect to on the Service; `targetPort` is what the
-  container actually listens on. They can differ, and mixing them up
-  sends traffic to a port nothing is listening on inside the Pod.
-- **Expecting `LoadBalancer` to get an external IP locally**: it won't,
-  without extra local tooling (`minikube tunnel`, or manual kind port
-  mappings) — this is expected on kind/minikube, and is exactly the gap
-  the AKS track fills in with a real cloud load balancer.
-- **Forgetting readiness gates traffic**: a Pod that's `Running` but not
-  `Ready` (module 02) is automatically excluded from `Endpoints` — if
-  traffic "isn't reaching" some Pods, check their readiness state before
-  assuming a Service bug.
-- **Assuming Service DNS names are cluster-wide by default**: from a
-  different namespace you need `<service>.<namespace>` (or the full
-  `.svc.cluster.local` form); plain `<service>` only resolves within the
-  same namespace.
+### Scenario 2: Zero Endpoints Despite Pods in `Running` State
+**Context:** You deploy a new microservice `order-processor`. `kubectl get pods` shows all 4 Pods in status `Running`. However, calls to `http://order-processor` immediately return `HTTP 503 Service Unavailable` or `connection refused`. Running `kubectl get endpoints order-processor` displays `<none>`.
 
-## Checkpoint quiz
-
-Write down your answer to each question before expanding it — checking without attempting first is the single easiest way to fool yourself into thinking you've learned this.
-
-1. Why do Pods need a Service in front of them at all, given each Pod
-   already has an IP?
-2. How does a Service decide which Pods are its current endpoints?
-3. What's the difference between `port` and `targetPort` on a Service?
-4. Why does a `LoadBalancer` Service stay `<pending>` on a local
-   kind cluster, and what would be different on AKS?
-5. If `kubectl get endpoints <svc>` shows `<none>`, what are the two
-   most likely causes to check first?
-6. From a Pod in namespace `demo`, what DNS name reaches a Service named
-   `api` running in namespace `billing`?
-7. Does a Service route traffic to a Pod that's `Running` but failing
-   its readiness probe?
+```
+$ kubectl get pods
+NAME                               READY   STATUS    RESTARTS   AGE
+order-processor-59756b5f4c-2bx9k   0/1     Running   0          4m
+order-processor-59756b5f4c-4x8w9   0/1     Running   0          4m
+order-processor-59756b5f4c-8j7k2   0/1     Running   0          4m
+order-processor-59756b5f4c-z5t4m   0/1     Running   0          4m
+```
 
 <details>
-<summary>Show answers</summary>
+<summary>View Diagnostic Workflow & Resolution</summary>
 
-1. Pod IPs are not stable — Pods get replaced constantly (rollouts,
-   self-healing, scaling) and each replacement gets a new IP. A Service
-   provides one stable virtual IP/DNS name that always points at the
-   currently-healthy set of Pods.
-2. By continuously matching its `spec.selector` labels against Pod
-   labels — any Pod with matching labels becomes an endpoint
-   automatically.
-3. `port` is the port the Service itself exposes (what clients connect
-   to); `targetPort` is the port on the Pod/container the traffic is
-   actually forwarded to.
-4. Locally there's no cloud provider to provision a real load balancer,
-   so the request just never gets fulfilled; on AKS, the Azure cloud
-   controller provisions an actual Azure Load Balancer and populates
-   `EXTERNAL-IP`.
-5. A selector that doesn't match any Pod's labels (typo or mismatch), or
-   the matching Pods not existing/not being scheduled yet.
-6. `api.billing` (or the fully qualified `api.billing.svc.cluster.local`).
-7. No — a Pod that fails its readiness probe is removed from the
-   Service's Endpoints until it passes again, even though it's still
-   `Running`.
+**Root Cause:**  
+Notice the `READY` column: `0/1`. Although the container process has booted (`Running`), the configured **readiness probe** is failing or has not yet completed its initial delay. Kubernetes strictly isolates failing Pods from `Endpoints` and `EndpointSlices` to prevent bad traffic delivery.
 
+**Diagnostic Commands:**
+```bash
+# Inspect probe failure events
+kubectl describe pod order-processor-59756b5f4c-2bx9k | grep -A 5 "Readiness"
+# Output:
+# Readiness probe failed: HTTP probe failed with statuscode: 500
+```
+
+**Resolution Steps:**
+1. Check the application logs to see why the health endpoint `/ready` is returning 500:
+   ```bash
+   kubectl logs order-processor-59756b5f4c-2bx9k
+   ```
+   *Common causes: Database connection uninitialized, missing environment variable secret.*
+2. Once the application dependency resolves and the readiness probe returns `200 OK`, `READY` switches to `1/1`, and the Endpoint Controller immediately registers the Pod IP in the Service's active endpoints.
 </details>
 
-## Further reading & sources
+---
 
-- [Service](https://kubernetes.io/docs/concepts/services-networking/service/) - the definitive reference for ClusterIP, NodePort, and LoadBalancer types.
-- [DNS for Services and Pods](https://kubernetes.io/docs/concepts/services-networking/dns-pod-service/) - how the `<svc>.<ns>.svc.cluster.local` names resolve.
-- [Connecting Applications with Services](https://kubernetes.io/docs/tutorials/services/connect-applications-service/) - a walkthrough tying Deployments, Services, and endpoints together.
-- [Debug Services](https://kubernetes.io/docs/tasks/debug/debug-application/debug-service/) - the official checklist for the zero-endpoints and wrong-port bugs in this module.
-- [Virtual IPs and Service Proxies (kube-proxy)](https://kubernetes.io/docs/reference/networking/virtual-ips/) - how kube-proxy programs the routing that makes a Service's virtual IP work.
+### Scenario 3: Cross-Namespace Communication Failure
+**Context:** An engineering team has a web frontend in the `default` namespace that needs to query a database microservice in the `data-tier` namespace. The application code specifies:
+`http://postgres-service:5432/orders`
+The request fails instantly with `getaddrinfo ENOTFOUND postgres-service`.
+
+<details>
+<summary>View Diagnostic Workflow & Resolution</summary>
+
+**Root Cause:**  
+Unqualified service names (e.g. `postgres-service`) are only searched in the calling Pod's own namespace (in this case, `default.svc.cluster.local`). CoreDNS does not automatically scan other namespaces without the namespace qualifier.
+
+**Diagnostic Commands:**
+```bash
+# Test lookup from default namespace
+kubectl run test-ns --rm -it --image=busybox:1.28 -- nslookup postgres-service
+# Result: Server can't find postgres-service: NXDOMAIN
+
+# Test lookup with namespace qualifier
+kubectl run test-ns --rm -it --image=busybox:1.28 -- nslookup postgres-service.data-tier
+# Result: Address 1: 10.96.240.12 postgres-service.data-tier.svc.cluster.local
+```
+
+**Resolution Steps:**
+1. Update the application connection string to include the target namespace:
+   ```text
+   http://postgres-service.data-tier:5432/orders
+   ```
+   or using the fully qualified cluster domain:
+   ```text
+   http://postgres-service.data-tier.svc.cluster.local:5432/orders
+   ```
+2. Verify that no `NetworkPolicy` in `data-tier` blocks ingress packets originating from the `default` namespace.
+</details>
+
+---
+
+## 9. Further Reading & Official Documentation
+
+- [Kubernetes Official Documentation: Services](https://kubernetes.io/docs/concepts/services-networking/service/)
+- [CoreDNS Specification for Kubernetes](https://kubernetes.io/docs/concepts/services-networking/dns-pod-service/)
+- [EndpointSlices Scalability Architecture](https://kubernetes.io/docs/concepts/services-networking/endpoint-slices/)
+- [Debugging Service Networking Checklist](https://kubernetes.io/docs/tasks/debug/debug-application/debug-service/)
+- [Virtual IPs and Service Proxies (kube-proxy internals)](https://kubernetes.io/docs/reference/networking/virtual-ips/)
+
+---
 
 ## Next
 
-[05-configmaps-and-secrets](../05-configmaps-and-secrets/README.md) — stop
-hardcoding configuration and credentials into images and manifests, and
-externalize them properly.
+Continue to [05 - ConfigMaps and Secrets](../05-configmaps-and-secrets/README.md) to decouple runtime configuration, configuration files, and encrypted credentials from container images.

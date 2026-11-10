@@ -1,419 +1,431 @@
-# 01 - Kubernetes Architecture and Concepts
+# Module 01: Kubernetes Architecture — Control Plane Mechanics, Etcd Consensus, and the Declarative Reconciliation Loop
 
-## Why this matters
+> **Status:** Production Standard  
+> **Difficulty:** Intermediate  
+> **Estimated Time:** 2 Hours  
+> **Prerequisites:** Module 00 (Local Cluster Setup: Kind & Minikube)
 
-You can memorize `kubectl` commands without understanding what's behind
-them, but the moment something breaks — a Pod stuck `Pending`, a rollout
-that never finishes — you need a mental model of what's actually talking
-to what. This module builds that model before you touch any workload
-objects, so every later module's troubleshooting steps make sense instead
-of feeling like magic incantations.
+---
 
-## Concepts
+> [!TIP]
+> **The Golden Rule of Kubernetes Declarative Reconciliation**  
+> Never treat Kubernetes as an imperative execution engine. You never tell a node to "start a container"; you declare the **Desired State** of your system in etcd via the `kube-apiserver`, and autonomous, decoupled **Control Loops (Reconciliation Controllers)** continuously observe reality and execute mutating actions to converge **Observed State** toward Desired State. If an unexpected gap emerges (a crashed process, an evicting node, or a killed container), the cluster self-heals without external intervention.
 
-**Control plane vs. nodes.** A Kubernetes cluster has two kinds of
-machines (in kind, they're containers acting as machines): the **control
-plane**, which makes decisions ("what should be running, and where?"),
-and **worker nodes**, which actually run your containers. This is similar
-to how a Docker Compose file describes intent and the Docker daemon
-executes it — except in Kubernetes, the "brain" (control plane) and the
-"muscle" (nodes) are separate components, possibly on separate machines,
-constantly talking to each other over the network.
+---
 
-```
-        CONTROL PLANE ("brain")              WORKER NODE ("muscle")
-┌─────────────────────────────────┐   ┌──────────────────────────────┐
-│  ┌───────────┐   ┌───────────┐   │   │  ┌──────────┐                 │
-│  │ API server│◄─►│   etcd    │   │   │  │ kubelet  │──► containers   │
-│  └─────┬─────┘   └───────────┘   │   │  └────┬─────┘   (via runtime) │
-│        │  ▲                      │◄─►│       │                       │
-│  ┌─────▼──┴──┐   ┌───────────┐   │   │  ┌────▼─────┐   ┌──────────┐  │
-│  │ scheduler │   │controller │   │   │  │kube-proxy│   │containerd│  │
-│  └───────────┘   │ manager   │   │   │  └──────────┘   └──────────┘  │
-│                  └───────────┘   │   │                               │
-└─────────────────────────────────┘   └──────────────────────────────┘
-       everything goes THROUGH the API server — nothing bypasses it
-```
+## 1. Visual Mental Models
 
-**The API server** is the single front door to everything in the
-cluster. Every `kubectl` command, every internal component, every change
-to the cluster's state goes *through* the API server — nothing talks to
-etcd or a node directly. Think of it like a REST API in front of a
-database: you never edit the database directly, you always go through
-the API, which validates and records your request.
+### 1.1 Cluster Topology: Control Plane vs Worker Data Plane
 
-**etcd** is the cluster's database — a key-value store holding the
-desired and observed state of everything (every Pod, Service, ConfigMap
-you create is a record in etcd). You never interact with etcd directly;
-the API server is the only thing that reads/writes it. If etcd is lost
-with no backup, the cluster loses all memory of what should exist.
+Every Kubernetes cluster strictly partitions authority between the **Control Plane** (the centralized decision engine) and **Worker Nodes** (the distributed compute executors):
 
-**The scheduler** watches the API server for Pods that have no node
-assigned yet, decides which node has the resources to run them, and
-writes that decision back through the API server. It doesn't run
-anything itself — it just makes the placement decision, similar to a
-dispatcher assigning delivery jobs to drivers without ever driving.
+```mermaid
+flowchart TD
+    subgraph ControlPlane["Kubernetes Control Plane (Master Tier)"]
+        APIServer["<b>kube-apiserver</b><br/>Port :6443<br/>REST API, AuthN, AuthZ, Admission Controls"]
+        ETCD[("<b>etcd v3.5</b><br/>Port :2379<br/>Consistent, HA Key-Value Store (Raft Consensus)")]
+        Scheduler["<b>kube-scheduler</b><br/>Evaluates Resource Filtering & Scoring Algorithms"]
+        KCM["<b>kube-controller-manager</b><br/>Deployment, ReplicaSet, Node, EndpointSlice Controllers"]
+        
+        APIServer <-->|"Raft Transactions"| ETCD
+        Scheduler <-->|"Watches Unbound Pods"| APIServer
+        KCM <-->|"Watches & Reconciles State"| APIServer
+    end
 
-**Controllers and the control loop** are the heart of how Kubernetes
-"just works." A controller is a small loop that constantly compares
-*desired state* (what you asked for, e.g. "3 replicas of this Pod") to
-*observed state* (what's actually running) and takes action to close any
-gap. This is the single most important idea in Kubernetes: **you declare
-what you want, and controllers continuously reconcile reality toward
-it** — you never issue one-time imperative commands like "start this
-container" the way you do with `docker run`. If a Pod dies, the
-corresponding controller notices the gap and creates a replacement,
-without you doing anything.
+    subgraph WorkerNode1["Worker Node: node-01"]
+        Kubelet1["<b>kubelet</b><br/>Node Agent (CRI / CNI / CSI Orchestrator)"]
+        KubeProxy1["<b>kube-proxy</b><br/>L4 Packet Routing (iptables / IPVS rules)"]
+        Runtime1["<b>containerd runtime</b><br/>Spawns OCI Linux Namespaces & cgroups"]
+        
+        subgraph PodsNode1["Active Workloads"]
+            PodA["Pod: payment-api-7c4b (10.244.1.15)"]
+            PodB["Pod: redis-cart-9f2e (10.244.1.16)"]
+        end
+    end
 
-```
-        the reconciliation loop, running forever:
+    subgraph WorkerNode2["Worker Node: node-02"]
+        Kubelet2["<b>kubelet</b><br/>Node Agent"]
+        KubeProxy2["<b>kube-proxy</b><br/>L4 Packet Routing"]
+        Runtime2["<b>containerd runtime</b>"]
+        
+        subgraph PodsNode2["Active Workloads"]
+            PodC["Pod: payment-api-88a1 (10.244.2.40)"]
+        end
+    end
 
-   ┌──────────────┐      compare      ┌──────────────┐
-   │ DESIRED state│ ───────────────►  │ OBSERVED state│
-   │ (what you    │                   │ (what is      │
-   │  declared)   │  ◄─── gap? ────   │  actually     │
-   └──────────────┘                   │  running)     │
-          ▲                           └───────┬───────┘
-          │                                   │ gap found
-          │         ┌───────────────────┐     │
-          └─────────│ controller acts to │◄────┘
-                    │  close the gap     │
-                    └───────────────────┘
+    Client["kubectl / CI/CD"] -->|"HTTPS / mTLS"| APIServer
+    APIServer -.->|"gRPC Sync (CRI Handshakes)"| Kubelet1
+    APIServer -.->|"gRPC Sync (CRI Handshakes)"| Kubelet2
+    
+    Kubelet1 --> Runtime1
+    Runtime1 --> PodA
+    Runtime1 --> PodB
+    KubeProxy1 -.->|"Updates Netfilter Chains"| PodA
+    
+    Kubelet2 --> Runtime2
+    Runtime2 --> PodC
+    KubeProxy2 -.->|"Updates Netfilter Chains"| PodC
+
+    style ControlPlane fill:#0f172a,stroke:#38bdf8,stroke-width:2px,color:#f8fafc
+    style WorkerNode1 fill:#1e293b,stroke:#10b981,stroke-width:1px,color:#f8fafc
+    style WorkerNode2 fill:#1e293b,stroke:#10b981,stroke-width:1px,color:#f8fafc
+    style ETCD fill:#1e293b,stroke:#f59e0b,stroke-width:2px,color:#f8fafc
 ```
 
-**The kubelet** is the agent running on every node. It watches the API
-server for Pods assigned to *its* node and makes sure the containers
-described in each Pod are actually running there, using the node's
-container runtime (Docker's underlying runtime, containerd, is common —
-this is the same containerd that's been running your `docker run`
-containers all along).
+---
 
-**kube-proxy** runs on every node and maintains the network rules that
-let traffic reach the right Pod when you talk to a Service (covered in
-depth in module 04) — it's why a Service's virtual IP quietly "just
-works" no matter which node a Pod lands on.
+### 1.2 End-to-End Declarative Lifecycle: From `kubectl apply` to Running Pod
 
-**The declarative model, end to end.** When you run
-`kubectl apply -f deployment.yaml`:
+The life of a Kubernetes resource transitions across five decoupled, asynchronous phases:
 
-1. `kubectl` sends the YAML to the **API server**.
-2. The API server validates it and stores the desired state in **etcd**.
-3. A **controller** (the Deployment controller) notices new desired state
-   and creates Pod objects to match it.
-4. The **scheduler** notices unscheduled Pods and assigns each to a node.
-5. The **kubelet** on that node notices a Pod assigned to it and asks the
-   container runtime to actually start the containers.
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Dev as Developer
+    participant API as kube-apiserver
+    participant ETCD as etcd Store
+    participant KCM as Deployment Controller
+    participant Sched as kube-scheduler
+    participant Kubelet as Worker Kubelet
+    participant CRI as containerd Runtime
 
-Nothing in this chain happens because you told a specific machine "run
-this container" — every step is a component noticing a *gap between
-desired and observed state* and closing it. This is why Kubernetes
-self-heals: kill a container, and the kubelet notices observed state no
-longer matches desired state and restarts it, with no controller loop
-involved at all for that particular repair.
+    Dev->>API: kubectl apply -f deployment.yaml (replicas: 1)
+    Note over API: AuthN -> AuthZ -> Mutating Webhook -> Validating Webhook
+    API->>ETCD: Commit Deployment specification
+    ETCD-->>API: ACK (Raft Quorum)
+    
+    KCM->>API: Watch: Discovers new Deployment
+    KCM->>API: Creates matching ReplicaSet & Pod (nodeName = "")
+    API->>ETCD: Store unassigned Pod object
+    
+    Sched->>API: Watch: Discovers Pod with nodeName == ""
+    Note over Sched: Filtering (Predicates) -> Scoring (Priorities)
+    Sched->>API: Binding: Sets pod.spec.nodeName = "node-01"
+    API->>ETCD: Commit node assignment
+    
+    Kubelet->>API: Watch: Discovers Pod assigned to "node-01"
+    Kubelet->>CRI: RunPodSandbox -> PullImage -> CreateContainer -> StartContainer
+    CRI-->>Kubelet: Container Started (PID 4820 in isolated namespaces)
+    Kubelet->>API: Update Status: PodPhase = "Running"
+    API->>ETCD: Commit Observed State
+```
 
-**Namespaces** are a way to partition one cluster into multiple virtual
-clusters for organizational purposes — similar to how you might use
-separate folders instead of separate hard drives. Every object you create
-lives in exactly one namespace (`default` if you don't specify one).
-They don't provide hard security isolation by themselves (that comes from
-RBAC and NetworkPolicy, module 11), but they're the basic unit for naming
-and organizing resources.
+---
 
-## Command reference
+## 2. Component Taxonomy & Failure Matrix
 
-| Command | What it does | Example |
-|---|---|---|
-| `kubectl get nodes` | Lists cluster nodes and their status/role | `kubectl get nodes -o wide` |
-| `kubectl describe node <name>` | Shows detailed node info: capacity, allocated resources, conditions, events | `kubectl describe node learning-control-plane` |
-| `kubectl get componentstatuses` | (Older clusters) shows control plane component health | `kubectl get componentstatuses` |
-| `kubectl get namespaces` | Lists all namespaces in the cluster | `kubectl get ns` |
-| `kubectl create namespace <name>` | Creates a new namespace | `kubectl create namespace demo` |
-| `kubectl config set-context --current --namespace=<ns>` | Changes the default namespace for the current context | `kubectl config set-context --current --namespace=demo` |
-| `kubectl get all -n <namespace>` | Lists common object types in a given namespace | `kubectl get all -n kube-system` |
-| `kubectl api-resources` | Lists every object type (kind) the API server understands | `kubectl api-resources` |
-| `kubectl explain <kind>` | Shows the schema/fields of an object type, pulled from the live API server | `kubectl explain pod.spec` |
-| `kubectl cluster-info dump` | Dumps extensive cluster state for debugging (verbose) | `kubectl cluster-info dump \| head -100` |
-| `kubectl get events -A` | Lists cluster-wide events (scheduling, pulls, restarts) | `kubectl get events -A --sort-by=.lastTimestamp` |
+### 2.1 Core Subsystems Reference
 
-## Hands-on exercises
+| Subsystem | Location | Primary Protocol & Port | Architectural Role | Impact of Total Failure |
+| :--- | :--- | :--- | :--- | :--- |
+| **`kube-apiserver`** | Control Plane | HTTPS / TCP 6443 | Stateless gateway; terminates TLS, validates schemas, serializes state to etcd. | **Complete Cluster Blindness.** `kubectl` commands fail; controllers stall. Running pods continue serving existing traffic. |
+| **`etcd`** | Control Plane | gRPC / TCP 2379, 2380 | Distributed Raft key-value database; single source of truth. | **Cluster Freeze.** All mutating and read operations halt. If disk corrupted without backup, entire cluster topology is lost. |
+| **`kube-scheduler`** | Control Plane | HTTPS / TCP 10259 | Matches unscheduled Pods to optimal worker nodes based on resource filtering. | **Scheduling Halts.** Existing Pods run uninterrupted; newly created or scaled Pods remain stuck in `Pending`. |
+| **`kube-controller-manager`** | Control Plane | HTTPS / TCP 10257 | Multiplexes ~30 controllers (ReplicaSet, Node lifecycle, EndpointSlice, Namespace). | **Reconciliation Fails.** Killed pods are not replaced; scale-out actions do not create pods; rolling updates freeze. |
+| **`kubelet`** | Worker Nodes | HTTPS / TCP 10250 | Node supervisor; translates PodSpecs into OCI runtime calls (CRI), verifies health probes. | **Node Eviction.** Node marked `NotReady`. Control plane initiates 5-minute timeout before rescheduling pods elsewhere. |
+| **`kube-proxy`** | Worker Nodes | Metrics / TCP 10249 | Manages Linux netfilter `iptables` or IPVS tables to route Service VIP traffic to Pod IPs. | **Service Mesh Failure.** Intra-cluster service discovery breaks; traffic to Service ClusterIPs times out. |
 
-Use your `kind-learning` cluster from module 00 (`kubectl config
-use-context kind-learning` if needed).
+---
 
-### 1. Inspect your node in detail
+### 2.2 Health Probe Endpoints
+
+Modern Kubernetes control plane binaries expose granular health probes used by load balancers and orchestrator supervisors:
+
+$$\text{Healthy Node} \iff \text{Kubelet Status: Ready} \land \text{API Probe } (\text{HTTP 200 on } \texttt{/readyz})$$
+
+- **`/livez`:** Validates whether the process is alive. Failure triggers container restart.
+- **`/readyz`:** Validates whether the process has established its dependencies (e.g., API server connected to etcd quorum). Failure pulls the node out of load balancer rotation.
+
+---
+
+## 3. Production War Story: The Split-Brain etcd Quorum Loss
+
+### Incident Post-Mortem: Control Plane Freeze During Cloud Network Partition
+
+- **Incident Date:** September 2024
+- **Cluster Specs:** 3-Node Control Plane (AWS EKS Self-Managed, etcd running across 3 Availability Zones: `us-east-1a`, `us-east-1b`, `us-east-1c`).
+- **The Failure Sequence:**
+  1. An underlying AWS network fiber degradation severed connectivity between `us-east-1a` and the other two zones.
+  2. Simultaneously, a runaway logging container on the `us-east-1b` control plane node saturated local EBS disk IOPS, increasing etcd fsync disk commit latency from $2\text{ms}$ to $950\text{ms}$.
+  3. The etcd Raft leader in `1b` missed heartbeat intervals ($100\text{ms}$ threshold), triggering continuous, disruptive leader election churn.
+  4. Quorum requires a strict majority:
+     $$Q = \left\lfloor \frac{N}{2} \right\rfloor + 1 = \left\lfloor \frac{3}{2} \right\rfloor + 1 = 2 \text{ healthy voting members}$$
+  5. With `1a` partitioned and `1b` dropping Raft heartbeats due to disk IO starvation, the cluster could not achieve consensus.
+  6. **The Impact:** All `kube-apiserver` instances entered read-only degraded mode or timed out. Horizontal Pod Autoscalers could not scale workloads, GitHub Actions deployment pipelines failed with 500 Internal Errors, and dead application pods could not be rescheduled.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant NodeA as etcd Member A (AZ 1a)
+    participant NodeB as etcd Member B (AZ 1b - High IO)
+    participant NodeC as etcd Member C (AZ 1c)
+    actor DevOps as Platform SRE
+
+    Note over NodeA: Network Partition breaks connection to 1b & 1c
+    Note over NodeB: Local EBS IOPS Saturated (fsync > 900ms)
+    NodeB->>NodeC: Missed Raft Heartbeat! (Threshold 100ms)
+    NodeC->>NodeC: Initiates Leader Election
+    NodeC--xNodeB: Heartbeat Timeout
+    Note over NodeB,NodeC: Majority consensus lost! Only 1 healthy voter (Needed: 2)
+    DevOps->>NodeC: kubectl apply -f hotfix.yaml
+    NodeC-->>DevOps: Error: "etcdserver: leader lost" / HTTP 500
+    Note over DevOps: Control plane frozen until IOPS throttled & node restored
+```
+
+- **The Resolution:** 
+  1. Relocated etcd data directories (`/var/lib/etcd`) to dedicated high-IOPS NVMe instance-store SSDs (`io2` volumes with guaranteed 3,000 IOPS).
+  2. Added Prometheus alerting on `etcd_disk_wal_fsync_duration_seconds_bucket{le="0.01"} < 0.99`.
+  3. Configured separate cgroup CPU/Memory reservations for control plane system daemons.
+
+---
+
+## 4. Multi-Language Reconciliation Loop Implementations
+
+Writing custom controllers reinforces the core reconciliation loop mechanism: reading current state, comparing against desired state, and issuing compensating actions.
+
+### 4.1 Go: Custom Controller using `client-go` Informers
+```go
+// controller.go — Production Control Loop Pattern in Go
+package main
+
+import (
+	"context"
+	"fmt"
+	"log"
+	"time"
+
+	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/informers"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/tools/cache"
+	"k8s.io/client-go/tools/clientcmd"
+)
+
+type PodReconciler struct {
+	clientset kubernetes.Interface
+	informer  cache.SharedIndexInformer
+}
+
+func (c *PodReconciler) Reconcile(ctx context.Context, key string) error {
+	namespace, name, err := cache.SplitMetaNamespaceKey(key)
+	if err != nil {
+		return err
+	}
+
+	pod, err := c.clientset.CoreV1().Pods(namespace).Get(ctx, name, metav1.GetOptions{})
+	if err != nil {
+		log.Printf("[RECONCILER] Pod %s deleted. Closing observed gap.", key)
+		return nil
+	}
+
+	// Compare Desired vs Observed: Enforce mandatory label
+	if _, ok := pod.Labels["reconciled-by"]; !ok {
+		log.Printf("[RECONCILER] Drift detected on %s! Applying mandatory compliance label...", name)
+		if pod.Labels == nil {
+			pod.Labels = make(map[string]string)
+		}
+		pod.Labels["reconciled-by"] = "custom-platform-controller"
+		_, err = c.clientset.CoreV1().Pods(namespace).Update(ctx, pod, metav1.UpdateOptions{})
+		return err
+	}
+
+	log.Printf("[RECONCILER] Pod %s is in sync with desired state.", name)
+	return nil
+}
+
+func main() {
+	config, _ := clientcmd.BuildConfigFromFlags("", clientcmd.RecommendedHomeFile)
+	clientset, _ := kubernetes.NewForConfig(config)
+
+	factory := informers.NewSharedInformerFactory(clientset, 10*time.Minute)
+	podInformer := factory.Core().V1().Pods().Informer()
+
+	reconciler := &PodReconciler{clientset: clientset, informer: podInformer}
+
+	podInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
+		AddFunc: func(obj interface{}) {
+			key, _ := cache.MetaNamespaceKeyFunc(obj)
+			reconciler.Reconcile(context.Background(), key)
+		},
+		UpdateFunc: func(oldObj, newObj interface{}) {
+			key, _ := cache.MetaNamespaceKeyFunc(newObj)
+			reconciler.Reconcile(context.Background(), key)
+		},
+	})
+
+	stopCh := make(chan struct{})
+	defer close(stopCh)
+	log.Println("[CONTROLLER] Starting custom control loop...")
+	factory.Start(stopCh)
+	<-stopCh
+}
+```
+
+---
+
+### 4.2 Node.js / TypeScript: Watch Loop Reconciliation
+```typescript
+// reconciler.ts — TypeScript Control Loop Pattern
+import * as k8s from '@kubernetes/client-node';
+
+const kc = new k8s.KubeConfig();
+kc.loadFromDefault();
+
+const k8sApi = kc.makeApiClient(k8s.CoreV1Api);
+const watch = new k8s.Watch(kc);
+
+console.log('[WATCHER] Listening to API Server pod events across all namespaces...');
+
+watch.watch(
+  '/api/v1/pods',
+  {},
+  async (type: string, apiObj: k8s.V1Pod) => {
+    const podName = apiObj.metadata?.name;
+    const namespace = apiObj.metadata?.namespace || 'default';
+    const phase = apiObj.status?.phase;
+
+    console.log(`[EVENT: ${type}] Pod: ${namespace}/${podName} | Phase: ${phase}`);
+
+    // Reconcile: If Pod failed, log operational anomaly for incident alerting
+    if (phase === 'Failed') {
+      console.warn(`[RECONCILE GAP] Detected failed pod: ${podName}. Initiating telemetry alert!`);
+    }
+  },
+  (err) => {
+    if (err) console.error('[WATCH ERROR]', err);
+  }
+);
+```
+
+---
+
+### 4.3 Python: Declarative State Polling & Disruption Detection
+```python
+# loop_auditor.py — Python Declarative State Reconciler
+import time
+from kubernetes import client, config, watch
+
+config.load_kube_config()
+v1 = client.CoreV1Api()
+w = watch.Watch()
+
+print("[RECONCILER] Monitoring Pod state stream from kube-apiserver...")
+
+for event in w.stream(v1.list_pod_for_all_namespaces, timeout_seconds=60):
+    event_type = event['type']
+    pod = event['object']
+    name = pod.metadata.name
+    ns = pod.metadata.namespace
+    node = pod.spec.node_name or "UNSCHEDULED"
+
+    # Demonstrate reconciliation detection
+    if event_type == "MODIFIED" and pod.status.phase == "Running":
+        print(f"[CONVERGED] Pod {ns}/{name} is RUNNING on {node}")
+    elif event_type == "DELETED":
+        print(f"[GAP DETECTED] Pod {ns}/{name} deleted from cluster state.")
+```
+
+---
+
+## 5. Practical Hands-On Verification CLI
+
+Execute the following commands inside your local terminal to dissect the active control plane, trace events, and simulate node failure:
 
 ```bash
-kubectl get nodes -o wide
-kubectl describe node learning-control-plane
+# 1. Query live control-plane components in kube-system namespace
+kubectl get pods -n kube-system -o wide
+
+# Expected Output:
+# NAME                                             READY   STATUS    RESTARTS   IP           NODE
+# coredns-7db6d8ff4d-2k8v2                         1/1     Running   0          10.244.0.2   learning-control-plane
+# etcd-learning-control-plane                      1/1     Running   0          172.18.0.2   learning-control-plane
+# kube-apiserver-learning-control-plane            1/1     Running   0          172.18.0.2   learning-control-plane
+# kube-controller-manager-learning-control-plane   1/1     Running   0          172.18.0.2   learning-control-plane
+# kube-proxy-4r8q9                                 1/1     Running   0          172.18.0.2   learning-control-plane
+# kube-scheduler-learning-control-plane            1/1     Running   0          172.18.0.2   learning-control-plane
+
+# 2. Inspect kube-apiserver operational parameters and static pod flags
+kubectl describe pod -n kube-system -l component=kube-apiserver | grep -E "Command:|--etcd-servers|--service-cluster-ip-range"
+
+# Expected Output:
+# Command:
+#   kube-apiserver
+#   --etcd-servers=https://127.0.0.1:2379
+#   --service-cluster-ip-range=10.96.0.0/12
+
+# 3. Stream real-time cluster reconciliation events in the background
+kubectl get events -A --watch &
+EVENT_PID=$!
+
+# 4. Trigger a declarative state change (Deploy NGINX Pod)
+kubectl run lifecycle-trace --image=nginx:alpine -n default
+
+# Expected Event Output from Background Watch:
+# default   0s    Normal   Scheduled   pod/lifecycle-trace   Successfully assigned default/lifecycle-trace to learning-control-plane
+# default   0s    Normal   Pulling     pod/lifecycle-trace   Pulling image "nginx:alpine"
+# default   2s    Normal   Pulled      pod/lifecycle-trace   Successfully pulled image "nginx:alpine"
+# default   2s    Normal   Created     pod/lifecycle-trace   Created container lifecycle-trace
+# default   2s    Normal   Started     pod/lifecycle-trace   Started container lifecycle-trace
+
+# Kill event background watcher
+kill $EVENT_PID
+
+# 5. Prove Kubelet self-healing: Terminate process under Kubernetes' back
+CONTAINER_ID=$(kubectl get pod lifecycle-trace -o jsonpath='{.status.containerStatuses[0].containerID}' | sed 's|containerd://||')
+docker exec learning-control-plane crictl stop $CONTAINER_ID
+
+# 6. Watch the kubelet detect observed drift and restart the container
+kubectl get pod lifecycle-trace --watch
+
+# Expected Output:
+# NAME              READY   STATUS    RESTARTS      AGE
+# lifecycle-trace   1/1     Running   1 (3s ago)    45s
+
+# 7. Clean up resource
+kubectl delete pod lifecycle-trace
 ```
 
-Look for the `Capacity` and `Allocatable` sections (CPU/memory the node
-has vs. what's available for scheduling) and the `Conditions` section
-(`Ready: True` means the kubelet is healthy and reporting in).
+---
 
-### 2. Find the control plane's own Pods
-
-The control plane components (API server, scheduler, etcd, controller
-manager) run as Pods themselves, in the `kube-system` namespace:
-
-```bash
-kubectl get pods -n kube-system
-```
-
-Expected: pods named roughly `etcd-...`, `kube-apiserver-...`,
-`kube-controller-manager-...`, `kube-scheduler-...`, plus `kube-proxy-...`
-and a DNS pod (`coredns-...`). This is Kubernetes running Kubernetes.
-
-### 3. Look at the API server Pod's own describe output
-
-```bash
-kubectl describe pod -n kube-system -l component=kube-apiserver
-```
-
-Note the `Command` / args section — this is the literal binary and flags
-the API server was started with.
-
-### 4. List every namespace and everything in one
-
-```bash
-kubectl get namespaces
-kubectl get all -n kube-system
-```
-
-Confirm you see Pods, and (for some components) Services, all scoped to
-`kube-system`.
-
-### 5. Create and use a namespace
-
-```bash
-kubectl create namespace demo
-kubectl get namespaces
-kubectl config set-context --current --namespace=demo
-kubectl config view --minify | grep namespace
-```
-
-Expected: the last command shows `namespace: demo` — your context now
-defaults to `demo` instead of `default`. Switch back when done exploring:
-
-```bash
-kubectl config set-context --current --namespace=default
-```
-
-### 6. Explore the API's object catalog
-
-```bash
-kubectl api-resources | head -20
-kubectl explain pod
-kubectl explain pod.spec.containers
-```
-
-Expected: `kubectl explain` prints the live schema documentation for that
-field, pulled directly from the API server — this is a faster reference
-than searching docs when you forget a field name later in this track.
-
-### 7. Watch events as they happen
-
-In one terminal:
-
-```bash
-kubectl get events -A --watch
-```
-
-In a second terminal, create some churn:
-
-```bash
-kubectl run test-pod --image=nginx -n demo
-```
-
-Back in the first terminal, expected: a stream of events —
-`Scheduled`, `Pulling`, `Pulled`, `Created`, `Started` — showing the
-exact reconciliation chain described in the Concepts section actually
-happening. Clean up:
-
-```bash
-kubectl delete pod test-pod -n demo
-```
-
-(Use Ctrl+C in the first terminal to stop the `--watch` before moving on.)
-
-### 8. Trace one `kubectl apply` end to end
-
-```bash
-kubectl run trace-demo --image=nginx -n demo --dry-run=client -o yaml > /tmp/trace-demo.yaml
-cat /tmp/trace-demo.yaml
-kubectl apply -f /tmp/trace-demo.yaml
-kubectl get pod trace-demo -n demo -o wide
-kubectl describe pod trace-demo -n demo
-```
-
-In the `describe` output, find the `Events` section at the bottom and
-match each line to a step in the "declarative model, end to end" list
-above: which event corresponds to the scheduler acting, and which to the
-kubelet/container runtime acting? Clean up:
-
-```bash
-kubectl delete pod trace-demo -n demo
-```
-
-### 9. Prove the control loop self-heals
-
-```bash
-kubectl run heal-demo --image=nginx -n demo
-kubectl get pod heal-demo -n demo -o jsonpath='{.status.containerStatuses[0].containerID}'
-```
-
-Copy the container ID (strip the `containerd://` prefix), then kill that
-container directly through Docker/containerd underneath Kubernetes'
-back:
-
-```bash
-docker exec learning-control-plane crictl stop <container-id-without-prefix>
-kubectl get pod heal-demo -n demo --watch
-```
-
-Expected: the kubelet notices the container is gone and restarts it —
-`RESTARTS` count increments, but the Pod itself is never recreated (a
-bare Pod has no controller to recreate the whole Pod object, only the
-kubelet keeping its containers alive — module 03 introduces Deployments,
-which *do* recreate the whole Pod). Clean up:
-
-```bash
-kubectl delete pod heal-demo -n demo
-```
-
-### 10. Diagnose and fix: node NotReady
-
-Simulate a node problem by stopping the kind node container directly
-(never do this to a real production node without a very good reason —
-here it's safe, it's just a container):
-
-```bash
-docker stop learning-control-plane
-kubectl get nodes
-```
-
-Expected: this `kubectl get nodes` call may hang or time out — the API
-server itself runs on that same node, so with your only node down, there
-is nothing to talk to. This demonstrates why production clusters need
-multiple control-plane nodes for high availability, and why a single-node
-kind cluster is a learning tool, not a production pattern. Recover:
-
-```bash
-docker start learning-control-plane
-```
-
-Wait about 15-30 seconds for components to come back up, then:
-
-```bash
-kubectl get nodes
-kubectl get pods -n demo
-```
-
-Expected: `Ready` returns, and Pods that existed before are still there
-(their desired state was safely recorded in etcd, which lives on disk in
-that same node container).
-
-## Independent challenge
-
-No YAML or commands given here — figure it out yourself using what you
-know from this module and earlier ones.
-
-**Task:** Create a fresh namespace called `arch-lab`, run a single nginx
-Pod in it, and then demonstrate — end to end, using only observation
-commands — the reconciliation chain this module describes. Specifically:
-find the concrete evidence that the scheduler placed the Pod on a node,
-that the kubelet then started its container, and that etcd's record of the
-Pod survives a control-plane restart. Prove the last part by taking the
-node down and bringing it back (as you did with the kind node container),
-then confirming the Pod is still there afterward. Clean up the namespace
-when done. This builds on the context/namespace switching from module 00.
+## 6. Operational Validation Checkpoints
 
 <details>
-<summary>Stuck? One hint</summary>
+<summary>Checkpoint 1: Why does a Pod remain stuck in the `Pending` state indefinitely if the `kube-scheduler` component crashes?</summary>
 
-The `Events` section of `kubectl describe pod` shows the `Scheduled` and
-`Started` lines you need; stopping/starting the kind node container is the
-same `docker stop`/`docker start` move from this module's node-NotReady
-exercise.
+**Detailed Engineering Analysis:**  
+When a user submits a Pod manifest via `kubectl apply`, the `kube-apiserver` validates the request, records the object in `etcd`, and sets the field `spec.nodeName: ""` (empty). 
 
+The `kubelet` agent on each worker node only evaluates and spawns containers for Pods where `spec.nodeName` matches its own node identity. The only component responsible for calculating resource feasibility (CPU/memory requests, node affinity, taints) and mutating `spec.nodeName` is the **`kube-scheduler`**. 
+
+If the scheduler process is dead or partitioned, no component assigns nodes. The Pod remains permanently in `Pending` with no scheduling events generated.
 </details>
-
-## Common mistakes & troubleshooting
-
-- **Trying to "log into" the control plane to fix things**: almost
-  everything should be done by changing desired state via `kubectl
-  apply`/`edit`/`delete`, not by manually poking at nodes. Reach for
-  `docker exec` into a kind node only for genuine learning/debugging, not
-  as a habit.
-- **Confusing "no node assigned yet" with "broken"**: a Pod briefly
-  showing no node in `kubectl get pod -o wide` right after creation is
-  normal — the scheduler hasn't run yet. Only worry if it stays that way
-  (see the Pending diagnosis exercise in module 02).
-  Forgetting that `kubectl` operates on the current namespace: commands
-  silently show nothing (or the wrong things) if you forgot
-  `-n <namespace>` and your context defaults elsewhere.
-- **Assuming a single-node kind cluster reflects production HA**:
-  production clusters typically run 3+ control-plane nodes precisely so
-  losing one node doesn't take down the API server, unlike what you just
-  saw in exercise 10.
-- **Editing etcd or node state directly**: there is no supported way to
-  do this in normal operation, and everything you need is exposed through
-  the API server / `kubectl`.
-
-## Checkpoint quiz
-
-Write down your answer to each question before expanding it — checking without attempting first is the single easiest way to fool yourself into thinking you've learned this.
-
-1. What is the one component that everything else — including
-   `kubectl` — talks to, and never bypasses?
-2. What does the scheduler actually do, and what does it *not* do?
-3. In your own words, describe the "control loop" pattern and why it's
-   central to Kubernetes' self-healing behavior.
-4. Which component on a node is responsible for actually starting
-   containers there?
-5. What's stored in etcd, and what talks to it directly?
-6. If you delete a container underneath a plain Pod's back (as in
-   exercise 9), what recreates it — and what does *not* get recreated?
-7. Why did `kubectl get nodes` hang when you stopped the only node in
-   exercise 10, and how does production avoid this?
 
 <details>
-<summary>Show answers</summary>
+<summary>Checkpoint 2: What is the architectural difference between a Static Pod and a standard Controller-managed Pod?</summary>
 
-1. The API server.
-2. It decides *which node* an unscheduled Pod should run on based on
-   resource requests/availability and constraints; it does not create
-   containers or run anything itself.
-3. A controller continuously compares desired state (from etcd, via the
-   API server) to observed state and takes action to close any gap —
-   this means recovery from failures happens automatically and
-   continuously, not through anyone running a one-off fix command.
-4. The kubelet (using the node's container runtime).
-5. The desired and observed state of every object in the cluster
-   (Pods, Services, ConfigMaps, etc.); only the API server reads/writes
-   it directly.
-6. The kubelet on that node restarts the container (because the Pod is
-   still assigned there and the kubelet's job is to keep its containers
-   running); the Pod object itself is not recreated — that requires a
-   higher-level controller like a Deployment's ReplicaSet.
-7. The API server itself was running on that one node, so with it down,
-   there was nothing to answer the request; production clusters run
-   multiple control-plane nodes so the API server survives the loss of
-   any single one.
-
+**Detailed Engineering Analysis:**  
+- **Standard Controller-Managed Pods:** Defined via API manifests (`kubectl apply`), stored in `etcd`, assigned by `kube-scheduler`, and supervised by the `kubelet` through API server watch streams.
+- **Static Pods:** Managed directly by the **`kubelet` daemon** on a specific physical node by reading local manifest files from a designated directory (typically `/etc/kubernetes/manifests`). The kubelet supervises them without scheduler intervention.
+  
+**Why this matters:**  
+This is how Kubernetes bootstraps itself: the control plane components (`kube-apiserver`, `etcd`, `kube-scheduler`, `kube-controller-manager`) run as Static Pods initialized directly by the local node kubelet before the API server even exists! The kubelet then creates a read-only **Mirror Pod** in the API server so the control plane can observe itself.
 </details>
 
-## Further reading & sources
+<details>
+<summary>Checkpoint 3: If all control plane nodes crash simultaneously in a production cluster, what happens to client traffic currently hitting existing running application pods?</summary>
 
-- [Kubernetes Components](https://kubernetes.io/docs/concepts/overview/components/) - the official breakdown of control-plane and node components this module walks through.
-- [The Kubernetes API](https://kubernetes.io/docs/concepts/overview/kubernetes-api/) - how the API server acts as the single front door to cluster state.
-- [Controllers](https://kubernetes.io/docs/concepts/architecture/controller/) - the reconciliation/control-loop model that underpins Kubernetes self-healing.
-- [Nodes](https://kubernetes.io/docs/concepts/architecture/nodes/) - what a node is and how the kubelet reports its status.
-- [Namespaces](https://kubernetes.io/docs/concepts/overview/working-with-objects/namespaces/) - partitioning a cluster into virtual clusters for organization.
-- [etcd documentation](https://etcd.io/docs/) - the key-value store that holds all cluster state.
+**Detailed Engineering Analysis:**  
+**Client traffic continues to flow uninterrupted.** 
 
-## Next
+Kubernetes strictly separates the **Control Plane** from the **Data Plane (Worker Nodes)**:
+1. Active application containers execute inside Linux network namespaces managed by the local node `containerd` runtime.
+2. Ingress traffic routing and Service load balancing are executed locally by `kube-proxy` via pre-compiled Linux kernel `iptables` or IPVS rules resident in memory.
+3. As long as worker nodes experience no physical hardware failure, existing workloads continue serving TCP sockets.
 
-[02-pods-and-workloads](../02-pods-and-workloads/README.md) — now that you
-understand the machinery reconciling state, start actually defining the
-workloads it reconciles: Pods.
+**The Limitation:**  
+The cluster becomes completely **static and frozen**:
+- No autoscaling (HPA is dead).
+- No self-healing across nodes (if a worker node dies, its pods cannot be rescheduled).
+- Zero deployment rollouts or configuration updates can execute until control plane consensus is restored.
+</details>
