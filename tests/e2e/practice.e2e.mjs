@@ -391,7 +391,7 @@ test('a timed quiz shows its clock, and the questions that were missed can be tr
   const { context, page, env, goto } = await open('/practice/quiz/http-caching/');
   await goto();
   await page.waitForFunction(() => document.querySelectorAll('.pr-questions > li').length > 0);
-  const total = await page.locator('.pr-questions > li').count();
+  const total = practiceContent.quizzes['http-caching'].questions.length; // they come one at a time, so the page shows one
 
   await page.getByLabel(/^Timed: \d+ min/).check();
   await page.locator('.pr-timer').waitFor();
@@ -414,7 +414,32 @@ test('a timed quiz shows its clock, and the questions that were missed can be tr
   await page.getByText('A retry is practice').waitFor();
   assert.equal(env.DB.raw.prepare('SELECT COUNT(*) AS n FROM quiz_attempts').get().n, 1, 'the retry is not in the history');
   await page.getByRole('button', { name: 'Try the whole quiz again' }).click();
-  assert.equal(await page.locator('.pr-questions > li').count(), total);
+  await page.getByText(`Question 1 of ${total}`).waitFor();
+  await context.close();
+});
+
+test('a quiz comes one question at a time, with how far along, and every question on one page if the reader prefers', async () => {
+  const { context, page, goto } = await open('/practice/quiz/http-caching/');
+  await goto();
+  await page.waitForFunction(() => document.querySelectorAll('.pr-questions > li').length > 0);
+  const total = practiceContent.quizzes['http-caching'].questions.length;
+  assert.ok(total > 1);
+  assert.equal(await page.locator('.pr-questions > li').count(), 1, 'one question on the page');
+  await page.getByText(`Question 1 of ${total}`).waitFor();
+  assert.equal(await page.getByRole('progressbar').getAttribute('aria-valuenow'), '1');
+  assert.equal(await page.getByRole('button', { name: 'Back', exact: true }).count(), 0, 'nothing before the first question');
+
+  await page.getByRole('radio', { name: 'ETag and If-None-Match' }).check();
+  await page.getByRole('button', { name: 'Next question' }).click();
+  await page.getByText(`Question 2 of ${total}`).waitFor();
+  assert.equal(await page.getByRole('progressbar').getAttribute('aria-valuenow'), '2');
+  await page.getByText('1 answered').waitFor();
+  await page.getByRole('button', { name: 'Back', exact: true }).click();
+  assert.equal(await page.getByRole('radio', { name: 'ETag and If-None-Match' }).isChecked(), true, 'the answer is still there');
+
+  await page.getByLabel('Show all the questions on one page').check();
+  assert.equal(await page.locator('.pr-questions > li').count(), total, 'all of them');
+  assert.equal(await page.getByRole('progressbar').count(), 0);
   await context.close();
 });
 

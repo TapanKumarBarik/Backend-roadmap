@@ -1,0 +1,9 @@
+/* A quiz one question at a time (components/practice/QuizView.jsx): how far along the reader is, and the switch to see every question on one page. */
+
+.pr-progress { margin: var(--space-5) 0 0; }
+.pr-progress__text { margin: 0 0 6px; font-size: var(--text-sm); color: var(--fg-muted); font-variant-numeric: tabular-nums; }
+.pr-progress__bar { height: 6px; border-radius: var(--r-pill); background: var(--border-subtle); overflow: hidden; }
+.pr-progress__bar > span { display: block; height: 100%; background: var(--signal); border-radius: var(--r-pill); transition: width var(--dur-base) var(--ease-out); }
+@media (prefers-reduced-motion: reduce) { .pr-progress__bar > span { transition: none; } }
+
+.pr-all-switch { margin: 0 0 var(--space-4); font-size: var(--text-sm); color: var(--fg-muted); }

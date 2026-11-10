@@ -35,7 +35,13 @@ export const QUIZ = {
   retryMissed: (n) => `Retry the ${n} I missed`,
   retryNote: 'A retry is practice: it is not added to your history.',
   retryResult: (score, max) => `${score} of ${max} of the missed questions right`,
-  wholeAgain: 'Try the whole quiz again'
+  wholeAgain: 'Try the whole quiz again',
+  stepOf: (n, total) => `Question ${n} of ${total}`,
+  answeredOf: (n) => `${n} answered`,
+  progressLabel: 'How far through the quiz',
+  back: 'Back',
+  next: 'Next question',
+  allOnPage: 'Show all the questions on one page'
 };
 
 // Where the reader is weak (My Learning): topics below this percent, from their latest try of each quiz.

@@ -9,11 +9,13 @@ import { Button } from '../ui/Button.jsx';
 import Loading from '../common/Loading.jsx';
 import LoadError from '../common/LoadError.jsx';
 import ErrorText from '../common/ErrorText.jsx';
+import '../../styles/quizsteps.css';
 
 // One quiz: answer, check, and read why. The answers are scored by the server, which sends them back with the explanations only
 // after a try, so the page itself holds nothing to look up. A signed-in reader's tries are kept (they show on My learning).
 // Two extras: a timed try (scored when the time is up) and, after a try, a retry of just the questions that were missed (practice:
-// the server scores it and does not keep it).
+// the server scores it and does not keep it). The questions come one at a time, with a bar showing how far along; a switch shows
+// them all on one page instead. The explanations still come only with the score, so nothing is held back that a step could show.
 const clock = (seconds) => `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
 
 export default function QuizView({ slug, onBack, onOpenFile, user, onLogin, nodeByFile }) {
@@ -27,6 +29,8 @@ export default function QuizView({ slug, onBack, onOpenFile, user, onLogin, node
   const [timed, setTimed] = useState(false);
   const [left, setLeft] = useState(0); // seconds
   const [timeUp, setTimeUp] = useState(false);
+  const [step, setStep] = useState(0); // the question shown, when they come one at a time
+  const [allAtOnce, setAllAtOnce] = useState(false);
 
   const questions = quiz ? quiz.questions.filter((q) => !only || only.includes(q.id)) : [];
   const toggle = (q, id) => setChosen((current) => {
@@ -56,14 +60,17 @@ export default function QuizView({ slug, onBack, onOpenFile, user, onLogin, node
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [timed, result, only, quiz]);
 
-  const again = () => { setChosen({}); setResult(null); setOnly(null); setTimeUp(false); };
+  const again = () => { setChosen({}); setResult(null); setOnly(null); setTimeUp(false); setStep(0); };
   const missed = result ? result.results.filter((r) => !r.correct).map((r) => r.id) : [];
-  const retryMissed = () => { setOnly(missed); setChosen({}); setResult(null); setTimeUp(false); };
+  const retryMissed = () => { setOnly(missed); setChosen({}); setResult(null); setTimeUp(false); setStep(0); };
 
   const answered = questions.filter((q) => (chosen[q.id] || []).length).length;
   const by = result ? Object.fromEntries(result.results.map((r) => [r.id, r])) : {};
   const lesson = quiz && quiz.module && nodeByFile ? nodeByFile[quiz.module] : null;
   const minutes = Math.max(1, Math.round((questions.length * QUIZ.secondsPerQuestion) / 60));
+  const stepping = !result && !allAtOnce && questions.length > 1;
+  const at = Math.min(step, Math.max(0, questions.length - 1));
+  const shown = stepping ? [[questions[at], at]] : questions.map((q, i) => [q, i]);
 
   return (
     <div id="empty" className="pr-screen pr-quiz">
@@ -95,8 +102,17 @@ export default function QuizView({ slug, onBack, onOpenFile, user, onLogin, node
             </div>
           )}
 
+          {stepping && (
+            <div className="pr-progress">
+              <p className="pr-progress__text">{QUIZ.stepOf(at + 1, questions.length)} · {QUIZ.answeredOf(answered)}</p>
+              <div className="pr-progress__bar" role="progressbar" aria-label={QUIZ.progressLabel} aria-valuemin={1} aria-valuemax={questions.length} aria-valuenow={at + 1}>
+                <span style={{ width: `${((at + 1) / questions.length) * 100}%` }} />
+              </div>
+            </div>
+          )}
+
           <ol className="pr-questions">
-            {questions.map((q, i) => {
+            {shown.map(([q, i]) => {
               const r = by[q.id];
               const mine = chosen[q.id] || [];
               return (
@@ -118,8 +134,16 @@ export default function QuizView({ slug, onBack, onOpenFile, user, onLogin, node
           </ol>
 
           <ErrorText>{problem}</ErrorText>
+          {!result && questions.length > 1 && (
+            <label className="pr-check pr-check--inline pr-all-switch">
+              <input type="checkbox" checked={allAtOnce} onChange={(e) => setAllAtOnce(e.target.checked)} />
+              <span>{QUIZ.allOnPage}</span>
+            </label>
+          )}
           <div className="pr-actions">
-            {!result && <Button variant="primary" loading={busy} disabled={answered === 0} onClick={check}>Check my answers</Button>}
+            {stepping && at > 0 && <Button variant="secondary" onClick={() => setStep(at - 1)}>{QUIZ.back}</Button>}
+            {stepping && at < questions.length - 1 && <Button variant="secondary" onClick={() => setStep(at + 1)}>{QUIZ.next}</Button>}
+            {!result && <Button variant={!stepping || at === questions.length - 1 ? 'primary' : 'ghost'} loading={busy} disabled={answered === 0} onClick={check}>Check my answers</Button>}
             {!result && <span className="pr-note">{answered} of {questions.length} answered</span>}
             {result && missed.length > 0 && <Button variant="primary" onClick={retryMissed}>{QUIZ.retryMissed(missed.length)}</Button>}
             {result && <Button variant={missed.length > 0 ? 'secondary' : 'primary'} onClick={again}>{only ? QUIZ.wholeAgain : 'Try again'}</Button>}
