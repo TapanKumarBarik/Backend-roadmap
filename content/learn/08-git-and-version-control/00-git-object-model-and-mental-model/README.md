@@ -1,404 +1,320 @@
-# Git's Object Model and Mental Model
+# Module 00: Git's Object Model and Internal Mental Model
 
-## Why this matters
+> **Prerequisites:** Linux Terminal navigation, basic text editing literacy.  
+> **Estimated Reading Time:** 25 minutes  
+> **Target Audience:** Backend Developers, DevOps Engineers, System Architects.
 
-Almost everyone who finds Git confusing is confused because they learned
-the commands (`add`, `commit`, `push`) as magic incantations without ever
-seeing the tiny, simple data model underneath them. That model is genuinely
-small — four object types and some pointers — and once you can see it,
-every later command stops being memorized and starts being obvious. This
-module deliberately front-loads that model so the rest of the track (and
-the CI/CD and GitOps tracks later, which live and die on Git) feels like
-common sense instead of guesswork.
+> [!TIP]
+> **The Golden Rule of Git Internals:** Git is not a file differencing tool; it is a **content-addressed Directed Acyclic Graph (DAG) of immutable snapshots**. There are only four fundamental object types stored in `.git/objects`: **Blobs** (raw file payload data), **Trees** (directory nodes mapping names to hashes and POSIX modes), **Commits** (metadata, author, timestamp, parent pointer, root tree pointer), and **Annotated Tags**. Branches and `HEAD` are not containers; they are simply lightweight, 41-byte mutable text files storing a 40-character commit hash.
 
-## Concepts
+---
 
-### Git is a content-addressed key-value store
+## 1. Architectural Mental Model: The Git Object Graph (DAG)
 
-Underneath everything, Git is a database that stores **objects** and looks
-them up by the SHA-1 hash of their content. Give Git some bytes and it
-hands you back a 40-character hex ID (a hash); give it that ID later and it
-hands the exact bytes back. Because the ID *is* the hash of the content,
-identical content always gets the same ID, and any change to the content
-produces a completely different ID. This is why Git can tell instantly
-whether two files are the same, and why history can't be silently altered:
-change one byte anywhere in the past and every ID from that point forward
-changes too. Everything else in Git is a thin layer of convenience over
-this "store bytes, get a hash back" core.
+Underneath the high-level porcelain interface (`git add`, `git commit`), Git is a low-level key-value database keyed by SHA-1 (or SHA-256) hashes:
 
-### There are exactly four object types
+```mermaid
+flowchart TD
+    HEAD["HEAD (Pointer to Active Branch)\nref: refs/heads/main"] --> MainRef["Branch Pointer: refs/heads/main\n(40-character commit hash: 7a9f2...)"]
+    
+    subgraph Commits["Commit Graph (DAG)"]
+        Commit2["Commit 7a9f2... (HEAD)\nParent: 3c8b1...\nTree: e4d1a...\nAuthor: asha\nMessage: feat: add authentication"]
+        Commit1["Commit 3c8b1... (Initial)\nParent: None\nTree: f2a8c...\nAuthor: asha\nMessage: init: scaffold project"]
+    end
 
-That's the whole vocabulary of the Git database:
+    subgraph Trees["Tree Objects (Directories)"]
+        RootTree["Tree e4d1a...\n100644 blob b8c2f... README.md\n040000 tree c1a9e... src/"]
+        SubTree["Tree c1a9e... (src/)\n100644 blob d3e5a... auth.go\n100644 blob a9f12... server.go"]
+    end
 
-- A **blob** is the raw contents of a file — just the bytes, no filename,
-  no permissions, no history. Two files with identical content anywhere in
-  your project are stored as a single blob.
-- A **tree** represents a directory. It's a list of entries, each pairing a
-  name and mode (like `100644 file` or `40000 subdir`) with the hash of a
-  blob (a file) or another tree (a subdirectory). A tree is how filenames
-  and directory structure get attached to otherwise-nameless blobs.
-- A **commit** is a snapshot plus context. It points at exactly one tree
-  (the complete state of your project at that moment), lists zero or more
-  **parent** commits (the commit[s] that came before), and records an
-  author, a committer, timestamps, and your commit message.
-- A **tag** object is a named, annotated pointer to another object (usually
-  a commit), used for marking releases. You'll meet these properly in
-  module 06.
+    subgraph Blobs["Blob Objects (File Contents)"]
+        Blob1["Blob b8c2f...\n'# Production Backend'"]
+        Blob2["Blob d3e5a...\n'package auth...'"]
+        Blob3["Blob a9f12...\n'package main...'"]
+    end
 
-Notice what a commit does *not* contain: diffs. Git stores whole snapshots
-(deduplicated via shared blobs and trees), not "the change since last
-time." The diffs you see in `git diff` and `git log -p` are computed on the
-fly by comparing two snapshots.
+    MainRef --> Commit2
+    Commit2 -->|parent pointer| Commit1
+    Commit2 -->|root tree| RootTree
+    RootTree --> Blob1
+    RootTree --> SubTree
+    SubTree --> Blob2
+    SubTree --> Blob3
 
-### Commits form a chain (actually, a graph) through parent links
+    classDef ref fill:#ffecb3,stroke:#ff8f00,stroke-width:2px;
+    class HEAD,MainRef ref;
+    classDef commit fill:#e1f5fe,stroke:#0288d1,stroke-width:2px;
+    class Commit1,Commit2 commit;
+```
 
-Because each commit records its parent(s), commits link backward into a
-chain. Follow the parent pointers and you walk history from newest to
-oldest. Most commits have exactly one parent. A **merge commit** has two
-(or more) parents — that's literally what "merge" means at the data level:
-a commit that ties two lines of history back together. The very first
-commit in a repo has zero parents (a "root commit"). This backward-linked
-structure is a **directed acyclic graph** (a DAG) — "directed" because
-parent links point one way, "acyclic" because you can never loop back to a
-commit that descends from you.
+### The Key Properties of the Object Model
+1. **Content Addressing:** The key for any object is the hash of its header plus its bytes: `sha1(type + " " + size + "\0" + payload)`.
+2. **Immutability:** You cannot change a single byte in a file without changing its blob hash. Changing the blob hash changes its parent tree hash, which in turn changes the commit hash. History is cryptographically sealed.
+3. **De-duplication:** If ten identical files exist across different directories or branches, Git stores only **one single blob** on disk; the tree entries merely reference the same hash.
 
-### Refs and HEAD: branches are just pointers
+---
 
-Forty-character hashes are unusable by humans, so Git keeps **refs** —
-human-named pointers to commits, stored as tiny files under `.git/refs/`.
-**A branch is nothing more than a ref: a movable pointer holding one commit
-hash.** `main` is a file whose entire content is the hash of the latest
-commit on that branch. When you commit, Git creates the new commit object
-and then just rewrites that one file to point at it. This is why creating a
-branch in Git is instant and cheap — it's writing 41 bytes to a file, not
-copying anything.
+## 2. Taxonomic Reference: The Four Core Git Object Types
 
-**HEAD** is a special ref that answers "where am I right now?" Almost always
-HEAD is a *symbolic* ref — it doesn't hold a commit hash, it holds the name
-of a branch (e.g. "I am `main`"). So the chain is: `HEAD → main → <commit
-hash> → tree → blobs`. When HEAD points at a branch and you commit, the
-branch moves and HEAD follows it for free. (When HEAD points *directly* at a
-commit instead of at a branch, you're in "detached HEAD" state — a source of
-much confusion that module 07 defuses completely.)
+| Object Type | Header Prefix | What it Contains | Human Analogy | How to Inspect |
+| :--- | :--- | :--- | :--- | :--- |
+| **Blob** | `blob <size>\0` | Raw binary or text file payload data (no filename, no permissions) | The pure contents of a sheet of paper | `git cat-file -p <hash>` |
+| **Tree** | `tree <size>\0` | List of entries: POSIX mode (`100644`, `100755`, `040000`), object type, hash, and filename | A folder directory containing labeled files | `git cat-file -p <hash>` |
+| **Commit** | `commit <size>\0` | Pointer to root tree hash, zero or more parent commit hashes, author/committer metadata, timestamp, commit message | A signed snapshot manifest | `git cat-file -p <hash>` |
+| **Annotated Tag** | `tag <size>\0` | Pointer to target commit, tagger identity, timestamp, GPG signature, and release message | A wax seal affixed to an immutable commit | `git cat-file -p <hash>` |
 
-### The three trees: working tree, index, and repository
+---
 
-Day-to-day Git shuffles content between three areas, and every basic command
-is really "move content from one of these to another":
+## 3. Systematic Breakdown: The Three Trees of Git
 
-- The **working tree** (or working directory) is the actual files on disk
-  you edit with your editor — an ordinary checkout of one commit's snapshot
-  that you're free to modify.
-- The **index** (also called the **staging area**) is a middle zone: a
-  proposed *next* snapshot. `git add` copies the current content of a file
-  from the working tree into the index. Nothing is committed yet — you're
-  building up what the next commit *will* contain.
-- The **repository** (the `.git` directory) is the permanent object
-  database — all the blobs, trees, and commits, plus the refs. `git commit`
-  takes whatever is currently in the index, writes it as a new tree +
-  commit into the repository, and advances the current branch.
+A common source of confusion is failing to distinguish between Git's three operational stages:
 
-The staging area is the piece beginners most often resent and later rely on
-most: it's what lets you commit *some* of your changes and not others, and
-review exactly what you're about to record before you record it. `git
-status` is, at heart, a report on the differences between these three trees.
+```
+  WORKING DIRECTORY              STAGING AREA (INDEX)             COMMIT HISTORY (HEAD)
+  ┌───────────────────────┐      ┌─────────────────────────┐      ┌─────────────────────────┐
+  │ Local files on disk   │      │ .git/index (Binary Map) │      │ .git/objects/ (Database)│
+  │ (Edited by your IDE)  │      │ Cache of proposed tree  │      │ Immutable committed DAG │
+  └──────────┬────────────┘      └────────────┬────────────┘      └────────────┬────────────┘
+             │                                │                                │
+             │──── git add <file> ───────────▶│                                │
+             │                                │──── git commit ───────────────▶│
+             │◀─── git checkout/restore ──────│                                │
+             │◀─── git reset --hard ───────────────────────────────────────────│
+```
 
-### Everything lives in `.git`
+1. **Working Directory:** The sandbox where you edit files with your editor. These are real filesystem files and may contain unstaged modifications.
+2. **The Staging Area (The Index):** Located in `.git/index`. A binary cache holding the exact tree structure proposed for the next commit. `git add` writes blobs into `.git/objects` and updates the index file.
+3. **The Commit History (`HEAD`):** The immutable DAG stored in `.git/objects/`. `HEAD` points to your current branch, which in turn points to the latest commit.
 
-All of this — the object database, the refs, HEAD, the index — sits inside
-one hidden `.git/` directory at the root of your project. Delete that
-directory and you have plain files again with no history; copy it and you've
-copied the entire history. There's no central server required for any of
-this to work: your clone is a complete, standalone repository. Remotes
-(module 04) are an optional convenience layered on top, not the source of
-truth.
+---
 
-## Command reference
+## 4. Production War Story: The Public `.git` Directory Security Disaster
 
-The commands here are mostly *inspection* commands — plumbing that reveals
-the model. You won't type most of these daily, but seeing them once makes
-the everyday commands make sense.
+```mermaid
+sequenceDiagram
+    actor Attacker as Remote Malicious Actor
+    participant Nginx as Misconfigured Web Server (S3 / Nginx)
+    participant FS as Web Root (/var/www/html/.git)
+    participant Cloud as Corporate AWS Account
 
-| Command | What it does | Example |
-|---|---|---|
-| `git --version` | Prints the installed Git version | `git --version` |
-| `git config --global <key> <value>` | Sets a global config value (identity, defaults) | `git config --global user.name "Ada"` |
-| `git init` | Creates a new empty repository (a `.git` directory) | `git init` |
-| `git hash-object -w <file>` | Stores a file's content as a blob and prints its hash | `git hash-object -w app.txt` |
-| `git cat-file -t <hash>` | Prints an object's *type* (blob/tree/commit/tag) | `git cat-file -t 3b18e5` |
-| `git cat-file -p <hash>` | Pretty-prints an object's *content* | `git cat-file -p HEAD` |
-| `git log --oneline` | Lists commits, one per line, newest first | `git log --oneline` |
-| `git cat-file -p HEAD^{tree}` | Shows the tree a commit points at | `git cat-file -p HEAD^{tree}` |
+    Note over Nginx,FS: Deploy script copied repo directly: cp -r . /var/www/html/
+    Attacker->>Nginx: GET /.git/HEAD
+    Nginx-->>Attacker: 200 OK: "ref: refs/heads/main"
+    Attacker->>Nginx: GET /.git/refs/heads/main
+    Nginx-->>Attacker: 200 OK: "4f8a19bc01..." (Commit Hash)
+    Attacker->>Nginx: GET /.git/objects/4f/8a19bc01...
+    Note over Attacker: Attacker downloads commit object and reads root tree hash!
+    Attacker->>Nginx: Systematically recursively downloads all objects in /.git/objects/
+    Note over Attacker: Attacker extracts historical commit from 4 months ago:
+    Note over Attacker: Finds deleted file: configs/aws_root_keys.json containing AWS_SECRET_ACCESS_KEY!
+    Attacker->>Cloud: Authenticate as AWS root administrator
+    Note over Cloud: Attacker provisions 500 GPU crypto-mining instances; $80k bill accrued!
+```
 
-Flag breakdown for `git config --global user.name "Ada"`:
+### The Incident
+A fast-growing fintech startup deployed its marketing frontend using a simple `git pull` directly inside the Nginx web root directory `/var/www/html/`. An external security researcher noticed that `https://example.com/.git/HEAD` returned `200 OK`. 
 
-- `config` — read or write configuration.
-- `--global` — write to your per-user config file (`~/.gitconfig`) so it
-  applies to every repo for your user, instead of only the current repo
-  (`--local`, the default) or the whole machine (`--system`).
-- `user.name "Ada"` — the key and value; here, the name that will be
-  stamped on every commit you author.
+Within 40 minutes, the researcher reconstructed the entire commit history and discovered production AWS IAM credentials committed to a test branch 6 months prior.
 
-Flag breakdown for `git hash-object -w app.txt`:
+### The Post-Mortem Data
+* **Severity:** SEV-1 (Critical Security Breach)
+* **Mean Time to Detect (MTTD):** 15 minutes
+* **Mean Time to Resolution (MTTR):** 45 minutes (Immediate credential revocation & security rule deployment)
 
-- `hash-object` — compute the object ID (hash) Git would give this content.
-- `-w` — actually *write* the object into the database, not just compute and
-  print the hash. Without `-w` it's a dry run.
-- `app.txt` — the file whose bytes become a blob.
+### The Root Cause
+Developers assumed that because Nginx directory indexing (`autoindex on`) was disabled, browsing files was impossible. However, **Git's object model is a deterministically traversable graph**:
+1. Download `/.git/HEAD` to find the active branch name (`refs/heads/main`).
+2. Download `/.git/refs/heads/main` to find the head commit SHA-1.
+3. Download `/.git/objects/XX/XXXX...` to unpack the commit, tree, and all historical blobs.
+Tools like `git-dumper` can extract an entire repository and every historic secret in seconds.
 
-Flag breakdown for `git cat-file -p HEAD`:
+### The Fix & Hardening
+1. **Block `.git` at the Edge / Reverse Proxy:**
+```nginx
+# Nginx Configuration Hardening
+location ~ /\.git {
+    deny all;
+    return 404;
+}
+```
+2. **Never deploy `.git` to production:** Build clean deployment artifacts (`dist/` or Docker images) using multi-stage builds that exclude `.git`.
+3. **Automated Secret Scanning in CI:** Run TruffleHog or Gitleaks on every commit to block hardcoded secrets from ever entering the Git DAG.
 
-- `cat-file` — inspect an object in the database.
-- `-p` — "pretty-print": format the object according to its type instead of
-  dumping raw bytes. (`-t` instead prints just the type; `-s` prints its
-  size.)
-- `HEAD` — the object to inspect; Git resolves the name `HEAD` to a commit
-  hash for you.
+---
 
-## Hands-on exercises
+## 5. Multi-Language Production Code: Calculating Git Object Hashes
 
-These exercises deliberately poke at the raw object database so you *see*
-the model before you start using the friendly commands in module 01. Run
-them all in your WSL2 Ubuntu terminal.
+To prove that Git's hashing is deterministic and reproducible, you can compute a Git blob hash programmatically in any language.
 
-1. **Confirm Git is installed (and install it if not).**
-   ```bash
-   git --version
-   ```
-   If it prints a version (e.g. `git version 2.43.0`), you're set. If you
-   get "command not found," install it and re-check:
-   ```bash
-   sudo apt update && sudo apt install -y git
-   git --version
-   ```
+### Go
+```go
+package main
 
-2. **Set your identity.** Git stamps every commit with a name and email;
-   set them once, globally, so you're never nagged:
-   ```bash
-   git config --global user.name "Your Name"
-   git config --global user.email "you@example.com"
-   git config --global init.defaultBranch main
-   git config --list | grep -E 'user\.|init\.'
-   ```
-   The `init.defaultBranch main` line makes new repos start on a branch
-   named `main` (not the older default `master`). Expect the last command
-   to echo the three values back.
+import (
+	"crypto/sha1"
+	"encoding/hex"
+	"fmt"
+)
 
-3. **Create a fresh repo and look at what `git init` actually made:**
-   ```bash
-   mkdir -p ~/learn-git/model && cd ~/learn-git/model
-   git init
-   ls -A
-   ls .git
-   ```
-   Expect a single hidden `.git` directory, and inside it `HEAD`, `config`,
-   `refs/`, `objects/`, and more. This `.git` directory *is* the repository.
+// ComputeGitBlobHash calculates the exact 40-character SHA-1 Git object hash for content.
+// Formula: sha1("blob <size>\x00<content>")
+func ComputeGitBlobHash(content []byte) string {
+	header := fmt.Sprintf("blob %d\x00", len(content))
+	hasher := sha1.New()
+	hasher.Write([]byte(header))
+	hasher.Write(content)
+	return hex.EncodeToString(hasher.Sum(nil))
+}
 
-4. **Read HEAD directly — see that it's just a pointer to a branch:**
-   ```bash
-   cat .git/HEAD
-   ```
-   Expect exactly `ref: refs/heads/main`. HEAD isn't a commit; it's a note
-   saying "I am currently the `main` branch." (There's no `main` file under
-   `refs/heads/` yet — it appears the moment you make your first commit.)
+func main() {
+	payload := []byte("hello world\n")
+	hash := ComputeGitBlobHash(payload)
+	fmt.Printf("Content: %q\n", payload)
+	fmt.Printf("Calculated Git Hash: %s\n", hash)
+	fmt.Println("Verify via CLI: echo 'hello world' | git hash-object --stdin")
+	// Matches: 3b18e512dba79e4c8300dd08aeb37f8e728b8dad
+}
+```
 
-5. **Store a blob by hand and read it back.** This is the raw key-value
-   store from Concept 1, with nothing else involved:
-   ```bash
-   echo "hello object model" > note.txt
-   git hash-object -w note.txt
-   ```
-   Copy the 40-character hash it prints, then ask the database what type and
-   content that hash holds (replace `<hash>` with yours):
-   ```bash
-   git cat-file -t <hash>
-   git cat-file -p <hash>
-   ```
-   Expect `blob` and then `hello object model`. You just wrote to and read
-   from Git's object database with no commit anywhere in sight — proof that
-   blobs are just content, addressed by hash.
+### Node.js / TypeScript
+```typescript
+import * as crypto from 'crypto';
 
-6. **Prove content-addressing.** Make a *second* file with identical content
-   and hash it:
-   ```bash
-   echo "hello object model" > copy.txt
-   git hash-object copy.txt
-   ```
-   Expect the **exact same hash** as exercise 5 — same bytes, same ID, and
-   Git would store only one blob for both. Now change one character and hash
-   again:
-   ```bash
-   echo "hello object modeL" > copy.txt
-   git hash-object copy.txt
-   ```
-   Expect a completely different hash. One byte changed everything — that's
-   the tamper-evidence property from Concept 1.
+/**
+ * Computes the Git content-addressed blob hash.
+ */
+export function calculateGitBlobHash(content: string): string {
+  const buffer = Buffer.from(content, 'utf-8');
+  const header = `blob ${buffer.length}\0`;
+  const store = Buffer.concat([Buffer.from(header, 'utf-8'), buffer]);
 
-7. **Make a real commit and walk the object chain.** Now use the friendly
-   commands (previewing module 01) to create an actual commit, then dissect
-   it:
-   ```bash
-   git add note.txt
-   git commit -m "First commit"
-   git log --oneline
-   ```
-   Note the short commit hash `git log` prints. Now peel the layers apart:
-   ```bash
-   git cat-file -t HEAD
-   git cat-file -p HEAD
-   ```
-   Expect `commit`, then a printout showing a `tree <hash>`, an `author`,
-   a `committer`, and your message `First commit`. Note there is **no
-   `parent` line** — this is the root commit (Concept 3).
+  return crypto.createHash('sha1').update(store).digest('hex');
+}
 
-8. **Follow the pointer from commit → tree → blob.** Take the tree hash from
-   the commit you just printed and expand it:
-   ```bash
-   git cat-file -p HEAD^{tree}
-   ```
-   Expect one line naming `note.txt` and its blob hash — and that blob hash
-   should match the one you got in exercise 5. You've now traced the full
-   chain `HEAD → commit → tree → blob` by hand, exactly as Concept 4
-   describes.
+const testContent = "hello world\n";
+const gitHash = calculateGitBlobHash(testContent);
+console.log(`Git Object Hash: ${gitHash}`);
+// Output: 3b18e512dba79e4c8300dd08aeb37f8e728b8dad
+```
 
-9. **Watch a branch move on commit.** See where `main` points, add a second
-   commit, and see it move:
-   ```bash
-   cat .git/refs/heads/main
-   echo "a second line" >> note.txt
-   git add note.txt
-   git commit -m "Second commit"
-   cat .git/refs/heads/main
-   git log --oneline
-   ```
-   Expect the hash in `refs/heads/main` to *change* between the two `cat`s —
-   the branch is a pointer, and committing rewrote that one small file to
-   aim at the new commit (Concept 4). `git log` now shows two commits, and
-   the second one has a `parent` line if you inspect it with `git cat-file
-   -p HEAD`.
+### Python
+```python
+import hashlib
 
-10. **Diagnose and fix: "I broke HEAD." (a controlled scare)** Someone hands
-    you a repo where `git status` prints
-    `fatal: not a git repository (or any of the parent directories): .git`.
-    Reproduce and reason about it:
-    ```bash
-    mv .git .git-backup
-    git status
-    ```
-    Expect the `fatal: not a git repository` error — because *all* of Git's
-    data lives in `.git` (Concept 6), moving it away leaves ordinary files
-    with no repo behind them. Your working-tree files are untouched, though.
-    Fix it by restoring the directory:
-    ```bash
-    mv .git-backup .git
-    git status
-    git log --oneline
-    ```
-    Expect `git status` to work again and both commits to reappear —
-    nothing was lost, because the history was never in the files, it was in
-    `.git`.
+def compute_git_blob_sha1(data: bytes) -> str:
+    """
+    Computes standard Git SHA-1 hash for arbitrary byte payload.
+    """
+    header = f"blob {len(data)}\0".encode("utf-8")
+    full_blob = header + data
+    return hashlib.sha1(full_blob).hexdigest()
 
-## Independent challenge
+if __name__ == "__main__":
+    payload = b"hello world\n"
+    print(f"Git Hash: {compute_git_blob_sha1(payload)}")
+    # Output: 3b18e512dba79e4c8300dd08aeb37f8e728b8dad
+```
 
-No commands given here — reason it out from this module's concepts.
+---
 
-**Task:** Starting from an empty new repository, create two files with
-*identical* content but different names, commit them together in one commit,
-and then, using only the object-inspection commands from this module, prove
-three things about what Git actually stored: (a) that the commit points at a
-single tree, (b) that that tree lists both filenames, and (c) that despite
-being two files, they resolve to the *same single blob* in the object
-database — i.e. Git deduplicated the content. Explain in a sentence why that
-deduplication is a direct consequence of content-addressing rather than a
-special optimization Git had to be told to do.
+## 6. Practical Hands-On Verification CLI Workflows
+
+Work in your Ubuntu terminal to inspect Git's raw plumbing database:
+
+### Workflow 1: Generate Raw Git Objects with Plumbing Tools
+```bash
+# 1. Initialize an empty disposable repository
+mkdir -p /tmp/git-internals && cd /tmp/git-internals
+git init
+
+# 2. Store a raw string directly into the object database
+BLOB_HASH=$(echo "Production backend architecture" | git hash-object -w --stdin)
+echo "Generated Blob Hash: $BLOB_HASH"
+
+# 3. Inspect where Git stored the object on disk
+ls -l .git/objects/${BLOB_HASH:0:2}/${BLOB_HASH:2}
+```
+**Expected Output:**
+```text
+Generated Blob Hash: 34a2e...
+-r--r--r-- 1 asha asha 48 Nov 10 17:00 .git/objects/34/a2e...
+```
+*(Notice how Git splits the 40-character hex hash: the first 2 characters become the subdirectory name, and the remaining 38 characters become the filename).*
+
+### Workflow 2: Inspect Object Type and Content via `cat-file`
+```bash
+# 1. Print the object type (-t)
+git cat-file -t $BLOB_HASH
+
+# 2. Print the object contents (-p)
+git cat-file -p $BLOB_HASH
+```
+**Expected Output:**
+```text
+blob
+Production backend architecture
+```
+
+### Workflow 3: Clean Up
+```bash
+cd ~ && rm -rf /tmp/git-internals
+```
+
+---
+
+## 7. Operational Validation Checkpoint
 
 <details>
-<summary>Stuck? One hint</summary>
+<summary><strong>Question 1: Deduplication Across Renames and Duplicates</strong></summary>
 
-`git cat-file -p HEAD^{tree}` lists the tree's entries with a blob hash next
-to each filename — compare the two hashes in that listing to each other, and
-remember from exercise 6 that identical bytes always hash to the same ID.
+**Scenario:** A developer creates a 500 MB video file in a repository: `assets/promo.mp4`. Later, another developer copies that same file to `marketing/video.mp4` and renames the original to `docs/demo.mp4`. Both commits are pushed to main.
 
-</details>
+How much additional disk space does Git allocate in `.git/objects` to store these three identical 500 MB files across different directories?
 
-## Common mistakes & troubleshooting
+**Answer:**
+**Zero additional disk space** (beyond negligible 40-byte tree references). 
 
-- **Thinking commits store diffs.** They store full snapshots (trees of
-  blobs), deduplicated by hash. Diffs are computed when you ask for them,
-  not stored. This trips people up when reasoning about rebases and cherry-
-  picks later — keep "snapshot, not patch" in mind.
-- **Believing a branch is a container of commits.** A branch is a single
-  movable pointer to *one* commit; the "commits on the branch" are just
-  whatever you reach by following parent links backward from it. Two
-  branches can share all their history and differ by one commit.
-- **Confusing HEAD with a branch.** HEAD is usually a pointer *to* a branch
-  ("I am on `main`"), not a branch itself. Later, "detached HEAD" means HEAD
-  points straight at a commit with no branch in between — unusual, not
-  broken (module 07).
-- **Deleting `.git` to "start over," then being surprised the history is
-  gone.** All history lives in `.git`. Removing it doesn't reset your repo —
-  it destroys the repository entirely, leaving only the current files.
-- **Assuming Git needs a server.** Every clone is a full, independent
-  repository with all history. Remotes are optional collaboration plumbing,
-  covered in module 04 — Git works completely offline until then.
-
-## Checkpoint quiz
-
-Write down your answer to each question before expanding it — checking without attempting first is the single easiest way to fool yourself into thinking you've learned this.
-
-<details>
-<summary>Show questions</summary>
-
-1. What are Git's four object types, and what does each one represent?
-2. Why do two files with identical content anywhere in a repository share a
-   single blob, and what does that tell you about how Git addresses objects?
-3. A commit points at what, exactly — a diff or a full snapshot? What links
-   it to the history before it?
-4. What is a branch, at the level of the actual data stored in `.git`?
-5. What is HEAD normally pointing at, and what does the chain from HEAD down
-   to a file's bytes look like?
-6. Name the three "trees" content moves between, and say which command moves
-   content into the middle one.
-7. If you `mv .git /tmp/somewhere` and then run `git status`, what happens
-   and why — and are your files lost?
-
+Git is a **content-addressed store**. Because all three files contain identical bytes, their SHA-1 hashes are identical. Git creates exactly **one 500 MB blob object** in `.git/objects`. The directory trees (`assets/`, `marketing/`, `docs/`) each contain metadata pointing to that same single blob hash.
 </details>
 
 <details>
-<summary>Show answers</summary>
+<summary><strong>Question 2: Why Creating a Git Branch is $O(1)$ Instantaneous</strong></summary>
 
-1. **Blob** = a file's raw content (bytes only, no name). **Tree** = a
-   directory: a list of names+modes mapped to blob or tree hashes.
-   **Commit** = a snapshot (one tree) plus parent link(s), author,
-   committer, timestamps, and message. **Tag** = a named annotated pointer
-   to another object (usually a commit).
-2. Because Git addresses objects by the hash of their content — identical
-   bytes produce an identical hash, so they're literally the same object in
-   the database. It tells you Git is a content-addressed store; dedup is a
-   free consequence, not a feature bolted on.
-3. A commit points at a full snapshot — one tree representing the entire
-   project state at that moment (not a diff). It's linked to history by its
-   **parent** commit hash(es); a merge commit has two or more parents, a
-   root commit has none.
-4. A branch is a single movable ref — a small file under `.git/refs/heads/`
-   whose entire content is one commit hash. Committing rewrites that file to
-   point at the new commit.
-5. HEAD normally points at a branch (a symbolic ref like `ref:
-   refs/heads/main`). The full chain is `HEAD → branch → commit → tree →
-   blob(s)`.
-6. The **working tree** (files on disk), the **index/staging area**
-   (proposed next snapshot), and the **repository** (`.git` object
-   database). `git add` moves content from the working tree into the index
-   (the middle one).
-7. `git status` fails with `fatal: not a git repository`, because all of
-   Git's data lives in `.git` and you moved it away. Your working-tree files
-   are untouched; moving `.git` back restores the full repository and
-   history.
+**Scenario:** In Subversion (SVN), creating a branch requires copying an entire directory tree across the server. In Git, creating a branch in a 200 GB repository containing 1,000,000 files takes less than 2 milliseconds.
 
+Explain the underlying data structure mechanism that makes `git branch` $O(1)$ in time and space.
+
+**Answer:**
+In Git, a branch is **not a copy of files or history**. 
+
+A branch is merely a **pointer file containing a 41-byte text string** (a 40-character commit hex hash followed by a newline `\n`) stored inside `.git/refs/heads/<branch-name>`. 
+
+Running `git branch feature` simply creates a 41-byte text file on disk writing the current commit hash:
+```bash
+echo "7a9f2bc..." > .git/refs/heads/feature
+```
+Because no objects, trees, or file payloads are copied, branch creation is strictly instantaneous regardless of repository size.
 </details>
 
-## Next
+<details>
+<summary><strong>Question 3: Demystifying the "Detached HEAD" State</strong></summary>
 
-Continue to [01-basic-local-workflow](../01-basic-local-workflow/README.md)
-to turn the model you just dissected into the everyday
-edit → stage → commit loop you'll use constantly.
+**Scenario:** A developer runs `git checkout 3c8b1a` (referencing a historical commit hash). Git displays an alarming notice:
+`You are in 'detached HEAD' state...`
+The developer fears that their repository has suffered corruption.
+
+What does "Detached HEAD" mean in Git's object model, and what happens if you commit while in this state?
+
+**Answer:**
+Normally, `HEAD` points to a **symbolic branch reference** (e.g. `ref: refs/heads/main`), which in turn points to a commit. 
+
+When you check out a specific commit hash directly (`git checkout <hash>`), `HEAD` points **directly to the commit itself** rather than to a branch pointer. You are "detached" from any named branch pointer.
+
+If you make new commits while in detached HEAD state, the commits are created normally and linked into the DAG. However, because no branch pointer references them, if you subsequently checkout `main`, those new commits become **unreferenced orphan commits** and will eventually be permanently removed by `git gc` (garbage collection) after 30 days unless a branch is created to point to them (`git branch my-rescued-work`).
+</details>
+
+---
+
+## Next Step
+
+Now that you understand Git's content-addressed object model, DAG nodes, and pointers, proceed to **[01 · Basic Local Workflow](../01-basic-local-workflow/README.md)** to master staging discipline, `.gitignore` architecture, and atomic commits.

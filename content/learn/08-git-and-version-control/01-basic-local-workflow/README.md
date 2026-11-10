@@ -1,431 +1,336 @@
-# The Basic Local Workflow
+# Module 01: The Basic Local Git Workflow
 
-## Why this matters
+> **Prerequisites:** Module 00 (Git's Object Model and Internal Mental Model).  
+> **Estimated Reading Time:** 25 minutes  
+> **Target Audience:** Backend Developers, DevOps Engineers, Software Engineers.
 
-The everyday Git loop — edit files, stage the changes you want, commit them
-with a message, inspect what happened — is the thing you'll do dozens of
-times a day for the rest of your career. Doing it *well* (small, focused
-commits with clear messages, a clean `git status`, a `.gitignore` that keeps
-junk out of history) is the difference between a history you can read a year
-later and an unreadable mess. Because you already know the object model from
-module 00, every command here is just "which of the three trees am I moving
-content between," which makes the whole loop click instead of feeling like
-ritual.
+> [!TIP]
+> **The Golden Rule of Local Git Discipline:** Never use `git add .` or `git commit -am` blindly. Commit **atomically**: each commit should represent a single logical, testable unit of work that passes all test suites. Use `git add -p` (patch mode) to stage specific hunks of code, use `git diff --staged` to review your exact proposed snapshot before recording it, and write imperative commit messages (`fix: resolve race condition in auth cache`).
 
-## Concepts
+---
 
-### The core loop: edit, stage, commit
+## 1. Architectural Mental Model: The Staging Pipeline
 
-The daily cycle has exactly three moves, mapping onto the three trees from
-module 00:
+The Git local workflow is a deliberate, two-phase transaction process between three distinct filesystem states:
 
-1. **Edit** files in the working tree with your editor.
-2. **Stage** the changes you want in the *next* commit with `git add`, which
-   copies their current content into the index.
-3. **Commit** with `git commit`, which snapshots the index into a new commit
-   object and advances the current branch.
+```mermaid
+flowchart TD
+    subgraph WorkTree["1. Working Directory (Disk Files)"]
+        RawFiles["Source Code & Assets\n(Modified by IDE)"]
+    end
 
-The staging step is what lets you commit a *subset* of your changes: you can
-edit five files but stage and commit only two, leaving the rest for a
-separate, logically-distinct commit. Beginners often skip understanding this
-and treat `add` as a nuisance step; it's actually the feature that makes
-clean history possible.
+    subgraph IndexTree["2. Staging Area (.git/index)"]
+        StagedMap["Index Binary Map\n(Proposed Tree for Next Commit)"]
+    end
 
-### `git status` is your constant compass
+    subgraph ObjectDB["3. Object Database (.git/objects)"]
+        HEADCommit["HEAD Snapshot\n(Current Committed State)"]
+    end
 
-`git status` reports the difference between the three trees, in three
-buckets: **staged** changes (in the index, ready to commit — "Changes to be
-committed"), **unstaged** changes (modified in the working tree but not yet
-`add`ed — "Changes not staged for commit"), and **untracked** files (present
-on disk but Git has never been told about them). Run it constantly — before
-staging, after staging, before committing. It also tells you which branch
-you're on and whether you have anything to commit at all. `git status -s`
-gives a compact two-column version once the long form gets tedious.
+    WorkTree -->|"git add <file> (Creates Blob in DB)"| IndexTree
+    IndexTree -->|"git commit (Creates Tree & Commit Object)"| ObjectDB
+    IndexTree -->|"git restore --staged <file> (Unstage)"| WorkTree
+    ObjectDB -->|"git restore --source=HEAD <file> (Discard edits)"| WorkTree
 
-### `git add` stages a *snapshot*, not a file
+    classDef stage fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px;
+    class IndexTree stage;
+```
 
-A subtle but crucial point: `git add file` stages the content of that file
-*as it is right now*. If you `add` a file, then edit it again before
-committing, the *later* edit is unstaged — the commit will contain the
-version you added, not the newer one on disk. `git status` will helpfully
-show the file in *both* the staged and unstaged sections when this happens.
-This follows directly from module 00: `add` copied a specific set of bytes
-into the index; editing the working tree afterward doesn't retroactively
-change what's in the index. `git add -p` (patch mode) takes this further,
-letting you stage individual *hunks* within a file.
+### The Power of the Staging Area
+Many version control systems couple "saving changes" directly with "recording a revision". Git's **Staging Area (the Index)** acts as a staging sandbox:
+* It lets you craft clean, coherent commits even if your working directory contains experimental changes, temporary debug logs, or edits across 10 different files.
+* You can stage half of a file using patch mode (`git add -p`) to commit a bugfix immediately, while keeping feature work unstaged in your working directory.
 
-### A commit needs a message, and the message matters
+---
 
-Every commit carries a message. The widely-followed convention is a short
-**summary line** (roughly 50 characters, written in the imperative — "Add
-login form," not "Added" or "Adds"), then a blank line, then an optional
-longer body explaining *why* the change was made (the *what* is visible in
-the diff; the *why* is not). `git commit -m "..."` sets just the summary;
-running `git commit` with no `-m` opens your editor for a full message. Good
-messages are not busywork — they're what makes `git log` and `git blame`
-useful to future-you and your teammates, and later they feed straight into
-release notes and CI.
+## 2. Taxonomic Reference: Status Codes and State Transitions
 
-### `git diff` shows you exactly what changed, and where
+Running `git status -s` (porcelain short status) outputs concise two-letter state codes for every file:
 
-Because Git stores snapshots, `diff` *computes* the change between two of
-them on demand:
+| Code (`X Y`) | Staged Status (`X`) | Unstaged Status (`Y`) | Real-World Translation |
+| :--- | :--- | :--- | :--- |
+| **`??`** | Untracked | Untracked | Brand new file on disk; Git does not track it yet. |
+| **`A `** | **Added (Staged)** | Unmodified | New file staged; will be recorded in the next commit. |
+| **` M`** | Clean | **Modified (Unstaged)** | File changed on disk since last commit, but **not yet staged**. |
+| **`M `** | **Modified (Staged)** | Clean | Changes staged in index; ready to commit. |
+| **`MM`** | **Modified (Staged)** | **Modified (Unstaged)** | Changes staged, then *modified again* on disk! |
+| **` D`** | Clean | **Deleted (Unstaged)** | File deleted on disk using standard `rm`, but deletion not staged. |
+| **`D `** | **Deleted (Staged)** | Clean | Deletion staged; file will be removed from next commit snapshot. |
 
-- `git diff` (no args) — working tree vs. index: "what have I changed but
-  not yet staged?"
-- `git diff --staged` (a.k.a. `--cached`) — index vs. the last commit:
-  "what will this commit actually contain?"
-- `git diff HEAD` — working tree vs. the last commit: "everything I've
-  changed since the last commit, staged or not."
+---
 
-Getting in the habit of running `git diff --staged` right before every
-commit — reading exactly what you're about to record — catches an enormous
-share of "oops, I committed a debug print / a secret / a whole unrelated
-change" mistakes.
+## 3. Systematic Breakdown: Comparing Diff & Restore Tools
 
-### `git log` reads history, and formatting it is a superpower
+| Operation | Command | What it Compares / Reverts | Production Engineering Use Case |
+| :--- | :--- | :--- | :--- |
+| **Review Unstaged Work** | `git diff` | Working Directory vs. Index | See what you changed in your editor before running `git add`. |
+| **Review Staged Snapshot** | `git diff --staged` | Index vs. Current `HEAD` Commit | **Mandatory pre-commit review:** The exact diff that will be recorded! |
+| **Interactive Hunk Staging** | `git add -p <file>` | Prompts per code block (`y, n, s, e`) | Split bugfixes from refactoring within the same file into separate commits. |
+| **Unstage a File** | `git restore --staged <file>` | Removes from Index without modifying disk | Fix an accidental `git add secret.env`. |
+| **Discard Unstaged Changes** | `git restore <file>` | Replaces working tree file with Index | Discard local experimental edits and revert to last known state. |
 
-`git log` walks the parent chain backward from HEAD, printing each commit.
-The raw form is verbose; the forms you'll actually use compress it:
-`git log --oneline` gives one line per commit (short hash + summary),
-`--graph` draws the branch/merge structure as ASCII art, and `--stat` adds a
-per-commit list of files changed. You'll combine these constantly, e.g.
-`git log --oneline --graph --all` to see the whole repo's shape at a glance.
+---
 
-### `.gitignore` keeps generated and secret files out of history
+## 4. Production War Story: The Mega-Commit Rollback Catastrophe
 
-Not everything in your working directory belongs in Git: build outputs,
-dependency folders (`node_modules/`), logs, editor swap files, and — very
-importantly — secrets like `.env` files. A `.gitignore` file lists patterns
-of paths Git should treat as if they weren't there: they won't show up as
-untracked in `git status` and won't be accidentally `add`ed. Patterns are
-globs (`*.log`), can be anchored to a directory (`/dist`), and a trailing
-slash means "directory" (`node_modules/`). One critical caveat covered in
-the exercises: `.gitignore` only stops Git from tracking files it *isn't
-already tracking* — a file already committed keeps being tracked until you
-explicitly remove it from the index.
+```mermaid
+sequenceDiagram
+    actor Dev as Feature Developer
+    participant Git as Git Version History
+    participant CI as Production CD Pipeline
+    participant Prod as Production Kubernetes Cluster
 
-## Command reference
+    Note over Dev: Dev works for 3 weeks without committing:
+    Note over Dev: Bundles 4 features + 1 critical zero-day security fix + 1 DB migration!
+    Dev->>Git: git commit -am "WIP: sprint updates" (4,800 lines changed in 1 commit!)
+    Dev->>Git: git push origin main
+    Git->>CI: Trigger production deployment
+    CI->>Prod: Deploy new microservice release
+    Note over Prod: Database migration fails with schema deadlock!
+    Note over Prod: SRE calls SEV-1: "Rollback immediately!"
+    Dev->>Git: git revert HEAD
+    Note over Git: Entire 4,800-line mega-commit is reverted!
+    Note over Prod: Database recovers, BUT critical zero-day security fix is ALSO reverted!
+    Note over Dev: Attacker exploits unpatched zero-day vulnerability 2 hours later!
+```
 
-| Command | What it does | Example |
-|---|---|---|
-| `git init` | Creates a new repository in the current directory | `git init` |
-| `git status` | Shows staged, unstaged, and untracked changes and current branch | `git status` |
-| `git status -s` | Compact two-column status | `git status -s` |
-| `git add <path>` | Stages a file's current content into the index | `git add app.py` |
-| `git add -A` | Stages all changes (new, modified, deleted) in the whole tree | `git add -A` |
-| `git add -p` | Interactively stage individual hunks within files | `git add -p` |
-| `git restore --staged <path>` | Unstages a file (index → back to matching HEAD), keeping working-tree edits | `git restore --staged app.py` |
-| `git restore <path>` | Discards unstaged working-tree changes to a file | `git restore app.py` |
-| `git commit -m "msg"` | Commits the index with a one-line message | `git commit -m "Add health endpoint"` |
-| `git commit` | Commits, opening your editor for a full message | `git commit` |
-| `git commit -am "msg"` | Stages all *tracked* modified files, then commits | `git commit -am "Fix typo"` |
-| `git diff` | Working tree vs. index (unstaged changes) | `git diff` |
-| `git diff --staged` | Index vs. last commit (what the commit will contain) | `git diff --staged` |
-| `git log --oneline` | One line per commit, newest first | `git log --oneline` |
-| `git log --oneline --graph --all` | Compact history with branch/merge shape, all refs | `git log --oneline --graph --all` |
-| `git show <commit>` | Shows a commit's message and full diff | `git show HEAD` |
-| `git rm --cached <path>` | Stops tracking a file (removes from index) without deleting it on disk | `git rm --cached .env` |
+### The Incident
+During a major platform release, an engineering team deployed a single 4,800-line commit containing three new payment integrations, a database schema migration, and a critical zero-day patch for an authentication vulnerability. 
 
-Flag breakdown for `git add -A`:
+Ten minutes after deployment, the database migration locked the transactions table, triggering a SEV-1 outage. The incident commander ordered an immediate `git revert HEAD`.
 
-- `add` — stage content into the index.
-- `-A` (`--all`) — stage *every* change across the whole working tree: new
-  files, modifications, *and* deletions. (Plain `git add .` stages the
-  current directory and below; `-A` is repo-wide and also records removals.)
+### The Post-Mortem Data
+* **Severity:** SEV-1 (Database Lockout & Unpatched Security Vulnerability)
+* **Mean Time to Detect (MTTD):** 10 minutes
+* **Mean Time to Resolution (MTTR):** 120 minutes
 
-Flag breakdown for `git commit -am "Fix typo"`:
+### The Root Cause
+Because 3 weeks of work was crammed into a single **"mega-commit"**, the team could not revert the broken database migration without also reverting the critical authentication security patch. Two hours later, automated bot traffic exploited the unpatched authentication vulnerability.
 
-- `-a` — automatically stage all **tracked** files that were modified or
-  deleted before committing. It does **not** pick up brand-new untracked
-  files — those still need an explicit `git add`.
-- `-m "Fix typo"` — supply the commit summary inline instead of opening an
-  editor.
+### The Fix & Hardening
+1. **Enforce Atomic Commits:** Each logical change must be an isolated commit:
+   * Commit 1: `fix(auth): patch timing attack on token validator` (Deployable independently!)
+   * Commit 2: `feat(db): add non-blocking index on orders table`
+   * Commit 3: `feat(payment): integrate stripe webhook processor`
+2. **Interactive Staging (`git add -p`):** Break large files into granular, reviewable commits before pushing.
+3. **Automated CI Commit Scrutiny:** Add linting checks (e.g. `commitlint`) to enforce Conventional Commits and warn if a single commit modifies more than 500 lines across unrelated packages.
 
-Flag breakdown for `git rm --cached .env`:
+---
 
-- `rm` — remove a path from Git's tracking.
-- `--cached` — remove it from the **index only**, leaving the actual file on
-  disk untouched. (Without `--cached`, `git rm` deletes the working-tree file
-  too.) This is exactly how you un-track a file you shouldn't have committed.
+## 5. Multi-Language Production Code: Validating Git Working Tree State
 
-Flag breakdown for `git log --oneline --graph --all`:
+Deployment scripts, CLI publishing tools, and CI runners must verify that the local repository is clean (no unstaged files, no untracked secrets) before initiating a release.
 
-- `--oneline` — one compact line per commit (short hash + summary).
-- `--graph` — draw the commit DAG as ASCII art down the left, showing
-  branches and merges.
-- `--all` — show history reachable from *all* refs (every branch/tag), not
-  just the current HEAD.
+### Go
+```go
+package main
 
-## Hands-on exercises
+import (
+	"bytes"
+	"context"
+	"fmt"
+	"os/exec"
+	"strings"
+	"time"
+)
 
-Run these in your WSL2 Ubuntu terminal. They build one small project across
-the whole module.
+// AssertCleanWorkingTree ensures no uncommitted or untracked changes exist before a release.
+func AssertCleanWorkingTree(ctx context.Context) error {
+	// git status --porcelain returns empty string if working directory is clean
+	cmd := exec.CommandContext(ctx, "git", "status", "--porcelain")
+	var stdout bytes.Buffer
+	cmd.Stdout = &stdout
 
-1. **Start a clean project:**
-   ```bash
-   mkdir -p ~/learn-git/workflow && cd ~/learn-git/workflow
-   git init
-   git status
-   ```
-   Expect "On branch main" and "No commits yet" with nothing to commit.
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("failed to execute git status: %w", err)
+	}
 
-2. **Create a file and watch it appear as untracked:**
-   ```bash
-   echo "# My Project" > README.md
-   git status
-   ```
-   Expect `README.md` listed under "Untracked files" — Git sees it but isn't
-   tracking it yet.
+	output := strings.TrimSpace(stdout.String())
+	if output != "" {
+		return fmt.Errorf("working directory is dirty! Uncommitted changes detected:\n%s", output)
+	}
 
-3. **Stage it, and watch it move buckets:**
-   ```bash
-   git add README.md
-   git status
-   ```
-   Expect `README.md` now under "Changes to be committed." It moved from the
-   working tree into the index (module 00's middle tree).
+	fmt.Println("✅ Git working tree is completely clean. Ready for release build.")
+	return nil
+}
 
-4. **Commit, then confirm a clean tree:**
-   ```bash
-   git commit -m "Add project README"
-   git status
-   git log --oneline
-   ```
-   Expect "nothing to commit, working tree clean" and one commit in the log.
+func main() {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
 
-5. **See staging select a subset.** Create two files, change the README too,
-   but commit only one of the new files:
-   ```bash
-   echo "print('app')" > app.py
-   echo "TODO: notes" > notes.txt
-   echo "More detail." >> README.md
-   git add app.py
-   git status
-   ```
-   Expect `app.py` staged, but `notes.txt` untracked *and* `README.md`
-   modified-but-unstaged. Now commit just what's staged and confirm:
-   ```bash
-   git commit -m "Add app.py"
-   git status
-   ```
-   Expect the commit to contain only `app.py`; `notes.txt` and the README
-   change are still pending. That selectivity is the staging area's whole
-   point.
+	if err := AssertCleanWorkingTree(ctx); err != nil {
+		fmt.Printf("❌ Release blocked: %v\n", err)
+		return
+	}
+}
+```
 
-6. **Prove `add` stages a snapshot, not a live link.** Stage the README,
-   then edit it *again* before committing:
-   ```bash
-   git add README.md
-   echo "Edited AFTER staging." >> README.md
-   git status -s
-   ```
-   Expect the compact status to show `README.md` in *both* columns — staged
-   (the version you added) and modified (the newer edit on disk). Read the
-   two diffs to see the split precisely:
-   ```bash
-   git diff --staged
-   git diff
-   ```
-   `--staged` shows the "More detail." line (what you added), plain `diff`
-   shows the "Edited AFTER staging." line (what you haven't). This is Concept
-   3 made concrete.
+### Node.js / TypeScript
+```typescript
+import { execFile } from 'child_process';
+import { promisify } from 'util';
 
-7. **Commit everything and read the resulting commit:**
-   ```bash
-   git add -A
-   git commit -m "Finish README and add notes"
-   git show HEAD
-   ```
-   Expect `git show` to print the message plus the full diff of that commit
-   (both the README line and the new `notes.txt`).
+const execFileAsync = promisify(execFile);
 
-8. **Write a proper multi-line commit message.** Make a change and commit
-   without `-m` so your editor opens:
-   ```bash
-   echo "def health(): return 'ok'" >> app.py
-   git add app.py
-   git commit
-   ```
-   In the editor, write a summary line, a blank line, then a body — e.g.:
-   ```
-   Add health check function
+/**
+ * Asserts that no sensitive files (.env) are accidentally staged in the Git index.
+ */
+export async function assertNoStagedSecrets(): Promise<void> {
+  const { stdout } = await execFileAsync('git', ['diff', '--cached', '--name-only']);
+  const stagedFiles = stdout.trim().split('\n').filter(Boolean);
 
-   Downstream monitoring needs a cheap endpoint to poll, so add a
-   trivial health() that always returns 'ok'.
-   ```
-   Save and close. Verify with `git log --oneline` and then `git show HEAD`
-   that the summary and body are both recorded. (If your editor is unfamiliar,
-   `git config --global core.editor nano` switches Git to `nano`.)
+  const forbiddenPatterns = ['.env', 'id_rsa', 'secret', '.pem'];
+  const violations = stagedFiles.filter((file) =>
+    forbiddenPatterns.some((pattern) => file.toLowerCase().includes(pattern))
+  );
 
-9. **Add a `.gitignore` and confirm it silences noise:**
-   ```bash
-   echo "secret-token-123" > .env
-   mkdir dist && echo "built output" > dist/bundle.js
-   git status
-   ```
-   Expect `.env` and `dist/` shown as untracked — exactly the junk/secrets
-   you don't want committed. Now ignore them:
-   ```bash
-   cat > .gitignore <<'EOF'
-   # Secrets
-   .env
-   # Build output
-   /dist/
-   EOF
-   git status
-   ```
-   Expect `.env` and `dist/` to vanish from the untracked list, replaced by
-   just `.gitignore` itself (which you *do* want to commit). Commit it:
-   ```bash
-   git add .gitignore && git commit -m "Add .gitignore for secrets and build output"
-   ```
+  if (violations.length > 0) {
+    throw new Error(
+      `CRITICAL SECURITY VIOLATION: Attempting to commit sensitive files:\n${violations.join('\n')}\n` +
+      `Run: git restore --staged <file> immediately!`
+    );
+  }
 
-10. **Diagnose and fix: "I committed a secret before adding it to
-    `.gitignore`."** This is one of the most common real mistakes, and
-    `.gitignore` alone does *not* fix it. Reproduce it deliberately:
-    ```bash
-    echo "API_KEY=supersecret" > config.env
-    git add config.env
-    git commit -m "Add config"
-    echo "config.env" >> .gitignore
-    git status
-    ```
-    Expect `git status` to show nothing about `config.env` — but it's still
-    tracked and still in history, because `.gitignore` only affects files Git
-    *isn't already tracking* (Concept 6). Prove it's tracked:
-    ```bash
-    git ls-files | grep config.env
-    ```
-    Expect it to print `config.env`. Now untrack it (keeping the local file)
-    and commit the removal:
-    ```bash
-    git rm --cached config.env
-    git commit -m "Stop tracking config.env (moved to .gitignore)"
-    git ls-files | grep config.env || echo "no longer tracked"
-    ```
-    Expect "no longer tracked," and the file still present on disk (`ls
-    config.env`). Note the real-world caveat: the secret still exists in the
-    *earlier* commit's history — for a genuinely leaked credential you'd also
-    rotate the secret and, if needed, scrub history (module 07). Untracking
-    only stops it going forward.
+  console.log('✅ Staged files verified: Zero secret files detected.');
+}
 
-11. **Read your history like a pro:**
-    ```bash
-    git log --oneline --graph --all
-    git log --stat -1
-    ```
-    Expect a compact list of every commit you've made, and a per-file change
-    summary for the most recent one. This is the view you'll live in.
+assertNoStagedSecrets().catch((err) => {
+  console.error(err.message);
+  process.exit(1);
+});
+```
 
-## Independent challenge
+### Python
+```python
+import subprocess
+import sys
 
-No commands given — use what you built above plus the object model from
-module 00.
+def verify_git_cleanliness() -> bool:
+    """
+    Validates that the repository has zero uncommitted changes.
+    """
+    res = subprocess.run(["git", "status", "--porcelain"], capture_output=True, text=True)
+    if res.returncode != 0:
+        sys.stderr.write("Error: Not a git repository or git command missing.\n")
+        return False
 
-**Task:** Starting a brand-new repository, make a single working session in
-which you touch three different files but produce *two* separate, logically
-clean commits — one commit containing only the changes to two of the files,
-and a second commit containing only the third file's changes — without ever
-undoing or re-editing anything. Then, using only `git diff` in its various
-forms, demonstrate *before* each commit that exactly the intended content is
-staged and nothing else. Finally, write the second commit's message with a
-real body explaining *why* the change exists, and confirm with `git show`
-that the body was recorded. This exercises the staging area (this module) and
-the snapshot-not-diff nature of commits (module 00) together.
+    dirty_files = res.stdout.strip()
+    if dirty_files:
+        print("❌ Cannot proceed with deployment. Working tree contains uncommitted edits:")
+        print(dirty_files)
+        return False
+
+    print("✅ Repository clean. All commits synced.")
+    return True
+
+if __name__ == "__main__":
+    if not verify_git_cleanliness():
+        sys.exit(1)
+```
+
+---
+
+## 6. Practical Hands-On Verification CLI Workflows
+
+Follow these workflows in your Ubuntu terminal:
+
+### Workflow 1: Inspect Staging Area State Transitions
+```bash
+# 1. Initialize a temporary scratch repo
+mkdir -p /tmp/git-workflow-lab && cd /tmp/git-workflow-lab
+git init
+
+# 2. Create and stage a new file
+echo "PORT=8080" > config.env
+git status -s    # Shows: ?? config.env
+git add config.env
+git status -s    # Shows: A  config.env
+
+# 3. Modify the file AGAIN while staged
+echo "DEBUG=true" >> config.env
+git status -s    # Shows: AM config.env (Staged changes + unstaged changes!)
+```
+
+### Workflow 2: Compare `git diff` vs. `git diff --staged`
+```bash
+# Compare unstaged edits against index
+git diff
+
+# Compare staged index against last commit
+git diff --staged
+```
+**Expected Output:**
+```text
+diff --git a/config.env b/config.env
+@@ -1 +1,2 @@
+ PORT=8080
++DEBUG=true
+```
+
+### Workflow 3: Unstage Safely Without Losing Edits
+```bash
+# Unstage config.env from the index
+git restore --staged config.env
+git status -s    # Shows: ?? config.env (Untracked; local disk edits preserved!)
+
+# Clean up
+cd ~ && rm -rf /tmp/git-workflow-lab
+```
+
+---
+
+## 7. Operational Validation Checkpoint
 
 <details>
-<summary>Stuck? One hint</summary>
+<summary><strong>Question 1: Why `.gitignore` Ignores Files That Are Already Tracked</strong></summary>
 
-The key is to stage selectively — `git add` only the two files for the first
-commit, run `git diff --staged` to confirm just those are in the index,
-commit, and only *then* `git add` the third file for the second commit.
-`git add -p` lets you go even finer if two changes live in one file.
+**Scenario:** A developer adds `app.log` to `.gitignore`. When they edit `app.log`, `git status` continues to show `modified: app.log`. 
 
-</details>
+Why does Git ignore the rule in `.gitignore`, and what is the exact command to resolve this?
 
-## Common mistakes & troubleshooting
+**Answer:**
+`.gitignore` dictates what Git does with **untracked files**. 
 
-- **`git add`-ing then editing again, and committing the stale version.**
-  If `git status` shows a file as *both* staged and modified, `git add` it
-  once more (or `git commit -a`) so the newer edit is included. Always glance
-  at `git diff --staged` before committing.
-- **Using `git commit -am` and wondering why a new file wasn't included.**
-  `-a` only stages *already-tracked* files. Brand-new (untracked) files need
-  an explicit `git add` first — `-a` will never pick them up.
-- **Adding a file to `.gitignore` after it's already committed and expecting
-  it to disappear.** `.gitignore` only ignores untracked files. Use `git rm
-  --cached <file>` to stop tracking something already in history.
-- **Committing secrets.** A `.env` or key committed once lives in history
-  even after you delete or `.gitignore` it. Add secret patterns to
-  `.gitignore` *before* the first commit, and if one leaks, rotate it — don't
-  assume removal is enough (module 07 covers history scrubbing).
-- **Vague commit messages ("update", "fix", "wip").** They make history
-  useless. Write an imperative summary that says what the commit does; add a
-  body for the *why* when it isn't obvious.
-- **One giant commit for a whole day's work.** Prefer small, focused commits
-  — they're easier to review, revert, and understand later. The staging area
-  exists precisely to let you split work into clean commits.
+If a file has already been tracked and committed to Git's index history in a previous commit, adding its name to `.gitignore` has **zero effect**; Git will continue tracking all subsequent modifications to that file.
 
-## Checkpoint quiz
-
-Write down your answer to each question before expanding it — checking without attempting first is the single easiest way to fool yourself into thinking you've learned this.
-
-<details>
-<summary>Show questions</summary>
-
-1. Name the three moves of the daily loop and which of module 00's three
-   trees each one touches.
-2. In `git status`, what's the difference between "Changes to be committed,"
-   "Changes not staged for commit," and "Untracked files"?
-3. You run `git add report.txt`, then edit `report.txt` again, then `git
-   commit`. Which version of the file ends up in the commit, and how would
-   `git status` have warned you?
-4. What's the difference between `git diff`, `git diff --staged`, and `git
-   diff HEAD`?
-5. What does `git commit -am "..."` do, and what class of file does it
-   silently *not* include?
-6. You committed `secrets.env` yesterday and just added it to `.gitignore`.
-   Is it now out of your repository? What command actually stops it being
-   tracked, and what does that command leave alone?
-7. What makes a good commit message, structurally, and why does the body
-   matter more than the summary for future readers?
-
+**The Fix:** Remove the file from the staging index while keeping it physically on your disk:
+```bash
+git rm --cached app.log
+git commit -m "chore: stop tracking app.log"
+```
+Now `app.log` is untracked and `.gitignore` will properly ignore it.
 </details>
 
 <details>
-<summary>Show answers</summary>
+<summary><strong>Question 2: The Danger of `git commit -am`</strong></summary>
 
-1. **Edit** the working tree, **stage** into the index with `git add`,
-   **commit** the index into the repository with `git commit`. Working tree
-   → index → repository.
-2. "Changes to be committed" = staged (in the index, will be in the next
-   commit). "Changes not staged for commit" = tracked files modified in the
-   working tree but not yet `add`ed. "Untracked files" = files on disk Git
-   has never tracked.
-3. The version you `add`ed (the earlier one) ends up committed — `add`
-   snapshots content at that moment; the later edit stays unstaged. `git
-   status` warns by listing the file in *both* the staged and the unstaged
-   sections.
-4. `git diff` = working tree vs. index (unstaged changes). `git diff
-   --staged` = index vs. last commit (what the commit will contain). `git
-   diff HEAD` = working tree vs. last commit (all changes, staged or not).
-5. It stages all modified/deleted **tracked** files and then commits with
-   the given message. It does **not** include untracked (brand-new) files —
-   those need an explicit `git add`.
-6. No — it's still tracked and still in history; `.gitignore` only affects
-   untracked files. `git rm --cached secrets.env` stops tracking it (removes
-   it from the index) while leaving the actual file on disk. The old commit
-   still contains it, so a real secret must also be rotated.
-7. A short imperative summary (~50 chars), a blank line, then an optional
-   body. The body matters more long-term because the diff already shows
-   *what* changed — the body is the only place that records *why*, which is
-   what future readers actually need.
+**Scenario:** A developer relies on `git commit -am "update"` as their default command. After pushing to GitHub, they realize their newly created source file `auth_service.go` was omitted from the commit, breaking the continuous integration build.
 
+Why did `git commit -am` fail to include `auth_service.go`?
+
+**Answer:**
+The `-a` (all) flag in `git commit` automatically stages modifications and deletions for **files that are ALREADY tracked by Git**. 
+
+It **never stages newly created untracked files (`??`)**. Because `auth_service.go` had never been explicitly added via `git add`, `git commit -am` silently skipped it. 
+
+**Best Practice:** Always run `git status` first, and use explicit `git add` commands before committing.
 </details>
 
-## Next
+<details>
+<summary><strong>Question 3: Difference Between `git restore` and `git restore --staged`</strong></summary>
 
-Continue to [02-branching-and-merging](../02-branching-and-merging/README.md)
-to stop working on one line of history and start juggling several — then tie
-them back together, conflicts and all.
+**Scenario:** You edited `server.go` and staged it with `git add server.go`. Then you realized the change is flawed.
+What is the difference between running:
+1. `git restore --staged server.go`
+2. `git restore server.go`
+
+**Answer:**
+* **`git restore --staged server.go`:** Copies the version of `server.go` from `HEAD` into the **Staging Area (Index)**. Your local disk edits in your working directory remain untouched; the file is simply un-staged.
+* **`git restore server.go`:** Overwrites your **Working Directory file on disk** with whatever is currently in the Staging Area. Any unstaged edits you made in your editor are **permanently destroyed and unrecoverable**!
+</details>
+
+---
+
+## Next Step
+
+Now that you have mastered atomic local commits and staging discipline, proceed to **[02 · Branching and Merging](../02-branching-and-merging/README.md)** to master fast-forward merges, 3-way merge commits, conflict resolution, and the branch lifecycle.
