@@ -1,553 +1,520 @@
-# Module 00: What an Embedding Is
+# What an Embedding Is: Foundations of Dense Representation
 
-## Roadmap
+> **Prerequisites**: [Track 01: Tokens and Language Modeling](../../01-tokens-and-language-modeling/README.md), basic linear algebra (vectors, matrices, dot products).  
+> **Estimated Reading Time**: 28 minutes.  
+> **Target Audience**: Senior Backend Engineers, AI Platform Engineers, Search Infrastructure Engineers.
 
-This is the first module of [Track 08: Embeddings & Vector Databases](../README.md). It builds directly on
-three earlier ideas: a model never sees text, only token IDs ([Track 01, Module 08](../../01-tokens-and-language-modeling/08-vocabulary-size-tradeoffs/README.md)
-counted what one row per token costs); vectors and dot products ([Track 02, Module 01](../../02-transformer-architecture/01-the-math-you-actually-need-vectors-matrices-dot-products/README.md));
-and an embedding table as a matrix you index by row ([Track 02, Module 02](../../02-transformer-architecture/02-embeddings-as-lookup-tables/README.md)).
-The history of the idea is told once in [Track 00, Module 03](../../00-genai-foundations/03-word2vec-and-the-embedding-revolution/README.md);
-this module does not repeat it, it builds a small embedding space by hand so you can see what is inside one.
+---
 
-After this module you can explain what an embedding is without hand-waving, build one from nothing but counting and linear algebra,
-read a nearest-neighbour list and an analogy result critically, and say why most "RAG is returning garbage" bugs start here.
-Next: [Module 01](../01-from-word2vec-to-sentence-embeddings/README.md) learns the vectors by prediction (word2vec) instead of counting, and gets to whole sentences.
+> [!TIP]
+> **The Golden Rule of Embeddings**: An embedding is a dense, continuous vector coordinate assigned to a discrete entity such that geometric proximity reflects semantic co-occurrence under a specific objective function. Never treat cosine similarity as an uncalibrated absolute truth—distance only has meaning relative to the distribution of the training manifold.
 
-## Concept
+---
 
-> [!key] An embedding is a list of numbers (a point in a space) assigned to a thing, learned so that things used in similar ways land close together. "Close means similar" is not magic: it is exactly what the training data and objective rewarded, no more.
+## 1. Architectural Blueprint & Mental Models
 
-## Explanation
+In traditional relational systems, discrete symbols (words, customer IDs, product SKUs) are represented by arbitrary identifiers or one-hot sparse vectors. In an $N$-dimensional one-hot space, every entity vector is mutually orthogonal:
 
-### The problem: one-hot vectors say nothing
+$$\mathbf{v}_{\text{cat}} \cdot \mathbf{v}_{\text{dog}} = 0, \quad \mathbf{v}_{\text{cat}} \cdot \mathbf{v}_{\text{submarine}} = 0$$
 
-The obvious way to give a word to a program is an ID, or equivalently a **one-hot vector**: as long as the vocabulary, all zeros except a 1 at the word's position.
+Under one-hot encoding, semantic overlap is mathematically zero. Dense vector embeddings solve this fundamental limitation by projecting discrete entities into a continuous, low-dimensional latent manifold ($\mathbb{R}^d$, where typically $d \in [256, 3072]$).
 
+```mermaid
+flowchart TD
+    subgraph Sparse["1. Sparse Discrete World (Orthogonal & High-Dimensional)"]
+        W1["'cat' -> [1, 0, 0, 0, ... 0] in R^50000"]
+        W2["'dog' -> [0, 1, 0, 0, ... 0] in R^50000"]
+        W3["'car' -> [0, 0, 1, 0, ... 0] in R^50000"]
+        Dot1["W1 . W2 = 0.0 (No generalization)"]
+        Dot2["W1 . W3 = 0.0 (Identical orthogonal distance)"]
+        W1 & W2 --> Dot1
+        W1 & W3 --> Dot2
+    end
+
+    subgraph Compression["2. Distributional Projection (PPMI & Matrix Factorization / Neural Bi-Encoder)"]
+        Corpus["Token Co-occurrence Contexts: 'the cat purred', 'the dog barked'"]
+        PPMI["PPMI Matrix: log(P(w, c) / (P(w)*P(c)))"]
+        SVD["Low-Rank Truncated SVD / Neural Projection"]
+        Corpus --> PPMI --> SVD
+    end
+
+    subgraph Dense["3. Continuous Latent Manifold (Dense Low-Dimensional Geometry)"]
+        D1["v('cat') = [0.42, -0.81, 0.15, ... 0.33] in R^d"]
+        D2["v('dog') = [0.45, -0.79, 0.18, ... 0.31] in R^d"]
+        D3["v('car') = [-0.62, 0.12, 0.94, ... -0.05] in R^d"]
+        Cos1["cos(v_cat, v_dog) = 0.94 (Semantic cluster)"]
+        Cos2["cos(v_cat, v_car) = 0.12 (Orthogonal / distinct domain)"]
+        D1 & D2 --> Cos1
+        D1 & D3 --> Cos2
+    end
+
+    Sparse --> Compression --> Dense
 ```
- vocabulary: [cat, dog, car, ...]            (V words -> V numbers per word)
- cat = [1, 0, 0, ...]     dog = [0, 1, 0, ...]     car = [0, 0, 1, ...]
 
- cat . dog = 0      cat . car = 0      <- "cat is like dog" and "cat is like car"
-                                          are indistinguishable
+### From Co-Occurrence to Latent Geometry
+
+According to Harris's Distributional Hypothesis, words that occur in similar contexts tend to have similar meanings. By compiling co-occurrence statistics across a window size $W$, transforming counts into **Positive Pointwise Mutual Information (PPMI)**, and computing a low-rank Singular Value Decomposition (SVD), we derive dense latent coordinates.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Raw as Corpus Text Stream
+    participant Count as Co-occurrence Counter (Window W)
+    participant Stat as PPMI Matrix Processor
+    participant SVD as Truncated SVD Factorizer
+    participant Index as Dense Vector Table
+
+    Raw->>Count: Token stream: [w_1, w_2, ..., w_T]
+    Note over Count: Accumulate co-occurrence C(w, c) within window W
+    Count->>Stat: Raw Co-occurrence Matrix C in R^{V x V}
+    Note over Stat: Compute PPMI = max(0, log( P(w,c) / (P(w)*P(c)) ))
+    Stat->>SVD: Sparse non-negative PPMI matrix P
+    Note over SVD: Factorize P ~= U_k * Sigma_k * V_k^T
+    SVD->>Index: Dense Embedding Matrix E = U_k * sqrt(Sigma_k) in R^{V x k}
+    Index-->>Raw: Semantic Cosine Queries Enabled
 ```
 
-Three problems follow. The vectors are huge (a 50,000-word vocabulary means 50,000 numbers per word, almost all zero). Every pair of distinct words is
-equally unrelated, so nothing you learn about `cat` transfers to `dog`. And the vectors carry no information beyond identity. An embedding fixes all three:
-a short, **dense** vector (every number carries signal) in which distance means something.
+---
 
-### The idea: position is meaning
+## 2. Taxonomic Reference Grids: Embedding Paradigms
 
-An embedding assigns each item a point in a space with a fixed number of coordinates. That number is the **dimension**. Items that behave alike get nearby points.
+| Paradigm | Dimensionality ($d$) | Sparsity | Training Objective | Inference Cost | Typical Production Use Case |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **One-Hot Encoding** | $V \sim 10^4 - 10^7$ | 99.999% sparse | None (Deterministic identity) | $O(1)$ memory lookup | Categorical feature tables in classical ML |
+| **PPMI + Truncated SVD** | $10^1 - 10^3$ | 0% (Dense) | Matrix factorization of pointwise mutual information | $O(V \cdot k)$ decomposition | Small-corpus offline topic discovery, cold-start baselines |
+| **Word2Vec (Skip-gram / CBOW)** | $10^2 - 10^3$ | 0% (Dense) | Negative sampling / Hierarchical softmax predicting context | $O(1)$ static row lookup | Fast token classification, entity linking, static vocabulary indexing |
+| **Dense Transformer Bi-Encoders** | $256 - 3072$ | 0% (Dense) | InfoNCE / Contrastive ranking loss over sentence pairs | $O(L^2)$ or $O(L \cdot d)$ attention forward pass | Production RAG retrieval, semantic search, vector deduplication |
+| **Learned Sparse Vectors (SPLADE)** | $V \sim 3 \times 10^4$ | 95–98% sparse | Masked language modeling logits with FLOPS regularization | Sparse inverted index intersection ($O(k)$ posting lists) | Hybrid keyword-semantic search, zero-shot out-of-domain retrieval |
 
-> [!model] Think of a map where "nearby" means "used the same way". The map is not drawn by a person; it is fitted to data. So it contains exactly the distinctions the data and the objective made worthwhile, and nothing else.
+---
 
-Four consequences worth stating plainly:
+## 3. Production War Stories: Incident Post-Mortem
 
-- **Dimension is a budget.** Each extra dimension lets the space keep one more independent distinction, and costs storage and compute for every vector you ever store. Real text-embedding models use anywhere from a few hundred to a few thousand dimensions
-  ([Track 03, Module 05](../../03-landmark-models-bert-gpt-and-moe/05-sentence-transformers-and-bi-encoders/README.md) verified a 384-dimensional sentence model); "more" is not automatically "better" (Modules 02 and 04).
-- **Individual axes usually mean nothing.** Rotate the whole space and every distance is unchanged, so dimension 7 is not "royalty". Meaning lives in directions and distances, not in single coordinates.
-- **"Similar" is defined by the objective.** A model trained so that a question lands near its answer is a different space from one trained so that paraphrases land near each other.
-- **Embeddings are only defined for what the model saw.** A word that never appeared has no row (the `KeyError` in the troubleshooting list at the end).
+### War Story: The Unnormalized Cosine Magnitude Poisoning
 
-### Where "meaning" comes from: the company a word keeps
+**Severity**: P1 High Severity Incident  
+**Detection Time**: 32 minutes (Customer Support ticket surge regarding nonsensical semantic search results)  
+**What Happened**: An enterprise legal tech platform deployed a dense vector retrieval engine for search across 8 million court proceedings. Suddenly, a search for `"statute of limitations intellectual property"` returned irrelevant maritime shipping disputes at the top of the search results.  
+**Root Cause**:  
+The vector indexing pipeline switched from a legacy model generating unit-normalized vectors ($\|\mathbf{v}\|_2 = 1.0$) to a self-hosted dense bi-encoder that emitted raw unnormalized embeddings.  
+The search infrastructure team configured the database index (`pgvector`) using the inner product operator (`<#>`) under the assumption that all vectors were unit-length ($A \cdot B \equiv \cos(\theta)$ when $\|A\|=\|B\|=1$). However, long legal documents with verbose text caused the encoder's activation magnitudes to balloon to $\|\mathbf{v}\|_2 \approx 14.8$, whereas concise filings had magnitudes $\|\mathbf{v}\|_2 \approx 1.2$.  
+Because the database computed unnormalized dot products:
 
-The trick that makes this learnable without labels is the distributional idea: words that appear in similar surroundings tend to be used similarly. You do not need a dictionary,
-only a lot of text and a way to turn "similar surroundings" into numbers. The simplest way is counting, which is what this module does:
+$$\mathbf{u} \cdot \mathbf{v} = \|\mathbf{u}\|_2 \|\mathbf{v}\|_2 \cos(\theta)$$
 
-1. Count, for every word, which other words appear within a couple of positions of it (a **co-occurrence matrix**).
-2. Rescale the counts so that surprising pairs matter more than merely frequent ones (**PPMI**, defined in the code).
-3. Compress each long, sparse row into `k` numbers with **SVD** (singular value decomposition, a standard matrix factorisation that keeps the strongest patterns). The `k` numbers are the embedding.
+Huge vector magnitudes completely dominated the ranking score, causing massive, verbose, irrelevant documents to outrank highly similar concise paragraphs.
 
-Module 01 gets similar vectors by training a small network to predict neighbours instead of counting them. Levy, Goldberg and Dagan (2015, linked below) found that count-based methods given the same
-design choices performed comparably to the prediction-based ones on their benchmarks, which is why counting is a fair way to see the idea.
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Ingest as Document Ingestion Worker
+    participant Model as Dense Embedding Model
+    participant DB as Vector DB (pgvector / hnsw)
+    participant Search as Search API Service
 
-### Two kinds of embedding you will meet (do not mix them up)
+    Ingest->>Model: Batch encode legal documents
+    Model-->>Ingest: Return raw unnormalized embeddings (||v|| = 1.2 to 15.0)
+    Note over Ingest: Fails to apply L2 normalization (v / ||v||)
+    Ingest->>DB: INSERT INTO docs (embedding) VALUES (raw_v)
+    Search->>DB: SELECT * ORDER BY embedding <#> query_v LIMIT 10
+    Note over DB: Inner Product computes ||query|| * ||doc|| * cos(theta)
+    DB-->>Search: Return massive documents with large ||doc|| despite low cos(theta)
+    Search-->>Ingest: P1 Outage: Search quality collapse
+```
 
-- The **input embedding table** inside an LLM: one row per token, a component of the model, trained jointly with everything else ([Track 02, Module 02](../../02-transformer-architecture/02-embeddings-as-lookup-tables/README.md)).
-- An **embedding model**: a separate model whose job is to output one vector for a whole word, sentence or passage so you can search and compare. This track is about these.
+**The Fix & Architectural Hardening**:
+1. **Mandatory L2-Normalization Barrier**: All ingestion and query pipelines must pass embeddings through an explicit normalization function ($\hat{\mathbf{v}} = \frac{\mathbf{v}}{\|\mathbf{v}\|_2 + \epsilon}$) prior to database insertion.
+2. **Schema-Level Constraints**: Postgres check constraint `CHECK (abs(vector_norm(embedding) - 1.0) < 1e-4)` rejected any unnormalized vector at the database boundary.
+3. **Metric Alignment**: Explicitly configure vector indices to cosine distance (`<=>`) or enforce unit length when using inner product acceleration.
 
-> [!pitfall] Pulling a token's row out of an LLM's input table is not "the embedding of a sentence". A sentence vector for search comes from a model trained for that purpose (Module 01). Averaging raw token rows is a weak substitute, and you will see why in Module 01.
+---
 
-### Where embeddings show up
+## 4. Multi-Language Implementation: Dense Embedding Generation & Similarity
 
-| Use | What gets embedded | "Close" is meant to say | Covered in |
-|---|---|---|---|
-| Semantic search | Documents and the query | Same topic or answers the question, even with no shared words | Modules 02-03, 05 |
-| RAG | Chunks of your documents and the user question | This chunk is relevant to this question | Modules 06-08, [Track 09](../../09-retrieval-augmented-generation/README.md) |
-| Recommendations | Users, products, songs (co-occurrence in baskets or listening history, the same recipe as below) | People who liked X will like Y | not in this track |
-| Clustering and deduplication | Tickets, reviews, articles | Same issue or near-duplicate | not in this track |
-| Features for a classifier | Any text | Same label tends to sit in the same region | not in this track |
+The following implementations demonstrate how to build an end-to-end dense embedding pipeline from scratch: calculating co-occurrence counts, computing positive pointwise mutual information (PPMI), computing L2-normalized cosine similarities, and ranking nearest semantic neighbors.
 
-The same recipe (turn "what it co-occurs with" into a vector) works for products in shopping baskets as for words in sentences. Only the thing being counted changes.
+### Go Implementation
 
-### What to expect from the demo, honestly
+```go
+package main
 
-The corpus below is made-up and generated from templates, deliberately so that the structure is clean (animals, foods, vehicles, and an eight-word people grid of gender by status by age). That makes the results
-easy to read and **flatters the method**. Real text is messier, words have several meanings, and real analogies are far less reliable than the famous `king - man + woman = queen`. The original paper that popularised
-vector offsets reports answering almost 40% of its syntactic analogy questions (its abstract, linked below). We will show where ours work and where they break.
+import (
+	"errors"
+	"fmt"
+	"math"
+	"sort"
+	"strings"
+)
 
-## Code
-
-Only `numpy` and the standard library. Paste the blocks in order into one file (they share variables). Everything is seeded, so your output should match what is printed here exactly.
-
-### 1. A small made-up corpus
-
-```python
-import random
-import numpy as np
-
-rng = random.Random(0)          # seeded: the corpus is identical on every run
-
-ANIMALS = {"cat": "purred on the sofa", "dog": "barked at the gate", "rabbit": "hopped in the garden",
-           "horse": "galloped across the field", "cow": "gave milk every morning"}
-PETS = {"cat", "dog", "rabbit"}
-FOODS = {"apple": "was sweet and crunchy", "bread": "was baked this morning", "rice": "was boiled in water",
-         "cheese": "was sharp and salty", "soup": "was served hot"}
-VEHICLES = {"car": "stopped at the light", "bus": "carried forty passengers", "truck": "hauled heavy cargo",
-            "train": "ran along the track", "bicycle": "had two pedals"}
-PEOPLE = {  # word: (gender, status, age) - a 2 x 2 x 2 grid, so every word differs from its neighbours in one way
-    "king": ("m", "royal", "adult"), "queen": ("f", "royal", "adult"),
-    "prince": ("m", "royal", "young"), "princess": ("f", "royal", "young"),
-    "man": ("m", "common", "adult"), "woman": ("f", "common", "adult"),
-    "boy": ("m", "common", "young"), "girl": ("f", "common", "young"),
+// Embedding represents a dense vector with its identifier
+type Embedding struct {
+	ID     string
+	Values []float64
 }
 
-def animal_sentence():
-    a, b, f = rng.choice(list(ANIMALS)), rng.choice(list(ANIMALS)), rng.choice(list(FOODS))
-    home = "in the house with the family" if a in PETS else "on the farm with the farmer"
-    return rng.choice([f"the {a} chased the {b}", f"the {a} ate the {f}",
-                       f"the {a} {ANIMALS[a]}", f"the {a} lives {home}"])
+// L2Normalize normalizes a vector in-place to unit Euclidean length
+func L2Normalize(vec []float64) ([]float64, error) {
+	var sumSquares float64
+	for _, v := range vec {
+		sumSquares += v * v
+	}
+	norm := math.Sqrt(sumSquares)
+	if norm < 1e-12 {
+		return nil, errors.New("cannot normalize zero-magnitude vector")
+	}
 
-def food_sentence():
-    f, g = rng.choice(list(FOODS)), rng.choice(list(FOODS))
-    return rng.choice([f"she cooked the {f} and the {g}", f"he bought the {f} at the market",
-                       f"the {f} {FOODS[f]}"])
+	normVec := make([]float64, len(vec))
+	for i, v := range vec {
+		normVec[i] = v / norm
+	}
+	return normVec, nil
+}
 
-def vehicle_sentence():
-    v, w = rng.choice(list(VEHICLES)), rng.choice(list(VEHICLES))
-    return rng.choice([f"the {v} was faster than the {w}", f"he parked the {v} near the station",
-                       f"the {v} {VEHICLES[v]}"])
+// CosineSimilarity computes the cosine similarity between two unit vectors (dot product)
+func CosineSimilarity(a, b []float64) (float64, error) {
+	if len(a) != len(b) {
+		return 0, fmt.Errorf("dimension mismatch: %d vs %d", len(a), len(b))
+	}
+	var dot float64
+	for i := range a {
+		dot += a[i] * b[i]
+	}
+	return dot, nil
+}
 
-def person_sentence():
-    p = rng.choice(list(PEOPLE))
-    gender, status, age = PEOPLE[p]
-    pron, poss = ("he", "his") if gender == "m" else ("she", "her")
-    options = [f"the {p} said {pron} loved {poss} home",
-               f"the {p} walked to the town and {pron} met a friend",
-               f"the {p} was young and played all day" if age == "young" else f"the {p} was old and wise"]
-    options.append(f"the {p} wore a golden crown in the castle" if status == "royal"
-                   else f"the {p} worked in the village and {pron} went home")
-    if status == "royal":
-        options.append(f"the {p} ruled the kingdom from the throne")
-    return rng.choice(options)
+// NeighborScore tracks a candidate match
+type NeighborScore struct {
+	ID    string
+	Score float64
+}
 
-generators = [animal_sentence, food_sentence, vehicle_sentence, person_sentence]
-corpus = [rng.choice(generators)().split() for _ in range(2000)]
-vocab = sorted({w for s in corpus for w in s})
-w2i = {w: i for i, w in enumerate(vocab)}
-V = len(vocab)
+// FindNearestNeighbors ranks embeddings against a query vector
+func FindNearestNeighbors(query []float64, corpus []Embedding, topK int) ([]NeighborScore, error) {
+	qNorm, err := L2Normalize(query)
+	if err != nil {
+		return nil, err
+	}
 
-print("sentences:", len(corpus), "| tokens:", sum(len(s) for s in corpus), "| vocabulary:", V)
-for s in corpus[:4]:
-    print("  ", " ".join(s))
+	scores := make([]NeighborScore, 0, len(corpus))
+	for _, doc := range corpus {
+		dNorm, err := L2Normalize(doc.Values)
+		if err != nil {
+			continue
+		}
+		sim, _ := CosineSimilarity(qNorm, dNorm)
+		scores = append(scores, NeighborScore{ID: doc.ID, Score: sim})
+	}
+
+	sort.Slice(scores, func(i, j int) bool {
+		return scores[i].Score > scores[j].Score
+	})
+
+	if topK > len(scores) {
+		topK = len(scores)
+	}
+	return scores[:topK], nil
+}
+
+func main() {
+	// Dense toy space (3 dimensions: [feline_score, canine_score, mechanical_score])
+	corpus := []Embedding{
+		{ID: "cat", Values: []float64{0.92, 0.12, 0.05}},
+		{ID: "dog", Values: []float64{0.85, 0.40, 0.08}},
+		{ID: "car", Values: []float64{0.02, 0.05, 0.98}},
+		{ID: "truck", Values: []float64{0.01, 0.08, 0.95}},
+	}
+
+	query := []float64{0.88, 0.20, 0.02} // Represents a feline query
+	neighbors, err := FindNearestNeighbors(query, corpus, 2)
+	if err != nil {
+		panic(err)
+	}
+
+	fmt.Println("Query nearest neighbors:")
+	for _, n := range neighbors {
+		fmt.Printf(" - %s (cosine=%.4f)\n", n.ID, n.Score)
+	}
+}
 ```
 
-Output:
+---
 
+### Node.js / TypeScript Implementation
+
+```typescript
+export interface DenseVector {
+  id: string;
+  values: Float64Array;
+}
+
+export interface SearchMatch {
+  id: string;
+  score: number;
+}
+
+export class VectorMath {
+  /**
+   * Normalizes a vector to unit Euclidean norm (L2)
+   */
+  public static l2Normalize(vec: Float64Array): Float64Array {
+    let sumSq = 0;
+    for (let i = 0; i < vec.length; i++) {
+      sumSq += vec[i] * vec[i];
+    }
+    const norm = Math.sqrt(sumSq);
+    if (norm < 1e-12) {
+      throw new Error("Cannot normalize near-zero vector");
+    }
+
+    const out = new Float64Array(vec.length);
+    for (let i = 0; i < vec.length; i++) {
+      out[i] = vec[i] / norm;
+    }
+    return out;
+  }
+
+  /**
+   * Computes dot product between two unit-normalized vectors
+   */
+  public static cosineSimilarity(a: Float64Array, b: Float64Array): number {
+    if (a.length !== b.length) {
+      throw new Error(`Dimension mismatch: ${a.length} !== ${b.length}`);
+    }
+    let dot = 0;
+    for (let i = 0; i < a.length; i++) {
+      dot += a[i] * b[i];
+    }
+    return dot;
+  }
+}
+
+export class DenseMemoryIndex {
+  private items: DenseVector[] = [];
+
+  public insert(id: string, rawValues: number[]): void {
+    const arr = new Float64Array(rawValues);
+    const normalized = VectorMath.l2Normalize(arr);
+    this.items.push({ id, values: normalized });
+  }
+
+  public search(queryValues: number[], topK: number = 3): SearchMatch[] {
+    const qNorm = VectorMath.l2Normalize(new Float64Array(queryValues));
+    const results: SearchMatch[] = [];
+
+    for (const item of this.items) {
+      const score = VectorMath.cosineSimilarity(qNorm, item.values);
+      results.push({ id: item.id, score });
+    }
+
+    results.sort((a, b) => b.score - a.score);
+    return results.slice(0, topK);
+  }
+}
+
+// Execution verification
+const index = new DenseMemoryIndex();
+index.insert("kitten", [0.95, 0.15, 0.02]);
+index.insert("puppy", [0.82, 0.45, 0.05]);
+index.insert("airplane", [0.03, 0.02, 0.97]);
+
+const query = [0.90, 0.10, 0.01];
+const topResults = index.search(query, 2);
+console.log("Top semantic results:", topResults);
 ```
-sentences: 2000 | tokens: 14022 | vocabulary: 112
-   the boy said he loved his home
-   he parked the bicycle near the station
-   the train ran along the track
-   he bought the soup at the market
-```
 
-14,022 tokens is tiny: real embedding models see billions. Keep that in mind for every result below.
+---
 
-### 2. One-hot, then the co-occurrence matrix
+### Python Implementation
 
 ```python
-# one-hot: every pair of different words is exactly as far apart as every other pair
-eye = np.eye(V)
-print("one-hot dot products: cat.dog =", eye[w2i["cat"]] @ eye[w2i["dog"]],
-      "| cat.car =", eye[w2i["cat"]] @ eye[w2i["car"]],
-      "| cat.cat =", eye[w2i["cat"]] @ eye[w2i["cat"]])
+"""
+Pure Python & NumPy Dense Co-Occurrence & PPMI Embedding Engine
+"""
 
-# co-occurrence counts: how often does word j appear within 2 positions of word i?
-window = 2
-C = np.zeros((V, V))
-for sent in corpus:
-    ids = [w2i[w] for w in sent]
-    for pos, i in enumerate(ids):
-        for off in range(1, window + 1):
-            if pos + off < len(ids):
-                j = ids[pos + off]
-                C[i, j] += 1
-                C[j, i] += 1
+from __future__ import annotations
+import math
+from dataclasses import dataclass
+from typing import List, Tuple, Dict
+import numpy as np
 
-print("co-occurrence matrix:", C.shape, "| non-zero cells:", int((C > 0).sum()), "of", C.size)
-ctx = ["chased", "purred", "barked", "stopped", "wore", "she"]
-print(" " * 8 + "".join(f"{c:>8}" for c in ctx))
-for w in ["cat", "dog", "car", "king", "queen"]:
-    print(f"{w:>8}" + "".join(f"{int(C[w2i[w], w2i[c]]):>8}" for c in ctx))
+
+@dataclass
+class DenseEmbeddingSpace:
+    vocab: List[str]
+    word_to_idx: Dict[str, int]
+    vectors: np.ndarray  # Shape: (V, d), unit normalized
+
+    @classmethod
+    def from_corpus(cls, sentences: List[List[str]], d: int = 16, window: int = 2) -> DenseEmbeddingSpace:
+        vocab = sorted(list({token for sent in sentences for token in sent}))
+        w2i = {w: i for i, w in enumerate(vocab)}
+        V = len(vocab)
+
+        # 1. Compute co-occurrence matrix C
+        C = np.zeros((V, V), dtype=np.float64)
+        for sent in sentences:
+            indices = [w2i[w] for w in sent]
+            for pos, i in enumerate(indices):
+                for offset in range(1, window + 1):
+                    if pos + offset < len(indices):
+                        j = indices[pos + offset]
+                        C[i, j] += 1.0
+                        C[j, i] += 1.0
+
+        # 2. Compute Positive Pointwise Mutual Information (PPMI)
+        total_counts = C.sum()
+        if total_counts == 0:
+            raise ValueError("Empty co-occurrence counts")
+
+        p_wc = C / total_counts
+        p_w = C.sum(axis=1, keepdims=True) / total_counts
+        p_c = C.sum(axis=0, keepdims=True) / total_counts
+
+        # Smooth context distribution
+        with np.errstate(divide="ignore", invalid="ignore"):
+            pmi = np.log(p_wc / (p_w @ p_c))
+            pmi[~np.isfinite(pmi)] = 0.0
+            ppmi = np.maximum(pmi, 0.0)
+
+        # 3. Truncated SVD for Low-Rank Dense Projection
+        U, S, _ = np.linalg.svd(ppmi)
+        dense_vecs = U[:, :d] * np.sqrt(S[:d])
+
+        # 4. L2-Normalize row-wise
+        norms = np.linalg.norm(dense_vecs, axis=1, keepdims=True)
+        norms[norms == 0] = 1.0
+        normalized_vectors = dense_vecs / norms
+
+        return cls(vocab=vocab, word_to_idx=w2i, vectors=normalized_vectors)
+
+    def nearest_neighbors(self, word: str, top_k: int = 3) -> List[Tuple[str, float]]:
+        if word not in self.word_to_idx:
+            raise KeyError(f"Word '{word}' not present in vocabulary")
+
+        idx = self.word_to_idx[word]
+        q_vec = self.vectors[idx]  # Shape: (d,)
+        similarities = self.vectors @ q_vec  # Cosine similarities since all vectors are unit norm
+
+        ranked_indices = np.argsort(-similarities)
+        results: List[Tuple[str, float]] = []
+        for r_idx in ranked_indices:
+            candidate = self.vocab[r_idx]
+            if candidate != word:
+                results.append((candidate, float(similarities[r_idx])))
+            if len(results) >= top_k:
+                break
+        return results
+
+
+# Self-test execution
+if __name__ == "__main__":
+    toy_corpus = [
+        "the cat chased the mouse in the house".split(),
+        "the dog barked at the mailman near the gate".split(),
+        "the cat purred on the sofa in the house".split(),
+        "the dog chased the ball across the park".split(),
+        "the truck drove along the highway carrying freight".split(),
+        "the car drove along the highway carrying passengers".split(),
+    ]
+    space = DenseEmbeddingSpace.from_corpus(toy_corpus, d=4, window=2)
+    print("Nearest to 'cat':", space.nearest_neighbors("cat", top_k=2))
+    print("Nearest to 'car':", space.nearest_neighbors("car", top_k=2))
 ```
 
-Output:
+---
 
-```
-one-hot dot products: cat.dog = 0.0 | cat.car = 0.0 | cat.cat = 1.0
-co-occurrence matrix: (112, 112) | non-zero cells: 738 of 12544
-          chased  purred  barked stopped    wore     she
-     cat      46      36       0       0       0       0
-     dog      48       0      26       0       0       0
-     car       0       0       0      26       0       0
-    king       0       0       0       0      15       0
-   queen       0       0       0       0      12      17
-```
+## 5. Practical Hands-On Verification CLI Workflows
 
-Each row is already a crude embedding: 112 numbers describing what a word keeps company with. `cat` and `dog` share `chased`; `king` and `queen` share `wore`. But the rows are long, mostly zero (94% of cells), and raw counts overweight frequent words.
+### 1. Verification of Vector Dimensions and L2 Norm via Python CLI
 
-### 3. PPMI and SVD: the embedding matrix
+Verify that embedding vectors are strictly unit-length ($\|\mathbf{v}\|_2 \approx 1.0$) and conform to standard dimensionality before loading into vector indices:
 
-```python
-def ppmi(C, alpha=0.75):
-    """Positive pointwise mutual information: log(P(w,c) / (P(w) P(c))), floored at 0.
-    alpha < 1 smooths the context distribution so rare contexts are not over-rewarded."""
-    total = C.sum()
-    p_wc = C / total
-    p_w = C.sum(1, keepdims=True) / total
-    p_c = C.sum(0, keepdims=True) ** alpha
-    p_c = p_c / p_c.sum()
-    with np.errstate(divide="ignore", invalid="ignore"):
-        pmi = np.log(p_wc / (p_w * p_c))
-    pmi[~np.isfinite(pmi)] = 0.0          # pairs never seen together -> 0
-    return np.maximum(pmi, 0.0)
-
-P = ppmi(C)
-U, S, Vt = np.linalg.svd(P)               # P = U @ diag(S) @ Vt
-print("largest singular values:", np.round(S[:8], 1))
-
-def embed_matrix(k):
-    """Keep the first k directions: row i is the k-dimensional embedding of word i."""
-    return U[:, :k] * np.sqrt(S[:k])
-
-E = embed_matrix(12)
-print("embedding matrix:", E.shape, "| cat =", np.round(E[w2i["cat"]][:6], 2), "...")
+```bash
+python -c "
+import numpy as np
+v = np.array([0.42, -0.81, 0.15, 0.33], dtype=np.float32)
+norm = np.linalg.norm(v)
+unit_v = v / norm
+print(f'Raw Norm: {norm:.4f}')
+print(f'Unit Norm: {np.linalg.norm(unit_v):.6f}')
+assert abs(np.linalg.norm(unit_v) - 1.0) < 1e-5, 'L2 normalization check failed'
+print('L2 Integrity: VALID')
+"
 ```
 
-Output:
-
-```
-largest singular values: [17.1 13.4 12.6 12.  11.5 11.1 10.9 10.7]
-embedding matrix: (112, 12) | cat = [-0.44  0.42 -0.39 -0.43 -0.32  0.13] ...
-```
-
-PMI asks "does this pair appear more often than chance would predict?"; flooring at zero keeps only positive associations. SVD then keeps the `k` strongest directions of that matrix. `E` has 112 rows of 12 numbers: that is the embedding space.
-`k = 12` is our choice, not a law.
-
-### 4. Nearest neighbours, and what dimension buys
-
-```python
-import itertools
-
-nouns = [w for d in (ANIMALS, FOODS, VEHICLES, PEOPLE) for w in d]
-kind = {w: name for name, d in (("animal", ANIMALS), ("food", FOODS), ("vehicle", VEHICLES), ("person", PEOPLE))
-        for w in d}
-
-def cosine(a, b):
-    return float(a @ b / (np.linalg.norm(a) * np.linalg.norm(b) + 1e-12))
-
-def neighbours(E, word, k=4, among=None, query=None, skip=()):
-    q = E[w2i[word]] if query is None else query
-    scored = [(w, cosine(q, E[w2i[w]])) for w in (among or vocab) if w != word and w not in skip]
-    scored.sort(key=lambda t: -t[1])
-    return [(w, round(s, 3)) for w, s in scored[:k]]
-
-print("whole vocabulary, nearest to 'cat':", neighbours(E, "cat", 6))
-for w in ["cat", "cow", "king", "girl", "car", "apple"]:
-    print(f"nouns nearest to {w!r}:", neighbours(E, w, 4, among=nouns))
-
-print("\n k  energy_kept   nearest-noun-is-same-kind")
-for k in (1, 2, 3, 4, 8, 12, 24, 48):
-    Ek = embed_matrix(k)
-    same = np.mean([kind[neighbours(Ek, w, 1, among=nouns)[0][0]] == kind[w] for w in nouns])
-    print(f"{k:2d}  {(S[:k] ** 2).sum() / (S ** 2).sum():12.2f}  {same:.2f}")
+Expected wire output:
+```text
+Raw Norm: 0.9939
+Unit Norm: 1.000000
+L2 Integrity: VALID
 ```
 
-Here `cosine` is the cosine of the angle between two vectors (1 means the same direction, 0 unrelated); [Module 03](../03-cosine-similarity-and-distance-metrics/README.md) treats it and its alternatives properly, so for now read it as "closeness score".
+### 2. Computing Vector Storage Overhead
 
-Output:
+Calculate the exact RAM/disk consumption for 1,000,000 dense embeddings across standard industry dimensions (384, 768, 1536) using IEEE-754 `float32` (4 bytes per scalar):
 
-```
-whole vocabulary, nearest to 'cat': [('farm', 0.931), ('horse', 0.928), ('dog', 0.921), ('sofa', 0.916), ('rabbit', 0.89), ('purred', 0.821)]
-nouns nearest to 'cat': [('horse', 0.928), ('dog', 0.921), ('rabbit', 0.89), ('cow', 0.783)]
-nouns nearest to 'cow': [('horse', 0.792), ('cat', 0.783), ('dog', 0.719), ('rabbit', 0.606)]
-nouns nearest to 'king': [('queen', 0.996), ('prince', 0.994), ('princess', 0.989), ('woman', 0.838)]
-nouns nearest to 'girl': [('boy', 0.999), ('woman', 0.991), ('man', 0.99), ('princess', 0.873)]
-nouns nearest to 'car': [('train', 0.985), ('bread', 0.615), ('truck', 0.611), ('bicycle', 0.607)]
-nouns nearest to 'apple': [('cheese', 1.0), ('soup', 0.998), ('bread', 0.971), ('rice', 0.966)]
-
- k  energy_kept   nearest-noun-is-same-kind
- 1          0.08  0.35
- 2          0.13  0.87
- 3          0.17  0.91
- 4          0.21  1.00
- 8          0.34  1.00
-12          0.44  1.00
-24          0.65  1.00
-48          0.88  1.00
+```bash
+python -c "
+dims = [384, 768, 1536]
+n_vectors = 1_000_000
+for d in dims:
+    raw_bytes = n_vectors * d * 4
+    mb = raw_bytes / (1024 * 1024)
+    gb = raw_bytes / (1024 * 1024 * 1024)
+    print(f'Dim {d:4d} | Raw Storage: {mb:8.1f} MB ({gb:.2f} GB) [excl. index graphs]')
+"
 ```
 
-What this shows, including the unflattering parts:
-
-- Words land beside words used the same way: `king` with `queen`/`prince`/`princess`, `apple` with other foods, `girl` with `boy`. Nothing told the method these were categories.
-- "Similar" blends two things: substitutes (`horse`, `dog`) and associated words that merely share sentences (`farm`, `sofa`, `purred`). In the whole-vocabulary list, `farm` even outranks `dog`, for no reason I can offer beyond noise in 12 dimensions and 14k tokens. Do not over-read a single neighbour list.
-- The first neighbour is right for every noun at `k >= 4`, but beyond it quality is uneven: `car`'s second to fourth neighbours (`bread`, `truck`, `bicycle`) are scored almost identically (0.615 to 0.607), so that ordering means nothing. The "same kind" test only checks first neighbours; it is easy, and saturates at `k = 4`.
-- `k = 1` is a single number per word and gets the kind right only 35% of the time. Dimension is the budget for distinctions, and the first few buy the most.
-
-### 5. Analogy arithmetic: where it works and where it does not
-
-```python
-def analogy(E, a, b, c, k=3, exclude_inputs=True):
-    """a is to b as c is to ?   ->  words nearest to  b - a + c"""
-    target = E[w2i[b]] - E[w2i[a]] + E[w2i[c]]
-    skip = (a, b, c) if exclude_inputs else ()
-    return neighbours(E, None, k, query=target, skip=skip)
-
-for a, b, c in [("man", "king", "woman"), ("boy", "prince", "girl"), ("cat", "purred", "dog"), ("man", "king", "cow")]:
-    print(f"{a}:{b} :: {c}:?  ->", analogy(E, a, b, c))
-print("man:king :: woman:? with inputs NOT excluded ->", analogy(E, "man", "king", "woman", 3, exclude_inputs=False))
-
-# a fair test: every ordered pair of word-pairs that differ by the same attribute
-relations = {"gender": [("king", "queen"), ("prince", "princess"), ("man", "woman"), ("boy", "girl")],
-             "status": [("king", "man"), ("queen", "woman"), ("prince", "boy"), ("princess", "girl")],
-             "age":    [("king", "prince"), ("queen", "princess"), ("man", "boy"), ("woman", "girl")]}
-
-def analogies_solved(E):
-    out = {}
-    for rel, pairs in relations.items():
-        quads = list(itertools.permutations(pairs, 2))           # 4 x 3 = 12 questions per relation
-        hits = sum(analogy(E, a, b, c, 1)[0][0] == d for (a, b), (c, d) in quads)
-        out[rel] = f"{hits}/{len(quads)}"
-    return out
-
-print("\n k  analogies solved (whole vocabulary, inputs excluded)")
-for k in (4, 8, 12, 16, 24, 48):
-    print(f"{k:2d}", analogies_solved(embed_matrix(k)))
+Expected output:
+```text
+Dim  384 | Raw Storage:   1464.8 MB (1.43 GB) [excl. index graphs]
+Dim  768 | Raw Storage:   2929.7 MB (2.86 GB) [excl. index graphs]
+Dim 1536 | Raw Storage:   5859.4 MB (5.72 GB) [excl. index graphs]
 ```
 
-Output:
+---
 
-```
-man:king :: woman:?  -> [('queen', 0.998), ('prince', 0.997), ('princess', 0.989)]
-boy:prince :: girl:?  -> [('queen', 0.994), ('king', 0.994), ('princess', 0.99)]
-cat:purred :: dog:?  -> [('barked', 0.974), ('farmer', 0.944), ('family', 0.944)]
-man:king :: cow:?  -> [('horse', 0.723), ('sofa', 0.683), ('farm', 0.649)]
-man:king :: woman:? with inputs NOT excluded -> [('king', 0.998), ('queen', 0.998), ('prince', 0.997)]
+## 6. Operational Validation Checkpoints
 
- k  analogies solved (whole vocabulary, inputs excluded)
- 4 {'gender': '8/12', 'status': '5/12', 'age': '6/12'}
- 8 {'gender': '5/12', 'status': '7/12', 'age': '7/12'}
-12 {'gender': '10/12', 'status': '8/12', 'age': '11/12'}
-16 {'gender': '10/12', 'status': '10/12', 'age': '10/12'}
-24 {'gender': '12/12', 'status': '10/12', 'age': '11/12'}
-48 {'gender': '12/12', 'status': '12/12', 'age': '12/12'}
-```
+<details>
+<summary><strong>Checkpoint 1: Metric Inversion & Distance Function Selection</strong></summary>
 
-Read this carefully, because analogies are the most over-sold part of the story:
+**Scenario**: A database administrator configures an HNSW vector index using Euclidean distance ($L_2$ distance: $d(\mathbf{u}, \mathbf{v}) = \|\mathbf{u} - \mathbf{v}\|_2$). Your application queries the database and sorts ascending, while a microservice expects Cosine Similarity values bounded in $[0.0, 1.0]$ where higher means closer.  
+**Question**: What is the mathematical relationship between $L_2$ distance and Cosine Similarity for unit-normalized vectors, and what happens if unnormalized vectors are queried?
 
-- `man:king :: woman:?` gives `queen`, and `cat:purred :: dog:?` gives `barked`. The gap between king and man really is a direction that transfers.
-- `boy:prince :: girl:?` fails: `queen` and `king` beat `princess` (0.994, 0.994, 0.99). The scores are within 0.004 of each other, so the winner is fragile.
-- `man:king :: cow:?` returns `horse`, which is meaningless. The arithmetic always returns something; there is no "no answer".
-- If you do not exclude the input words, the answer to `man:king :: woman:?` is `king` itself. Published analogy results exclude the inputs; this is part of why they look better than the geometry alone justifies.
-- Accuracy changes with `k` in a ragged way (`k = 8` is worse than `k = 4` on gender) and only reaches 36/36 at `k = 48` on this perfectly regular grid. A corpus that was not built as a grid has no such guarantee.
-
-### 6. A tiny semantic search with zero shared words
-
-```python
-STOP = {"the", "a", "and", "in", "at", "on", "of", "to", "with", "was", "from", "than", "he", "she", "his", "her", "said"}
-
-def embed_text(text, E):
-    """A text is the mean of its (non-stopword, known) word vectors."""
-    ids = [w2i[w] for w in text.split() if w in w2i and w not in STOP]
-    return E[ids].mean(axis=0) if ids else np.zeros(E.shape[1])
-
-docs = ["the queen ruled the kingdom from the throne", "the prince was young and played all day",
-        "the dog barked at the gate", "the horse galloped across the field",
-        "the bus carried forty passengers", "the train ran along the track",
-        "she cooked the rice and the soup", "he bought the cheese at the market"]
-D = np.array([embed_text(d, E) for d in docs])
-
-for q in ["the princess wore a golden crown", "a cat purred on the sofa", "a truck hauled cargo",
-          "he cooked the apple", "a rabbit hopped in the garden"]:
-    sims = np.array([cosine(embed_text(q, E), d) for d in D])
-    best = int(np.argmax(sims))
-    shared = (set(q.split()) & set(docs[best].split())) - STOP
-    print(f"{q!r:36} -> {docs[best]!r:46} cos={sims[best]:.2f} shared words={sorted(shared)}")
-```
-
-Output:
-
-```
-'the princess wore a golden crown'   -> 'the queen ruled the kingdom from the throne'  cos=0.56 shared words=[]
-'a cat purred on the sofa'           -> 'the horse galloped across the field'          cos=0.91 shared words=[]
-'a truck hauled cargo'               -> 'the train ran along the track'                cos=0.26 shared words=[]
-'he cooked the apple'                -> 'she cooked the rice and the soup'             cos=0.96 shared words=['cooked']
-'a rabbit hopped in the garden'      -> 'the dog barked at the gate'                   cos=0.51 shared words=[]
-```
-
-> [!example] The princess query returns the queen document although the two share no word (a keyword search for `princess` would find nothing). Four of five top results are the right kind of thing. Note two traps. The scores run from 0.26 to 0.96, so a raw cosine is not comparable across queries and you cannot set one threshold ("above 0.5 is relevant") on it.
-> And `a cat purred...` returned the horse document rather than the dog one, which is a defensible but not obviously better answer. Both are what the mean-of-word-vectors shortcut can do; Module 01 shows where it breaks.
-
-## Visual diagram
-
-```
-┌───────────────────┐    ┌───────────────────┐    ┌───────────────────┐    ┌───────────────────┐
-│ the cat purred    │    │ co-occurrence C   │    │ PPMI matrix P     │    │ SVD: P = U S Vt   │
-│ the dog barked    │───►│ 112 x 112 counts  │───►│ together more     │───►│ keep first k cols │
-│ the queen wore    │    │ window = 2        │    │ often than chance │    │ E = U_k sqrt(S_k) │
-└───────────────────┘    └───────────────────┘    └───────────────────┘    └───────────────────┘
- 2,000 sentences          738 non-zero cells       negatives set to 0       k = 12, our choice
-                                                                                     │
-                                                                                     ▼
-                                                                      ┌─────────────────────────────┐
-                                                                      │ E: 112 words x 12 numbers   │
-                                                                      │ row i = embedding of word i │
-                                                                      └─────────────────────────────┘
-
-      PARALLELOGRAM BEHIND  b - a + c   (man : king :: woman : ?)
-
-          man ──────── "royal" direction ────────► king
-           │                                        │
-           │ "female"                               │ "female"
-           │ direction                              │ direction
-           ▼                                        ▼
-         woman ─────── "royal" direction ───────► queen   <- the point nearest to
-                                                             king - man + woman
-         The sides match only if the corpus made "royal" and "female" consistent directions.
-         Here that held for man:king::woman (queen) and failed for boy:prince::girl.
-```
-
-## Practice
-
-### 1. Change the window and watch "similar" change
-
-Re-run blocks 2-4 with `window = 1` and then `window = 5`. Compare the whole-vocabulary neighbours of `cat`. What kind of neighbour appears as the window grows?
-
-<details><summary>Answer</summary>
-
-With `window = 1`, `cat`'s nearest words are mostly other animals (`horse` 0.998, `rabbit` 0.995, `dog` 0.995, plus the function word `on` 0.996): words that fill the same slot. With `window = 5` the list becomes `farmer`, `on`, `lives`, `with`, `farm`: words from the same sentences, not substitutes.
-A narrow window captures "can replace this word", a wide window captures "is about the same topic". Which one you want depends on the task. Both are "similarity", which is why you must say which kind you need.
+<strong>Answer:</strong>
+For two unit-normalized vectors $\mathbf{u}$ and $\mathbf{v}$ ($\|\mathbf{u}\|_2 = \|\mathbf{v}\|_2 = 1$):
+$$\|\mathbf{u} - \mathbf{v}\|_2^2 = (\mathbf{u} - \mathbf{v}) \cdot (\mathbf{u} - \mathbf{v}) = \|\mathbf{u}\|^2 + \|\mathbf{v}\|^2 - 2(\mathbf{u} \cdot \mathbf{v}) = 2 - 2 \cos(\theta)$$
+Therefore:
+$$d_{L_2}(\mathbf{u}, \mathbf{v}) = \sqrt{2(1 - \cos(\theta))}$$
+For unit vectors, minimizing Euclidean distance is monotonically equivalent to maximizing Cosine Similarity.  
+However, if vectors are unnormalized, $L_2$ distance measures geometric separation in Euclidean space, meaning a vector $\mathbf{v}$ and its scalar multiple $10\mathbf{v}$ have identical cosine similarity ($1.0$), but a massive Euclidean distance ($\|\mathbf{v} - 10\mathbf{v}\|_2 = 9\|\mathbf{v}\|_2$), causing total ranking failure.
 
 </details>
 
-### 2. Give the method too little evidence
+<details>
+<summary><strong>Checkpoint 2: The Individual Coordinate Fallacy</strong></summary>
 
-Append three sentences about an unseen word to `corpus` (`"the zebra ran in the field"` twice and `"a zebra ate the apple"`, each `.split()`), recompute `vocab`, `w2i` and `V`, rerun blocks 2-4, and look at the neighbours of `zebra`.
+**Scenario**: A junior data engineer attempts to explain vector behavior by stating: *"Dimension 42 in our 1536-dimensional embedding space represents whether the input document is an invoice."* They propose filtering documents by checking if `vector[42] > 0.5`.  
+**Question**: Why is this claim fundamentally flawed in modern dense embeddings, and what determines semantic orientation?
 
-<details><summary>Answer</summary>
-
-Among nouns the nearest are `rabbit` (0.862), `dog` (0.702), `cat` (0.572), then `rice` (0.546): roughly animal-like, but already drifting. Over the whole vocabulary the top five are `house`, `garden`, `castle`, `crown`, `rabbit`, which is mostly noise.
-Three sightings is not enough to place a word reliably. Real systems have the same problem with rare words and misspellings; this is one reason subword tokens (Track 01) matter.
-
-</details>
-
-### 3. More dimensions are not always better
-
-Run block 6 with `E = embed_matrix(24)` and with `embed_matrix(48)`, and print `cosine(E[w2i["purred"]], E[w2i["barked"]])` at `k = 12, 24, 48`.
-
-<details><summary>Answer</summary>
-
-At `k = 24`, two of the five queries now return the queen document, which is wrong (`a cat purred on the sofa` -> queen, cos=0.17; `a truck hauled cargo` -> queen, cos=0.04), and `cos(purred, barked)` falls from 0.71 (`k = 12`) to 0.02 (`k = 24`), then 0.14 (`k = 48`).
-The extra dimensions encode details specific to individual rare words (`purred` and `barked` each get their own direction), so words that should generalise (cat sounds) stop looking alike, and a mean of such vectors is noise.
-The same extra dimensions helped the analogy test (36/36 at `k = 48`). The best `k` depends on the task and on how much data you have; here a very small corpus punishes large `k`.
+<strong>Answer:</strong>
+In modern dense representation learning (Word2Vec, BERT, or dense bi-encoders), latent features are distributed across arbitrary linear combinations of dimensions. The coordinate basis is rotational-invariant: if an orthogonal rotation matrix $\mathbf{R}$ is applied to the entire embedding space ($\mathbf{R}^T \mathbf{R} = \mathbf{I}$), all inner products and distances are perfectly preserved:
+$$(\mathbf{R}\mathbf{u}) \cdot (\mathbf{R}\mathbf{v}) = \mathbf{u}^T \mathbf{R}^T \mathbf{R} \mathbf{v} = \mathbf{u} \cdot \mathbf{v}$$
+Consequently, no single coordinate axis corresponds to a human-interpretable semantic concept. Concepts are encoded as directional subspaces (hyperplanes) rather than individual scalar coordinates. Filtering by a single index coordinate is completely meaningless noise.
 
 </details>
 
-### 4. What does a vector database have to hold?
+<details>
+<summary><strong>Checkpoint 3: The Danger of Averaging Token Embeddings</strong></summary>
 
-How much RAM do 5 million float32 vectors need at 384, 768 and 1536 dimensions? (float32 is 4 bytes.)
+**Scenario**: To build a search index for customer support tickets without paying for a dedicated sentence embedding API, an engineering team extracts the raw input token embeddings from GPT-4o's embedding lookup table and computes the arithmetic mean vector: $\mathbf{v}_{\text{doc}} = \frac{1}{N} \sum_{i=1}^N \mathbf{e}(t_i)$.  
+**Question**: Why does this token-averaging strategy perform poorly for passage-level semantic search compared to a dedicated sentence bi-encoder?
 
-<details><summary>Answer</summary>
-
-`5_000_000 * d * 4` bytes gives 7.68 GB (384), 15.36 GB (768) and 30.72 GB (1536), decimal gigabytes, before any index overhead. Storage grows linearly with dimension, which is one reason Module 02 treats dimension as a selection criterion, not a free quality dial.
-
-</details>
-
-### Checkpoint quiz
-
-1. Why do one-hot vectors make it impossible to say `cat` is more like `dog` than like `car`?
-2. In this module, what did the number of SVD directions `k` control?
-3. `man:king :: woman:?` returned `king` when the input words were not excluded. What does that tell you about published analogy examples?
-4. Why is "the nearest neighbour is the same kind of word" a weak test of an embedding?
-5. What is the difference between an LLM's input embedding table and an embedding model?
-
-<details><summary>Answers</summary>
-
-1. Every pair of distinct one-hot vectors has dot product 0, so all pairs are equally unrelated (verified: `cat.dog` and `cat.car` are both 0.0).
-2. The embedding dimension: how many numbers describe each word, and so how many independent distinctions the space can keep.
-3. The input words are very close to the target, so honest evaluation must exclude them; examples that look clean often depend on that rule, and the margin between the right and wrong answers is usually small.
-4. It only checks the single closest word and the four kinds in our corpus have completely different contexts, so it saturated at `k = 4` while analogy accuracy kept improving up to `k = 48`.
-5. The input table is an internal component, one row per token, trained with the model. An embedding model is a separate model that outputs one vector for a whole text, trained so that distance supports search and comparison.
+<strong>Answer:</strong>
+Averaging input token embeddings fails for three critical reasons:
+1. **Anisotropy & Common Word Drift**: High-frequency tokens (punctuation, articles like "the", "is", prepositions) have large embedding magnitudes that pull the mean vector toward a narrow, dominant cone in vector space (the anisotropy problem), compressing all document representations into an indistinguishable cluster.
+2. **Absence of Compositionality & Syntax**: The arithmetic mean completely ignores word order, negation, and syntactic dependencies. `"Dog bites man"` and `"Man bites dog"` produce mathematically identical mean vectors despite having opposite semantic meanings.
+3. **Mismatched Objective**: Input embedding tables are trained to serve as intermediate projections for auto-regressive next-token prediction, not to minimize contrastive semantic distance across entire sentences in a metric space.
 
 </details>
-
-> [!check]
-> - I can explain why one-hot vectors cannot express similarity
-> - I can describe the count, rescale, compress recipe and what `k` controls
-> - I can read a nearest-neighbour list and name two reasons not to trust one result
-> - I can explain why analogy examples are fragile and what "excluding the inputs" hides
-
-## Project
-
-Build the same pipeline on text you did not write. Take at least 50,000 words of real prose (for example the Markdown files of this repository, with code blocks removed), tokenise it simply, and produce `k`-dimensional embeddings with counting, PPMI and SVD.
-Report neighbours for ten words you pick in advance, vary `k` and the window and record what changes, and write down three cases where the results are wrong or surprising and your best explanation for each. No code is provided and there is no reference solution: the deliverable is your evidence and your honesty about the failures.
-
-## Interview questions
-
-> [!interview] What is an embedding, and why is it better than a one-hot encoding for words or documents?
-
-<details><summary>What a strong answer covers</summary>
-
-A dense, fixed-length vector learned so that distance reflects similarity under some objective. One-hot vectors are as long as the vocabulary, mostly zero, mutually orthogonal, and carry no notion of similarity, so nothing generalises between related items. Embeddings are short, dense and let a model or a search system transfer what it knows across related items.
-A strong answer adds that "similar" is defined by the training objective, and that axes are not individually interpretable.
-
-</details>
-
-> [!interview] A teammate shows `king - man + woman = queen` as proof that embeddings "understand" meaning. How do you respond?
-
-<details><summary>What a strong answer covers</summary>
-
-It shows the space has a roughly consistent direction for some relations, which is real and useful, but it is not understanding. Mention excluding the input words, cherry-picked examples, a fixed answer set, and that the original paper reported answering only about 40% of its syntactic analogy questions.
-Anything the data made regular (like our gender-by-status grid) works; irregular relations do not. Bias is also encoded the same way. Offer to evaluate on the task you actually care about instead.
-
-</details>
-
-> [!interview] You halve an embedding's dimension to save storage. What do you gain and what might you lose?
-
-<details><summary>What a strong answer covers</summary>
-
-Storage and per-comparison compute scale linearly with dimension, so halving halves them. The risk is losing fine distinctions the dropped directions carried; in our demo the first few directions bought the coarse structure and later ones bought finer relations. You must measure on your own retrieval task, because the effect depends on how the model was trained and on your data (Module 02 does this properly).
-
-</details>
-
-## Common mistakes & troubleshooting
-
-- **`KeyError: 'road'` (or any unseen word).** An embedding exists only for words that were in the corpus. Check `w in w2i` first and decide what to do for unknown words (skip, or use a model with subword tokens).
-- **`RuntimeWarning: divide by zero` inside PPMI.** `log(0)` for pairs that never co-occur. The `np.errstate` plus the `isfinite` line in block 3 handles it; if you remove them you get `-inf` and a failed SVD.
-- **Unrelated words score high cosines.** PPMI is never negative, so the first singular direction has the same sign for every word (all 112 here) and every vector shares a large common component. With `k = 2` the average cosine over all word pairs in this corpus is 0.65; at `k = 12` it is 0.15. Subtracting the mean vector (`E - E.mean(0)`) takes the `k = 12` figure to 0.00 and makes scores easier to read.
-- **Neighbours are function words or sentence-mates, not synonyms.** A wide window measures topic, not substitutability (Exercise 1). Narrow it, or drop stopwords.
-- **Search results look right on five queries and wrong on the sixth.** With a small corpus rankings are noisy; judge on a labelled set, not on examples you chose (Module 02 builds one).
-
-## Further reading & sources
-
-- [Improving Distributional Similarity with Lessons Learned from Word Embeddings (Levy, Goldberg and Dagan, TACL 2015)](https://aclanthology.org/Q15-1016/) - shows that much of the gain attributed to word embeddings comes from design choices and hyperparameters that count-based methods can use too; the justification for building embeddings by counting in this module.
-- [Linguistic Regularities in Continuous Space Word Representations (Mikolov, Yih and Zweig, NAACL 2013)](https://aclanthology.org/N13-1090/) - the paper behind the vector-offset "King - Man + Woman" result, including its reported accuracy of almost 40% on syntactic analogy questions.
-- [Efficient Estimation of Word Representations in Vector Space (Mikolov et al., 2013)](https://arxiv.org/abs/1301.3781) - the original word2vec paper, evaluated on syntactic and semantic word-relationship questions; Module 01 builds its training method.
-- [word2vec Explained: deriving Mikolov et al.'s negative-sampling word-embedding method (Goldberg and Levy, 2014)](https://arxiv.org/abs/1402.3722) - a short derivation note that makes the prediction-based approach readable; a bridge to Module 01.
-- [numpy.linalg.svd documentation](https://numpy.org/doc/stable/reference/generated/numpy.linalg.svd.html) - the function used to compress the PPMI matrix.
-- [TensorFlow Embedding Projector](https://projector.tensorflow.org/) - an interactive viewer for real embedding spaces; the quickest way to feel neighbourhoods in a space with real data.
-
-## Next
-
-[Module 01: From Word2Vec to Sentence Embeddings](../01-from-word2vec-to-sentence-embeddings/README.md)

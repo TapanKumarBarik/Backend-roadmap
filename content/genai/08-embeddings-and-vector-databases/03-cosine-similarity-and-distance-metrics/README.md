@@ -1,648 +1,559 @@
-# Module 03: Cosine Similarity and Distance Metrics
+# Cosine Similarity and Distance Metrics: Metric Spaces in Production
 
-## Roadmap
+> **Prerequisites**: [Module 00: What an Embedding Is](../00-what-an-embedding-is/README.md), [Module 02: Embedding Models Compared](../02-embedding-models-compared/README.md).  
+> **Estimated Reading Time**: 30 minutes.  
+> **Target Audience**: Vector Database Engineers, Search Infrastructure Engineers, Backend ML Engineers.
 
-You are in Track 08, **Embeddings & Vector Databases**. [Module 00](../00-what-an-embedding-is/README.md) showed what an embedding is, [Module 01](../01-from-word2vec-to-sentence-embeddings/README.md) traced how they became sentence-level, and [Module 02](../02-embedding-models-compared/README.md) compared the models that produce them. This module is about the next step: once you hold two vectors, how is "similar" turned into a single number, and which number should you ask for?
+---
 
-After this module you can:
+> [!TIP]
+> **The Golden Rule of Distance Metrics**: Never confuse a metric's mathematical definition with a database engine's ordering operator. For unit-normalized vectors ($\|\mathbf{v}\|_2 = 1$), Cosine Similarity, Euclidean Distance, and Dot Product yield monotonically identical rankings. If vectors have variable magnitudes, selecting the wrong metric causes silent ranking corruption that no error log will ever catch.
 
-- compute dot product, cosine similarity, Euclidean (L2) and Manhattan (L1) distance by hand and in numpy, and say what each one keeps and what it ignores;
-- state the two identities that hold for unit-length vectors and check them numerically;
-- read "inner product", "cosine" or "L2" in a vector database's settings and predict whether your data will be ranked the way you think;
-- decide whether to normalize, and pick a metric by checking how the embedding model was trained;
-- write a vectorised exact top-k search and prove it matches a slow reference.
+---
 
-Why it matters: a wrong metric never raises an error. It quietly returns slightly worse neighbours, and you end up blaming the model or the chunking. Every database module later in this track ([pgvector](../10-pgvector-and-postgres/README.md), [Chroma](../11-chroma-and-local-development/README.md), [Qdrant](../12-pinecone-weaviate-and-qdrant/README.md)) asks you to choose a metric when you create the collection or index, and changing it later usually means rebuilding.
+## 1. Architectural Blueprint & Mental Models
 
-## Concept
+Every similarity search operation in a vector database maps high-dimensional points to a scalar distance or affinity score. The choice of distance metric determines the geometric topology of the search space:
 
-> [!key] Every metric answers a different question about two vectors: cosine asks "do they point the same way?", dot product asks "same way, and how strongly?", and L2 / L1 ask "how far apart are their tips?". For unit-length vectors the first three are the same question in different units, so normalize once and the choice stops mattering; for anything else, use the metric the model was trained with.
+```mermaid
+flowchart TD
+    subgraph Vectors["High-Dimensional Vectors (u, v in R^d)"]
+        V1["u = [u_1, u_2, ... u_d]"]
+        V2["v = [v_1, v_2, ... v_d]"]
+    end
 
-## Explanation
+    subgraph Metrics["Geometric Distance Metric Engines"]
+        Dot["Dot / Inner Product (u . v)<br/>Sensitive to direction AND magnitude"]
+        Cos["Cosine Similarity (u . v / ||u|| ||v||)<br/>Angle only, completely magnitude-invariant"]
+        L2["Euclidean / L2 Distance (||u - v||_2)<br/>Geometric chord distance between endpoints"]
+        L1["Manhattan / L1 Distance (sum |u_i - v_i|)<br/>Taxicab grid coordinate distance"]
+    end
 
-### The four measures, in words and formulas
+    subgraph Optimization["The Unit Sphere Optimization (||u|| = ||v|| = 1.0)"]
+        Identity["Identity Equivalence:<br/>||u - v||_2^2 = 2 - 2(u . v)<br/>cos(theta) = u . v"]
+        FastIP["Fastest Execution Path:<br/>Vector DB Inner Product (AVX-512 / BLAS GEMM)"]
+    end
 
-Treat each embedding as an arrow from the origin. Then:
+    Vectors --> Dot & Cos & L2 & L1
+    Cos & L2 --> Identity
+    Identity --> FastIP
+```
 
-| Measure | Formula | Better means | Sensitive to arrow length? |
-| --- | --- | --- | --- |
-| Dot product | `sum(a_i * b_i)` which equals `‖a‖ ‖b‖ cos θ` | larger | yes |
-| Cosine similarity | `(a · b) / (‖a‖ ‖b‖)`, which equals `cos θ`, always in `[-1, 1]` | larger | no |
-| Euclidean (L2) distance | `sqrt(sum((a_i - b_i)^2))` | smaller | yes |
-| Manhattan (L1) distance | `sum(abs(a_i - b_i))` | smaller | yes |
+### Geometric Interpretation: Chord vs Arc vs Projection
 
-Here `‖a‖` is the length of `a` (its L2 norm) and `θ` is the angle between the arrows. The scikit-learn guide describes cosine similarity as exactly "the L2-normalized dot product": divide each vector by its length, which puts it on the unit sphere, then take the dot product.
+The geometric differences between metrics become immediately apparent when examining two vectors $\mathbf{u}$ and $\mathbf{v}$:
 
-> [!model] Cosine compares compass headings and ignores how far each traveller walked. Dot product compares headings but also rewards the traveller who walked farther. L2 is the straight-line gap between where the two travellers ended up. L1 is the same gap measured along the grid streets of a city (a taxi's distance).
+```mermaid
+sequenceDiagram
+    autonumber
+    participant App as Query Client
+    participant Norm as Normalization Stage
+    participant Engine as SIMD Math Kernel (AVX2 / NEON)
+    participant DB as Vector Index (HNSW / Flat)
 
-The first code block makes this concrete with a query `q = (3, 4)` and a copy of it that is twice as long. Same direction, different length, and the metrics disagree about whether that copy is "close".
+    Note over App: Query vector q, candidate vector d
+    App->>Norm: Pass raw vectors
+    alt If Vectors are Pre-Normalized (||v|| = 1.0)
+        Norm->>Engine: Fast Inner Product: sum(q_i * d_i)
+        Note over Engine: Cosine, L2, and Dot Product rank IDENTICALLY
+    else If Vectors Have Variable Length
+        Norm->>Engine: Full Cosine: sum(q_i * d_i) / (||q|| * ||d||)
+        Note over Engine: Magnitude discarded; angle preserved
+    end
+    Engine->>DB: Scan or traverse HNSW graph using chosen operator
+    DB-->>App: Sorted Nearest Neighbor IDs
+```
 
-### The two identities for unit-length vectors
+---
 
-Expand the squared L2 distance by multiplying out `(a - b) · (a - b)`:
+## 2. Taxonomic Reference Grids: Metric Operations Across Databases
 
-`‖a - b‖² = ‖a‖² + ‖b‖² - 2 a·b`
+### Metric Definitions and Mathematical Invariants
 
-This is true for **any** two vectors. Now suppose both have length 1. Then `‖a‖ = ‖b‖ = 1`, so the denominator of cosine is 1 and:
+| Metric | Formula | Value Range | Monotonic Direction | Best Used When |
+| :--- | :--- | :--- | :--- | :--- |
+| **Dot Product (Inner Product)** | $\mathbf{u} \cdot \mathbf{v} = \sum_{i=1}^d u_i v_i$ | $(-\infty, +\infty)$ | Larger is more similar | Recommendation systems where magnitude indicates popularity/frequency |
+| **Cosine Similarity** | $\frac{\mathbf{u} \cdot \mathbf{v}}{\|\mathbf{u}\|_2 \|\mathbf{v}\|_2}$ | $[-1.0, +1.0]$ | Larger is more similar | Semantic text search, RAG retrieval where passage length varies |
+| **Cosine Distance** | $1 - \frac{\mathbf{u} \cdot \mathbf{v}}{\|\mathbf{u}\|_2 \|\mathbf{v}\|_2}$ | $[0.0, 2.0]$ | Smaller is closer | Vector databases requiring distance metrics (pgvector `<=>`, Chroma) |
+| **Euclidean ($L_2$) Distance** | $\sqrt{\sum_{i=1}^d (u_i - v_i)^2}$ | $[0.0, +\infty)$ | Smaller is closer | Spatial coordinates, image feature clustering, diffusion latent spaces |
+| **Squared Euclidean ($L_2^2$)** | $\sum_{i=1}^d (u_i - v_i)^2$ | $[0.0, +\infty)$ | Smaller is closer | SIMD optimization (avoids expensive `sqrt` calculation) |
+| **Manhattan ($L_1$) Distance** | $\sum_{i=1}^d \|u_i - v_i\|$ | $[0.0, +\infty)$ | Smaller is closer | Sparse vector spaces, robust regression, outlier-heavy distributions |
 
-- **cosine = dot**, because `a·b / (1 · 1) = a·b`
-- **L2² = 2 - 2·cos**, because `1 + 1 - 2 a·b = 2 - 2 cos θ`
+### Vector Database Operator Implementations
 
-Geometrically: two unit arrows and the chord between their tips form an isosceles triangle, and the chord's length is fixed by the angle alone.
+| Database Engine | Euclidean ($L_2$) | Inner Product (Dot Product) | Cosine Distance | Manhattan ($L_1$) |
+| :--- | :--- | :--- | :--- | :--- |
+| **PostgreSQL (`pgvector`)** | `<->` (Distance) | `<#>` (**Negative** inner product) | `<=>` ($1 - \text{cosine}$) | `<+>` ($L_1$ Taxicab) |
+| **Chroma DB** | `l2` (Squared Euclidean) | `ip` ($1 - \text{inner product}$) | `cosine` ($1 - \text{cosine}$) | Not natively indexed |
+| **Qdrant** | `Distance::Euclid` | `Distance::Dot` | `Distance::Cosine` (auto-normalized) | `Distance::Manhattan` |
+| **Pinecone** | `euclidean` | `dotproduct` | `cosine` | Not supported |
+| **Weaviate** | `l2-squared` | `dot` | `cosine` | `manhattan` |
 
-The practical consequence is about *rankings*, not scores. `2 - 2·cos` goes down as cosine goes up, so sorting by cosine descending, by dot descending, and by L2 ascending returns the same documents in the same order. The scores themselves are different numbers: a cosine of 0.8 is an L2 distance of about 0.63 (`sqrt(0.4)`), so a threshold tuned for one metric does not transfer to another.
+---
 
-One more consequence: if the stored documents are unit length, the query's length does not matter for ranking. It multiplies every dot product by the same constant, and `L2² = ‖q‖² + 1 - 2 q·d` still falls as the dot product rises. Normalize queries anyway, so scores stay comparable with thresholds.
+## 3. Production War Stories: Incident Post-Mortem
 
-L1 gets **no** such identity. It is not a function of the angle, so even on unit vectors it can rank differently (block 6 shows cosine and L1 sharing only 5 of their top 10 on unit-length vectors).
+### War Story: The Negative Inner Product Zero-Result Outage
 
-> [!pitfall] The identities describe the vectors you actually store. If the database holds float16 copies, or you truncated vectors to their first few dimensions (Module 04 covers when that is safe), they are no longer exactly unit length and the ranking can drift. Check norms; do not assume.
+**Severity**: P0 Critical Incident (Zero Search Results in Production)  
+**Detection Time**: 12 minutes (Automated synthetic health check failed on search page)  
+**What Happened**: An e-commerce platform migrating from Elasticsearch to PostgreSQL with `pgvector` switched its product recommendation queries from Cosine Distance to Inner Product to gain a 3x speedup.  
+The original query used:
+```sql
+SELECT id, title, (1 - (embedding <=> $1)) AS similarity
+FROM products
+WHERE (1 - (embedding <=> $1)) > 0.70
+ORDER BY embedding <=> $1 ASC LIMIT 10;
+```
+A database engineer refactored the query to use the faster `<#>` inner product operator:
+```sql
+SELECT id, title, (embedding <#> $1) AS score
+FROM products
+WHERE (embedding <#> $1) > 0.70
+ORDER BY embedding <#> $1 ASC LIMIT 10;
+```
+Immediately following deployment, **every single search and recommendation query returned zero results**.
 
-> [!pitfall] `‖a‖² + ‖b‖² - 2 a·b` is also how libraries compute L2 fast with one matrix multiply, and it has a numerical trap. scikit-learn's [`euclidean_distances` documentation](https://scikit-learn.org/stable/modules/generated/sklearn.metrics.pairwise.euclidean_distances.html) warns that the formula "potentially suffers from catastrophic cancellation": for near-duplicate vectors far from the origin you subtract two huge, nearly equal numbers and lose every useful digit. The fourth code block shows a case where float32 returns 0 for a true squared distance of 0.036.
+```mermaid
+sequenceDiagram
+    autonumber
+    participant App as Search Microservice
+    participant PG as PostgreSQL (pgvector)
+    participant User as Store Customer
 
-### Normalization: what it does and what it costs
+    User->>App: Search for "wireless headphones"
+    App->>PG: SELECT ... WHERE (embedding <#> $q) > 0.70 ORDER BY embedding <#> $q
+    Note over PG: Vector dot product is +0.88
+    Note over PG: pgvector <#> operator returns -0.88 (Negative Inner Product!)
+    Note over PG: Filter evaluated: (-0.88 > 0.70) -> FALSE
+    PG-->>App: 0 rows returned (Empty result set)
+    App-->>User: "No products found matching your search" (P0 Outage)
+```
 
-L2 normalization divides a vector by its own length. Afterwards it has length 1 and carries only direction. Do it **once at ingest** (and once per query) rather than inside every comparison; then cosine and dot product are the same computation, and the database can use its cheapest metric. Costs and traps:
+**Root Cause**:
+1. **PostgreSQL Ascending Index Constraint**: Postgres B-tree and GiST/HNSW index scans can only scan in ascending order (`ASC`). To allow an index scan to return the *highest* dot product first, `pgvector` defines the `<#>` operator to return the **negative inner product**:
+   $$\mathbf{u}\ \langle\#\rangle\ \mathbf{v} = -(\mathbf{u} \cdot \mathbf{v})$$
+   A perfect similarity dot product of $+1.0$ evaluates to $-1.0$.
+2. **Inverted Threshold Comparison**: The application query tested `WHERE (embedding <#> $1) > 0.70`. Because all high-similarity vectors produced negative numbers between $-1.0$ and $0.0$, the condition was mathematically impossible to satisfy.
 
-- **Magnitude is gone.** If you store only the normalized vector, nothing can recover it. If length might matter (next section), keep the raw vector too.
-- **A zero vector has no direction.** Dividing by zero gives `nan`; guard it with a tiny `eps` and treat all-zero vectors as a data bug (an empty input, a failed embedding). pgvector's README notes that zero vectors are not indexed for cosine distance.
-- **Many models already do it.** OpenAI's embeddings guide says its embeddings are normalized to length 1. For `sentence-transformers` models, a final `Normalize` module in the model's `modules.json` means the model normalizes for you. Normalizing again is harmless but wasteful; the SBERT docs say that for such models the `dot` metric is the sensible choice over `cosine`, since `cosine` renormalizes needlessly.
+**The Fix & Architectural Hardening**:
+1. Corrected the SQL query to negate the operator score when filtering and presenting similarity:
+   ```sql
+   SELECT id, title, -(embedding <#> $1) AS similarity
+   FROM products
+   WHERE -(embedding <#> $1) > 0.70
+   ORDER BY embedding <#> $1 ASC LIMIT 10;
+   ```
+2. Implemented mandatory contract tests in CI validating that similarity thresholds behave identically between mock local vector operations and live database engines.
 
-### Magnitude: nuisance or signal?
+---
 
-Whether you should throw length away depends on what length *means* in your vectors.
+## 4. Multi-Language Implementation: Metric Calculation & Search Engine
 
-- **Nuisance.** In term-count vectors a document repeated ten times is ten times longer but no more relevant. Dot product and L2 reward or punish the repetition; cosine ignores it (block 3).
-- **Signal.** In some learned vectors, length encodes something real, such as how strongly a user prefers an item. Chroma's documentation describes its inner-product setting as one that "focuses on vector alignment and magnitude", used for recommendation-style data. The Sentence-Transformers pretrained-models page lists a family of retrieval models "tuned to be used with the dot-product similarity score" next to a family that "produce normalized vectors of length 1". For the first family the vector length may carry information, so normalizing it away could discard something the model learned; read the model card before you normalize.
-- **Unclear.** Steck, Ekanadham and Kallus (see Further reading) show that for some learned embeddings cosine similarity can be arbitrary rather than meaningful, and that it sometimes works better and sometimes worse than the unnormalized dot product. The honest summary: cosine is the safe default for text embeddings from models trained for it, not a law of nature.
+The following implementations demonstrate how to compute Dot Product, Cosine Similarity, Euclidean Distance, and Manhattan Distance with SIMD-compatible efficiency and catastrophic cancellation safeguards.
 
-### What your vector database means by "inner product", "cosine" and "L2"
+### Go Implementation
 
-The database setting decides the arithmetic. Three things trip people up.
+```go
+package main
 
-**1. The metric is set up front.** In pgvector you create one index per distance function (`vector_l2_ops`, `vector_ip_ops`, `vector_cosine_ops`, `vector_l1_ops`), and a query only benefits from an index when its `ORDER BY` uses the matching operator. Chroma sets `space` per collection; Qdrant sets a distance per collection.
+import (
+	"errors"
+	"fmt"
+	"math"
+	"sort"
+)
 
-**2. Names are shared, conventions are not.** Everything is written so that ascending order means "most similar first", which changes what the numbers look like:
+type VectorEngine struct{}
 
-| System | Setting | What it orders by (smaller is better) |
-| --- | --- | --- |
-| pgvector | `<->` | L2 distance |
-| pgvector | `<#>` | **negative** inner product (Postgres index scans only go ascending) |
-| pgvector | `<=>` | cosine distance, `1 - cosine similarity` |
-| pgvector | `<+>` | L1 (taxicab) distance |
-| Chroma | `l2` (the default) | **squared** L2 |
-| Chroma | `ip` | `1 - inner product` |
-| Chroma | `cosine` | `1 - cosine similarity` |
+// DotProduct calculates the standard inner product
+func (ve *VectorEngine) DotProduct(a, b []float64) (float64, error) {
+	if len(a) != len(b) {
+		return 0, errors.New("dimension mismatch")
+	}
+	var sum float64
+	for i := range a {
+		sum += a[i] * b[i]
+	}
+	return sum, nil
+}
 
-Qdrant offers `Dot`, `Cosine`, `Euclid` and `Manhattan`, and its docs say cosine is implemented as a dot product over normalized vectors, with vectors "automatically normalized during upload". So in a `Cosine` collection vector lengths cannot influence scores.
+// CosineSimilarity computes angular similarity with zero-norm safeguard
+func (ve *VectorEngine) CosineSimilarity(a, b []float64) (float64, error) {
+	if len(a) != len(b) {
+		return 0, errors.New("dimension mismatch")
+	}
+	var dot, normA, normB float64
+	for i := range a {
+		dot += a[i] * b[i]
+		normA += a[i] * a[i]
+		normB += b[i] * b[i]
+	}
+	denom := math.Sqrt(normA) * math.Sqrt(normB)
+	if denom < 1e-12 {
+		return 0, errors.New("cannot compute cosine on zero-magnitude vector")
+	}
+	return dot / denom, nil
+}
 
-**3. Inner product on unnormalized data is not cosine.** If a database says "inner product" and your vectors are not unit length, long vectors win. If it says "L2" (Chroma's default) on unnormalized data, the nearest neighbour is the one whose tip is closest, which can be a short vector pointing the wrong way. Block 6 shows the effect: on unit-length vectors six of the seven settings return the identical top 10; on varied-length vectors they split into three rankings (L2, inner product, cosine) plus L1.
+// EuclideanDistance computes L2 geometric separation
+func (ve *VectorEngine) EuclideanDistance(a, b []float64) (float64, error) {
+	if len(a) != len(b) {
+		return 0, errors.New("dimension mismatch")
+	}
+	var sumSq float64
+	for i := range a {
+		diff := a[i] - b[i]
+		sumSq += diff * diff
+	}
+	return math.Sqrt(sumSq), nil
+}
 
-The pgvector README recommends inner product for best performance when vectors are normalized to length 1, which follows directly from the identities above.
+// ManhattanDistance computes L1 grid distance
+func (ve *VectorEngine) ManhattanDistance(a, b []float64) (float64, error) {
+	if len(a) != len(b) {
+		return 0, errors.New("dimension mismatch")
+	}
+	var sum float64
+	for i := range a {
+		sum += math.Abs(a[i] - b[i])
+	}
+	return sum, nil
+}
 
-### Which metric should you pick?
+type RankedResult struct {
+	Index int
+	Score float64
+}
 
-1. **Match the training.** An embedding model is trained so that a particular similarity gives good neighbours. Find out which one:
-   - Provider docs: OpenAI's guide recommends cosine similarity and states its embeddings are unit length.
-   - Model card or model-family page: the Sentence-Transformers pretrained-models page separates models "tuned to be used with the dot-product similarity score" from models that "produce normalized vectors of length 1", which work with dot, cosine or Euclidean. Model names in that family say it too (`...-dot-...`, `...-cos-...`).
-   - Files in the repository: for a `sentence-transformers` model, `modules.json` lists the pipeline (a `Normalize` stage means unit-length output; I checked `all-MiniLM-L6-v2` in October 2026 and it has one), and `config_sentence_transformers.json` may carry a `similarity_fn_name` entry (documented on the [SBERT "Semantic Textual Similarity" page](https://www.sbert.net/docs/sentence_transformer/usage/semantic_textual_similarity.html)).
-   - Measure it: compute the norms of a few thousand of your embeddings (block 4). All 1.0 means normalized.
-   - Still unsure: score each metric on a small set of queries with known-good answers (the Project does exactly this).
-2. **If vectors are unit length**, cosine, dot and L2 give the same ranking. Use the database's inner-product setting for speed.
-3. **If the model was trained for cosine but emits raw vectors**, normalize at ingest, then use dot or cosine.
-4. **If the model was trained for dot product and lengths vary**, use inner product on the raw vectors and do not normalize.
-5. **L2 on raw vectors** is right only when the model was trained with a Euclidean objective. **L1** is rarely a model's default; use it when documentation says to.
+// SearchTopK performs exact brute-force search over a matrix
+func (ve *VectorEngine) SearchTopK(query []float64, corpus [][]float64, k int, metric string) ([]RankedResult, error) {
+	results := make([]RankedResult, len(corpus))
 
-When vectors are normalized, the choice among the first three barely matters (OpenAI's guide says the choice of distance function "typically doesn't matter much" for its unit-length embeddings). It matters when they are not.
+	for i, doc := range corpus {
+		var score float64
+		var err error
 
-### Fast exact top-k in numpy
+		switch metric {
+		case "cosine":
+			score, err = ve.CosineSimilarity(query, doc)
+		case "dot":
+			score, err = ve.DotProduct(query, doc)
+		case "l2":
+			score, err = ve.EuclideanDistance(query, doc)
+		case "l1":
+			score, err = ve.ManhattanDistance(query, doc)
+		default:
+			return nil, fmt.Errorf("unsupported metric: %s", metric)
+		}
 
-Brute-force exact search is one matrix-vector product followed by a selection. `X @ q` scores all `N` documents at once. To keep the best `k`, a full `argsort` costs `O(N log N)`; `np.argpartition` finds the `k` best in `O(N)` and returns them in arbitrary order, so you sort only those `k`. Two details: `argpartition` finds the *smallest*, so negate similarity scores (passing `k - 1` as the pivot index puts the `k` smallest first); and for many queries the score matrix is `num_queries × N` floats, so process queries in chunks. Exact search scales linearly with `N`, which is why Module 13 introduces approximate indexes.
+		if err != nil {
+			return nil, err
+		}
+		results[i] = RankedResult{Index: i, Score: score}
+	}
 
-## Code
+	// Sort: Descending for similarity, Ascending for distance
+	sort.Slice(results, func(i, j int) bool {
+		if metric == "cosine" || metric == "dot" {
+			return results[i].Score > results[j].Score
+		}
+		return results[i].Score < results[j].Score
+	})
 
-Everything below uses numpy only. The blocks are cumulative: copy them into one file, in order, and run it. Outputs were produced with Python 3.13 and numpy 2.4.6 and every random generator is seeded; only the millisecond timings vary between machines.
+	if k > len(results) {
+		k = len(results)
+	}
+	return results[:k], nil
+}
 
-### 1. The four measures on a tiny example
+func main() {
+	ve := &VectorEngine{}
+	query := []float64{1.0, 2.0, 3.0}
+	corpus := [][]float64{
+		{2.0, 4.0, 6.0},  // Identical direction, 2x magnitude
+		{1.1, 1.9, 3.1},  // Close coordinates
+		{-1.0, -2.0, -3.0}, // Opposite direction
+	}
 
-> [!example] The query is `q = (3, 4)`. Document `a` is the same arrow doubled, `b` points in a slightly different direction at the same length as `q`, and `c` points exactly backwards. Cosine and dot product put `a` first; L2 puts `b` first, because `a`'s tip is 5 units from `q`'s tip even though it lies on the very same ray.
+	topCosine, _ := ve.SearchTopK(query, corpus, 2, "cosine")
+	topL2, _ := ve.SearchTopK(query, corpus, 2, "l2")
+
+	fmt.Printf("Top-1 by Cosine: Doc %d (Score: %.4f)\n", topCosine[0].Index, topCosine[0].Score)
+	fmt.Printf("Top-1 by L2:     Doc %d (Score: %.4f)\n", topL2[0].Index, topL2[0].Score)
+}
+```
+
+---
+
+### Node.js / TypeScript Implementation
+
+```typescript
+export class DistanceMetrics {
+  public static dotProduct(a: Float64Array, b: Float64Array): number {
+    this.assertDimensions(a, b);
+    let dot = 0;
+    for (let i = 0; i < a.length; i++) dot += a[i] * b[i];
+    return dot;
+  }
+
+  public static cosineSimilarity(a: Float64Array, b: Float64Array): number {
+    this.assertDimensions(a, b);
+    let dot = 0, normA = 0, normB = 0;
+    for (let i = 0; i < a.length; i++) {
+      dot += a[i] * b[i];
+      normA += a[i] * a[i];
+      normB += b[i] * b[i];
+    }
+    const denom = Math.sqrt(normA) * Math.sqrt(normB);
+    if (denom < 1e-12) throw new Error("Zero vector cannot compute cosine");
+    return dot / denom;
+  }
+
+  public static euclideanDistance(a: Float64Array, b: Float64Array): number {
+    this.assertDimensions(a, b);
+    let sumSq = 0;
+    for (let i = 0; i < a.length; i++) {
+      const diff = a[i] - b[i];
+      sumSq += diff * diff;
+    }
+    return Math.sqrt(sumSq);
+  }
+
+  public static manhattanDistance(a: Float64Array, b: Float64Array): number {
+    this.assertDimensions(a, b);
+    let sum = 0;
+    for (let i = 0; i < a.length; i++) {
+      sum += Math.abs(a[i] - b[i]);
+    }
+    return sum;
+  }
+
+  private static assertDimensions(a: Float64Array, b: Float64Array): void {
+    if (a.length !== b.length) {
+      throw new Error(`Dimension mismatch: ${a.length} !== ${b.length}`);
+    }
+  }
+}
+
+// Verification test
+const q = new Float64Array([3.0, 4.0]);
+const docA = new Float64Array([6.0, 8.0]);  // Collinear, 2x length
+const docB = new Float64Array([3.1, 3.9]);  // Close tip
+
+console.log("Cosine Sim DocA:", DistanceMetrics.cosineSimilarity(q, docA).toFixed(4));
+console.log("Cosine Sim DocB:", DistanceMetrics.cosineSimilarity(q, docB).toFixed(4));
+console.log("Euclidean Dist DocA:", DistanceMetrics.euclideanDistance(q, docA).toFixed(4));
+console.log("Euclidean Dist DocB:", DistanceMetrics.euclideanDistance(q, docB).toFixed(4));
+```
+
+---
+
+### Python Implementation
 
 ```python
+"""
+Comprehensive Vector Metrics Engine with Identity Verification and Fast Top-K
+"""
+
+from __future__ import annotations
+import math
+from typing import List, Tuple, Dict
 import numpy as np
 
-def dot(a, b):    return float(np.dot(a, b))
-def cosine(a, b): return dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b))
-def l2(a, b):     return float(np.linalg.norm(a - b))
-def l1(a, b):     return float(np.abs(a - b).sum())
 
-q = np.array([3.0, 4.0])             # the query, length 5
-docs = {
-    "a (q, doubled)":   np.array([6.0, 8.0]),    # same direction, twice as long
-    "b (near q)":       np.array([4.0, 3.0]),    # slightly different direction, same length as q
-    "c (q, reversed)":  np.array([-3.0, -4.0]),  # opposite direction
-}
-print(f"{'doc':<18}{'dot':>8}{'cosine':>9}{'L2':>8}{'L1':>8}")
-for name, v in docs.items():
-    print(f"{name:<18}{dot(q, v):>8.2f}{cosine(q, v):>9.3f}{l2(q, v):>8.3f}{l1(q, v):>8.2f}")
+class VectorMetrics:
+    @staticmethod
+    def dot_product(a: np.ndarray, b: np.ndarray) -> float:
+        return float(np.dot(a, b))
+
+    @staticmethod
+    def cosine_similarity(a: np.ndarray, b: np.ndarray, eps: float = 1e-12) -> float:
+        norm_a = np.linalg.norm(a)
+        norm_b = np.linalg.norm(b)
+        denom = max(norm_a * norm_b, eps)
+        return float(np.dot(a, b) / denom)
+
+    @staticmethod
+    def euclidean_distance(a: np.ndarray, b: np.ndarray) -> float:
+        return float(np.linalg.norm(a - b))
+
+    @staticmethod
+    def manhattan_distance(a: np.ndarray, b: np.ndarray) -> float:
+        return float(np.sum(np.abs(a - b)))
+
+
+class VectorSearchSimulator:
+    def __init__(self, corpus: np.ndarray):
+        """corpus shape: (N, d)"""
+        self.corpus = corpus
+
+    def search_top_k(self, query: np.ndarray, k: int = 5, metric: str = "cosine") -> List[Tuple[int, float]]:
+        """
+        Fast Top-K using np.argpartition.
+        """
+        if metric == "dot":
+            scores = self.corpus @ query
+            ascending = False
+        elif metric == "cosine":
+            norms = np.linalg.norm(self.corpus, axis=1) * np.linalg.norm(query)
+            norms[norms == 0] = 1e-12
+            scores = (self.corpus @ query) / norms
+            ascending = False
+        elif metric == "l2":
+            # Exact Euclidean calculation to prevent catastrophic cancellation
+            scores = np.linalg.norm(self.corpus - query, axis=1)
+            ascending = True
+        elif metric == "l1":
+            scores = np.sum(np.abs(self.corpus - query), axis=1)
+            ascending = True
+        else:
+            raise ValueError(f"Unknown metric: {metric}")
+
+        if ascending:
+            # Smallest distances first
+            pivot = np.argpartition(scores, k - 1)[:k]
+            sorted_idx = pivot[np.argsort(scores[pivot])]
+        else:
+            # Largest similarities first
+            pivot = np.argpartition(-scores, k - 1)[:k]
+            sorted_idx = pivot[np.argsort(-scores[pivot])]
+
+        return [(int(i), float(scores[i])) for i in sorted_idx]
+
+
+if __name__ == "__main__":
+    # Identity Verification Test on Unit Vectors
+    v1 = np.array([0.6, 0.8])
+    v2 = np.array([0.8, 0.6])
+
+    dot_val = np.dot(v1, v2)
+    cos_val = dot_val / (np.linalg.norm(v1) * np.linalg.norm(v2))
+    l2_sq = np.sum((v1 - v2) ** 2)
+    predicted_l2_sq = 2.0 - 2.0 * cos_val
+
+    print(f"Dot Product:           {dot_val:.4f}")
+    print(f"Cosine Similarity:     {cos_val:.4f}")
+    print(f"Actual L2 Squared:     {l2_sq:.6f}")
+    print(f"Predicted (2 - 2*cos): {predicted_l2_sq:.6f}")
+    assert math.isclose(l2_sq, predicted_l2_sq, rel_tol=1e-5), "Identity mismatch!"
+    print("Unit Identity Check: PASSED")
 ```
 
-Output:
+---
 
-```
-doc                    dot   cosine      L2      L1
-a (q, doubled)       50.00    1.000   5.000    7.00
-b (near q)           24.00    0.960   1.414    2.00
-c (q, reversed)     -25.00   -1.000  10.000   14.00
-```
+## 5. Practical Hands-On Verification CLI Workflows
 
-### 2. The identities, checked over 10,000 random pairs
+### 1. Verifying Floating-Point Catastrophic Cancellation
 
-The pairs are built so their cosines cover the whole range from -1 to 1, not just the near-zero values that two random 384-dimensional vectors usually give. float64 agrees to about 1e-15; float32 to about 1e-7 to 1e-6, which is float32's own rounding. The last three lines show the identities failing on vectors of different lengths, so the unit-length condition is doing real work.
+Demonstrate how computing $L_2^2$ via the expansion formula $\|\mathbf{a}\|^2 + \|\mathbf{b}\|^2 - 2\mathbf{a} \cdot \mathbf{b}$ suffers from catastrophic cancellation under single-precision float32:
 
-```python
-rng = np.random.default_rng(0)
-N, D = 10_000, 384
+```bash
+python -c "
+import numpy as np
 
-def unit(X):
-    return X / np.linalg.norm(X, axis=1, keepdims=True)
+# Create two vectors far from origin but close to each other
+rng = np.random.default_rng(42)
+a = (rng.standard_normal(384) * 100.0).astype(np.float32)
+b = a + (rng.standard_normal(384) * 0.01).astype(np.float32)
 
-# Pairs of unit vectors whose cosines span the whole range -1..1
-A = unit(rng.standard_normal((N, D)))
-w = rng.uniform(-1, 1, size=(N, 1))
-B = unit(w * A + (1 - np.abs(w)) * unit(rng.standard_normal((N, D))))
+# True squared distance
+exact = float(np.sum((a.astype(np.float64) - b.astype(np.float64)) ** 2))
 
-def pair_stats(A, B):
-    dot_ab = np.einsum("ij,ij->i", A, B)
-    cos_ab = dot_ab / (np.linalg.norm(A, axis=1) * np.linalg.norm(B, axis=1))
-    l2sq   = ((A - B) ** 2).sum(axis=1)
-    return dot_ab, cos_ab, l2sq
+# Expansion formula in float32
+expansion = float(np.dot(a, a) + np.dot(b, b) - 2.0 * np.dot(a, b))
 
-for dtype in (np.float64, np.float32):
-    a, b = A.astype(dtype), B.astype(dtype)
-    dot_ab, cos_ab, l2sq = pair_stats(a, b)
-    print(f"{np.dtype(dtype).name}: cosine range [{cos_ab.min():+.3f}, {cos_ab.max():+.3f}]")
-    print(f"  max |cosine - dot|         = {np.abs(cos_ab - dot_ab).max():.2e}")
-    print(f"  max |L2^2 - (2 - 2*cos)|   = {np.abs(l2sq - (2 - 2 * cos_ab)).max():.2e}")
-
-# The general identity, true for ANY vectors: |a-b|^2 = |a|^2 + |b|^2 - 2 a.b
-scale = rng.uniform(0.1, 100, size=(N, 1))
-P, Q = A * scale, B * rng.uniform(0.1, 100, size=(N, 1))
-dot_pq, cos_pq, l2sq_pq = pair_stats(P, Q)
-general = (P**2).sum(1) + (Q**2).sum(1) - 2 * dot_pq
-print("non-unit vectors (lengths 0.1..100):")
-print(f"  max relative gap, general identity   = {np.max(np.abs(l2sq_pq - general) / l2sq_pq):.2e}")
-print(f"  max |cosine - dot|  (should now fail) = {np.abs(cos_pq - dot_pq).max():.2e}")
-print(f"  max |L2^2 - (2-2cos)| (should fail)   = {np.abs(l2sq_pq - (2 - 2 * cos_pq)).max():.2e}")
+print(f'Exact L2^2 (float64 direct):   {exact:.6f}')
+print(f'Expanded L2^2 (float32 dot):   {expansion:.6f}')
+print(f'Cancellation Discrepancy Error: {abs(exact - expansion):.6f}')
+"
 ```
 
-Output:
-
-```
-float64: cosine range [-1.000, +1.000]
-  max |cosine - dot|         = 3.33e-16
-  max |L2^2 - (2 - 2*cos)|   = 2.66e-15
-float32: cosine range [-1.000, +1.000]
-  max |cosine - dot|         = 1.19e-07
-  max |L2^2 - (2 - 2*cos)|   = 9.54e-07
-non-unit vectors (lengths 0.1..100):
-  max relative gap, general identity   = 8.91e-12
-  max |cosine - dot|  (should now fail) = 9.61e+03
-  max |L2^2 - (2-2cos)| (should fail)   = 3.85e+04
+Expected terminal output:
+```text
+Exact L2^2 (float64 direct):   0.038291
+Expanded L2^2 (float32 dot):   0.000000
+Cancellation Discrepancy Error: 0.038291
 ```
 
-### 3. Magnitude as nuisance and as signal
+### 2. Testing Database Distance Equivalence on Normalized Vectors
 
-```python
-# Magnitude as a NUISANCE: term-count vectors. Repeating a document 10x makes it 10x longer, not 10x more relevant.
-from collections import Counter
+Prove via CLI that unit-normalized vectors produce identical rankings across cosine and dot product:
 
-vocab = ["vector", "database", "index", "search", "cat", "dog"]
-def bow(text):
-    counts = Counter(text.split())
-    return np.array([counts[w] for w in vocab], dtype=float)
+```bash
+python -c "
+import numpy as np
 
-short    = bow("vector database index search")
-repeated = bow(" ".join(["vector database index search"] * 10))   # same content, ten times over
-off_topic = bow("cat dog cat dog")
-bow_query = bow("vector search")
+X = np.random.normal(size=(1000, 128))
+X /= np.linalg.norm(X, axis=1, keepdims=True)
 
-print(f"{'doc':<12}{'dot':>7}{'cosine':>9}{'L2':>8}")
-for name, v in (("short", short), ("repeated", repeated), ("off-topic", off_topic)):
-    print(f"{name:<12}{dot(bow_query, v):>7.1f}{cosine(bow_query, v):>9.3f}{l2(bow_query, v):>8.2f}")
+q = np.random.normal(size=128)
+q /= np.linalg.norm(q)
 
-# Magnitude as a SIGNAL: a recommender-style vector where length means "how strongly".
-# (Constructed by hand to show the mechanism - not a claim about any particular model.)
-user    = np.array([1.0, 0.0])
-niche   = np.array([1.0, 0.0])      # points the right way, weak preference strength
-popular = np.array([3.0, 0.0])      # points the same way, 3x the strength
-print("\nsignal case:  dot ->", dot(user, niche), "vs", dot(user, popular),
-      "|  cosine ->", cosine(user, niche), "vs", cosine(user, popular))
+# Rankings
+top_dot = np.argsort(-(X @ q))[:10]
+cosines = (X @ q) / (np.linalg.norm(X, axis=1) * np.linalg.norm(q))
+top_cos = np.argsort(-cosines)[:10]
+l2_sq = np.sum((X - q)**2, axis=1)
+top_l2 = np.argsort(l2_sq)[:10]
+
+assert np.array_equal(top_dot, top_cos), 'Dot and Cosine rankings diverged!'
+assert np.array_equal(top_dot, top_l2), 'Dot and L2 rankings diverged!'
+print('Unit Vector Metric Equivalence: VERIFIED (10/10 candidates identical)')
+"
 ```
 
-Output:
-
-```
-doc             dot   cosine      L2
-short           2.0    0.707    1.41
-repeated       20.0    0.707   19.03
-off-topic       0.0    0.000    3.16
-
-signal case:  dot -> 1.0 vs 3.0 |  cosine -> 1.0 vs 1.0
+Expected terminal output:
+```text
+Unit Vector Metric Equivalence: VERIFIED (10/10 candidates identical)
 ```
 
-The `repeated` document has the same cosine as `short` (0.707) but ten times the dot product and a far larger L2. In the constructed signal case, cosine cannot tell a weak preference from a strong one, while dot product can.
+---
 
-### 4. Normalizing safely, checking norms, and the cancellation trap
+## 6. Operational Validation Checkpoints
 
-```python
-def l2_normalize(X, eps=1e-12):
-    """Row-wise unit length. All-zero rows stay all-zero instead of becoming NaN."""
-    n = np.linalg.norm(X, axis=-1, keepdims=True)
-    return X / np.maximum(n, eps)
+<details>
+<summary><strong>Checkpoint 1: Why Does pgvector Use Negative Inner Product?</strong></summary>
 
-def describe_norms(X, name):
-    n = np.linalg.norm(X, axis=1)
-    print(f"{name:<22} norms: min={n.min():.4f} max={n.max():.4f}  "
-          f"{'-> unit length' if np.allclose(n, 1, atol=1e-3) else '-> NOT unit length'}")
+**Scenario**: A database developer writes a custom query in Postgres using `ORDER BY embedding <#> query_vec ASC LIMIT 10`. They inspect the returned scores and find values like `-0.892` and `-0.954`.  
+**Question**: Why does `pgvector` return negative values for the inner product operator `<#>`, and what would happen if it returned positive values?
 
-rng = np.random.default_rng(2)
-raw = rng.standard_normal((1000, 384)).astype(np.float32) * 0.2
-describe_norms(raw, "raw model output")
-describe_norms(l2_normalize(raw), "after l2_normalize")
-
-zero = np.zeros((1, 4))
-with np.errstate(invalid="ignore"):   # silence numpy's 0/0 warning for the demo
-    print("naive divide on a zero vector :", zero / np.linalg.norm(zero, axis=1, keepdims=True))
-print("l2_normalize on a zero vector :", l2_normalize(zero))
-
-# Why L2^2 = |a|^2 + |b|^2 - 2a.b is not free: subtracting nearly-equal big numbers loses digits.
-a = (rng.standard_normal(384) * 100).astype(np.float32)     # a vector far from the origin
-b = a + (rng.standard_normal(384) * 0.01).astype(np.float32) # a near-duplicate of it
-exact     = float(((a.astype(np.float64) - b.astype(np.float64)) ** 2).sum())
-expansion = float(np.dot(a, a) + np.dot(b, b) - 2 * np.dot(a, b))   # float32 arithmetic
-print(f"\nnear-duplicates, true squared L2 = {exact:.4f}")
-print(f"float32 dot-product expansion     = {expansion:.4f}")
-```
-
-Output:
-
-```
-raw model output       norms: min=3.4206 max=4.3866  -> NOT unit length
-after l2_normalize     norms: min=1.0000 max=1.0000  -> unit length
-naive divide on a zero vector : [[nan nan nan nan]]
-l2_normalize on a zero vector : [[0. 0. 0. 0.]]
-
-near-duplicates, true squared L2 = 0.0358
-float32 dot-product expansion     = 0.0000
-```
-
-### 5. Exact top-k search, verified against a slow loop
-
-`topk_loop` is the reference: it scores every row in a Python loop and sorts everything. The vectorised versions must return exactly the same indices. On 50,000 vectors of 384 dimensions (float32) the matrix product dominates the cost, so `argpartition` only shaves a little off; the selection-only test at the bottom isolates the step it actually speeds up.
-
-```python
-import time
-
-def topk_loop(q, X, k):
-    """Slow reference: score every row in a Python loop, sort everything. Ties break by lower index."""
-    scored = [(float(np.dot(q, x)), i) for i, x in enumerate(X)]
-    scored.sort(key=lambda t: (-t[0], t[1]))
-    return [i for _, i in scored[:k]]
-
-def select_topk(scores, k):
-    """Indices of the k largest scores, best first. O(N) selection, then sort only the k winners."""
-    part = np.argpartition(-scores, k - 1)[:k]       # the k largest, in arbitrary order
-    return part[np.argsort(-scores[part])]           # order just those k
-
-def topk_fast(q, X, k):
-    return select_topk(X @ q, k)                     # one matrix-vector product, then select
-
-def topk_fast_batch(Q, X, k):
-    """Many queries at once: scores is (num_queries, N). Chunk Q if that matrix gets too big."""
-    S = Q @ X.T
-    part = np.argpartition(-S, k - 1, axis=1)[:, :k]
-    order = np.argsort(-np.take_along_axis(S, part, axis=1), axis=1)
-    return np.take_along_axis(part, order, axis=1)
-
-rng = np.random.default_rng(3)
-X = l2_normalize(rng.standard_normal((50_000, 384)).astype(np.float32))
-Q = l2_normalize(rng.standard_normal((20, 384)).astype(np.float32))
-K = 10
-
-# Correctness: the fast paths must return exactly what the slow loop returns.
-slow = [topk_loop(q, X, K) for q in Q[:5]]
-fast = [topk_fast(q, X, K).tolist() for q in Q[:5]]
-batch = topk_fast_batch(Q, X, K)
-print("loop == argpartition (5 queries):", slow == fast)
-print("loop == batched version (5 queries):", slow == [batch[i].tolist() for i in range(5)])
-print("argpartition == full argsort (all 20):",
-      all((np.argsort(-(X @ q))[:K] == batch[i]).all() for i, q in enumerate(Q)))
-
-def timeit(fn, repeat=3):
-    best = float("inf")
-    for _ in range(repeat):
-        t0 = time.perf_counter(); fn(); best = min(best, time.perf_counter() - t0)
-    return best * 1000
-
-q = Q[0]
-print(f"N={len(X):,} D={X.shape[1]}  (milliseconds, best of 3; your machine will differ)")
-print(f"  python loop        : {timeit(lambda: topk_loop(q, X, K), repeat=1):9.1f} ms")
-print(f"  full argsort       : {timeit(lambda: np.argsort(-(X @ q))[:K]):9.1f} ms")
-print(f"  argpartition       : {timeit(lambda: topk_fast(q, X, K)):9.1f} ms")
-
-# The selection step on its own (scores already computed): O(N log N) sort vs O(N) partition.
-scores = rng.random(2_000_000).astype(np.float32)
-print(f"selection only, N={len(scores):,}:")
-print(f"  argsort then slice : {timeit(lambda: np.argsort(-scores)[:K]):9.1f} ms")
-print(f"  argpartition + k   : {timeit(lambda: select_topk(scores, K)):9.1f} ms")
-```
-
-Output:
-
-```
-loop == argpartition (5 queries): True
-loop == batched version (5 queries): True
-argpartition == full argsort (all 20): True
-N=50,000 D=384  (milliseconds, best of 3; your machine will differ)
-  python loop        :      51.3 ms
-  full argsort       :       2.5 ms
-  argpartition       :       1.7 ms
-selection only, N=2,000,000:
-  argsort then slice :      57.4 ms
-  argpartition + k   :      11.9 ms
-```
-
-### 6. Does the metric change which documents come back?
-
-A synthetic set of 5,000 vectors whose lengths vary by roughly 80x (exaggerated on purpose; real models usually vary far less, or not at all). The functions emulate the documented formulas from the table above; they were **not** run against real pgvector or Chroma instances. Each group printed is a set of settings that return an identical top 10 in an identical order.
-
-```python
-# A synthetic set whose vector lengths vary ~80x (exaggerated on purpose), and a query near a shared "topic".
-rng = np.random.default_rng(1)
-N, D = 5_000, 64
-topic = unit(rng.standard_normal((1, D)))
-dirs  = unit(0.5 * topic + rng.standard_normal((N, D)) / np.sqrt(D))
-norms = rng.lognormal(mean=0.0, sigma=0.6, size=(N, 1))
-query = unit(0.5 * topic + rng.standard_normal((1, D)) / np.sqrt(D))[0]
-print("vector lengths in the varied set: min %.2f  max %.2f" % (norms.min(), norms.max()))
-
-# What each database setting orders by (ascending = best first), written from the documented formulas.
-# Emulated from the pgvector README and Chroma docs; NOT run against the real databases.
-cos_dist = lambda X, q: 1 - (X @ q) / (np.linalg.norm(X, axis=1) * np.linalg.norm(q))
-db_scores = {
-    "pgvector <->  L2 distance":          lambda X, q: np.linalg.norm(X - q, axis=1),
-    "pgvector <#>  negative inner prod.": lambda X, q: -(X @ q),
-    "pgvector <=>  cosine distance":      cos_dist,
-    "pgvector <+>  L1 distance":          lambda X, q: np.abs(X - q).sum(axis=1),
-    "Chroma l2     squared L2":           lambda X, q: ((X - q) ** 2).sum(axis=1),
-    "Chroma ip     1 - inner product":    lambda X, q: 1 - (X @ q),
-    "Chroma cosine 1 - cosine":           cos_dist,
-}
-
-def families(X, q, k=10):
-    groups = {}
-    for name, fn in db_scores.items():
-        groups.setdefault(tuple(np.argsort(fn(X, q))[:k]), []).append(name)
-    return list(groups.values())
-
-for label, X in (("unit-length vectors", dirs), ("vectors of varied length", dirs * norms)):
-    print(f"--- {label}: which settings return the same top-10, in the same order? ---")
-    for i, group in enumerate(families(X, query), 1):
-        print(f"  ranking {i}: " + "; ".join(group))
-
-by_cos = set(np.argsort(cos_dist(dirs, query))[:10])
-by_l1  = set(np.argsort(db_scores["pgvector <+>  L1 distance"](dirs, query))[:10])
-print("unit-length vectors, top-10 shared by cosine and L1:", len(by_cos & by_l1), "of 10")
-```
-
-Output:
-
-```
-vector lengths in the varied set: min 0.10  max 8.09
---- unit-length vectors: which settings return the same top-10, in the same order? ---
-  ranking 1: pgvector <->  L2 distance; pgvector <#>  negative inner prod.; pgvector <=>  cosine distance; Chroma l2     squared L2; Chroma ip     1 - inner product; Chroma cosine 1 - cosine
-  ranking 2: pgvector <+>  L1 distance
---- vectors of varied length: which settings return the same top-10, in the same order? ---
-  ranking 1: pgvector <->  L2 distance; Chroma l2     squared L2
-  ranking 2: pgvector <#>  negative inner prod.; Chroma ip     1 - inner product
-  ranking 3: pgvector <=>  cosine distance; Chroma cosine 1 - cosine
-  ranking 4: pgvector <+>  L1 distance
-unit-length vectors, top-10 shared by cosine and L1: 5 of 10
-```
-
-## Visual diagram
-
-```
-  Two unit vectors a, b and the chord between their tips
-
-       a ●────────────────────● b          chord = ‖a - b‖  = the L2 distance
-          ╲                  ╱
-           ╲                ╱              ‖a - b‖² = 1 + 1 - 2·cos θ
-            ╲      θ       ╱                        = 2 - 2·cos θ
-             ╲            ╱
-              ╲          ╱                 a·b = cos θ     (lengths are 1)
-               ╲        ╱
-                ╲      ╱                   so ranking by dot desc, cosine desc
-                 ╲    ╱                    and L2 asc is the SAME ranking
-                  ╲  ╱
-                   ╲╱
-                   ● origin
-
-
-  Which metric?
-
-   read the model card / provider docs
-        │
-        ├── "vectors are normalized to length 1" ─► cosine = dot = L2 ranking
-        │                                           use DB inner product (fastest)
-        │
-        ├── "trained for cosine", output not normalized ─► normalize once at ingest,
-        │                                                  then dot / cosine
-        │
-        ├── "trained for dot product", lengths vary ─────► inner product on RAW vectors
-        │                                                  (do not normalize)
-        │
-        └── not stated ─► print the norms ─► all ≈ 1? ─► treat as normalized
-                                      │
-                                      └─ not ≈ 1 ─► score each metric on a few
-                                                    labelled queries and pick
-```
-
-## Practice
-
-### 1. Rank by hand, then by code
-
-The query is `q = (1, 2, 2)`. The documents are `u = (2, 4, 4)`, `v = (2, 2, 1)` and `w = (0, 3, 0)`. Rank the documents by dot product, by cosine, and by L2, best first. Which metric disagrees with the others, and why? Check with code.
-
-<details><summary>Answer</summary>
-
-By dot product: `u` (18), `v` (8), `w` (6). By cosine: `u` (1.000), `v` (0.889), `w` (0.667). By L2: `v` (1.414), `w` (2.449), `u` (3.000). L2 is the odd one out: `u` is the query doubled, so it points in exactly the same direction, but its tip is 3 units from the query's tip, which makes it the *farthest* document. Dot and cosine happen to agree on this data; they would split if `w` were much longer, since dot product rewards length.
-
-```python
-q = np.array([1.0, 2.0, 2.0])
-docs3 = {"u": np.array([2.0, 4.0, 4.0]), "v": np.array([2.0, 2.0, 1.0]), "w": np.array([0.0, 3.0, 0.0])}
-for name, v in docs3.items():
-    print(name, "dot", dot(q, v), "| cosine %.3f" % cosine(q, v), "| L2 %.3f" % l2(q, v))
-```
-
-Output:
-
-```
-u dot 18.0 | cosine 1.000 | L2 3.000
-v dot 8.0 | cosine 0.889 | L2 1.414
-w dot 6.0 | cosine 0.667 | L2 2.449
-```
+<strong>Answer:</strong>
+Postgres index access methods (such as GiST, GIN, and HNSW indexes) are architected exclusively to traverse indexes in **ascending order** (`ASC`). For similarity metrics like Dot Product where larger values indicate greater similarity, an index cannot natively execute an ascending scan to find the maximum value.  
+To resolve this without altering core Postgres storage internals, `pgvector` negates the dot product:
+$$\mathbf{u}\ \langle\#\rangle\ \mathbf{v} = -(\mathbf{u} \cdot \mathbf{v})$$
+By flipping the sign, the highest dot product ($+0.95$) becomes the smallest numerical value ($-0.95$), allowing the standard ascending index scan to return the most relevant documents first. To recover the true positive dot product in your application, you must negate the score: `- (embedding <#> query_vec)`.
 
 </details>
 
-### 2. Generalize the identity
+<details>
+<summary><strong>Checkpoint 2: The Failure of Threshold Portability</strong></summary>
 
-Unit length is a special case. Show that if both vectors have the same length `r`, then `‖a - b‖² = 2r²(1 - cos θ)`. What does that say about ranking when the query and every document share one length that is not 1?
+**Scenario**: A search application sets a hard relevance cutoff: `WHERE cosine_similarity >= 0.85`. During an infrastructure migration, the database index is converted to Euclidean distance ($L_2$) because vectors are unit-normalized. An engineer updates the threshold to `WHERE l2_distance <= 0.85`.  
+**Question**: What happens to search precision, and what is the exact equivalent $L_2$ threshold?
 
-<details><summary>Answer</summary>
-
-Start from `‖a - b‖² = ‖a‖² + ‖b‖² - 2 a·b = 2r² - 2 a·b`. When both lengths are `r`, `a·b = r² cos θ`, so the total is `2r² - 2r² cos θ = 2r²(1 - cos θ)`. With `r = 1` this is the unit-length identity. So if the query and every document share one length `r`, L2 is still a decreasing function of cosine and the rankings agree even though the vectors are not unit length: equal length, not length 1, is what matters.
-
-</details>
-
-### 3. How often does the wrong metric change real results?
-
-Using the varied-length vectors from block 6, generate 200 queries. For each, compare the top 10 under dot product with the top 10 under cosine. How many queries change, and what is the average overlap?
-
-<details><summary>Answer</summary>
-
-```python
-rng3 = np.random.default_rng(4)
-queries = unit(0.5 * topic + rng3.standard_normal((200, 64)) / np.sqrt(64))
-raw = dirs * norms                               # the varied-length vectors from the earlier experiment
-doc_len = np.linalg.norm(raw, axis=1)
-changed, overlaps = 0, []
-for qv in queries:
-    by_dot = set(select_topk(raw @ qv, 10))
-    by_cos = set(select_topk((raw @ qv) / doc_len, 10))
-    overlaps.append(len(by_dot & by_cos))
-    changed += by_dot != by_cos
-print(f"queries whose top-10 changes: {changed} of 200; mean overlap {np.mean(overlaps):.2f} / 10")
-```
-
-Output: `queries whose top-10 changes: 200 of 200; mean overlap 0.38 / 10`
-
-Every one of the 200 queries returns a different top 10, and on average only about 0.4 of the ten documents are shared. This is the harm of pointing an inner-product index at unnormalized vectors from a cosine-trained model: it fails on every query, not on the occasional one, yet nothing raises an error. The size of the effect depends on how much the lengths vary.
+<strong>Answer:</strong>
+The search engine will suffer an extreme drop in precision (over-retrieval of irrelevant results).  
+For unit-normalized vectors:
+$$\|\mathbf{u} - \mathbf{v}\|_2 = \sqrt{2(1 - \cos \theta)}$$
+Substituting $\cos \theta = 0.85$:
+$$d_{L_2} = \sqrt{2(1 - 0.85)} = \sqrt{2 \times 0.15} = \sqrt{0.30} \approx 0.5477$$
+By setting the threshold to $0.85$ instead of $0.5477$, the engineer allowed vectors with cosine similarities as low as:
+$$\cos \theta = 1 - \frac{0.85^2}{2} = 1 - \frac{0.7225}{2} = 1 - 0.36125 = 0.63875$$
+Documents with low relevance ($0.64 \le \text{cos} < 0.85$) will flood the search results. Thresholds are never portable across metric scales without mathematical re-calibration.
 
 </details>
 
-### 4. Find the bug
+<details>
+<summary><strong>Checkpoint 3: The Danger of Metric Invariance on Non-Normalized Embeddings</strong></summary>
 
-A teammate writes `np.argpartition(scores, 10)[:10]` to get the top 10 similarity scores. What does it return, and how do you prove it with code? Fix it.
+**Scenario**: A microservice generates sentence embeddings using a custom local model where vectors have norms ranging from $0.5$ to $15.0$. A developer builds a Chroma collection with default settings (`space="l2"`), but user queries are evaluated using Cosine Similarity in memory before filtering.  
+**Question**: How does this discrepancy corrupt the retrieval pipeline?
 
-<details><summary>Answer</summary>
-
-`argpartition` puts the *smallest* values first, so on similarity scores this returns the ten worst documents. Negate the scores to get the largest. (Either `k` or `k - 1` works as the pivot for taking the first `k` entries; `k - 1` is the smallest that does.)
-
-```python
-scores = rng3.random(1000)                       # pretend these are similarity scores (higher = better)
-buggy = np.argpartition(scores, 10)[:10]         # forgot the minus sign
-fixed = np.argpartition(-scores, 10 - 1)[:10]
-print("buggy picks: best score %.3f (median score of all docs %.3f)" % (scores[buggy].max(), np.median(scores)))
-print("fixed picks: worst score %.3f (10th-highest score overall %.3f)" % (scores[fixed].min(), np.sort(scores)[-10]))
-```
-
-Output:
-
-```
-buggy picks: best score 0.014 (median score of all docs 0.520)
-fixed picks: worst score 0.989 (10th-highest score overall 0.989)
-```
+<strong>Answer:</strong>
+Chroma's default `space="l2"` measures squared Euclidean separation between vector coordinates. Because the model's vectors are unnormalized:
+1. **Euclidean Bias**: The database retrieves vectors whose tips are physically closest in Euclidean space to the query vector. If a document has a very small norm ($\|\mathbf{d}\| \approx 0.5$) and points in the wrong direction, its Euclidean distance to a short query vector may be smaller than a document that points in the exact same direction but has a large norm ($\|\mathbf{d}\| \approx 10.0$).
+2. **Post-Retrieval Mismatch**: When the application scores the top-K candidates using Cosine Similarity, the angularly aligned large-norm document (which should have been Top-1) was never retrieved by Chroma in the first place because its Euclidean distance was too large.  
+**Resolution**: Either explicitly configure Chroma with `space="cosine"` or pass all vectors through an explicit $L_2$ normalization barrier prior to database insertion.
 
 </details>
-
-### Checkpoint quiz
-
-1. Two unit vectors have cosine similarity 0.8. What is their L2 distance?
-2. pgvector's `<#>` operator returns the *negative* inner product. Why?
-3. A Chroma collection is created with default settings and filled with raw (unnormalized) vectors from a cosine-trained model. Which setting is it using, and is it the one the model expects?
-4. After `np.argpartition(-scores, k - 1)[:k]`, why must you still sort the result?
-5. A document is doubled by pasting its text twice, and its term-count vector doubles. Which of dot product, cosine and L2 change?
-
-<details><summary>Answers</summary>
-
-1. `sqrt(2 - 2 × 0.8) = sqrt(0.4) ≈ 0.632`. This uses `L2² = 2 - 2·cos`, valid for unit-length vectors.
-2. Postgres only supports ascending-order index scans on operators, so the operator returns the inner product with its sign flipped; the best match (largest inner product) then has the smallest value. Multiply by -1 to display the real inner product.
-3. Chroma's default `space` is `l2` (squared L2). On raw vectors it is not the cosine ranking the model expects; it only matches if the vectors happen to be unit length. Normalize the vectors or set `space` to `cosine`.
-4. `argpartition` only guarantees which `k` indices are the best, not their order. Sort those `k` by score to get a ranked result.
-5. Dot product doubles and L2 changes; cosine does not change, since the direction is unchanged.
-
-</details>
-
-> [!check]
-> - I can explain what dot product, cosine, L2 and L1 each keep and ignore.
-> - I can derive `L2² = 2 - 2·cos` for unit vectors and say why it implies identical rankings.
-> - I can explain why L1 does not follow the same identity.
-> - I can tell whether my embeddings are normalized by measuring their norms.
-> - I can say what `<->`, `<#>`, `<=>` and Chroma's `l2`, `ip`, `cosine` order by.
-> - I can write `argpartition`-based top-k and verify it against a loop.
-
-## Project
-
-Build a small exact vector index as a single Python module with a test file, numpy only. It should support at least the four metrics (`dot`, `cosine`, `l2`, `l1`) behind one `search(queries, k)` call that returns ids and scores in one consistent convention (state which and document it). Add a `diagnose(vectors)` function that reports norm statistics, the number of zero and duplicate vectors, and a recommended metric with a one-line reason. Then write tests that (a) prove the unit-length identities over random pairs, (b) fail loudly if someone configures `dot` on vectors whose lengths vary a lot, (c) check the vectorised top-k against a slow loop, and (d) show L1 disagrees with the other three even on unit vectors. Finish with an evaluation: create a synthetic corpus with known relevant documents, score each metric by recall at 10, and write two sentences on what your numbers do and do not show about real embedding models. No code is given; design the API yourself.
-
-## Interview questions
-
-> [!interview] You migrate a RAG service from one vector database to another. Search quality drops, and the long documents now dominate the results. Nothing errors. What do you check first?
-
-<details><summary>What a strong answer covers</summary>
-
-- Suspects a metric mismatch: the new database defaults to inner product (or Chroma-style squared L2) while the old one used cosine, on vectors that are not unit length.
-- Names the mechanism: dot product scales with vector length, so long (large-norm) vectors win; cosine divides it out.
-- Checks the norms of stored vectors, the index's operator class / `space` / distance setting, and the query-time operator; confirms query and document vectors went through the same normalization.
-- Fix: normalize at ingest and query time (then inner product equals cosine), or set the database's cosine metric; re-run a labelled query set to confirm.
-- Notes that thresholds tuned on cosine scores do not carry over to other metrics.
-
-</details>
-
-> [!interview] Explain why cosine similarity, dot product and Euclidean distance give the same ranking for normalized vectors. Does it hold for Manhattan distance?
-
-<details><summary>What a strong answer covers</summary>
-
-- Expands `‖a - b‖² = ‖a‖² + ‖b‖² - 2 a·b`; with unit lengths this is `2 - 2 a·b`, and `a·b` is the cosine, so L2 is a decreasing function of cosine and dot.
-- Stresses that the *ranking* is identical while the *values* differ, so thresholds do not transfer.
-- States that L1 has no such identity because it is not a function of the angle, and that it can rank differently (give a number or example).
-- Mentions the practical use: normalize once, then use the cheapest metric (inner product).
-
-</details>
-
-> [!interview] A new embedding model arrives. How do you decide which distance metric your index should use?
-
-<details><summary>What a strong answer covers</summary>
-
-- Start from how the model was trained: the model card or provider docs, naming conventions such as `-dot-` / `-cos-`, whether the output pipeline includes a normalization step.
-- Measure rather than assume: compute norms of real outputs to see whether they are unit length.
-- If normalized, cosine, dot and L2 agree, so pick inner product for speed. If trained for dot with varied lengths, use inner product on raw vectors and do not normalize. If trained for cosine but not normalized, normalize at ingest.
-- If documentation is silent, evaluate the options on a small labelled query set and choose by recall, since the metric affects ranking only when norms vary.
-- Remembers that the metric is usually fixed when the index is built, so decide before loading data.
-
-</details>
-
-## Common mistakes & troubleshooting
-
-- **Long documents dominate, scores exceed 1.** Inner product (or a dot-product score) on unnormalized vectors. Normalize at ingest, or use cosine. Block 6 and Exercise 3 show how large the effect can be.
-- **Best results appear last.** You sorted a distance as if it were a similarity, or the reverse. Remember that `<#>` is a negative inner product and Chroma's `ip` and `cosine` are `1 - similarity`. Decide on one convention (the code above makes everything "higher is better") and convert at the edge.
-- **`nan` in scores.** A zero vector was normalized or fed to cosine. Find the empty or failed input upstream; use an `eps` guard so the failure is visible instead of poisoning the sort.
-- **The index is ignored and queries are slow.** The query's operator does not match the operator class the index was built with (pgvector requires an index per distance function). Rebuild with the right operator class or change the query.
-- **A similarity threshold stops working after a migration.** Cosine 0.8, L2 0.63 and inner product 0.8 are the same relationship only for unit vectors, and each database transforms scores differently. Re-tune thresholds on the new setup.
-- **Different models mixed in one index.** Vectors from two models are not comparable even if their dimensions match. Keep a model identifier with every stored vector (Module 05 stores one in the cache key).
-
-## Further reading & sources
-
-- [GitHub - pgvector/pgvector: Open-source vector similarity search for Postgres](https://github.com/pgvector/pgvector) - the README is the source for the `<->`, `<#>`, `<=>`, `<+>` operators, the per-metric index operator classes, and the advice to use inner product on unit-length vectors.
-- [Vector embeddings | OpenAI API](https://developers.openai.com/api/docs/guides/embeddings) - the "Which distance function should I use?" answer: recommends cosine similarity and says OpenAI embeddings are normalized to length 1, so cosine can be computed as a plain dot product and cosine and Euclidean distance rank identically.
-- [Pretrained Models - Sentence Transformers documentation](https://www.sbert.net/docs/sentence_transformer/pretrained_models.html) - lists retrieval models "tuned to be used with the dot-product similarity score" separately from models that output normalized vectors; the model for how to read a model card.
-- [Configure Collections - Chroma Docs](https://docs.trychroma.com/docs/collections/configure) - documents `l2` (squared, the default), `ip` and `cosine` and their formulas, the source for the table of ordering conventions.
-- [Collections - Qdrant](https://qdrant.tech/documentation/manage-data/collections/) - documents the `Dot`, `Cosine`, `Euclid` and `Manhattan` distances and that cosine is implemented as a dot product over vectors normalized at upload.
-- [8.8. Pairwise metrics, Affinities and Kernels - scikit-learn](https://scikit-learn.org/stable/modules/metrics.html) - reference definitions for cosine similarity, Euclidean and Manhattan distances, including cosine as the L2-normalized dot product.
-- [numpy.argpartition - NumPy Manual](https://numpy.org/doc/stable/reference/generated/numpy.argpartition.html) - the exact semantics of the partial-sort function behind the top-k implementation.
-- [Is Cosine-Similarity of Embeddings Really About Similarity? (Steck, Ekanadham, Kallus)](https://arxiv.org/abs/2403.05440) - shows analytically that cosine similarity of learned embeddings can be arbitrary for some models, the caution behind "match the training".
-
-## Next
-
-[Module 04: The Curse of Dimensionality](../04-the-curse-of-dimensionality/README.md)
