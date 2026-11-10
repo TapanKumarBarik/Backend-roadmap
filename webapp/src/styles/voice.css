@@ -78,14 +78,16 @@
 /* High-contrast, beautifully structured tables */
 #content table {
   width: 100%;
-  display: table;
+  /* A block that scrolls sideways inside itself, never a table wider than the column that pushes the page: the sessions lesson's table was 640px in a 526px
+     column and made the whole page scroll. (global.css has this; do not undo it here, and do not put overflow: hidden back, which clips instead of scrolling.) */
+  display: block;
+  overflow-x: auto;
   margin: 22px 0 32px;
   border-collapse: separate;
   border-spacing: 0;
   border: 1px solid var(--border);
   border-radius: var(--r-md);
   background: var(--bg-raised);
-  overflow: hidden;
   box-shadow: var(--shadow-sm);
 }
 

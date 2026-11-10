@@ -130,9 +130,10 @@ kbd {
   font-size: 11px;
   font-weight: 700;
 }
-@media (max-width: 900px) {
+/* The word is there only where the top bar has room for it beside the six places and the search (it overflowed at 1280 px); the flame, the streak and the button's own name (aria-label) are always there. */
+@media (max-width: 1399px) {
   .topbar-incident-btn .inc-btn-label { display: none; }
-  .topbar-incident-btn { padding: 0 6px; }
+  .topbar-incident-btn { padding: 0 8px; }
 }
 
 /* sign-in button (replaces the old bare icon when signed out) */
