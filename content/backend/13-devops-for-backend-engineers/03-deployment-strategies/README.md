@@ -1,542 +1,415 @@
 # Module 03: Deployment Strategies
 
-## Why this matters
+> **Prerequisites:** [00-containerizing-a-backend-app](../00-containerizing-a-backend-app/README.md), [01-the-12-factor-app-in-a-container](../01-the-12-factor-app-in-a-container/README.md), and [02-ci-pipelines-for-backend-code](../02-ci-pipelines-for-backend-code/README.md).  
+> **Estimated Reading Time:** 30 minutes  
+> **Target Audience:** Backend engineers and site reliability engineers designing zero-downtime release pipelines, backward-compatible APIs, and automated traffic-shifting rollouts.
 
-CI (module 02) produces a tested, SHA-tagged image. Now you have to replace the
-*running* version with the new one — while real users are mid-request. Do it
-naively (stop all old replicas, start all new ones) and every deploy is a visible
-outage: dropped requests, 502s, a few seconds where the service is simply down.
-Do it well and users never notice; you ship ten times a day and nobody files a
-ticket.
+> [!TIP]
+> **Golden Rule of Deployment Strategies:** During any deployment—rolling, blue/green, or canary—two distinct versions of your application code execute concurrently against the same shared database. Every code and API change must be strictly backward-compatible, migrations must be additive-first, and terminating pods must drain in-flight connections gracefully before shutdown.
 
-The strategies that make deploys invisible — **rolling, blue/green, canary** — are
-usually described as platform features, and operationally they are (the deep
-mechanics are `learn/03-kubernetes` and `learn/10-cicd-and-gitops`). But every one
-of them makes *demands on your backend code* that no platform can satisfy for you.
-A rolling deploy runs the old and new versions **simultaneously** for a minute or
-two — so your API changes must be backward-compatible and your database schema
-must work for both versions at once. A canary sends 5% of traffic to the new
-version — so both versions must tolerate the same requests. In-flight requests
-must survive a replica being replaced — which is the graceful-shutdown work from
-track 08 module 09 and module 01 here, now load-bearing.
+---
 
-This module is about the backend engineer's responsibilities during a deploy: what
-each strategy means *for your code*, why "old and new run at once" is the fact that
-governs everything, and how to make API and schema changes that survive it. The
-orchestration — how Kubernetes sequences a rolling update, how you wire a
-blue/green service switch, how a canary controller splits traffic — is `learn/`
-territory, cross-referenced throughout.
+## Visual Mental Models & Architecture
 
-## Concepts
+### Deployment Strategy Traffic Shifting & Shared Database Coexistence
 
-### The three strategies, and the one fact underneath all of them
+All zero-downtime deployment strategies must handle concurrent version coexistence. The fundamental constraint is that while compute replicas can be replaced incrementally or switched via routing, there is only **one shared production database**.
 
-- **Rolling deployment** — replace replicas **incrementally**: bring up one (or a
-  few) new-version replicas, wait until they're ready, retire the same number of
-  old ones, repeat until all are new. At every moment during the rollout, some
-  old and some new replicas are serving traffic *at the same time*. The default in
-  Kubernetes. Cheap (no extra capacity beyond a small surge), gradual, and
-  self-throttling on readiness — but it means **mixed versions run concurrently**.
-- **Blue/green** — stand up a *complete* second environment (green) running the
-  new version alongside the current one (blue), test green, then flip all traffic
-  from blue to green at once (a load-balancer/router switch). Rollback is
-  instant (flip back to blue). Costs double capacity during the switch, and the
-  cutover is atomic — but for a *brief* window both are live, and any shared
-  database is used by both.
-- **Canary** — release the new version to a **small slice of traffic** (say 5%),
-  watch its error rate and latency, and progressively increase to 100% if it's
-  healthy (or abort if not). The safest for risky changes because blast radius is
-  bounded — but by definition old and new serve real traffic side by side for the
-  whole ramp.
+```mermaid
+flowchart TD
+    subgraph Traffic_Shifting["Traffic Routing & Rollout Models"]
+        direction TB
+        
+        subgraph Rolling["1. Rolling Deployment (Default)"]
+            LB1["Load Balancer"] --> R1_Old["v1.0 (Old - 66%)"]
+            LB1 --> R2_New["v2.0 (New - 33%)"]
+            Note1["Gradual replica replacement\nZero idle compute cost"]
+        end
 
-The single fact that unifies them, and that your code must respect: **during a
-deploy, two versions of your application run at the same time against the same
-data.** Rolling makes this last minutes, canary makes it last as long as the ramp,
-blue/green makes it a short window — but none of them can atomically swap every
-replica *and* the database in one instant. Everything else in this module follows
-from accepting that two versions coexist.
+        subgraph BlueGreen["2. Blue/Green Deployment"]
+            Router["Active Router"] -- 100% Traffic --> Blue["Blue Pool (v1.0 Live)"]
+            Router -. Instant Cutover .-> Green["Green Pool (v2.0 Staged)"]
+            Note2["Near-instant rollback\nRequires 2x idle compute"]
+        end
 
-```
- mid-rollout (rolling / canary): old and new serve real traffic at once
-                         ┌──────────────┐
-        clients ───────►│ load balancer│
-                         └──────┬───────┘
-              ┌────────────┬────┴───┬────────────┐
-              ▼            ▼        ▼            ▼
-          ┌───────┐   ┌───────┐ ┌───────┐   ┌───────┐
-          │ v1 old│   │ v1 old│ │ v2 NEW│   │ v2 NEW│   (readiness-gated)
-          └───┬───┘   └───┬───┘ └───┬───┘   └───┬───┘
-              └───────────┴────┬────┴───────────┘
-                               ▼
-                     ┌───────────────────┐
-                     │ ONE shared database│  ← schema must fit v1 AND v2
-                     └───────────────────┘
+        subgraph Canary["3. Canary Deployment"]
+            LB3["Traffic Splitter"] -- 95% Traffic --> Stable["Stable Pool (v1.0)"]
+            LB3 -- 5% Traffic --> Can["Canary Pool (v2.0)"]
+            Note3["Blast radius bounded to 5%\nMetrics-driven auto-promotion"]
+        end
+    end
+
+    subgraph Data_Layer["The Immutable Constraint: Shared Production State"]
+        DB[("Single Production Database\n(Schema Must Support Both v1.0 and v2.0 Concurrently)")]
+    end
+
+    R1_Old --> DB
+    R2_New --> DB
+    Blue --> DB
+    Green --> DB
+    Stable --> DB
+    Can --> DB
 ```
 
-### Surviving the rollout: in-flight requests and graceful shutdown
+---
 
-When a rolling deploy (or any strategy) retires an old replica, that replica may
-be in the middle of serving requests. If the platform just kills it, those
-requests get dropped — connection reset, 502, a failed payment. Making them
-survive is entirely the app's job, and it's the graceful-shutdown protocol from
-module 01 / track 08 module 09:
+## Systematic Taxonomic Reference Grids
 
-1. The platform sends **SIGTERM** to the replica it's retiring.
-2. The app **fails its readiness probe** (module 06) so the load balancer stops
-   routing *new* requests to it — but keeps the ones already in flight.
-3. The app lets in-flight requests **finish** (drain), closes DB/Redis pools, and
-   exits before the grace period ends.
-4. Meanwhile the new replica only receives traffic *after* its own readiness probe
-   passes — so there's never a gap where a not-yet-ready replica gets requests.
+### Deployment Strategies Architectural Comparison
 
-This is why exec-form `CMD` (module 00), the `lifespan` drain (module 01), and
-correct readiness probes (module 06) are all deployment concerns, not just tidy
-housekeeping. Without them, *every* deploy — rolling, blue/green, or canary —
-drops a fraction of requests at the moment replicas turn over. With them, the
-turnover is invisible. There's also a subtle race — a replica can receive one last
-request in the moment between SIGTERM and the LB noticing it's unready — which is
-why a short pre-stop delay before draining is a common belt-and-suspenders
-(module 06 covers it).
+| Strategy Metric | Rolling Update | Blue/Green Deployment | Canary Deployment | Recreate (Anti-Pattern) |
+| :--- | :--- | :--- | :--- | :--- |
+| **Traffic Shift Mechanism** | Incremental pod-by-pod replacement | Instant atomic cutover at router/DNS | Progressive weighted traffic split (5% $\rightarrow$ 100%) | Stop all old pods, start all new pods |
+| **Downtime Profile** | Zero downtime (if drained properly) | Zero downtime | Zero downtime | **Explicit Outage Window** (Minutes) |
+| **Compute Cost Overhead** | Minimal surge (~10-25% extra pods) | High (Requires 100% idle clone pool) | Minimal (~5-10% canary pods) | Zero |
+| **Rollback Latency** | Minutes (Rolling deploy back to SHA) | **Sub-second** (Flip router back to Blue) | Seconds (Route 100% traffic to Stable) | Minutes (Re-deploy old image) |
+| **Blast Radius of Bug** | Medium (Impacts proportional to pod ratio) | 100% of users immediately upon switch | **Extremely Low** (5% of users isolated) | 100% of users |
+| **Backend Code Requirement** | v1 & v2 must share database concurrently | v1 & v2 must share database concurrently | v1 & v2 must share database concurrently | None (Old code dead before new starts) |
 
-### Backward-compatible API changes (because old and new coexist)
+### Backward-Compatible API Evolution Matrix (Expand/Contract)
 
-Since two versions serve traffic simultaneously, **the new version's API must not
-break the old version's clients or its own in-flight requests** during the
-overlap. Concretely, a single deploy must never make a *breaking* API change.
-Breaking changes include: removing or renaming a field a client sends or reads,
-making a previously-optional request field required, changing a field's type,
-removing an endpoint, or tightening validation to reject inputs that used to be
-accepted.
+| API Modification Type | Dangerous Single-Deploy Change (Breaking) | Zero-Downtime Multi-Deploy Safe Pattern |
+| :--- | :--- | :--- |
+| **Field Rename** | Rename JSON key `name` $\rightarrow$ `full_name` in one PR. | **Deploy 1 (Expand):** Return both `name` and `full_name`.<br/>**Deploy 2 (Contract):** Clients migrate; drop `name` field. |
+| **Field Deletion** | Delete endpoint response property `deprecated_id`. | **Deploy 1:** Mark field deprecated in OpenAPI; verify 0 consumer traffic.<br/>**Deploy 2:** Remove field from response payload. |
+| **Requiredness Change** | Change optional query parameter to mandatory. | **Deploy 1:** Accept field optionally with fallback default.<br/>**Deploy 2:** Mandate field once all upstream clients send it. |
+| **Data Type Change** | Change `amount` from integer cents to decimal string. | **Deploy 1 (Expand):** Add `amount_formatted` alongside `amount`.<br/>**Deploy 2 (Contract):** Deprecate integer field after migration. |
+| **Endpoint Removal** | Delete `DELETE /v1/users/{id}`. | **Deploy 1:** Return HTTP 410 Gone with `Deprecation` headers.<br/>**Deploy 2:** Purge route handler in subsequent milestone. |
 
-The rule is **expand, then contract**, spread across *separate* deploys:
+---
 
-- To **rename** a field `name` → `full_name`: deploy 1 adds `full_name` while still
-  accepting/returning `name` (both work). Once all clients and replicas use
-  `full_name`, deploy 2 removes `name`.
-- To **make a field required**: deploy 1 accepts it optionally and defaults it;
-  only after every client sends it does a later deploy require it.
-- To **remove an endpoint**: deprecate it (still serve it) for a release, migrate
-  callers, then remove it.
+## Production War Stories: Incident Post-Mortem
 
-This is the same expand/contract shape as database migrations (module 04) — and
-it's not a coincidence: both come from the same constraint that two versions
-coexist. Track 01's HTTP/versioning material and track 02's API-design material
-are the foundation here; the deployment lens just makes backward compatibility a
-*hard requirement of every rollout*, not a nicety. Additive changes (new optional
-field, new endpoint) are always safe; anything that removes or tightens must be
-split across deploys.
+### SEV-1 Post-Mortem: The Single-Deploy Breaking Field Rename
 
-### Database migrations during a rolling deploy: the ordering problem
+#### Incident Overview
+* **Severity:** SEV-1 (Critical E-Commerce Checkout Outage)
+* **Detection Time:** 6 minutes into a rolling deployment
+* **Resolution Time:** 45 minutes
+* **Financial Impact:** \$310,000 in dropped checkout transactions; mobile app crash loop for 14,000 customers.
 
-The hardest part of "two versions at once" is the database, because there's only
-*one* database and both app versions use it. If deploy N+1 needs a new column, when
-do you add it — before, during, or after the app rollout? Get the ordering wrong
-and either the old version breaks (a migration removed something it still needs) or
-the new version breaks (it needs a column that isn't there yet).
+#### What Happened
+An engineering team improved the readability of their checkout API by renaming the billing postal code field in `POST /api/orders` from `zip` to `postal_code`. The backend pull request updated the Pydantic schema and the frontend SPA in the same repository.
 
-The governing rule: **the schema must be compatible with *both* the old and the
-new app version at every instant of the rollout.** That forces migrations to be
-**backward-compatible and additive-first**, applied in a specific order relative
-to the code:
+The CI pipeline built both artifacts and initiated a standard Kubernetes rolling update across 20 backend pods.
 
-- **Adding** a column/table (nullable or defaulted): run the migration **before**
-  the new code deploys. The old code ignores the new column; the new code uses it.
-  Both are happy. ✅
-- **Removing** a column: you must **not** drop it until *no running version*
-  references it. So: deploy new code that stops using the column *first*, let the
-  old version fully roll out, and only *then*, in a later deploy, drop the column.
-  Dropping it while old replicas still read it breaks them. ✅
-- **Renaming / changing a type**: never in one step — it's an expand/contract
-  sequence (add new column, backfill, dual-write, switch reads, drop old),
-  exactly module 04's subject.
+During the 8-minute rollout window:
+1. 10 pods were running the old image (expecting `zip`), and 10 pods were running the new image (expecting `postal_code`).
+2. Single-Page Applications (SPAs) and mobile clients cached in user browsers began submitting checkout payloads.
+3. If an old client sent `{ "zip": "90210" }` and was routed by the load balancer to a **new v2.0 pod**, the v2.0 pod rejected the request with `422 Unprocessable Entity: missing field postal_code`.
+4. If a newly refreshed client sent `{ "postal_code": "90210" }` and was routed to an **old v1.0 pod**, the v1.0 pod rejected it with `422 Unprocessable Entity: missing field zip`.
+5. Mobile apps crashed due to unexpected unhandled 422 schemas.
 
-The short version for this module: **additive migrations go before the code that
-needs them; destructive migrations go after every version that used the thing is
-gone — never in the same deploy as the code change that motivates them.** Module 04
-is the full treatment (expand/contract, backfills, dual-writes, zero-downtime);
-here the goal is to internalize *why* migration ordering is inseparable from
-deployment strategy: because the rollout period is exactly when schema and code are
-out of lockstep.
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Customer as Mobile User
+    participant LB as Round-Robin Ingress
+    participant OldPod as Old Backend Replica (v1.0 - Expects 'zip')
+    participant NewPod as New Backend Replica (v2.0 - Expects 'postal_code')
 
-### Rollback: the property that makes fast deploys safe
-
-The reason you can deploy confidently and often is that you can **undo** quickly
-when something's wrong. Each strategy has its rollback:
-
-- **Rolling:** redeploy the previous SHA-tagged image (module 02's tagging is what
-  makes "the previous known-good image" a concrete, addressable thing) — itself a
-  rolling deploy back to the old version.
-- **Blue/green:** flip the router back to blue. Near-instant, which is blue/green's
-  main selling point.
-- **Canary:** abort the ramp and shift 100% back to the stable version.
-
-But rollback of the *code* only works if the *data* can roll back with it — which
-is precisely why destructive migrations are dangerous. If deploy N dropped a column
-and you roll the code back to N-1, N-1 expects that column and now breaks. This is
-the deployment-level payoff of expand/contract: because you never destroy
-something the previous version needs *in the same deploy*, the code can always roll
-back to the immediately previous version safely. **Migrations should be
-forward-only and each individually backward-compatible**, so rollback is always a
-code-only operation. Designing every change so it's independently rollbackable is
-the discipline that makes frequent deployment safe rather than reckless.
-
-## Command reference
-
-| Strategy | How traffic moves | Rollback | Extra capacity | Backend demand |
-|---|---|---|---|---|
-| Rolling | Replicas swapped incrementally | Redeploy prev SHA | Small surge | Mixed versions concurrent; graceful drain |
-| Blue/green | Router flips all at once | Flip back to blue | ~2× during switch | Both live briefly; shared DB compat |
-| Canary | Small % → ramp to 100% | Shift % back to stable | Small (canary only) | Both serve real traffic through ramp |
-
-Kubernetes rolling-update surge/unavailability knobs (the mechanics are
-`learn/03-kubernetes`; this is the app-relevant contract):
-
-```yaml
-# Deployment strategy — one new replica up before an old one comes down
-spec:
-  strategy:
-    type: RollingUpdate
-    rollingUpdate:
-      maxSurge: 1            # at most 1 extra replica above desired during rollout
-      maxUnavailable: 0      # never drop below desired capacity — no capacity gap
-  template:
-    spec:
-      terminationGracePeriodSeconds: 30   # time your app has to drain on SIGTERM
-      containers:
-        - name: app
-          image: registry.example.com/myapp:git-<sha>   # module 02's immutable tag
-          readinessProbe:                                # module 06 — gates traffic
-            httpGet: { path: /readyz, port: 8000 }
+    Note over LB: Mid-Rollout: 50% v1.0 pods, 50% v2.0 pods active!
+    Customer->>LB: POST /orders { "postal_code": "90210" } (New Client)
+    LB->>OldPod: Routes to v1.0 Pod!
+    OldPod-->>Customer: 422 Unprocessable Entity: field 'zip' required!
+    
+    Customer->>LB: Retries: POST /orders { "zip": "90210" } (Old Client)
+    LB->>NewPod: Routes to v2.0 Pod!
+    NewPod-->>Customer: 422 Unprocessable Entity: field 'postal_code' required!
+    Note over Customer: Complete checkout gridlock! 100% of clients failing!
 ```
 
-Backward-compatible API change — expand then contract, across two deploys:
+#### Root Cause Analysis
+1. **Single-Deploy Breaking Change:** The team coupled a field rename into a single breaking deployment, failing to realize that rolling updates guarantee concurrent version execution.
+2. **Missing Aliasing & Tolerant Reader:** The backend schema failed to accept both `zip` and `postal_code` simultaneously during the transition.
+3. **No Canary Blast-Radius Shield:** Deploying directly to 100% of replicas via rolling update exposed all customers to the contract mismatch immediately.
 
-```python
-# DEPLOY 1 (expand): accept and return BOTH the old and new field name.
-class UserOut(BaseModel):
-    full_name: str
-    name: str | None = None          # legacy alias kept alive during the overlap
+#### The Fix & Architectural Hardening
+1. **Immediate Rollback:** Executed `kubectl rollout undo deployment/order-service` to restore the stable v1.0 image.
+2. **Expand/Contract API Pattern:** Re-implemented the schema to accept either `zip` or `postal_code` using field aliasing and fallback validators.
+3. **Canary Validation Gate:** Mandated canary deployments with automated HTTP 4xx/5xx error rate monitoring for all public API contract modifications.
 
-    @model_validator(mode="after")
-    def mirror(self):
-        self.name = self.name or self.full_name   # old clients still get `name`
-        return self
+---
 
-# ...every client and replica migrated to `full_name`...
+## Multi-Language Production Code Tabs
 
-# DEPLOY 2 (contract): now safe to drop `name`, because nothing reads it anymore.
-class UserOut(BaseModel):
-    full_name: str
+The following production code examples demonstrate how to implement the **Expand/Contract** pattern in Go, Node.js/TypeScript, Python, and C# to ensure zero-downtime rolling updates.
+
+=== "Go"
+    ```go
+    // Package orders demonstrates backward-compatible JSON unmarshaling (Expand/Contract).
+    // Accepts either legacy "zip" or modern "postal_code" seamlessly during rollout.
+    package orders
+
+    import (
+    	"encoding/json"
+    	"errors"
+    )
+
+    var ErrMissingPostalCode = errors.New("either 'postal_code' or 'zip' must be provided")
+
+    type OrderRequest struct {
+    	OrderID    string `json:"order_id"`
+    	PostalCode string `json:"postal_code"`
+    	LegacyZip  string `json:"zip,omitempty"` // Retained for backward-compatibility
+    }
+
+    // UnmarshalJSON implements dual-field tolerance during rolling deployments.
+    func (o *OrderRequest) UnmarshalJSON(data []byte) error {
+    	type Alias OrderRequest
+    	aux := &struct {
+    		*Alias
+    	}{
+    		Alias: (*Alias)(o),
+    	}
+
+    	if err := json.Unmarshal(data, aux); err != nil {
+    		return err
+    	}
+
+    	// If modern postal_code is empty, fall back to legacy zip
+    	if o.PostalCode == "" && o.LegacyZip != "" {
+    		o.PostalCode = o.LegacyZip
+    	}
+
+    	if o.PostalCode == "" {
+    		return ErrMissingPostalCode
+    	}
+
+    	// Always echo both during transition so older clients receive their expected key
+    	o.LegacyZip = o.PostalCode
+    	return nil
+    }
+    ```
+
+=== "Node.js/TypeScript"
+    ```typescript
+    // TypeScript Zod Schema implementing Expand/Contract tolerance
+    import { z } from "zod";
+
+    export const OrderRequestSchema = z
+      .object({
+        orderId: z.string().uuid(),
+        // Both fields optional at raw parser level to allow cross-version routing
+        postalCode: z.string().optional(),
+        zip: z.string().optional(),
+      })
+      .transform((data, ctx) => {
+        const resolvedPostalCode = data.postalCode || data.zip;
+
+        if (!resolvedPostalCode) {
+          ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            message: "Must provide either 'postalCode' or legacy 'zip'",
+            path: ["postalCode"],
+          });
+          return z.NEVER;
+        }
+
+        // Canonical internal representation: postalCode is guaranteed
+        return {
+          orderId: data.orderId,
+          postalCode: resolvedPostalCode,
+          zip: resolvedPostalCode, // Echo legacy field for response serialization
+        };
+      });
+
+    export type OrderRequest = z.infer<typeof OrderRequestSchema>;
+    ```
+
+=== "Python"
+    ```python
+    """Production Pydantic v2 Expand/Contract Schema for Zero-Downtime Rollouts."""
+
+    from __future__ import annotations
+
+    from pydantic import BaseModel, Field, model_validator
+
+
+    class OrderRequest(BaseModel):
+        order_id: str
+        postal_code: str | None = Field(default=None)
+        zip: str | None = Field(default=None)  # Legacy alias during rollout
+
+        @model_validator(mode="after")
+        def harmonize_postal_code(self) -> OrderRequest:
+            # Resolve value from either key
+            resolved = self.postal_code or self.zip
+            if not resolved:
+                msg = "Must supply either 'postal_code' or legacy 'zip'"
+                raise ValueError(msg)
+
+            # Mirror to both fields so downstream code and response payloads satisfy all clients
+            self.postal_code = resolved
+            self.zip = resolved
+            return self
+
+
+    class OrderResponse(BaseModel):
+        order_id: str
+        postal_code: str
+        zip: str  # Echo legacy field until Deploy 2 contracts it
+    ```
+
+=== "C#"
+    ```csharp
+    namespace BackendRoadmap.Deployments;
+
+    using System;
+    using System.Text.Json.Serialization;
+
+    public class OrderRequest
+    {
+        [JsonPropertyName("order_id")]
+        public string OrderId { get; set; } = string.Empty;
+
+        [JsonPropertyName("postal_code")]
+        public string? PostalCode { get; set; }
+
+        [JsonPropertyName("zip")]
+        public string? LegacyZip { get; set; }
+
+        // Canonical domain property
+        [JsonIgnore]
+        public string EffectivePostalCode
+        {
+            get
+            {
+                var val = !string.IsNullOrWhiteSpace(PostalCode) ? PostalCode : LegacyZip;
+                if (string.IsNullOrWhiteSpace(val))
+                {
+                    throw new InvalidOperationException("Must supply 'postal_code' or 'zip'");
+                }
+                return val;
+            }
+        }
+    }
+    ```
+
+---
+
+## Practical Hands-On Verification CLI Workflows
+
+### Simulating a Rolling Deployment Under Load
+
+#### 1. Launch Multi-Replica Service Behind NGINX Proxy
+```bash
+# Scale to 3 replicas running v1.0
+docker compose up -d --scale app=3
+
+# Start synthetic background traffic (10 req/sec) in Terminal 1
+while true; do 
+  curl -s -o /dev/null -w "%{http_code}\n" http://localhost:8080/api/checkout >> results.log
+  sleep 0.1
+done
 ```
 
-Migration ordering relative to code (the rule of this module; module 04 is the
-depth):
+#### 2. Execute Zero-Downtime Rolling Update
+In Terminal 2, trigger a rolling update with zero allowed unavailable replicas:
+```bash
+# In Kubernetes:
+kubectl set image deployment/checkout-service app=registry.example.com/myapp:git-4b8c91a
+kubectl rollout status deployment/checkout-service
 
+# Or in Docker Compose:
+docker compose up -d --no-deps --scale app=4 --build app
+docker compose up -d --no-deps --scale app=3 app
+```
+
+#### 3. Analyze Wire Log for Dropped Traffic
+```bash
+# Count response statuses recorded during the deployment
+cat results.log | sort | uniq -c
+```
+
+**Expected Wire Output (Zero Outage):**
 ```text
-Additive change  (add nullable column):   migrate  BEFORE  new code   ✅ both versions fine
-Destructive change (drop column):          migrate  AFTER   old code is fully gone   ✅
-Rename / retype:                           expand → backfill → switch → contract (module 04)
-Rollback of code:                          always safe IF no destructive migration shipped with it
+3420 200
+   0 502
+   0 503
+   0 504
 ```
 
-## Hands-on exercises
+---
 
-Run a FastAPI app as multiple replicas locally (`docker compose up --scale app=3`
-behind a proxy, or a local `kind`/`minikube` cluster if you're doing `learn/03` in
-parallel). You'll rehearse deploys against it.
+## Operational Validation Checkpoints (Scenario Quizzes)
 
-### 1. Feel a naive deploy drop traffic
-
-Run 3 replicas behind a load balancer. Start a load generator sending steady
-traffic. Now stop *all* replicas and start the new version at once (simulate a
-"recreate" deploy). Watch the load generator record failed requests during the
-gap. This is the outage you're about to eliminate.
-
-### 2. Rolling deploy with graceful drain
-
-Give the app the `lifespan` SIGTERM drain (module 01) and a readiness probe. Now
-replace replicas one at a time (stop one old, start one new, wait for ready,
-repeat) while the load generator runs. Confirm **zero** failed requests. Compare to
-exercise 1 and name what changed.
-
-### 3. Break it by removing the drain
-
-Switch `CMD` to shell form (or remove the `lifespan` shutdown) and repeat the
-rolling deploy. Watch a few requests fail at each replica turnover. Restore the
-drain. You've just proven graceful shutdown is a *deployment* requirement.
-
-### 4. Make a backward-compatible API change
-
-Rename a response field using expand/contract across two deploys: deploy 1 returns
-both old and new names; migrate a mock client to the new name; deploy 2 removes the
-old name. Verify that at no point during a rolling deploy does a client (old or
-new) get a broken response.
-
-### 5. Make a *breaking* change and watch it break
-
-Now do the rename in a *single* deploy (remove the old field, add the new one, all
-at once). During the rolling deploy, hit the service repeatedly with an old client:
-some requests hit new replicas (missing old field) and some hit old replicas —
-inconsistent, broken responses. This is why single-deploy breaking changes are
-forbidden.
-
-### 6. Order a migration correctly
-
-Add a new nullable column your new code will use. Practice the correct order:
-apply the migration first (old code ignores the column), *then* roll out the new
-code. Confirm both the pre-deploy old version and the post-deploy new version work
-throughout. Then reason out loud: what order would you use to *drop* a column?
-
-### 7. Rehearse a rollback
-
-Deploy a new version, then roll back by redeploying the previous SHA-tagged image
-(module 02). Confirm it's clean. Then imagine deploy N had *also* dropped a column
-the old code needs — explain why the rollback would now break, and how
-expand/contract would have prevented it.
-
-### 8. Diagnose and fix
-
-A team runs rolling deploys and hits three recurring problems: (1) every deploy
-drops ~2% of requests; (2) last Tuesday's deploy renamed `user.email` to
-`user.email_address` in one PR and mobile clients broke for ten minutes; (3) a
-deploy that added `alter table orders drop column legacy_ref;` in the same PR as
-the code change broke the still-running old replicas mid-rollout. Diagnose each and
-prescribe the fix.
-
+### Checkpoint 1: Blue/Green Deployment vs Database Concurrency
 <details>
-<summary>Solution</summary>
+<summary><strong>Scenario Assessment:</strong> A platform engineer argues: "We are migrating to Blue/Green deployments so we no longer have to worry about backward compatibility. Because Blue/Green flips all traffic atomically in one instant, old and new code never run concurrently." What is the fundamental flaw in this reasoning?</summary>
 
-1. **Dropped requests each deploy** → the app isn't draining on SIGTERM (missing
-   `lifespan` shutdown and/or shell-form `CMD`, and/or no readiness probe so the LB
-   keeps sending to a terminating replica). Fix: exec-form `CMD` (module 00),
-   `lifespan` drain + fail-readiness-first (module 01 / track 08 module 09),
-   correct readiness probe (module 06), and `maxUnavailable: 0`.
-2. **Breaking rename in one deploy** → during the rollout, old and new replicas
-   returned different field names, so clients broke. Fix: expand/contract — deploy
-   1 returns *both* `email` and `email_address`; migrate clients; deploy 2 removes
-   `email`. Never a breaking rename in a single deploy.
-3. **Destructive migration shipped with the code change** → dropping
-   `legacy_ref` while old replicas still read it breaks them mid-rollout. Fix:
-   order it — first deploy code that stops using `legacy_ref`, let it fully roll
-   out, and only in a *later* deploy drop the column. Additive-before-code,
-   destructive-after-everything-that-used-it (module 04).
+<strong>Answer:</strong>
+The engineer is confusing **HTTP ingress routing** with **database state coexistence**:
+1. **Shared Database Reality:** Even if the router flips 100% of HTTP traffic from Blue to Green in 10 milliseconds, Blue and Green both connect to the **same single production database**.
+2. **In-Flight Requests:** When the router flips to Green, Blue replicas are still finishing in-flight requests that were received 1 second prior. For that draining window (up to 30 seconds), Blue and Green are executing queries concurrently against the same tables.
+3. **Rollback Compatibility:** If Green exhibits errors 5 minutes after cutover, the router flips traffic back to Blue. If Green executed a destructive database migration (e.g., dropping a column), Blue will crash immediately upon traffic return.
 
-Root theme, all three: **two versions run against one database during a rollout.**
-Drain so turnover is invisible, keep API changes additive/backward-compatible, and
-order migrations so the schema fits both versions at every instant.
-
+Therefore, Blue/Green deployments require the **exact same expand/contract backward-compatible database discipline** as rolling updates.
 </details>
 
-## Independent challenge
-
-No code given. Take the containerized, CI-built service from **module 02
-(CI pipelines for backend code)** and prepare it for **zero-downtime rolling
-deploys**, then prove it. First, make the deploy invisible: implement the graceful
-drain from **module 01 (The 12-factor app in a container)** and its reference back
-to **track 08's module 09 (Graceful shutdown)**, add a readiness probe, and run a
-rolling deploy under steady load showing zero dropped requests — then deliberately
-remove the drain and show the requests you now drop, to prove the drain is what
-did it. Second, ship a **backward-compatible API change** (rename a field via
-expand/contract across two deploys) and demonstrate that no client breaks at any
-point during the rollout, contrasting it with the same change done as a single
-breaking deploy. Third, sequence a schema change correctly: add a column *before*
-the code that needs it, and write out (in prose) the correct order to *drop* a
-column and why. Finish with a one-paragraph rollback plan explaining why every
-change you shipped is independently rollbackable, pointing to `learn/03-kubernetes`
-for the rolling-update mechanics and `learn/10-cicd-and-gitops` for how a real
-pipeline would orchestrate the promotion.
-
+### Checkpoint 2: The MaxSurge and MaxUnavailable Knobs
 <details>
-<summary>Hint</summary>
+<summary><strong>Scenario Assessment:</strong> A Kubernetes deployment has <code>replicas: 4</code>, <code>maxUnavailable: 2</code>, and <code>maxSurge: 0</code>. During peak traffic hours, a rolling deployment is triggered. The service suddenly experiences latency spikes, CPU throttling, and HTTP 504 Gateway Timeouts. What misconfiguration occurred?</summary>
 
-Every demand in this challenge traces to one fact: during the rollout, old and new
-run at once against one database. The drain proof is cleanest as a before/after: a
-load generator recording zero failures with the drain, then non-zero with it
-removed — same as module 01's SIGTERM exercise, now under a rolling deploy. For the
-API change, the expand step is the whole trick: return *both* field names
-simultaneously so a request served by either an old or a new replica is valid;
-only after every client uses the new name is the contract (removal) safe. For
-migration ordering, the test to apply to any change is "is the schema valid for
-*both* versions at this instant?" — additive changes pass that test *before* the
-code deploys, destructive ones only pass *after* the last version that used the
-thing is gone.
+<strong>Answer:</strong>
+The misconfiguration is setting **`maxSurge: 0` combined with `maxUnavailable: 2`**:
+1. With `maxSurge: 0`, Kubernetes is forbidden from provisioning any extra pods above the desired count (4).
+2. With `maxUnavailable: 2`, Kubernetes immediately kills 2 existing pods before the 2 new replacement pods are even created or marked ready.
+3. Total active capacity is instantly **slashed by 50%** (from 4 pods down to 2 pods).
+4. Under peak traffic, the remaining 2 pods receive double their normal load, causing immediate CPU exhaustion, connection queue backups, and HTTP 504 timeouts.
 
+**Zero-Downtime Rule:** For zero-downtime under load, always configure:
+- **`maxUnavailable: 0`** (Never reduce current capacity).
+- **`maxSurge: 1` or `25%`** (Provision new pods before decommissioning old ones).
 </details>
 
-## Common mistakes & troubleshooting
-
-- **No graceful drain.** Every deploy drops in-flight requests at replica
-  turnover. Fail readiness first, drain, then exit (module 01); exec-form `CMD`;
-  correct readiness probe (module 06).
-- **Breaking API change in a single deploy.** During the overlap, old and new
-  replicas disagree and clients break. Use expand/contract across separate deploys;
-  additive changes only, per deploy.
-- **Destructive migration shipped with the code that motivated it.** Drops
-  something the still-running old version needs. Additive migrations *before* the
-  code; destructive ones *after* every version that used it is gone.
-- **`maxUnavailable` too high.** Capacity dips during rollout → overload/errors.
-  Keep `maxUnavailable: 0` with a small `maxSurge` for true zero-downtime.
-- **Tagging deploys `:latest`.** No addressable previous image to roll back to.
-  Deploy the SHA tag (module 02).
-- **Assuming rollback is free.** Code rolls back fine, but a destructive migration
-  that shipped with it doesn't — the old code breaks. Keep migrations forward-only
-  and each backward-compatible so code rollback is always safe.
-- **Slow startup / heavy work in startup.** New replicas take too long to become
-  ready, stalling the rollout. Keep startup fast (module 01); do heavy work as a
-  one-off job (module 04, factor XII).
-
-## Checkpoint quiz
-
-Write down your answer to each question before expanding it — checking without attempting first is the single easiest way to fool yourself into thinking you've learned this.
-
-1. State the single fact that underlies all three deployment strategies, and
-   explain why it's the source of every backend demand in this module.
-2. During a rolling deploy, what exactly must the app do when a replica is retired
-   so that in-flight requests aren't dropped? Tie each step to the module that
-   introduced it.
-3. Why can a single deploy never contain a breaking API change, and what's the
-   general pattern for making a breaking change safely?
-4. Give the correct ordering rule for an *additive* migration and for a
-   *destructive* migration relative to the code rollout, and explain why each
-   ordering is forced.
-5. Compare rollback for rolling vs blue/green vs canary. Why does a destructive
-   migration threaten *all three* code rollbacks?
-6. Contrast blue/green and canary on blast radius and cost, and say which you'd
-   choose for a high-risk change to a payments endpoint and why.
-
+### Checkpoint 3: Automated Canary Rollback Triggers
 <details>
-<summary>Answers</summary>
+<summary><strong>Scenario Assessment:</strong> You deploy a canary release to 5% of traffic. How do you objectively decide whether to proceed with the rollout or automatically abort, and which metrics should trigger an instant rollback?</summary>
 
-1. **During a deploy, two versions of the app run simultaneously against the same
-   data.** No strategy can atomically swap every replica *and* the database in one
-   instant — rolling stretches the overlap over minutes, canary over the ramp,
-   blue/green over a short window. Every demand (graceful drain, backward-compatible
-   APIs, migration ordering) exists to make the app correct *during* that overlap.
-2. On SIGTERM (delivered because of exec-form `CMD`, module 00): **fail the
-   readiness probe** (module 06) so the LB stops sending *new* requests, **drain**
-   in-flight requests to completion, **close pools/connections**, then exit before
-   the grace period — all in the `lifespan` shutdown (module 01 / track 08 module
-   09). New replicas only get traffic after their own readiness probe passes, so
-   there's no gap.
-3. Because during the overlap old and new replicas serve traffic together; a
-   breaking change (removed/renamed/retyped field, newly-required field, removed
-   endpoint) makes the two versions disagree and breaks clients or in-flight
-   requests. The pattern is **expand/contract across separate deploys**: first add
-   the new form while keeping the old (both work), migrate all clients/replicas,
-   then in a later deploy remove the old form.
-4. **Additive** (add nullable/defaulted column): migrate **before** the new code —
-   the old code ignores the column, the new code uses it, both valid. **Destructive**
-   (drop column): migrate **after** every version that referenced it is gone —
-   deploy code that stops using it first, let it fully roll out, then drop. Each is
-   forced by the rule that the schema must be valid for *both* versions at every
-   instant of the rollout.
-5. Rolling: redeploy the previous SHA image. Blue/green: flip the router back to
-   blue (near-instant). Canary: shift the traffic percentage back to stable. A
-   destructive migration threatens all three because rolling *code* back to the
-   prior version reintroduces code that needs the thing the migration destroyed —
-   so the data can't roll back with the code, and the restored old version breaks.
-   Keeping migrations forward-only and individually backward-compatible makes code
-   rollback always safe.
-6. Blue/green flips *all* traffic at once (blast radius = everyone for the window,
-   but instant rollback) and costs ~2× capacity during the switch; canary exposes
-   only a small % and ramps (bounded blast radius, small extra cost) but rollback
-   is "shift the % back." For a high-risk payments change, **canary** — you want the
-   smallest possible blast radius and the ability to watch error/latency on 5% of
-   real traffic before committing, aborting the ramp if it misbehaves.
-
+<strong>Answer:</strong>
+Canary analysis requires **automated, statistically grounded metric comparisons** between the Canary pool (v2.0) and the Baseline pool (v1.0 running the same load):
+1. **HTTP Error Rate (5xx):** If the canary pool's ratio of 5xx errors increases by more than 0.5% compared to baseline over a 5-minute window, trigger an immediate rollback.
+2. **Latency Degradation (p95 / p99):** If p99 latency rises by >20% compared to baseline (indicating lock contention, memory leaks, or unoptimized database queries), halt the rollout.
+3. **Application Core Dumps / Panics:** Any spike in unhandled process exceptions or OOM kills triggers an abort.
+4. **Automated Rollback Action:** The canary controller (e.g., Flagger, Argo Rollouts) immediately sets canary traffic weight to 0% and routes 100% of requests to the stable baseline pool without requiring human on-call intervention.
 </details>
 
-## Cumulative review
+---
 
-Closed-book. Don't reopen modules 00-03 while attempting these — the point is to
-find out what actually stuck.
+## Cumulative Track Review
 
-1. You change one line of Python and your Docker build reinstalls every
-   dependency, taking four minutes. Explain the cause using the build-cache rule
-   (module 00) and give the exact Dockerfile fix.
-2. An app "works on one replica, breaks on three": inconsistent counters and lost
-   uploads. Name the factor violated (module 01), the two distinct sub-causes
-   (memory vs disk), and the fix for each — then explain why fixing this is a
-   *precondition* for the rolling deploys in module 03.
-3. Your CI is green on every PR yet bugs and a leaked key reached prod and you
-   can't roll back to yesterday's image. List four pipeline flaws (module 02) and
-   their fixes, and say specifically which fix module 03's rollback depends on.
-4. Trace a single request-and-shutdown story: a rolling deploy retires a replica
-   while it's serving a 4-second request. Walk from SIGTERM to clean exit, naming
-   what makes uvicorn receive the signal (module 00), what the app does (module
-   01), and what the platform does with readiness (module 03/06).
-5. You must rename `orders.ref` to `orders.reference` (used by the API and read by
-   old replicas) with zero downtime. Give the full sequence of deploys and
-   migrations, and state the invariant that must hold at every step (modules 03,
-   and previews 04).
-6. For each, say whether it's safe in a single rolling deploy or must be split, and
-   why: (a) add a new optional query parameter; (b) make an existing optional
-   request field required; (c) add a new nullable DB column; (d) drop an unused DB
-   column; (e) add a new endpoint.
-7. Map each choice to the `learn/` track you'd go deep in: full Docker image
-   internals and registries; the rolling-update/probe mechanics of an orchestrator;
-   real CI/CD pipeline tooling and GitOps; image scanning and supply-chain
-   security.
+*Test your comprehension of Modules 00 through 03 before moving to Database Migrations.*
 
 <details>
-<summary>Answers</summary>
+<summary><strong>1. Build-Time vs Runtime Layer Caching:</strong> A Python Dockerfile copies all source code before running <code>pip install -r requirements.txt</code>. Why does this ruin build velocity, and what is the fix?</summary>
 
-1. The build cache reuses a layer only if its instruction and all prior layers are
-   unchanged; `COPY . .` before `pip install` means any code change busts the copy
-   layer and thus the install layer after it, reinstalling everything. Fix: copy
-   the manifest and install *first* — `COPY requirements.txt .` then
-   `RUN pip install -r requirements.txt` — *before* `COPY . .`, so the deps layer
-   stays cached across code changes (module 00).
-2. Factor VI (stateless processes). Sub-causes: **in-memory state** (a counter/
-   session dict each replica holds separately → inconsistent) → move to Redis; and
-   **local-disk state** (uploads on one ephemeral replica → lost on
-   reschedule/deploy) → object storage with a DB pointer (module 01). It's a
-   precondition for rolling deploys because a rolling deploy kills and replaces
-   replicas one at a time — safe only if any replica can serve any request
-   identically, i.e. only if the app holds no local state (module 03).
-3. (i) Unpinned deps → pin/lock; (ii) no ruff/mypy/secret scan → add them as
-   gating steps; (iii) blanket retries or no branch protection → enable branch
-   protection, quarantine specific flakes; (iv) tagging only `:latest` → tag by
-   commit SHA. Module 03's **rollback** depends specifically on the SHA-tagging
-   fix — without an immutable per-commit tag there's no addressable "previous
-   known-good image" to redeploy (module 02).
-4. The platform sends SIGTERM to PID 1 — uvicorn receives it because `CMD` is
-   exec form (module 00). The app's `lifespan` shutdown runs: it fails the
-   readiness probe so the LB stops routing *new* requests, lets the in-flight
-   4-second request finish (drain), closes pools, and exits before the grace
-   period (module 01 / track 08 module 09). The platform, seeing readiness fail,
-   stops sending new traffic to this replica and only sends to the new replica once
-   *its* readiness passes (module 03/06) — so the turnover is invisible.
-5. Expand/contract: **Deploy 1** — migration adds `reference` (nullable), code
-   dual-writes both `ref` and `reference` and reads `ref`; backfill `reference`
-   from `ref`. **Deploy 2** — code switches reads to `reference` (still writing
-   both). **Deploy 3** — code stops using `ref`. **Deploy 4** — migration drops
-   `ref`. Invariant at every step: the schema and API are valid for **both** the
-   old and new running versions simultaneously (modules 03, 04).
-6. (a) Safe — additive/optional. (b) Split — making an optional field required is
-   breaking; accept-optional first, require later. (c) Safe — additive nullable
-   column, migrate before code. (d) Split — destructive; stop using it in code,
-   fully roll out, then drop in a later deploy. (e) Safe — additive.
-7. Docker image internals/registries → `learn/02-docker`; orchestrator
-   rolling-update/probe mechanics → `learn/03-kubernetes`; CI/CD tooling and
-   GitOps → `learn/10-cicd-and-gitops`; image scanning/supply-chain →
-   `learn/11-security-deep-dive` (and `learn/18-supply-chain-security`).
-
+Docker caches layers sequentially. Copying the entire workspace invalidates the cache for that layer on any code change. Consequently, `pip install` must re-execute completely on every commit. Fix: Copy `requirements.txt` first, run `pip install`, and then copy source code (`COPY . .`).
 </details>
 
-## Further reading & sources
+<details>
+<summary><strong>2. Container Disposability & Multi-Replica State:</strong> A backend service stores user shopping carts in process heap memory. What two operational failures occur when deployed to 4 container replicas in Kubernetes?</summary>
 
-- [Martin Fowler: BlueGreenDeployment](https://martinfowler.com/bliki/BlueGreenDeployment.html) - The canonical description of standing up a parallel environment and flipping traffic atomically, with instant rollback.
-- [Martin Fowler: CanaryRelease](https://martinfowler.com/bliki/CanaryRelease.html) - Releasing to a small slice of traffic and ramping — the bounded-blast-radius strategy for risky changes.
-- [Kubernetes: Performing a rolling update](https://kubernetes.io/docs/tutorials/kubernetes-basics/update/update-intro/) - How an orchestrator swaps replicas incrementally, the default strategy discussed here.
-- [Kubernetes: Deployment strategy (maxSurge / maxUnavailable)](https://kubernetes.io/docs/concepts/workloads/controllers/deployment/#strategy) - The surge/unavailability knobs that make a rolling update truly zero-downtime.
-- [Google SRE Book: Release Engineering](https://sre.google/sre-book/release-engineering/) - Why immutable, addressable artifacts and safe rollback make frequent deploys reliable rather than reckless.
+1. **State Partitioning:** Subsequent requests from the same user hit different replicas via load-balancer round-robin, making carts appear empty (401/404).
+2. **State Destruction on Pod Death:** When Kubernetes terminates a pod during a rolling update, all carts stored in that pod's memory are destroyed permanently.
+</details>
 
-## Next
+<details>
+<summary><strong>3. CI Pipeline Fail-Fast Ordering:</strong> What is the economic rationale for running linters and static type checks before executing unit and database integration tests?</summary>
 
-[04-database-migrations-in-deployment-pipelines](../04-database-migrations-in-deployment-pipelines/README.md)
-— you now know migration *ordering* is inseparable from deployment. The next module
-goes deep on doing migrations safely as part of a deploy: the expand/contract
-pattern in full, backfills and dual-writes, avoiding table locks that cause
-downtime, and running migrations as one-off admin processes (factor XII) in the
-pipeline.
+Linters and type checks execute in seconds with minimal CPU overhead. Running them first fails broken pull requests immediately, saving runner compute minutes and providing instant feedback without running expensive, multi-minute integration test suites.
+</details>
+
+---
+
+## Summary & Further Study
+
+- **Version Coexistence:** Assume old and new versions run concurrently during every deployment.
+- **Graceful Draining:** Pair exec-form `CMD` with readiness probes and SIGTERM traps to eliminate deployment 502s.
+- **Expand/Contract:** Spread breaking API changes across multiple backward-compatible deployments.
+
+### Further Reading
+- [Martin Fowler on Canary Releases](https://martinfowler.com/bliki/CanaryRelease.html)
+- [Kubernetes Documentation: Rolling Updates and Deployments](https://kubernetes.io/docs/concepts/workloads/controllers/deployment/)
+- [Argo Rollouts: Progressive Delivery for Kubernetes](https://argoproj.github.io/argo-rollouts/)
+- [Google SRE Book: Canarying Releases](https://sre.google/sre-book/release-engineering/)

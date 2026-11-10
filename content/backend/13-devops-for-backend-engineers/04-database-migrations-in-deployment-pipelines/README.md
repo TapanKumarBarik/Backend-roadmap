@@ -1,454 +1,518 @@
 # Module 04: Database Migrations in Deployment Pipelines
 
-## Why this matters
+> **Prerequisites:** [00-containerizing-a-backend-app](../00-containerizing-a-backend-app/README.md), [03-deployment-strategies](../03-deployment-strategies/README.md), and [Databases and Data Layer](../../04-databases-and-data-layer/00-database-fundamentals/README.md).  
+> **Estimated Reading Time:** 32 minutes  
+> **Target Audience:** Backend engineers, data platform engineers, and site reliability engineers designing zero-downtime schema evolution and automated deployment migration workflows.
 
-Module 03 established the rule: during a deploy, two app versions run against one
-database, so migrations must keep the schema valid for *both* versions at every
-instant. This module is how you actually *do* that — safely, as part of an
-automated pipeline, without downtime.
+> [!TIP]
+> **Golden Rule of Database Migrations in Pipelines:** Never perform in-place breaking schema changes in a live production environment. Decompose dangerous changes into the **Expand/Contract** pattern: add new schema elements additively *before* the application code deploys, backfill data in asynchronous idempotent batches, dual-write across both columns, and contract/drop obsolete structures in a separate deployment *after* all legacy replicas are decommissioned.
 
-Migrations are the single most dangerous thing in a deploy, because they're the one
-step that isn't easily reversible and isn't isolated to one replica. A bad code
-deploy rolls back in seconds; a migration that dropped a column, rewrote a table,
-or took a lock that froze the database does not. The failure modes are specific and
-brutal: a migration that adds a `NOT NULL` column with no default rejects every
-insert from the still-running old code; a migration that rewrites a big table
-holds a lock that stalls all writes for minutes (an outage); a migration deployed
-in the wrong order relative to the code breaks whichever version is out of sync.
-Every one of these is avoidable with a known pattern.
+---
 
-Track 04 (Databases and Data Layer) taught you migrations as a tool — Alembic,
-schema versioning, writing an `upgrade`/`downgrade`. This module is the
-*deployment* view: how to sequence and shape migrations so they're safe to run
-automatically while the app is live and mid-rollout. The **expand/contract**
-pattern is the spine, migration ordering vs. app rollout is the discipline, and
-"run it as a one-off admin process" (factor XII) is the mechanism. The
-orchestration of *when* the pipeline runs the migration job — `learn/10-cicd-and-
-gitops` for the pipeline wiring, `learn/03-kubernetes` for Jobs/init-containers —
-is cross-referenced; the schema-change reasoning is what you own here.
+## Visual Mental Models & Architecture
 
-## Concepts
+### The Five-Phase Expand/Contract Schema Migration Lifecycle
 
-### Expand/contract: the pattern that makes any change zero-downtime
+Because zero-downtime rolling deployments guarantee that two application versions run concurrently against a single shared database, every schema change must keep data structures valid for both versions at every instant.
 
-Almost every "risky" schema change can be decomposed into a sequence of
-*individually safe, backward-compatible* steps. That decomposition is
-**expand/contract** (also called parallel-change):
+```mermaid
+flowchart LR
+    subgraph Phase1["Phase 1: Expand (Migration 1)"]
+        direction TB
+        Mig1["Run Additive Migration\n(ALTER TABLE ADD COLUMN nullable)"]
+        OldApp1["v1.0 Old App (Reads/Writes col_old)"]
+        Note1["Old code ignores new column"]
+        Mig1 --> OldApp1
+    end
 
-1. **Expand** — add the new schema *alongside* the old, in a purely additive way
-   that the currently-running code doesn't even notice. Add the new column/table;
-   don't touch the old.
-2. **Migrate the data & code** — backfill existing rows into the new shape;
-   deploy code that **writes to both** old and new (dual-write) and gradually
-   **shifts reads** from old to new.
-3. **Contract** — once nothing reads or writes the old schema anymore, remove it
-   in a final, separate deploy.
+    subgraph Phase2["Phase 2: Dual-Write & Backfill (Deploy A)"]
+        direction TB
+        DeployA["Deploy v1.1 App (Dual-Write)"]
+        DualWrite["Writes: col_old AND col_new\nReads: col_old"]
+        Backfill["Idempotent Batched Backfill Job\n(UPDATE WHERE col_new IS NULL)"]
+        DeployA --> DualWrite
+        DeployA --> Backfill
+    end
 
-The power of this is that *every intermediate state is a valid database for every
-running version of the app.* You never have a moment where the schema and some
-running code disagree. A scary "rename a column" becomes five boring, reversible
-steps. The cost is that a single logical change spans multiple deploys and a
-backfill — which is exactly the price of zero downtime, and it's the same
-expand/contract shape as the backward-compatible API changes in module 03 (they
-share the root cause: two versions coexist).
+    subgraph Phase3["Phase 3: Shift Reads (Deploy B)"]
+        direction TB
+        DeployB["Deploy v1.2 App (Shift Reads)"]
+        ShiftRead["Writes: col_old AND col_new\nReads: col_new"]
+        DeployB --> ShiftRead
+    end
 
-```
- phase:   EXPAND ─────► MIGRATE (data + code) ─────────────► CONTRACT
-          add new col   backfill (batched) + dual-write +    drop old col
-          (additive)    shift reads old→new                  (destructive)
- ──────────────────────────────────────────────────────────────────────►
- schema:  old + NEW     old + NEW (both valid, both written)  NEW only
- reads:   old           old ──────────────► new               new
- writes:  old           old + NEW ─────────────────────────►  new
-          ▲ safe before code        ▲ every step valid for BOTH versions
-                                                    ▲ safe only after old code gone
-```
+    subgraph Phase4["Phase 4: Cease Old Writes (Deploy C)"]
+        direction TB
+        DeployC["Deploy v2.0 App (New Only)"]
+        NewOnly["Writes: col_new ONLY\nReads: col_new ONLY"]
+        DeployC --> NewOnly
+    end
 
-### Migration ordering relative to the app rollout
+    subgraph Phase5["Phase 5: Contract (Migration 2)"]
+        direction TB
+        Mig2["Run Destructive Migration\n(ALTER TABLE DROP COLUMN col_old)"]
+        SafeContract["Safe: Zero running replicas reference col_old"]
+        Mig2 --> SafeContract
+    end
 
-The ordering rule from module 03, stated precisely and justified:
+    Phase1 --> Phase2
+    Phase2 --> Phase3
+    Phase3 --> Phase4
+    Phase4 --> Phase5
 
-- **Additive migrations run *before* the code that uses them.** Adding a nullable
-  or defaulted column, a new table, or a new index is invisible to the old code
-  (it doesn't reference them), so you can apply it first and then deploy code that
-  relies on it. If you deployed the code first, the new code would reference a
-  column that doesn't exist yet and crash. **Expand goes before code.**
-- **Destructive migrations run *after* every version that used the thing is
-  gone.** Dropping a column, table, or constraint must wait until no running
-  replica references it — otherwise you break the still-running old version
-  mid-rollout. So: deploy code that stops using it, let that fully roll out
-  (become the *only* running version), and only then, in a *later* deploy, drop it.
-  **Contract goes after code.**
-
-The mental test for any migration: *"Is the resulting schema valid for every app
-version currently running, including the ones mid-rollout?"* Additive changes pass
-that test before the code ships; destructive changes only pass it after the last
-version that needed the thing is gone. This is why a destructive migration and the
-code change that motivated it must never be in the same deploy — a point worth
-over-learning, because it's the single most common cause of a broken rollout.
-
-### Backfills and dual-writes: moving the data without a freeze
-
-When a change requires *existing* rows to be transformed (splitting a `name` into
-`first`/`last`, copying `ref` into `reference`, populating a new required field),
-you can't do it in one big `UPDATE` inside the migration — on a large table that
-locks rows and can run for minutes. Instead:
-
-- **Backfill in batches, outside the schema migration.** Add the new nullable
-  column (fast, additive), then run a separate, *idempotent, batched* job that
-  fills it in chunks (`UPDATE ... WHERE id BETWEEN x AND y AND new_col IS NULL`),
-  sleeping between batches so you don't saturate the DB. It can be re-run safely if
-  it fails partway (idempotency — a discipline from track 06/track 10).
-- **Dual-write during the transition.** While reads are still on the old column,
-  have the app write **both** columns on every insert/update, so new rows are
-  correct in both places and the backfill only has to handle *old* rows. Once the
-  backfill completes and reads have switched to the new column, you drop the
-  dual-write and (later) the old column.
-
-The sequence for a required new field, end to end: add nullable column → dual-write
-+ backfill in batches → verify no NULLs remain → add the `NOT NULL` constraint (now
-safe) → switch reads → stop writing the old field → drop the old field. Seven small
-safe steps instead of one dangerous one.
-
-### Avoiding the lock that becomes an outage
-
-The subtlest migration danger is not correctness but **locking**: some DDL
-operations take a lock that blocks reads or writes on the whole table while they
-run, and on a large or busy table that block *is* downtime even though the
-migration "succeeds." The specifics are engine-dependent (this is Postgres; the
-principle is universal, and the depth is a database-operations topic — `learn/14`
-in the ops curriculum):
-
-- **Adding a column** is fast/safe in modern Postgres — *unless* you add it with a
-  non-constant/volatile default in older versions, which rewrites the table. Add
-  nullable, backfill separately, then set a default.
-- **Adding an index**: a plain `CREATE INDEX` locks writes for the whole build.
-  Use `CREATE INDEX CONCURRENTLY` to build it without blocking writes (it can't run
-  inside a transaction — a gotcha with migration tools that wrap steps in one).
-- **Adding a `NOT NULL` constraint** scans/locks the table; adding it as `NOT
-  VALID` then `VALIDATE CONSTRAINT` separately avoids the long lock.
-- **Changing a column type** can rewrite the whole table under a lock — almost
-  always do it as an expand/contract (new column) instead.
-
-The rule of thumb: **any migration that rewrites or long-locks a big table is an
-outage in disguise; decompose it into additive steps + a batched backfill.** Keep
-each migration fast (sub-second locks), and do the slow data movement as a separate
-online job.
-
-### Running migrations as a one-off admin process (factor XII)
-
-*How* the migration runs in the pipeline matters as much as what it does. It is a
-**one-off admin process** (factor XII, track 08 module 10): the *same image* as the
-app, with the *same config*, running the migration command once — not an ad-hoc
-`psql` session, not code baked into app startup.
-
-- **Same image, same config:** `docker run --env-file .env <same-image> alembic
-  upgrade head`. This guarantees the migration sees exactly the schema-versioning
-  code and connection config the app uses (parity, factor X), and it's reviewable
-  and reproducible.
-- **Run it as a distinct pipeline step, not in the app's startup.** Don't put
-  `alembic upgrade` in the container's `CMD` or `lifespan` startup: with N
-  replicas that's N concurrent migrations racing each other, and it couples
-  "process starts" to "schema changes" (slow, dangerous startup — violates
-  disposability). Run migrations as a **single** dedicated step: a Kubernetes
-  `Job` or init step, or a pipeline stage that runs once before the app rollout.
-- **Sequence it with the deploy per the ordering rule:** for an additive migration,
-  the pipeline runs the migration job, waits for success, *then* rolls out the new
-  app; for a destructive one, the app rollout happens first and the drop is a later
-  pipeline run.
-
-The Kubernetes/pipeline mechanics (Jobs, init-containers, migration-before-rollout
-hooks, Argo sync waves) are `learn/03-kubernetes` and `learn/10-cicd-and-gitops`.
-The backend engineer's responsibility is that the migration is *safe to run
-automatically, once, in that sequence* — which is everything above.
-
-## Command reference
-
-| Concern | Rule / command |
-|---|---|
-| Additive migration | Run **before** the code that uses it (`expand`) |
-| Destructive migration | Run **after** every version that used it is gone (`contract`) |
-| Big data change | Backfill in **batches**, idempotent, outside the DDL |
-| During transition | **Dual-write** old+new; shift reads gradually |
-| Add index | `CREATE INDEX CONCURRENTLY` (no write lock) |
-| Add NOT NULL | Backfill → `NOT VALID` then `VALIDATE CONSTRAINT` |
-| Change type | Never in place — expand/contract to a new column |
-| Run it | One-off job, same image/config: `alembic upgrade head` (factor XII) |
-| Not in startup | Never in `CMD`/`lifespan` — N replicas would race |
-
-Expand/contract for a column rename (`ref` → `reference`), as an Alembic sequence:
-
-```python
-# --- Migration 1 (EXPAND): add the new column, additive & nullable. Runs BEFORE new code. ---
-def upgrade():
-    op.add_column("orders", sa.Column("reference", sa.String(), nullable=True))
-
-# --- App deploy A: dual-write both columns, still READ `ref`. ---
-# order.reference = order.ref = value   # both written on every insert/update
-
-# --- Batched backfill (a one-off job, NOT a migration): idempotent, chunked. ---
-#   UPDATE orders SET reference = ref
-#   WHERE id BETWEEN :lo AND :hi AND reference IS NULL;   -- loop over id ranges, sleep between
-
-# --- App deploy B: switch READS to `reference` (still writing both). ---
-# --- App deploy C: stop writing `ref`. ---
-
-# --- Migration 2 (CONTRACT): now nothing uses `ref`. Runs AFTER deploy C is fully rolled out. ---
-def upgrade():
-    op.drop_column("orders", "ref")
+    classDef expand fill:#e6fffa,stroke:#00a389,stroke-width:2px;
+    classDef contract fill:#fff0f0,stroke:#e53e3e,stroke-width:2px;
+    classDef code fill:#f0f4ff,stroke:#3182ce,stroke-width:2px;
+    class Phase1 expand;
+    class Phase5 contract;
+    class Phase2,Phase3,Phase4 code;
 ```
 
-Adding a NOT NULL column without rejecting the old code's inserts:
+---
 
-```python
-# ❌ breaks old code's inserts immediately (they don't supply `plan`)
-op.add_column("users", sa.Column("plan", sa.String(), nullable=False))
+## Systematic Taxonomic Reference Grids
 
-# ✅ additive first, backfill, then constrain — old code keeps working throughout
-op.add_column("users", sa.Column("plan", sa.String(), nullable=True))   # migration 1 (expand)
-#   ... app dual-writes `plan`; batched backfill sets it for existing rows ...
-op.alter_column("users", "plan", nullable=False)                         # migration 2, after no NULLs
+### PostgreSQL DDL Lock Level & Downtime Matrix
+
+Certain Data Definition Language (DDL) operations acquire heavy table-level locks (`ACCESS EXCLUSIVE`), blocking all concurrent reads (`SELECT`) and writes (`INSERT`, `UPDATE`, `DELETE`) until completion.
+
+| DDL Operation | PostgreSQL Lock Acquired | Concurrent Read Impact | Concurrent Write Impact | Zero-Downtime Safe Solution |
+| :--- | :--- | :--- | :--- | :--- |
+| **`ADD COLUMN` (Nullable, no default)** | `ACCESS EXCLUSIVE` | Blocked during metadata update (< 5ms) | Blocked during metadata update (< 5ms) | Safe to run directly; sub-second lock. |
+| **`ADD COLUMN ... DEFAULT <val>` (Postgres $\ge$ 11)** | `ACCESS EXCLUSIVE` | Blocked (< 10ms, constant time) | Blocked (< 10ms, constant time) | Safe in Postgres 11+ with constant defaults. |
+| **`ADD COLUMN ... NOT NULL` (No default)** | `ACCESS EXCLUSIVE` | **Total Table Block** (Scans all rows) | **Total Table Block** (Fails inserts) | **Anti-Pattern!** Add as nullable, backfill, then apply `NOT NULL`. |
+| **`CREATE INDEX` (Standard)** | `SHARE` | Allowed | **Blocked** for entire index build | Use `CREATE INDEX CONCURRENTLY` (No write block). |
+| **`ALTER TABLE ADD CONSTRAINT ... CHECK / FK`** | `ACCESS EXCLUSIVE` | **Blocked** during table validation scan | **Blocked** during table validation scan | Add as `NOT VALID` (instant), then `VALIDATE CONSTRAINT`. |
+| **`DROP COLUMN`** | `ACCESS EXCLUSIVE` | Blocked during metadata update (< 5ms) | Blocked during metadata update (< 5ms) | Only run in Phase 5 after code references are purged. |
+| **`ALTER COLUMN TYPE`** | `ACCESS EXCLUSIVE` | **Total Outage** (Full table rewrite) | **Total Outage** (Full table rewrite) | Expand/Contract to a new column with backfill. |
+
+### Migration Pipeline Execution Models
+
+| Execution Model | Trigger Mechanism | Failure Blast Radius | Concurrency Race Hazard | Production Verdict |
+| :--- | :--- | :--- | :--- | :--- |
+| **In-Process App Startup (`CMD` / `lifespan`)** | Every pod executes `alembic upgrade` on start | High: Pod crash loops take down entire service | **Extreme:** 10 pods race DDL locks concurrently | **Strict Anti-Pattern.** Never run in app startup. |
+| **Kubernetes Init Container** | Runs before app container in each pod | High: Delays pod startup by minutes | Moderate: Multi-pod rollout still races migrations | Discouraged for high-scale clusters. |
+| **Pre-Deployment Pipeline Job (Factor XII)** | Dedicated CI/CD job or Kubernetes `Job` | Low: Pipeline halts before any code rollout begins | **Zero:** Exactly one process executes migrations | **Standard Industry Best Practice.** |
+| **Dedicated Migration Operator (Argo Sync Waves)** | GitOps hook wave executing prior to deployment | Low: Controlled automated rollbacks | Zero: Handled by orchestrator sync waves | Excellent for enterprise GitOps environments. |
+
+---
+
+## Production War Stories: Incident Post-Mortem
+
+### SEV-1 Post-Mortem: The 18-Minute `ACCESS EXCLUSIVE` Table Lock
+
+#### Incident Overview
+* **Severity:** SEV-1 (Complete Global Checkout Outage)
+* **Detection Time:** 2 minutes post-deployment
+* **Resolution Time:** 18 minutes (Database lock-queue pileup and connection pool exhaustion)
+* **Financial Impact:** \$720,000 in dropped transactions; 62,000 connection timeout errors.
+
+#### What Happened
+A backend team deployed a migration on an `orders` table containing 42,000,000 rows. The migration script contained a single line of DDL intended to enforce multi-currency compliance:
+```sql
+ALTER TABLE orders ADD COLUMN currency VARCHAR(3) NOT NULL;
 ```
 
-Running the migration as a one-off admin process in the pipeline (factor XII) —
-the mechanics are `learn/10`, this is the shape:
+Because the column was declared `NOT NULL` without a default value on an existing table with 42 million rows:
+1. PostgreSQL acquired an `ACCESS EXCLUSIVE` lock on the `orders` table.
+2. An `ACCESS EXCLUSIVE` lock conflicts with **all other locks**, including standard reads (`SELECT`).
+3. While PostgreSQL attempted to scan and rewrite 42 million rows to verify that no null values existed, incoming web traffic continued sending 800 HTTP requests per second to the checkout service.
+4. Every incoming query stacked up in PostgreSQL's lock queue, waiting for the table lock to release.
+5. In PostgreSQL, **locks in the lock queue block subsequent requests behind them**. Consequently, even fast primary-key reads were blocked behind the pending DDL lock.
+6. The application's HikariCP/asyncpg connection pools exhausted within 40 seconds. Pods began crashing with `500 Internal Server Error` and `504 Gateway Timeout`.
 
-```yaml
-# A dedicated migration step, run ONCE before the app rollout — not in the app container's CMD.
-migrate:
-  image: registry.example.com/myapp:git-<sha>     # SAME image as the app (module 02)
-  command: ["alembic", "upgrade", "head"]          # one-off admin process
-  envFrom: [{ secretRef: { name: app-config } }]   # SAME config as the app
-# pipeline: run `migrate` to success → THEN roll out the app (for an additive change)
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Customer as Active Customer
+    participant API as Order Service
+    participant DB as PostgreSQL 16
+    participant Mig as CI Migration Job
+
+    Mig->>DB: ALTER TABLE orders ADD COLUMN currency NOT NULL;
+    Note over DB: DB grants ACCESS EXCLUSIVE Lock on 'orders'<br/>Begins scanning 42,000,000 rows (Estimated: 15 mins)
+    Customer->>API: POST /checkout (Insert Order)
+    API->>DB: INSERT INTO orders ...
+    Note over DB: Queued behind ACCESS EXCLUSIVE lock!
+    Customer->>API: GET /orders/123 (Read Order)
+    API->>DB: SELECT * FROM orders WHERE id=123
+    Note over DB: Blocked behind queued INSERT! Lock pileup!
+    Note over API: Connection pool exhausted (Max 100 conns reached)
+    API-->>Customer: 504 Gateway Timeout / 500 Server Error
+    Note over API,DB: Entire platform down for 18 minutes until migration completes!
 ```
 
-## Hands-on exercises
+#### Root Cause Analysis
+1. **Unbuffered DDL Lock:** Executing an un-defaulted `NOT NULL` migration on a 42M-row table triggered an unavoidable whole-table scan under an `ACCESS EXCLUSIVE` lock.
+2. **Missing Statement Timeouts:** The migration connection did not set a `lock_timeout`. A safe migration should set `SET lock_timeout = '2s'` to abort immediately if the lock cannot be acquired within 2 seconds, preventing queue starvation.
+3. **Coupled Migration:** The team combined schema definition and constraint enforcement into a single blocking step instead of using the Expand/Contract lifecycle.
 
-Work against a local Postgres in Docker with an Alembic-managed FastAPI service
-(bring one from track 04). Simulate "two versions running" by keeping an old-code
-client hitting the API while you migrate.
+#### The Fix & Architectural Hardening
+1. **Expand Step:** Added the column as **nullable** (`ALTER TABLE orders ADD COLUMN currency VARCHAR(3);`), which completes in <5 milliseconds as a pure metadata update in PostgreSQL.
+2. **Dual-Write & Batched Backfill:** Configured the application to dual-write currency on all new orders, while a background worker updated legacy rows in chunks of 5,000.
+3. **Safe Constraint Validation:** Once all rows were populated, applied the constraint in two lock-safe steps:
+   ```sql
+   ALTER TABLE orders ADD CONSTRAINT check_currency_not_null CHECK (currency IS NOT NULL) NOT VALID;
+   ALTER TABLE orders VALIDATE CONSTRAINT check_currency_not_null;
+   ```
+   `VALIDATE CONSTRAINT` acquires only a `SHARE UPDATE EXCLUSIVE` lock, which **does not block concurrent reads or writes**.
 
-### 1. Add a nullable column in the right order
+---
 
-Add a nullable column your new code will use. Practice the order: run
-`alembic upgrade head` (the migration) *first*, confirm the old running code is
-unaffected, *then* deploy the new code that uses the column. Confirm both work.
+## Multi-Language Production Code Tabs
 
-### 2. Break the order on purpose
+The following code tabs demonstrate how to implement safe, zero-downtime database migrations, concurrent index creation, and batched backfills in Go, Node.js/TypeScript, Python, and C#.
 
-Now do it backwards: deploy code that reads the new column *before* running the
-migration. Watch the new code error (column doesn't exist). Reset, and state the
-rule you just violated.
+=== "Go"
+    ```go
+    // Package migrations implements an idempotent, batched backfill worker in Go.
+    // Chunked updates prevent database lock contention and connection pool exhaustion.
+    package migrations
 
-### 3. Add a NOT NULL column safely
+    import (
+    	"context"
+    	"database/sql"
+    	"fmt"
+    	"log/slog"
+    	"time"
+    )
 
-Add a required field the wrong way first (`nullable=False`, no default) and watch
-the old code's inserts fail. Then do it the safe way: nullable column → backfill →
-`alter_column(nullable=False)`. Confirm the old code keeps inserting throughout the
-first two steps.
+    type BackfillWorker struct {
+    	db        *sql.DB
+    	batchSize int
+    }
 
-### 4. Write an idempotent batched backfill
+    func NewBackfillWorker(db *sql.DB, batchSize int) *BackfillWorker {
+    	return &BackfillWorker{db: db, batchSize: batchSize}
+    }
 
-Write a backfill script that fills the new column in id-range batches, skips rows
-already filled (`WHERE new_col IS NULL`), and sleeps between batches. Kill it
-halfway and re-run it — confirm it completes correctly without double-processing.
-That's the idempotency that makes it safe in a pipeline.
+    // BackfillCurrency executes batched updates until all NULL records are populated.
+    func (w *BackfillWorker) BackfillCurrency(ctx context.Context, defaultCurrency string) error {
+    	for {
+    		select {
+    		case <-ctx.Done():
+    			return ctx.Err()
+    		default:
+    		}
 
-### 5. Full expand/contract rename
+    		// Idempotent chunk: update only records where modern column is NULL
+    		query := `
+    			WITH rows_to_update AS (
+    				SELECT id FROM orders 
+    				WHERE currency IS NULL 
+    				LIMIT $1 
+    				FOR UPDATE SKIP LOCKED
+    			)
+    			UPDATE orders 
+    			SET currency = $2 
+    			FROM rows_to_update 
+    			WHERE orders.id = rows_to_update.id;`
 
-Take a column used by both the API and the DB and rename it end-to-end with the
-five-step expand/contract sequence (expand → dual-write+backfill → switch reads →
-stop old writes → contract). Keep an old client running the whole time and confirm
-it never breaks. This is module 03's zero-downtime rename, done for real.
+    		res, err := w.db.ExecContext(ctx, query, w.batchSize, defaultCurrency)
+    		if err != nil {
+    			return fmt.Errorf("backfill batch failed: %w", err)
+    		}
 
-### 6. Feel a locking migration
+    		rowsAffected, err := res.RowsAffected()
+    		if err != nil {
+    			return err
+    		}
 
-On a table with a lot of rows, run a plain `CREATE INDEX` while a load generator
-writes to the table — observe writes stall until the index finishes. Redo it with
-`CREATE INDEX CONCURRENTLY` and observe writes continue. Note why CONCURRENTLY
-can't run inside a transaction block.
+    		slog.Info("Backfill batch completed", "rows_updated", rowsAffected)
 
-### 7. Run the migration as a one-off admin process
+    		if rowsAffected == 0 {
+    			slog.Info("Backfill completed successfully: 0 NULL records remaining")
+    			break
+    		}
 
-Run `alembic upgrade head` via `docker run --env-file .env <same-image>` — the
-exact image and config your app uses (factor XII). Then deliberately (mis)place
-`alembic upgrade` in the app's `lifespan` startup, scale to 3 replicas, and reason
-about what happens when three replicas start at once. Remove it.
+    		// Backpressure delay to allow concurrent OLTP traffic priority
+    		time.Sleep(100 * time.Millisecond)
+    	}
+    	return nil
+    }
+    ```
 
-### 8. Diagnose and fix
+=== "Node.js/TypeScript"
+    ```typescript
+    // TypeScript migration helper using Knex for lock-safe index creation
+    import { Knex } from "knex";
 
-A deploy pipeline runs, and production goes down for four minutes and then throws
-errors. The single migration in the release does all of this at once, in the same
-deploy as the code that renames the field:
+    export async function up(knex: Knex): Promise<void> {
+      // Set lock timeout to 2 seconds to prevent lock queue pileup
+      await knex.raw("SET lock_timeout = '2s';");
 
-```python
-def upgrade():
-    op.alter_column("orders", "ref", new_column_name="reference")   # (a) rename in place
-    op.add_column("users", sa.Column("plan", sa.String(), nullable=False))  # (b) NOT NULL, no default
-    op.create_index("ix_orders_big", "orders", ["customer_id"])     # (c) plain index on a huge table
-# and this runs inside the app container's lifespan startup, on all 3 replicas   # (d)
+      // Phase 1 (Expand): Add column as nullable (instant metadata update)
+      await knex.schema.alterTable("orders", (table) => {
+        table.string("reference_code", 64).nullable();
+      });
+
+      // CONCURRENT index creation: does NOT block concurrent INSERT/UPDATE/DELETE
+      // Note: Must disable transaction wrapper in knex migration config!
+      await knex.raw(
+        "CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_orders_ref ON orders (reference_code);"
+      );
+    }
+
+    export async function down(knex: Knex): Promise<void> {
+      await knex.raw("SET lock_timeout = '2s';");
+      await knex.raw("DROP INDEX CONCURRENTLY IF EXISTS idx_orders_ref;");
+      await knex.schema.alterTable("orders", (table) => {
+        table.dropColumn("reference_code");
+      });
+    }
+
+    // Idempotent Batched Backfill Script
+    export async function runBackfill(knex: Knex, batchSize = 1000): Promise<void> {
+      let totalUpdated = 0;
+      while (true) {
+        const updated = await knex.raw(
+          `
+          WITH batch AS (
+            SELECT id FROM orders 
+            WHERE reference_code IS NULL 
+            LIMIT ? 
+            FOR UPDATE SKIP LOCKED
+          )
+          UPDATE orders 
+          SET reference_code = ref 
+          FROM batch 
+          WHERE orders.id = batch.id;
+        `,
+          [batchSize]
+        );
+
+        const count = updated.rowCount || 0;
+        totalUpdated += count;
+        console.log(`Backfilled ${count} rows (Total: ${totalUpdated})`);
+
+        if (count === 0) break;
+        await new Promise((resolve) => setTimeout(resolve, 50));
+      }
+    }
+    ```
+
+=== "Python"
+    ```python
+    """Production Alembic Migration: Expand/Contract with Lock Timeout and CONCURRENTLY."""
+
+    from alembic import op
+    import sqlalchemy as sa
+
+    # revision identifiers, used by Alembic.
+    revision = "20261110_expand_ref"
+    down_revision = "20261109_prev"
+
+
+    def upgrade() -> None:
+        # 1. Protect production: fail fast if lock cannot be acquired within 2s
+        op.execute("SET lock_timeout = '2s';")
+
+        # 2. Phase 1 (Expand): Add nullable column (sub-second metadata change)
+        op.add_column(
+            "orders", sa.Column("reference_code", sa.String(length=64), nullable=True)
+        )
+
+        # 3. Create index concurrently: must commit existing transaction first
+        op.execute("COMMIT;")
+        op.create_index(
+            "ix_orders_reference_code",
+            "orders",
+            ["reference_code"],
+            postgresql_concurrently=True,
+        )
+
+
+    def downgrade() -> None:
+        op.execute("SET lock_timeout = '2s';")
+        op.execute("COMMIT;")
+        op.drop_index(
+            "ix_orders_reference_code",
+            table_name="orders",
+            postgresql_concurrently=True,
+        )
+        op.drop_column("orders", "reference_code")
+
+
+    # --- Idempotent Batched Backfill Runner ---
+    def execute_batched_backfill(connection, batch_size: int = 2000) -> None:
+        while True:
+            result = connection.execute(
+                sa.text("""
+                WITH batch AS (
+                    SELECT id FROM orders 
+                    WHERE reference_code IS NULL 
+                    LIMIT :batch_size 
+                    FOR UPDATE SKIP LOCKED
+                )
+                UPDATE orders 
+                SET reference_code = ref 
+                FROM batch 
+                WHERE orders.id = batch.id;
+            """),
+                {"batch_size": batch_size},
+            )
+
+            if result.rowcount == 0:
+                break
+            connection.commit()
+    ```
+
+=== "C#"
+    ```csharp
+    namespace BackendRoadmap.Migrations;
+
+    using System;
+    using System.Threading;
+    using System.Threading.Tasks;
+    using Npgsql;
+
+    public class DatabaseBackfillWorker
+    {
+        private readonly string _connectionString;
+
+        public DatabaseBackfillWorker(string connectionString)
+        {
+            _connectionString = connectionString;
+        }
+
+        public async Task ExecuteBackfillAsync(int batchSize = 1000, CancellationToken ct = default)
+        {
+            await using var conn = new NpgsqlConnection(_connectionString);
+            await conn.OpenAsync(ct);
+
+            const string sql = @"
+                WITH batch AS (
+                    SELECT id FROM orders 
+                    WHERE reference_code IS NULL 
+                    LIMIT @batchSize 
+                    FOR UPDATE SKIP LOCKED
+                )
+                UPDATE orders 
+                SET reference_code = ref 
+                FROM batch 
+                WHERE orders.id = batch.id;";
+
+            while (!ct.IsCancellationRequested)
+            {
+                await using var cmd = new NpgsqlCommand(sql, conn);
+                cmd.Parameters.AddWithValue("batchSize", batchSize);
+
+                int affected = await cmd.ExecuteNonQueryAsync(ct);
+                Console.WriteLine($"Processed chunk: {affected} records updated.");
+
+                if (affected == 0)
+                {
+                    Console.WriteLine("Backfill complete: 0 NULL records remaining.");
+                    break;
+                }
+
+                await Task.Delay(50, ct); // Backpressure sleep
+            }
+        }
+    }
+    ```
+
+---
+
+## Practical Hands-On Verification CLI Workflows
+
+### Validating Lock-Free Indexing and Idempotent Backfills
+
+#### 1. Verifying Lock Safety via `lock_timeout`
+Always ensure your migration scripts enforce a lock timeout:
+```sql
+-- In PostgreSQL terminal:
+SET lock_timeout = '2000ms';
+ALTER TABLE orders ADD COLUMN reference_code VARCHAR(64) NULL;
 ```
 
+#### 2. Running Idempotent Batched Backfill
+```bash
+# Execute the Python/Node/Go backfill script
+python -m app.scripts.backfill_reference_code --batch-size=2000
+```
+
+**Expected Wire Output:**
+```text
+[2026-11-10 14:35:01] INFO Backfill chunk: 2000 rows updated.
+[2026-11-10 14:35:02] INFO Backfill chunk: 2000 rows updated.
+[2026-11-10 14:35:03] INFO Backfill chunk: 1420 rows updated.
+[2026-11-10 14:35:04] INFO Backfill chunk: 0 rows updated. Completed!
+```
+
+#### 3. Verifying Zero Remaining Null Values Before Applying Constraints
+```sql
+SELECT COUNT(*) FROM orders WHERE reference_code IS NULL;
+-- Expected output: 0
+```
+
+---
+
+## Operational Validation Checkpoints (Scenario Quizzes)
+
+### Checkpoint 1: Why NOT NULL Columns Without Defaults Reject Inserts
 <details>
-<summary>Solution</summary>
+<summary><strong>Scenario Assessment:</strong> During a rolling deployment, an engineer applies a migration that adds <code>plan_id INTEGER NOT NULL</code> to the <code>tenants</code> table before deploying the new backend image. Immediately, user registration requests fail with HTTP 500 errors. What caused the failures, and why did they occur during the rollout?</summary>
 
-- **(a) In-place rename in one deploy** → the old running replicas still reference
-  `ref`, which no longer exists → they break mid-rollout, and the new column name
-  isn't backward-compatible. Fix: expand/contract across deploys (add `reference`,
-  dual-write, backfill, switch reads, drop `ref` later).
-- **(b) `NOT NULL` with no default** → every insert from the still-running old code
-  (which doesn't supply `plan`) is rejected. Fix: add nullable → backfill →
-  `alter_column(nullable=False)` in a later step.
-- **(c) Plain `CREATE INDEX` on a huge table** → locks writes for the whole build
-  = the four-minute outage. Fix: `CREATE INDEX CONCURRENTLY` (outside a
-  transaction).
-- **(d) Migration in `lifespan` startup on 3 replicas** → three concurrent
-  migrations race each other, and schema changes are coupled to process start. Fix:
-  run migrations as a **single** one-off admin job (factor XII), same image/config,
-  as a distinct pipeline step ordered relative to the rollout — never in the app's
-  startup.
+<strong>Answer:</strong>
+The failure occurred because the migration was **not backward-compatible with the currently-running old application replicas**:
+1. During a rolling deployment, old replicas continue running and serving traffic while new replicas are being provisioned.
+2. The old application code has no awareness of the new `plan_id` column and does not include `plan_id` in its `INSERT INTO tenants (...)` statements.
+3. Because the database column was defined as `NOT NULL` without a default value, PostgreSQL immediately rejected all inserts originating from the old replicas with:
+   `ERROR: null value in column "plan_id" violates not-null constraint`.
 
-Root theme: each of these is a fast/safe additive step plus separate data movement
-away from being a slow, destructive, wrongly-ordered, concurrently-raced
-migration. Decompose, order (additive-before-code, destructive-after-everything),
-backfill online, and run once as an admin process.
-
+**The Fix:**
+1. **Phase 1 (Expand):** Add `plan_id` as **nullable** (`plan_id INTEGER NULL`). Old code inserts continue to succeed without error.
+2. **Phase 2:** Deploy new code that populates `plan_id` on all new inserts.
+3. **Phase 3:** Backfill legacy tenants with a default plan ID.
+4. **Phase 4 (Contract):** Alter the column to `NOT NULL` only after verifying that zero NULL values exist in the table.
 </details>
 
-## Independent challenge
-
-No code given. Take a service with a real schema (bring one from **track 04
-(Databases and Data Layer)**) and execute a **zero-downtime rename of a column that
-both the API and old replicas use**, driven through your **module 02** CI pipeline
-and deployed with the **module 03** rolling strategy. Do it as a full
-expand/contract: add the new column additively, deploy code that dual-writes and
-still reads the old column, write and run an *idempotent, batched* backfill,
-deploy code that switches reads to the new column, deploy code that stops writing
-the old one, and finally drop the old column — each as a correctly-ordered step,
-running every migration as a one-off admin process (factor XII, from **track 08's
-module 10, The 12-factor app**) on the same image and config as the app. Keep an
-old-version client hitting the API throughout and prove it never breaks. Then write
-a short "migration safety checklist" for your team covering ordering
-(additive-before-code, destructive-after), locking (which operations need
-CONCURRENTLY / NOT VALID), backfill idempotency, and where the migration runs in
-the pipeline — pointing to `learn/10-cicd-and-gitops` for wiring the migration job
-into the pipeline and `learn/03-kubernetes` for running it as a Job/init step.
-
+### Checkpoint 2: The Concurrent Index Creation Transaction Trap
 <details>
-<summary>Hint</summary>
+<summary><strong>Scenario Assessment:</strong> An engineer writes a zero-downtime migration in Alembic/Knex using <code>CREATE INDEX CONCURRENTLY</code>. When CI executes the migration inside a transaction block, PostgreSQL aborts with: <code>ERROR: CREATE INDEX CONCURRENTLY cannot run inside a transaction block</code>. Why does this occur, and how must migration runners be configured?</summary>
 
-The whole challenge is the discipline of never letting the schema and any running
-code version disagree — apply the one test to every step: "is this schema valid for
-*every* version currently running, including mid-rollout?" Additive steps pass it
-before the code ships (so they go first); the drop passes it only after the last
-version that read the old column is gone (so it goes last, in its own deploy). The
-backfill is the part people get wrong: it must be idempotent and batched so you can
-kill and re-run it — write it as `UPDATE ... WHERE new IS NULL` over id ranges with
-a sleep, and dual-write in the app so the backfill only ever has to fix *old* rows.
-Prove correctness with the old client running the entire time: if it ever sees an
-error, a step was ordered wrong.
+<strong>Answer:</strong>
+`CREATE INDEX CONCURRENTLY` operates using a **two-phase table scanning mechanism**:
+1. Phase 1: PostgreSQL registers the index in system catalogs and scans the table to build the initial index tree while permitting concurrent writes.
+2. Phase 2: PostgreSQL starts a second scan to catch all rows modified, inserted, or deleted during Phase 1.
+3. Because this two-phase operation relies on viewing distinct snapshot states across separate transactions, PostgreSQL strictly forbids executing `CREATE INDEX CONCURRENTLY` inside an open transaction block (`BEGIN ... COMMIT`).
 
+**The Fix:**
+Configure the migration runner to execute the statement **autocommit / non-transactional**:
+- In Alembic: Call `op.execute("COMMIT;")` before running `op.create_index(..., postgresql_concurrently=True)`, or set `autocommit_block()` context.
+- In Knex: Add `export const config = { transaction: false };` to the migration file.
 </details>
 
-## Common mistakes & troubleshooting
-
-- **Destructive migration in the same deploy as its code change.** Breaks the
-  still-running old version. Contract only after every version that used the thing
-  is gone; ship the drop in a later deploy.
-- **`NOT NULL` (or new required field) with no default.** Rejects the old code's
-  inserts immediately. Add nullable → backfill → constrain.
-- **One big `UPDATE` inside the migration.** Locks rows for minutes on a large
-  table = outage. Backfill in idempotent batches, outside the DDL.
-- **Plain `CREATE INDEX` / in-place type change on a big table.** Long write lock =
-  downtime. `CREATE INDEX CONCURRENTLY`; type changes via expand/contract.
-- **Migrations in the app's `CMD`/`lifespan` startup.** N replicas race; startup
-  becomes slow and dangerous. Run as a single one-off admin job (factor XII).
-- **Non-idempotent backfill.** Can't be safely retried after a partial failure.
-  Guard with `WHERE new_col IS NULL` and id ranges so re-runs are safe.
-- **Migration run from a different image/config than the app.** Parity break;
-  it may see a different schema-version state. Use the same image and config.
-- **No rollback thinking.** A destructive migration means the code can't roll back.
-  Keep migrations forward-only and each backward-compatible (module 03).
-
-## Checkpoint quiz
-
-Write down your answer to each question before expanding it — checking without attempting first is the single easiest way to fool yourself into thinking you've learned this.
-
-1. What is expand/contract, why does every intermediate state stay safe, and what
-   does it cost you compared to a single in-place change?
-2. Give the ordering rule for additive vs destructive migrations relative to the
-   code rollout, and the single test you apply to decide whether a migration is
-   safe to run now.
-3. You need to add a required (`NOT NULL`) field to a large, live table. Give the
-   full safe sequence and say what breaks if you just add it `NOT NULL` in one step.
-4. Why must a big data backfill be batched *and* idempotent, and why is dual-writing
-   during the transition what keeps the backfill's job small?
-5. Which common migrations are "outages in disguise" due to locking, and what's the
-   safe alternative for adding an index and for adding a NOT NULL constraint?
-6. Why must migrations run as a one-off admin process (factor XII) and *not* in the
-   app's startup? What specifically goes wrong with `alembic upgrade` in `lifespan`
-   on 3 replicas?
-
+### Checkpoint 3: Why Migrations Must Run as a One-Off Admin Process
 <details>
-<summary>Answers</summary>
+<summary><strong>Scenario Assessment:</strong> A startup configures their Docker container entrypoint to execute <code>alembic upgrade head && uvicorn app.main:app</code> on startup. In production with 6 replicas, a deployment causes database deadlock errors and schema corruption. Why is running migrations inside the application container startup an anti-pattern?</summary>
 
-1. Expand/contract decomposes a risky change into a sequence of individually safe,
-   backward-compatible steps: **expand** (add new schema additively), migrate data
-   + code (backfill, dual-write, shift reads), **contract** (remove old schema
-   last). Every intermediate state is a valid database for *every* running app
-   version, so schema and code never disagree. The cost is that one logical change
-   spans multiple deploys plus a backfill — the price of zero downtime.
-2. **Additive → before** the code that uses it (old code ignores it, new code needs
-   it); **destructive → after** every version that referenced the thing is gone
-   (dropping it earlier breaks the still-running old version). The test: "is the
-   resulting schema valid for every app version currently running, including
-   mid-rollout?" Additive passes before the code ships; destructive passes only
-   after the last version needing it is gone.
-3. Add the column **nullable** (additive, migrate before/with new code) → have the
-   app **dual-write** it → **backfill** existing rows in idempotent batches →
-   verify no NULLs → `alter_column(nullable=False)` in a later migration. If you add
-   it `NOT NULL` in one step, every insert from the still-running old code (which
-   doesn't supply the field) is rejected immediately — and on a big table the
-   constraint scan/rewrite can also lock the table.
-4. Batched: a single big `UPDATE` locks many rows for a long time on a large table
-   (an outage); chunking with sleeps keeps locks short and the DB responsive.
-   Idempotent (`WHERE new_col IS NULL`, id ranges): so a backfill that dies partway
-   can be safely re-run without double-processing — essential for an automated
-   pipeline. Dual-writing means *new* rows are already correct in both columns, so
-   the backfill only has to fix the finite set of *pre-existing* rows.
-5. "Outages in disguise": plain `CREATE INDEX` (locks writes for the whole build),
-   in-place column type changes (rewrite the table under a lock), and big
-   in-migration `UPDATE`s. Safe alternatives: `CREATE INDEX CONCURRENTLY` (builds
-   without a write lock, can't run in a transaction); for NOT NULL, add the
-   constraint `NOT VALID` then `VALIDATE CONSTRAINT` separately to avoid the long
-   lock; for type changes, expand/contract to a new column.
-6. As a one-off admin process it runs **once**, in the same image and config as the
-   app (parity, reviewable, reproducible), sequenced correctly relative to the
-   rollout. In `lifespan` startup on 3 replicas, all three replicas run the
-   migration **concurrently** as they start — racing each other on the same schema —
-   and schema changes get coupled to process start, making startup slow and
-   dangerous (violating disposability). Run it as a single dedicated Job/pipeline
-   step instead.
+<strong>Answer:</strong>
+Executing migrations on application startup violates **Factor XII (Admin Processes)** and introduces severe concurrency hazards:
+1. **Concurrent Migration Race Condition:** When a new release rolls out across 6 container replicas, all 6 containers start concurrently and execute `alembic upgrade head` at the exact same millisecond.
+2. **Schema Lock Contention:** The 6 processes race to lock the migration version table (`alembic_version`) and acquire DDL locks, resulting in deadlocks, timeout failures, and aborted startup sequences.
+3. **Coupled Disposability (Factor IX):** Coupling heavy database migrations to container startup drastically increases pod boot time (from 1 second to several minutes), causing Kubernetes readiness probes to fail and stalling autoscaling events.
 
+**The Fix:** Run migrations as a **single, isolated pre-deployment job** (a Kubernetes `Job` or CI/CD deployment pipeline step) that executes once to completion before any application replica rollout begins.
 </details>
 
-## Further reading & sources
-
-- [Martin Fowler: ParallelChange (expand and contract)](https://martinfowler.com/bliki/ParallelChange.html) - The canonical write-up of the expand/contract pattern that is the spine of this module.
-- [GitLab: Migration style guide](https://docs.gitlab.com/ee/development/migration_style_guide.html) - A battle-tested checklist for online, lock-safe migrations, batched backfills, and reversibility.
-- [PostgreSQL: ALTER TABLE and locking](https://www.postgresql.org/docs/current/sql-altertable.html) - The authoritative reference for which DDL takes which locks — the basis for the "outage in disguise" section.
-- [PostgreSQL: CREATE INDEX CONCURRENTLY](https://www.postgresql.org/docs/current/sql-createindex.html#SQL-CREATEINDEX-CONCURRENTLY) - How to build an index without locking writes, and why it can't run inside a transaction.
-- [The Twelve-Factor App: Admin processes (factor XII)](https://12factor.net/admin-processes) - Why a migration is a one-off admin process on the same image and config as the app, not app-startup code.
-- [Alembic documentation](https://alembic.sqlalchemy.org/en/latest/) - The migration tool used for the upgrade/downgrade sequences shown here.
+---
 
 ## Free PDF notes
 
 Download these notes as a printable PDF, with every diagram and interview questions: [SD-E-028: Zero-Downtime Database Migrations](https://backendroadmap.com/notes/system-design/SD-E-028.pdf). Each section in one file: [Phase 2, Databases (PDF)](https://backendroadmap.com/notes/system-design/Phase2_Databases_Notes.pdf).
 
-## Next
+---
 
-[05-service-configuration-and-environments](../05-service-configuration-and-environments/README.md)
-— migrations are the one-off admin side of a deploy. Next we handle the *config*
-side: managing configuration across dev/staging/prod, injecting secrets at deploy
-time (building on track 09's secrets management and track 08's config modules), and
-using feature flags to decouple "deployed" from "released."
+## Summary & Further Study
+
+- **Expand/Contract:** Decompose every breaking schema change into additive-first, multi-deploy sequences.
+- **Lock Awareness:** Avoid whole-table locks by using `CREATE INDEX CONCURRENTLY` and validating constraints with `NOT VALID`.
+- **Idempotent Backfills:** Move massive data updates out of DDL migrations into chunked, throttled background worker jobs.
+
+### Further Reading
+- [Martin Fowler on Evolutionary Database Design](https://martinfowler.com/articles/evodb.html)
+- [PostgreSQL Documentation: Lock Monitoring & DDL Locking](https://www.postgresql.org/docs/current/explicit-locking.html)
+- [GitLab Database Engineering: Zero-Downtime Migration Guide](https://docs.gitlab.com/ee/development/database/zero_downtime_migrations.html)
+- [Alembic Documentation: Working with Autocommit Blocks](https://alembic.sqlalchemy.org/en/latest/)

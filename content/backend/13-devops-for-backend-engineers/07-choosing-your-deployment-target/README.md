@@ -1,548 +1,432 @@
 # Module 07: Choosing Your Deployment Target
 
-## Why this matters
+> **Prerequisites:** [00-containerizing-a-backend-app](../00-containerizing-a-backend-app/README.md) through [06-health-checks-readiness-and-scaling-signals](../06-health-checks-readiness-and-scaling-signals/README.md).  
+> **Estimated Reading Time:** 30 minutes  
+> **Target Audience:** Engineering leads, systems architects, and backend engineers deciding on production hosting platforms and balancing operational overhead against system control.
 
-You've done all the app-side work: a clean image (module 00), a stateless
-disposable container (module 01), a CI pipeline that produces a trustworthy
-artifact (module 02), safe deployment and migration patterns (modules 03-04),
-externalized config (module 05), and probes plus scaling signals (module 06). The
-last decision is *where that container actually runs* — and it's a genuine
-decision, not a default. A backend service can run on a plain VM, on a container
-orchestrator (self-managed Kubernetes or managed AKS), on a PaaS/container platform
-(Azure Container Apps), or as serverless functions. Each choice trades **operational
-control** against **operational burden**, and picking wrong means either drowning a
-small team in Kubernetes it doesn't need or hitting a serverless wall a real
-workload can't fit.
+> [!TIP]
+> **Golden Rule of Deployment Targets:** Always default to the most managed platform that accommodates your workload's architectural constraints. Move left along the spectrum toward orchestrator control (Kubernetes/IaaS) only when forced by specific compliance, networking, or multi-service mesh requirements, because operational burden is an ongoing tax paid in team focus and reliability toil.
 
-This is a *decision-framework* module, not a hands-on-with-each-platform module. The
-point isn't to teach you AKS or Container Apps — the `learn/` curriculum does that
-in depth, and this module's whole job is to tell you *which* `learn/` track to go
-deep in for the target you choose. What you own as the backend engineer is the
-reasoning: understanding what each target demands of your app, what it does for you,
-and how to match the target to your team's size, the workload's shape, and how much
-operational surface you can afford to own. Because you built the app to be
-12-factor-clean (stateless, config-in-env, disposable, port-binding), it can run on
-*any* of these targets — that portability is exactly what makes the choice a free
-one rather than a forced one.
+---
 
-## Concepts
+## Visual Mental Models & Architecture
 
-### The control-vs-burden spectrum
+### The Deployment Target Decision Framework
 
-Every deployment target sits on one axis: **how much of the operational stack you
-control, versus how much the platform manages for you.** More control means more
-flexibility and fewer constraints — and more that you must operate, patch, secure,
-and get paged for. Less control means less to operate — and more constraints on
-what your app can do and how it behaves. From most-control/most-burden to
-least:
+Selecting a hosting destination is an ordered evaluation of architectural constraints. By working top-down through workload characteristics, team capacity, and concurrency needs, you systematically identify the optimal operational tier.
 
-- **VM (IaaS):** you get a machine; you own everything above the hypervisor — OS
-  patching, the container runtime (or running the process directly), the
-  load balancer, scaling, health-checking, deploys. Maximum control, maximum toil.
-- **Self-managed Kubernetes:** you run the orchestrator yourself. You get
-  Kubernetes' full power (any workload, fine-grained control) but you also operate
-  the control plane, nodes, upgrades, networking, and add-ons. Enormous burden.
-- **Managed Kubernetes (AKS):** the cloud runs the control plane; you run your
-  workloads and (to varying degrees) the node pools. Full Kubernetes API, much less
-  of the cluster to babysit — but still real Kubernetes complexity to understand.
-- **PaaS / managed container platform (Azure Container Apps):** you hand the
-  platform a container and a bit of config; it runs, scales (including to zero),
-  load-balances, and does rolling deploys for you. Much of Kubernetes' benefit,
-  little of its operational surface — at the cost of some flexibility.
-- **Serverless functions (Azure Functions, Lambda):** you hand the platform *code*
-  (or a small container) and it runs it per-request/per-event, scaling
-  automatically, billing per execution. Minimum burden, maximum constraint — the
-  platform dictates the execution model.
+```mermaid
+flowchart TD
+    Start["New Backend Service to Deploy"] --> Q1{"1. Workload Shape?\nIs traffic bursty with long idle periods\nand tolerant of 1-second cold starts?"}
+    
+    Q1 -- Yes (Event-driven / Webhook) --> TargetServerless["Serverless Functions\n(AWS Lambda, Azure Functions)"]
+    Q1 -- No (Steady / Latency-Critical) --> Q2{"2. Team Operational Capacity?\nDoes team have dedicated 24/7 SREs\nto manage etcd, CNI, and upgrades?"}
+    
+    Q2 -- No (Small / Product-Focused Team) --> Q3{"3. Scale & Service Count?\nSingle service or modest fleet (< 10 apps)\nstandard HTTP/gRPC ingress?"}
+    Q3 -- Yes --> TargetPaaS["Managed Container PaaS\n(Azure Container Apps, Google Cloud Run)"]
+    Q3 -- No (Massive Mesh / Complex) --> TargetManagedK8s["Managed Kubernetes\n(AKS, EKS, GKE)"]
+    
+    Q2 -- Yes (Enterprise Platform Team) --> Q4{"4. Custom Kernel, GPU, or DaemonSets?"}
+    Q4 -- Yes (Standard Cloud Platform) --> TargetManagedK8s
+    Q4 -- Specialized (On-Prem, Bare Metal) --> TargetSelfK8s["Self-Managed Kubernetes / IaaS VMs"]
 
-```
-  MORE control / MORE burden ◄───────────────────────► MORE managed / LESS burden
-  ┌────────┬────────────────┬─────────────┬───────────────┬──────────────┐
-  │  VM    │ self-managed   │ managed k8s │  PaaS         │  serverless  │
-  │ (IaaS) │  Kubernetes    │  (AKS)      │ (Container    │  functions   │
-  │        │                │             │  Apps)        │              │
-  └────────┴────────────────┴─────────────┴───────────────┴──────────────┘
-   you patch OS,             you run       you hand it     you hand it code;
-   run everything            workloads     a container     it runs per-event
-                                           + config
-      ◄── flexibility, fewer constraints        constraints, near-zero ops ──►
-              default bias: start here ─────────────────────┘ (move left only if forced)
+    classDef managed fill:#e6fffa,stroke:#00a389,stroke-width:2px;
+    classDef balanced fill:#f0f4ff,stroke:#3182ce,stroke-width:2px;
+    classDef heavy fill:#fff0f0,stroke:#e53e3e,stroke-width:2px;
+    class TargetServerless,TargetPaaS managed;
+    class TargetManagedK8s balanced;
+    class TargetSelfK8s heavy;
 ```
 
-The core judgment: **push as far toward "managed" as your workload's constraints
-allow, because operational burden is a real, ongoing cost that a small team pays in
-attention it could spend on the product.** You move *back* toward control only when
-a specific constraint forces you to. Kubernetes is not the default; it's what you
-choose when you've outgrown the simpler options or genuinely need its power.
+---
 
-### What each target demands of your app (and gives back)
+## Systematic Taxonomic Reference Grids
 
-The 12-factor work you did makes your app portable, but each target still has a
-distinct contract:
+### Deployment Target Comparison Matrix
 
-- **VM:** you must supply the process manager (systemd), reverse proxy, and deploy
-  scripting yourself, or run your own Docker. Nothing enforces statelessness or
-  disposability — which is a trap: it's the easiest place to accidentally rely on
-  local state. Suits legacy workloads, things needing unusual OS access, or a
-  single simple service where a scheduler is overkill.
-- **Orchestrator (AKS / self-managed k8s):** consumes exactly the contract this
-  track built — a container image, liveness/readiness probes (module 06), a
-  `SIGTERM` drain (module 01), config via env/Secrets (module 05), and metrics for
-  the HPA (module 06). In return: rolling deploys, self-healing, horizontal
-  autoscaling, service discovery, and the ecosystem (Istio, ArgoCD, etc.). Best fit
-  when you have *many* services, need fine control over networking/scheduling, or
-  are standardizing a platform for multiple teams — and can afford the complexity.
-- **Container Apps (PaaS):** wants the same clean container but hides Kubernetes;
-  you get scale-to-zero, revisions with built-in blue/green/canary traffic
-  splitting, managed ingress, and Dapr/KEDA integration without writing YAML for a
-  cluster. Best fit for most *individual* backend services and small teams that want
-  container flexibility without operating a cluster.
-- **Serverless functions:** demands your work fit an event/request-triggered
-  handler with a short execution limit and (classically) no long-lived
-  connections or in-memory state between invocations — and imposes **cold starts**
-  (latency when scaling from zero). In return: true scale-to-zero, per-execution
-  billing, and near-zero ops. Best fit for spiky/event-driven/low-baseline
-  workloads, glue, and webhooks — a *bad* fit for steady high-throughput services,
-  long-running work, or anything latency-sensitive that can't absorb cold starts.
+| Evaluation Dimension | IaaS Virtual Machines (VM) | Self-Managed Kubernetes | Managed Kubernetes (AKS/EKS) | Managed Container PaaS (ACA / Cloud Run) | Serverless Functions (Lambda / Azure Functions) |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **Operational Burden** | Extreme (OS patching, custom daemons) | **Maximum** (etcd, control plane, upgrades) | High (Workload manifests, node pools) | **Low** (Zero cluster maintenance) | **Minimal** (Pure code deployment) |
+| **Cold Start Risk** | Zero (Always-on compute) | Zero (Always-on worker nodes) | Zero (Warm nodes maintain pods) | Low (< 2s if scaled to zero) | **High** (1s – 5s cold start on scale from 0) |
+| **Scaling Model** | Slow VM autoscaling (3 – 8 mins) | Pod HPA (15 – 45s) | Pod HPA + Cluster Autoscaler | Fast HTTP scale-to-zero / KEDA | Instant per-event invocation |
+| **Cost Profile** | Fixed hourly per provisioned VM | Fixed compute + cluster overhead | Worker node billing + control plane | Consumption-based (Scale to zero) | Pure pay-per-execution (Milliseconds) |
+| **Recommended Workload** | Legacy OS dependencies, non-container apps | Air-gapped on-premise data centers | Multi-team fleets (>15 services), service meshes | **Standard Web APIs, Microservices, Background Workers** | Webhooks, async cron jobs, event glue |
 
-### The decision framework
+### Decision Framework Evaluation Dimensions
 
-Rather than "which is best" (there is no best), work through the constraints in
-order — the first one that bites narrows your choice:
+| Framework Dimension | Primary Assessment Criteria | Indicator Favoring Managed PaaS | Indicator Favoring Orchestrator (K8s) |
+| :--- | :--- | :--- | :--- |
+| **1. Workload Shape** | Concurrency, I/O wait, latency SLA | Steady HTTP requests, sub-50ms p99 SLA | Mixed batch, streaming, and RPC services |
+| **2. Team Capacity** | Dedicated SREs vs product engineers | < 10 engineers; zero dedicated platform engineers | Dedicated platform engineering team |
+| **3. Service Count** | Architectural topology | 1 to 8 decoupled microservices | 15+ interdependent services sharing a VPC |
+| **4. Control Needs** | Custom CNI, DaemonSets, eBPF | Standard ingress, TLS termination, HTTP routing | Custom networking plugins, service mesh (Istio) |
+| **5. Cost Economics** | Baseline utilization vs traffic spikes | Intermittent traffic with overnight idle windows | Sustained, predictable 24/7 high-volume throughput |
 
-1. **Workload shape.** Is it a long-running HTTP service, or short event/request-
-   triggered bursts with a low baseline? Bursty/event-driven with idle periods →
-   serverless or scale-to-zero PaaS is compelling. Steady, latency-sensitive,
-   high-throughput → containers on a PaaS or orchestrator; serverless cold starts
-   and execution limits fight you.
-2. **Team size & operational capacity.** Can you afford to *operate* a Kubernetes
-   cluster (upgrades, networking, on-call for the platform itself)? A small team
-   almost always should not run self-managed k8s, and often shouldn't run AKS
-   either if a PaaS fits — the burden buys nothing they need.
-3. **Scale & number of services.** One or a few services → PaaS/serverless. Many
-   interdependent services needing shared networking, policy, service mesh, and a
-   standardized deploy platform across teams → an orchestrator starts earning its
-   complexity.
-4. **Control & special needs.** Do you need specific networking, GPUs, custom
-   schedulers, particular OS access, or ecosystem tools (a service mesh, custom
-   operators)? That pulls toward AKS/k8s. Do you have legacy/unusual-OS needs a
-   container can't express? That may pull to a VM.
-5. **Cost model.** Spiky low-baseline traffic → per-execution/scale-to-zero billing
-   (serverless/Container Apps) can be dramatically cheaper than always-on replicas.
-   Steady high traffic → always-on containers are usually cheaper than
-   per-execution.
+---
 
-The framework's spirit: **start from the most-managed option that fits and move
-toward control only when a constraint forces it.** Most individual backend services
-are best on a PaaS like Container Apps; you graduate to an orchestrator when scale,
-service count, or control needs justify the burden — not by default or by résumé.
+## Production War Stories: Incident Post-Mortem
 
-### Mapping each choice to where you go deep
+### SEV-1 Post-Mortem: The Premature Kubernetes Cluster Meltdown
 
-This module deliberately does *not* teach you to operate these platforms — it tells
-you which `learn/` track to work through once you've chosen:
+#### Incident Overview
+* **Severity:** SEV-1 (Catastrophic Total Platform Outage)
+* **Detection Time:** Immediate (Cert-manager renewal expiry)
+* **Resolution Time:** 14 hours 20 minutes (etcd consensus restore and manual node rebuilding)
+* **Impact:** 100% of customer traffic dropped; startup unable to ship product features for 2 weeks.
 
-- **Containers themselves** (building/running images, registries, the fundamentals
-  under every option) → **`learn/02-docker`**. Foundational to all the container
-  targets; do this regardless.
-- **Kubernetes concepts** (Pods, Deployments, Services, probes, rolling updates —
-  the model behind AKS *and* Container Apps) → **`learn/03-kubernetes`**. Even if
-  you deploy to a PaaS, this explains what it's doing for you.
-- **Managed Kubernetes on Azure** (standing up, securing, and operating a real
-  cluster) → **`learn/07-aks`**.
-- **The PaaS / managed-container option** (deploy, scale, network, and operate
-  workloads on the managed alternative to AKS) → **`learn/06-azure-container-apps`**.
-- **The full path to production** (CI/CD pipelines, GitOps, promotion) →
-  **`learn/10-cicd-and-gitops`**; and the **broader platform** that ties targets,
-  IaC, and self-service together → **`learn/24-platform-engineering`**.
-- **Provisioning any of it declaratively** (VNets, clusters, registries as code) →
-  **`learn/09-terraform-on-azure`**.
+#### What Happened
+A five-person startup with a single FastAPI backend service and a PostgreSQL database decided to build their production infrastructure on **self-managed Kubernetes on raw AWS EC2 instances**. The team believed this would "ensure future scalability and prevent cloud vendor lock-in."
 
-The division of labor for this whole track, restated: *you* make the app deployable
-and choose the target; *`learn/`* is where you learn to operate that target. Both
-curricula are meant to be worked roughly in parallel — this module is the map that
-connects your app-side decision to the operational deep-dive.
+Ten months into production:
+1. The engineering team spent approximately 25 hours per month troubleshooting Kubernetes CNI network routing, ingress controller configuration, and node volume mounts rather than developing application features.
+2. At 03:00 on a Sunday, the internal control plane mutual-TLS certificates (configured with default 1-year expirations) expired.
+3. Kubelets immediately refused communication with the Kubernetes API server.
+4. An automated worker node replacement triggered by an AWS health check failed to join the cluster.
+5. In an attempt to force node synchronization, an engineer manually restarted the etcd cluster nodes. Because of improper quorum configurations, etcd suffered a **split-brain consensus failure**, corrupting cluster state.
+6. The single FastAPI service was inaccessible for over 14 hours while the team desperately attempted to recover etcd snapshots.
 
-### Portability is the payoff — and its limits
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Team as 5-Person Startup Team
+    participant Cluster as Self-Managed Kubernetes Cluster
+    participant Etcd as Etcd Control Plane Database
+    participant App as Single FastAPI Service
 
-Because you built a 12-factor container, the *same artifact* can move between these
-targets: a service that runs on Container Apps today can move to AKS when you
-outgrow the PaaS, with no code change — the deployment target is (mostly) a
-release-time concern, not an app-design one. That's the dividend of everything this
-track insisted on: statelessness, config-in-env, disposability, port-binding, and
-health probes are the common contract *every* target consumes.
+    Note over Team,Cluster: 10 months of high operational burden for 1 service!
+    Cluster->>Cluster: Internal Node TLS Certificates Expire at 03:00 UTC
+    Cluster--xApp: Control plane cuts communication to all worker pods
+    Team->>Cluster: Emergency SSH: Restarting cluster nodes
+    Team->>Etcd: Forced restart without quorum consensus!
+    Etcd--xEtcd: Split-Brain State Corruption!
+    Note over Team,App: Entire cluster dead! 14 hours spent rebuilding Kubernetes!
+```
 
-The limits are worth naming honestly, so portability doesn't become a fantasy of
-"never commit": serverless's execution model (short-lived, stateless-per-invocation,
-cold starts) is a genuinely different shape that a steady HTTP service can't always
-be poured into without rework; and deep coupling to one platform's proprietary
-features (a specific managed queue, a platform-specific autoscaler trigger, a
-vendor identity model) creates real lock-in even with a portable container. The
-pragmatic stance is **avoid gratuitous lock-in** (keep the app 12-factor and the
-config externalized so a move is *possible*) while **using the managed features
-that genuinely save you operational burden** (don't self-host a queue to stay
-"portable" if the managed one is right) — a judgment call, exactly like module 04's
-"normalize first, denormalize with a measured reason." Portability is insurance, not
-a mandate to run everything yourself.
+#### Root Cause Analysis
+1. **Severe Control-vs-Burden Mismatch:** The startup paid the maximum operational tax of running an enterprise distributed orchestrator to host a single, stateless backend service.
+2. **Résumé-Driven Architecture:** The architectural choice was driven by technology hype rather than workload constraints or organizational capacity.
+3. **Missing Managed Abstractions:** A managed PaaS (such as Azure Container Apps or AWS App Runner) would have handled TLS termination, node management, rolling deploys, and scaling automatically with zero maintenance overhead.
 
-## Command reference
+#### The Fix & Architectural Hardening
+1. **Complete Decommissioning of Kubernetes Cluster:** The team migrated the single FastAPI container image directly to a **Managed Container PaaS (Azure Container Apps / Cloud Run)**.
+2. **Infrastructure Elimination:** Eliminated 300+ lines of complex Kubernetes YAML manifests, Helm charts, and custom Terraform cluster modules, replacing them with a single 30-line infrastructure template.
+3. **Zero Maintenance Overhead:** Platform upgrades, certificate rotations, and ingress scaling became fully managed cloud responsibilities, returning 100% of engineering bandwidth to product development.
 
-| Target | You operate | Platform gives you | Go deep in |
-|---|---|---|---|
-| VM (IaaS) | OS, runtime, proxy, deploys, scaling | Just the machine | `learn/01-linux`, `learn/02-docker` |
-| Self-managed k8s | Control plane, nodes, everything | Orchestration (if you run it) | `learn/03-kubernetes` |
-| Managed k8s (AKS) | Workloads, node pools | Managed control plane + k8s API | `learn/07-aks` (+ `learn/03`) |
-| PaaS (Container Apps) | The container + config | Scaling (to zero), ingress, revisions, deploys | `learn/06-azure-container-apps` |
-| Serverless functions | The handler code | Per-event execution, autoscale, per-use billing | (Azure Functions; concepts in `learn/06`) |
+---
 
-The decision, as a checklist you run top-down (first constraint that bites wins):
+## Multi-Language Production Code Tabs
 
+Because you designed your application to be a 12-factor container (Modules 00 and 01), the **exact same container image** runs across different deployment targets without code modifications. Below are production configurations targeting Managed PaaS and Managed Kubernetes.
+
+=== "Go"
+    ```yaml
+    # Target 1: Azure Container Apps (Managed PaaS - Zero Cluster Maintenance)
+    # deploy-aca.bicep
+    resource containerApp 'Microsoft.App/containerApps@2024-03-01' = {
+      name: 'go-backend-api'
+      location: resourceGroup().location
+      properties: {
+        configuration: {
+          ingress: {
+            external: true
+            targetPort: 8080
+          }
+        }
+        template: {
+          containers: [
+            {
+              name: 'server'
+              image: 'ghcr.io/myorg/go-backend:git-7f8a1bc'
+              resources: {
+                cpu: json('0.5')
+                memory: '1.0Gi'
+              }
+              env: [
+                { name: 'APP_ENV', value: 'prod' }
+                { name: 'DATABASE_URL', secretRef: 'db-conn' }
+              ]
+              probes: [
+                {
+                  type: 'Liveness'
+                  httpGet: { path: '/livez', port: 8080 }
+                  periodSeconds: 10
+                }
+                {
+                  type: 'Readiness'
+                  httpGet: { path: '/readyz', port: 8080 }
+                  periodSeconds: 5
+                }
+              ]
+            }
+          ]
+          scale: {
+            minReplicas: 1
+            maxReplicas: 10
+            rules: [
+              {
+                name: 'http-scaling'
+                http: { metadata: { concurrentRequests: '50' } }
+              }
+            ]
+          }
+        }
+      }
+    }
+    ```
+
+=== "Node.js/TypeScript"
+    ```yaml
+    # Target 2: Managed Kubernetes (AKS / EKS Deployment Manifest)
+    # k8s-deployment.yaml
+    apiVersion: apps/v1
+    kind: Deployment
+    metadata:
+      name: node-backend-api
+      labels:
+        app: node-backend
+    spec:
+      replicas: 3
+      strategy:
+        type: RollingUpdate
+        rollingUpdate:
+          maxSurge: 1
+          maxUnavailable: 0
+      selector:
+        matchLabels:
+          app: node-backend
+      template:
+        metadata:
+          labels:
+            app: node-backend
+        spec:
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+          containers:
+            - name: api
+              image: ghcr.io/myorg/node-backend:git-7f8a1bc
+              ports:
+                - containerPort: 3000
+              resources:
+                requests:
+                  cpu: "250m"
+                  memory: "512Mi"
+                limits:
+                  cpu: "1000m"
+                  memory: "1Gi"
+              livenessProbe:
+                httpGet: { path: /livez, port: 3000 }
+                periodSeconds: 10
+              readinessProbe:
+                httpGet: { path: /readyz, port: 3000 }
+                periodSeconds: 5
+    ```
+
+=== "Python"
+    ```yaml
+    # Target 1: Azure Container Apps Bicep Manifest for Python / FastAPI
+    resource pythonApp 'Microsoft.App/containerApps@2024-03-01' = {
+      name: 'fastapi-service'
+      location: resourceGroup().location
+      properties: {
+        configuration: {
+          ingress: {
+            external: true
+            targetPort: 8000
+          }
+        }
+        template: {
+          containers: [
+            {
+              name: 'web'
+              image: 'ghcr.io/myorg/fastapi-service:git-7f8a1bc'
+              resources: {
+                cpu: json('0.5')
+                memory: '1.0Gi'
+              }
+              env: [
+                { name: 'PYTHONUNBUFFERED', value: '1' }
+                { name: 'APP_ENV', value: 'prod' }
+              ]
+              probes: [
+                {
+                  type: 'Liveness'
+                  httpGet: { path: '/livez', port: 8000 }
+                }
+                {
+                  type: 'Readiness'
+                  httpGet: { path: '/readyz', port: 8000 }
+                }
+              ]
+            }
+          ]
+          scale: {
+            minReplicas: 2
+            maxReplicas: 20
+          }
+        }
+      }
+    }
+    ```
+
+=== "C#"
+    ```yaml
+    # Target 2: Managed Kubernetes Deployment for ASP.NET Core
+    apiVersion: apps/v1
+    kind: Deployment
+    metadata:
+      name: dotnet-backend-api
+    spec:
+      replicas: 4
+      strategy:
+        type: RollingUpdate
+        rollingUpdate:
+          maxSurge: 25%
+          maxUnavailable: 0
+      selector:
+        matchLabels:
+          app: dotnet-backend
+      template:
+        metadata:
+          labels:
+            app: dotnet-backend
+        spec:
+          containers:
+            - name: web
+              image: ghcr.io/myorg/dotnet-backend:git-7f8a1bc
+              ports:
+                - containerPort: 8080
+              livenessProbe:
+                httpGet: { path: /livez, port: 8080 }
+              readinessProbe:
+                httpGet: { path: /readyz, port: 8080 }
+    ```
+
+---
+
+## Practical Hands-On Verification CLI Workflows
+
+### Evaluating and Deploying to Managed PaaS
+
+To verify your service's portability without standing up a local Kubernetes cluster, deploy the container directly to a serverless container runtime:
+
+```bash
+# 1. Step 1: Verify the multi-stage image runs locally as non-root
+docker run --rm -p 8080:8000 --env-file .env.prod myapp:git-7f8a1bc
+
+# 2. Step 2: Validate health probe responses
+curl -I http://localhost:8080/livez
+curl -I http://localhost:8080/readyz
+
+# 3. Step 3: Deploy to Azure Container Apps (Example PaaS CLI)
+az containerapp create \
+  --name my-backend-api \
+  --resource-group rg-production \
+  --image ghcr.io/myorg/myapp:git-7f8a1bc \
+  --target-port 8000 \
+  --ingress external \
+  --min-replicas 1 \
+  --max-replicas 5
+```
+
+**Expected Wire Output:**
 ```text
-1. Workload shape?     bursty/event-driven + low baseline → serverless / scale-to-zero PaaS
-                       steady/latency-sensitive/high-throughput → PaaS or orchestrator
-2. Team capacity?      small team / no platform on-call → PaaS (avoid self-managed k8s)
-3. Scale & # services? one/few → PaaS; many interdependent + shared platform → orchestrator
-4. Control/special?    mesh/GPU/custom networking/OS access → AKS or VM
-5. Cost model?         spiky low-baseline → per-execution/scale-to-zero; steady → always-on
+HTTP/1.1 200 OK
+content-type: application/json
+{"status":"alive"}
 
-Default bias: start most-managed that fits (usually Container Apps for a single
-service); move toward control only when a constraint above forces it.
+Container App created successfully!
+FQDN: https://my-backend-api.ambitiousocean-1234.eastus.azurecontainerapps.io
 ```
 
-The same 12-factor container across two targets (the artifact doesn't change — only
-the release wrapper does; mechanics live in the `learn/` tracks named):
+---
 
-```yaml
-# ---- Container Apps (PaaS): hand it the image + config; it scales/ingresses/deploys ----
-# properties: image, env (incl. secretRef), targetPort, minReplicas: 0, scaleRule (concurrency)
-#   → learn/06-azure-container-apps
+## Operational Validation Checkpoints (Scenario Quizzes)
 
-# ---- AKS (orchestrator): the same image, but you declare the k8s objects ----
-# Deployment(image, envFrom, readinessProbe /readyz, livenessProbe /livez) + Service + HPA
-#   → learn/03-kubernetes, learn/07-aks
-```
-
-## Hands-on exercises
-
-These are decision and mapping exercises — the operating-the-platform practice is
-in the `learn/` tracks. Use a real service you've carried through this track.
-
-### 1. Place five services on the spectrum
-
-For each, pick a target and justify it in one sentence: (a) a steady internal REST
-API, ~200 req/s all day; (b) a webhook receiver that fires a few times an hour; (c)
-a nightly batch job; (d) a platform of 15 interdependent microservices for 4 teams;
-(e) a legacy app needing a specific kernel module. Name which `learn/` track you'd
-go deep in for each.
-
-### 2. Run the framework on your own service
-
-Take the service you built across this track and walk it top-down through the
-5-question framework. Write your answer to each question and the target the first
-binding constraint points to. Note whether the "most-managed that fits" default
-lands you somewhere different from where you'd have guessed.
-
-### 3. Cost-model a spiky workload
-
-For a workload that's idle 20 hours a day and busy 4, sketch (roughly) the cost of
-always-on replicas vs scale-to-zero/per-execution. Identify the crossover: at what
-baseline utilization does always-on become cheaper than per-execution? State which
-target each side of the crossover favors.
-
-### 4. Map the app-side contract to the target
-
-List the artifacts this track produced (image, `/livez` + `/readyz`, SIGTERM drain,
-env/Secret config, `/metrics`). For AKS and for Container Apps, say which of these
-each platform consumes and how — and confirm the *image itself* is identical for
-both. This is the portability payoff made concrete.
-
-### 5. Find the serverless wall
-
-Take a steady, latency-sensitive HTTP service and list the specific reasons it's a
-poor serverless-functions fit (cold starts, execution limits, connection
-management, cost at steady load). Then take a bursty event handler and list why it's
-an *excellent* fit. Articulate the shape difference in one sentence.
-
-### 6. Justify graduating from PaaS to orchestrator
-
-Describe a concrete point at which a service/team should move from Container Apps to
-AKS — what specific constraint (from the framework) triggers it — and, just as
-important, describe a case where reaching for Kubernetes would be over-engineering.
-Point to `learn/06` and `learn/07`/`learn/03` respectively.
-
-### 7. Diagnose and fix: the target mismatch
-
-A four-person startup runs its single moderate-traffic FastAPI API on a
-self-managed Kubernetes cluster they stood up themselves. They spend most of their
-week on cluster upgrades, node issues, and platform on-call; feature work has
-stalled; the service itself is a plain stateless web app with no special needs.
-Separately, they moved a latency-critical, steady-throughput synchronous API onto
-serverless functions "to save money" and now users complain about intermittent
-1-second delays. Diagnose both mismatches and prescribe the right target for each,
-with the `learn/` track to go deep in.
-
+### Checkpoint 1: When Does Kubernetes Actually Earn Its Complexity?
 <details>
-<summary>Solution</summary>
+<summary><strong>Scenario Assessment:</strong> A company operates 24 distinct microservices developed by 6 different cross-functional teams. They currently host them as separate individual PaaS web apps. Operations engineers complain of fragmented monitoring, high networking egress costs between services, and inconsistent deployment scripts. Does this workload justify migrating to Kubernetes (AKS/EKS)?</summary>
 
-**Self-managed k8s for a single simple service (four-person team):** a textbook
-control-vs-burden mismatch — they're paying the *maximum* operational burden
-(running the control plane, nodes, upgrades, platform on-call) for a workload that
-has none of the needs (many services, special networking, mesh) that justify it.
-The framework's questions 2 (team capacity) and 3 (scale/# services) both point the
-other way. Fix: move to a **PaaS — Azure Container Apps** — which gives them
-scaling, ingress, and rolling deploys for their clean container with almost no
-platform to operate, freeing the week for product. Go deep in
-`learn/06-azure-container-apps`. (If they later grow to many interdependent
-services, *then* AKS — `learn/07-aks` — earns its complexity.)
-
-**Serverless for a latency-critical steady API:** a workload-shape mismatch
-(framework question 1). Serverless scales to zero and bills per-execution, but its
-**cold starts** cause the intermittent 1-second delays, and for *steady* throughput
-it's neither cheaper nor lower-latency than always-on containers. Fix: run it as an
-always-on container on a **PaaS (Container Apps)** or an orchestrator, where a warm
-replica pool serves steady traffic with predictable latency. Serverless was the
-right *instinct* for cost only if the traffic were spiky/low-baseline — it isn't.
-
-Root theme: match the target to the workload shape and the team's operational
-capacity, biasing toward the most-managed option that fits — not toward Kubernetes
-by default, and not toward serverless for a shape it doesn't suit.
-
+<strong>Answer:</strong>
+**YES.** This is the exact architectural threshold where an orchestrator **earns its operational complexity**:
+1. **Multi-Service Scale:** Managing 24 separate PaaS configurations leads to operational sprawl and fragmented security policies.
+2. **Internal Service Mesh & Networking:** In Kubernetes, inter-service communication stays within a private virtual cluster network (`http://order-service.default.svc.cluster.local`) with mTLS (via Istio/Linkerd) and zero cloud egress bandwidth fees.
+3. **Declarative Standardization:** A single GitOps repository (ArgoCD) can manage all 24 deployments, ingress rules, network policies, and autoscaling configurations uniformly.
+4. **Organizational Capacity:** With 6 teams and dedicated operations engineers, the organization possesses the engineering bandwidth required to operate and maintain a managed cluster (AKS/EKS).
 </details>
 
-## Independent challenge
-
-No code given. Write a **deployment-target decision document** for the service
-you've carried through this entire track. Run it top-down through the five-question
-framework (workload shape, team capacity, scale/number of services, control/special
-needs, cost model), state which target the first binding constraint selects, and
-justify why you did *not* pick each of the other four — explicitly naming the
-operational burden or constraint that ruled each out. Then demonstrate the
-portability payoff: show that the artifact from **module 00 (Containerizing a
-backend app)** and the app-side contract from **module 06 (Health checks,
-readiness, and scaling signals)** and **module 01 (The 12-factor app in a
-container)** would be consumed by *both* your chosen target and one alternative with
-no change to the image — and name the specific `learn/` track you'd work through to
-operate each (`learn/06-azure-container-apps`, `learn/07-aks`, `learn/03-kubernetes`,
-or `learn/02-docker`). Close with an honest paragraph on lock-in: which managed
-features you'd adopt for the operational savings even though they create some
-coupling, and which you'd keep at arm's length to preserve the ability to move —
-framing it as the same measured-tradeoff judgment, not a dogmatic "never commit."
-
+### Checkpoint 2: The Serverless Cold-Start Latency Trap
 <details>
-<summary>Hint</summary>
+<summary><strong>Scenario Assessment:</strong> A fintech company migrates its synchronous core banking authorization API to AWS Lambda / Azure Functions. Customers complain that periodically, credit card authorization requests take 2,800ms to complete instead of the mandated 150ms SLA. What architectural phenomenon is occurring, and what is the proper target resolution?</summary>
 
-The document is most honest if you run the framework *in order* and stop at the
-first constraint that actually binds, rather than reasoning toward a target you
-already wanted. For most single backend services the first binding constraint is
-team capacity or scale (questions 2-3), which points at a PaaS — and the discipline
-is to justify *away* from Kubernetes unless a later question (control/special needs)
-genuinely pulls you back. The portability demonstration is the payoff of the whole
-track: the same image, `/livez`/`/readyz`, SIGTERM drain, and env-based config are
-the common contract every container target consumes, so "no change to the image"
-should be literally true — that's your evidence. For the lock-in paragraph, apply
-module 04's framing: use the managed feature when it clearly saves burden, avoid it
-when the coupling costs more than the saving, and be able to say which is which.
+<strong>Answer:</strong>
+The authorization service is suffering from **Serverless Cold Starts**:
+1. When a serverless function experiences a lull in traffic, the cloud platform terminates idle execution environments (scaling to zero).
+2. When the next transaction arrives, the platform must provision a new microVM, download the runtime container, initialize language runtimes, establish TLS database connection pools, and run startup imports before executing the handler.
+3. In Java, Python, or .NET backends, this cold-start penalty commonly takes 1.5 to 4 seconds.
 
+**Resolution:**
+Migrate the latency-critical synchronous authorization service to a **Container PaaS (Azure Container Apps / Cloud Run) or Kubernetes** configured with **`minReplicas: 2` (warm pool)**. By maintaining at least two running, pre-initialized container replicas 24/7, incoming requests are served immediately without cold-start initialization latency.
 </details>
 
-## Common mistakes & troubleshooting
-
-- **Kubernetes by default (or by résumé).** Running a cluster for a single simple
-  service buries a small team in operational burden that buys nothing. Start
-  most-managed; graduate to an orchestrator only when a constraint forces it.
-- **Serverless for a steady, latency-sensitive service.** Cold starts and execution
-  limits fight a workload that needs warm, predictable, long-running handlers, and
-  it's not even cheaper at steady load. Serverless is for spiky/event-driven work.
-- **Choosing a target before knowing the workload shape.** The shape (bursty vs
-  steady, short vs long) is the first question; picking the platform first
-  backwards-rationalizes the fit.
-- **Ignoring operational capacity.** A powerful target you can't operate is a
-  liability. Weigh the ongoing burden (upgrades, on-call for the platform) against
-  team size honestly.
-- **Cost-modeling only one dimension.** Per-execution looks cheap until steady load
-  makes always-on cheaper (and vice versa). Model your *actual* traffic profile.
-- **Confusing "portable" with "must self-host."** Refusing every managed feature to
-  stay portable costs more burden than the lock-in it avoids. Use managed features
-  that save real toil; avoid gratuitous coupling.
-- **Trying to learn to *operate* the platform here.** This module is the decision;
-  the operational depth is the named `learn/` track. Go there for hands-on.
-
-## Checkpoint quiz
-
-Write down your answer to each question before expanding it — checking without attempting first is the single easiest way to fool yourself into thinking you've learned this.
-
-1. What single axis organizes all the deployment targets, and what's the default
-   bias the framework recommends along it?
-2. Give the five questions of the decision framework in order, and explain why you
-   run them top-down and stop at the first constraint that binds.
-3. Why is serverless a great fit for a bursty webhook receiver and a poor fit for a
-   steady, latency-sensitive API? Name the two serverless properties that drive
-   each verdict.
-4. A four-person team is running its single stateless service on self-managed
-   Kubernetes. What's the mismatch, and what target (and `learn/` track) would you
-   move them to?
-5. Name the `learn/` track you'd go deep in for each: containers/images; the
-   Kubernetes model itself; managed Kubernetes on Azure; the managed-container PaaS.
-6. What makes the same container portable across VM, PaaS, and orchestrator, and
-   what are the two honest limits on that portability?
-
+### Checkpoint 3: The Illusory Goal of Complete Cloud Portability
 <details>
-<summary>Answers</summary>
+<summary><strong>Scenario Assessment:</strong> An engineering architect forbids the use of AWS SQS, Azure Key Vault, and Google Cloud BigQuery, mandating that the team self-host RabbitMQ, HashiCorp Vault, and open-source Cassandra inside raw EC2 instances so the application remains "100% cloud-agnostic." How do you evaluate this architectural philosophy?</summary>
 
-1. The **control-vs-operational-burden** axis: more control (VM → self-managed k8s
-   → AKS → PaaS → serverless) means more flexibility but more to operate; more
-   managed means less to operate but more constraints. The default bias: **start
-   from the most-managed option that fits your workload, and move toward control
-   only when a specific constraint forces it** — Kubernetes is not the default.
-2. (1) Workload shape, (2) team/operational capacity, (3) scale & number of
-   services, (4) control/special needs, (5) cost model. You run them top-down and
-   stop at the first binding constraint because the earliest constraint that
-   actually bites narrows the choice decisively — e.g. a small team with no platform
-   on-call (question 2) rules out self-managed k8s regardless of the later answers,
-   so there's no need to over-analyze the rest.
-3. A bursty webhook receiver has a low baseline and idle periods, so serverless's
-   **scale-to-zero and per-execution billing** make it cheap and effortless. A
-   steady, latency-sensitive API is hurt by the same model's **cold starts** (the
-   intermittent latency when scaling from zero) and **short execution limits /
-   per-invocation model**, and at steady load per-execution isn't even cheaper than
-   always-on — so it wants warm, long-running container replicas instead.
-4. They're paying the maximum operational burden (running and on-call for the whole
-   cluster) for a workload with none of the needs that justify it — a control-vs-
-   burden mismatch (framework questions 2 and 3). Move them to a **PaaS — Azure
-   Container Apps** (`learn/06-azure-container-apps`), which runs their clean
-   container with scaling, ingress, and rolling deploys and almost no platform to
-   operate.
-5. Containers/images → `learn/02-docker`; the Kubernetes model itself →
-   `learn/03-kubernetes`; managed Kubernetes on Azure → `learn/07-aks`; the
-   managed-container PaaS → `learn/06-azure-container-apps`.
-6. The 12-factor contract every target consumes: a stateless, disposable,
-   port-binding container image with config in the environment and health probes —
-   so the *same artifact* runs anywhere with only the release wrapper changing. The
-   two honest limits: (i) serverless's execution model is a genuinely different
-   shape a steady HTTP service can't always be poured into without rework; and (ii)
-   deep coupling to a platform's proprietary features (a specific managed
-   queue/autoscaler/identity model) creates real lock-in even with a portable
-   container — so avoid *gratuitous* lock-in while still using managed features that
-   save genuine operational burden.
-
+<strong>Answer:</strong>
+This represents the dangerous anti-pattern of **"The Portability Trap" (Premature De-coupling)**:
+1. **The Fallacy of Free Portability:** In practice, companies migrate cloud providers once every 7 to 10 years, if ever. The architectural cost of never committing to managed cloud services drastically outstrips the hypothetical cost of migration.
+2. **Massive Operational Overhead:** Self-hosting distributed datastores (Cassandra, Vault, RabbitMQ) requires dedicated teams to manage clustering, backups, disk expansion, failover, OS patching, and 24/7 on-call alerting.
+3. **The Pragmatic 12-Factor Balance:**
+   - Keep the **application container portable** by relying on standard protocols (HTTP, gRPC, SQL) and injecting connection strings via environment variables (Factor III & IV).
+   - Freely adopt **managed cloud services** (managed databases, cloud secrets vaults, managed message queues) to eliminate operational toil.
+   - If migration is ever required, only the infrastructure Terraform scripts and environment connection strings change, while your application code remains untouched.
 </details>
 
-## Cumulative review
+---
 
-Closed-book. Don't reopen modules 00-07 while attempting these — the point is to
-find out what actually stuck.
+## Cumulative Track Review
 
-1. A one-line code change triggers a four-minute Docker build that reinstalls every
-   dependency and produces a 1.1 GB image that runs as root and is unreachable when
-   published. Name every fault and the fix (module 00), and state the build-cache
-   rule in one sentence.
-2. "Works on one replica, breaks on three": inconsistent counts and lost uploads.
-   Name the factor (module 01), the two sub-causes and their fixes, and explain why
-   this same property is what makes both the rolling deploys of module 03 and the
-   autoscaling of module 06 possible.
-3. Design the two-lane CI pipeline for a backend service (module 02): what each lane
-   runs, what gates vs informs, why the image is tagged by commit SHA, and which
-   later capability that tagging enables.
-4. You must rename a DB column used by both the API and still-running old replicas,
-   with zero downtime. Give the full expand/contract sequence of deploys and
-   migrations (modules 03-04), the ordering rule for the additive vs the destructive
-   migration, and the single invariant that must hold at every step.
-5. Walk a single replica from a rolling-deploy SIGTERM to a clean exit, naming: what
-   makes uvicorn receive the signal (module 00), the readiness/drain sequence
-   (modules 01, 06), the pre-stop-delay race it addresses, and why readiness must
-   fail *before* draining.
-6. For each probe, state its question, the platform action on failure, and whether
-   it may check a dependency (module 06): liveness, readiness, startup. Then explain
-   why a DB check in the liveness probe causes a fleet-wide restart storm.
-7. A service is misconfigured in three ways (module 05): staging wiped prod's DB, a
-   live key was printed in logs, and turning off a broken feature needed a 40-minute
-   redeploy. Give the fix for each and the general principle ("fail early and loud,
-   not late and quiet").
-8. Run the deployment-target framework (module 07) for: (a) a spiky event handler
-   idle most of the day; (b) a steady latency-sensitive API for a four-person team;
-   (c) a 15-service platform for multiple teams. Give the target and the `learn/`
-   track for each.
+*Test your comprehensive mastery across Track 13 (Modules 00 through 07) before undertaking the Capstone Project.*
 
 <details>
-<summary>Answers</summary>
+<summary><strong>1. Multi-Stage Docker Build Optimization:</strong> Why does a multi-stage Dockerfile copy virtual environments from a builder stage rather than installing dependencies directly in the runtime image?</summary>
 
-1. Faults: `COPY . .` before `pip install` (busts the dep cache — the four-minute
-   reinstall); full/unpinned base image (`python:latest` → ~1 GB and
-   non-reproducible); no multi-stage (ships build tooling); runs as root (no
-   `USER`); binds `127.0.0.1` (unreachable); shell-form `CMD` (no SIGTERM). Fixes:
-   copy the manifest and install before the source; pin `python:3.12-slim` +
-   multi-stage; add a non-root `appuser`; bind `0.0.0.0`; exec-form `CMD`. Cache
-   rule: a layer is reused only if its instruction and every layer before it are
-   unchanged — once one busts, all later layers rebuild.
-2. Factor VI (stateless processes). Sub-causes: in-memory state (per-replica dict/
-   counter → inconsistent) → move to Redis; local-disk writes (uploads on one
-   ephemeral replica → lost) → object storage + DB pointer. It's the precondition
-   for rolling deploys (which kill/replace any replica) and autoscaling (which adds
-   interchangeable replicas) because both require that any replica can serve any
-   request identically — only true if the app holds no local state.
-3. A **gating lane** on every PR (cheap first: lint → mypy → secret scan → unit →
-   integration vs a service-container Postgres, marker-scoped to exclude e2e),
-   required green by branch protection; and an **image lane** on main only (build the
-   module 00 image, scan for critical CVEs, push tagged `git-<sha>`). The gating
-   lane gates the merge; e2e/nightly informs. Tagging by SHA gives a permanent,
-   addressable handle on exactly one commit's code — which is what makes module 03's
-   **rollback** (redeploy a previous known-good image) possible; `:latest` is a
-   moving target you can't roll back to.
-4. **Deploy 1:** migration adds the new column (nullable, additive — runs before/with
-   the new code); code dual-writes both and reads the old; batched idempotent
-   backfill. **Deploy 2:** code switches reads to the new column (still writing
-   both). **Deploy 3:** code stops writing the old column. **Deploy 4 (contract):**
-   migration drops the old column — only after the last version that used it is gone.
-   Additive migrations run *before* the code that needs them; destructive ones run
-   *after* every version that used the thing is gone. Invariant: the schema is valid
-   for *both* the old and new running versions at every instant.
-5. The platform sends SIGTERM to PID 1 — uvicorn receives it because `CMD` is exec
-   form (module 00). The `lifespan` shutdown flips readiness to `503` first
-   (module 06) so the LB stops routing new requests, waits a short pre-stop delay so
-   that readiness failure propagates before it stops accepting work (the race where
-   the LB might route one more request right after SIGTERM), then drains in-flight
-   requests, closes pools, and exits before the grace period (module 01). Readiness
-   must fail *before* draining so no new request is admitted to a replica that's
-   about to stop.
-6. **Liveness:** "is the process broken?" → platform **restarts** the container →
-   must **not** check dependencies (in-process only). **Readiness:** "can it serve
-   now?" → platform **removes it from the LB** (no restart) → **may** check
-   dependencies (shallow/fast) and reflect draining. **Startup:** "has it finished
-   starting?" → delays liveness/readiness → checks init state only. A DB check in
-   liveness causes a restart storm because a brief DB blip then fails liveness on
-   *every* replica, so the platform restarts the whole fleet — and restarting fixes
-   nothing about the DB, making the outage worse.
-7. Staging wiped prod's DB → per-environment config *and* separate secret scopes so
-   staging simply doesn't have prod's credentials (isolation by absence). Live key
-   in logs → `SecretStr` (redacts in logs/errors) and source it from a secret store,
-   never in repo/image. Feature-off needed a redeploy → make it a config-driven
-   **feature flag**, flippable without deploying (instant kill switch). Principle:
-   config errors should fail **early and loud** (typed, validated config crashing at
-   startup and failing the rollout) rather than **late and quiet** (subtly broken in
-   prod).
-8. (a) Spiky, idle-most-of-the-day event handler → **serverless functions** (or a
-   scale-to-zero PaaS) for per-execution billing; concepts in
-   `learn/06-azure-container-apps`. (b) Steady latency-sensitive API, four-person
-   team → **PaaS, Azure Container Apps** (avoid self-managed k8s the team can't
-   afford to operate) → `learn/06-azure-container-apps`. (c) 15-service multi-team
-   platform → **managed orchestrator, AKS** (scale and service count justify the
-   complexity) → `learn/07-aks` (and `learn/03-kubernetes`).
-
+Building packages frequently requires compilers (`gcc`, `make`), headers (`libpq-dev`), and package caches (`pip`). Leaving these in the runtime image bloats the container by 1+ GB, enlarges the security attack surface, and slows down cluster pull times during autoscaling. Multi-stage builds leave the build tools in the discarded builder stage, copying only the final compiled artifacts into a minimal, clean runtime image.
 </details>
 
-## Further reading & sources
+<details>
+<summary><strong>2. The In-Flight Request Drain Protocol:</strong> Explain the exact POSIX signaling and readiness probe sequence when Kubernetes retires an old pod during a rolling update.</summary>
 
-- [AWS: Types of cloud computing (IaaS / PaaS / serverless)](https://aws.amazon.com/types-of-cloud-computing/) - A vendor-neutral framing of the control-vs-managed spectrum this module organizes targets along.
-- [Azure Container Apps: Overview](https://learn.microsoft.com/en-us/azure/container-apps/overview) - The managed-container PaaS: scale-to-zero, revisions, and built-in traffic splitting without operating a cluster.
-- [Azure Kubernetes Service (AKS) documentation](https://learn.microsoft.com/en-us/azure/aks/) - Managed Kubernetes for when service count and control needs justify the orchestrator's complexity.
-- [Google Cloud: Serverless vs containers](https://cloud.google.com/discover/serverless-vs-containers) - The workload-shape trade-offs (cold starts, execution limits) that decide serverless fit.
-- [AWS Lambda: Cold starts and execution model](https://docs.aws.amazon.com/lambda/latest/dg/lambda-runtime-environment.html) - Why serverless suits bursty/event-driven work and fights steady latency-sensitive services.
+1. Kubernetes sends `SIGTERM` to the container process (PID 1).
+2. The application's shutdown hook immediately flips `/readyz` to HTTP 503, signaling ingress controllers to remove the pod from routing tables.
+3. The application sleeps for a brief pre-stop propagation window (e.g., 2 seconds).
+4. The application drains in-flight HTTP requests, closes database connection pools, and terminates cleanly with exit code 0 before `terminationGracePeriodSeconds` expires.
+</details>
 
-## Next
+<details>
+<summary><strong>3. Zero-Downtime Database Migration Sequencing:</strong> Why must an additive database migration run BEFORE application code deploys, while a destructive migration must run AFTER?</summary>
 
-[08-capstone-project](../08-capstone-project/README.md) — you can now containerize a
-backend service well, build it in CI, deploy it without downtime, migrate its
-database safely, configure it across environments, expose the signals a platform
-needs, and choose where to run it. The capstone integrates all of it: take a real
-FastAPI service from code to a documented, deployable, operable whole — a proper
-image, a CI pipeline, and a deployment runbook covering migration ordering, health
-checks, and rollback for a rolling deploy.
+- **Additive Migrations (Expand):** Adding a nullable column does not impact currently-running old replicas (they ignore it). Running it before code rollout ensures that when new replicas start, the column already exists.
+- **Destructive Migrations (Contract):** Dropping a column while old replicas are still running causes immediate runtime SQL errors. Destructive migrations must wait until 100% of old replicas are retired.
+</details>
+
+<details>
+<summary><strong>4. Decoupling Health Probes:</strong> Why must a database check NEVER be included in a Kubernetes liveness probe?</summary>
+
+Liveness probe failures trigger an automatic container restart. If the database experiences a transient network hiccup, all pods fail liveness simultaneously. Kubernetes kills the entire fleet at once, creating a cascading restart storm and taking down the service. Database checks belong exclusively in **readiness probes** to route traffic around pods without restarting them.
+</details>
+
+---
+
+## Summary & Further Study
+
+- **Control vs Burden:** Balance platform autonomy against maintenance overhead; default to managed container platforms.
+- **Portability Dividend:** A 12-factor container image runs on VMs, PaaS, or Kubernetes without code modifications.
+- **Top-Down Evaluation:** Match workload shape, team capacity, and service count to your hosting destination.
+
+### Further Reading
+- [The Twelve-Factor App Methodology](https://12factor.net/)
+- [Martin Fowler on Microservice Deployment Strategies](https://martinfowler.com/articles/microservices.html)
+- [Azure Container Apps Architecture Guide](https://learn.microsoft.com/en-us/azure/container-apps/)
+- [Kubernetes Architecture and Best Practices](https://kubernetes.io/docs/concepts/overview/)

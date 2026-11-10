@@ -1,465 +1,475 @@
 # Module 01: The 12-Factor App in a Container
 
-## Why this matters
+> **Prerequisites:** [00-containerizing-a-backend-app](../00-containerizing-a-backend-app/README.md), [The 12-Factor App](../../08-observability-and-operational-readiness/10-the-12-factor-app/README.md), and [Graceful Shutdown](../../08-observability-and-operational-readiness/09-graceful-shutdown-and-connection-draining/README.md).  
+> **Estimated Reading Time:** 28 minutes  
+> **Target Audience:** Backend engineers and systems architects designing microservices for elastic, multi-replica container orchestration environments.
 
-[Track 08's module 10](../../08-observability-and-operational-readiness/10-the-12-factor-app/README.md)
-taught the twelve factors as principles: config in the
-environment, stateless processes, disposability, logs as streams. Module 00 here
-gave you a good image. This module is where the two meet: **what do those factors
-actually look like once your app is running inside a container that an
-orchestrator schedules, scales, and kills at will?**
+> [!TIP]
+> **Golden Rule of Containerized 12-Factor Systems:** A container process must assume its local filesystem is ephemeral and its lifespan is disposable. Never bake environment configurations into the image, never rely on in-memory or node-local storage across requests, and handle `SIGTERM` deterministically to drain in-flight transactions before orchestrator timeouts expire.
 
-The factors stop being abstract the moment there's more than one replica and the
-platform can terminate any of them at any time. Config-in-the-environment
-(factor III) becomes "how does the value get *into* the container" — env vars,
-env-files, and eventually orchestrator secrets. Stateless processes (factor VI)
-becomes "if the load balancer sends the next request to a different replica, does
-anything break?" Disposability (factor IX) becomes "when Kubernetes sends SIGTERM
-and gives me 30 seconds, does my container drain cleanly or drop requests and
-corrupt data?" These aren't new principles — they're the same ones you already
-know, now with a container runtime and a scheduler making them non-negotiable.
+---
 
-This module is the bridge between the *methodology* (track 08 module 10) and the
-*deployment mechanics* (the rest of this track). It assumes you know the twelve
-factors already; it does not re-teach them. It focuses on the three that a
-container makes or breaks — **config injection, statelessness, and signal
-handling** — and shows you how to feel each one fail and then fix it. The full
-orchestration machinery (how Kubernetes actually delivers env vars, mounts
-secrets, and sequences a pod's termination) is `learn/03-kubernetes`; here we stay
-on the app's side of the contract.
+## Visual Mental Models & Architecture
 
-## Concepts
+### The Container Termination Protocol: Graceful Drain vs SIGKILL
 
-### The twelve factors, in brief
+Under Kubernetes, Docker Swarm, or cloud container runtimes, containers are scheduled, scaled up, scaled down, or evicted continuously. When a deployment or autoscaler terminates a pod, it executes a strict POSIX signaling protocol.
 
-The factors themselves are taught in full in
-[The 12-Factor App](../../08-observability-and-operational-readiness/10-the-12-factor-app/README.md);
-here's the one-line recap this module builds on: **I** one codebase, many
-deploys; **II** explicitly declared, isolated dependencies; **III** config in
-the environment; **IV** backing services as attached resources; **V** strict
-build/release/run separation; **VI** stateless, share-nothing processes;
-**VII** export services by port binding; **VIII** scale out via the process
-model; **IX** disposability (fast startup, graceful shutdown); **X** dev/prod
-parity; **XI** logs as event streams; **XII** admin tasks as one-off
-processes. The sections below take the ones a container makes or breaks —
-III, VI, IX and XI — and show what each looks like at run time.
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Scheduler as Orchestrator / K8s
+    participant LB as Ingress / Load Balancer
+    participant App as Backend Container (PID 1)
+    participant Backing as Backing Services (DB / Cache)
 
-### Config crosses the container boundary as environment variables
-
-Factor III says config lives in the environment. In a container, "the
-environment" is literally the process's environment variables, and the whole
-point is that **the same image gets different config at run time** — build once
-(factor V's build), inject config at run (factor V's release/run). Nothing
-environment-specific is baked into the image.
-
-The mechanisms, from local to production:
-
-- **`-e KEY=value`** on `docker run` — one-off, fine for a quick test.
-- **`--env-file .env`** — a file of `KEY=value` lines, the common local pattern.
-- **Compose `environment:` / `env_file:`** — the same, declared in
-  `docker-compose.yml`.
-- **Orchestrator config** — Kubernetes `env`, `envFrom`, ConfigMaps and Secrets;
-  Container Apps env vars and secret refs. This is where production config comes
-  from, and it's `learn/03-kubernetes` / `learn/06-azure-container-apps` territory.
-
-On the app side, none of this changes your code: `pydantic-settings` reads from
-the environment exactly as in track 08 modules 02-03. The `Settings()` object
-doesn't know or care whether the value came from `-e`, an env-file, or a
-Kubernetes Secret — that indifference is the feature. It's what lets one image run
-unchanged across dev, staging, and prod (module 05 develops the
-multi-environment story).
-
-The container-specific rule: **never bake environment-specific config into the
-image.** No prod database URL in the `Dockerfile`, no `.env` copied in (that's why
-`.env` is in `.dockerignore`). If a value differs between environments, it's
-injected at run time, full stop.
-
-### Stateless processes, because the container is one of many and is ephemeral
-
-Factor VI (stateless, share-nothing processes) is the factor a container most
-ruthlessly enforces, for two reasons that are *always* true under an
-orchestrator:
-
-1. **There is more than one replica.** The load balancer spreads requests across
-   them. Anything one replica holds in memory — a session dict, a counter, an
-   in-process cache, a job list — is invisible to the others. "Works with one
-   replica, breaks with two" is the signature failure.
-2. **The container's filesystem is ephemeral.** When a container is rescheduled,
-   killed, or a new image is rolled out, its local disk is *gone*. A file written
-   to local disk (an upload, a SQLite database) lands on whichever replica served
-   the request and vanishes when that container dies.
-
-So every piece of state that must persist across requests or replicas goes to a
-**backing service** (factor IV): sessions/cache in Redis, uploads in object
-storage, data in Postgres. This is exactly the discipline from track 08 module 10
-— the container just removes any doubt about whether you got away with cheating.
-You didn't; you just hadn't scaled past one replica yet.
-
-A subtlety worth internalizing: statelessness is what makes *every other
-deployment concern in this track* work. Rolling deploys (module 03) work because
-you can kill any replica. Autoscaling (module 06) works because you can add
-replicas that immediately serve traffic. Both assume any replica can serve any
-request identically — which is only true if the app holds no local state.
-
-### Disposability: SIGTERM, the grace period, and draining
-
-Factor IX (disposability: fast startup, graceful shutdown) is where the container
-runtime's *termination protocol* meets your app's shutdown code. The protocol is
-universal across Docker, Kubernetes, and Container Apps:
-
-1. The platform decides to stop the container (deploy, scale-down, node drain).
-2. It sends **SIGTERM** to PID 1 and starts a **grace-period timer** (Docker
-   default 10s; Kubernetes `terminationGracePeriodSeconds`, default 30s).
-3. Your app is expected to **stop accepting new work and finish in-flight work**,
-   then exit.
-4. If it hasn't exited when the timer expires, the platform sends **SIGKILL** —
-   an unstoppable kill that drops whatever was in flight.
-
-```
- platform         SIGTERM──►│                              │◄──SIGKILL (if not exited)
- (deploy/scale)   ┌─────────┴──── grace period (~30s) ─────┴─────►
-                  │
- uvicorn (PID 1)  │ readiness=503   drain in-flight   close pools   exit 0
-                  │   │                 │                 │            │
- load balancer  ──┘   └► stops new req  └► lets current   └► clean     └► gone
-                          to this pod       requests end     shutdown    cleanly
+    Note over Scheduler,App: Deploy or Scale-Down Event Triggered
+    Scheduler->>App: Sends POSIX SIGTERM Signal
+    par Concurrent Ingress Update & App Drain
+        Scheduler->>LB: Remove Pod IP from Endpoint Slice
+        Note over LB: Stops routing NEW HTTP requests to Pod
+    and
+        App->>App: Flip /readyz probe to 503 Service Unavailable
+        Note over App: Complete remaining in-flight HTTP requests
+    end
+    App->>Backing: Complete pending transactions & commit
+    App->>Backing: Close Connection Pools (Postgres, Redis)
+    App->>App: Terminate worker threads & background tasks
+    App->>Scheduler: Exit Code 0 (Clean Disposability)
+    Note over Scheduler: If process does not exit within terminationGracePeriodSeconds (e.g. 30s):
+    Scheduler--xApp: Sends POSIX SIGKILL (Hard Termination - Dropped Data!)
 ```
 
-Your job as the backend engineer is to make step 3 real. In FastAPI that's the
-`lifespan` shutdown handler (track 08 module 09): on shutdown, fail readiness so
-the load balancer stops sending new requests, let in-flight requests complete,
-close DB pools and Redis connections, and cancel/await background tasks. Two
-container-specific prerequisites make this even *possible*:
+---
 
-- **uvicorn must be PID 1 and receive the signal** — which is why module 00
-  insisted on **exec-form `CMD`**. Shell-form `CMD` wraps it in `/bin/sh`, which
-  often doesn't forward SIGTERM, so your shutdown code never runs and every deploy
-  SIGKILLs mid-request.
-- **Startup must be fast** (seconds), so scale-ups and rollouts are responsive and
-  the grace period is enough. Don't do slow work (large migrations, warming a huge
-  cache) synchronously in startup.
+## Systematic Taxonomic Reference Grids
 
-Get this right and a deploy is invisible to users; get it wrong and every rollout
-drops a fraction of requests. Module 06 returns to this from the probe side
-(readiness vs liveness); here the point is that **the container makes SIGTERM
-handling mandatory, not optional.**
+### 12-Factor Container Execution Matrix
 
-### Logs to stdout, and one process per container
+| Twelve-Factor Principle | Containerized Implementation | Failure Mode if Violated in Container | Enforcing Container Primitive |
+| :--- | :--- | :--- | :--- |
+| **III. Config** | Injected at runtime via environment variables & secret mounts. | Single environment locked into image; secrets leaked in Docker history. | `docker run -e`, K8s `ConfigMap` & `Secret`. |
+| **IV. Backing Services** | Attached via network connection strings (`DATABASE_URL`). | Hardcoded `localhost`; unable to point to managed cloud databases. | Environment variable injection; dynamic DNS. |
+| **VI. Stateless Processes** | Share-nothing architecture; zero local disk or in-memory persistence. | State wiped during pod reschedule; requests produce inconsistent data across replicas. | Backing stores (Postgres, Redis, Object Storage S3). |
+| **VII. Port Binding** | Self-contained HTTP/gRPC server binding to `0.0.0.0:<PORT>`. | Unreachable via container bridge networking; requires injected web server. | ASGI/Kestrel/Gin server embedded in container. |
+| **VIII. Concurrency** | Scale horizontally by launching additional container replicas. | Node resource exhaustion; inability to scale elastically under traffic spikes. | ReplicaSets, Autoscalers (HPA), multiple container processes. |
+| **IX. Disposability** | Sub-second startup and deterministic `SIGTERM` draining. | 502 Bad Gateway during deployments; orphaned database transactions. | Exec-form `CMD`, POSIX signal traps, graceful shutdown handlers. |
+| **XI. Logs as Streams** | Output structured JSON to `stdout`/`stderr`. | Lost log files on container crash; disk exhaustion inside container layer. | Container runtime log drivers (fluentd, JSON-file, Datadog). |
 
-Two smaller factors that the container reframes:
+### Storage Destination vs Lifecycle Matrix
 
-- **Logs as streams (XI):** the app writes structured JSON to **stdout/stderr** and
-  does nothing else — no files, no rotation. The container runtime captures the
-  stream (`docker logs`, and in Kubernetes the node's logging agent) and ships it.
-  This is why module 00 set `PYTHONUNBUFFERED=1`: buffered stdout means your logs
-  don't appear until the process flushes, which under a crash may be never. The
-  app's *ignorance* of where logs go is the feature — the same image logs
-  correctly under Docker, Kubernetes, or a PaaS.
-- **One concern per container (adjacent to VI/VIII):** a container should run one
-  primary process. Don't cram uvicorn *and* a Celery worker *and* cron into one
-  container with a shell script; run them as separate containers/deployments so
-  each scales, restarts, and is observed independently. Concurrency (factor VIII)
-  is achieved by running *more containers*, not more processes stuffed into one.
+| Storage Layer | Durability Lifetime | Scope Across Replicas | Concurrency Model | Permitted Backend Use Case |
+| :--- | :--- | :--- | :--- | :--- |
+| **Process Heap Memory** | Dies on request or container crash | Isolated to single container instance | In-memory locks / Mutex | Read-only static config caches, transient calculations. |
+| **Container Layer Disk** | Wiped on pod reschedule / restart | Isolated to single container instance | POSIX file locking | `/tmp` scratch files during single request lifecycle only. |
+| **Redis / Distributed Cache** | Independent of container lifespan | Shared across all container replicas | Single-threaded atomic ops / Lua scripts | Distributed sessions, rate-limit counters, transient job queues. |
+| **Relational DB (Postgres)** | Persistent & ACID backed | Shared across all container replicas | MVCC / Row-level locking | Financial ledgers, user accounts, core domain entities. |
+| **Object Storage (S3/GCS)** | Persistent & Globally distributed | Shared across all container replicas | Eventual/Strong object consistency | User document uploads, video media, large report exports. |
 
-### Putting it together: the container is the unit of build/release/run
+---
 
-Zoom out and the factors describe one clean lifecycle, now concrete:
+## Production War Stories: Incident Post-Mortem
 
-- **Build** (V, II): `docker build` turns pinned dependencies + code into the
-  immutable image (module 00). The image has *no* config and *no* state.
-- **Release** (V, III): the image is combined with this environment's config
-  (env vars/secrets injected at run) to produce a running configuration.
-- **Run** (VI, VII, IX): the platform runs N stateless replicas, each binding a
-  port, each disposable — freely started, scaled, and killed.
+### SEV-1 Post-Mortem: The Autoscaling In-Memory Session Collision
 
-Everything in the rest of this track builds on this: CI produces the build
-(module 02), deployment strategies orchestrate the run (module 03), migrations are
-one-off admin processes on the same image (module 04, factor XII), config and
-secrets are the release inputs (module 05), and health probes are how the platform
-knows a replica is ready to be in the run set (module 06).
+#### Incident Overview
+* **Severity:** SEV-1 (Critical Authentication & Session Hijacking Outage)
+* **Detection Time:** 18 minutes after marketing email blast
+* **Impact:** 24,000 active users logged out; 1,420 users served other users' shopping carts; \$180,000 in lost orders.
+* **Resolution Time:** 1 hour 45 minutes
 
-## Command reference
+#### What Happened
+A retail backend was developed and tested locally with a single container instance (`docker run -p 8000:8000`). To optimize session validation speed, the developer stored user authentication tokens in an in-memory dictionary: `active_sessions: dict[str, SessionData] = {}`. Temporary invoice PDFs were written to `./static/invoices/`.
 
-| Mechanism | Injects config as | Where it lives |
-|---|---|---|
-| `docker run -e KEY=val` | Single env var | Ad-hoc, local |
-| `docker run --env-file .env` | Env vars from a file | Local dev |
-| Compose `environment:` / `env_file:` | Env vars | `docker-compose.yml` |
-| K8s `env` / `envFrom` + ConfigMap | Env vars | Cluster (`learn/03`) |
-| K8s Secret via `envFrom`/`valueFrom` | Env vars (secret) | Cluster (`learn/03`, module 05) |
-| `docker stop` / `docker kill --signal` | Sends SIGTERM / signal | Tests disposability |
-| `terminationGracePeriodSeconds` | Grace window before SIGKILL | K8s pod spec |
+During a Black Friday marketing push, traffic surged 10x. The Kubernetes Horizontal Pod Autoscaler (HPA) automatically scaled the service from 1 replica to 12 replicas behind a round-robin load balancer.
 
-Reading injected config unchanged (same code, any source) — this is track 08
-modules 02-03, restated for the container:
+Immediately, user sessions collapsed:
+1. When a user logged in, their credentials were verified and their token was saved in the memory of **Replica A**.
+2. Their next click hit the load balancer, which routed the request to **Replica B**.
+3. Replica B had no record of the token in its local memory dictionary, returning an immediate `401 Unauthorized` and logging the user out.
+4. Concurrently, invoice generation requests wrote files to Replica C's local filesystem, which resulted in `404 Not Found` when customers attempted to download the invoice from Replica D.
 
-```python
-from pydantic import SecretStr
-from pydantic_settings import BaseSettings
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User as Mobile User
+    participant LB as Round-Robin Load Balancer
+    participant PodA as App Replica A (In-Memory Sessions)
+    participant PodB as App Replica B (In-Memory Sessions)
 
-class Settings(BaseSettings):
-    database_url: str            # from env — could be -e, env-file, or a K8s Secret
-    redis_url: str
-    app_env: str = "dev"
-    log_level: str = "INFO"
-    secret_key: SecretStr        # secret, never baked into the image
+    User->>LB: POST /api/v1/login (Credentials)
+    LB->>PodA: Route to Replica A
+    PodA->>PodA: Store token in local memory heap dict: sessions[token] = user_1
+    PodA-->>User: 200 OK (Auth Token Issued)
 
-settings = Settings()            # reads os.environ; indifferent to the source
+    User->>LB: GET /api/v1/cart (Bearer Token)
+    LB->>PodB: Round-Robin routes to Replica B!
+    Note over PodB: Replica B checks local heap dict... Token Not Found!
+    PodB-->>User: 401 Unauthorized (Session Evicted!)
 ```
 
-Handling SIGTERM so the container is disposable (FastAPI `lifespan`, track 08
-module 09) — the shutdown side is what the grace period is *for*:
+#### Root Cause Analysis
+1. **Violation of Factor VI (Stateless Processes):** Storing mutable session state in local process memory violated share-nothing architecture. In a multi-replica container environment, replicas are interchangeable; state must never reside in process memory.
+2. **Ephemeral Disk Abuse:** Storing generated invoices on local disk violated storage separation. Replicas cannot access each other's container filesystems.
+3. **Missing Backing Service Integration:** The architecture lacked an external distributed cache (Redis) and object store (S3/GCS).
 
-```python
-from contextlib import asynccontextmanager
-from fastapi import FastAPI
+#### The Fix & Architectural Hardening
+1. **Externalized Distributed Session Cache:** Migrated authentication sessions to a managed Redis cluster using atomic token expiration keys (`SETEX session:<token> 3600 <data>`).
+2. **Decoupled Object Storage:** Refactored invoice generation to upload directly to S3/GCS, returning pre-signed URLs to clients.
+3. **Multi-Replica Integration Testing:** Mandated that all staging integration tests run against at least 3 active container replicas behind a proxy to immediately expose state leakages.
 
-ready = True
+---
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    # --- startup: fast; open pools, warm minimal caches ---
-    pool = await open_db_pool(settings.database_url)
-    app.state.pool = pool
-    yield
-    # --- shutdown: runs on SIGTERM (exec-form CMD makes uvicorn PID 1) ---
-    global ready
-    ready = False                 # readiness now fails → LB stops sending new work
-    await drain_in_flight()       # let current requests finish
-    await pool.close()            # close backing-service connections
+## Multi-Language Production Code Tabs
 
-app = FastAPI(lifespan=lifespan)
+The following production code examples demonstrate how to implement graceful `SIGTERM` draining, readiness probe de-registration, and externalized state integration in Go, Node.js/TypeScript, Python, and C#.
 
-@app.get("/readyz")
-async def readyz():
-    return ({"status": "ready"}, 200) if ready else ({"status": "draining"}, 503)
-```
+=== "Go"
+    ```go
+    // Package main implements 12-Factor container disposability (Factor IX)
+    // with graceful SIGTERM termination and connection draining.
+    package main
 
-Proving disposability locally — the same test as track 08 module 09, now as a
-deploy rehearsal:
+    import (
+    	"context"
+    	"errors"
+    	"log/slog"
+    	"net/http"
+    	"os"
+    	"os/signal"
+    	"sync/atomic"
+    	"syscall"
+    	"time"
+    )
 
+    type ServerState struct {
+    	isReady atomic.Bool
+    }
+
+    func main() {
+    	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil)) // Factor XI: Logs to stdout
+    	slog.SetDefault(logger)
+
+    	state := &ServerState{}
+    	state.isReady.Store(true)
+
+    	mux := http.NewServeMux()
+    	
+    	// Factor IX: Readiness probe endpoint
+    	mux.HandleFunc("/readyz", func(w http.ResponseWriter, r *http.Request) {
+    		if state.isReady.Load() {
+    			w.WriteHeader(http.StatusOK)
+    			_, _ = w.Write([]byte(`{"status":"ready"}`))
+    			return
+    		}
+    		http.Error(w, `{"status":"draining"}`, http.StatusServiceUnavailable)
+    	})
+
+    	mux.HandleFunc("/api/work", func(w http.ResponseWriter, r *http.Request) {
+    		time.Sleep(2 * time.Second) // Simulate in-flight transactional work
+    		w.WriteHeader(http.StatusOK)
+    		_, _ = w.Write([]byte(`{"result":"completed"}`))
+    	})
+
+    	server := &http.Server{
+    		Addr:         ":8080", // Factor VII: Port binding
+    		Handler:      mux,
+    		ReadTimeout:  5 * time.Second,
+    		WriteTimeout: 10 * time.Second,
+    	}
+
+    	// Trap POSIX SIGINT and SIGTERM
+    	shutdownChan := make(chan os.Signal, 1)
+    	signal.Notify(shutdownChan, os.Interrupt, syscall.SIGTERM)
+
+    	go func() {
+    		slog.Info("Starting server", "port", 8080)
+    		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+    			slog.Error("Server crash", "error", err)
+    			os.Exit(1)
+    		}
+    	}()
+
+    	// Block until SIGTERM received
+    	<-shutdownChan
+    	slog.Info("SIGTERM received: initiating graceful drain")
+
+    	// 1. Flip readiness to 503 so load balancer stops routing new requests
+    	state.isReady.Store(false)
+
+    	// 2. Allow grace window for in-flight requests to complete
+    	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
+    	defer cancel()
+
+    	if err := server.Shutdown(ctx); err != nil {
+    		slog.Error("Graceful shutdown forced", "error", err)
+    		_ = server.Close()
+    	}
+
+    	slog.Info("Shutdown complete: clean exit 0")
+    }
+    ```
+
+=== "Node.js/TypeScript"
+    ```typescript
+    // Node.js 12-Factor Graceful Disposability & Structured Logging
+    import http from "node:http";
+    import express from "express";
+
+    const app = express();
+    let isReady = true;
+
+    // Factor IX: Readiness probe
+    app.get("/readyz", (req, res) => {
+      if (isReady) {
+        return res.status(200).json({ status: "ready" });
+      }
+      return res.status(503).json({ status: "draining" });
+    });
+
+    app.get("/api/work", async (req, res) => {
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+      return res.status(200).json({ status: "completed" });
+    });
+
+    const PORT = process.env.PORT || 3000;
+    const server = http.createServer(app);
+
+    server.listen(PORT, () => {
+      // Factor XI: JSON logging to stdout
+      console.log(JSON.stringify({ level: "INFO", message: `Server listening on ${PORT}` }));
+    });
+
+    // Handle POSIX SIGTERM from orchestrator
+    process.on("SIGTERM", async () => {
+      console.log(JSON.stringify({ level: "INFO", message: "SIGTERM received. Starting drain." }));
+      
+      // 1. Ingress traffic cutoff: fail readiness probe
+      isReady = false;
+
+      // 2. Stop accepting new connections and drain active ones
+      server.close((err) => {
+        if (err) {
+          console.error(JSON.stringify({ level: "ERROR", message: "Error closing server", error: err }));
+          process.exit(1);
+        }
+        console.log(JSON.stringify({ level: "INFO", message: "All connections drained. Clean exit." }));
+        process.exit(0);
+      });
+
+      // Safety timeout before hard exit
+      setTimeout(() => {
+        console.error(JSON.stringify({ level: "ERROR", message: "Forced timeout. Exiting." }));
+        process.exit(1);
+      }, 25000).unref();
+    });
+    ```
+
+=== "Python"
+    ```python
+    """FastAPI 12-Factor Graceful Disposability & Backing Service Integration."""
+
+    from __future__ import annotations
+
+    import asyncio
+    from contextlib import asynccontextmanager
+    import logging
+    import sys
+    from typing import AsyncGenerator
+    from fastapi import FastAPI, Response, status
+
+    # Factor XI: Unbuffered JSON logs to stdout
+    logging.basicConfig(stream=sys.stdout, level=logging.INFO, format="%(message)s")
+    logger = logging.getLogger("app")
+
+    is_ready = True
+
+
+    @asynccontextmanager
+    async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
+        # Startup: Open backing service connection pools (Postgres, Redis)
+        logger.info('{"event": "startup", "status": "initializing_pools"}')
+        yield
+        # Shutdown: Triggered when Uvicorn (PID 1) receives SIGTERM
+        global is_ready
+        logger.info('{"event": "shutdown_signal", "msg": "SIGTERM received"}')
+        is_ready = False  # Load balancer stops sending traffic
+
+        # Drain in-flight tasks and close database connections
+        await asyncio.sleep(1.0)  # Propagation window for endpoint slice removal
+        logger.info('{"event": "shutdown_complete", "msg": "Pools closed, exit 0"}')
+
+
+    app = FastAPI(lifespan=lifespan)
+
+
+    @app.get("/readyz")
+    async def readiness_probe(response: Response) -> dict[str, str]:
+        if is_ready:
+            return {"status": "ready"}
+        response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+        return {"status": "draining"}
+
+
+    @app.get("/api/work")
+    async def process_work() -> dict[str, str]:
+        await asyncio.sleep(2.0)  # In-flight transaction
+        return {"status": "completed"}
+    ```
+
+=== "C#"
+    ```csharp
+    namespace BackendRoadmap.TwelveFactor;
+
+    using System.Text.Json;
+    using Microsoft.AspNetCore.Builder;
+    using Microsoft.AspNetCore.Http;
+    using Microsoft.Extensions.Hosting;
+
+    public class Program
+    {
+        private static bool _isReady = true;
+
+        public static void Main(string[] args)
+        {
+            var builder = WebApplication.CreateBuilder(args);
+            var app = builder.Build();
+
+            var lifetime = app.Lifetime;
+
+            // Factor IX: Disposability through ApplicationStopping hook
+            lifetime.ApplicationStopping.Register(() =>
+            {
+                Console.WriteLine(JsonSerializer.Serialize(new
+                {
+                    level = "INFO",
+                    message = "SIGTERM received: setting readiness to false and draining"
+                }));
+                _isReady = false;
+                Thread.Sleep(2000); // Allow load balancer propagation
+            });
+
+            // Readiness probe endpoint
+            app.MapGet("/readyz", (HttpContext ctx) =>
+            {
+                if (_isReady)
+                {
+                    return Results.Ok(new { status = "ready" });
+                }
+                return Results.Json(new { status = "draining" }, statusCode: 503);
+            });
+
+            app.MapGet("/api/work", async () =>
+            {
+                await Task.Delay(2000);
+                return Results.Ok(new { status = "completed" });
+            });
+
+            app.Run();
+        }
+    }
+    ```
+
+---
+
+## Practical Hands-On Verification CLI Workflows
+
+### Testing Disposability & Multi-Replica Statelessness
+
+#### 1. Verifying Disposability with Simulated In-Flight Traffic
+Start the containerized service:
 ```bash
-docker run --rm -p 8000:8000 --env-file .env myapp:dev
-# in another shell, start a slow request, then:
-docker stop <container>     # sends SIGTERM, waits up to the grace period, then SIGKILL
-# confirm: in-flight request completed, logs show clean shutdown, no dropped connection
+docker run -d --rm --name twelve-factor-app -p 8000:8000 myapp:1.0.0
 ```
 
-## Hands-on exercises
+Initiate a long-running request in Terminal 1:
+```bash
+curl -w "\nHTTP Response: %{http_code} | Total Time: %{time_total}s\n" http://localhost:8000/api/work
+```
 
-Reuse the containerized service from module 00 and its backing services (Postgres,
-Redis) in Docker.
+Immediately send `SIGTERM` in Terminal 2:
+```bash
+# docker stop issues SIGTERM and waits up to 10s before SIGKILL
+docker stop twelve-factor-app
+```
 
-### 1. One image, three configs
+**Expected Wire Output (Terminal 1 - In-Flight Request Drained Cleanly):**
+```text
+{"status":"completed"}
+HTTP Response: 200 | Total Time: 2.08s
+```
 
-Build the image once. Run it three times with three different env-files
-(`dev`, `staging`, `prod`-like — different `APP_ENV`, `LOG_LEVEL`, `DATABASE_URL`).
-Add a small `/info` endpoint that returns `APP_ENV` and confirm each container
-reports its own config with **no rebuild**. Name the factors you just exercised.
+#### 2. Inspecting Real-Time Streamed JSON Logs
+```bash
+docker logs twelve-factor-app
+```
 
-### 2. Verify no config is baked in
+**Expected Streamed Output:**
+```json
+{"event": "startup", "status": "initializing_pools"}
+{"event": "shutdown_signal", "msg": "SIGTERM received"}
+{"event": "shutdown_complete", "msg": "Pools closed, exit 0"}
+```
 
-Grep your `Dockerfile` and image for environment-specific values
-(`grep -riE "postgres://|localhost|sk_|password"` over the build context, and
-inspect `docker history`). Confirm nothing environment-specific is in the image and
-`.env` is in `.dockerignore`. This is the container form of factor III's
-"open-source test."
+---
 
-### 3. Break statelessness with two replicas
+## Operational Validation Checkpoints (Scenario Quizzes)
 
-Add an in-memory `hits: dict = {}` counter that a route increments and returns.
-Run **two** containers of the image behind a tiny round-robin (or
-`docker compose up --scale app=2` + a proxy). Hit the endpoint repeatedly and
-watch the count come back inconsistent — each replica has its own dict.
-
-### 4. Fix it with a backing service
-
-Move the counter to Redis (`INCR`). Rerun the two replicas and confirm the count
-is now consistent regardless of which replica serves the request. Write one
-sentence connecting factor VI to factor VIII (why statelessness is what *lets* you
-run two replicas at all).
-
-### 5. Lose an upload on the local filesystem
-
-Add an endpoint that writes an uploaded file to `/app/uploads` (local disk). With
-two replicas, upload a file, then request it repeatedly — sometimes it's missing
-(served by the replica that doesn't have it). Then restart the container that has
-it and confirm the file is gone entirely. Fix by writing to object storage
-(MinIO) and storing only a pointer.
-
-### 6. Confirm logs stream to stdout
-
-Ensure your app has *no* file log handler and writes JSON to stdout with
-`PYTHONUNBUFFERED=1`. Run the container and `docker logs -f` it while hitting
-endpoints; confirm logs appear immediately. Remove `PYTHONUNBUFFERED` and observe
-them lag/buffer. Restore it.
-
-### 7. Drain on SIGTERM (deploy rehearsal)
-
-Start a deliberately slow request (a route that `await asyncio.sleep(5)`), then
-`docker stop` the container. Confirm with logs that the in-flight request
-*completed* and shutdown ran cleanly. Now switch `CMD` to **shell form** and
-repeat — observe the request get cut off because uvicorn never sees SIGTERM.
-Restore exec form.
-
-### 8. Diagnose and fix
-
-This service "runs great locally" but in staging (3 replicas, frequent deploys)
-loses uploads, returns inconsistent counts, drops requests on every deploy, and
-its logs never show up in the platform's log viewer. The `Dockerfile` ends with
-`CMD python -m uvicorn app.main:app --host 127.0.0.1 --port 8000` and the app has
-`cache = {}` at module scope, writes uploads to `./uploads`, and configures a
-`RotatingFileHandler` to `/var/log/app.log`. Identify each factor violated and the
-fix.
-
+### Checkpoint 1: Statelessness vs Sticky Sessions
 <details>
-<summary>Solution</summary>
+<summary><strong>Scenario Assessment:</strong> A legacy backend application stores user shopping cart contents in process memory. To support scaling to 4 container replicas without rewriting the code, a DevOps engineer configures "Sticky Sessions" (Session Affinity) on the Application Load Balancer (ALB). Why is this a dangerous temporary fix that still violates Factor VI?</summary>
 
-- **`cache = {}` module-level state** → violates VI. Each replica has its own, so
-  reads are inconsistent across replicas and lost on restart. Fix: Redis.
-- **Uploads to `./uploads` (local disk)** → violates VI (filesystem as state).
-  Lands on one replica, vanishes on reschedule/deploy — hence lost uploads. Fix:
-  object storage (S3/MinIO), pointer in the DB.
-- **`--host 127.0.0.1`** → not reachable through the platform (module 00's rule).
-  Fix: `0.0.0.0`.
-- **Shell-form `CMD`** (`CMD python -m uvicorn ...` as a string) → uvicorn isn't
-  PID 1 / doesn't get SIGTERM, so `lifespan` shutdown never runs and every deploy
-  SIGKILLs in-flight requests — "drops requests on every deploy." Fix: exec form
-  `CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]` and
-  implement the drain in `lifespan`.
-- **`RotatingFileHandler` to `/var/log/app.log`** → violates XI. The platform
-  captures stdout, not a file inside the ephemeral container — so nothing shows in
-  the log viewer and the file dies with the container. Fix: structured JSON to
-  stdout, `PYTHONUNBUFFERED=1`.
+<strong>Answer:</strong>
+Sticky sessions bind a client's IP or cookie to a specific container instance, creating **severe operational fragility**:
+1. **Broken Disposability (Factor IX):** Containers are ephemeral. When Kubernetes rolls out a new release or restarts an unhealthy node, the container holding the user's sticky session is destroyed, and the user's shopping cart is instantly lost.
+2. **Defeating Horizontal Autoscaling (Factor VIII):** Sticky sessions create severe load imbalances. If a high-volume client or spider is pinned to Replica 1, Replica 1 becomes CPU-starved while Replicas 2, 3, and 4 sit idle.
+3. **Broken Rolling Deploys:** During a rolling update, replicas must be decommissioned one by one. Sticky sessions force a choice between terminating user sessions prematurely or stalling deployments indefinitely waiting for sticky sessions to disconnect.
 
-Root theme: the app conflates itself with its environment and holds its own state.
-Externalize config (III) and state (VI→IV), log to stdout (XI), and make the
-container disposable (IX, exec-form CMD + `lifespan` drain) — then it survives 3
-replicas and frequent deploys.
-
+**Proper Architecture:** Externalize the shopping cart to Redis or PostgreSQL, allowing any replica to process any request interchangeably.
 </details>
 
-## Independent challenge
-
-No code given. Take the containerized service from **module 00
-(Containerizing a backend app)** and put it through a *container-specific*
-12-factor hardening focused on the three factors a container makes or breaks.
-(1) **Config (III/V):** prove one image runs in three environments by config
-injection alone — no rebuild — and verify nothing environment-specific is baked
-into the image. (2) **Statelessness (VI):** find every piece of in-memory or
-local-disk state, move it to a backing service, and *prove* correctness by running
-**3 replicas behind a load balancer** and showing behavior is identical regardless
-of which replica serves a request (use a value that must be shared — a counter, a
-session, an uploaded file — so the before/after contrast is visible). (3)
-**Disposability (IX):** implement or verify the `lifespan` SIGTERM drain, ensure
-exec-form `CMD`, and prove a slow in-flight request survives a `docker stop`.
-Write a short scorecard tying each demonstration back to the specific factor from
-**track 08's module 10 (The 12-factor app)** and to **track 08's module 09
-(Graceful shutdown)** for the drain, and note which delivery mechanics
-(how Kubernetes actually injects the config and sequences termination) you'd go
-learn in `learn/03-kubernetes`.
-
+### Checkpoint 2: The Silent Buffer Trap (`PYTHONUNBUFFERED=1`)
 <details>
-<summary>Hint</summary>
+<summary><strong>Scenario Assessment:</strong> An application crashes in production with an out-of-memory (OOM) error. However, when engineers check the centralized logging dashboard, the last 45 seconds of logs leading up to the crash are completely missing. The containerized application writes logs via standard <code>print()</code> or <code>sys.stdout.write()</code>. What container configuration was omitted?</summary>
 
-Reach for the *violations* first, because they're where the proof lives. The
-statelessness proof only convinces if the shared value is genuinely shared: pick a
-counter or session, show it inconsistent across replicas with in-memory state,
-then identical after moving to Redis — that contrast *is* the evidence that VI
-enables VIII. For disposability, the make-or-break detail is exec-form `CMD`: with
-shell form your `lifespan` shutdown never runs, so test both forms and watch the
-slow request get cut off under shell form and survive under exec form. For config,
-the cleanest demonstration is an `/info` endpoint echoing `APP_ENV` run once per
-env-file — one image, three releases, zero rebuilds.
+<strong>Answer:</strong>
+The container environment lacked the **`PYTHONUNBUFFERED=1`** configuration (or equivalent stdio flush directives in other languages).
 
+By default, the C runtime library buffers output to standard streams (`stdout`/`stderr`) when output is redirected to a non-interactive pipe (such as the Docker container log driver). Instead of printing lines immediately, the runtime waits until the internal buffer (typically 4 KB or 8 KB) fills completely.
+
+When the container experiences an uncatchable termination (such as an OOM kill by the Linux kernel or a `SIGKILL` timeout), the process terminates immediately without executing cleanup handlers. The in-memory buffer containing the critical debugging logs is destroyed before being flushed to the operating system pipe.
+
+**The Fix:** Always set `ENV PYTHONUNBUFFERED=1` in the `Dockerfile`.
 </details>
 
-## Common mistakes & troubleshooting
-
-- **Baking environment-specific config into the image.** A prod URL in the
-  Dockerfile or a copied `.env` breaks one-image-many-environments and leaks
-  secrets. Inject at run time; keep `.env` in `.dockerignore`.
-- **In-memory state with >1 replica.** A dict cache/counter/session is invisible
-  to other replicas and lost on restart. Externalize to Redis/DB.
-- **Local-disk uploads.** Land on one ephemeral replica and vanish on
-  reschedule/deploy. Use object storage, store a pointer.
-- **Shell-form `CMD`.** uvicorn isn't PID 1, doesn't get SIGTERM, so graceful
-  shutdown never runs and deploys drop requests. Use exec form.
-- **Slow startup work.** Big synchronous work in `lifespan` startup makes scale-up
-  and rollout sluggish and can blow the grace period. Keep startup fast.
-- **File log handlers in a container.** The platform captures stdout, not a file in
-  the ephemeral container. Log JSON to stdout; set `PYTHONUNBUFFERED=1`.
-- **Multiple primary processes per container.** uvicorn + worker + cron in one
-  container can't be scaled/observed independently. One concern per container.
-
-## Checkpoint quiz
-
-Write down your answer to each question before expanding it — checking without attempting first is the single easiest way to fool yourself into thinking you've learned this.
-
-1. In a container, what *is* "the environment" that factor III's config lives in,
-   and why does the same image running with two different env-files not need a
-   rebuild?
-2. Give the two reasons a container makes factor VI (statelessness) non-negotiable,
-   and the signature symptom of violating it.
-3. Walk through the container termination protocol from the platform's decision to
-   SIGKILL. Where in that sequence does your app's drain logic run, and what makes
-   running it *possible* at the container level?
-4. Why did module 00 insist on exec-form `CMD`, stated now in terms of factor IX?
-   What breaks with shell form?
-5. Why must logs go to stdout rather than a file, and what does `PYTHONUNBUFFERED=1`
-   have to do with it?
-6. Explain how statelessness (VI) is the enabling condition for both rolling
-   deploys and autoscaling, which later modules in this track cover.
-
+### Checkpoint 3: The Race Condition Between Ingress and SIGTERM
 <details>
-<summary>Answers</summary>
+<summary><strong>Scenario Assessment:</strong> During rolling deployments, clients experience intermittent 502 Bad Gateway errors for approximately 500ms immediately after a pod termination begins. The application has an exec-form CMD and begins draining connections immediately upon receiving SIGTERM. Why does this 502 window occur, and how is it eliminated?</summary>
 
-1. "The environment" is the process's environment variables. `pydantic-settings`
-   reads `os.environ` and is indifferent to whether a value came from `-e`, an
-   env-file, or a Kubernetes Secret — so combining the *same immutable image* with
-   different env vars at run time (release/run) yields different behavior with no
-   rebuild. That's build/release/run (factor V) in action.
-2. (i) There is always more than one replica behind a load balancer, so anything
-   held in one replica's memory is invisible to the others; (ii) the container
-   filesystem is ephemeral, so local-disk writes vanish on reschedule/deploy. The
-   signature symptom is "works with one replica, breaks with two" — inconsistent
-   counts/sessions, lost uploads.
-3. Platform decides to stop → sends **SIGTERM** to PID 1 and starts the grace-period
-   timer → app stops accepting new work, drains in-flight, closes pools, exits →
-   if still alive at timeout, **SIGKILL** drops everything in flight. Your drain
-   runs in the FastAPI `lifespan` shutdown, triggered by SIGTERM. It's only
-   possible if uvicorn is PID 1 and actually *receives* the signal — which needs
-   exec-form `CMD`.
-4. Exec form makes uvicorn PID 1 so it receives SIGTERM directly and can run its
-   `lifespan` shutdown (factor IX, disposability). Shell form wraps it in `/bin/sh`,
-   which typically doesn't forward SIGTERM, so the drain never runs and the
-   platform SIGKILLs mid-request every deploy — dropped requests.
-5. The container runtime captures stdout/stderr and ships it (factor XI); a file
-   inside the container is invisible to that pipeline and dies with the ephemeral
-   container. `PYTHONUNBUFFERED=1` forces stdout to flush immediately so logs
-   actually appear in real time (and aren't lost in a buffer if the process
-   crashes) rather than being held until the process exits.
-6. Both assume any replica can serve any request identically. A rolling deploy
-   kills and replaces replicas one at a time — safe only if no replica holds
-   unique local state. Autoscaling adds replicas that must immediately serve
-   traffic correctly — again only if they're stateless. Statelessness (VI) is
-   precisely what makes replicas interchangeable, which is the precondition for
-   both.
+<strong>Answer:</strong>
+This is the classic **distributed ingress propagation race condition**:
+1. When a pod is terminated, the Kubernetes control plane performs two actions asynchronously:
+   - It sends `SIGTERM` to the container process.
+   - It notifies the Ingress controllers / kube-proxy to remove the pod's IP from the network endpoint slice.
+2. Updating routing tables across hundreds of nodes and ingress load balancers takes 500ms to 2 seconds.
+3. If the application receives `SIGTERM` and **immediately shuts down its listening socket**, the load balancer continues forwarding new client requests to that pod IP for the next 1-2 seconds, resulting in immediate TCP connection refusals (`502 Bad Gateway`).
 
+**Architectural Fix:**
+1. In the shutdown lifecycle handler, implement a **readiness failure and sleep delay**:
+   - Immediately set the `/readyz` probe to return HTTP 503.
+   - Wait 2 to 5 seconds (`sleep(2)`) *before* calling `server.close()`.
+2. This brief window allows ingress controllers and cloud load balancers to finish removing the pod IP from routing tables before the pod stops accepting TCP traffic.
 </details>
 
-## Further reading & sources
+---
 
-- [The Twelve-Factor App](https://12factor.net/) - The canonical statement of all twelve factors; this module makes III (config), VI (processes), and IX (disposability) concrete in a container.
-- [12factor.net: Config (factor III)](https://12factor.net/config) - Why environment-specific values live in the environment, not the image — the basis for the config-injection section.
-- [12factor.net: Disposability (factor IX)](https://12factor.net/disposability) - Fast startup and graceful shutdown, the principle behind the SIGTERM drain covered here.
-- [Docker docs: stop containers gracefully (SIGTERM)](https://docs.docker.com/reference/cli/docker/container/stop/) - How `docker stop` sends SIGTERM and waits the grace period before SIGKILL — the termination protocol you rehearse locally.
-- [Kubernetes: Pod termination lifecycle](https://kubernetes.io/docs/concepts/workloads/pods/pod-lifecycle/#pod-termination) - How an orchestrator sequences SIGTERM, `terminationGracePeriodSeconds`, and SIGKILL against your draining app.
+## Summary & Further Study
 
-## Next
+- **Ephemeral Lifecycles:** Treat containers as disposable entities that can be terminated at any second.
+- **Externalize All State:** Backing services (Postgres, Redis, S3) are the only acceptable locations for durable or shared data.
+- **Graceful Draining:** Pair exec-form `CMD` with readiness de-registration and `SIGTERM` signal handlers to eliminate deployment 502 errors.
 
-[02-ci-pipelines-for-backend-code](../02-ci-pipelines-for-backend-code/README.md)
-— your app is a clean, disposable, config-injected image. Now we automate the path
-that *produces* that image on every change: a CI pipeline that lints, type-checks,
-runs the unit and integration tests from track 12, and builds and pushes the image
-— the "build" of build/release/run, enforced.
+### Further Reading
+- [The Twelve-Factor App Methodology](https://12factor.net/)
+- [Kubernetes Documentation: Container Lifecycle Hooks](https://kubernetes.io/docs/concepts/containers/container-lifecycle-hooks/)
+- [Graceful Shutdown Patterns in Microservices](https://learn.microsoft.com/en-us/dotnet/architecture/microservices/multi-container-web-applications/background-tasks-with-ihostedservice)

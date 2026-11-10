@@ -1,468 +1,511 @@
 # Module 06: Health Checks, Readiness, and Scaling Signals
 
-## Why this matters
+> **Prerequisites:** [00-containerizing-a-backend-app](../00-containerizing-a-backend-app/README.md), [01-the-12-factor-app-in-a-container](../01-the-12-factor-app-in-a-container/README.md), and [03-deployment-strategies](../03-deployment-strategies/README.md).  
+> **Estimated Reading Time:** 28 minutes  
+> **Target Audience:** Backend engineers and SREs configuring container observability, scheduler health probe contracts, and autoscaling telemetry.
 
-An orchestrator can only manage your service as well as your service *tells it how
-to*. Kubernetes doesn't know whether your app is alive, whether it's ready for
-traffic, or whether it's overloaded — unless you expose that information. The
-health probes and metrics your app publishes are the **contract** through which the
-platform decides when to send you traffic, when to restart you, when to hold a
-rollout, and when to add or remove replicas. Get the contract right and the platform
-keeps your service healthy automatically; get it wrong and it makes things *worse* —
-restarting a slow-but-healthy app in a loop, routing traffic to a replica that
-isn't ready, or scaling on the wrong signal.
+> [!TIP]
+> **Golden Rule of Health Probes:** Liveness answers "Am I broken beyond recovery?" (Failure triggers a container restart). Readiness answers "Can I accept traffic right now?" (Failure routes traffic away without restarting). Never put downstream database or cache checks into a liveness probe—doing so transforms transient network blips into catastrophic, fleet-wide restart storms.
 
-This is where several threads from earlier modules converge. Graceful shutdown
-(track 08 module 09, module 01 here) depends on the readiness probe to drain
-correctly. Zero-downtime rolling deploys (module 03) depend on the readiness probe
-to avoid sending traffic to not-yet-ready replicas. The metrics you instrumented in
-track 08 module 06 (RED: rate, errors, duration) become the *scaling signals* an
-autoscaler consumes. This module is the app-side of all of it: what endpoints and
-signals a backend service must expose so a scheduler and an autoscaler can manage
-it well.
+---
 
-The probe and autoscaler *mechanics* — how Kubernetes configures `livenessProbe`/
-`readinessProbe`/`startupProbe`, how the Horizontal Pod Autoscaler or KEDA consumes
-metrics, how Container Apps scales on concurrency — are `learn/03-kubernetes`,
-`learn/06-azure-container-apps`, and `learn/23-performance-and-load-testing`. What
-you own as the backend engineer is *what to expose and what each probe must
-actually check*, which is deceptively subtle and where most mistakes live.
+## Visual Mental Models & Architecture
 
-## Concepts
+### The Tri-Probe Lifecycle & Autoscaling Telemetry
 
-### Liveness vs readiness: two different questions
+Orchestrators (Kubernetes, Azure Container Apps, Nomad) rely on three distinct probe types and custom telemetry to manage container lifecycles, routing, and scaling.
 
-The single most important distinction in this module, and the one most often
-gotten wrong: **liveness and readiness answer different questions and trigger
-different platform actions.**
+```mermaid
+flowchart TD
+    subgraph Scheduler_Polls["Orchestrator Probing & Scaling Engine"]
+        direction TB
+        
+        subgraph Startup_Gate["1. Startup Probe (/startupz)"]
+            StartCheck{"Initialization Complete?\n(Warmup, cache prefetch)"}
+            StartCheck -- "Failed (Within Timeout)" --> HoldProbes["Delay Liveness & Readiness"]
+            StartCheck -- "Failed (Exceeded Timeout)" --> KillStalled["Restart Container (Stalled Boot)"]
+            StartCheck -- Passed --> EnableProbes["Activate Regular Probes"]
+        end
 
-- **Liveness — "is this process broken beyond recovery?"** If the liveness probe
-  fails, the platform **restarts (kills and recreates) the container.** So liveness
-  should fail *only* for unrecoverable, in-process problems — a deadlock, an
-  exhausted event loop, a wedged state a restart would actually fix. A liveness
-  probe should be **cheap and dependency-free**: it must *not* check the database
-  or Redis, because if it does and the database has a hiccup, the probe fails, the
-  platform restarts every replica, and restarting doesn't fix a database problem —
-  you've turned a transient dependency blip into a cluster-wide restart storm.
-- **Readiness — "can this replica serve traffic *right now*?"** If the readiness
-  probe fails, the platform **stops routing new traffic to this replica** (removes
-  it from the load-balancer pool) but **does not restart it.** Readiness is allowed
-  to depend on things that can recover: if the database connection is temporarily
-  down, or the app is still warming up, or it's draining during shutdown, readiness
-  fails and traffic is withheld until it recovers — then traffic resumes, no
-  restart needed.
+        subgraph Liveness_Gate["2. Liveness Probe (/livez)"]
+            LiveCheck{"Event Loop / Thread Deadlocked?\n(In-Process Only!)"}
+            LiveCheck -- Failed --> RestartPod["Kill Pod & Restart Container\n(kubectl rollout restart)"]
+            LiveCheck -- Passed --> KeepRunning["Keep Container Running"]
+        end
 
-The rule that falls out: **liveness = "am I fundamentally broken (restart me)";
-readiness = "can I serve right now (route around me)."** A slow dependency should
-fail *readiness*, never liveness. Confusing the two is the classic outage: putting
-a DB check in the liveness probe means a brief DB blip restarts your whole fleet.
+        subgraph Readiness_Gate["3. Readiness Probe (/readyz)"]
+            ReadyCheck{"Shallow DB Check OK & Not Draining?"}
+            ReadyCheck -- Failed / 503 --> DropEndpoint["Remove Pod IP from Ingress\n(Traffic routed around pod; NO RESTART)"]
+            ReadyCheck -- Passed / 200 --> AddEndpoint["Include Pod in Load Balancer Pool"]
+        end
 
-```
-                        scheduler polls the pod
-                    ┌───────────────┴───────────────┐
-                    ▼                               ▼
-             GET /livez                       GET /readyz
-          (in-process only)               (shallow dep check)
-             │        │                       │        │
-           200│    503│                     200│    503│
-             ▼        ▼                       ▼        ▼
-          keep    ┌───────┐               add to   remove from
-          running │RESTART│               LB pool   LB pool
-                  │  pod  │              (serve      (route around,
-                  └───────┘               traffic)    NO restart)
+        subgraph Scaling_Telemetry["4. Metrics Endpoint (/metrics)"]
+            PromScrape["Scrape In-Flight Requests & Latency"] --> HPA["Autoscaler Engine (HPA / KEDA)"]
+            HPA --> ScaleDecision{"In-Flight > Target?"}
+            ScaleDecision -- Yes --> ScaleUp["Scale Out Replicas (+N)"]
+            ScaleDecision -- No --> ScaleDown["Scale In Replicas (-N)"]
+        end
+    end
+
+    EnableProbes --> Liveness_Gate
+    EnableProbes --> Readiness_Gate
 ```
 
-### Startup probes and slow starts
+---
 
-A third probe handles the startup edge case: an app that legitimately takes a while
-to become ready (loading a model, warming a cache, establishing pools) can trip a
-*liveness* probe that starts checking too early — the platform thinks it's broken
-and restarts it before it ever finishes starting, forever. The **startup probe**
-solves this: it runs *first*, gives the app a generous window to come up, and only
-once it passes do the liveness and readiness probes begin. This lets you keep
-liveness's timeout tight (fast detection of a real hang) without punishing slow-but-
-legitimate startup.
+## Systematic Taxonomic Reference Grids
 
-That said, factor IX (disposability) still says *keep startup fast* — a startup
-probe is for genuinely unavoidable warmup, not an excuse for a 90-second boot that
-makes every scale-up and rollout sluggish. Fast startup + a startup probe for the
-irreducible warmup is the combination.
+### Probe Comparison Matrix
 
-### What each probe should actually check
+| Probe Endpoint | Core Question Answered | Platform Action on Failure | Permitted Dependency Checks | Target Budget | Common Anti-Pattern |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **Startup (`/startupz`)** | Has application completed initial boot? | Delays liveness/readiness; restarts if timeout | Internal caches, schema preflight | < 30 seconds | Omitting on slow-warming models/caches. |
+| **Liveness (`/livez`)** | Is process deadlocked or fatally broken? | **Kills and restarts container** | **None** (In-process memory only) | < 100 ms | Pinging PostgreSQL or Redis (causes restart storm). |
+| **Readiness (`/readyz`)** | Can this replica serve an HTTP request right now? | **Removes pod from load balancer pool** (No restart) | Shallow DB check (`SELECT 1`), draining status | < 1 second | Deep health sweeps of external 3rd-party APIs. |
 
-The endpoints your FastAPI app exposes, and what belongs in each:
+### Autoscaling Signals Matrix
 
-- **`/livez` (liveness)** — returns `200` if the process is running and its event
-  loop is responsive. Check *nothing external*. Often literally
-  `return {"status": "ok"}`. The mere fact that the ASGI server answered the HTTP
-  request proves the event loop isn't wedged, which is all liveness should assert.
-- **`/readyz` (readiness)** — returns `200` only if the app can *actually serve a
-  request*: its critical dependencies are reachable (a fast `SELECT 1` against the
-  DB, a Redis `PING`), pools are initialized, and it is *not* currently draining
-  (module 01's shutdown flips this to `503`). It returns `503` when a dependency is
-  down or during shutdown, so traffic is routed away until it can serve again.
-- **`/startupz` (startup, if used)** — passes once one-time initialization is done.
+| Telemetry Signal | Metric Source | Workload Fit | Reaction Speed | Limitations & Failure Hazards |
+| :--- | :--- | :--- | :--- | :--- |
+| **CPU Utilization** | cgroups / Kubelet | CPU-intensive computing (Image rendering, crypto) | Slow (30 – 90s) | **Fails on I/O-bound services:** High latency occurs while CPU sits at 15%. |
+| **Memory Working Set** | cgroups / Kubelet | Memory-buffered streaming, batch processing | Slow | Memory rarely drops quickly after processing; leads to delayed scale-in. |
+| **In-Flight Requests (Concurrency)** | Application `/metrics` | **HTTP Web APIs & REST Services** | **Immediate** (< 5s) | Requires application Prometheus instrumentation. |
+| **Queue Depth (Lag)** | RabbitMQ / Kafka / SQS (KEDA) | **Asynchronous Background Workers** | **Fast** (< 10s) | The definitive scaling signal for event-driven workers. |
+| **P95 / P99 Latency** | Service Mesh / Prometheus | SLA-critical customer-facing endpoints | Medium | Prone to noisy spikes; must use smoothed sliding-window averages. |
 
-Two subtleties that matter: **readiness checks should be shallow and fast** (a `1`-
-second-budget `SELECT 1`, not a full health sweep of every downstream) so the probe
-itself doesn't become a load or a false-negative under latency; and **readiness
-should reflect *this replica's* ability to serve**, not a global system health —
-one replica failing readiness routes around *it*, which is exactly right, whereas a
-readiness check that fails whenever *any* shared dependency is degraded can take the
-whole fleet out of rotation at once.
+---
 
-### Readiness is the linchpin of graceful deploys and shutdown
+## Production War Stories: Incident Post-Mortem
 
-Readiness isn't just a startup gate — it's the mechanism that makes the whole
-deploy story (module 03) and graceful shutdown (module 01 / track 08 module 09)
-work, so it's worth seeing the full loop:
+### SEV-1 Post-Mortem: The Single `/health` Endpoint & The Fleet-Wide Restart Storm
 
-1. **Startup:** new replica boots, readiness fails until pools are up, so the LB
-   doesn't send it traffic prematurely — no requests hit a half-initialized app.
-2. **Steady state:** readiness passes; the replica is in the LB pool serving
-   traffic.
-3. **Dependency blip:** readiness fails briefly, traffic routes to healthy
-   replicas, the replica recovers and rejoins — no restart, no dropped traffic.
-4. **Shutdown (SIGTERM):** the `lifespan` handler flips readiness to `503`
-   *first*, so the LB stops sending new requests, *then* the app drains in-flight
-   requests and exits (module 01). Failing readiness *before* draining is what
-   closes the window where new requests would hit a shutting-down replica.
+#### Incident Overview
+* **Severity:** SEV-1 (Complete Global API Outage)
+* **Detection Time:** 2 minutes post-network blip
+* **Resolution Time:** 38 minutes
+* **Impact:** 120,000 active sessions dropped; 50 pods trapped in `CrashLoopBackOff`; \$450,000 in lost transaction volume.
 
-There's one notorious race worth knowing: for a beat after SIGTERM, the LB may not
-yet have observed the readiness failure and can still route a request or two. The
-common mitigation is a short **pre-stop delay** (sleep a couple seconds after
-SIGTERM before actually draining/exiting) so the readiness failure propagates
-before you stop accepting work. The exact wiring (`preStop` hook,
-`terminationGracePeriodSeconds`) is `learn/03-kubernetes`; the app-side point is
-that readiness must fail *early* in shutdown.
-
-### Metrics as scaling signals
-
-The last thing the platform needs from your app is a signal for *how many replicas
-to run*. Autoscalers (Kubernetes HPA, KEDA, Container Apps) add replicas when a
-signal exceeds a target and remove them when it drops. Your job is to expose a
-signal that actually reflects load:
-
-- **The default signals** are CPU and memory — the platform reads these without app
-  cooperation. They're fine for CPU-bound work but often a *poor* proxy for a web
-  service's real load: an app waiting on I/O (DB, downstream APIs) can be at 20% CPU
-  while its request latency and queue depth are terrible. Scaling on CPU alone can
-  under-scale exactly when you're overloaded.
-- **Custom / application metrics** are better signals, and they're the RED metrics
-  from track 08 module 06: **request rate** (requests/sec — scale out as traffic
-  grows), **in-flight/concurrent requests or queue depth** (the most direct
-  "am I saturated" signal), and **latency** (p95 duration crossing a threshold means
-  you're struggling). For queue workers, **queue length** (pending jobs) is the
-  natural scaling signal — this is what KEDA excels at.
-- **Expose them in a form the autoscaler can read:** the Prometheus `/metrics`
-  endpoint you built in track 08 module 06 is exactly the interface — the
-  autoscaler (via an adapter/KEDA) scrapes it and scales on your chosen metric.
-
-The backend engineer's decision is *which* signal represents your service's load
-(concurrency and queue depth usually beat CPU for I/O-bound backends), and to
-*expose* it. Choosing targets, configuring the HPA/KEDA, tuning scale-up/down
-behavior, and load-testing to validate it are `learn/23-performance-and-load-
-testing` and `learn/03`/`learn/06`. And scaling only works because the app is
-**stateless** (module 01, factor VI) — an autoscaler can only add interchangeable
-replicas.
-
-## Command reference
-
-| Probe / signal | Question | Platform action on failure | May check dependencies? |
-|---|---|---|---|
-| Liveness (`/livez`) | Is the process broken? | **Restart** the container | **No** — cheap, in-process only |
-| Readiness (`/readyz`) | Can it serve *now*? | **Remove from LB** (no restart) | **Yes** — shallow, fast |
-| Startup (`/startupz`) | Has it finished starting? | Delay liveness/readiness | Init state only |
-| CPU/memory | Resource pressure | Autoscale | Platform-read, no app work |
-| Custom metric (`/metrics`) | Real load (rate/concurrency/latency/queue) | Autoscale | App-exposed (track 08 mod 06) |
-
-Liveness and readiness done correctly in FastAPI — note liveness touches nothing
-external, readiness is shallow and reflects draining:
-
+#### What Happened
+A financial API running 50 Kubernetes pods was configured with a single `/health` endpoint that performed a deep connection check:
 ```python
-from fastapi import FastAPI, Response
-from sqlalchemy import text
-
-app = FastAPI()
-_draining = False   # flipped True by the lifespan shutdown (module 01)
-
-@app.get("/livez")
-async def livez():
-    # Liveness: the fact that we answered proves the event loop is alive.
-    # Check NOTHING external — a DB check here would restart the fleet on a DB blip.
-    return {"status": "alive"}
-
-@app.get("/readyz")
-async def readyz(response: Response):
-    # Readiness: can THIS replica serve a request right now?
-    if _draining:                          # shutting down → take out of rotation first
-        response.status_code = 503
-        return {"status": "draining"}
-    try:
-        async with app.state.pool.acquire() as conn:
-            await conn.execute(text("SELECT 1"))   # shallow, fast dependency check
-    except Exception:
-        response.status_code = 503         # dep down → route around me, but DON'T restart me
-        return {"status": "not-ready"}
-    return {"status": "ready"}
+@app.get("/health")
+def health():
+    db.execute("SELECT 1")  # Checks Postgres
+    redis.ping()  # Checks Redis
+    return {"status": "ok"}
 ```
-
-Failing readiness first on shutdown (the module 01 drain, from the probe's angle):
-
-```python
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    app.state.pool = await open_pool(settings.database_url)
-    yield
-    global _draining
-    _draining = True                 # /readyz now 503 → LB stops sending new requests
-    await asyncio.sleep(2)            # let the readiness failure propagate (the SIGTERM race)
-    await drain_in_flight()           # finish in-flight requests
-    await app.state.pool.close()
-```
-
-Probe + autoscaler wiring (mechanics are `learn/03`; this is the app contract):
-
+The Kubernetes deployment manifest configured this exact same endpoint for **both** the liveness and readiness probes:
 ```yaml
-livenessProbe:  { httpGet: { path: /livez,  port: 8000 }, periodSeconds: 10, failureThreshold: 3 }
-readinessProbe: { httpGet: { path: /readyz, port: 8000 }, periodSeconds: 5 }
-startupProbe:   { httpGet: { path: /livez,  port: 8000 }, failureThreshold: 30, periodSeconds: 2 }
-# HPA scales on a custom metric your /metrics endpoint exposes (track 08 module 06):
-# targetAverageValue on in-flight requests / p95 latency, not just CPU — better load signal.
+livenessProbe:
+  httpGet: { path: /health, port: 8080 }
+readinessProbe:
+  httpGet: { path: /health, port: 8080 }
 ```
 
-## Hands-on exercises
+At 14:15, a cloud networking blip caused database queries to stall for 4 seconds.
+1. The Kubelet on all 50 nodes probed `/health`. Because PostgreSQL was unresponsive, the checks timed out across all 50 pods.
+2. Because the check was configured as the **liveness probe**, Kubernetes assumed all 50 container processes were deadlocked and issued simultaneous `SIGKILL` commands.
+3. All 50 pods terminated at the same instant.
+4. When the 50 new replacement pods booted up simultaneously, they executed their startup sequences, all opening new database connection pools at the same time.
+5. This massive thundering herd exhausted PostgreSQL's `max_connections` (1000 connections maxed out).
+6. Because PostgreSQL could not accept new connections, the replacement pods failed their startup and liveness probes again, trapping the entire production fleet in a 38-minute cascading `CrashLoopBackOff` restart storm.
 
-Run the service (multi-replica if you can) with Postgres/Redis in Docker.
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Cloud as Cloud Network
+    participant DB as PostgreSQL
+    participant Kubelet as Kubernetes Kubelet
+    participant Pods as 50 API Pods (Liveness = DB Check)
 
-### 1. Split liveness and readiness
+    Cloud->>DB: 4-Second Transient Network Flap
+    Kubelet->>Pods: GET /health (Liveness Probe)
+    Pods->>DB: SELECT 1
+    DB--xPods: Timed Out (4s delay)
+    Pods-->>Kubelet: 500 Server Error / Timeout
+    Note over Kubelet,Pods: Liveness Failed! Kubernetes kills ALL 50 pods at once!
+    Kubelet->>Pods: SIGKILL (Entire fleet destroyed!)
+    Note over Pods: 50 replacement pods boot simultaneously
+    Pods->>DB: 50 pods open 20 connections each (1,000 conns!)
+    DB--xPods: FATAL: remaining connection slots reserved for non-replication superusers
+    Pods-->>Kubelet: Startup Failed!
+    Note over Kubelet,Pods: Cascading CrashLoopBackOff! Self-inflicted outage!
+```
 
-Add `/livez` (checks nothing external) and `/readyz` (shallow `SELECT 1` + Redis
-`PING`). Confirm both return `200` when healthy. Write one sentence each stating
-what platform action a failure of each triggers.
+#### Root Cause Analysis
+1. **Liveness/Readiness Conflation:** Assigning a database dependency check to a liveness probe violated the core contract of container orchestration: liveness must test *process health*, not *dependency health*.
+2. **Cascading Thundering Herd:** Restarting 50 pods simultaneously created an overwhelming surge on PostgreSQL, transforming a 4-second transient blip into a prolonged outage.
+3. **Missing Circuit Breakers and Startup Delays:** The pods lacked exponential backoff on connection pool initialization.
 
-### 2. Prove the liveness-checks-DB anti-pattern
+#### The Fix & Architectural Hardening
+1. **Separated Probe Endpoints:** Split into `/livez` (pure in-memory check returning 200 immediately) and `/readyz` (shallow `SELECT 1` with 1-second timeout).
+2. **Dependency Failures Route Around, Never Restart:** If PostgreSQL blips, `/readyz` fails: Kubernetes temporarily halts routing traffic to that pod without killing the process. When PostgreSQL recovers, the pod resumes serving traffic in milliseconds without restarting.
 
-Temporarily make `/livez` check the database. Stop Postgres. Observe (or reason
-precisely about) what a platform would do: restart every replica on a loop, none of
-which fixes the DB. Restore `/livez` to dependency-free and stop Postgres again —
-now only *readiness* fails and replicas are merely routed-around, recovering when
-the DB returns.
+---
 
-### 3. Readiness reflects draining
+## Multi-Language Production Code Tabs
 
-Wire `/readyz` to return `503` while `_draining` is `True`, flipped by the
-`lifespan` shutdown (module 01). Send SIGTERM (`docker stop`), and confirm `/readyz`
-starts returning `503` *before* the app finishes draining. Explain why this
-ordering prevents dropped requests during a deploy.
+The following production code examples demonstrate the complete implementation of decoupled health probes, graceful drain signaling, and Prometheus RED metrics instrumentation.
 
-### 4. Add a startup probe for slow warmup
+=== "Go"
+    ```go
+    // Package main implements decoupled /livez, /readyz, and Prometheus RED metrics.
+    package main
 
-Add an artificial 15-second warmup to startup. First run with liveness starting
-immediately and watch it (would) restart-loop before startup finishes. Add a
-startup probe that gates liveness until warmup completes, and confirm the app comes
-up cleanly. Then note why factor IX still wants startup fast.
+    import (
+    	"context"
+    	"database/sql"
+    	"net/http"
+    	"sync/atomic"
+    	"time"
 
-### 5. Zero-downtime rollout driven by readiness
+    	"github.com/prometheus/client_golang/prometheus"
+    	"github.com/prometheus/client_golang/prometheus/promhttp"
+    )
 
-Run a rolling deploy (module 03) under steady load, with correct readiness probes.
-Confirm new replicas only receive traffic after `/readyz` passes and old ones stop
-receiving it when they start draining — zero dropped requests. Remove the readiness
-probe and repeat; observe requests hit not-ready replicas.
+    var (
+    	inFlightRequests = prometheus.NewGauge(prometheus.GaugeOpts{
+    		Name: "http_in_flight_requests",
+    		Help: "Current count of concurrent active requests (Autoscaling Signal).",
+    	})
+    )
 
-### 6. Expose a scaling signal
+    func init() {
+    	prometheus.MustRegister(inFlightRequests)
+    }
 
-Add (or reuse from track 08 module 06) a `/metrics` endpoint exposing request rate
-and in-flight request count. Load-test the service and watch in-flight requests
-climb. Argue why in-flight/concurrency is a better scale signal than CPU for an
-I/O-bound endpoint that waits on the database.
+    type HealthServer struct {
+    	db         *sql.DB
+    	isDraining atomic.Bool
+    }
 
-### 7. Choose the right signal for a worker
+    // Livez verifies process execution without testing external dependencies.
+    func (h *HealthServer) Livez(w http.ResponseWriter, r *http.Request) {
+    	// Answering HTTP proves the Go runtime and event loop are responsive.
+    	w.WriteHeader(http.StatusOK)
+    	_, _ = w.Write([]byte(`{"status":"alive"}`))
+    }
 
-For a queue worker (background-processing track), identify what the autoscaler
-should scale on (queue length / pending jobs) rather than CPU. Sketch how KEDA would
-consume that signal. State the app-side responsibility (expose the pending-job
-count) vs the platform side (`learn/03`/`learn/23`).
+    // Readyz verifies shallow database connectivity and draining status.
+    func (h *HealthServer) Readyz(w http.ResponseWriter, r *http.Request) {
+    	if h.isDraining.Load() {
+    		http.Error(w, `{"status":"draining"}`, http.StatusServiceUnavailable)
+    		return
+    	}
 
-### 8. Diagnose and fix
+    	ctx, cancel := context.WithTimeout(r.Context(), 1*time.Second)
+    	defer cancel()
 
-A service on Kubernetes has three symptoms: (1) every time the database has a
-2-second blip, *all* replicas restart simultaneously and the outage gets worse; (2)
-during deploys, a burst of requests 502 right as new replicas come up; (3) under
-heavy load the service is clearly overwhelmed (p95 latency 8s) but the autoscaler
-never adds replicas. Its probes and scaling look like this:
+    	// Shallow dependency verification
+    	if err := h.db.PingContext(ctx); err != nil {
+    		http.Error(w, `{"status":"dependency_unavailable"}`, http.StatusServiceUnavailable)
+    		return
+    	}
 
+    	w.WriteHeader(http.StatusOK)
+    	_, _ = w.Write([]byte(`{"status":"ready"}`))
+    }
+
+    func InstrumentMiddleware(next http.Handler) http.Handler {
+    	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+    		inFlightRequests.Inc()
+    		defer inFlightRequests.Dec()
+    		next.ServeHTTP(w, r)
+    	})
+    }
+    ```
+
+=== "Node.js/TypeScript"
+    ```typescript
+    // TypeScript / Express Health Probe and Prometheus Metrics Implementation
+    import express from "express";
+    import { Pool } from "pg";
+    import client from "prom-client";
+
+    const app = express();
+    const db = new Pool({ connectionString: process.env.DATABASE_URL });
+
+    let isDraining = false;
+
+    // Autoscaling Signal: Track in-flight concurrent requests
+    const inFlightGauge = new client.Gauge({
+      name: "http_in_flight_requests",
+      help: "Current concurrent active HTTP requests for HPA scaling",
+    });
+
+    app.use((req, res, next) => {
+      inFlightGauge.inc();
+      res.on("finish", () => inFlightGauge.dec());
+      next();
+    });
+
+    // 1. Liveness: Process event-loop responsiveness ONLY
+    app.get("/livez", (req, res) => {
+      return res.status(200).json({ status: "alive" });
+    });
+
+    // 2. Readiness: Shallow DB ping + draining verification
+    app.get("/readyz", async (req, res) => {
+      if (isDraining) {
+        return res.status(503).json({ status: "draining" });
+      }
+
+      try {
+        // Fast 1-second timeout query
+        await db.query({ text: "SELECT 1", timeout: 1000 });
+        return res.status(200).json({ status: "ready" });
+      } catch (err) {
+        return res.status(503).json({ status: "db_unreachable" });
+      }
+    });
+
+    // 3. Prometheus Metrics Scraping Endpoint
+    app.get("/metrics", async (req, res) => {
+      res.set("Content-Type", client.register.contentType);
+      res.end(await client.register.metrics());
+    });
+
+    export function setDraining(): void {
+      isDraining = true;
+    }
+    ```
+
+=== "Python"
+    ```python
+    """FastAPI Decoupled Health Probes & Scaling Telemetry."""
+
+    from __future__ import annotations
+
+    import asyncio
+    from contextlib import asynccontextmanager
+    import time
+    from typing import AsyncGenerator
+    from fastapi import FastAPI, Response, status
+    from prometheus_client import CONTENT_TYPE_LATEST, Counter, Gauge, generate_latest
+    from sqlalchemy import text
+    from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+
+    # Prometheus RED metrics
+    IN_FLIGHT_REQUESTS = Gauge(
+        "http_in_flight_requests", "Current active concurrent requests for autoscaling"
+    )
+
+    _draining = False
+    engine = create_async_engine(
+        "postgresql+asyncpg://postgres:test@localhost:5432/testdb", pool_size=10
+    )
+
+
+    @asynccontextmanager
+    async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
+        yield
+        global _draining
+        _draining = True  # Step 1: Flip readiness to 503 immediately
+        await asyncio.sleep(2.0)  # Step 2: Let Ingress remove pod from EndpointSlice
+        await engine.dispose()  # Step 3: Close connection pools cleanly
+
+
+    app = FastAPI(lifespan=lifespan)
+
+
+    @app.middleware("http")
+    async def track_in_flight(request, call_next):
+        IN_FLIGHT_REQUESTS.inc()
+        try:
+            return await call_next(request)
+        finally:
+            IN_FLIGHT_REQUESTS.dec()
+
+
+    @app.get("/livez")
+    async def liveness() -> dict[str, str]:
+        # Process is alive and responding; checks ZERO external dependencies!
+        return {"status": "alive"}
+
+
+    @app.get("/readyz")
+    async def readiness(response: Response) -> dict[str, str]:
+        if _draining:
+            response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+            return {"status": "draining"}
+
+        try:
+            async with asyncio.timeout(1.0):
+                async with engine.connect() as conn:
+                    await conn.execute(text("SELECT 1"))
+            return {"status": "ready"}
+        except Exception:
+            response.status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+            return {"status": "database_unavailable"}
+
+
+    @app.get("/metrics")
+    async def metrics() -> Response:
+        return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
+    ```
+
+=== "C#"
+    ```csharp
+    namespace BackendRoadmap.Observability;
+
+    using System.Threading;
+    using System.Threading.Tasks;
+    using Microsoft.AspNetCore.Builder;
+    using Microsoft.AspNetCore.Diagnostics.HealthChecks;
+    using Microsoft.AspNetCore.Http;
+    using Microsoft.Extensions.DependencyInjection;
+    using Microsoft.Extensions.Diagnostics.HealthChecks;
+
+    public class Program
+    {
+        public static void Main(string[] args)
+        {
+            var builder = WebApplication.CreateBuilder(args);
+
+            // Configure decoupled health checks
+            builder.Services.AddHealthChecks()
+                // Liveness check (in-process only)
+                .AddCheck("livez", () => HealthCheckResult.Healthy(), tags: new[] { "live" })
+                // Readiness check (checks database with timeout)
+                .AddNpgSql(builder.Configuration["ConnectionStrings:DefaultConnection"]!, 
+                           name: "db_ready", 
+                           timeout: TimeSpan.FromSeconds(1), 
+                           tags: new[] { "ready" });
+
+            var app = builder.Build();
+
+            // Expose endpoints mapped to specific tags
+            app.MapHealthChecks("/livez", new HealthCheckOptions
+            {
+                Predicate = check => check.Tags.Contains("live")
+            });
+
+            app.MapHealthChecks("/readyz", new HealthCheckOptions
+            {
+                Predicate = check => check.Tags.Contains("ready")
+            });
+
+            app.Run();
+        }
+    }
+    ```
+
+---
+
+## Practical Hands-On Verification CLI Workflows
+
+### 1. Simulating a Downstream Dependency Blip
+
+Verify that when PostgreSQL stops, `/livez` remains HTTP 200 (pod is NOT restarted) while `/readyz` fails to HTTP 503 (traffic is routed around pod):
+
+```bash
+# 1. Inspect healthy state
+curl -i http://localhost:8000/livez
+curl -i http://localhost:8000/readyz
+
+# 2. Stop the local PostgreSQL container
+docker stop postgres-db
+
+# 3. Verify probe reactions
+curl -i http://localhost:8000/livez
+# Output: HTTP/1.1 200 OK (Process is still alive!)
+
+curl -i http://localhost:8000/readyz
+# Output: HTTP/1.1 503 Service Unavailable (Orchestrator routes traffic around!)
+
+# 4. Restart PostgreSQL and confirm instantaneous recovery without pod restart
+docker start postgres-db
+sleep 1
+curl -i http://localhost:8000/readyz
+# Output: HTTP/1.1 200 OK
+```
+
+### 2. Inspecting Prometheus Autoscaling Telemetry
+```bash
+# Verify active concurrent connections metric
+curl -s http://localhost:8000/metrics | grep http_in_flight_requests
+```
+
+**Expected Wire Output:**
+```text
+# HELP http_in_flight_requests Current active concurrent requests for autoscaling
+# TYPE http_in_flight_requests gauge
+http_in_flight_requests 4.0
+```
+
+---
+
+## Operational Validation Checkpoints (Scenario Quizzes)
+
+### Checkpoint 1: Why Pinging Third-Party APIs in Readiness Probes Is Dangerous
+<details>
+<summary><strong>Scenario Assessment:</strong> A developer adds a Stripe API connectivity check to the application's <code>/readyz</code> endpoint: <code>requests.get("https://api.stripe.com/health")</code>. During an external Stripe outage, what happens to the internal backend cluster, and how should external dependencies be handled?</summary>
+
+<strong>Answer:</strong>
+Adding external third-party API checks to readiness probes causes **disastrous cascading internal failures**:
+1. When Stripe experiences an outage or latency spike, the readiness probes across **all backend pods fail simultaneously**.
+2. Kubernetes immediately removes all backend pod IPs from the internal load balancer.
+3. The internal service becomes completely unavailable (HTTP 503), taking down user login, browsing, profile management, and read operations that had **zero dependency on Stripe**.
+4. Furthermore, external network latency on the probe will cause probe timeouts, artificially thrashing the internal routing mesh.
+
+**The Fix:**
+- Readiness probes must test only **local, critical backing services owned by your infrastructure** (e.g., your primary database or Redis).
+- Third-party integrations must be handled via **circuit breakers, timeouts, and fallback degradation** inside the application code (e.g., returning "Payment service temporarily unavailable" on checkout while keeping the rest of the application fully online).
+</details>
+
+### Checkpoint 2: The Startup Probe vs Liveness Timeout Deadlock
+<details>
+<summary><strong>Scenario Assessment:</strong> A machine learning inference service takes 45 seconds to download and deserialize model weights into memory upon container boot. The deployment configures: <code>livenessProbe: initialDelaySeconds: 10, periodSeconds: 5, failureThreshold: 3</code>. The pod repeatedly crashes and restarts every 25 seconds, never becoming ready. What is happening, and how is it resolved?</summary>
+
+<strong>Answer:</strong>
+The service is trapped in a **liveness timeout deadlock**:
+1. The container process requires 45 seconds to boot.
+2. The liveness probe begins probing after 10 seconds (`initialDelaySeconds: 10`).
+3. Because the event loop is busy downloading weights, the liveness probe fails 3 consecutive times over 15 seconds (`periodSeconds: 5 * failureThreshold: 3 = 15s`).
+4. At $10 + 15 = 25$ seconds, Kubernetes declares the pod dead and kills it with `SIGKILL`, starting a new container.
+5. The cycle repeats indefinitely, preventing the model from ever loading.
+
+**The Fix:**
+Implement a dedicated **`startupProbe`**:
 ```yaml
-livenessProbe:  { httpGet: { path: /health, port: 8000 } }   # /health does SELECT 1 + Redis PING
-# no readinessProbe, no startupProbe
-# HPA: scale on CPU > 80%     (the app is I/O-bound, sits at ~30% CPU under load)
+startupProbe:
+  httpGet: { path: /livez, port: 8080 }
+  failureThreshold: 30
+  periodSeconds: 2 # Allows up to 60 seconds (30 * 2s) for warmup
+livenessProbe:
+  httpGet: { path: /livez, port: 8080 }
+  periodSeconds: 5
+  failureThreshold: 2 # Keeps liveness fast (10s) once running
 ```
-
-<details>
-<summary>Solution</summary>
-
-- **(1) Liveness checks the DB** → a DB blip fails liveness on every replica, so the
-  platform restarts the whole fleet, which doesn't fix the DB — a transient blip
-  becomes a restart storm. Fix: liveness must be dependency-free (`/livez` checks
-  nothing external); move the `SELECT 1` + Redis `PING` to a **readiness** probe,
-  which routes traffic around a struggling replica *without* restarting it.
-- **(2) No readiness probe** → new replicas receive traffic before they're
-  initialized (502s during rollout), and draining replicas keep receiving traffic
-  during shutdown. Fix: add a `/readyz` readiness probe; new replicas only get
-  traffic after it passes, and the `lifespan` drain flips it to `503` first on
-  shutdown (module 01/03).
-- **(3) Scaling on CPU for an I/O-bound app** → it's saturated at 30% CPU (waiting
-  on the DB), so the CPU target is never hit and it never scales despite 8s latency.
-  Fix: scale on a real load signal — in-flight/concurrent requests, p95 latency, or
-  queue depth — exposed via `/metrics` (track 08 module 06) and consumed by the HPA
-  (via an adapter) or KEDA.
-- **Missing startup probe** (if warmup is slow) → add one so liveness doesn't
-  restart a legitimately-slow-starting replica.
-
-Root theme: the app wasn't giving the platform the right signals. Liveness only for
-"restart me," readiness for "route around me" (and for draining), and a scaling
-signal that reflects *actual* load rather than a CPU proxy that lies for I/O-bound
-work.
-
+The startup probe holds off liveness and readiness evaluations until the model is loaded, allowing tight liveness monitoring once the application is running.
 </details>
 
-## Independent challenge
-
-No code given. Take the containerized, gracefully-shutting-down service from
-**module 01 (The 12-factor app in a container)** and make it fully *manageable by an
-orchestrator*, proving each property. (1) **Correct probes:** expose a
-dependency-free `/livez` (liveness → restart) and a shallow, fast `/readyz`
-(readiness → route-around, checks critical deps and reflects draining), and *prove*
-the distinction by causing a dependency blip and showing only readiness fails —
-contrasting it with the restart-storm you'd get if liveness checked the DB. (2)
-**Graceful deploy loop:** run a rolling deploy under load and show readiness gating
-means new replicas get traffic only when ready and draining replicas stop getting
-it — connecting back to **track 08's module 09 (Graceful shutdown)** and this
-track's **module 03 (Deployment strategies)** — including the SIGTERM/LB race and
-its short pre-stop delay mitigation. (3) **Scaling signal:** expose the RED metrics
-from **track 08's module 06 (Monitoring and metrics)** on `/metrics`, load-test the
-service, and make the case for scaling on in-flight requests / latency / queue depth
-rather than CPU for your (I/O-bound) workload — noting this only works because the
-app is stateless (factor VI). Point to `learn/03-kubernetes` for probe/HPA
-mechanics and `learn/23-performance-and-load-testing` for validating the autoscaling
-under real load.
-
+### Checkpoint 3: Why CPU-Based Autoscaling Fails on I/O-Bound Microservices
 <details>
-<summary>Hint</summary>
+<summary><strong>Scenario Assessment:</strong> An e-commerce API is configured with a Horizontal Pod Autoscaler targeting <code>cpuUtilization: 75%</code>. During a flash sale, API response times jump from 50ms to 9,000ms, and connection queues back up with timeouts. However, the HPA fails to add any new replicas because average CPU utilization sits at 24%. Why did the autoscaler fail to react?</summary>
 
-The whole module reduces to matching a *signal* to a *platform action*: liveness
-triggers a restart, so it must fail only for things a restart fixes (never an
-external dependency); readiness triggers route-around, so it's exactly where
-dependency checks and the draining flag belong. The most convincing proof is the
-DB-blip contrast: with the DB check in liveness, a 2-second blip restarts the fleet
-and makes things worse; moved to readiness, the same blip just routes traffic to
-healthy replicas and recovers on its own. For the scaling argument, the killer
-detail is that an I/O-bound endpoint sits at low CPU while saturated, so a CPU
-target never fires — measure in-flight requests during a load test and watch them
-climb while CPU stays flat; *that* divergence is your argument for a concurrency-
-based signal.
+<strong>Answer:</strong>
+The failure occurred because the service is **I/O-bound (database/network bound), not CPU-bound**:
+1. When handling database queries, downstream API calls, or external payment gateways, application worker threads spend the vast majority of their time in **blocking I/O wait states** (`epoll_wait`, network socket reading).
+2. While waiting for PostgreSQL to return queries, the CPU sits completely idle (utilization $\approx$ 20-30%).
+3. The queue of incoming HTTP requests fills up, socket buffers overflow, and clients experience 9-second latency, but the CPU-based autoscaler never triggers because the 75% threshold is never reached.
 
+**The Fix:**
+Configure the HPA to autoscale on **Application-Level Concurrency or In-Flight Requests**:
+- Instrument a custom Prometheus metric (`http_in_flight_requests`).
+- Configure KEDA or the Prometheus Metrics Adapter to scale replicas when average concurrent requests per pod exceed a threshold (e.g., target 50 concurrent requests per pod).
+- As soon as requests queue up, the concurrency metric spikes immediately, provisioning new pods within seconds regardless of CPU utilization.
 </details>
 
-## Common mistakes & troubleshooting
+---
 
-- **Liveness probe checks a dependency.** A DB/Redis blip fails liveness on every
-  replica → the platform restarts the fleet, which doesn't fix the dependency.
-  Liveness must be cheap and in-process only.
-- **No readiness probe.** New replicas get traffic before they're ready (502s on
-  rollout) and draining replicas keep getting it. Add readiness; it gates traffic
-  without restarting.
-- **Readiness not failing on shutdown.** New requests hit a draining replica.
-  Flip readiness to `503` *first* in the `lifespan` shutdown, before draining.
-- **Deep/slow readiness checks.** A full health sweep of every downstream makes the
-  probe itself a load and a false-negative source. Keep it shallow and fast
-  (`SELECT 1`, `PING`), reflecting *this* replica.
-- **No startup probe for a slow-starting app.** Liveness restarts it before it
-  finishes booting. Add a startup probe (and still keep startup fast — factor IX).
-- **Scaling on CPU for I/O-bound work.** The app is saturated at low CPU, so it
-  never scales when overloaded. Scale on concurrency/latency/queue depth via
-  `/metrics`.
-- **Forgetting scaling needs statelessness.** An autoscaler can only add
-  interchangeable replicas — local state breaks that (module 01, factor VI).
+## Summary & Further Study
 
-## Checkpoint quiz
+- **Decoupled Probes:** Keep `/livez` dependency-free (restarts pod on deadlock); keep `/readyz` shallow (routes traffic around pod on DB blip).
+- **Graceful Draining:** Flip readiness to 503 before beginning connection draining on `SIGTERM`.
+- **Autoscaling Signals:** Scale I/O-bound microservices on concurrency and queue depth rather than CPU utilization.
 
-Write down your answer to each question before expanding it — checking without attempting first is the single easiest way to fool yourself into thinking you've learned this.
-
-1. State the different question each of liveness and readiness answers and the
-   different platform action each failure triggers. Why must a slow dependency fail
-   readiness, never liveness?
-2. Exactly what should `/livez` check, and what should `/readyz` check? Why is
-   putting a DB check in the liveness probe a classic outage?
-3. What problem does a startup probe solve, and why is it not a license to have a
-   slow startup?
-4. Walk the readiness probe through the full deploy/shutdown loop: startup, steady
-   state, a dependency blip, and SIGTERM shutdown. Where does the pre-stop delay fit
-   and what race does it address?
-5. Why is CPU often a poor scaling signal for a backend web service, and what are
-   two better application-level signals (and where do they come from)?
-6. Why does autoscaling depend on the app being stateless, and which earlier
-   module/factor established that?
-
-<details>
-<summary>Answers</summary>
-
-1. **Liveness** answers "is this process broken beyond recovery?" — failure →
-   the platform **restarts** the container. **Readiness** answers "can this replica
-   serve traffic right now?" — failure → the platform **removes it from the LB
-   pool** (no restart). A slow/temporarily-down dependency must fail *readiness*
-   because the correct response is to route traffic away until it recovers; failing
-   *liveness* would restart the replica, which doesn't fix an external dependency
-   and just causes a restart storm.
-2. `/livez` should check *nothing external* — the fact that it answered proves the
-   event loop is alive; often just `return {"status": "ok"}`. `/readyz` should
-   shallowly and quickly check that the replica can actually serve: critical deps
-   reachable (`SELECT 1`, Redis `PING`), pools up, and not draining. A DB check in
-   liveness is a classic outage because a brief DB blip then fails liveness on
-   every replica, so the platform restarts the whole fleet — turning a transient
-   dependency hiccup into a self-inflicted outage.
-3. It gives a legitimately slow-to-start app a generous window to come up before
-   liveness/readiness begin, so liveness doesn't restart-loop an app that just
-   hasn't finished warming up — letting you keep liveness's timeout tight for real
-   hangs. It's not a license for slow startup because factor IX (disposability)
-   still wants fast startup so scale-ups and rollouts are responsive; the startup
-   probe is for irreducible warmup only.
-4. **Startup:** readiness fails until pools are up, so the LB doesn't send traffic
-   to a half-initialized replica. **Steady state:** readiness passes; it's in the
-   pool. **Dependency blip:** readiness fails briefly, traffic routes to healthy
-   replicas, then it rejoins on recovery — no restart. **SIGTERM:** the `lifespan`
-   shutdown flips readiness to `503` *first* so the LB stops sending new requests,
-   then drains and exits. The **pre-stop delay** (a short sleep after SIGTERM before
-   draining/exiting) sits right after flipping readiness, to let the LB observe the
-   readiness failure before you stop accepting work — addressing the race where the
-   LB might still route a request in the instant after SIGTERM.
-5. A web service is often I/O-bound (waiting on DB/downstreams), so it can be
-   saturated — terrible latency, deep queues — while CPU stays low, meaning a CPU
-   target never fires and the app never scales when it's actually overloaded. Better
-   signals: request rate, in-flight/concurrent requests or queue depth, and p95
-   latency — the RED metrics exposed on `/metrics` from track 08 module 06 (queue
-   length for workers).
-6. Autoscaling adds replicas that must immediately serve traffic identically to the
-   others; that's only possible if any replica can serve any request, i.e. if the
-   app holds no local state. Statelessness was established in module 01 (and track
-   08 module 10) as **factor VI** — the enabling condition for horizontal scaling.
-
-</details>
-
-## Further reading & sources
-
-- [Kubernetes: Configure Liveness, Readiness and Startup Probes](https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/) - The authoritative guide to the three probe types and the platform action each failure triggers.
-- [Kubernetes: Pod lifecycle — container probes](https://kubernetes.io/docs/concepts/workloads/pods/pod-lifecycle/#container-probes) - Conceptual model of how the kubelet uses probes to decide restart vs traffic routing.
-- [Kubernetes: Horizontal Pod Autoscaler](https://kubernetes.io/docs/tasks/run-application/horizontal-pod-autoscale/) - How an autoscaler consumes CPU and custom metrics to add or remove replicas.
-- [KEDA: Kubernetes Event-Driven Autoscaling](https://keda.sh/docs/latest/concepts/) - Scaling on queue length and other application signals — the right fit for I/O-bound and worker workloads.
-- [Prometheus: metric types](https://prometheus.io/docs/concepts/metric_types/) - The RED-style counters and gauges your `/metrics` endpoint exposes as scaling signals.
-- [Google SRE Book: Monitoring Distributed Systems](https://sre.google/sre-book/monitoring-distributed-systems/) - The rate/errors/latency signals that make a good scale signal for a backend service.
-
-## Next
-
-[07-choosing-your-deployment-target](../07-choosing-your-deployment-target/README.md)
-— your service is containerized, CI-built, safely deployable, well-configured, and
-manageable by an orchestrator. The last decision is *where to run it*: a PaaS, a
-container scheduler, or serverless functions — a decision framework that maps each
-choice to the `learn/` track where you'd go deep operationally. This module also
-carries the track's second cumulative review.
+### Further Reading
+- [Kubernetes Documentation: Liveness, Readiness, and Startup Probes](https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/)
+- [KEDA: Kubernetes Event-Driven Autoscaling Core Concepts](https://keda.sh/docs/latest/concepts/)
+- [Google Cloud Architecture: Health Checking Best Practices](https://cloud.google.com/architecture/best-practices-for-running-cost-effective-kubernetes-applications-on-gke#health-checks)
