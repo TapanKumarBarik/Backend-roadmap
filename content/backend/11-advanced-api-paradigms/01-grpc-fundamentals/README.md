@@ -1,555 +1,653 @@
-# Module 01: gRPC Fundamentals
+# Module 01: gRPC Fundamentals and Protocol Buffers
 
-## Why this matters
+> **Prerequisites**: [Module 00: Beyond REST — When and Why](../00-beyond-rest-when-and-why/README.md), [Track 02: HTTP Request-Response Fundamentals](../../01-request-response-fundamentals/README.md), and standard multi-threading/async networking concepts.  
+> **Estimated Reading Time**: 35 minutes.  
+> **Target Audience**: Backend Engineers, Systems Architects, and Microservice Platform Engineers.
 
-In module 00 you decided that some traffic — especially the chatty, internal,
-high-frequency calls between your own services — wants an RPC-style API rather
-than REST. This module makes that concrete. gRPC is the most widely used
-production RPC framework: it's what powers the internal service meshes at
-Google, Netflix, and most large microservice shops, and it's the default answer
-when someone says "our services should talk over something faster and more
-typed than JSON."
+---
 
-The thing to internalize first is that gRPC is **contract-first**. Before you
-write a line of server or client code, you write a `.proto` file — a formal,
-language-neutral definition of your service's methods and the message shapes
-they exchange. From that single file, a code generator produces typed client
-*stubs* and server *base classes* in Python (or Go, Java, C++, TypeScript,
-whatever). The contract isn't documentation that can drift from the code the way
-a hand-maintained OpenAPI file might; the contract *generates* the code, so
-both ends are provably speaking the same schema. This is the inverse of the
-code-first REST workflow you know from track 02, and it's a big part of why gRPC
-feels safe between services owned by different teams.
+> [!TIP]
+> **The Golden Rule of gRPC Architecture**  
+> In gRPC, the **`.proto` contract is the single source of truth**, not code annotations or runtime documentation. Services and messages must be defined contract-first using Protocol Buffers version 3 (`proto3`). Because Protobuf binary wire encoding serializes **field tags (numbers)** rather than string field names, **field numbers are permanent and immutable**—renaming a field on the wire is safe, but changing or reusing a field number is a catastrophic breaking change. Always assign dedicated, discrete request and response messages to every RPC method to allow zero-downtime, non-breaking schema evolution.
 
-The payoff is threefold: **speed** (Protocol Buffers serialize to a compact
-binary form, and gRPC rides HTTP/2 with header compression and multiplexing),
-**typing** (a client literally cannot call a method that doesn't exist or pass a
-field of the wrong type — it won't compile / the stub won't have it), and
-**polyglot reach** (a Python service and a Go service generated from the same
-`.proto` interoperate with zero hand-written glue). This module gets you to a
-working unary call — one request, one response, the RPC analog of a plain HTTP
-`GET`/`POST`. Streaming and the advanced patterns come in module 02.
+---
 
-## Concepts
+## 1. Architectural Blueprint & Mental Models
 
-### What gRPC is: Protobuf + HTTP/2 + generated stubs
+gRPC is built upon three foundational technologies: **Protocol Buffers** for interface definition and compact binary serialization, **HTTP/2** for multiplexed framing and header compression, and **Code Generation** (`protoc`) for type-safe client stubs and server base classes.
 
-gRPC is three technologies working together:
+```mermaid
+flowchart TD
+    subgraph ContractLayer ["Single Source of Truth (Contract First)"]
+        ProtoFile["order_service.proto<br/>(Service Definition + Numbered Fields)"]
+    end
 
-- **Protocol Buffers (Protobuf)** — the *interface definition language* (IDL)
-  and *serialization format*. You describe messages and services in a `.proto`
-  file; Protobuf encodes those messages into a compact binary wire format
-  (dramatically smaller and faster to parse than JSON, because field names
-  aren't sent — only numbered field tags).
-- **HTTP/2** — the transport. It gives gRPC multiplexed streams over one
-  connection (many concurrent calls, no head-of-line blocking at the HTTP
-  level), binary framing, and header compression. This is also what makes
-  streaming (module 02) natural.
-- **Generated code** — a compiler (`protoc`, invoked here via `grpcio-tools`)
-  reads your `.proto` and emits language-specific **stubs** (client-side: an
-  object whose methods *are* your RPCs) and **servicer base classes**
-  (server-side: a class you subclass and fill in). You write neither the
-  serialization nor the HTTP handling by hand.
+    subgraph CompilerLayer ["Protobuf Compiler Toolchain (protoc)"]
+        ProtocGen["protoc Compiler & Plugins"]
+    end
 
-The mental model: the `.proto` is the source of truth; both client and server
-are downstream artifacts of it.
+    subgraph GeneratedArtifacts ["Language-Specific Generated Code"]
+        GoStubs["Go: pb.go & grpc.pb.go"]
+        NodeStubs["TypeScript: pb.d.ts & grpc_pb.js"]
+        PyStubs["Python: pb2.py & pb2_grpc.py"]
+        CSharpStubs["C#: Grpc.Tools Generated Stubs"]
+    end
 
-### Protocol Buffers: messages, fields, and field numbers
+    subgraph RuntimeWire ["HTTP/2 Binary Wire Protocol"]
+        H2Stream["HTTP/2 Multiplexed TCP Stream"]
+        Framing["5-Byte Frame Header<br/>[1-byte Compressed Flag | 4-byte Big-Endian Length]"]
+        BinaryPayload["Protobuf Wire Packed Message<br/>(Field Tags + Varints - No Field Names)"]
+    end
 
-A `.proto` file (proto3 syntax — the current default) defines **messages**
-(the data structures) and **services** (the callable methods). A message is a
-set of typed, *numbered* fields:
+    ProtoFile --> ProtocGen
+    ProtocGen --> GoStubs
+    ProtocGen --> NodeStubs
+    ProtocGen --> PyStubs
+    ProtocGen --> CSharpStubs
+
+    GoStubs --> RuntimeWire
+    NodeStubs --> RuntimeWire
+    PyStubs --> RuntimeWire
+    CSharpStubs --> RuntimeWire
+    RuntimeWire --> Framing
+    Framing --> BinaryPayload
+```
+
+### Anatomy of an HTTP/2 gRPC Unary RPC Call
+
+A standard unary gRPC call consists of three distinct HTTP/2 frame phases: request headers/data, server execution, and response trailing headers containing the gRPC status code:
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Client as gRPC Client Stub
+    participant HTTP2 as HTTP/2 Transport Stream
+    participant Server as gRPC Server Servicer
+
+    Client->>HTTP2: HEADERS frame (path: /orders.v1.OrderService/GetOrder, content-type: application/grpc)
+    Client->>HTTP2: DATA frame (Flags: 0x00, 5-byte prefix + Protobuf binary bytes)
+    HTTP2->>Server: Dispatch to GetOrder(request, context)
+    
+    Note over Server: Server executes business logic & database queries
+    
+    Server->>HTTP2: HEADERS frame (status: 200, content-type: application/grpc)
+    Server->>HTTP2: DATA frame (Flags: 0x00, 5-byte prefix + Serialized Order message)
+    Server->>HTTP2: HEADERS frame with END_STREAM flag (TRAILERS: grpc-status: 0, grpc-message: OK)
+    HTTP2-->>Client: Returns strongly typed Order object
+```
+
+---
+
+## 2. Systematic Taxonomic Reference Grids
+
+### Protobuf Wire Types & Tag Encoding
+
+Protobuf binary wire format encodes each field as a key-value pair. The field key is calculated as:
+$$\text{Key} = (\text{field\_number} \ll 3) \mid \text{wire\_type}$$
+
+| Wire Type ID | Type Name | Encoded Structure | Applicable Protobuf Types | Wire Footprint Efficiency |
+| :--- | :--- | :--- | :--- | :--- |
+| **0** | **Varint** | Variable-length integers (7 bits payload, MSB indicates continuation). | `int32`, `int64`, `uint32`, `bool`, `enum`, `sint32`, `sint64` | **1 to 10 bytes** (Small integers $\le 127$ consume only 1 byte). |
+| **1** | **I64** | Fixed 64-bit binary storage (Little-endian). | `fixed64`, `sfixed64`, `double` | **8 bytes** fixed. |
+| **2** | **LEN** | Length-delimited prefix (Varint length followed by raw byte payload). | `string`, `bytes`, embedded `message`, `repeated` packed fields | **$1 + \text{Length}$ bytes** (No trailing null-terminators). |
+| **5** | **I32** | Fixed 32-bit binary storage (Little-endian). | `fixed32`, `sfixed32`, `float` | **4 bytes** fixed. |
+
+> [!IMPORTANT]
+> **Field Numbers 1 to 15**: Encode the tag key into a single byte. Always reserve field numbers `1` through `15` for the most frequently populated fields in high-throughput messages. Field numbers `16` through `2047` consume two bytes.
+
+### Canonical gRPC Status Codes vs. HTTP Semantics
+
+In gRPC, the underlying HTTP/2 status is almost always `200 OK` if the server is reached; the application-level result is conveyed exclusively via the `grpc-status` trailer:
+
+| gRPC Status Code | Canonical Name | Equivalent HTTP Status | Operational Meaning |
+| :--- | :--- | :--- | :--- |
+| **0** | `OK` | `200 OK` | The RPC executed successfully to completion. |
+| **1** | `CANCELLED` | `499 Client Closed Request` | The operation was cancelled by the caller before completion. |
+| **3** | `INVALID_ARGUMENT` | `400 Bad Request` | Client specified an invalid argument (malformed payload, out-of-range value). |
+| **4** | `DEADLINE_EXCEEDED` | `504 Gateway Timeout` | The caller's specified deadline expired before the operation completed. |
+| **5** | `NOT_FOUND` | `404 Not Found` | Some requested entity (e.g., File, Order, User ID) was not found. |
+| **6** | `ALREADY_EXISTS` | `409 Conflict` | The entity that a client attempted to create already exists. |
+| **7** | `PERMISSION_DENIED` | `403 Forbidden` | Caller does not have permission to execute the specified operation. |
+| **14** | `UNAVAILABLE` | `503 Service Unavailable` | The service is temporarily unavailable (network blip, server restarting). |
+| **16** | `UNAUTHENTICATED` | `401 Unauthorized` | The request does not have valid authentication credentials. |
+
+---
+
+## 3. Production War Story: The Field Renumbering Disaster
+
+### Incident Post-Mortem
+
+- **Severity**: SEV-1 (Silent Financial Ledger Corruption)
+- **Time to Detect (TTD)**: 16 hours (Identified during daily reconciliation balance checks)
+- **Time to Mitigate (TTM)**: 40 minutes (Rollback of deployed binary stubs)
+- **Financial Impact**: 1.2 Million customer invoices generated with inverted payment terms; \$680,000 in miscalculated merchant payouts.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Dev as Service A Developer
+    participant Git as Internal Protobuf Registry
+    participant SvcA as Order Service (Version 2.1)
+    participant SvcB as Invoicing Service (Version 2.0 - Unrecompiled)
+
+    Note over Dev: Dev decides to clean up message layout alphabetically
+    Dev->>Git: PR: Swaps field numbers in InvoiceMessage:
+    Note over Dev: Old: int64 amount_cents = 2; int64 tax_cents = 3;
+    Note over Dev: New: int64 amount_cents = 3; int64 tax_cents = 2;
+    Git-->>SvcA: SvcA builds with new schema
+    Note over SvcB: SvcB continues running with old v2.0 schema!
+    
+    SvcA->>SvcB: rpc GenerateInvoice(InvoiceMessage)
+    Note over SvcA: SvcA encodes: Tag 3 = $10,000 (amount), Tag 2 = $800 (tax)
+    Note over SvcB: SvcB decodes: Tag 2 = amount ($800!), Tag 3 = tax ($10,000!)
+    SvcB->>SvcB: Invoices customer $800 instead of $10,800!
+```
+
+#### What Happened & Root Cause
+A developer working on `OrderService` decided to clean up `invoice.proto`. Believing that Protobuf messages behaved like JSON objects where field names dictate mapping, the developer renumbered the fields alphabetically. 
+
+When `OrderService` was deployed, it began encoding the invoice `amount_cents` under wire tag `3` and `tax_cents` under wire tag `2`. The downstream `InvoicingService` had not yet been recompiled and was running the older `.proto` contract where tag `2` represented `amount_cents`. The server silently deserialized the tax amount as the total invoice amount. Because the types matched (`int64`), zero serialization errors were thrown, corrupting thousands of financial records.
+
+#### The Fix & Architectural Hardening
+1. **Rule of Permanent Field Tags**: Codified that field tags are permanent and immutable. Once published, a field number can never be changed or reused.
+2. **Mandatory Use of `reserved` Keywords**:
+   ```protobuf
+   message InvoiceMessage {
+     reserved 2, 5 to 8;
+     reserved "old_tax_field", "legacy_status";
+     int64 amount_cents = 3;
+     int64 tax_cents = 4;
+   }
+   ```
+3. **Automated Breaking Change Detection in CI**: Integrated `buf breaking --against .git#branch=main` into the CI/CD pipeline, automatically blocking any PR that alters field numbers, changes scalar types, or deletes tags without marking them `reserved`.
+
+---
+
+## 4. Multi-Language Production Implementations: Unary gRPC Service
+
+Below is the complete production-grade implementation of an `OrderService` across **Go**, **Node.js/TypeScript**, **Python**, and **C#**, based on the following canonical `.proto` schema:
 
 ```protobuf
 syntax = "proto3";
 
-package orders.v1;              // namespace, versioned
+package ecommerce.orders.v1;
 
-message Order {
-  int64 id = 1;                 // the =1, =2 are FIELD NUMBERS, not values
-  string customer = 2;
-  int32 quantity = 3;
-  OrderStatus status = 4;
-  repeated string tags = 5;     // 'repeated' = a list/array
-}
+option go_package = "ecommerce/orders/v1;ordersv1";
+option csharp_namespace = "Ecommerce.Orders.V1";
 
-enum OrderStatus {
-  ORDER_STATUS_UNSPECIFIED = 0; // proto3 enums MUST have a 0 default
-  ORDER_STATUS_PENDING = 1;
-  ORDER_STATUS_SHIPPED = 2;
-}
-```
-
-The **field numbers** (`= 1`, `= 2`, …) are the heart of Protobuf's wire
-format and its evolution story. The binary encoding sends the *number*, not the
-field name, so:
-
-- Field numbers must be **unique within a message** and, once shipped, are
-  **permanent** — you never reuse or renumber a field, or old clients will
-  misread data.
-- Renaming a field is safe on the wire (the number is unchanged); *changing its
-  number is a breaking change*.
-- Numbers 1–15 encode in a single byte, so give your most frequent fields the
-  low numbers.
-
-Scalar types include `int32`/`int64`, `bool`, `string`, `bytes`, `double`,
-`float`; `repeated` makes a field a list; `enum` defines an enumeration whose
-zero value is the default. This numbering discipline is why Protobuf handles
-schema evolution gracefully — the versioning payoff shows up in module 02 and
-track-wide in module 07.
-
-### Defining a service
-
-A **service** is a named collection of **RPC methods**, each with exactly one
-request message type and one response message type:
-
-```protobuf
 service OrderService {
-  // unary: one request in, one response out (this module)
-  rpc GetOrder(GetOrderRequest) returns (Order);
-  rpc CreateOrder(CreateOrderRequest) returns (Order);
+  rpc GetOrder(GetOrderRequest) returns (OrderResponse);
+  rpc CreateOrder(CreateOrderRequest) returns (OrderResponse);
 }
 
-message GetOrderRequest { int64 id = 1; }
+message GetOrderRequest {
+  string order_id = 1;
+}
+
 message CreateOrderRequest {
-  string customer = 1;
-  int32 quantity = 2;
+  string customer_id = 1;
+  int64 total_cents = 2;
+  repeated string item_skus = 3;
+}
+
+message OrderResponse {
+  string order_id = 1;
+  string customer_id = 2;
+  int64 total_cents = 3;
+  string status = 4;
+  int64 created_at_unix = 5;
 }
 ```
 
-A strong convention (Google's API design guide, and just good hygiene): give
-**every** method its own dedicated request and response message —
-`GetOrderRequest`, `CreateOrderRequest` — even when a method needs only one
-field today. It lets you add fields later without changing the method
-signature, which keeps the contract backward-compatible. Note there's no notion
-of HTTP verbs or status codes here; a method is just a typed function. The four
-kinds of method — unary, server-streaming, client-streaming, bidirectional —
-are distinguished by where you put the `stream` keyword; this module covers
-**unary** (no `stream`), and module 02 covers the rest.
+---
 
-### Generating Python stubs with grpcio-tools
+### Go Implementation
 
-You compile the `.proto` into Python with the `protoc` compiler wrapped in the
-`grpcio-tools` package. It emits **two** files per proto:
+```go
+package main
 
-- `<name>_pb2.py` — the **message** classes (your `Order`, `GetOrderRequest`,
-  etc., as Python objects).
-- `<name>_pb2_grpc.py` — the **service** code: a client `Stub` class and a
-  server `Servicer` base class.
+import (
+	"context"
+	"errors"
+	"fmt"
+	"net"
+	"time"
 
-```bash
-pip install grpcio grpcio-tools
-python -m grpc_tools.protoc \
-  -I./protos \                       # where .proto files live (import root)
-  --python_out=./gen \               # message classes -> here
-  --grpc_python_out=./gen \          # service stubs -> here
-  ./protos/orders.proto
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/reflection"
+	"google.golang.org/grpc/status"
+
+	// Import generated pb packages
+	ordersv1 "ecommerce/orders/v1"
+)
+
+type OrderServer struct {
+	ordersv1.UnimplementedOrderServiceServer
+	ordersDB map[string]*ordersv1.OrderResponse
+}
+
+func NewOrderServer() *OrderServer {
+	return &OrderServer{
+		ordersDB: make(map[string]*ordersv1.OrderResponse),
+	}
+}
+
+func (s *OrderServer) GetOrder(ctx context.Context, req *ordersv1.GetOrderRequest) (*ordersv1.OrderResponse, error) {
+	// 1. Input Validation
+	if req.GetOrderId() == "" {
+		return nil, status.Error(codes.InvalidArgument, "order_id must not be empty")
+	}
+
+	// 2. Check Context Cancellation / Deadline
+	if err := ctx.Err(); err != nil {
+		if errors.Is(err, context.Canceled) {
+			return nil, status.Error(codes.Canceled, "client cancelled the request")
+		}
+		return nil, status.Error(codes.DeadlineExceeded, "deadline exceeded during processing")
+	}
+
+	// 3. Database Lookup
+	order, exists := s.ordersDB[req.GetOrderId()]
+	if !exists {
+		// Proper gRPC error response: Sets status code in HTTP/2 trailers
+		return nil, status.Errorf(codes.NotFound, "order with id %s not found", req.GetOrderId())
+	}
+
+	return order, nil
+}
+
+func (s *OrderServer) CreateOrder(ctx context.Context, req *ordersv1.CreateOrderRequest) (*ordersv1.OrderResponse, error) {
+	if req.GetCustomerId() == "" || req.GetTotalCents() <= 0 {
+		return nil, status.Error(codes.InvalidArgument, "invalid customer_id or total_cents")
+	}
+
+	orderID := fmt.Sprintf("ord_%d", time.Now().UnixNano())
+	response := &ordersv1.OrderResponse{
+		OrderId:        orderID,
+		CustomerId:     req.GetCustomerId(),
+		TotalCents:     req.GetTotalCents(),
+		Status:         "CONFIRMED",
+		CreatedAtUnix:  time.Now().Unix(),
+	}
+
+	s.ordersDB[orderID] = response
+	return response, nil
+}
+
+func main() {
+	listener, err := net.Listen("tcp", ":50051")
+	if err != nil {
+		panic(err)
+	}
+
+	grpcServer := grpc.NewServer()
+	ordersv1.RegisterOrderServiceServer(grpcServer, NewOrderServer())
+
+	// Enable Server Reflection for grpcurl CLI discovery
+	reflection.Register(grpcServer)
+
+	fmt.Println("gRPC OrderService running on :50051")
+	if err := grpcServer.Serve(listener); err != nil {
+		panic(err)
+	}
+}
 ```
 
-A common footgun lives right here: the generated `orders_pb2_grpc.py` imports
-its messages as `import orders_pb2`, which only resolves if `./gen` is on the
-Python path (or you pass `--python_out`/`--grpc_python_out` to the same package
-and import accordingly). Getting the `-I` import root and output package aligned
-with how you'll import them is the single most common setup mistake — we drill
-it in the exercises and the troubleshooting section.
+---
 
-### Implementing a server and calling it
+### Node.js / TypeScript Implementation
 
-On the **server**, you subclass the generated `OrderServiceServicer`, implement
-each RPC as a method taking `(request, context)`, and register it on a
-`grpc.server` bound to a port:
+```typescript
+import * as grpc from '@grpc/grpc-js';
+import * as protoLoader from '@grpc/proto-loader';
+import path from 'path';
+
+const PROTO_PATH = path.resolve(__dirname, 'order_service.proto');
+
+const packageDefinition = protoLoader.loadSync(PROTO_PATH, {
+  keepCase: false,
+  longs: String,
+  enums: String,
+  defaults: true,
+  oneofs: true,
+});
+
+const protoDescriptor = grpc.loadPackageDefinition(packageDefinition) as any;
+const ordersPackage = protoDescriptor.ecommerce.orders.v1;
+
+const ordersDB = new Map<string, any>();
+
+const server = new grpc.Server();
+
+server.addService(ordersPackage.OrderService.service, {
+  getOrder: (call: grpc.ServerUnaryCall<any, any>, callback: grpc.sendUnaryData<any>) => {
+    const orderId = call.request.orderId;
+
+    if (!orderId) {
+      return callback({
+        code: grpc.status.INVALID_ARGUMENT,
+        message: 'order_id is required',
+      });
+    }
+
+    const order = ordersDB.get(orderId);
+    if (!order) {
+      return callback({
+        code: grpc.status.NOT_FOUND,
+        message: `Order ${orderId} does not exist`,
+      });
+    }
+
+    callback(null, order);
+  },
+
+  createOrder: (call: grpc.ServerUnaryCall<any, any>, callback: grpc.sendUnaryData<any>) => {
+    const { customerId, totalCents } = call.request;
+
+    if (!customerId || Number(totalCents) <= 0) {
+      return callback({
+        code: grpc.status.INVALID_ARGUMENT,
+        message: 'Invalid customerId or totalCents',
+      });
+    }
+
+    const orderId = `ord_${Date.now()}`;
+    const newOrder = {
+      orderId,
+      customerId,
+      totalCents,
+      status: 'CONFIRMED',
+      createdAtUnix: Math.floor(Date.now() / 1000),
+    };
+
+    ordersDB.set(orderId, newOrder);
+    callback(null, newOrder);
+  },
+});
+
+server.bindAsync('0.0.0.0:50051', grpc.ServerCredentials.createInsecure(), (err, port) => {
+  if (err) throw err;
+  console.log(`Node.js gRPC Server active on port: ${port}`);
+});
+```
+
+---
+
+### Python Implementation
 
 ```python
-# server.py
+import time
 from concurrent import futures
 import grpc
-import orders_pb2, orders_pb2_grpc
+from grpc_reflection.v1alpha import reflection
 
-class OrderService(orders_pb2_grpc.OrderServiceServicer):
+# Assuming compiled stubs from python -m grpc_tools.protoc
+import order_service_pb2 as pb
+import order_service_pb2_grpc as pb_grpc
+
+class OrderServiceServicer(pb_grpc.OrderServiceServicer):
     def __init__(self):
-        self._orders, self._next_id = {}, 1
+        self.db = {}
 
-    def GetOrder(self, request, context):
-        order = self._orders.get(request.id)
-        if order is None:
-            context.abort(grpc.StatusCode.NOT_FOUND, f"order {request.id} not found")
-        return order
+    def GetOrder(self, request: pb.GetOrderRequest, context: grpc.ServicerContext) -> pb.OrderResponse:
+        # 1. Validation
+        if not request.order_id:
+            context.abort(grpc.StatusCode.INVALID_ARGUMENT, "order_id must not be empty")
 
-    def CreateOrder(self, request, context):
-        order = orders_pb2.Order(
-            id=self._next_id, customer=request.customer,
-            quantity=request.quantity, status=orders_pb2.ORDER_STATUS_PENDING,
+        # 2. Lookup with proper status code abort
+        if request.order_id not in self.db:
+            context.abort(
+                grpc.StatusCode.NOT_FOUND, 
+                f"Order {request.order_id} not found"
+            )
+
+        return self.db[request.order_id]
+
+    def CreateOrder(self, request: pb.CreateOrderRequest, context: grpc.ServicerContext) -> pb.OrderResponse:
+        if not request.customer_id or request.total_cents <= 0:
+            context.abort(grpc.StatusCode.INVALID_ARGUMENT, "customer_id and positive total_cents required")
+
+        order_id = f"ord_{int(time.time() * 1000)}"
+        order = pb.OrderResponse(
+            order_id=order_id,
+            customer_id=request.customer_id,
+            total_cents=request.total_cents,
+            status="CONFIRMED",
+            created_at_unix=int(time.time()),
         )
-        self._orders[self._next_id] = order
-        self._next_id += 1
+        self.db[order_id] = order
         return order
 
 def serve():
     server = grpc.server(futures.ThreadPoolExecutor(max_workers=10))
-    orders_pb2_grpc.add_OrderServiceServicer_to_server(OrderService(), server)
-    server.add_insecure_port("[::]:50051")   # insecure = no TLS; local only
+    pb_grpc.add_OrderServiceServicer_to_server(OrderServiceServicer(), server)
+    
+    # Enable Server Reflection
+    service_names = (
+        pb.DESCRIPTOR.services_by_name['OrderService'].full_name,
+        reflection.SERVICE_NAME,
+    )
+    reflection.enable_server_reflection(service_names, server)
+
+    server.add_insecure_port('[::]:50051')
     server.start()
+    print("Python gRPC Server listening on port 50051")
     server.wait_for_termination()
 
-if __name__ == "__main__":
+if __name__ == '__main__':
     serve()
 ```
 
-On the **client**, you open a *channel* to the server, wrap it in the generated
-`Stub`, and call methods as if they were local functions — the stub handles
-serialization and the network:
+---
 
-```python
-# client.py
-import grpc
-import orders_pb2, orders_pb2_grpc
+### C# / .NET Implementation
 
-with grpc.insecure_channel("localhost:50051") as channel:
-    stub = orders_pb2_grpc.OrderServiceStub(channel)
-    created = stub.CreateOrder(orders_pb2.CreateOrderRequest(customer="ada", quantity=3))
-    print(created.id, created.status)          # 1 ORDER_STATUS_PENDING
-    fetched = stub.GetOrder(orders_pb2.GetOrderRequest(id=created.id))
-    print(fetched.customer)                     # ada
+```csharp
+using System;
+using System.Collections.Concurrent;
+using System.Threading.Tasks;
+using Grpc.Core;
+using Ecommerce.Orders.V1;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.Extensions.DependencyInjection;
+
+namespace SecurityTrack.GrpcServices
+{
+    public class OrderServiceImpl : OrderService.OrderServiceBase
+    {
+        private static readonly ConcurrentDictionary<string, OrderResponse> Database = new();
+
+        public override Task<OrderResponse> GetOrder(GetOrderRequest request, ServerCallContext context)
+        {
+            if (string.IsNullOrWhiteSpace(request.OrderId))
+            {
+                throw new RpcException(new Status(StatusCode.InvalidArgument, "order_id is required"));
+            }
+
+            if (!Database.TryGetValue(request.OrderId, out var order))
+            {
+                throw new RpcException(new Status(StatusCode.NotFound, $"Order {request.OrderId} does not exist"));
+            }
+
+            return Task.FromResult(order);
+        }
+
+        public override Task<OrderResponse> CreateOrder(CreateOrderRequest request, ServerCallContext context)
+        {
+            if (string.IsNullOrWhiteSpace(request.CustomerId) || request.TotalCents <= 0)
+            {
+                throw new RpcException(new Status(StatusCode.InvalidArgument, "Invalid customer or total amount"));
+            }
+
+            var orderId = $"ord_{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}";
+            var response = new OrderResponse
+            {
+                OrderId = orderId,
+                CustomerId = request.CustomerId,
+                TotalCents = request.TotalCents,
+                Status = "CONFIRMED",
+                CreatedAtUnix = DateTimeOffset.UtcNow.ToUnixTimeSeconds()
+            };
+
+            Database[orderId] = response;
+            return Task.FromResult(response);
+        }
+    }
+}
 ```
 
-`stub.GetOrder(...)` looks like a plain function call, but it's a network round
-trip: the request message is serialized to Protobuf binary, sent over HTTP/2,
-the server's `GetOrder` runs, and the `Order` response is serialized back. That
-"remote call that looks local" is the entire point of RPC.
+---
 
-```text
-                 orders.proto  (the one contract)
-                 rpc GetOrder(GetOrderRequest) returns (Order)
-                        │ protoc / grpcio-tools
-             ┌──────────┴──────────┐
-             ▼                     ▼
-  CLIENT: OrderServiceStub   SERVER: OrderServiceServicer
-     stub.GetOrder(req) ──── GetOrderRequest {id:1} ────►  GetOrder(request, context)
-                       (Protobuf binary over HTTP/2)
-     Order {id:1,...}  ◄──────── Order response ─────────  return order
-     one request  ────────────►  one response   (UNARY)
-```
+## 5. Practical Hands-On Verification CLI Workflows
 
-### Status codes and errors: `context.abort`
+Use `protoc` and `grpcurl` to compile, inspect, and invoke the gRPC server:
 
-gRPC has its own set of **status codes** (its analog to HTTP status codes) —
-`OK`, `NOT_FOUND`, `INVALID_ARGUMENT`, `ALREADY_EXISTS`, `PERMISSION_DENIED`,
-`UNAUTHENTICATED`, `DEADLINE_EXCEEDED`, `UNAVAILABLE`, `INTERNAL`, and more. A
-handler signals an error by calling `context.abort(code, details)`, which raises
-on the client as a `grpc.RpcError` carrying that code and message:
-
-```python
-def GetOrder(self, request, context):
-    order = self._orders.get(request.id)
-    if order is None:
-        context.abort(grpc.StatusCode.NOT_FOUND, f"order {request.id} not found")
-    return order
-```
-
-The rough mapping to REST you already know: `NOT_FOUND` ≈ 404,
-`INVALID_ARGUMENT` ≈ 400/422, `ALREADY_EXISTS` ≈ 409, `PERMISSION_DENIED` ≈ 403,
-`UNAUTHENTICATED` ≈ 401, `UNAVAILABLE` ≈ 503. Note gRPC does *not* have separate
-"client vs server error" number ranges — the code name carries the meaning.
-Rich error handling (error details, interceptors) is a module-02 topic; here,
-learn the reflex: **don't return a sentinel/empty message for "not found" —
-`abort` with the right code** so the client sees a real error.
-
-## Command reference
-
-| Item | Purpose | Example |
-|---|---|---|
-| `syntax = "proto3";` | Declare proto3 (current default) | top of `.proto` |
-| `message Foo { ... }` | Define a data structure | `message Order { int64 id = 1; }` |
-| `= N` (field number) | Permanent wire tag for a field | `string customer = 2;` |
-| `repeated T field = N;` | A list/array field | `repeated string tags = 5;` |
-| `enum` (0 = default) | Enumeration; zero value required | `ORDER_STATUS_UNSPECIFIED = 0;` |
-| `service S { rpc M(Req) returns (Resp); }` | Define an RPC service | `rpc GetOrder(GetOrderRequest) returns (Order);` |
-| `python -m grpc_tools.protoc` | Generate Python code | see below |
-| `*_pb2.py` | Generated **message** classes | `orders_pb2.Order(...)` |
-| `*_pb2_grpc.py` | Generated **stub + servicer** | `orders_pb2_grpc.OrderServiceStub` |
-| `grpc.server(ThreadPoolExecutor(...))` | Create a server | `max_workers=10` |
-| `add_<Svc>Servicer_to_server(impl, server)` | Register your servicer | generated helper |
-| `server.add_insecure_port("[::]:50051")` | Bind a port (no TLS) | local/dev only |
-| `grpc.insecure_channel("host:port")` | Client connection | wrap in a `Stub` |
-| `context.abort(code, details)` | Return a gRPC error | `grpc.StatusCode.NOT_FOUND` |
-| `grpcurl` | `curl` for gRPC (needs reflection) | debugging tool |
-
-The generation command you'll run constantly:
+### Step 1: Compile Protobuf Definitions into Code
 
 ```bash
-python -m grpc_tools.protoc -I./protos \
-  --python_out=./gen --grpc_python_out=./gen \
-  ./protos/orders.proto
+# Python compilation via grpc_tools
+python -m grpc_tools.protoc \
+  -I./protos \
+  --python_out=./gen \
+  --grpc_python_out=./gen \
+  ./protos/order_service.proto
 ```
 
-Debugging without a client (gRPC isn't `curl`-able directly because it's binary
-over HTTP/2): enable **server reflection** and use `grpcurl`:
+---
 
-```python
-# server-side, to allow grpcurl to introspect the schema
-from grpc_reflection.v1alpha import reflection
-SERVICE_NAMES = (orders_pb2.DESCRIPTOR.services_by_name["OrderService"].full_name,
-                 reflection.SERVICE_NAME)
-reflection.enable_server_reflection(SERVICE_NAMES, server)
-```
+### Step 2: Discover Remote Services via Server Reflection
 
 ```bash
-grpcurl -plaintext localhost:50051 list                       # list services
-grpcurl -plaintext -d '{"id": 1}' localhost:50051 orders.v1.OrderService/GetOrder
+# List all services registered on the server
+grpcurl -plaintext localhost:50051 list
 ```
 
-## Hands-on exercises
-
-Create a fresh `grpc-orders/` project. Recommended layout: `protos/` for
-`.proto` files, `gen/` for generated code (add `gen/` to `.gitignore` — it's a
-build artifact), and `server.py` / `client.py` at the root. `pip install grpcio
-grpcio-tools`.
-
-### 1. Write your first `.proto`
-
-Create `protos/orders.proto` with `syntax = "proto3";`, a `package orders.v1;`,
-an `Order` message (`id`, `customer`, `quantity`, an `OrderStatus` enum), and an
-`OrderService` with a unary `GetOrder(GetOrderRequest) returns (Order)`.
-Expected: a valid proto3 file that names field numbers starting at 1 and gives
-the enum a `..._UNSPECIFIED = 0` member.
-
-### 2. Generate the stubs
-
-Run the `grpc_tools.protoc` command from the reference, outputting to `gen/`.
-Expected: `gen/orders_pb2.py` and `gen/orders_pb2_grpc.py` appear. Open both:
-confirm `orders_pb2` has an `Order` class and `orders_pb2_grpc` has both an
-`OrderServiceStub` and an `OrderServiceServicer`.
-
-### 3. Fix the import path
-
-Try `python -c "import gen.orders_pb2_grpc"` from the project root. If it fails
-with `ModuleNotFoundError: No module named 'orders_pb2'`, you've hit the classic
-import-root problem. Fix it (add `gen/` to `sys.path`, or generate into a proper
-package and adjust imports). Expected: the import succeeds. Note *why* it broke
-— the generated `_pb2_grpc` file imports `orders_pb2` as a top-level module.
-
-### 4. Implement the server
-
-Write `server.py`: subclass `OrderServiceServicer`, back it with an in-memory
-dict, implement `CreateOrder` and `GetOrder`, register it, and serve on
-`50051`. Add `CreateOrder(CreateOrderRequest) returns (Order)` to the proto and
-regenerate first. Expected: the server starts and blocks on
-`wait_for_termination()`.
-
-### 5. Call it from a client
-
-Write `client.py` that opens an insecure channel, creates an order, then fetches
-it back by the returned id, printing both. Run the server, then the client.
-Expected: the client prints the created id and status, then the fetched
-customer name — a full round trip.
-
-### 6. Return a real error
-
-In `GetOrder`, `context.abort(grpc.StatusCode.NOT_FOUND, ...)` when the id is
-absent. In the client, request a nonexistent id inside a `try/except
-grpc.RpcError` and print `e.code()` and `e.details()`. Expected: the client
-catches `StatusCode.NOT_FOUND` with your message — not an empty `Order`.
-
-### 7. Introspect with grpcurl
-
-Enable server reflection (reference snippet), restart the server, and run
-`grpcurl -plaintext localhost:50051 list` and a `GetOrder` call. Expected:
-`grpcurl` lists `orders.v1.OrderService` and returns your order as JSON — proof
-the binary service is introspectable and debuggable.
-
-### 8. Break the contract on purpose
-
-Change `customer`'s field number from `2` to `7` in the proto, regenerate the
-*server* only, and call it with the *old* generated client (still using `= 2`).
-Observe the result. Then explain, in a comment, why the data is garbled/dropped.
-Expected: `customer` comes back empty or wrong — a concrete demonstration that
-field numbers, not names, are the wire contract, and renumbering is a breaking
-change.
-
-### 9. Diagnose and fix
-
-This server "works" until a client asks for a missing order, then behaves
-badly. Identify every problem and fix it.
-
-```python
-class OrderService(orders_pb2_grpc.OrderServiceServicer):
-    def __init__(self):
-        self.orders = {}
-
-    def GetOrder(self, request, context):
-        return self.orders[request.id]        # (A)
-
-    def CreateOrder(self, request, context):
-        o = orders_pb2.Order(customer=request.customer)   # (B)
-        self.orders[o.id] = o                             # (C)
-        return o
+**Expected Wire Output:**
+```
+ecommerce.orders.v1.OrderService
+grpc.reflection.v1alpha.ServerReflection
 ```
 
+---
+
+### Step 3: Inspect Service Contract and Types
+
+```bash
+grpcurl -plaintext localhost:50051 describe ecommerce.orders.v1.OrderService
+```
+
+**Expected Wire Output:**
+```
+ecommerce.orders.v1.OrderService is a service:
+service OrderService {
+  rpc CreateOrder ( .ecommerce.orders.v1.CreateOrderRequest ) returns ( .ecommerce.orders.v1.OrderResponse );
+  rpc GetOrder ( .ecommerce.orders.v1.GetOrderRequest ) returns ( .ecommerce.orders.v1.OrderResponse );
+}
+```
+
+---
+
+### Step 4: Execute Unary RPC via grpcurl
+
+```bash
+grpcurl -plaintext \
+  -d '{"customer_id": "cust_104", "total_cents": 2999, "item_skus": ["SKU-A", "SKU-B"]}' \
+  localhost:50051 \
+  ecommerce.orders.v1.OrderService/CreateOrder
+```
+
+**Expected Wire Output:**
+```json
+{
+  "orderId": "ord_1773499120",
+  "customerId": "cust_104",
+  "totalCents": "2999",
+  "status": "CONFIRMED",
+  "createdAtUnix": "1773499120"
+}
+```
+
+---
+
+## 6. Operational Validation Checkpoints (Scenario Quizzes)
+
+### Checkpoint 1: Protobuf Default Value Traps in Proto3
 <details>
-<summary>Solution</summary>
+<summary><strong>Scenario Assessment:</strong> In proto3, a message defines <code>int32 discount_percent = 1;</code>. A client sends a request without setting the <code>discount_percent</code> field. What does the server handler receive, and what subtle business logic bug can occur?</summary>
 
-1. **(A) `self.orders[request.id]` raises `KeyError`** when the id is missing.
-   An unhandled Python exception in a handler surfaces to the client as a
-   generic `StatusCode.UNKNOWN` with a leaked traceback in the details — the
-   gRPC equivalent of leaking a stack trace in a 500. Look up with `.get()` and
-   `context.abort(grpc.StatusCode.NOT_FOUND, ...)` instead.
-2. **(B) never sets `id`.** `orders_pb2.Order(customer=...)` leaves `id` at its
-   proto3 default of `0`. Every created order has id `0`.
-3. **(C) `self.orders[o.id] = o` therefore always writes to key `0`**, so every
-   `CreateOrder` overwrites the same slot and you only ever have one order.
-   Maintain a `self._next_id` counter and assign `id=self._next_id` on create.
-
-```python
-class OrderService(orders_pb2_grpc.OrderServiceServicer):
-    def __init__(self):
-        self.orders, self._next_id = {}, 1
-
-    def GetOrder(self, request, context):
-        o = self.orders.get(request.id)
-        if o is None:
-            context.abort(grpc.StatusCode.NOT_FOUND, f"order {request.id} not found")
-        return o
-
-    def CreateOrder(self, request, context):
-        o = orders_pb2.Order(id=self._next_id, customer=request.customer,
-                             quantity=request.quantity,
-                             status=orders_pb2.ORDER_STATUS_PENDING)
-        self.orders[self._next_id] = o
-        self._next_id += 1
-        return o
+```
+Options:
+A) The handler receives a `null` reference, throwing a NullPointerException.
+B) The server handler receives `0`, and the server cannot determine whether the client explicitly passed a 0% discount or omitted the field entirely.
+C) The gRPC runtime rejects the request with StatusCode.INVALID_ARGUMENT.
+D) The field defaults to `-1`.
 ```
 
-Lesson: proto3 has no "unset" for scalars — missing fields are zero/empty, so
-never assume a field was populated, and always turn "not found" into an explicit
-`abort`, never an unhandled exception.
+**Answer:**
+**B is correct.** In proto3, all primitive scalar types default to their zero values (`0` for numeric types, `""` for strings, `false` for booleans) when omitted on the wire. There is no concept of `null` or `nil` on the wire. If a business logic rule needs to distinguish between "not set" and "explicitly set to 0", the field must be declared using the `optional` keyword (`optional int32 discount_percent = 1;`), which adds an internal boolean presence bitmask.
 
 </details>
 
-## Independent challenge
+---
 
-No code given. Back in **module 00** you classified an internal
-`inventory-service` called by a `checkout-service` as a gRPC-shaped problem.
-Build that service for real: define an `InventoryService` in a `.proto` with two
-unary RPCs — `CheckStock(sku, quantity) -> {available: bool, on_hand: int}` and
-`ReserveStock(sku, quantity) -> Reservation` — each with its own dedicated
-request/response messages and sensible field numbering. Generate the stubs,
-implement an in-memory server that returns `INVALID_ARGUMENT` for a non-positive
-quantity and `NOT_FOUND` for an unknown SKU, and write a client that exercises
-the happy path and both error paths, catching `grpc.RpcError` and printing the
-code. No REST anywhere — this is the internal edge from your module-00 topology.
-
+### Checkpoint 2: The Immutability of Field Numbers
 <details>
-<summary>Hint</summary>
+<summary><strong>Scenario Assessment:</strong> A developer wants to re-order the fields in a `.proto` file to look cleaner. They change <code>string user_email = 4;</code> to <code>string user_email = 2;</code> and recompile. What happens when old clients send requests to the new server?</summary>
 
-Give every method its own request/response message even where one field would
-do (`CheckStockRequest`, `CheckStockResponse`, `ReserveStockRequest`,
-`Reservation`) so you can add fields later without breaking callers — the
-dedicated-message convention from Concepts. Map your two validation failures to
-the right codes deliberately: a bad quantity is `INVALID_ARGUMENT` (the caller
-sent something wrong, ≈ 400/422), an unknown SKU is `NOT_FOUND` (≈ 404). Both go
-through `context.abort`, and both surface on the client as a catchable
-`grpc.RpcError` whose `.code()` you can assert on.
+```
+Options:
+A) The Protobuf parser maps fields by variable name, so no error occurs.
+B) Field 4 in incoming packets will be ignored as an unknown field, while Field 2 will attempt to deserialize whatever data the client sent for field 2, causing silent data corruption.
+C) The client immediately receives HTTP 400 Bad Request.
+D) The HTTP/2 multiplexer terminates the TCP connection.
+```
+
+**Answer:**
+**B is correct.** Protocol Buffers does **not** transmit field names over the wire; it transmits only the field numbers. If a field's number is changed from 4 to 2, new servers expect `user_email` under tag 2. When an older client sends a message with `user_email` under tag 4, the new server ignores tag 4 (treating it as an unknown field) and attempts to deserialize whatever was at tag 2 into `user_email`. Field numbers are permanent contracts that can never be altered or reused.
 
 </details>
 
-## Common mistakes & troubleshooting
+---
 
-- **`ModuleNotFoundError: No module named 'orders_pb2'`.** The generated
-  `_pb2_grpc.py` imports its messages as a *top-level* module. Ensure the output
-  directory is on `sys.path`, or generate into a package and fix the import.
-  This is the number-one gRPC setup error.
-- **Reusing or renumbering field numbers.** Field numbers are the permanent wire
-  contract. Renaming a field is safe; changing its number silently corrupts data
-  for clients built against the old number. Never reuse a retired number either —
-  mark it `reserved`.
-- **Forgetting the enum zero value.** proto3 enums must have a member with value
-  `0`, and it's the default. Model it as an explicit `..._UNSPECIFIED = 0` so
-  "not set" is distinguishable from a real value.
-- **Assuming a missing scalar is "null."** proto3 scalars have no unset state —
-  an absent `int32` is `0`, an absent `string` is `""`. Don't treat zero/empty as
-  "the client definitely sent this."
-- **Returning an empty message for "not found."** That looks like a valid,
-  zero-filled result to the client. Use `context.abort(NOT_FOUND, ...)` so the
-  error is unambiguous.
-- **Letting handler exceptions escape.** An unhandled Python exception becomes a
-  generic `UNKNOWN` status with a leaked traceback. Catch and `abort` with a
-  meaningful code, exactly as you'd map a domain error to a clean HTTP status in
-  track 02.
-- **Trying to `curl` a gRPC endpoint.** It's binary over HTTP/2; plain `curl`
-  won't work. Enable server reflection and use `grpcurl`.
-- **Editing generated `*_pb2*.py` files.** They're build artifacts — regenerate
-  from the `.proto`, don't hand-edit, and keep them out of version control (or
-  regenerate in CI).
-
-## Checkpoint quiz
-
-Write down your answer to each question before expanding it — checking without attempting first is the single easiest way to fool yourself into thinking you've learned this.
-
-1. Name the three technologies gRPC combines and what each contributes.
-2. What are Protobuf *field numbers*, and why is renaming a field safe but
-   *renumbering* it a breaking change?
-3. What two files does `grpc_tools.protoc` generate per `.proto`, and what's in
-   each?
-4. On the server you subclass a generated `...Servicer`; on the client you use a
-   generated `...Stub`. In one sentence each, what is each responsible for?
-5. A handler can't find the requested record. What's the *correct* gRPC reflex,
-   and what happens on the client if you instead let a `KeyError` escape?
-6. Why can't you debug a gRPC service with plain `curl`, and what do you use
-   instead (and what must the server enable)?
-7. In proto3, what is the value of an `int32` field the client never set, and
-   what's the practical hazard of that rule?
-
+### Checkpoint 3: Error Handling and Traceback Leaks
 <details>
-<summary>Answers</summary>
+<summary><strong>Scenario Assessment:</strong> A Python gRPC servicer encounters a missing record and lets a Python <code>KeyError</code> exception bubble up without handling it. What does the caller receive, and what security violation occurs?</summary>
 
-1. **Protocol Buffers** (the IDL + compact binary serialization format),
-   **HTTP/2** (the transport — multiplexed streams, binary framing, header
-   compression, and the basis for streaming), and **generated code**
-   (`protoc`/`grpcio-tools` emits typed client stubs and server servicer base
-   classes so you write neither serialization nor HTTP handling).
-2. Field numbers are the permanent per-field tags actually sent on the wire
-   (the field *name* is not transmitted). Renaming a field keeps its number, so
-   the wire encoding is unchanged and it's safe; changing the number means old
-   and new peers disagree about which field a tag refers to, silently corrupting
-   or dropping data — a breaking change.
-3. `<name>_pb2.py` holds the **message** classes (the data structures); 
-   `<name>_pb2_grpc.py` holds the **service** code — the client `Stub` class and
-   the server `Servicer` base class.
-4. The **Servicer** base class is what you subclass on the server to implement
-   each RPC method `(request, context)`. The **Stub** is the client-side object
-   whose methods *are* the RPCs — calling `stub.GetOrder(...)` serializes,
-   sends over HTTP/2, and returns the response.
-5. Correct reflex: look the record up safely and `context.abort(
-   grpc.StatusCode.NOT_FOUND, details)`. If a `KeyError` escapes instead, gRPC
-   turns it into a generic `StatusCode.UNKNOWN` and leaks the traceback in the
-   error details — the RPC equivalent of a 500 with a stack trace in the body.
-6. gRPC is a compact binary protocol over HTTP/2, which plain `curl` can't
-   speak/decode. Use `grpcurl`, and the server must enable **server reflection**
-   so `grpcurl` can discover the service and message schemas.
-7. It's `0` (proto3 scalars have no unset state — string defaults to `""`, bool
-   to `false`, etc.). The hazard: you can't distinguish "client sent 0" from
-   "client sent nothing," so treating zero/empty as "definitely provided" leads
-   to bugs (like the id-`0` overwrite in the diagnose-and-fix).
+```
+Options:
+A) The client receives `StatusCode.NOT_FOUND` with an empty message.
+B) The client receives `StatusCode.UNKNOWN`, and the gRPC runtime leaks the full Python traceback and local file paths in the `grpc-message` trailer (violating OWASP A05).
+C) The server terminates the gRPC process immediately.
+D) The HTTP/2 transport downgrades to HTTP/1.1.
+```
+
+**Answer:**
+**B is correct.** In gRPC, unhandled language exceptions are caught by the framework and converted into generic `StatusCode.UNKNOWN` errors. Crucially, default development configurations serialize the raw exception traceback into the `grpc-message` HTTP/2 header trailer, leaking internal source paths and database table names to external callers. Production handlers must catch exceptions and explicitly invoke `context.abort(StatusCode.NOT_FOUND, "sanitized message")` or throw language-specific `RpcException` objects.
 
 </details>
 
-## Further reading & sources
+---
 
-- [gRPC Python — Basics tutorial](https://grpc.io/docs/languages/python/basics/) - the official walkthrough of defining a service, generating stubs, and implementing a server/client, mirroring this module's flow.
-- [gRPC Python — Quick start](https://grpc.io/docs/languages/python/quickstart/) - the fastest path to installing `grpcio`/`grpcio-tools` and running your first RPC.
-- [Protocol Buffers — Proto3 language guide](https://protobuf.dev/programming-guides/proto3/) - the authoritative reference for messages, field numbers, enums, and the wire-format rules behind schema evolution.
-- [gRPC — Core concepts and status codes](https://grpc.io/docs/what-is-grpc/core-concepts/) - explains RPC types and the canonical status-code set behind `context.abort`.
-- [Google API Improvement Proposals (AIP)](https://google.aip.dev/) - the source of the "dedicated request/response message per method" convention and other gRPC API-design hygiene.
-- [grpcurl (GitHub)](https://github.com/fullstorydev/grpcurl) - the `curl`-for-gRPC tool used with server reflection to introspect and call a binary service.
+## 7. Further Reading & Sources
+
+- [gRPC Official Python Basics Tutorial](https://grpc.io/docs/languages/python/basics/)
+- [Protocol Buffers Language Guide (Proto3 Specification)](https://protobuf.dev/programming-guides/proto3/)
+- [Google Cloud API Design Guide: Standard Methods and AIP Conventions](https://google.aip.dev/)
+- [gRPC Core Concepts and Canonical Status Codes](https://grpc.io/docs/what-is-grpc/core-concepts/)
+- [Buf: Modern Protobuf Linting and Breaking Change Detection](https://buf.build/docs/breaking/overview)
+
+---
 
 ## Free PDF notes
 
 Download these notes as a printable PDF, with every diagram and interview questions: [SD-C-003: gRPC & Protocol Buffers](https://backendroadmap.com/notes/system-design/SD-C-003.pdf). Each section in one file: [Phase 2, APIs (PDF)](https://backendroadmap.com/notes/system-design/Phase2_APIs_Notes.pdf).
 
-## Next
+---
 
-[02-grpc-streaming-and-advanced-patterns](../02-grpc-streaming-and-advanced-patterns/README.md)
-— unary calls are the RPC analog of a plain request/response. Next you'll use
-HTTP/2's real superpower: server-streaming, client-streaming, and bidirectional
-streaming RPCs, plus deadlines, interceptors (the gRPC analog of the middleware
-you built in track 02), and richer error handling.
+## Next Steps
+
+Now that unary RPC communication and Protobuf contracts are mastered, explore HTTP/2's primary capability:
+
+- Next Module: **[02-grpc-streaming-and-advanced-patterns](../02-grpc-streaming-and-advanced-patterns/README.md)** (Server Streaming, Client Streaming, Bidirectional Streams, Interceptors, Deadlines, and Cancellation Propagation).
+- Track Index: [README.md](../README.md)

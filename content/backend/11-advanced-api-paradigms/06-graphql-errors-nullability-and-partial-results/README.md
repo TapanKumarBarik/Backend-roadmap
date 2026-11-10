@@ -1,468 +1,611 @@
-# Module 06: GraphQL Errors, Nullability and Partial Results
+# Module 06: GraphQL Errors, Nullability, and Partial Results
 
-## Why this matters
+> **Prerequisites**: [03-graphql-fundamentals](../03-graphql-fundamentals/README.md), [04-graphql-advanced-patterns](../04-graphql-advanced-patterns/README.md), and [05-graphql-schema-evolution-and-deprecation](../05-graphql-schema-evolution-and-deprecation/README.md).  
+> **Estimated Reading Time**: 30 minutes  
+> **Target Audience**: Backend Engineers, API Designers, and Reliability Engineers designing resilient distributed systems and robust client-facing GraphQL contracts.
 
-GraphQL always returns **HTTP 200**, even when everything failed. There is no
-404, no 401, no 500 to branch on — errors live in the response body, and a
-response can be *partially* successful in a way REST has no equivalent for.
+---
 
-Most teams meet this by throwing exceptions from resolvers and hoping for the
-best. The result is an API where a single failing field can blank out an
-entire page, where clients can't distinguish "this user doesn't exist" from
-"the database is down", and where the fix — adding `!` to make types stricter
-— actively makes things worse. Nullability in GraphQL isn't a typing
-preference; it's an **error-propagation policy**, and module 05 already
-showed you can't take it back once you've committed.
+> [!TIP]
+> **The Golden Rule of GraphQL Error Handling & Nullability**  
+> In GraphQL, nullability (`!`) is not an aesthetic typing choice—it is your **error blast radius boundary**. Non-null fields (`!`) force errors to bubble upward and destroy enclosing parent objects when a resolver throws or returns null. Follow the core architectural principle: **mark fields non-null within a single data-fetch boundary (local entity attributes), but mark fields nullable across remote network and service boundaries**. Furthermore, model expected domain business failures as **first-class Result Unions in the schema**, reserving the top-level `errors[]` array strictly for unexpected infrastructure faults.
 
-## Concepts
+---
 
-### The response envelope
+## Visual Mental Models & Architecture
 
+### The Null Propagation Bubbling Avalanche
+
+When a resolver throws an unhandled exception or returns `null` for a field marked with `!`, GraphQL cannot fulfill the non-null contract at that position. It forces the parent object to become `null`. If the parent is also marked non-null, this bubbling cascades upward until it encounters a nullable boundary—or obliterates the entire `data` envelope.
+
+```mermaid
+flowchart TD
+    subgraph Query Root: data
+        direction TB
+        Root["Query.dashboard: Dashboard!"]
+        
+        subgraph Dashboard Object
+            User["user: User!"]
+            Orders["orders: [Order!]!"]
+            Recs["recommendations: [Product!]! (Non-Null)"]
+        end
+        
+        Root --> User
+        Root --> Orders
+        Root --> Recs
+    end
+
+    Fault[💥 Recommendation Service Timeout] -.->|Throws Exception| Recs
+    Recs -->|1. Cannot be null! Bubbles up| Root
+    Root -->|2. Dashboard! cannot be null! Bubbles up| DataNull["data: null<br/>(Entire 200 OK Response Destroyed)"]
+
+    style Recs fill:#ff9999,stroke:#ff0000,stroke-width:2px
+    style Root fill:#ff9999,stroke:#ff0000,stroke-width:2px
+    style DataNull fill:#ff4d4d,stroke:#990000,stroke-width:3px
+```
+
+---
+
+### Errors as Schema Data vs Exceptional Errors
+
+```mermaid
+flowchart LR
+    Request[GraphQL Client Request] --> Gateway[GraphQL Gateway]
+    
+    Gateway --> Classify{Resolver Outcome}
+    
+    Classify -->|Expected Domain Failure e.g., EmailTaken, CardDeclined| Union[Return Typed Result Union member]
+    Classify -->|Infrastructure Failure e.g., DB Down, Panic, Timeout| TopLevel[Mask & Append to top-level errors array]
+
+    Union --> SuccessEnvelope["data: { mutationName: { __typename: 'CardDeclined', reason: '...' } }"]
+    TopLevel --> ErrorEnvelope["data: { user: null }, errors: [ { message: 'Internal Server Error', extensions: { code: 'INTERNAL_SERVER_ERROR', ref: 'corr-892' } } ]"]
+
+    style SuccessEnvelope fill:#d4edda,stroke:#28a745,stroke-width:2px
+    style ErrorEnvelope fill:#f8d7da,stroke:#dc3545,stroke-width:2px
+```
+
+---
+
+## Systematic Reference Grids
+
+### Comparison: Top-Level `errors[]` vs Typed Result Unions
+
+| Dimension | Top-Level `errors[]` Array | Typed Result Unions (`union Result = Success \| Failure`) |
+| :--- | :--- | :--- |
+| **Intended Use Case** | Unexpected infrastructure faults (database timeouts, network partitions, unhandled code panics). | Expected business outcomes (validation failures, card declined, email already taken, out of stock). |
+| **Schema Discoverability** | **Hidden** ❌: Callers cannot inspect the SDL to see what failure codes exist without external docs. | **First-Class** ✅: Discoverable in SDL, auto-generated in client SDK types (`graphql-codegen`, Apollo). |
+| **Client Handling** | Requires ad-hoc string comparisons or checking non-standard `extensions.code` dictionaries. | Enforced by client type compilers (e.g., TypeScript/Swift `switch` statements requiring handling each type). |
+| **Impact on `data`** | Can trigger null bubbling, corrupting or blanking out healthy partial sibling fields. | Preserved completely within `data`; partial responses remain structurally intact. |
+| **HTTP Transport Status** | Almost always **HTTP 200 OK** (unless document fails parsing or schema validation). | **HTTP 200 OK**; success payload contains polymorphic failure representation. |
+| **Overhead** | Minimal boilerplate on backend. | Requires defining dedicated SDL types, unions, and resolver `__resolveType` discriminators. |
+
+---
+
+### Collection Nullability Spectrum: The List Failure Matrix
+
+When querying collections (`posts`), the combination of inner and outer exclamation marks dictates how individual item failures affect the dataset:
+
+| Syntax | Nullable List? | Nullable Items? | Failure Outcome when 1 of 50 Items Fails | Best For |
+| :--- | :--- | :--- | :--- | :--- |
+| **`[Post!]!`** | **No** | **No** | **Catastrophic Failure**: List cannot contain null, so error bubbles to the parent object. All 50 posts and the parent are lost. | Highly coupled local data (e.g., coordinates in a geographic polygon: `[Coordinate!]!`). |
+| **`[Post!]`** | **Yes** | **No** | **Collection Failure**: List becomes `null`. 49 successful posts are discarded, but parent object survives. | Subordinate resources that must either be complete or omitted entirely. |
+| **`[Post]!`** | **No** | **Yes** | **Per-Item Graceful Degradation**: List returns 50 elements: 49 valid posts and `null` at index of failed item. List cannot be omitted. | Aggregated feeds, social media walls, and federated search results. |
+| **`[Post]`** | **Yes** | **Yes** | **Maximum Resilience**: Individual items can be `null`, and the entire collection can be `null` if the backing service is down. | Third-party enrichments and optional recommendation widgets. |
+
+---
+
+## Production Incident War Story: The Black Friday Blackout
+
+### Incident Post-Mortem: SEV-1
+
+* **Incident ID**: INC-9104
+* **Severity Level**: SEV-1 (Complete E-Commerce Checkout Outage)
+* **Detection Time**: 2 minutes after traffic spike
+* **Time to Recovery (TTR)**: 14 minutes
+* **Impact**: \$3.2M in abandoned checkout carts over a 14-minute window during Black Friday peak.
+
+#### 1. What Happened
+A retail platform overhauled its checkout GraphQL schema. The `Checkout` type was configured with:
+```graphql
+type Query {
+  checkout(id: ID!): Checkout!
+}
+
+type Checkout {
+  id: ID!
+  items: [CartItem!]!
+  totalAmount: Money!
+  crossSellOffers: [Offer!]! # Third-party recommendation engine
+}
+```
+During Black Friday peak traffic, the third-party recommendation microservice suffered an outage and began returning HTTP 504 Gateway Timeouts. The backend resolver for `crossSellOffers` timed out and threw a `ServiceUnavailableException`.
+
+Because `crossSellOffers` was marked non-null (`[Offer!]!`), GraphQL could not set the field to `null`. It bubbled up to `Checkout`. Because `Checkout!` on `checkout(id:)` was also non-null, the error bubbled up to the root, resulting in:
 ```json
 {
-  "data":   { "user": { "name": "Ada", "posts": null } },
+  "data": null,
   "errors": [
     {
-      "message": "Post service unavailable",
-      "path": ["user", "posts"],
-      "locations": [{ "line": 3, "column": 5 }],
-      "extensions": { "code": "SERVICE_UNAVAILABLE" }
+      "message": "Recommendation microservice timed out",
+      "path": ["checkout", "crossSellOffers"]
     }
   ]
 }
 ```
+Every customer attempting to view their cart or complete their purchase saw a blank screen with a generic "Something went wrong" message.
 
-Both keys can be present simultaneously — that's a **partial result**, and
-it's the shape GraphQL is designed around. `data` carries what succeeded;
-`errors[]` explains what didn't, with `path` pinpointing exactly which field.
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Customer as Shopper
+    participant Web as Web SPA
+    participant Gateway as GraphQL Server
+    participant CartSvc as Cart Database
+    participant RecsSvc as 3rd-Party Offers API
 
-Client rule that follows: **never treat a 200 as success.** Check `errors`,
-and check it *per path*, because some of `data` may be perfectly usable.
+    Customer->>Web: Navigate to /checkout
+    Web->>Gateway: POST /graphql { checkout(id: "c_1") { items total crossSellOffers } }
+    Gateway->>CartSvc: Load Cart (15ms)
+    CartSvc-->>Gateway: Cart Items & Total OK
+    Gateway->>RecsSvc: Fetch Cross-Sell Offers (Timeout 2000ms)
+    RecsSvc--xGateway: 504 Gateway Timeout
+    Note over Gateway: crossSellOffers is Non-Null [Offer!]!<br/>Bubble error to Checkout!<br/>Bubble error to Root Query!
+    Gateway-->>Web: HTTP 200 OK: {"data": null, "errors": [...]}
+    Web-->>Customer: 💥 Render blank crash page! Cart unreachable!
+```
 
-### Null propagation: the mechanic everything else depends on
+#### 2. Root Cause Analysis
+1. **Schema Design Flaw**: Non-essential enrichment fields (`crossSellOffers`) crossed a remote network/service boundary but were modeled with strict non-null assertions (`[Offer!]!`).
+2. **Lack of Error Isolation**: An optional marketing feature took down core business capabilities (calculating totals and processing payment transactions).
+3. **Internal Error Leaking**: Unmasked internal error messages and internal cluster DNS addresses were returned in `errors[].message` to public end-users.
 
-When a resolver for a **non-null** field fails or returns null, the error
-cannot be represented there — so GraphQL nulls the **parent**. If the parent
-is also non-null, it bubbles again, and so on up to `data` itself.
+#### 3. The Architectural Hardening & Resolution
+1. **Schema Nullability Boundary**: Relaxed `crossSellOffers: [Offer!]` to be nullable. If the recommendation service fails, GraphQL resolves `crossSellOffers: null` and populates `errors[]`, allowing `items` and `totalAmount` to render without disruption.
+2. **Circuit Breakers & Timeouts**: Wrapped remote third-party resolvers in circuit breakers with a tight 250ms SLA. On failure, return an empty list `[]` instead of throwing.
+3. **Error Masking Extension**: Implemented an automated error filter that scrubs all stack traces, replaces unexpected errors with generic messages, and attaches a correlation ID (`ref`) mapped to server-side logs.
 
-```graphql
-type Query { user: User }           # nullable
-type User  {
-  name: String!                     # non-null
-  posts: [Post!]!                   # non-null list of non-null posts
+---
+
+## Multi-Language Production Code Tabs: Resilient Errors & Result Unions
+
+The following code examples demonstrate:
+1. Expected business outcomes modeled as **Result Unions** (`CreateUserResult = UserSuccess | EmailTaken | WeakPassword`).
+2. Robust **Error Masking** that scrubs internal stack traces and assigns an opaque UUID `ref`.
+3. Standardized machine-readable error codes via `extensions.code`.
+
+```
+### Language Tabs
+1. Go (gqlgen with result unions and error presenter)
+2. Node.js / TypeScript (Apollo Server formatError & Unions)
+3. Python (Strawberry SchemaExtension & Result Unions)
+4. C# (Hot Chocolate Error Filters & Union Types)
+```
+
+### Go (gqlgen)
+```go
+package main
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"net/http"
+
+	"github.com/99designs/gqlgen/graphql"
+	"github.com/99designs/gqlgen/graphql/handler"
+	"github.com/google/uuid"
+	"github.com/vektah/gqlparser/v2/gqlerror"
+)
+
+// Safe error presenter that sanitizes internal exceptions
+func CustomErrorPresenter(ctx context.Context, e error) *gqlerror.Error {
+	err := graphql.DefaultErrorPresenter(ctx, e)
+
+	var customErr *DomainException
+	if errors.As(e, &customErr) {
+		// Safe business exception - allow message to pass through
+		return &gqlerror.Error{
+			Message: customErr.Message,
+			Path:    err.Path,
+			Extensions: map[string]interface{}{
+				"code": customErr.Code,
+			},
+		}
+	}
+
+	// Unexpected system error: Mask internal details and generate correlation ID
+	refID := uuid.New().String()
+	fmt.Printf("[ERROR] ref=%s path=%v err=%v\n", refID, err.Path, e)
+
+	return &gqlerror.Error{
+		Message: "Internal server error occurred",
+		Path:    err.Path,
+		Extensions: map[string]interface{}{
+			"code": "INTERNAL_SERVER_ERROR",
+			"ref":  refID,
+		},
+	}
+}
+
+type DomainException struct {
+	Code    string
+	Message string
+}
+
+func (d *DomainException) Error() string { return d.Message }
+
+func main() {
+	srv := handler.NewDefaultServer(NewExecutableSchema(Config{Resolvers: &Resolver{}}))
+	srv.SetErrorPresenter(CustomErrorPresenter)
+
+	http.Handle("/graphql", srv)
+	_ = http.ListenAndServe(":8080", nil)
 }
 ```
 
+### Node.js / TypeScript (@apollo/server)
+```typescript
+import { ApolloServer } from '@apollo/server';
+import { startStandaloneServer } from '@apollo/server/standalone';
+import { GraphQLError } from 'graphql';
+import { v4 as uuidv4 } from 'uuid';
+
+const typeDefs = `#graphql
+  type User {
+    id: ID!
+    email: String!
+  }
+
+  type EmailTaken {
+    message: String!
+    suggestedEmail: String!
+  }
+
+  type WeakPassword {
+    message: String!
+    minimumLength: Int!
+  }
+
+  union RegisterResult = User | EmailTaken | WeakPassword
+
+  type Query {
+    _dummy: String
+  }
+
+  type Mutation {
+    register(email: String!, pass: String!): RegisterResult!
+  }
+`;
+
+const resolvers = {
+  RegisterResult: {
+    __resolveType(obj: any) {
+      if (obj.email && obj.id) return 'User';
+      if (obj.suggestedEmail) return 'EmailTaken';
+      if (obj.minimumLength) return 'WeakPassword';
+      return null;
+    },
+  },
+  Mutation: {
+    register: (_: any, { email, pass }: { email: string; pass: string }) => {
+      // 1. Business Validation 1: Weak Password
+      if (pass.length < 8) {
+        return { message: "Password too weak", minimumLength: 8 };
+      }
+      // 2. Business Validation 2: Email Taken
+      if (email === "taken@example.com") {
+        return { message: "Email is already registered", suggestedEmail: "taken_alt@example.com" };
+      }
+      // 3. Success
+      return { id: "usr_42", email };
+    },
+  },
+};
+
+const server = new ApolloServer({
+  typeDefs,
+  resolvers,
+  formatError: (formattedError, error) => {
+    // If the error has a recognized code extension, let it pass
+    const code = formattedError.extensions?.code;
+    if (code && code !== 'INTERNAL_SERVER_ERROR') {
+      return formattedError;
+    }
+
+    // Mask unexpected crashes
+    const correlationId = uuidv4();
+    console.error(`[UNHANDLED_ERROR] Ref: ${correlationId}`, error);
+
+    return new GraphQLError('Internal server error', {
+      extensions: {
+        code: 'INTERNAL_SERVER_ERROR',
+        ref: correlationId,
+      },
+    });
+  },
+});
+
+startStandaloneServer(server, { listen: { port: 4000 } }).then(({ url }) => {
+  console.log(`Server running at ${url}`);
+});
 ```
-posts resolver throws
-   → posts is [Post!]!  (non-null) → can't be null → bubble up
-   → user is User       (nullable) → user becomes null   ✓ stops here
 
-data: { "user": null }      ← the entire user is gone because posts failed
+### Python (Strawberry)
+```python
+import uuid
+import logging
+from typing import Annotated, Union
+import strawberry
+from strawberry.extensions import SchemaExtension
+from strawberry.types import ExecutionContext
+
+logger = logging.getLogger("graphql")
+
+class ErrorMaskingExtension(SchemaExtension):
+    def on_operation(self):
+        yield
+        execution_context: ExecutionContext = self.execution_context
+        if execution_context.result and execution_context.result.errors:
+            sanitized_errors = []
+            for err in execution_context.result.errors:
+                ref_id = str(uuid.uuid4())[:8]
+                logger.error("GraphQL Error [%s] path=%s: %s", ref_id, err.path, err.original_error)
+                
+                # Check for explicit safe GraphQL error codes
+                extensions = err.extensions or {}
+                if extensions.get("code") in ("UNAUTHENTICATED", "FORBIDDEN", "BAD_USER_INPUT"):
+                    sanitized_errors.append(err)
+                else:
+                    sanitized_err = strawberry.types.ExecutionError(
+                        message="Internal server error",
+                        path=err.path,
+                        extensions={"code": "INTERNAL_SERVER_ERROR", "ref": ref_id}
+                    )
+                    sanitized_errors.append(sanitized_err)
+            execution_context.result.errors = sanitized_errors
+
+@strawberry.type
+class User:
+    id: strawberry.ID
+    email: str
+
+@strawberry.type
+class EmailTaken:
+    message: str
+    existing_user_id: strawberry.ID
+
+@strawberry.type
+class WeakPassword:
+    message: str
+    minimum_length: int
+
+RegisterResult = Annotated[
+    Union[User, EmailTaken, WeakPassword],
+    strawberry.union("RegisterResult")
+]
+
+@strawberry.type
+class Mutation:
+    @strawberry.mutation
+    def register(self, email: str, password: str) -> RegisterResult:
+        if len(password) < 8:
+            return WeakPassword(message="Password requires at least 8 characters", minimum_length=8)
+        if email == "admin@domain.com":
+            return EmailTaken(message="Email is unavailable", existing_user_id="usr_admin")
+        return User(id=strawberry.ID("usr_123"), email=email)
+
+@strawberry.type
+class Query:
+    @strawberry.field
+    def health(self) -> str:
+        return "ok"
+
+schema = strawberry.Schema(query=Query, mutation=Mutation, extensions=[ErrorMaskingExtension])
 ```
 
-Now make `user` non-null too (`user: User!`):
+### C# (Hot Chocolate)
+```csharp
+using HotChocolate;
+using HotChocolate.Execution;
+using HotChocolate.Types;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.Extensions.DependencyInjection;
 
-```
-   → user is User! → can't be null → bubble up
-   → data itself becomes null
+var builder = WebApplication.CreateBuilder(args);
 
-data: null                  ← the whole response is empty
-```
+builder.Services
+    .AddGraphQLServer()
+    .AddQueryType<Query>()
+    .AddMutationType<Mutation>()
+    .AddType<User>()
+    .AddType<EmailTaken>()
+    .AddType<WeakPassword>()
+    .AddErrorFilter<CustomErrorFilter>();
 
-**A single failing leaf field just destroyed the entire response.** That's
-the cost of `!`, and it's why over-using non-null is the most common
-self-inflicted GraphQL wound.
+var app = builder.Build();
+app.MapGraphQL();
+app.Run();
 
-### The `!` heuristic
+public class User { public string Id { get; set; } = "usr_1"; public string Email { get; set; } = ""; }
+public class EmailTaken { public string Message { get; set; } = ""; }
+public class WeakPassword { public string Message { get; set; } = ""; public int MinLength { get; set; } = 8; }
 
-Ask: *"if this field alone fails, should everything containing it disappear?"*
+[UnionType("RegisterResult")]
+public interface IRegisterResult { }
 
-| Field | `!`? | Reasoning |
-|---|---|---|
-| `id: ID!` | Yes | An object without an identity is meaningless |
-| `name: String!` | Usually | Comes from the same row as the id; if it fails the object is broken anyway |
-| `posts: [Post!]!` | **No** — use `[Post!]` | Separate service/table; a failure here shouldn't erase the user |
-| `recommendations: [Item!]` | No | Enrichment; degrade gracefully |
-| `email: String` | No | May be genuinely absent |
+public class Query { public string Health() => "healthy"; }
 
-The pattern: **non-null within a data-fetch boundary, nullable across one.**
-Fields resolved from the same source as their parent can be `!`; fields
-requiring a separate call should be nullable so their failure is contained.
-
-Note `[Post!]!` vs `[Post!]` vs `[Post]!` are three different promises: the
-inner `!` is about elements, the outer about the list itself. `[Post!]` says
-"the list may be absent, but if present contains no nulls" — usually what you
-want for a fetched collection.
-
-### Errors as data: the result-union pattern
-
-The `errors[]` array is for **exceptional** failures — the database is down,
-a bug threw. It's a poor fit for **expected** outcomes like "email already
-taken" or "insufficient funds", because those aren't errors in the system
-sense, they're business results the client must handle deliberately.
-
-Model expected failures in the schema instead:
-
-```graphql
-type Mutation {
-  registerUser(input: RegisterInput!): RegisterUserResult!
+public class Mutation
+{
+    public IRegisterResult RegisterUser(string email, string password)
+    {
+        if (password.Length < 8)
+            return new WeakPassword { Message = "Password too short", MinLength = 8 };
+            
+        if (email == "exists@test.com")
+            return new EmailTaken { Message = "Email address already registered" };
+            
+        return new User { Id = "usr_55", Email = email };
+    }
 }
 
-union RegisterUserResult = RegisterUserSuccess | EmailTaken | WeakPassword
+public class CustomErrorFilter : IErrorFilter
+{
+    private readonly ILogger<CustomErrorFilter> _logger;
+    public CustomErrorFilter(ILogger<CustomErrorFilter> logger) => _logger = logger;
 
-type RegisterUserSuccess { user: User! }
-type EmailTaken         { existingUserId: ID!, message: String! }
-type WeakPassword       { requirements: [String!]!, message: String! }
+    public IError OnError(IError error)
+    {
+        var code = error.Code;
+        if (code == "AUTH_REQUIRED" || code == "BAD_INPUT")
+        {
+            return error;
+        }
+
+        var refId = Guid.NewGuid().ToString("N")[..8];
+        _logger.LogError(error.Exception, "GraphQL Error [Ref: {RefId}] Path: {Path}", refId, error.Path);
+
+        return error
+            .WithMessage("Internal server error")
+            .WithCode("INTERNAL_SERVER_ERROR")
+            .SetExtension("ref", refId)
+            .RemoveException();
+    }
+}
 ```
 
-```graphql
-mutation {
-  registerUser(input: { email: "a@b.com", password: "x" }) {
-    __typename
-    ... on RegisterUserSuccess { user { id name } }
-    ... on EmailTaken          { existingUserId message }
-    ... on WeakPassword        { requirements message }
+---
+
+## Practical Hands-On Verification Workflows
+
+### 1. Execute a Mutation with Expected Result Unions
+
+Send a request that triggers an expected domain failure (`WeakPassword`) and verify that it returns **HTTP 200** with no entries in the top-level `errors[]` array.
+
+```bash
+curl -s -X POST http://localhost:4000/graphql \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "mutation { register(email: \"test@corp.com\", pass: \"123\") { __typename ... on User { id email } ... on WeakPassword { message minimumLength } ... on EmailTaken { message suggestedEmail } } }"
+  }' | jq .
+```
+
+**Expected JSON Response:**
+```json
+{
+  "data": {
+    "register": {
+      "__typename": "WeakPassword",
+      "message": "Password too weak",
+      "minimumLength": 8
+    }
   }
 }
 ```
 
-What this buys you: the failure modes are **typed and discoverable** in the
-schema, the client is *forced* by the compiler to handle each case, and the
-result stays in `data` where partial-result semantics don't apply. Compare
-with a thrown error, which is untyped, invisible in the schema, and nulls the
-field.
+---
 
-The tradeoff is verbosity — every mutation grows a union and several types.
-The usual line: use result unions for mutations and any query with meaningful
-business failure modes; let genuine infrastructure failures throw.
+### 2. Verify Partial Success & Error Masking
 
-### `extensions.code`: the machine-readable part
+Trigger an unhandled database exception on an enrichment field while selecting an intact root property.
 
-`message` is for humans and must never be branched on. `extensions` is where
-you put the contract:
-
-```python
-from graphql import GraphQLError
-
-raise GraphQLError(
-    "You do not have permission to view this order",
-    extensions={"code": "FORBIDDEN", "orderId": order_id},
-)
+```bash
+curl -s -X POST http://localhost:4000/graphql \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "query { user(id: \"usr_10\") { name profile { avatarUrl secretNotes } } }"
+  }' | jq .
 ```
 
-Conventional codes — `UNAUTHENTICATED`, `FORBIDDEN`, `BAD_USER_INPUT`,
-`NOT_FOUND`, `INTERNAL_SERVER_ERROR` — mirror the HTTP semantics you lost by
-always returning 200. Keep them stable; clients branch on them.
-
-### Never leak internals
-
-By default many servers serialise the exception message and stack trace
-straight into `errors[]`, which happily ships your SQL and file paths to the
-internet.
-
-```python
-import logging, uuid
-from strawberry.extensions import SchemaExtension
-
-log = logging.getLogger(__name__)
-
-def mask_errors(errors):
-    safe = []
-    for err in errors:
-        original = getattr(err, "original_error", None)
-        if original and not isinstance(original, ExpectedError):
-            ref = uuid.uuid4().hex[:12]
-            log.exception("graphql error ref=%s path=%s", ref, err.path,
-                          exc_info=original)
-            err.message = "Internal server error"
-            err.extensions = {"code": "INTERNAL_SERVER_ERROR", "ref": ref}
-        safe.append(err)
-    return safe
-```
-
-The `ref` is the important detail: the client gets an opaque id, your logs get
-the full trace keyed by the same id, and support can join them without ever
-exposing internals.
-
-### Errors inside lists
-
-A failing element in a list is where nullability bites hardest:
-
-```
-[Post!]!   one bad post → list can't hold null → bubble to parent → user lost
-[Post!]    one bad post → list itself becomes null → all posts lost
-[Post]     one bad post → that element is null → the other 49 survive  ✓
-```
-
-For a collection assembled from independently-fetchable items, `[Post]` gives
-per-item degradation. It costs the client a null check per element, which is
-usually the right trade for a feed or search result.
-
-## Command reference
-
-| Concern | Syntax / API |
-|---|---|
-| Partial result | `{"data": {...}, "errors": [...]}` — both present |
-| Which field failed | `errors[].path` |
-| Machine-readable code | `errors[].extensions.code` |
-| Raise a typed error | `raise GraphQLError(msg, extensions={"code": "..."})` |
-| Contain a failure | make the field nullable |
-| Per-element degradation | `[Post]` rather than `[Post!]!` |
-| Expected business failure | result union + `__typename` |
-| Client branches on type | `... on EmailTaken { ... }` |
-| Mask internals | error-processing hook + log reference id |
-| Strawberry hook | `SchemaExtension` / `process_errors` |
-
-## Hands-on exercises
-
-Continue from module 03/04's Strawberry + FastAPI setup.
-
-### 1. Produce a partial result
-
-Give `User` a `posts` field whose resolver raises. Make `posts` **nullable**
-(`[Post!]`).
-
-Expected:
-
+**Expected JSON Response (Partial Data + Sanitized Error):**
 ```json
-{"data": {"user": {"name": "Ada", "posts": null}},
- "errors": [{"path": ["user", "posts"], ...}]}
-```
-
-`name` survives. Note that HTTP status is **200** — confirm with `curl -i`.
-
-### 2. Watch the null bubble up
-
-Change `posts` to `[Post!]!` and re-run.
-
-Expected: `user` is now `null` entirely — the name you could have shown is
-gone. Then make `user: User!` as well.
-
-Expected: `"data": null`. Three schema characters erased the whole response.
-Record all three outputs side by side; this progression is the module's core
-lesson.
-
-### 3. Contain a failure with per-element nulls
-
-Return 50 posts where one resolver raises. Compare `[Post!]!`, `[Post!]` and
-`[Post]`.
-
-Expected: 0 posts, 0 posts, and **49 posts plus one null** respectively. Note
-which one you'd want for a feed.
-
-### 4. Branch on `extensions.code`, not `message`
-
-Raise `GraphQLError("Not allowed", extensions={"code": "FORBIDDEN"})`. Write a
-client that branches on the code. Then change the message text only.
-
-Expected: the client still works. Now make it branch on `message` instead and
-change the wording — it breaks. That's why `message` is not a contract.
-
-### 5. Build a result union
-
-Implement `registerUser` returning `RegisterUserSuccess | EmailTaken |
-WeakPassword`. Query it with `__typename` and inline fragments.
-
-Expected: each outcome arrives in `data` with no `errors[]` entry at all.
-Then implement the same thing by throwing, and compare what the client has to
-write in each case.
-
-### 6. Prove the schema documents the failures
-
-Introspect the union:
-
-```graphql
-{ __type(name: "RegisterUserResult") { possibleTypes { name } } }
-```
-
-Expected: all three outcomes are discoverable from the schema. Contrast with
-the thrown-error version, where the possible failures appear nowhere in the
-schema and a client author has to read your source.
-
-### 7. Mask an internal error
-
-Make a resolver raise `ValueError("connection to 10.0.3.4:5432 refused:
-password authentication failed for user 'admin'")`. Observe the default
-response, then add the masking hook.
-
-Expected: before, credentials and internal IPs are in the HTTP response;
-after, `"Internal server error"` plus a `ref`, with the full detail only in
-your logs under that same ref. Verify you can find the log line from the ref.
-
-### 8. Diagnose and fix: the dashboard that goes blank
-
-A dashboard shows a user's profile, orders, and recommendations. When the
-recommendations service (a flaky third party) is down, **the entire dashboard
-renders empty** — not just the recommendations panel. The schema:
-
-```graphql
-type Query { dashboard(userId: ID!): Dashboard! }
-type Dashboard {
-  user: User!
-  orders: [Order!]!
-  recommendations: [Item!]!
+{
+  "data": {
+    "user": {
+      "name": "Alan Turing",
+      "profile": null
+    }
+  },
+  "errors": [
+    {
+      "message": "Internal server error",
+      "path": ["user", "profile"],
+      "extensions": {
+        "code": "INTERNAL_SERVER_ERROR",
+        "ref": "e7b1a90c"
+      }
+    }
+  ]
 }
 ```
+*Notice that the SQL connection string and internal cluster IP address are stripped, while `name: "Alan Turing"` remains accessible.*
 
-The client shows a generic "Something went wrong" page whenever `errors` is
-non-empty.
+---
 
-<details>
-<summary>Solution</summary>
-
-Two independent causes, and both must be fixed.
-
-**Server: non-null bubbling.** `recommendations: [Item!]!` cannot be null, so
-its failure bubbles to `Dashboard`, which is `Dashboard!` on the `dashboard`
-field, so that bubbles to `data` — the whole response becomes `null`. The
-profile and orders were fetched successfully and are discarded on the way
-out. Fix: make `recommendations: [Item!]` (nullable), applying the heuristic
-that a field crossing a service boundary should be nullable so its failure is
-contained. `user` and `orders` can keep their `!` if they come from your own
-datastore.
-
-**Client: treating any error as total failure.** Even with the server fixed,
-a client that blanks the page whenever `errors` is non-empty still shows
-nothing useful. GraphQL's partial-result model requires the client to render
-`data` and degrade only the paths named in `errors[]` — here, showing the
-profile and orders while the recommendations panel displays a fallback.
-
-Worth noting the diagnostic order: the client bug is invisible until the
-server bug is fixed, because right now `data` genuinely is null. Fix the
-schema first, then the client's error handling, then verify by failing the
-recommendations service on purpose.
-
-</details>
-
-## Independent challenge
-
-No solution given. Design the error handling for a checkout mutation that
-can fail in these ways: the cart is empty; an item went out of stock while
-the user was checking out; the payment card was declined; the payment
-provider timed out (you don't know if it succeeded); and the order database
-is down.
-
-For each, decide whether it belongs in `errors[]` or in the schema as a
-result type, and justify it. Then design the full `CheckoutResult` union and
-specify the nullability of every field on the success type. Finally, address
-the hard one: the payment-provider timeout is genuinely ambiguous — the
-charge may or may not have happened — so what does the client see, and what
-must the *server* have done beforehand for any answer here to be safe?
+## Operational Validation Checkpoints (Scenario Quizzes)
 
 <details>
-<summary>Stuck? One hint</summary>
+<summary><strong>Checkpoint 1: The Null Bubbling Cascade</strong></summary>
 
-The clean split is that the first three are expected business outcomes the
-client must handle deliberately (result union members), while the database
-outage is a genuine system failure (`errors[]` with
-`INTERNAL_SERVER_ERROR`). The timeout is the interesting one and it isn't
-really an error-modelling problem at all — no response shape makes an
-ambiguous charge safe. It's an idempotency problem: the server must have sent
-a deterministic idempotency key with the payment request (track 10) so the
-operation can be safely retried or queried, and only then can it return
-something honest like a `CheckoutPending` type carrying a reference the
-client can poll.
+**Scenario:** Consider the following GraphQL schema definition:
+```graphql
+type Query {
+  order(id: ID!): Order!
+}
 
-</details>
+type Order {
+  id: ID!
+  customer: Customer!
+  shippingTracker: TrackingInfo!
+}
 
-## Common mistakes & troubleshooting
+type TrackingInfo {
+  carrier: String!
+  trackingCode: String!
+}
+```
+If the logistics microservice responsible for resolving `shippingTracker` crashes and raises an uncaught network timeout exception, what is the exact JSON structure returned under the `"data"` key in the HTTP response?
 
-- **Treating HTTP 200 as success.** GraphQL returns 200 for almost
-  everything; the client must inspect `errors[]`.
-- **Marking everything non-null.** Each `!` is a promise that a failure
-  destroys the parent — the most common cause of blank pages.
-- **`[Item!]!` for a collection from another service.** One bad element or
-  one failed call erases the whole parent.
-- **Branching on `error.message`.** It's human-facing prose; use
-  `extensions.code`.
-- **Using `errors[]` for expected business outcomes.** They're untyped,
-  undiscoverable in the schema, and null the field. Model them as result
-  types.
-- **Leaking exception text and stack traces.** Mask them and return an opaque
-  reference id instead.
-- **Clients that blank the page on any error.** Defeats the entire
-  partial-result design.
-- **Forgetting `__typename` when querying a union.** The client can't tell
-  which member it received.
-
-## Checkpoint quiz
-
-<details>
-<summary>Show questions</summary>
-
-1. What HTTP status does a failed GraphQL query return, and what must the
-   client check instead?
-2. Explain null propagation, and what happens when every field in the chain
-   is non-null.
-3. What's the heuristic for deciding whether a field should be non-null?
-4. What's the difference between `[Post!]!`, `[Post!]` and `[Post]` when one
-   element fails?
-5. When should a failure be a result-union member rather than an entry in
-   `errors[]`?
-6. Why must clients branch on `extensions.code` rather than `message`?
-7. What's the risk of default error serialisation, and what's the fix that
-   still lets support debug the issue?
-8. Why is a "partial result" impossible in REST but normal in GraphQL?
-
-</summary>
+**Answer:**
+`"data": null` (the entire response payload is empty).
+- **Execution trace**: `shippingTracker` fails &rarr; because it is marked `TrackingInfo!` (non-null), it cannot evaluate to `null`, bubbling the failure to its parent `Order`.
+- Because `order(id: ID!): Order!` is also defined as non-null, `Order` cannot evaluate to `null`, bubbling the failure to the query root.
+- The GraphQL execution engine is forced to null the entire root `data` object. A single non-critical field failure obliterated all order and customer data. To fix this, `shippingTracker: TrackingInfo` must be made nullable.
 </details>
 
 <details>
-<summary>Show answers</summary>
+<summary><strong>Checkpoint 2: Architectural Modeling: Result Unions vs Top-Level Errors</strong></summary>
 
-1. **200**, in almost all cases — including when the query failed entirely.
-   The client must inspect the `errors[]` array, and inspect it per `path`,
-   since `data` may still contain usable fields alongside the errors.
-2. When a non-null field's resolver fails or returns null, GraphQL cannot
-   represent null there, so it nulls the **parent** instead; if the parent is
-   also non-null it bubbles further up. If every field in the chain is
-   non-null, it bubbles all the way to the root and `data` itself becomes
-   `null` — one failing leaf destroys the whole response.
-3. Ask whether everything containing the field should disappear if that field
-   alone fails. In practice: non-null **within** a data-fetch boundary
-   (fields from the same row/source as their parent), nullable **across** one
-   (fields requiring a separate service or query), so a remote failure is
-   contained rather than bubbling.
-4. `[Post!]!` — the list can't be null and can't hold nulls, so a bad element
-   bubbles up and destroys the parent. `[Post!]` — the list itself becomes
-   null, losing every post. `[Post]` — only the failing element is null and
-   the remaining posts survive, which is usually what you want for a fetched
-   collection.
-5. When the failure is an **expected business outcome** the client must
-   handle deliberately — email already taken, insufficient funds, out of
-   stock. Result unions make those outcomes typed, discoverable in the
-   schema, and enforceable by the client's compiler, and they keep the result
-   inside `data`. Genuine system failures (a database outage, an unhandled
-   bug) belong in `errors[]`.
-6. Because `message` is human-facing prose that can be reworded, localised or
-   improved at any time, which would silently break any client branching on
-   it. `extensions.code` is a stable machine-readable contract intended
-   exactly for that purpose.
-7. Many servers serialise the raw exception message and stack trace into the
-   response, leaking internal hostnames, credentials, SQL and file paths to
-   any caller. The fix is to mask unexpected errors to a generic message
-   while attaching an opaque reference id, and log the full detail under that
-   same id — so support can join the client's report to the server logs
-   without exposing anything.
-8. Because a REST endpoint returns one resource with one status code — it
-   either succeeded or it didn't. A GraphQL query resolves many independent
-   fields, each with its own resolver that can succeed or fail separately, so
-   the response naturally carries both the fields that worked and errors for
-   the ones that didn't.
+**Scenario:** An engineering team is designing a checkout mutation: `checkout(cartId: ID!, paymentNonce: String!)`. The following failure conditions must be supported:
+1. The user's credit card was declined due to insufficient funds.
+2. The cart contains an item that just went out of stock.
+3. The database connection pool is exhausted and queries are timing out.
 
+How should each condition be represented in GraphQL according to production best practices?
+
+**Answer:**
+- Conditions 1 and 2 are **Expected Business Domain Outcomes**. They must be modeled as members of a **Result Union** (`union CheckoutResult = OrderConfirmation | CardDeclined | OutOfStockItem`). They return under `"data"` with `__typename` discriminators. This forces client engineers to write UI branches handling these states, avoids null bubbling, and keeps failure types discoverable in the schema.
+- Condition 3 is an **Exceptional Infrastructure Failure**. It must throw an exception on the server, be intercepted by error masking middleware, sanitized to `"Internal server error"`, and placed in the top-level **`errors[]` array** with `extensions: { code: "INTERNAL_SERVER_ERROR", ref: "<uuid>" }`.
 </details>
 
-## Further reading & sources
+<details>
+<summary><strong>Checkpoint 3: The HTTP 200 Ambiguity Problem</strong></summary>
 
-- [GraphQL spec: Errors](https://spec.graphql.org/draft/#sec-Errors) - the response format, `path`, and the error-propagation rules for non-null fields.
-- [GraphQL spec: Non-Null](https://spec.graphql.org/draft/#sec-Non-Null) - the exact bubbling semantics demonstrated in exercise 2.
-- [Sasha Solomon: 200 OK! Error Handling in GraphQL](https://sachee.medium.com/200-ok-error-handling-in-graphql-7ec869aec9bc) - the canonical argument for result unions over thrown errors.
-- [Apollo: Error handling](https://www.apollographql.com/docs/apollo-server/data/errors/) - conventional `extensions.code` values and masking unexpected errors.
-- [Strawberry: Schema extensions](https://strawberry.rocks/docs/guides/custom-extensions) - the hook used for error masking and field instrumentation.
+**Scenario:** A company puts an API Gateway in front of their GraphQL service. Their monitoring alarms trigger on HTTP 5xx responses. Despite hundreds of users reporting broken checkout pages, the HTTP 5xx alarm never fires, and uptime dashboards report 100% green. Why did this occur, and how should edge gateways and observability agents monitor GraphQL service health?
 
-## Next
+**Answer:**
+GraphQL servers conform to the GraphQL specification by returning **HTTP 200 OK** even when query execution encounters resolver exceptions and populates the `errors[]` array. Edge proxies and reverse proxies inspecting only the HTTP status code see `200` and consider the request successful.
+To properly monitor GraphQL service health:
+1. Observability agents and gateways must inspect the response payload body (or rely on custom response headers like `X-GraphQL-Error-Count`) to track error rates.
+2. The GraphQL server should export Prometheus metrics (`graphql_resolver_errors_total` and `graphql_operation_errors_total`) categorized by `extensions.code` (`INTERNAL_SERVER_ERROR` vs domain codes).
+3. Synthetic health check endpoints (`/healthz`) must execute end-to-end read queries against backing datastores rather than hitting static ping routes.
+</details>
 
-[07-graphql-security-caching-and-observability](../07-graphql-security-caching-and-observability/README.md) —
-your API now fails gracefully. Module 07 covers keeping it fast and stopping
-people from weaponising the flexibility that makes GraphQL useful.
+---
+
+## Further Reading & Next Steps
+
+* [GraphQL Official Specification: Errors](https://spec.graphql.org/draft/#sec-Errors) - The formal error format, propagation mechanics, and path specifications.
+* [Sasha Solomon: 200 OK! Error Handling in GraphQL](https://sachee.medium.com/200-ok-error-handling-in-graphql-7ec869aec9bc) - The industry-standard thesis on Result Unions.
+* [Apollo GraphQL Error Handling Guide](https://www.apollographql.com/docs/apollo-server/data/errors/) - Standard machine-readable codes and client propagation.
+* Next up: [07-graphql-security-caching-and-observability](../07-graphql-security-caching-and-observability/README.md) to defend your GraphQL API against alias bombs, implement cost-based rate limiting, and achieve true HTTP CDN caching.

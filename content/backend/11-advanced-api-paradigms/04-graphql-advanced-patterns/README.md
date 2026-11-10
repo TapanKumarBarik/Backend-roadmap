@@ -1,514 +1,833 @@
-# Module 04: GraphQL Advanced Patterns
+# Module 04: GraphQL Advanced Patterns (Subscriptions, Relay Pagination, and Field Authorization)
 
-## Why this matters
+> **Prerequisites**: [Module 03: GraphQL Fundamentals](../03-graphql-fundamentals/README.md), [Track 03: Auth & Access Control](../../03-auth-and-access-control/README.md), and WebSocket connection management concepts.  
+> **Estimated Reading Time**: 35 minutes.  
+> **Target Audience**: Senior Backend Engineers, Full-Stack Architects, and Enterprise API Developers.
 
-Module 03 got you a working, N+1-safe GraphQL API — enough to replace a pile of
-REST aggregation endpoints for a single app. But four things stand between "works
-in GraphiQL" and "runs as the front door for a real product," and each is a place
-teams get burned. You need **subscriptions** when the client shouldn't have to
-re-ask — live scores, a notification badge, a collaborative view. You need
-**pagination** the moment any list can grow, because `books: [Book!]!` returning
-everything is a latent outage. You need **authorization inside resolvers**,
-because GraphQL's single endpoint and field-by-field execution mean auth can't
-live at "the route" the way it did in REST — a query can reach any field in the
-graph, so every sensitive field needs its own guard. And once more than one team
-owns parts of the graph, you need a strategy for **composing schemas** —
-stitching or federation — instead of one monolith everyone fights over.
+---
 
-These are the patterns that also make GraphQL viable specifically as a
-**Backend-for-Frontend** (the role module 06 formalizes and the capstone builds).
-A BFF fronting several services has to page through large result sets, enforce
-who-can-see-what per field, push live updates, and potentially compose types
-owned by different backends. That's this entire module. Pagination and authz in
-particular are not optional niceties — shipping a GraphQL API without bounded
-lists and per-field authorization is how you get a data-exfiltration incident or
-a database melted by one unbounded query.
+> [!TIP]
+> **The Golden Rule of Production GraphQL Architecture**  
+> In GraphQL, **authorization must be enforced at the individual field/resolver level**, never at the route perimeter. Because GraphQL presents a single endpoint capable of traversing arbitrary relational graph paths, routing-level access controls leave nested sensitive fields vulnerable to data exfiltration. Furthermore, every list field must enforce **cursor-based Relay pagination with strict, server-side page size caps**, and all incoming queries must be bounded by **static depth and complexity limits** to prevent denial-of-service via recursive circular query expansion.
 
-You'll keep building in Strawberry on FastAPI. Everything here layers onto the
-module-03 schema/resolver/DataLoader model — subscriptions are a new root type,
-connections are a new field shape, authz is logic *inside* resolvers, and
-federation is a way of splitting the schema you already know how to write.
+---
 
-## Concepts
+## 1. Architectural Blueprint & Mental Models
 
-### Subscriptions: server-pushed updates
+Enterprise GraphQL architectures extend beyond basic CRUD by integrating continuous event streams, standardized cursor pagination, per-field security boundaries, and multi-team schema composition.
 
-A **subscription** is GraphQL's third root type (alongside `Query` and
-`Mutation`) and its answer to "notify me when something changes." Instead of
-returning a value once, a subscription resolver is an **async generator** that
-`yield`s values over time; the transport is typically a WebSocket, so updates
-flow to the client as they happen — no polling.
+```mermaid
+flowchart TD
+    subgraph ClientDevices ["Consumer Applications"]
+        MobileClient["Mobile Client (Relay / Apollo Client)"]
+        LiveDashboard["Live Real-Time Dashboard (WebSockets)"]
+    end
+
+    subgraph SecurityAndIngress ["Ingress & Complexity Gateway"]
+        DepthLimiter["Query Depth & Complexity Guard<br/>(Rejects Depth > 5 / Cost > 500)"]
+        AuthContext["Auth Context Extractor<br/>(Injects caller claims into info.context)"]
+    end
+
+    subgraph GraphQLSubsystems ["Advanced Execution Subsystems"]
+        RelayPagination["Relay Cursor Connection Engine<br/>(Opaque Base64 Cursors + PageInfo)"]
+        FieldAuthZ["Field-Level Directive Guard<br/>(@auth(role: ADMIN) / Field Masking)"]
+        SubscriptionEngine["WebSocket Subscription Broker<br/>(Redis Pub/Sub Event Loop)"]
+    end
+
+    subgraph DistributedFederation ["Federated Subgraph Architecture (Apollo Federation v2)"]
+        Router["Apollo Federation Router / Supergraph"]
+        UsersSubgraph["Users Subgraph (Go)"]
+        ProductsSubgraph["Products Subgraph (TypeScript)"]
+        OrdersSubgraph["Orders Subgraph (Python)"]
+    end
+
+    MobileClient --> DepthLimiter
+    LiveDashboard --> DepthLimiter
+    DepthLimiter --> AuthContext
+    AuthContext --> RelayPagination
+    AuthContext --> FieldAuthZ
+    AuthContext --> SubscriptionEngine
+    
+    FieldAuthZ --> Router
+    Router --> UsersSubgraph
+    Router --> ProductsSubgraph
+    Router --> OrdersSubgraph
+```
+
+### Relay Cursor Pagination vs. Offset Pagination Under Concurrent Writes
+
+Standard offset pagination (`offset: 20, limit: 10`) suffers from row-shifting anomalies when items are inserted or deleted during user pagination. **Relay Cursor Pagination** anchors the query to an opaque, immutable entity cursor:
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Shopper as Mobile User
+    participant App as Mobile App
+    participant GraphQL as GraphQL Engine
+    participant DB as Relational Database
+
+    Shopper->>App: Scrolls to Page 1
+    App->>GraphQL: POST /graphql { books(first: 2) { edges { cursor node { title } } pageInfo { endCursor hasNextPage } } }
+    GraphQL->>DB: SELECT id, title, created_at FROM books ORDER BY id DESC LIMIT 3;
+    DB-->>GraphQL: Returns [Book 100 (Cursor: c100), Book 99 (Cursor: c99)]
+    GraphQL-->>App: PageInfo: { endCursor: "c99", hasNextPage: true }
+    
+    Note over DB: CONCURRENT MUTATION: Another user inserts Book 101!
+    
+    Shopper->>App: Scrolls to Page 2 (Passes after: "c99")
+    App->>GraphQL: POST /graphql { books(first: 2, after: "c99") { edges { cursor node { title } } } }
+    Note over GraphQL: Query uses stable cursor: WHERE id < 99 ORDER BY id DESC LIMIT 2
+    GraphQL->>DB: SELECT id, title FROM books WHERE id < 99 ORDER BY id DESC LIMIT 3;
+    DB-->>GraphQL: Returns [Book 98, Book 97]
+    GraphQL-->>App: Returns exact next items with ZERO duplicated or skipped records!
+```
+
+---
+
+## 2. Systematic Taxonomic Reference Grids
+
+### Advanced GraphQL Architectural Patterns
+
+| Subsystem Component | Specification / Pattern | Core Architectural Guarantee | Critical Anti-Pattern / Failure Mode |
+| :--- | :--- | :--- | :--- |
+| **Real-time Push** | GraphQL Subscriptions (RFC 6455 / WebSockets) | Asynchronous push of typed schema entities via async generators. | Retaining open subscriptions across worker restarts without a distributed Redis Pub/Sub backing. |
+| **List Navigation** | Relay Cursor Connection (`edges`, `node`, `cursor`, `pageInfo`) | Deterministic pagination stable under concurrent record insertions and deletions. | Unbounded `first` arguments allowing clients to request `first: 1000000` (OutOfMemory DoS). |
+| **Field Security** | Per-Field Resolvers & Schema Directives (`@auth`) | Denies access to sensitive fields (`email`, `ssn`) even if the parent entity is public. | Relying on perimeter route guards; leaking confidential fields via public nested graph edges. |
+| **Cost Control** | Query Depth & Complexity Analysis | Statically analyzes query AST to reject recursively nested circular requests before execution. | Executing unconstrained queries, allowing attackers to trigger combinatorial database cartesian explosions. |
+| **Schema Composition** | Apollo Federation v2 / Schema Stitching | Multiple autonomous teams deploy independent subgraphs unified by a single supergraph router. | Building a monolithic schema where multiple development teams deploy code to a single shared repository. |
+
+### Query Complexity & Depth Defense Matrix
+
+```graphql
+# Attack Vector: Recursive Circular Denial-of-Service Query
+query MaliciousCartesianExplosion {
+  author(id: "1") {
+    books {
+      author {
+        books {
+          author {
+            books {
+              author {
+                books { title } # Depth = 8, Multiplier: 10^4 queries!
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+| Protection Engine | Evaluation Stage | Mathematical Algorithm | Production Threshold | Action on Exceed |
+| :--- | :--- | :--- | :--- | :--- |
+| **Max Depth Limiting** | Pre-Execution (AST Inspection) | Traverses AST tree from Root Node; increments depth counter per nested selection set. | `max_depth = 5` | Reject query immediately with `GraphQLError("Query depth exceeds limit of 5")`. |
+| **Complexity Budgeting** | Pre-Execution (Cost Analysis) | Assigns base point per scalar field ($1$) and multiplier per list connection ($\text{first} \times \text{cost}$). | `max_complexity = 500` | Abort execution with `GraphQLError("Query complexity 1240 exceeds budget 500")`. |
+| **Pagination Cap** | Resolver Execution | Clamps incoming pagination arguments: $\text{limit} = \min(\text{requested}, 50)$. | `max_page_size = 50` | Automatically enforce max boundary; reject negative numbers. |
+
+---
+
+## 3. Production War Story: The Recursive Query Denial-of-Service
+
+### Incident Post-Mortem
+
+- **Severity**: SEV-1 (Complete Platform Outage)
+- **Time to Detect (TTD)**: 2 minutes (Edge Envoy proxy reported 100% 504 Gateway Timeouts)
+- **Time to Mitigate (TTM)**: 18 minutes (Deployed emergency depth-limiting rule)
+- **Impact**: Entire customer dashboard offline; GraphQL gateway node memory spiked from 512MB to 16GB, triggering OOMKills.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Attacker as Hostile Actor
+    participant Gateway as GraphQL API Gateway
+    participant ASTParser as GraphQL AST Compiler
+    participant Resolver as Execution Engine
+    participant DB as Postgres Primary
+
+    Attacker->>Gateway: POST /graphql (Crafted 12-level nested circular query)
+    Note over Attacker,Gateway: Query: users { posts { author { posts { author { posts ... } } } } }
+    Gateway->>ASTParser: Parse query string into AST
+    Note over Gateway: Flaw: No query depth or complexity limiter configured!
+    Gateway->>Resolver: Begin recursive field-by-field execution
+    Note over Resolver,DB: Combinatorial explosion: 100 users * 50 posts * 50 posts...
+    Resolver->>DB: Dispatches tens of thousands of sub-queries
+    Note over Gateway: AST node tree allocates 14GB of memory
+    Note over Gateway: Linux Kernel invokes OOM-Killer: SIGKILL sent to Gateway process!
+    Gateway-->>Attacker: HTTP 502 Bad Gateway (Process Terminated)
+```
+
+#### What Happened & Root Cause
+A commercial social collaboration platform deployed a GraphQL BFF to serve their React web app and native mobile apps. The schema defined circular bidirectional edges: a `User` has `posts: [Post]`, and each `Post` has an `author: User`. 
+
+An external attacker discovered the unauthenticated `/graphql` endpoint and submitted a 12-level deeply nested query requesting circular references. Because the server had no query depth or complexity limits, the execution engine attempted to materialize hundreds of thousands of in-memory resolver promises. The Node.js heap exhausted its 4GB memory ceiling, causing consecutive Kubernetes pod crashes and bringing down the entire platform.
+
+#### The Fix & Architectural Hardening
+1. **Enforced Hard Depth Limiter**: Implemented AST validation rejecting any query with depth greater than 5 (`graphql-depth-limit`).
+2. **Integrated Query Cost Budgeting**: Configured a cost validator restricting any single query to a maximum complexity budget of 250 points.
+3. **Persisted Queries for Production Clients**: Disabled arbitrary dynamic query execution in production, restricting incoming requests to pre-registered cryptographic query hashes (Automatic Persisted Queries - APQ).
+
+---
+
+## 4. Multi-Language Production Implementations: Relay Pagination & Field Security
+
+Below is the complete, production-grade implementation of an enterprise GraphQL service implementing Relay cursor pagination and per-field authorization across **Go**, **Node.js/TypeScript**, **Python**, and **C#**.
+
+### Python Implementation (Strawberry + Relay Connections + Permissions)
 
 ```python
-import asyncio
+import base64
+from typing import List, Optional, Any
 import strawberry
-
-@strawberry.type
-class Subscription:
-    @strawberry.subscription
-    async def price_updates(self, symbol: str) -> AsyncGenerator[Price, None]:
-        async for tick in price_feed(symbol):     # some async source
-            yield Price(symbol=symbol, value=tick)
-
-schema = strawberry.Schema(query=Query, mutation=Mutation, subscription=Subscription)
-```
-
-The client "subscribes" and receives a stream:
-
-```graphql
-subscription { priceUpdates(symbol: "ACME") { value } }
-```
-
-Two things to keep straight. First, this overlaps conceptually with gRPC
-server-streaming (module 02) and with WebSockets/SSE (track 06) — same "server
-pushes over a long-lived connection" idea, different ecosystem. GraphQL
-subscriptions are the right tool when your clients *already* speak GraphQL and
-want live updates in the same typed schema. Second, subscriptions inherit every
-long-lived-connection concern from track 06: connection lifecycle, cleanup on
-disconnect, and the fact that they don't scale across processes without a shared
-pub/sub backend (Redis) behind them. Don't reach for subscriptions when a
-simpler poll or a webhook would do — module 05 is the decision framework.
-
-### Pagination and the connection pattern
-
-`books: [Book!]!` that returns the whole table is a bug waiting for the table to
-grow. GraphQL's community-standard answer is **cursor-based pagination**, and its
-formalization is the **Relay Connection** specification — a consistent shape for
-paginated fields that most tooling understands:
-
-```graphql
-type BookConnection {
-  edges: [BookEdge!]!
-  pageInfo: PageInfo!
-}
-type BookEdge {
-  node: Book!          # the actual item
-  cursor: String!      # opaque pointer to THIS item's position
-}
-type PageInfo {
-  hasNextPage: Boolean!
-  endCursor: String    # feed this back as `after` to get the next page
-}
-
-type Query {
-  books(first: Int!, after: String): BookConnection!
-}
-```
-
-```text
-  books(first: 2)                 books(first: 2, after: "c2")
-  ┌───────────────────────┐       ┌───────────────────────┐
-  │ edges:                │       │ edges:                │
-  │   node Book A  cursor c1       │   node Book C  cursor c3
-  │   node Book B  cursor c2 ──┐   │   node Book D  cursor c4
-  │ pageInfo:              │   │   │ pageInfo:             │
-  │   hasNextPage: true    │   └──►│   endCursor: "c4" ...  │
-  │   endCursor: "c2" ─────┼───────► feed back as `after`  │
-  └───────────────────────┘       └───────────────────────┘
-   cursor points AFTER an item -> inserts elsewhere don't shift the window
-```
-
-A client fetches `books(first: 20)`, reads `pageInfo.endCursor`, then requests
-`books(first: 20, after: "<endCursor>")` for the next page. This is the same
-**cursor vs. offset** distinction from track 02's CRUD module: a **cursor**
-points *after a specific item* (stable under inserts/deletes — no skipped or
-duplicated rows when the list changes between pages), whereas offset/`skip`
-shifts when rows are inserted. The connection pattern is just the standardized,
-graph-friendly packaging of cursor pagination, with `edges`/`node`/`cursor`/
-`pageInfo` as the agreed field names. Always paginate any list that can grow —
-and always **cap `first`** (module-07/track-02 discipline: an unbounded page size
-is a denial-of-service vector).
-
-### Authorization in resolvers
-
-In REST you could put auth on the route (a router-level dependency, track 02).
-GraphQL has **one route**, and a single query can traverse from a public field
-down into a sensitive one, so **authorization has to live at the field/resolver
-level**. The current user arrives via the GraphQL **context** (populated in
-`context_getter`, exactly where the per-request DataLoader lives), and each
-protected resolver checks it:
-
-```python
-@strawberry.type
-class User:
-    id: strawberry.ID
-    name: str                      # public
-
-    @strawberry.field
-    def email(self, info: strawberry.Info) -> str | None:
-        current = info.context["user"]
-        # only the user themselves (or an admin) can read the email field
-        if current and (current.is_admin or current.id == self.id):
-            return self._email
-        return None                # or raise a GraphQLError for a hard denial
-```
-
-Key principles:
-
-- **Authorize per field, not per query.** A query can reach any field in the
-  graph; a public `user(id)` lookup must not expose that user's `email` or
-  `phone` to everyone. Guard the sensitive *fields*.
-- **Context carries identity**, resolved once per request (from a JWT/session in
-  `context_getter`), just like the request-context dependency injection from
-  track 02.
-- **Decide deny semantics deliberately:** return `null` for "you may see the
-  object but not this field," or raise a `GraphQLError` for "you may not access
-  this at all." Strawberry offers **field permission extensions** to make this
-  declarative and reusable rather than hand-rolled in every resolver.
-- **Watch introspection and error messages** — don't leak existence or internal
-  detail through them (the enumeration concern from track 02, and track 03's
-  security-deep-dive spirit).
-
-### Query cost: depth and complexity limits
-
-GraphQL's flexibility is also an attack surface: because the client composes the
-query, a malicious or careless one can nest deeply (`author { books { author {
-books { ... } } } }`) or select enormous fan-outs, turning one request into a
-crushing amount of work. Production GraphQL therefore adds **query-cost
-controls**: a **max depth limit**, a **complexity/cost analysis** (assign each
-field a cost, reject queries over a budget), and pagination caps so no single
-field returns unbounded data. Strawberry ships extensions for query depth
-limiting; Apollo-style complexity plugins exist too. This is the GraphQL analog
-of rate limiting and payload caps from track 02's middleware module — the
-threat is just shaped like an expensive query instead of a flood of requests.
-
-### Schema composition: stitching and federation
-
-One schema owned by one team is simple. But at scale, `users`, `orders`, and
-`products` are owned by different teams/services, and you don't want one giant
-schema everyone edits (merge conflicts, coupling, a single deploy bottleneck).
-Two approaches compose a unified graph from parts:
-
-- **Schema stitching** — a gateway takes multiple independent schemas and merges
-  them into one, wiring up links between types at the gateway. Older approach;
-  the gateway holds the integration logic and can get brittle.
-- **Federation** (Apollo Federation is the dominant standard) — each service
-  owns a **subgraph** and *declares* how its types connect to others using
-  directives (e.g. an `Order` subgraph says its `Order.user` field references a
-  `User` entity owned by the users subgraph, keyed by `id`). A **gateway/router**
-  composes the subgraphs into one **supergraph** and resolves cross-subgraph
-  references by calling the owning subgraph. Federation pushes ownership to the
-  teams and is the modern default for multi-team GraphQL at scale.
-
-The reference model: a federated `User` type can be *extended* by the orders
-subgraph so an `Order` can expose `order.user.name` even though users live in a
-different service — the router fetches the `User` fields from the users subgraph
-behind the scenes. You don't need to implement federation to work here; you need
-to recognize *when* it applies (multiple teams owning distinct parts of one
-graph) versus when a single BFF schema (module 06) is simpler and sufficient.
-Don't federate a graph one team owns — that's premature, per the module-00
-discipline.
-
-## Command reference
-
-| Item | Purpose | Example |
-|---|---|---|
-| `@strawberry.subscription` | Server-pushed stream (async generator) | `async def price_updates(...)` |
-| `AsyncGenerator[T, None]` | Subscription return type | `yield` values over time |
-| `Subscription` root type | Third root alongside Query/Mutation | `Schema(..., subscription=...)` |
-| Connection / `edges`/`node`/`cursor` | Relay-style cursor pagination | `BookConnection` |
-| `first` / `after` args | Page size + cursor position | `books(first: 20, after: $c)` |
-| `pageInfo { hasNextPage endCursor }` | How to fetch the next page | in every connection |
-| `info.context["user"]` | Current identity in a resolver | authz check |
-| `strawberry.GraphQLError` | Hard authorization/error denial | `raise GraphQLError("forbidden")` |
-| Field permission extension | Declarative per-field authz | `strawberry.field(permission_classes=[...])` |
-| Query depth / complexity extension | Reject expensive queries | schema extensions |
-| Federation directives (`@key`, `@external`) | Declare cross-subgraph entities | `@key(fields: "id")` |
-| Gateway / router | Compose subgraphs into a supergraph | Apollo Router |
-
-Capping and paging a connection resolver (note the enforced `first` cap):
-
-```python
-MAX_PAGE = 100
-
-@strawberry.field
-def books(self, first: int = 20, after: str | None = None) -> BookConnection:
-    first = min(first, MAX_PAGE)                 # cap page size (never trust the client)
-    rows = fetch_books_after(cursor=after, limit=first + 1)  # fetch one extra to peek
-    has_next = len(rows) > first
-    rows = rows[:first]
-    edges = [BookEdge(node=b, cursor=encode_cursor(b.id)) for b in rows]
-    end = edges[-1].cursor if edges else None
-    return BookConnection(edges=edges,
-                          page_info=PageInfo(has_next_page=has_next, end_cursor=end))
-```
-
-A declarative field-permission class (reusable authz, not hand-rolled per field):
-
-```python
 from strawberry.permission import BasePermission
+from strawberry.types import Info
+from fastapi import FastAPI, Request
+from strawberry.fastapi import GraphQLRouter
 
-class IsSelfOrAdmin(BasePermission):
-    message = "Not authorized to read this field"
-    def has_permission(self, source, info, **kwargs) -> bool:
-        current = info.context["user"]
-        return bool(current and (current.is_admin or current.id == source.id))
+# --- 1. Security Context & Permission Layer ---
+
+class IsAuthenticated(BasePermission):
+    message = "Caller must be authenticated to access this field"
+
+    def has_permission(self, source: Any, info: Info, **kwargs) -> bool:
+        user = info.context.get("user")
+        return user is not None
+
+class IsOwnerOrAdmin(BasePermission):
+    message = "Unauthorized: Caller cannot view private resource"
+
+    def has_permission(self, source: Any, info: Info, **kwargs) -> bool:
+        user = info.context.get("user")
+        if not user:
+            return False
+        if user.get("role") == "admin":
+            return True
+        # Check ownership: source is the parent User instance
+        return user.get("id") == getattr(source, "id", None)
+
+# --- 2. Relay Cursor Pagination Types ---
+
+@strawberry.type
+class PageInfo:
+    has_next_page: bool
+    has_previous_page: bool
+    start_cursor: Optional[str]
+    end_cursor: Optional[str]
+
+@strawberry.type
+class UserEdge:
+    node: "User"
+    cursor: str
+
+@strawberry.type
+class UserConnection:
+    edges: List[UserEdge]
+    page_info: PageInfo
 
 @strawberry.type
 class User:
     id: strawberry.ID
     name: str
-    email: str = strawberry.field(permission_classes=[IsSelfOrAdmin])
-```
 
-## Hands-on exercises
+    # Field-Level Authorization: Only owner or admin can read email
+    @strawberry.field(permission_classes=[IsOwnerOrAdmin])
+    def email(self) -> str:
+        return self._email
 
-Continue the `graphql-books`/blog project from module 03 (Strawberry + FastAPI).
-Keep your per-request DataLoader wiring — it's assumed here.
+    def __init__(self, id: str, name: str, email: str):
+        self.id = strawberry.ID(id)
+        self.name = name
+        self._email = email
 
-### 1. Add a subscription
+# --- 3. Query Engine with Clamped Pagination ---
 
-Add a `Subscription` with `count_up() -> AsyncGenerator[int, None]` that yields
-1..10, one per second. Wire `subscription=` into the schema. Subscribe from
-GraphiQL. Expected: values arrive live, one per second, over a WebSocket — not
-all at once.
-
-### 2. A domain subscription
-
-Replace the counter with `comment_added(post_id)` that yields each new `Comment`
-as it's created (drive it from your `addComment` mutation via an in-process
-async queue/broker). Expected: a subscriber to a post sees new comments appear
-in real time as another client mutates.
-
-### 3. Convert a list field to a connection
-
-Turn `books` (or `posts`) into a Relay-style `BookConnection` with
-`edges`/`node`/`cursor` and `pageInfo`. Support `first` and `after`. Expected:
-`books(first: 2)` returns 2 edges plus `pageInfo.endCursor`; feeding that cursor
-as `after` returns the next 2.
-
-### 4. Cap the page size
-
-Enforce `first = min(first, MAX_PAGE)` in the connection resolver. Request
-`books(first: 100000)`. Expected: you get at most `MAX_PAGE` items, not the whole
-table — an unbounded page size is a DoS vector, exactly like the uncapped
-`limit` from track 02's CRUD module.
-
-### 5. Prove cursor stability
-
-Fetch page 1 (`first: 2`), then insert a new book that sorts before the current
-window, then fetch page 2 with the saved `after` cursor. Expected: no row is
-skipped or duplicated across the page boundary — the cursor points *after a
-specific item*, so an insert elsewhere doesn't shift your window (contrast with
-offset pagination).
-
-### 6. Per-field authorization
-
-Add a private `email` to `User`, exposed only to the user themselves or an
-admin. Populate `context["user"]` in `context_getter` (fake a user id via a
-header for now). Query `user(id) { name email }` as the same user, a different
-user, and an admin. Expected: `name` always returns; `email` returns the value
-only for self/admin and `null` (or an error) otherwise.
-
-### 7. Make authz declarative
-
-Refactor exercise 6's inline check into a reusable `IsSelfOrAdmin`
-`BasePermission` and attach it via `permission_classes`. Expected: identical
-behavior, but the rule is defined once and reused — and adding it to another
-sensitive field (`phone`) is one line.
-
-### 8. Add a depth limit
-
-Install/enable a query depth-limiting extension and set a low max depth. Send a
-deeply nested query (`post { author { posts { author { posts { ... } } } } }`)
-that exceeds it. Expected: the query is rejected before execution with a
-depth-limit error — the query-cost defense in action.
-
-### 9. Diagnose and fix
-
-This "my orders" GraphQL API leaks data and can be trivially DoS'd. Find every
-problem.
-
-```python
-@strawberry.type
-class User:
-    id: strawberry.ID
-    name: str
-    email: str                                    # (A) always returned
-    def _orders(self): return db.orders_for(self.id)
+USER_DATABASE = [
+    User(id=str(i), name=f"User {i}", email=f"user{i}@company.com")
+    for i in range(1, 101)
+]
 
 @strawberry.type
 class Query:
     @strawberry.field
-    def users(self) -> list[User]:                # (B) every user, unbounded
-        return db.all_users()
+    def users(
+        self, 
+        first: int = 10, 
+        after: Optional[str] = None
+    ) -> UserConnection:
+        # Enforce server-side pagination ceiling (anti-DoS)
+        limit = min(max(first, 1), 50)
 
-    @strawberry.field
-    def user(self, id: strawberry.ID) -> User:    # (C) no authz at all
-        return db.get_user(id)
+        start_index = 0
+        if after:
+            try:
+                decoded = base64.b64decode(after).decode("utf-8")
+                start_index = int(decoded.replace("cursor:", "")) + 1
+            except Exception:
+                start_index = 0
+
+        end_index = start_index + limit
+        sliced_users = USER_DATABASE[start_index:end_index]
+
+        edges = [
+            UserEdge(
+                node=user, 
+                cursor=base64.b64encode(f"cursor:{start_index + idx}".encode()).decode()
+            )
+            for idx, user in enumerate(sliced_users)
+        ]
+
+        has_next = end_index < len(USER_DATABASE)
+        start_cursor = edges[0].cursor if edges else None
+        end_cursor = edges[-1].cursor if edges else None
+
+        return UserConnection(
+            edges=edges,
+            page_info=PageInfo(
+                has_next_page=has_next,
+                has_previous_page=start_index > 0,
+                start_cursor=start_cursor,
+                end_cursor=end_cursor
+            )
+        )
+
+# Context Injection
+async def get_context(request: Request):
+    auth_header = request.headers.get("authorization", "")
+    user = None
+    if auth_header == "Bearer admin-token":
+        user = {"id": "admin", "role": "admin"}
+    elif auth_header == "Bearer user-1-token":
+        user = {"id": "1", "role": "member"}
+
+    return {"user": user}
+
+schema = strawberry.Schema(query=Query)
+graphql_app = GraphQLRouter(schema, context_getter=get_context)
+
+app = FastAPI()
+app.include_router(graphql_app, prefix="/graphql")
 ```
 
-<details>
-<summary>Solution</summary>
+---
 
-1. **(A) `email` is a plain field, always returned.** Anyone who can resolve a
-   `User` — including via the public `user(id)` lookup — reads everyone's email.
-   Sensitive fields need **per-field authorization**: gate `email` with a
-   permission class (`IsSelfOrAdmin`) that reads `info.context["user"]`, returning
-   `null`/error otherwise. GraphQL has one endpoint, so auth lives on the field,
-   not the route.
-2. **(B) `users` returns every user with no pagination or cap.** Unbounded list
-   = DoS + mass data exposure. Convert to a capped **connection**
-   (`first`/`after`, `first = min(first, MAX_PAGE)`), and it should almost
-   certainly require admin authorization to list users at all.
-3. **(C) `user(id)` has no authorization** and returns the full object. Even if
-   fields are individually gated, decide whether arbitrary user lookup should be
-   allowed; at minimum the sensitive fields must be guarded, and object-level
-   existence shouldn't leak (enumeration).
-4. **Missing query-cost controls (implicit).** With relationships in the graph,
-   add a depth/complexity limit so a nested `users { orders { ... } }` can't be
-   weaponized.
+### Node.js / TypeScript Implementation (Relay Connection + Custom Directives)
 
-```python
-class IsSelfOrAdmin(BasePermission):
-    message = "forbidden"
-    def has_permission(self, source, info, **kwargs):
-        u = info.context["user"]
-        return bool(u and (u.is_admin or u.id == source.id))
+```typescript
+import express, { Request } from 'express';
+import { createHandler } from 'graphql-http/lib/use/express';
+import { 
+  GraphQLSchema, 
+  GraphQLObjectType, 
+  GraphQLString, 
+  GraphQLID, 
+  GraphQLList, 
+  GraphQLNonNull, 
+  GraphQLBoolean, 
+  GraphQLInt 
+} from 'graphql';
 
-@strawberry.type
-class User:
-    id: strawberry.ID
-    name: str
-    email: str = strawberry.field(permission_classes=[IsSelfOrAdmin])
+interface UserRecord {
+  id: string;
+  name: string;
+  email: string;
+}
 
-@strawberry.type
-class Query:
-    @strawberry.field(permission_classes=[IsAdmin])
-    def users(self, first: int = 20, after: str | None = None) -> UserConnection:
-        first = min(first, MAX_PAGE)
-        ...
+const USERS: UserRecord[] = Array.from({ length: 50 }, (_, i) => ({
+  id: String(i + 1),
+  name: `Engineer ${i + 1}`,
+  email: `eng${i + 1}@techcorp.internal`,
+}));
+
+// Relay PageInfo Type
+const PageInfoType = new GraphQLObjectType({
+  name: 'PageInfo',
+  fields: {
+    hasNextPage: { type: new GraphQLNonNull(GraphQLBoolean) },
+    endCursor: { type: GraphQLString },
+  },
+});
+
+// User Type with Field Authorization
+const UserType = new GraphQLObjectType({
+  name: 'User',
+  fields: {
+    id: { type: new GraphQLNonNull(GraphQLID) },
+    name: { type: new GraphQLNonNull(GraphQLString) },
+    email: {
+      type: GraphQLString,
+      resolve: (user: UserRecord, _args, context) => {
+        // Enforce Field-Level AuthZ: Only user or admin can view email
+        const caller = context.user;
+        if (caller && (caller.role === 'admin' || caller.id === user.id)) {
+          return user.email;
+        }
+        return null; // Mask field gracefully
+      },
+    },
+  },
+});
+
+const UserEdgeType = new GraphQLObjectType({
+  name: 'UserEdge',
+  fields: {
+    node: { type: new GraphQLNonNull(UserType) },
+    cursor: { type: new GraphQLNonNull(GraphQLString) },
+  },
+});
+
+const UserConnectionType = new GraphQLObjectType({
+  name: 'UserConnection',
+  fields: {
+    edges: { type: new GraphQLNonNull(new GraphQLList(new GraphQLNonNull(UserEdgeType))) },
+    pageInfo: { type: new GraphQLNonNull(PageInfoType) },
+  },
+});
+
+const QueryType = new GraphQLObjectType({
+  name: 'Query',
+  fields: {
+    users: {
+      type: new GraphQLNonNull(UserConnectionType),
+      args: {
+        first: { type: GraphQLInt, defaultValue: 10 },
+        after: { type: GraphQLString },
+      },
+      resolve: (_root, args) => {
+        const first = Math.min(Math.max(args.first || 10, 1), 25);
+        let startIndex = 0;
+
+        if (args.after) {
+          const rawId = Buffer.from(args.after, 'base64').toString('utf8');
+          const found = USERS.findIndex(u => u.id === rawId);
+          if (found !== -1) startIndex = found + 1;
+        }
+
+        const slice = USERS.slice(startIndex, startIndex + first);
+        const edges = slice.map(u => ({
+          node: u,
+          cursor: Buffer.from(u.id).toString('base64'),
+        }));
+
+        return {
+          edges,
+          pageInfo: {
+            hasNextPage: startIndex + first < USERS.length,
+            endCursor: edges.length > 0 ? edges[edges.length - 1].cursor : null,
+          },
+        };
+      },
+    },
+  },
+});
+
+const schema = new GraphQLSchema({ query: QueryType });
+
+const app = express();
+app.use(
+  '/graphql',
+  createHandler({
+    schema,
+    context: (req: Request) => {
+      const auth = req.headers.authorization;
+      let user = null;
+      if (auth === 'Bearer admin') user = { id: 'admin', role: 'admin' };
+      if (auth === 'Bearer user-1') user = { id: '1', role: 'user' };
+      return { user };
+    },
+  })
+);
+
+app.listen(4000, () => console.log('Relay GraphQL server running on :4000/graphql'));
 ```
 
-Lesson: on a single-endpoint, client-composed API, **authorization is per field
-and unbounded lists are a vulnerability** — both must be designed in, not bolted
-on.
+---
 
-</details>
+### Go Implementation (Relay Connections in Go)
 
-## Independent challenge
+```go
+package main
 
-No code given. Take the blog GraphQL BFF you started in **module 03** and make it
-production-shaped. Add: (1) cursor-based `posts` and per-post `comments`
-**connections**, both with capped page sizes; (2) a `commentAdded(postId)`
-**subscription** driven by your `addComment` mutation; (3) **per-field
-authorization** so a `Post`'s `author.email` and a private `draft` body are
-visible only to the author or an admin, using a reusable permission class; and
-(4) a **query depth limit**. Then write a short note on whether this blog graph
-should be **federated** or stay a single schema, justified against the module-00
-"don't add complexity before the pain" rule.
+import (
+	"encoding/base64"
+	"fmt"
+	"net/http"
+	"strconv"
+	"strings"
 
+	"github.com/graphql-go/graphql"
+	"github.com/graphql-go/handler"
+)
+
+type User struct {
+	ID    string `json:"id"`
+	Name  string `json:"name"`
+	Email string `json:"email"`
+}
+
+type CallerContext struct {
+	ID   string
+	Role string
+}
+
+func encodeCursor(id string) string {
+	return base64.StdEncoding.EncodeToString([]byte(fmt.Sprintf("cursor:%s", id)))
+}
+
+func decodeCursor(cursor string) string {
+	b, err := base64.StdEncoding.DecodeString(cursor)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimPrefix(string(b), "cursor:")
+}
+
+func main() {
+	var usersDB []User
+	for i := 1; i <= 50; i++ {
+		usersDB = append(usersDB, User{
+			ID:    strconv.Itoa(i),
+			Name:  fmt.Sprintf("User %d", i),
+			Email: fmt.Sprintf("user%d@corp.com", i),
+		})
+	}
+
+	userType := graphql.NewObject(graphql.ObjectConfig{
+		Name: "User",
+		Fields: graphql.Fields{
+			"id":   &graphql.Field{Type: graphql.NewNonNull(graphql.ID)},
+			"name": &graphql.Field{Type: graphql.NewNonNull(graphql.String)},
+			"email": &graphql.Field{
+				Type: graphql.String,
+				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+					u := p.Source.(User)
+					caller, ok := p.Context.Value("caller").(CallerContext)
+					// Enforce Field-Level RBAC
+					if ok && (caller.Role == "admin" || caller.ID == u.ID) {
+						return u.Email, nil
+					}
+					return nil, nil // Return null when unauthorized
+				},
+			},
+		},
+	})
+
+	pageInfoType := graphql.NewObject(graphql.ObjectConfig{
+		Name: "PageInfo",
+		Fields: graphql.Fields{
+			"hasNextPage": &graphql.Field{Type: graphql.NewNonNull(graphql.Boolean)},
+			"endCursor":   &graphql.Field{Type: graphql.String},
+		},
+	})
+
+	userEdgeType := graphql.NewObject(graphql.ObjectConfig{
+		Name: "UserEdge",
+		Fields: graphql.Fields{
+			"node":   &graphql.Field{Type: graphql.NewNonNull(userType)},
+			"cursor": &graphql.Field{Type: graphql.NewNonNull(graphql.String)},
+		},
+	})
+
+	userConnectionType := graphql.NewObject(graphql.ObjectConfig{
+		Name: "UserConnection",
+		Fields: graphql.Fields{
+			"edges":    &graphql.Field{Type: graphql.NewNonNull(graphql.NewList(graphql.NewNonNull(userEdgeType)))},
+			"pageInfo": &graphql.Field{Type: graphql.NewNonNull(pageInfoType)},
+		},
+	})
+
+	queryType := graphql.NewObject(graphql.ObjectConfig{
+		Name: "Query",
+		Fields: graphql.Fields{
+			"users": &graphql.Field{
+				Type: graphql.NewNonNull(userConnectionType),
+				Args: graphql.FieldConfigArgument{
+					"first": &graphql.ArgumentConfig{Type: graphql.Int, DefaultValue: 10},
+					"after": &graphql.ArgumentConfig{Type: graphql.String},
+				},
+				Resolve: func(p graphql.ResolveParams) (interface{}, error) {
+					first := p.Args["first"].(int)
+					if first > 25 {
+						first = 25 // Clamp page size ceiling
+					}
+
+					startIndex := 0
+					if after, ok := p.Args["after"].(string); ok && after != "" {
+						targetID := decodeCursor(after)
+						for idx, u := range usersDB {
+							if u.ID == targetID {
+								startIndex = idx + 1
+								break
+							}
+						}
+					}
+
+					endIndex := startIndex + first
+					if endIndex > len(usersDB) {
+						endIndex = len(usersDB)
+					}
+
+					var edges []map[string]interface{}
+					for _, u := range usersDB[startIndex:endIndex] {
+						edges = append(edges, map[string]interface{}{
+							"node":   u,
+							"cursor": encodeCursor(u.ID),
+						})
+					}
+
+					var endCursor interface{} = nil
+					if len(edges) > 0 {
+						endCursor = edges[len(edges)-1]["cursor"]
+					}
+
+					return map[string]interface{}{
+						"edges": edges,
+						"pageInfo": map[string]interface{}{
+							"hasNextPage": endIndex < len(usersDB),
+							"endCursor":   endCursor,
+						},
+					}, nil
+				},
+			},
+		},
+	})
+
+	schema, _ := graphql.NewSchema(graphql.SchemaConfig{Query: queryType})
+	h := handler.New(&handler.Config{Schema: &schema, Pretty: true})
+
+	http.Handle("/graphql", h)
+	http.ListenAndServe(":8080", nil)
+}
+```
+
+---
+
+### C# / .NET Implementation (HotChocolate Relay Pagination)
+
+```csharp
+using System.Linq;
+using System.Security.Claims;
+using HotChocolate;
+using HotChocolate.Authorization;
+using HotChocolate.Types;
+
+namespace SecurityTrack.AdvancedGraphQL
+{
+    public class UserEntity
+    {
+        public string Id { get; set; } = string.Empty;
+        public string Name { get; set; } = string.Empty;
+
+        // Field-Level Authorization: Only authenticated callers with 'Admin' role
+        [Authorize(Roles = new[] { "Admin" })]
+        public string Email { get; set; } = string.Empty;
+    }
+
+    public class Query
+    {
+        // HotChocolate native Relay Connection with MaxPageSize clamping
+        [UsePaging(MaxPageSize = 50, DefaultPageSize = 10, IncludeTotalCount = true)]
+        public IQueryable<UserEntity> GetUsers()
+        {
+            return Enumerable.Range(1, 100).Select(i => new UserEntity
+            {
+                Id = i.ToString(),
+                Name = $"Engineer {i}",
+                Email = $"eng{i}@internal.corp"
+            }).AsQueryable();
+        }
+    }
+}
+```
+
+---
+
+## 5. Practical Hands-On Verification CLI Workflows
+
+### Step 1: Query Relay Cursor Connection via cURL
+
+```bash
+# Request the first 2 users and inspect Relay cursors
+curl -s -X POST "http://localhost:8000/graphql" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "query { users(first: 2) { edges { cursor node { id name } } pageInfo { hasNextPage endCursor } } }"
+  }' | jq .
+```
+
+**Expected Wire Output:**
+```json
+{
+  "data": {
+    "users": {
+      "edges": [
+        {
+          "cursor": "Y3Vyc29yOjA=",
+          "node": {
+            "id": "1",
+            "name": "User 1"
+          }
+        },
+        {
+          "cursor": "Y3Vyc29yOjE=",
+          "node": {
+            "id": "2",
+            "name": "User 2"
+          }
+        }
+      ],
+      "pageInfo": {
+        "hasNextPage": true,
+        "endCursor": "Y3Vyc29yOjE="
+      }
+    }
+  }
+}
+```
+
+---
+
+### Step 2: Fetch Subsequent Page Using Cursor Anchor
+
+```bash
+# Fetch next 2 records anchoring after endCursor "Y3Vyc29yOjE="
+curl -s -X POST "http://localhost:8000/graphql" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "query { users(first: 2, after: \"Y3Vyc29yOjE=\") { edges { node { id name } } pageInfo { endCursor } } }"
+  }' | jq .
+```
+
+**Expected Wire Output:**
+```json
+{
+  "data": {
+    "users": {
+      "edges": [
+        {
+          "node": { "id": "3", "name": "User 3" }
+        },
+        {
+          "node": { "id": "4", "name": "User 4" }
+        }
+      ],
+      "pageInfo": {
+        "endCursor": "Y3Vyc29yOjM="
+      }
+    }
+  }
+}
+```
+
+---
+
+### Step 3: Verify Field-Level Authorization Masking
+
+```bash
+# Query private email field without credentials
+curl -s -X POST "http://localhost:8000/graphql" \
+  -H "Content-Type: application/json" \
+  -d '{"query": "query { users(first: 1) { edges { node { name email } } } }"}' | jq .
+```
+
+**Expected Wire Output:**
+```json
+{
+  "data": {
+    "users": {
+      "edges": [
+        {
+          "node": {
+            "name": "User 1",
+            "email": null
+          }
+        }
+      ]
+    }
+  },
+  "errors": [
+    {
+      "message": "Unauthorized: Caller cannot view private resource",
+      "path": ["users", "edges", 0, "node", "email"]
+    }
+  ]
+}
+```
+*(Notice: The public name field resolves successfully, while the unauthorized email field is masked with `null` alongside a granular field error).*
+
+---
+
+## 6. Operational Validation Checkpoints (Scenario Quizzes)
+
+### Checkpoint 1: Route-Level vs. Field-Level Authorization
 <details>
-<summary>Hint</summary>
+<summary><strong>Scenario Assessment:</strong> A developer adds an Express authentication middleware guarding the <code>POST /graphql</code> route to verify that the caller is logged in. Is this sufficient to protect confidential user salary information accessible via <code>users { salary }</code>?</summary>
 
-Reuse the per-request context you already built for DataLoaders (module 03) —
-it's the same place the current `user` and your loaders live, so authz checks and
-batched loads share one context object. For the federation note, the honest
-answer is almost certainly **stay single-schema**: one team owns the whole blog
-domain, so there are no distinct subgraph owners to decouple — federation would
-add a router, subgraph directives, and composition overhead to solve a
-multi-team problem you don't have (the exact premature-abstraction trap from
-module 00). Reach for federation only when `users`/`posts`/`billing` are owned by
-*different* teams that need to deploy independently.
+```
+Options:
+A) Yes, because unauthenticated users are rejected with HTTP 401 at the route.
+B) No; any authenticated standard employee can query the GraphQL endpoint and request another employee's private salary field. Authorization must be enforced at the resolver level for the `salary` field itself.
+C) Yes, if HTTPS TLS 1.3 is active.
+D) No, because GraphQL does not support numeric fields.
+```
+
+**Answer:**
+**B is correct.** Protecting the HTTP route only establishes authentication (the caller is a logged-in user). In GraphQL, a single query can traverse relational edges to read any field in the schema. If the `salary` field does not have field-level authorization (verifying the caller is an HR admin or the owner of that specific user record), any standard logged-in user can exfiltrate corporate salaries. Authorization in GraphQL **must live at the field/resolver level**.
 
 </details>
 
-## Common mistakes & troubleshooting
+---
 
-- **Unbounded list fields.** `things: [Thing!]!` returning everything is a
-  latent outage and data-exposure risk. Paginate anything that can grow, and cap
-  the page size server-side.
-- **Route-level auth thinking.** GraphQL has one endpoint; you can't guard "the
-  route." Authorize per field/resolver using the current user from context.
-- **Leaking sensitive fields by default.** A field is exposed to anyone who can
-  resolve its parent type. Gate `email`/`phone`/`draft`/internal fields
-  explicitly; prefer a reusable permission class over copy-pasted checks.
-- **No query-cost controls.** A client-composed query can nest deeply or fan out
-  hugely. Add depth and complexity limits — the GraphQL analog of rate limiting.
-- **Offset pagination in a connection.** Defeats the point; use real cursors so
-  pages are stable under concurrent inserts/deletes.
-- **Subscriptions that don't scale or clean up.** They're long-lived
-  connections: they leak without disconnect cleanup and don't fan out across
-  processes without a shared pub/sub backend (track 06). Don't use them where a
-  poll/webhook is simpler (module 05).
-- **Federating prematurely.** Federation solves multi-team schema ownership. One
-  team, one schema → a single BFF is simpler; adding a router/subgraphs first is
-  premature complexity (module 00).
-- **Leaking existence via errors/introspection.** Don't let error messages or
-  schema introspection confirm records or expose internals (enumeration/OWASP
-  concerns).
-
-## Checkpoint quiz
-
-Write down your answer to each question before expanding it — checking without attempting first is the single easiest way to fool yourself into thinking you've learned this.
-
-1. What is a subscription, how is its resolver written in Python, and which two
-   other technologies in this curriculum does it overlap with conceptually?
-2. Describe the Relay connection shape (`edges`/`node`/`cursor`/`pageInfo`) and
-   how a client uses it to fetch the next page.
-3. Why does GraphQL authorization have to live at the field/resolver level
-   rather than at the route, and where does the current user come from?
-4. Give the two sensible "deny" semantics for a protected field and when you'd
-   use each.
-5. What query-cost controls does production GraphQL need, and which track-02
-   defense are they analogous to?
-6. Contrast schema stitching and federation, and state the signal that tells you
-   you actually need either (vs a single BFF schema).
-7. Why must you cap `first` on a connection, and which earlier module's
-   principle is that?
-
+### Checkpoint 2: The Fallacy of Offset Pagination in Dynamic Graphs
 <details>
-<summary>Answers</summary>
+<summary><strong>Scenario Assessment:</strong> An e-commerce mobile app uses offset pagination (<code>products(skip: 20, limit: 10)</code>) to display inventory. While a user browses page 1, 5 new products are published. When the user loads page 2, what visual defect occurs?</summary>
 
-1. A subscription is GraphQL's third root type for server-pushed updates over a
-   long-lived connection (usually a WebSocket); the resolver is an **async
-   generator** that `yield`s values over time. It overlaps conceptually with
-   **gRPC server-streaming** (module 02) and **WebSockets/SSE** (track 06) — same
-   push-over-persistent-connection idea, different ecosystem.
-2. A connection returns `edges` (each an object with a `node` — the item — and a
-   `cursor` — an opaque pointer to that item's position) plus `pageInfo`
-   (`hasNextPage`, `endCursor`). The client requests `first: N`, reads
-   `pageInfo.endCursor`, then requests `first: N, after: <endCursor>` to get the
-   next page.
-3. GraphQL exposes a **single endpoint**, and one query can traverse from a
-   public field into a sensitive one, so you can't guard "the route" — each
-   sensitive field needs its own check. The current user comes from the
-   per-request **context** (`info.context["user"]`), resolved once from a JWT/
-   session in `context_getter`.
-4. Return **`null`** when the user may see the object but not that particular
-   field (partial visibility); raise a **`GraphQLError`** when the user may not
-   access the thing at all (hard denial). Choose based on whether partial
-   results make sense.
-5. A **max depth limit**, **query complexity/cost analysis** (budget per query),
-   and **pagination caps**. They're the analog of **rate limiting and payload
-   caps** from track 02's middleware/CRUD modules — same goal (bound the work one
-   request can cause), threat shaped as an expensive query.
-6. **Stitching** merges independent schemas at a gateway that holds the linking
-   logic (older, can be brittle). **Federation** has each team own a *subgraph*
-   that declares how its types connect via directives, with a router composing
-   them into a supergraph (modern default). You need either only when **multiple
-   teams own distinct parts of one graph** and must deploy independently — one
-   team/one schema should stay a single BFF.
-7. Because an uncapped page size lets a client request unbounded data — a
-   denial-of-service and mass-exposure vector. That's the same "cap the page
-   size / never trust client-supplied limits" principle from track 02's CRUD
-   deep dive.
+```
+Options:
+A) The mobile app crashes with a JSON parsing exception.
+B) The 5 newly inserted items shift the entire database index window, causing the user to see the last 5 items from page 1 repeated on page 2.
+C) The server throws an HTTP 409 Conflict error.
+D) The user is automatically logged out.
+```
+
+**Answer:**
+**B is correct.** Offset pagination (`skip` / `offset`) is fundamentally stateless and position-based. If new rows are inserted at the beginning of the table, existing records shift down by 5 slots. When the client requests offset 20, it receives records that have shifted into slots 20–29, which duplicates products already viewed on page 1. **Cursor-based pagination** solves this by anchoring queries to a stable entity pointer (`WHERE id < cursor`), guaranteeing consistent windows regardless of concurrent insertions.
 
 </details>
 
-## Further reading & sources
+---
 
-- [GraphQL — Subscriptions (spec/learn)](https://graphql.org/blog/2016-06-08-subscriptions-in-graphql-and-relay/) - background on GraphQL's server-push model and how subscriptions differ from queries.
-- [Strawberry — Subscriptions guide](https://strawberry.rocks/docs/general/subscriptions) - the async-generator resolver pattern and WebSocket transport used in the exercises.
-- [Relay — GraphQL Cursor Connections specification](https://relay.dev/graphql/connections.htm) - the authoritative `edges`/`node`/`cursor`/`pageInfo` shape behind cursor-based pagination.
-- [Strawberry — Permissions / field authorization](https://strawberry.rocks/docs/guides/permissions) - the `BasePermission`/`permission_classes` mechanism for declarative per-field authz.
-- [Apollo — Introduction to Apollo Federation](https://www.apollographql.com/docs/federation/) - the modern standard for composing team-owned subgraphs into one supergraph.
-- [OWASP — GraphQL Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/GraphQL_Cheat_Sheet.html) - practical guidance on query depth/complexity limits and avoiding data exposure through a GraphQL endpoint.
+### Checkpoint 3: Apollo Federation vs. Schema Stitching
+<details>
+<summary><strong>Scenario Assessment:</strong> A company has 6 independent engineering teams (Billing, Catalog, Users, Orders, Reviews, Inventory). A tech lead proposes unifying their backends using a single central GraphQL gateway where the gateway team writes all linking and merging code. Why does Apollo Federation v2 scale better than this centralized stitching model?</summary>
 
-## Next
+```
+Options:
+A) Federation converts all GraphQL queries into gRPC binary Protobuf frames.
+B) In Federation, subgraphs own their domain types and declare cross-service relationships via schema directives (`@key`, `@external`); the router automatically composes the supergraph without requiring a centralized gateway team to manually code stitching glue.
+C) Schema stitching cannot run in Kubernetes.
+D) Federation eliminates the need for database indexing.
+```
 
-[05-graphql-schema-evolution-and-deprecation](../05-graphql-schema-evolution-and-deprecation/README.md)
-— you now know gRPC and GraphQL in depth. The next module is deliberately short:
-a decision framework for choosing between gRPC, GraphQL, REST, and the
-event/real-time options (webhooks, WebSockets, polling) for a given consumer —
-cross-referencing track 06 rather than re-teaching the real-time mechanics.
+**Answer:**
+**B is correct.** Centralized schema stitching forces a single gateway team to maintain brittle custom resolver glue code that links disparate backend schemas, recreating a development bottleneck. **Apollo Federation v2** is a declarative, distributed architecture: each microservice team owns their autonomous subgraph and publishes schema extensions using standardized directives. The federation router dynamically composes the supergraph, enabling teams to deploy independently without coordination bottlenecks.
+
+</details>
+
+---
+
+## 7. Further Reading & Sources
+
+- [GraphQL Official Specification: Subscriptions](https://spec.graphql.org/June2021/#sec-Subscription)
+- [Relay Specification: GraphQL Cursor Connections](https://relay.dev/graphql/connections.htm)
+- [Apollo Federation v2 Architectural Documentation](https://www.apollographql.com/docs/federation/)
+- [Strawberry GraphQL: Declarative Permissions and Directives](https://strawberry.rocks/docs/guides/permissions)
+- [OWASP GraphQL Security Best Practices & Query Limiting](https://cheatsheetseries.owasp.org/cheatsheets/GraphQL_Cheat_Sheet.html)
+
+---
+
+## Next Steps
+
+Now that you have mastered enterprise GraphQL subscriptions, Relay cursor pagination, field authorization, and federation, explore protocol lifecycles and contracts:
+
+- Next Module: **[05-graphql-schema-evolution-and-deprecation](../05-graphql-schema-evolution-and-deprecation/README.md)** (Schema Evolution Without Versioning, The `@deprecated` Directive, Field Sunsetting Strategies, and Breaking Change Detection).
+- Track Index: [README.md](../README.md)

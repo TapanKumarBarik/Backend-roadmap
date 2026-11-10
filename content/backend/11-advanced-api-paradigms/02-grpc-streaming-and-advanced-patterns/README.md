@@ -1,519 +1,651 @@
 # Module 02: gRPC Streaming and Advanced Patterns
 
-## Why this matters
+> **Prerequisites**: [Module 01: gRPC Fundamentals](../01-grpc-fundamentals/README.md), HTTP/2 framing concepts, and asynchronous programming primitives (generators, iterators, channels).  
+> **Estimated Reading Time**: 35 minutes.  
+> **Target Audience**: Senior Backend Engineers, Distributed Systems Engineers, and Platform Architects.
 
-Module 01 got you a unary RPC — one request, one response, the RPC analog of a
-single HTTP call. That covers most service-to-service traffic, but it leaves
-gRPC's signature capability on the table. Because gRPC rides HTTP/2, a single
-call can carry a *stream* of messages in either or both directions over one long-
-lived connection. That unlocks whole categories of problem that are clumsy over
-REST: pushing a live feed of price updates to a caller, uploading a large file
-or a long log in chunks, or holding an interactive, back-and-forth session
-between two services. You don't open a new connection per message and you don't
-poll — the connection stays open and messages flow.
+---
 
-The other half of "production gRPC" is the operational discipline around every
-call, streaming or not: **deadlines** (every RPC should have a time budget, or a
-slow dependency can hang your whole request chain), **interceptors** (gRPC's
-equivalent of the middleware you built in track 02 — one place for auth,
-logging, metrics, and error mapping across every method), and **error handling
-rich enough to be actionable** (structured error details, and knowing which
-codes are safe to retry). These aren't optional polish; they're the difference
-between a demo and a service you'd put in a checkout path.
+> [!TIP]
+> **The Golden Rule of Production gRPC Engineering**  
+> Every gRPC call in production must be bounded by an **explicit, propagated deadline** (`timeout`), and every server streaming loop must actively monitor **connection liveness** (`context.is_active()` / `ctx.Done()`). In distributed microservices, a missing deadline causes cascading thread starvation across the entire upstream caller chain. Centralize all cross-cutting concerns (authentication, telemetry, tracing, and structured error translation) into **interceptors**, and restrict automated client retries strictly to idempotent operations failing with transient status codes (`UNAVAILABLE`, `RESOURCE_EXHAUSTED`).
 
-This module builds directly on module 01's `.proto` and servicer/stub model.
-The only new syntax is the `stream` keyword; everything else is patterns for
-using the connection well. By the end you'll know which of the four RPC types
-fits a given problem, and you'll wrap your calls in the deadline-and-interceptor
-hygiene that module 07 assumes when it talks about running mixed paradigms in
-production.
+---
 
-## Concepts
+## 1. Architectural Blueprint & Mental Models
 
-### The four RPC types
+gRPC leverages the full multiplexing power of HTTP/2 to support four distinct communication primitives. Rather than opening separate TCP sockets, multiple concurrent streams are interleaved over a single persistent TCP connection.
 
-Where you place the `stream` keyword in the `rpc` line determines the call
-shape. There are exactly four:
+```mermaid
+flowchart TD
+    subgraph FourRPCShapes ["The Four gRPC Communication Primitives"]
+        Unary["1. Unary RPC<br/>(One Request -> One Response)"]
+        ServerStream["2. Server Streaming<br/>(One Request -> Stream of Responses)"]
+        ClientStream["3. Client Streaming<br/>(Stream of Requests -> One Response)"]
+        BidiStream["4. Bidirectional Streaming<br/>(Stream of Requests <-> Stream of Responses)"]
+    end
+
+    subgraph StreamingUseCases ["Production Architectural Workloads"]
+        LiveFeed["Live Real-Time Market Feed / Log Tailing"]
+        ChunkedUpload["High-Volume Batch Telemetry / Chunked File Upload"]
+        InteractivePipe["Financial Order Negotiation / Live Dual-Sync"]
+    end
+
+    ServerStream --> LiveFeed
+    ClientStream --> ChunkedUpload
+    BidiStream --> InteractivePipe
+```
+
+### Deadline Propagation & Distributed Cancellation
+
+A gRPC deadline is not merely a local client timeout; it is an absolute wall-clock timestamp transmitted across network boundaries via the `grpc-timeout` header. Downstream services calculate the remaining time budget, automatically aborting work when the budget reaches zero:
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Client as API Gateway (Client)
+    participant SvcA as Order Service (Intermediate)
+    participant SvcB as Payment Service (Downstream)
+
+    Client->>SvcA: RPC CreateOrder (grpc-timeout: 2000m)
+    Note over SvcA: Order Service starts processing (Budget remaining: 1800ms)
+    SvcA->>SvcB: RPC ChargeCard (grpc-timeout: 1800m - Budget Propagated!)
+    
+    Note over SvcB: Payment Gateway network slows down... 2000ms elapses
+    Note over Client: Client Deadline expires!
+    Client->>SvcA: HTTP/2 RST_STREAM frame (Error: DEADLINE_EXCEEDED)
+    SvcA->>SvcB: HTTP/2 RST_STREAM frame (Cancellation propagated downstream!)
+    Note over SvcB: SvcB context.Done() fires; immediately aborts database transaction!
+    SvcB-->>SvcA: Error: DEADLINE_EXCEEDED
+    SvcA-->>Client: Error: DEADLINE_EXCEEDED
+```
+
+---
+
+## 2. Systematic Taxonomic Reference Grids
+
+### The Four gRPC Communication Paradigms
+
+| Paradigm Pattern | Protobuf Signature | Protocol Flow Characteristics | Idiomatic Language Primitives | Primary Failure Mode & Resource Trap |
+| :--- | :--- | :--- | :--- | :--- |
+| **Unary** | `rpc Op(Req) returns (Resp)` | 1 Request Message $\to$ 1 Response Message. | Standard Async Function / Future. | Indefinite hangs when client omits `deadline`. |
+| **Server Streaming** | `rpc Op(Req) returns (stream Resp)` | 1 Request Message $\to$ Infinite or Finite stream of Response Messages. | Generator (`yield` in Python), Channel in Go, `IAsyncEnumerable` in C#. | **Zombie Worker Leak**: Server continues generating events after client disconnects if liveness is not checked. |
+| **Client Streaming** | `rpc Op(stream Req) returns (Resp)` | Stream of Request Messages $\to$ 1 Summary Response Message. | Iterator argument in Python, Channel in Go. | High server memory buffer accumulation when processing unbounded streams without backpressure. |
+| **Bidirectional Streaming** | `rpc Op(stream Req) returns (stream Resp)` | Full-duplex concurrent streams; messages flow independently in both directions. | Dual independent coroutines/goroutines sharing stream context. | Deadlock if server waits for client to finish before sending, or uncoordinated stream termination. |
+
+### Error Retryability Decision Matrix
+
+| gRPC Status Code | Nature | Is It Safe to Retry? | Architectural Justification | Recommended Retry Policy |
+| :--- | :--- | :--- | :--- | :--- |
+| `UNAVAILABLE` (14) | Transient | **YES** | Target server is restarting, load balancer blip, or socket connection reset. | Exponential backoff with full jitter (e.g., initial 100ms, max 2s). |
+| `RESOURCE_EXHAUSTED` (8) | Transient | **YES** (with caution) | Upstream rate limiter tripped or worker pool temporarily full. | Backoff honoring `Retry-After` metadata from server. |
+| `DEADLINE_EXCEEDED` (4) | Ambiguous | **CONDITIONAL** | Safe **only if** the target RPC is provably **idempotent** (e.g., read or carries idempotency key). | Do not retry non-idempotent creates without unique idempotency token. |
+| `INVALID_ARGUMENT` (3) | Permanent | **NEVER** | The request body violated schema constraints; retrying the exact payload will fail again. | Surface HTTP 400 Bad Request to caller immediately. |
+| `NOT_FOUND` (5) | Permanent | **NEVER** | The requested resource key does not exist in the database. | Return HTTP 404 to caller. |
+| `PERMISSION_DENIED` (7) | Permanent | **NEVER** | Caller lacks the required RBAC/ABAC role or authorization scope. | Return HTTP 403 Forbidden. |
+| `ALREADY_EXISTS` (6) | Permanent | **NEVER** | Resource unique constraint violation (e.g., duplicate email). | Return HTTP 409 Conflict. |
+
+---
+
+## 3. Production War Story: The Zombie Server-Stream Storm
+
+### Incident Post-Mortem
+
+- **Severity**: SEV-1 (Complete Microservice Cluster Collapse)
+- **Time to Detect (TTD)**: 15 minutes (Triggered by 100% thread pool exhaustion alerts)
+- **Time to Mitigate (TTM)**: 35 minutes
+- **Impact**: All inventory and pricing RPCs timed out; 80,000 active checkout sessions frozen.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Shopper as Mobile App Users
+    participant App as Mobile Client
+    participant PriceSvc as Pricing Microservice (Python gRPC Server)
+    participant ThreadPool as Server ThreadPool (Max: 500 Workers)
+
+    loop 5,000 Shoppers browse catalog
+        App->>PriceSvc: rpc WatchPrice(ItemRequest) [Server Streaming]
+        PriceSvc->>ThreadPool: Assign Worker Thread #104
+        Note over ThreadPool: Worker enters infinite while(True) yield loop
+        ThreadPool-->>App: yield PriceUpdate ($49.99)
+        Note over Shopper: Shopper closes mobile app or loses cell signal
+        Note over App: Client TCP connection terminates abruptly
+        Note over PriceSvc: Flaw: Handler NEVER checks context.is_active()!
+        Note over ThreadPool: Worker Thread #104 continues looping and computing prices indefinitely!
+    end
+    Note over ThreadPool: All 500 Worker Threads permanently locked by zombie streams!
+    PriceSvc-->>App: Rejects all new incoming calls: RESOURCE_EXHAUSTED / ThreadPool Starvation
+```
+
+#### What Happened & Root Cause
+A retail pricing service implemented a server-streaming RPC: `WatchPrice(ProductRequest) returns (stream PriceUpdate)`. The Python servicer handler was written as:
+```python
+# VULNERABLE: Infinite yield loop with zero connection liveness checks
+def WatchPrice(self, request, context):
+    while True:
+        price = calculate_dynamic_price(request.item_id)
+        yield prices_pb2.PriceUpdate(price=price)
+        time.sleep(1)
+```
+When shoppers closed the mobile app or entered subway tunnels, their client connections terminated. However, because the handler did not check `context.is_active()`, the server thread continued looping forever, calculating prices for ghost connections. Within 20 minutes of a marketing notification blast, all 500 worker threads in the gRPC server's `ThreadPoolExecutor` were permanently consumed by zombie generators, rendering the service completely unresponsive.
+
+#### The Fix & Architectural Hardening
+1. **Mandated Liveness Checks on All Stream Yields**:
+   ```python
+   def WatchPrice(self, request, context):
+       while context.is_active():  # Stops loop immediately on client disconnect
+           yield prices_pb2.PriceUpdate(price=fetch_price())
+           time.sleep(1)
+   ```
+2. **Migrated to AsyncIO gRPC**: Replaced the thread-blocking `grpc.server(ThreadPoolExecutor)` with the native `grpc.aio.server()`, enabling lightweight asynchronous coroutines that release memory immediately upon cancellation.
+3. **Hard Stream Lifetimes**: Enforced a maximum lifetime of 10 minutes on all streaming subscriptions, requiring clients to reconnect and re-authenticate.
+
+---
+
+## 4. Multi-Language Production Implementations: Streaming & Interceptor Guard
+
+Below is the complete, production-grade implementation of a Streaming Service featuring:
+- Server streaming with active cancellation and liveness detection.
+- Server interceptor enforcing JWT metadata authentication.
+- Client stubs configured with strict deadlines.
+
+### The Canonical Proto Schema
 
 ```protobuf
-service PriceService {
-  // 1. Unary: one request, one response (module 01)
-  rpc GetPrice(PriceRequest) returns (Price);
+syntax = "proto3";
 
-  // 2. Server streaming: one request, a STREAM of responses
-  rpc WatchPrice(PriceRequest) returns (stream Price);
+package market.feed.v1;
 
-  // 3. Client streaming: a STREAM of requests, one response
-  rpc UploadTicks(stream Tick) returns (UploadSummary);
+option go_package = "market/feed/v1;feedv1";
+option csharp_namespace = "Market.Feed.V1";
 
-  // 4. Bidirectional streaming: both sides stream, independently
-  rpc Trade(stream TradeMsg) returns (stream TradeMsg);
+service MarketFeedService {
+  // Server Streaming: Caller subscribes to real-time price updates
+  rpc WatchTicker(TickerRequest) returns (stream TickerUpdate);
+  // Client Streaming: Worker streams batch telemetry ticks
+  rpc IngestTicks(stream TickerTick) returns (IngestSummary);
+}
+
+message TickerRequest {
+  string symbol = 1;
+}
+
+message TickerUpdate {
+  string symbol = 1;
+  int64 price_cents = 2;
+  int64 timestamp_unix = 3;
+}
+
+message TickerTick {
+  string symbol = 1;
+  int64 price_cents = 2;
+}
+
+message IngestSummary {
+  int64 total_ticks_processed = 1;
 }
 ```
 
-Match the shape to the interaction:
+---
 
-- **Server streaming** — the caller asks once, the server sends many responses
-  over time and then completes. Live feeds, "tail these logs," progress updates,
-  a large result set delivered in pages without re-requesting.
-- **Client streaming** — the caller sends many messages, the server responds
-  once at the end. Chunked upload, batch ingestion, streaming metrics where you
-  only need an ack/summary.
-- **Bidirectional** — both directions stream over the same call, on independent
-  schedules (not lock-step ping-pong). Chat, interactive sessions, a live
-  negotiation, syncing.
+### Go Implementation
 
-Critically, streaming is *not* the same as async concurrency and it's *not* the
-same as pub/sub (track 06). It's still a single logical RPC on one connection
-between one client and one server; it just carries multiple messages.
+```go
+package main
 
-### Server streaming in Python
+import (
+	"context"
+	"errors"
+	"fmt"
+	"log/slog"
+	"net"
+	"strings"
+	"time"
 
-On the server, a streaming response method is a generator — you `yield`
-messages, and each yielded message is flushed to the client immediately:
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
 
-```python
-import time
-import prices_pb2, prices_pb2_grpc
-
-class PriceService(prices_pb2_grpc.PriceServiceServicer):
-    def WatchPrice(self, request, context):
-        price = 100.0
-        for _ in range(10):
-            if not context.is_active():        # client hung up? stop working
-                return
-            price += 0.5
-            yield prices_pb2.Price(symbol=request.symbol, value=price)
-            time.sleep(1)
-```
-
-On the client, the call returns an *iterator*; you loop over it and the loop ends
-when the server completes the stream:
-
-```python
-stub = prices_pb2_grpc.PriceServiceStub(channel)
-for price in stub.WatchPrice(prices_pb2.PriceRequest(symbol="ACME")):
-    print(price.value)          # arrives one per second, live
-```
-
-Note `context.is_active()` — on a stream, the client can disconnect while the
-server is still producing. Checking liveness (and returning promptly) is how you
-avoid doing work nobody's listening to, the streaming cousin of the WebSocket
-connection-leak discipline in track 06.
-
-```text
-  SERVER STREAMING: one request in, many responses over ONE open call
-  CLIENT                                   SERVER (yield loop)
-    stub.WatchPrice(req="ACME") ─────────►  WatchPrice(request, context)
-                                    ◄──────  yield Price 100.5
-                                    ◄──────  yield Price 101.0   (1/sec, live)
-                                    ◄──────  yield Price 101.5
-                                    ◄────X   stream completes -> client loop ends
-             one HTTP/2 call, connection stays open the whole time
-```
-
-### Client and bidirectional streaming in Python
-
-For **client streaming**, the server method receives an *iterator of requests*
-and returns a single response after consuming it:
-
-```python
-def UploadTicks(self, request_iterator, context):
-    count = 0
-    for tick in request_iterator:      # blocks until each client message arrives
-        count += 1
-    return prices_pb2.UploadSummary(received=count)
-```
-
-The client passes a generator (or any iterable) of request messages:
-
-```python
-def gen():
-    for v in [1.0, 2.0, 3.0]:
-        yield prices_pb2.Tick(value=v)
-summary = stub.UploadTicks(gen())
-print(summary.received)   # 3
-```
-
-For **bidirectional**, the method takes an iterator of requests *and* is a
-generator of responses; the two run independently:
-
-```python
-def Trade(self, request_iterator, context):
-    for msg in request_iterator:
-        # react to each incoming message; respond on your own schedule
-        yield prices_pb2.TradeMsg(text=f"ack: {msg.text}")
-```
-
-The mental model: unary = call a function; server-stream = subscribe to output;
-client-stream = feed input then get a result; bidi = an open two-way pipe.
-
-### Deadlines and cancellation
-
-**Every RPC should carry a deadline.** A deadline is an absolute point in time by
-which the call must complete; the client sets it as a `timeout`, and gRPC
-propagates it to the server (and onward, if the server makes further gRPC calls).
-When it expires, the call fails with `DEADLINE_EXCEEDED` on both ends and work
-can be cancelled — no more silent hangs where a slow dependency stalls an entire
-request chain.
-
-```python
-try:
-    price = stub.GetPrice(prices_pb2.PriceRequest(symbol="ACME"), timeout=2.0)
-except grpc.RpcError as e:
-    if e.code() == grpc.StatusCode.DEADLINE_EXCEEDED:
-        ...   # the call took longer than 2s
-```
-
-The distinction from a plain client-side timeout is that the deadline is
-*propagated*: a well-behaved server checks `context.time_remaining()` and can
-stop early, and any downstream gRPC calls it makes inherit the shrinking budget.
-This is the mechanism that keeps a chain of internal services (module 07's
-topology) from stacking latency without bound. A "no deadline" call defaults to
-effectively infinite — that's the trap.
-
-### Interceptors — gRPC's middleware
-
-An **interceptor** wraps every RPC on its way in or out, exactly like the
-middleware chain from track 02 (module 03–04) wrapped every HTTP request. Server
-interceptors handle cross-cutting concerns — authentication, structured logging,
-metrics, tracing, and turning exceptions into clean status codes — in one place
-instead of in every handler. Client interceptors inject things like auth tokens
-and retry logic onto every outbound call.
-
-```python
-class LoggingInterceptor(grpc.ServerInterceptor):
-    def intercept_service(self, continuation, handler_call_details):
-        method = handler_call_details.method
-        # ... start timer / read metadata (headers) here ...
-        return continuation(handler_call_details)   # proceed to the handler
-
-server = grpc.server(
-    futures.ThreadPoolExecutor(max_workers=10),
-    interceptors=[LoggingInterceptor()],
+	feedv1 "market/feed/v1"
 )
+
+type MarketServer struct {
+	feedv1.UnimplementedMarketFeedServiceServer
+}
+
+// WatchTicker demonstrates server streaming with explicit context cancellation handling
+func (s *MarketServer) WatchTicker(req *feedv1.TickerRequest, stream feedv1.MarketFeedService_WatchTickerServer) error {
+	ctx := stream.Context()
+	ticker := time.NewTicker(500 * time.Millisecond)
+	defer ticker.Stop()
+
+	var price int64 = 15000 // $150.00 base
+
+	for {
+		select {
+		case <-ctx.Done():
+			// Client disconnected, cancelled, or deadline expired
+			if errors.Is(ctx.Err(), context.Canceled) {
+				return status.Error(codes.Canceled, "client closed stream")
+			}
+			return status.Error(codes.DeadlineExceeded, "stream deadline exceeded")
+		case t := <-ticker.C:
+			price += 25 // Simulated price movement
+			update := &feedv1.TickerUpdate{
+				Symbol:        req.GetSymbol(),
+				PriceCents:    price,
+				TimestampUnix: t.Unix(),
+			}
+
+			if err := stream.Send(update); err != nil {
+				return fmt.Errorf("failed to send stream message: %w", err)
+			}
+		}
+	}
+}
+
+// IngestTicks demonstrates client streaming
+func (s *MarketServer) IngestTicks(stream feedv1.MarketFeedService_IngestTicksServer) error {
+	var count int64
+	for {
+		tick, err := stream.Recv()
+		if errors.Is(err, context.Canceled) {
+			return status.Error(codes.Canceled, "client aborted upload")
+		}
+		if err != nil {
+			// Stream completed by client
+			return stream.SendAndClose(&feedv1.IngestSummary{
+				TotalTicksProcessed: count,
+			})
+		}
+		count++
+		_ = tick // Process tick
+	}
+}
+
+// AuthServerInterceptor enforces JWT Bearer tokens from gRPC metadata
+func AuthServerInterceptor(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
+	md, ok := metadata.FromIncomingContext(ctx)
+	if !ok {
+		return nil, status.Error(codes.Unauthenticated, "metadata missing")
+	}
+
+	authHeaders := md.Get("authorization")
+	if len(authHeaders) == 0 || !strings.HasPrefix(authHeaders[0], "Bearer ") {
+		return nil, status.Error(codes.Unauthenticated, "missing or malformed bearer token")
+	}
+
+	token := strings.TrimPrefix(authHeaders[0], "Bearer ")
+	if token != "valid-production-jwt-secret" {
+		return nil, status.Error(codes.PermissionDenied, "invalid token credentials")
+	}
+
+	return handler(ctx, req)
+}
+
+func main() {
+	lis, err := net.Listen("tcp", ":50051")
+	if err != nil {
+		panic(err)
+	}
+
+	server := grpc.NewServer(
+		grpc.UnaryInterceptor(AuthServerInterceptor),
+	)
+	feedv1.RegisterMarketFeedServiceServer(server, &MarketServer{})
+
+	fmt.Println("gRPC Server listening on :50051")
+	if err := server.Serve(lis); err != nil {
+		panic(err)
+	}
+}
 ```
 
-Auth token flows in **metadata** — gRPC's key/value headers, the analog of HTTP
-headers. The client attaches it per call; a server interceptor reads and
-validates it:
+---
 
-```python
-# client: attach a bearer token as metadata
-stub.GetPrice(req, metadata=(("authorization", "Bearer <token>"),))
+### Node.js / TypeScript Implementation
+
+```typescript
+import * as grpc from '@grpc/grpc-js';
+import * as protoLoader from '@grpc/proto-loader';
+import path from 'path';
+
+const PROTO_PATH = path.resolve(__dirname, 'market_feed.proto');
+const packageDef = protoLoader.loadSync(PROTO_PATH, { keepCase: false, defaults: true });
+const proto = (grpc.loadPackageDefinition(packageDef) as any).market.feed.v1;
+
+const server = new grpc.Server();
+
+server.addService(proto.MarketFeedService.service, {
+  // Server Streaming Implementation with liveness detection
+  watchTicker: (call: grpc.ServerWritableStream<any, any>) => {
+    const symbol = call.request.symbol || 'UNKNOWN';
+    let currentPrice = 10000;
+
+    const intervalId = setInterval(() => {
+      // Check if client has cancelled or disconnected
+      if (call.cancelled) {
+        clearInterval(intervalId);
+        return;
+      }
+
+      currentPrice += Math.floor(Math.random() * 50) - 20;
+      call.write({
+        symbol,
+        priceCents: currentPrice,
+        timestampUnix: Math.floor(Date.now() / 1000),
+      });
+    }, 500);
+
+    call.on('cancelled', () => {
+      clearInterval(intervalId);
+      console.log(`Client disconnected from ${symbol} stream`);
+    });
+
+    call.on('error', err => {
+      clearInterval(intervalId);
+      console.error('Stream error:', err);
+    });
+  },
+
+  // Client Streaming Implementation
+  ingestTicks: (call: grpc.ServerReadableStream<any, any>, callback: grpc.sendUnaryData<any>) => {
+    let tickCount = 0;
+
+    call.on('data', tick => {
+      tickCount++;
+    });
+
+    call.on('end', () => {
+      callback(null, { totalTicksProcessed: tickCount });
+    });
+
+    call.on('error', err => {
+      callback({ code: grpc.status.INTERNAL, message: err.message });
+    });
+  },
+});
+
+server.bindAsync('0.0.0.0:50051', grpc.ServerCredentials.createInsecure(), (err, port) => {
+  if (err) throw err;
+  console.log(`TypeScript gRPC streaming server active on :${port}`);
+});
 ```
 
-Ordering intuition carries over from track 02: put auth and rate limiting in
-interceptors so a rejected call never reaches a handler, and keep logging
-outermost so even rejected calls are recorded.
+---
 
-### Error handling that's actionable, and retries
-
-Module 01 covered `context.abort(code, details)`. Production adds two things.
-First, **rich error details**: beyond a code and a string, gRPC's richer error
-model (`grpc_status` / `google.rpc.Status`) lets you attach structured payloads —
-field-level validation errors, a `RetryInfo` telling the client how long to wait
-— so the caller can react programmatically rather than parsing a message string.
-
-Second, **know which codes are retryable**. Some failures are transient and safe
-to retry (ideally with backoff); others are permanent and retrying just wastes
-work or double-applies an effect:
-
-- **Retryable (transient):** `UNAVAILABLE` (server down/restarting),
-  `DEADLINE_EXCEEDED` (may succeed with a fresh budget), `RESOURCE_EXHAUSTED`
-  (back off and retry).
-- **Not retryable (permanent):** `INVALID_ARGUMENT`, `NOT_FOUND`,
-  `PERMISSION_DENIED`, `UNAUTHENTICATED`, `ALREADY_EXISTS`,
-  `FAILED_PRECONDITION` — the request itself is wrong; retrying changes nothing.
-
-And the retry caveat you already know from track 06: **only retry
-non-idempotent operations if they're made idempotent** (an idempotency key), or
-you risk creating two orders. gRPC supports declarative retry policies via
-service config, but the *decision* of what's safe to retry is yours.
-
-## Command reference
-
-| Item | Purpose | Example |
-|---|---|---|
-| `returns (stream T)` | Server-streaming RPC | `rpc WatchPrice(...) returns (stream Price);` |
-| `rpc M(stream T) returns (R)` | Client-streaming RPC | one response after many requests |
-| `rpc M(stream T) returns (stream R)` | Bidirectional RPC | independent two-way flow |
-| `yield msg` (server) | Emit one stream message | server-stream handler is a generator |
-| `for msg in request_iterator` | Consume client stream | server side |
-| `for resp in stub.M(req)` | Consume server stream | client side |
-| `timeout=<seconds>` | Set an RPC deadline | `stub.GetPrice(req, timeout=2.0)` |
-| `context.time_remaining()` | Server checks deadline budget | stop early if near zero |
-| `context.is_active()` | Client still connected? | break out of a stream loop |
-| `metadata=((k, v), ...)` | Send headers (e.g. auth token) | client call kwarg |
-| `context.abort(code, details)` | Return an error | `grpc.StatusCode.INVALID_ARGUMENT` |
-| `grpc.ServerInterceptor` | Server-side middleware | auth/logging/metrics |
-| `interceptors=[...]` | Register interceptors | `grpc.server(..., interceptors=[...])` |
-| `StatusCode.UNAVAILABLE/DEADLINE_EXCEEDED` | Typically retryable | transient failures |
-| `StatusCode.INVALID_ARGUMENT/NOT_FOUND` | Not retryable | permanent client errors |
-
-Client-side retry via service config (declarative — the runtime applies backoff):
+### Python Implementation (AsyncIO)
 
 ```python
-service_config = json.dumps({
-  "methodConfig": [{
-    "name": [{"service": "prices.v1.PriceService"}],
-    "retryPolicy": {
-      "maxAttempts": 4,
-      "initialBackoff": "0.2s", "maxBackoff": "2s", "backoffMultiplier": 2,
-      "retryableStatusCodes": ["UNAVAILABLE"]   # only transient codes
+import asyncio
+import grpc
+from grpc import aio
+
+import market_feed_pb2 as pb
+import market_feed_pb2_grpc as pb_grpc
+
+class MarketFeedServicer(pb_grpc.MarketFeedServiceServicer):
+    # Server Streaming with cancellation guard
+    async def WatchTicker(self, request: pb.TickerRequest, context: aio.ServicerContext):
+        symbol = request.symbol
+        price = 10000
+
+        while True:
+            # Crucial: Check if client disconnected or deadline expired
+            if context.done():
+                break
+
+            price += 10
+            yield pb.TickerUpdate(
+                symbol=symbol,
+                price_cents=price,
+                timestamp_unix=int(asyncio.get_event_loop().time())
+            )
+            await asyncio.sleep(0.5)
+
+    # Client Streaming
+    async def IngestTicks(self, request_iterator, context: aio.ServicerContext):
+        count = 0
+        async for tick in request_iterator:
+            count += 1
+        return pb.IngestSummary(total_ticks_processed=count)
+
+# Authentication Interceptor
+class AuthInterceptor(aio.ServerInterceptor):
+    async def intercept_service(self, continuation, handler_call_details):
+        metadata = dict(handler_call_details.invocation_metadata)
+        token = metadata.get("authorization", "")
+
+        if not token.startswith("Bearer valid-secret-key"):
+            async def abort_handler(request, context):
+                await context.abort(grpc.StatusCode.UNAUTHENTICATED, "Invalid Bearer Token")
+            return grpc.unary_unary_rpc_method_handler(abort_handler)
+
+        return await continuation(handler_call_details)
+
+async def serve():
+    server = aio.server(interceptors=[AuthInterceptor()])
+    pb_grpc.add_MarketFeedServiceServicer_to_server(MarketFeedServicer(), server)
+    server.add_insecure_port('[::]:50051')
+    await server.start()
+    print("Python AsyncIO gRPC server listening on port 50051")
+    await server.wait_for_termination()
+
+if __name__ == '__main__':
+    asyncio.run(serve())
+```
+
+---
+
+### C# / .NET Implementation
+
+```csharp
+using System;
+using System.Threading;
+using System.Threading.Tasks;
+using Grpc.Core;
+using Market.Feed.V1;
+
+namespace SecurityTrack.Streaming
+{
+    public class MarketFeedServiceImpl : MarketFeedService.MarketFeedServiceBase
+    {
+        // Server Streaming with CancellationToken Propagation
+        public override async Task WatchTicker(
+            TickerRequest request, 
+            IServerStreamWriter<TickerUpdate> responseStream, 
+            ServerCallContext context)
+        {
+            var price = 25000L;
+            var cancellationToken = context.CancellationToken;
+
+            while (!cancellationToken.IsCancellationRequested)
+            {
+                price += 15;
+                var update = new TickerUpdate
+                {
+                    Symbol = request.Symbol,
+                    PriceCents = price,
+                    TimestampUnix = DateTimeOffset.UtcNow.ToUnixTimeSeconds()
+                };
+
+                await responseStream.WriteAsync(update);
+
+                try
+                {
+                    // Cooperative delay respecting cancellation token
+                    await Task.Delay(500, cancellationToken);
+                }
+                catch (TaskCanceledException)
+                {
+                    break; // Clean exit when client terminates stream
+                }
+            }
+        }
+
+        // Client Streaming
+        public override async Task<IngestSummary> IngestTicks(
+            IAsyncStreamReader<TickerTick> requestStream, 
+            ServerCallContext context)
+        {
+            long tickCount = 0;
+
+            while (await requestStream.MoveNext(context.CancellationToken))
+            {
+                var tick = requestStream.Current;
+                tickCount++;
+            }
+
+            return new IngestSummary { TotalTicksProcessed = tickCount };
+        }
     }
-  }]
-})
-channel = grpc.insecure_channel("localhost:50051",
-    options=[("grpc.service_config", service_config)])
+}
 ```
 
-## Hands-on exercises
+---
 
-Extend the `grpc-orders` / a new `grpc-prices` project. Add a `prices.proto`
-with a `Price`, `Tick`, `TradeMsg`, `UploadSummary`, and a `PriceService`;
-regenerate stubs as in module 01 after each proto change.
+## 5. Practical Hands-On Verification CLI Workflows
 
-### 1. Server streaming: a live price feed
+### Step 1: Subscribe to Server Stream via grpcurl
 
-Define `WatchPrice(PriceRequest) returns (stream Price)`. Implement it to `yield`
-10 prices one per second. Write a client that loops over the call and prints each
-as it arrives. Expected: values print one per second, live — not all at once at
-the end.
-
-### 2. Client streaming: chunked upload
-
-Define `UploadTicks(stream Tick) returns (UploadSummary)`. The server counts and
-sums the ticks; the client sends a generator of ticks. Expected: the client
-sends N ticks and gets back one summary with `received == N`.
-
-### 3. Bidirectional: an echo/ack session
-
-Define `Trade(stream TradeMsg) returns (stream TradeMsg)`. The server yields an
-`ack:` message for each incoming message. Client sends a few messages and prints
-each ack. Expected: one ack per sent message, interleaved over one open call.
-
-### 4. Add a deadline and trip it
-
-Make `GetPrice` sleep 3 seconds server-side. Call it with `timeout=1.0`. Catch
-`grpc.RpcError` and assert `e.code() == DEADLINE_EXCEEDED`. Then raise the
-timeout above 3s and confirm it succeeds. Expected: the short deadline fails
-fast with `DEADLINE_EXCEEDED`; the generous one returns the price.
-
-### 5. Respect the deadline on the server
-
-In the sleepy `GetPrice`, check `context.time_remaining()` and `abort` early (or
-return) if the budget is nearly gone instead of sleeping the full 3s. Expected:
-the server stops promptly rather than doing work it knows will miss the deadline
-— demonstrating deadline *propagation*, not just a client-side timeout.
-
-### 6. Write a logging interceptor
-
-Implement a `grpc.ServerInterceptor` that logs the method name and elapsed time
-for every call, and register it. Hit both a unary and a streaming method.
-Expected: every RPC is logged in one place, with no logging code inside the
-handlers — the middleware lesson from track 02, in gRPC form.
-
-### 7. Auth via metadata + interceptor
-
-Have the client send `("authorization", "Bearer secret")` as metadata. Write a
-server interceptor that rejects calls missing/with a wrong token by aborting
-`UNAUTHENTICATED` before the handler runs. Expected: calls with the token
-succeed; calls without it fail with `UNAUTHENTICATED` and never reach the
-handler.
-
-### 8. Classify and configure retries
-
-For `GetPrice`, add a client `retryPolicy` that retries only `UNAVAILABLE` up to
-4 times with backoff. Stop the server mid-test and restart it during the retry
-window. Expected: the call rides out a brief outage; but confirm an
-`INVALID_ARGUMENT` (bad input) is *not* retried — write down why retrying it
-would be pointless.
-
-### 9. Diagnose and fix
-
-This streaming setup "works" in a quick test but leaks resources and misbehaves
-under a disconnecting client and a non-idempotent retry. Find every problem.
-
-```python
-# proto: rpc WatchPrice(PriceRequest) returns (stream Price);
-class PriceService(prices_pb2_grpc.PriceServiceServicer):
-    def WatchPrice(self, request, context):
-        price = 100.0
-        while True:                                  # (A)
-            price += 1.0
-            yield prices_pb2.Price(value=price)
-            time.sleep(1)
-
-# client: retries EVERYTHING, and the RPC below is a create-order call
-channel = grpc.insecure_channel("localhost:50051", options=[
-    ("grpc.service_config", json.dumps({"methodConfig": [{
-        "name": [{}],
-        "retryPolicy": {"maxAttempts": 5, "initialBackoff": "0.1s",
-            "maxBackoff": "1s", "backoffMultiplier": 2,
-            "retryableStatusCodes": ["UNAVAILABLE", "INVALID_ARGUMENT",  # (B)
-                                     "ALREADY_EXISTS", "DEADLINE_EXCEEDED"]}}]}))])
-stub.CreateOrder(req)                                # (C) no deadline, retried
+```bash
+# Connect to streaming endpoint with a 5-second deadline
+grpcurl -plaintext -max-time 5 \
+  -d '{"symbol": "BTC-USD"}' \
+  localhost:50051 \
+  market.feed.v1.MarketFeedService/WatchTicker
 ```
 
+**Expected Wire Output (Streamed Line-by-Line):**
+```json
+{
+  "symbol": "BTC-USD",
+  "priceCents": "15025",
+  "timestampUnix": "1773499401"
+}
+{
+  "symbol": "BTC-USD",
+  "priceCents": "15050",
+  "timestampUnix": "1773499402"
+}
+{
+  "symbol": "BTC-USD",
+  "priceCents": "15075",
+  "timestampUnix": "1773499403"
+}
+```
+
+---
+
+### Step 2: Verify Unauthenticated Metadata Rejection via Interceptor
+
+```bash
+# Call without Bearer token
+grpcurl -plaintext localhost:50051 market.feed.v1.MarketFeedService/WatchTicker
+```
+
+**Expected Wire Output:**
+```
+ERROR:
+  Code: Unauthenticated
+  Message: missing or malformed bearer token
+```
+
+---
+
+### Step 3: Trigger Client Deadline Expiration
+
+```bash
+# Set an impossible 50ms deadline on a streaming call
+grpcurl -plaintext -max-time 0.05 \
+  -d '{"symbol": "AAPL"}' \
+  localhost:50051 \
+  market.feed.v1.MarketFeedService/WatchTicker
+```
+
+**Expected Wire Output:**
+```
+ERROR:
+  Code: DeadlineExceeded
+  Message: timeout exceeded before completion
+```
+
+---
+
+## 6. Operational Validation Checkpoints (Scenario Quizzes)
+
+### Checkpoint 1: Client Disconnection & Server Resource Leaks
 <details>
-<summary>Solution</summary>
+<summary><strong>Scenario Assessment:</strong> You deploy a server-streaming gRPC service in Python using standard synchronous <code>ThreadPoolExecutor</code>. Under peak traffic, thousands of clients connect and disconnect. After 2 hours, CPU is normal, but the server stops accepting any new requests. Why?</summary>
 
-1. **(A) `while True` with no liveness check.** When the client disconnects, the
-   server keeps producing prices forever — a leaked worker doing work nobody
-   reads (the streaming version of a connection leak). Check
-   `if not context.is_active(): return` each iteration, and/or bound the loop.
-2. **(B) retrying `INVALID_ARGUMENT` and `ALREADY_EXISTS`.** These are permanent
-   client errors — the request is wrong or the effect already happened.
-   Retrying wastes attempts and can mask real bugs; retry only transient codes
-   (`UNAVAILABLE`, and cautiously `DEADLINE_EXCEEDED`/`RESOURCE_EXHAUSTED`).
-3. **(C) retrying a non-idempotent `CreateOrder` with no deadline.** Retrying a
-   create can produce duplicate orders — the exact idempotency hazard from track
-   06. Either make it idempotent (idempotency key so a retried create returns
-   the original) before enabling retries, or exclude it from the retry policy.
-   And give it a `timeout=` so a hung call fails fast instead of stalling the
-   caller.
-
-Corrected server loop:
-
-```python
-def WatchPrice(self, request, context):
-    price = 100.0
-    for _ in range(600):                 # bounded; or run until disconnect
-        if not context.is_active():
-            return
-        price += 1.0
-        yield prices_pb2.Price(value=price)
-        time.sleep(1)
+```
+Options:
+A) The server ran out of Protobuf field numbers.
+B) Each disconnected client left a generator running inside a worker thread because the handler lacked `context.is_active()` checks, permanently leaking all thread pool workers into zombie loops.
+C) HTTP/2 enforces a global ceiling of 100 total lifetime streams per IP.
+D) The server's SSL certificate expired prematurely.
 ```
 
-Lesson: streaming needs disconnect-awareness, deadlines need to be set
-deliberately, and retry policies must be scoped to *transient* codes and to
-operations that are *safe* (idempotent) to repeat.
+**Answer:**
+**B is correct.** When using a thread-pool-backed synchronous gRPC server, every active stream occupies a dedicated OS worker thread. If the handler executes an infinite `yield` loop without verifying `context.is_active()`, the thread continues executing even after the client disconnects and the TCP socket closes. Over time, every worker in the `ThreadPoolExecutor` becomes a "zombie", causing thread starvation and blocking all incoming connections.
 
 </details>
 
-## Independent challenge
+---
 
-No code given. In **module 01** you built an internal `InventoryService` with
-unary `CheckStock`/`ReserveStock`. Extend it for the checkout flow's real needs:
-add `WatchStock(sku) returns (stream StockLevel)` (server streaming — the
-checkout UI wants live on-hand counts while a customer lingers on a product) and
-`BulkReserve(stream ReserveRequest) returns (BulkReserveSummary)` (client
-streaming — reserve a whole cart's worth of SKUs in one call). Then harden the
-whole service: a server interceptor that logs every call and enforces an
-`authorization` metadata token, a **deadline** on every client call, and a
-retry policy that retries `UNAVAILABLE` only — and make `BulkReserve` safe to
-retry. Justify, in comments, which reservations are safe to retry and how you
-made them so.
-
+### Checkpoint 2: Deadlines vs. Local Timeouts
 <details>
-<summary>Hint</summary>
+<summary><strong>Scenario Assessment:</strong> An API Gateway calls Service A, which calls Service B. Service B hangs on a slow database query. The Gateway has a 2-second timeout, but uses raw HTTP client timeouts rather than gRPC deadlines. What happens?</summary>
 
-For `WatchStock`, guard the yield loop with `context.is_active()` so a customer
-navigating away doesn't leave the server streaming into the void. For
-`BulkReserve`, the retry-safety problem is the module's crux: a naive
-bulk-reserve retried after a partial failure double-reserves — attach an
-idempotency key per reservation (module-07 / track-06 discipline) so a retried
-`BulkReserve` recognizes already-applied reservations and returns the original
-result instead of reserving again. Keep auth and logging in **interceptors**,
-not in each method, exactly as the track-02 middleware chain kept them out of
-each handler.
+```
+Options:
+A) Service B immediately detects the Gateway timeout and cancels its query.
+B) The Gateway aborts its connection to Service A after 2 seconds, but Service A and Service B continue executing the expensive database query to completion, wasting server CPU and database locks.
+C) The database drops the table due to lock contention.
+D) The Gateway automatically retries the call on port 80.
+```
+
+**Answer:**
+**B is correct.** A standard local client timeout only cancels the local connection; the remote server has no awareness that the client gave up. In contrast, **gRPC deadlines propagate across the network wire** via the `grpc-timeout` header. Service A and Service B both receive the deadline; when the deadline expires, the gRPC runtime fires cancellation tokens down the entire call graph, aborting in-flight work immediately.
 
 </details>
 
-## Common mistakes & troubleshooting
+---
 
-- **Unbounded server-stream loops with no liveness check.** A disconnected
-  client leaves the server producing forever. Check `context.is_active()` and
-  return promptly.
-- **No deadline on RPCs.** A call with no `timeout` waits effectively forever; a
-  slow dependency then stalls the whole chain. Set a deadline on every call and,
-  server-side, honor `time_remaining()`.
-- **Treating a client-side timeout as the same thing as a deadline.** A deadline
-  is *propagated* to the server and downstream calls; a bare local timeout isn't.
-  Use gRPC deadlines so the whole chain shares one budget.
-- **Retrying non-idempotent operations.** Retrying a create/charge can duplicate
-  the effect. Make it idempotent first, or exclude it from the retry policy.
-- **Retrying permanent errors.** `INVALID_ARGUMENT`, `NOT_FOUND`,
-  `PERMISSION_DENIED`, etc. won't succeed on retry — scope `retryableStatusCodes`
-  to transient failures only.
-- **Cross-cutting logic duplicated in every handler.** Auth, logging, metrics,
-  and error mapping belong in interceptors (gRPC's middleware), not copy-pasted
-  into each RPC method.
-- **Confusing streaming with pub/sub.** A streaming RPC is still one client to
-  one server on one connection. For fan-out/decoupled broadcast you want a
-  message bus (track 06), not a bidi stream.
-- **Blocking the thread pool with long streams.** Long-lived streaming calls each
-  hold a worker in the `ThreadPoolExecutor`; size the pool for your concurrent-
-  stream count or use the async API, or new calls starve.
-
-## Checkpoint quiz
-
-Write down your answer to each question before expanding it — checking without attempting first is the single easiest way to fool yourself into thinking you've learned this.
-
-1. Name the four RPC types and give a one-line real use case for each of the
-   three streaming kinds.
-2. On the server, how do you produce a server-streaming response, and how do you
-   consume it on the client?
-3. What is a gRPC *deadline*, and how does it differ from an ordinary
-   client-side timeout?
-4. What problem do interceptors solve, and which track-02 concept are they the
-   direct analog of?
-5. Where does an auth token travel in a gRPC call, and where should it be
-   validated?
-6. Which status codes are safe to retry and which aren't? Give two of each and
-   the one-sentence reason.
-7. Why is retrying a `CreateOrder` dangerous, and what makes it safe?
-
+### Checkpoint 3: Safe Client Retry Policies
 <details>
-<summary>Answers</summary>
+<summary><strong>Scenario Assessment:</strong> A microservice team configures a declarative gRPC client retry policy that automatically retries any call failing with <code>DEADLINE_EXCEEDED</code> up to 3 times. The endpoint is <code>rpc ChargeCreditCard(ChargeRequest) returns (ChargeResponse)</code>. What catastrophic outcome will occur during network latency spikes?</summary>
 
-1. **Unary** (one/one), **server streaming** (one request → many responses;
-   e.g. a live price/log feed), **client streaming** (many requests → one
-   response; e.g. chunked upload / batch ingest), **bidirectional** (both stream
-   independently; e.g. chat / an interactive session).
-2. Server side: the handler is a **generator** — you `yield` each message and it
-   flushes to the client immediately. Client side: the call **returns an
-   iterator**, and you `for resp in stub.WatchPrice(req)`; the loop ends when the
-   server completes the stream.
-3. A deadline is an absolute time budget for the call that gRPC **propagates**
-   to the server (via `time_remaining()`) and onward to any downstream gRPC calls
-   it makes, so the whole chain shares one budget and can cancel early. A plain
-   client-side timeout only aborts locally and isn't communicated to the server.
-4. Interceptors put cross-cutting concerns (auth, logging, metrics, tracing,
-   error mapping) in one place wrapping every RPC, instead of in each handler.
-   They're the direct analog of the **middleware chain** from track 02.
-5. In **metadata** (gRPC's key/value headers, e.g. `authorization: Bearer ...`),
-   attached per call on the client. It should be validated in a **server
-   interceptor**, before the handler runs — so a rejected call never reaches
-   business logic.
-6. Retryable/transient: `UNAVAILABLE` (server temporarily down) and
-   `DEADLINE_EXCEEDED`/`RESOURCE_EXHAUSTED` (may succeed with a fresh
-   budget/after backoff). Not retryable/permanent: `INVALID_ARGUMENT`,
-   `NOT_FOUND`, `PERMISSION_DENIED`, `ALREADY_EXISTS` — the request itself is
-   wrong, so a retry changes nothing.
-7. `CreateOrder` is non-idempotent: a retry after a lost response can create a
-   *second* order. It's made safe with an **idempotency key** so a retried
-   create is recognized and returns the original result instead of creating
-   again (the same discipline as retrying tasks/webhooks in track 06).
+```
+Options:
+A) The client will be banned by the gRPC reflection engine.
+B) If the payment gateway charged the card successfully but the response was delayed past the deadline, the client will retry the call, charging the customer's card multiple times.
+C) The Protobuf binary payload will be converted to XML.
+D) The HTTP/2 multiplexer will split the stream into separate TCP sockets.
+```
+
+**Answer:**
+**B is correct.** `DEADLINE_EXCEEDED` is an ambiguous status: it means the client stopped waiting, but does **not** guarantee the server did not process the mutation. Retrying a non-idempotent operation like `ChargeCreditCard` will charge the customer repeatedly. Non-idempotent operations must either **never be retried automatically**, or must require a unique client-generated **Idempotency Key** so that retried calls are safely deduplicated by the server.
 
 </details>
 
-## Further reading & sources
+---
 
-- [gRPC — Core concepts (RPC life cycle)](https://grpc.io/docs/what-is-grpc/core-concepts/) - the official description of unary, server-, client-, and bidirectional streaming and how each stream completes.
-- [gRPC Python — Server reflection & streaming basics](https://grpc.io/docs/languages/python/basics/) - shows the generator-based server handlers and iterator-based client loops used throughout this module.
-- [gRPC — Deadlines / timeouts](https://grpc.io/docs/guides/deadlines/) - explains why every call needs a propagated deadline and how `DEADLINE_EXCEEDED` flows through a call chain.
-- [gRPC — Retry policy & service config](https://grpc.io/docs/guides/retry/) - the declarative `retryPolicy`/`retryableStatusCodes` reference behind the retry exercises.
-- [gRPC — Status codes and their use](https://grpc.io/docs/guides/status-codes/) - the canonical list used to decide which failures are transient (retryable) versus permanent.
-- [gRPC Python — Interceptors (API reference)](https://grpc.github.io/grpc/python/grpc.html#service-side-interceptor) - the `ServerInterceptor` contract used for the auth/logging middleware.
+## 7. Further Reading & Sources
 
-## Next
+- [gRPC Core Concepts: The Streaming RPC Lifecycle](https://grpc.io/docs/what-is-grpc/core-concepts/)
+- [gRPC Deadlines: Best Practices for Distributed Systems](https://grpc.io/docs/guides/deadlines/)
+- [gRPC Retries: Declarative Service Config Specification](https://grpc.io/docs/guides/retry/)
+- [gRPC Interceptors: Architecture and Middleware Patterns](https://grpc.io/docs/guides/interceptors/)
+- [IETF RFC 7540: Hypertext Transfer Protocol Version 2 (HTTP/2)](https://datatracker.ietf.org/doc/html/rfc7540)
 
-[03-graphql-fundamentals](../03-graphql-fundamentals/README.md) — you've now got
-the internal, RPC-style edge covered. Next you pivot to the other major
-alternative: GraphQL, where the *client* declares exactly which fields and
-relations it wants. You'll write a schema, resolvers in Python, and meet the
-N+1 problem and DataLoader — plus the first closed-book **cumulative review**
-covering modules 00–03.
+---
+
+## Next Steps
+
+Now that you have mastered high-throughput internal RPCs, streaming, deadlines, and interceptors, pivot to the primary paradigm for frontend client aggregation:
+
+- Next Module: **[03-graphql-fundamentals](../03-graphql-fundamentals/README.md)** (GraphQL SDL Schemas, Queries, Mutations, Resolvers, N+1 Problem, and DataLoader).
+- Track Index: [README.md](../README.md)

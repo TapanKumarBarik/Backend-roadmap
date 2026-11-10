@@ -1,485 +1,437 @@
-# Module 11: Edge Computing and WebAssembly
+# Module 11: Edge Computing and WebAssembly (Wasm)
 
-## Why this matters
+> **Prerequisites**: [00-beyond-rest-when-and-why](../00-beyond-rest-when-and-why/README.md), [07-graphql-security-caching-and-observability](../07-graphql-security-caching-and-observability/README.md), and [09-api-gateways-and-bff](../09-api-gateways-and-bff/README.md).  
+> **Estimated Reading Time**: 28 minutes  
+> **Target Audience**: Systems Engineers, Edge Platform Architects, and Cloud Infrastructure Engineers deploying high-speed request interception at the physical network edge.
 
-Module 00's paradigm map placed every option on one of two ends of a
-request's journey: your origin server (REST, gRPC, GraphQL all run
-there) or the browser (the client). This module adds a third place code
-can run: **the edge** — infrastructure physically distributed close to
-where requests actually originate, running your logic in a **WebAssembly
-sandbox** instead of a traditional server process, often before the
-request ever reaches your origin at all. The pitch isn't "faster
-servers" — it's a genuinely different place in the request's path, with
-different constraints (no long-lived connections, no arbitrary native
-code, cold starts measured in single-digit milliseconds instead of
-hundreds) that make certain classes of logic — auth checks, geo-routing,
-A/B assignment, simple transforms — dramatically cheaper to run at the
-edge than to round-trip to origin for. This module gives you the mental
-model and lets you run real edge functions locally so you can feel the
-difference rather than take a vendor's latency chart on faith.
+---
 
-## Concepts
+> [!TIP]
+> **The Golden Rule of Edge Computing**  
+> The edge is **not a miniature origin server**; it is an ephemeral, stateless execution sandbox positioned physically close to the client. Treat edge functions as lightweight request routers, security interceptors, and response transformers with single-digit millisecond cold starts. **Never store mutable business state in edge module memory**, because requests are distributed across hundreds of isolated Points of Presence (PoPs) worldwide. State that must be globally consistent belongs in strongly consistent edge storage (e.g., Durable Objects, KV) or at your centralized origin datastore.
 
-### Where "the edge" sits in a request's path
+---
 
-A traditional request goes client → (maybe a CDN cache hit) → your
-origin server, wherever that's hosted. Edge computing inserts a fourth
-option: client → **edge function**, running on infrastructure at a
-point-of-presence (PoP) physically close to the client, which can answer
-the request itself, modify it before forwarding, or decide not to bother
-your origin at all.
+## Visual Mental Models & Architecture
 
+### The Evolution of the Request Path
+
+Edge computing introduces active, programmable compute at the edge Point of Presence (PoP) before a request ever crosses the transit network to reach your origin cloud.
+
+```mermaid
+flowchart TD
+    subgraph Path1["1. Traditional Architecture (High Latency)"]
+        C1[Client in Tokyo] -->|180ms Trans-Pacific Hop| O1[(Origin Server in Virginia)]
+    end
+
+    subgraph Path2["2. CDN Edge Caching (Passive Hit/Miss)"]
+        C2[Client in Tokyo] --> CDN2{Tokyo Edge CDN}
+        CDN2 -->|Cache Hit: 5ms| C2
+        CDN2 -->|Cache Miss: 180ms| O2[(Origin Server in Virginia)]
+    end
+
+    subgraph Path3["3. Edge Compute + Wasm (Active Programmable Execution)"]
+        C3[Client in Tokyo] --> Edge3[⚡ Tokyo Edge Isolate / Wasm]
+        Edge3 -->|1. Reject Invalid Auth: 3ms| C3
+        Edge3 -->|2. Geo-Redirect / AB Variant: 4ms| C3
+        Edge3 -->|3. Forward Clean Request: 180ms| O3[(Origin Server in Virginia)]
+    end
+
+    style Edge3 fill:#d4edda,stroke:#28a745,stroke-width:2px
+    style O1 fill:#f8d7da,stroke:#dc3545,stroke-width:1px
 ```
-  Traditional:     client ──────────────────────► origin server
-                          (every request travels the full distance)
 
-  CDN (caching):   client ──► CDN edge cache ──► origin (only on a miss)
+---
 
-  Edge compute:     client ──► edge FUNCTION (runs YOUR code, close by)
-                                   │
-                            can answer directly,
-                            or forward to origin
-                            only if it needs to
+### Containers vs WebAssembly / V8 Isolates
+
+Edge computing achieves near-instant startup by replacing full operating system containers with lightweight memory-isolated bytecode sandboxes.
+
+```mermaid
+flowchart LR
+    subgraph ContainerRuntime["Traditional Container / VM (FaaS)"]
+        OS[Host Linux OS] --> Docker[Docker / Containerd Daemon]
+        Docker --> GuestOS[Guest Container Userspace]
+        GuestOS --> NodeVM[Node.js / Python Runtime]
+        NodeVM --> AppCode[Application Handler]
+        note1["Cold Start: 250ms - 2,000ms<br/>Memory Footprint: 50MB - 250MB"]
+    end
+
+    subgraph WasmIsolate["Edge Wasm / V8 Isolate (Edge Compute)"]
+        HostProc[Host Process: workerd / Fastly Viceroy]
+        HostProc --> IsolateA["Isolate A (Customer 1 Wasm Sandbox)"]
+        HostProc --> IsolateB["Isolate B (Customer 2 JS Isolate)"]
+        note2["Cold Start: < 5ms<br/>Memory Footprint: 2MB - 5MB"]
+    end
+
+    style ContainerRuntime fill:#fff3cd,stroke:#856404,stroke-width:2px
+    style WasmIsolate fill:#d1ecf1,stroke:#0c5460,stroke-width:2px
 ```
 
-The previous module's CDN content covered *caching* static responses at
-the edge. This module is about running **your own code** at that same
-location — a meaningfully different capability: a cache can only serve
-what's already there; an edge function can make a decision.
+---
 
-### WebAssembly (Wasm): why the edge doesn't just run your normal server code
+## Systematic Reference Grids
 
-Edge platforms don't give you a normal OS process or a container per
-customer the way a traditional server would — that's too heavy to spin
-up in milliseconds, at every PoP, for every customer's code, on shared
-hardware you don't control. **WebAssembly** is a low-level, portable
-bytecode format, originally built for running native-speed code safely
-inside a browser, that turns out to be exactly the right shape for this
-problem: a Wasm module runs inside a lightweight, memory-isolated sandbox
-that starts in microseconds (not the hundreds of milliseconds a
-container or VM needs) and can't touch anything outside its sandbox
-unless the host explicitly allows it. This is *why* the edge runs Wasm
-specifically, not "the cloud, but smaller" — the sandboxing and startup
-speed are the actual enabling technology, not an implementation detail.
+### Origin Server vs Edge Computing Architecture
 
-JavaScript, the most common language edge functions are written in
-today, itself runs *inside* this same kind of isolate-based sandbox on
-platforms like Cloudflare Workers — you don't have to write raw Wasm
-yourself to get its isolation and startup-speed properties; the platform
-compiles/JITs your JS into that sandboxed execution model for you. Other
-languages (Rust, Go, C) can compile directly to Wasm and run in the same
-sandbox when you want more control or portable, near-native performance.
+| Dimension | Origin Server (Containers / Kubernetes) | Edge Computing (Wasm / V8 Isolates) |
+| :--- | :--- | :--- |
+| **Physical Location** | Centralized in 1–3 Cloud Regions (e.g. `us-east-1`, `eu-west-1`). | Globally distributed across 250–350 Points of Presence (PoPs). |
+| **Startup / Cold Start Time** | **250ms to 5,000ms** (boot container, initialize runtime). | **< 5 milliseconds** (instantiate pre-compiled bytecode isolate). |
+| **Memory Isolation** | Linux kernel namespaces, cgroups, virtual memory. | V8 heap memory isolation or WebAssembly linear memory sandboxing. |
+| **Execution State** | Stateful processes, background threads, connection pools. | **Strictly ephemeral**: isolates recycle, no shared in-memory globals. |
+| **Filesystem & Native Calls** | Full POSIX filesystem access, arbitrary OS syscalls. | **Sandboxed**: No direct OS access; access restricted to Host Web APIs (`fetch`). |
+| **Compute / CPU Quota** | Seconds to minutes of continuous CPU execution. | **10ms to 50ms CPU time** limit per incoming request. |
+| **Ideal Workloads** | ACID database transactions, complex graph queries, large batch jobs. | Auth token validation, A/B bucketing, bot detection, geo-routing, header rewriting. |
 
-### No long-lived state, no arbitrary native calls — the real constraint
+---
 
-An edge function is not a smaller version of your origin server; it runs
-under different rules:
+### Edge Workload Placement Decision Matrix
 
-- **No persistent local disk, no long-lived in-memory state between
-  requests** (by default) — each invocation is expected to be able to
-  start fresh, because the *same* function might run at a different PoP
-  on the next request, or the isolate might simply be recycled. State
-  that must persist belongs in an edge-reachable store (a globally
-  replicated key-value store, or a call back to your origin/database) —
-  not in a module-level variable you assume survives.
-- **No arbitrary outbound native code, no shelling out, no filesystem
-  access to the host** — the sandbox that makes startup fast and
-  multi-tenant execution safe also means you're restricted to the APIs
-  the platform exposes (`fetch`, a KV store client, etc.), not "run any
-  program you want."
-- **A CPU-time budget per invocation**, often in the low milliseconds —
-  edge functions are built for cheap, fast, request-shaping logic (check
-  a header, pick a variant, rewrite a URL), not for running your whole
-  application. Reaching for the edge to do heavy computation is a
-  mismatch this module explicitly warns against.
+| Workload Type | Location | Architectural Justification |
+| :--- | :--- | :--- |
+| **API Key Allowlist / Bot Rejection** | **Edge** | Drop malicious or unauthenticated traffic at the closest PoP; saves origin bandwidth and CPU. |
+| **Geo-IP Redirection / Localization** | **Edge** | Edge metadata (`request.cf.country`) resolves nearest regional endpoint in single-digit ms. |
+| **A/B Testing & Feature Flag Assignment** | **Edge** | Assigns deterministic experiment variant hash and rewrites URL before origin fetching. |
+| **Security Header Injection / CORS** | **Edge** | Injects HSTS, CSP, and CORS headers uniformly across all backend origins. |
+| **Complex Relational DB Transactions** | **Origin** | Requires ACID row-level locking, connection pools, and low-latency access to primary storage. |
+| **Heavy Computation / ML Inference** | **Origin** | Edge CPU execution limits (e.g., 50ms) will terminate long-running processes. |
+| **Global Billing / Usage Counters** | **Origin (or Edge KV)** | In-memory globals at the edge are fragmented across 300+ PoPs; requires centralized ACID counters. |
 
-### What actually belongs at the edge
+---
 
-Given those constraints, the sweet spot is logic that's **cheap,
-stateless (or backed by edge-native storage), and benefits from running
-close to the client before your origin is ever involved**:
+## Production Incident War Story: The Phantom Rate Limiter
 
-- **Auth/allowlist checks** — reject an obviously invalid or blocked
-  request before it ever reaches origin, saving the round trip entirely
-  for traffic you were always going to refuse.
-- **A/B testing and feature-flag assignment** — decide which experiment
-  bucket a request falls into at the very first hop, consistently,
-  without a origin round trip just to pick a variant.
-- **Geo-based routing and redirects** — serve a region-specific redirect
-  or response using the request's known origin location, without your
-  application server ever seeing that request.
-- **Request/response rewriting** — add security headers, rewrite a path,
-  strip a query parameter, normalize a header — cheap transformations
-  that don't need your full application stack.
+### Incident Post-Mortem: SEV-1
 
-What does **not** belong at the edge: anything needing a real database
-transaction, heavy computation, or long-lived connections — that's still
-your origin's job. The edge is a *first stop*, not a replacement
-architecture.
+* **Incident ID**: INC-3918
+* **Severity Level**: SEV-1 (Bypassed Abuse Controls & Origin Database Crash)
+* **Detection Time**: 4 hours after attack initiation
+* **Time to Recovery (TTR)**: 35 minutes
+* **Impact**: 45M scraping requests bypassed the edge rate limiter, exhausting origin read replicas.
 
-### Cold starts: the concrete number that makes this a different tool
+#### 1. What Happened
+A ticketing company developed an edge function deployed to Cloudflare Workers to enforce an API rate limit of 60 requests per minute per IP address.
 
-A traditional serverless function (a container-based FaaS) commonly has
-a cold-start latency in the **hundreds of milliseconds** the first time
-it spins up on a given host — the cost of starting a container/VM
-runtime. A Wasm-sandboxed edge isolate's cold start is commonly cited in
-the **single-digit milliseconds**, because there's no OS process or
-container to boot — the isolate is closer to "load a small, pre-verified
-bytecode module into an already-running host process" than "boot a
-machine." This module doesn't ask you to trust that number blindly:
-the hands-on exercises have you run and time a real edge function
-locally so you can see the shape of the cost yourself, even though a
-laptop's local dev server won't reproduce a production multi-region
-network's actual latency profile — that global-distribution benefit is
-inherent to the vendor's infrastructure, not something a local exercise
-can demonstrate.
-
-## Command reference
-
-This module uses **Cloudflare Workers** via `wrangler`, its official
-CLI, which includes a fully local dev server (`workerd`, the same
-open-source runtime Cloudflare's production edge uses) — no account or
-deployment needed to run and test the examples below.
-
-| Concern | Command / API |
-|---|---|
-| Run a worker locally | `npx wrangler dev` |
-| Minimal worker entrypoint | `export default { async fetch(request) { ... } }` |
-| Read the request URL | `new URL(request.url)` |
-| Build a JSON response | `new Response(JSON.stringify(obj), { headers: {"content-type": "application/json"} })` |
-| Redirect | `Response.redirect(url, statusCode)` |
-| Forward to origin only when needed | `await fetch(originUrl, request)` (calls out, same as any `fetch`) |
-| Read a geo-routing hint (Workers-specific) | `request.cf?.country` |
-
-A worker that rejects at the edge before ever calling origin:
-
+The engineer wrote the rate limiter using an in-memory `Map` within the worker script:
 ```javascript
+// worker.js - The Flawed Implementation
+const ipRequestCounts = new Map();
+
 export default {
   async fetch(request) {
-    const apiKey = request.headers.get("x-api-key");
-    if (!apiKey || !isAllowed(apiKey)) {
-      // Never touches origin — the reject happens at the very first hop.
-      return new Response("Unauthorized", { status: 401 });
+    const clientIP = request.headers.get("cf-connecting-ip") || "unknown";
+    const currentCount = ipRequestCounts.get(clientIP) || 0;
+
+    if (currentCount >= 60) {
+      return new Response("Too Many Requests", { status: 429 });
     }
-    // Only forward to origin for requests that pass the check.
-    return fetch("https://origin.example.com" + new URL(request.url).pathname, request);
+
+    ipRequestCounts.set(clientIP, currentCount + 1);
+    return fetch(request); // Forward to origin
+  }
+};
+```
+In local testing with `wrangler dev` on a single laptop, the rate limiter functioned perfectly: the 61st request received an HTTP 429.
+
+However, in production, a botnet distributed scrapers across global proxy networks. Despite individual scraper IPs issuing over 3,000 requests per minute, the edge rate limiter allowed **98.2% of the traffic** directly to the origin database, which promptly collapsed.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Bot as Scraper IP (3,000 req/min)
+    participant PoP1 as Tokyo PoP (Isolate 1)
+    participant PoP2 as London PoP (Isolate 2)
+    participant PoP3 as Frankfurt PoP (Isolate 3)
+    participant Origin as Origin Database (Virginia)
+
+    Note over Bot: Scraper issues requests distributed across global IPs and PoPs
+    Bot->>PoP1: Request 1 (Routes to Tokyo Isolate 1)
+    Note over PoP1: Local Map count = 1 (< 60) -> PASS!
+    PoP1->>Origin: Forward to Origin
+
+    Bot->>PoP2: Request 2 (Routes to London Isolate 2)
+    Note over PoP2: Local Map count = 1 (< 60) -> PASS!
+    PoP2->>Origin: Forward to Origin
+
+    Bot->>PoP3: Request 3 (Routes to Frankfurt Isolate 3)
+    Note over PoP3: Local Map count = 1 (< 60) -> PASS!
+    PoP3->>Origin: Forward to Origin
+
+    Note over Origin: 💥 300 PoPs each keep their own separate counter!<br/>Bot executes 60 * 300 = 18,000 requests before hitting a single 429!
+```
+
+#### 2. Root Cause Analysis
+1. **The In-Memory Global Trap**: The developer assumed `ipRequestCounts` was a shared global singleton. In production edge architecture, the worker is instantiated in parallel across **300+ global data centers**, with multiple independent V8 isolates running per PoP.
+2. **Fragmented Counter State**: An attacker whose traffic distributes across different PoPs (or even across isolates on the same PoP) encounters a fresh `Map` instance on almost every request. A single client could execute $60 \times 300 = 18,000 \text{ requests/min}$ without triggering a block.
+
+#### 3. The Architectural Hardening & Resolution
+1. **Strongly Consistent Edge State**: Replaced the local in-memory `Map` with **Cloudflare Durable Objects** (or an atomic Redis token-bucket via Upstash HTTP). Durable Objects route all requests for a specific client IP to a single, coordinated actor instance.
+2. **Native Edge Rate Limiting API**: Switched from custom application code to Cloudflare's native edge WAF Rate Limiting rules, which operate at L4/L7 with distributed state synchronization.
+
+---
+
+## Multi-Language Production Code Tabs: Edge Functions & Wasm
+
+The following implementations demonstrate:
+1. **Edge Auth & Token Verification**: Dropping invalid requests before origin.
+2. **Geo-Routing & Header Normalization**: Directing users to regional backends based on physical location.
+
+```
+### Language Tabs
+1. JavaScript / TypeScript (Cloudflare Worker / V8 Isolate)
+2. Rust (Compiled to WebAssembly for Edge Compute)
+3. Go (Compiled to WebAssembly / TinyGo)
+4. Python (Fastly Compute Python Worker)
+```
+
+### JavaScript / TypeScript (Cloudflare Workers)
+```typescript
+export interface Env {
+  ORIGIN_URL: string;
+  AUTH_SECRET: string;
+}
+
+export default {
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+    const url = new URL(request.url);
+
+    // 1. Edge Static Redirect (No Origin Round Trip)
+    if (url.pathname === '/legacy-docs') {
+      return Response.redirect('https://docs.company.com/v2', 301);
+    }
+
+    // 2. Edge Auth Verification
+    const authHeader = request.headers.get('Authorization');
+    if (!authHeader || !authHeader.startsWith('Bearer token_edge_')) {
+      return new Response(
+        JSON.stringify({ error: 'Unauthorized at Edge: Invalid token credentials' }),
+        { status: 401, headers: { 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // 3. Inspect Geo-Location & Inject Edge Metadata
+    const country = (request as any).cf?.country || 'US';
+    const city = (request as any).cf?.city || 'Unknown';
+
+    // Clone request and inject verified headers for downstream origin
+    const modifiedHeaders = new Headers(request.headers);
+    modifiedHeaders.set('X-Edge-Country', country);
+    modifiedHeaders.set('X-Edge-City', city);
+    modifiedHeaders.set('X-Edge-Hop', 'Cloudflare-V8-Isolate');
+
+    const originTarget = `${env.ORIGIN_URL || 'https://origin.company.com'}${url.pathname}${url.search}`;
+    const newRequest = new Request(originTarget, {
+      method: request.method,
+      headers: modifiedHeaders,
+      body: request.body,
+      redirect: 'follow',
+    });
+
+    // 4. Fetch from origin and cache response if applicable
+    return await fetch(newRequest);
   },
 };
+```
 
-function isAllowed(key) {
-  return key === "demo-allowed-key"; // stand-in for a real allowlist/KV lookup
+### Rust (Compiled to WebAssembly `wasm32-wasi`)
+```rust
+use fastly::http::{header, Method, StatusCode};
+use fastly::{Error, Request, Response};
+
+#[fastly::main]
+fn main(mut req: Request) -> Result<Response, Error> {
+    // 1. Edge Path Interception
+    if req.get_path() == "/healthz" {
+        return Ok(Response::from_status(StatusCode::OK)
+            .with_header(header::CONTENT_TYPE, "text/plain")
+            .with_body("Edge Wasm Isolate Healthy"));
+    }
+
+    // 2. Edge Security Verification
+    match req.get_header("X-API-Key") {
+        Some(key) if key == "secret-wasm-key-99" => {
+            // Authorized: Strip sensitive token before forwarding to origin
+            req.remove_header("X-API-Key");
+            req.set_header("X-Edge-Authorized", "true");
+        }
+        _ => {
+            // Reject at the edge
+            return Ok(Response::from_status(StatusCode::UNAUTHORIZED)
+                .with_header(header::CONTENT_TYPE, "application/json")
+                .with_body(r#"{"error":"Unauthorized by Edge Wasm"}"#));
+        }
+    }
+
+    // 3. Forward request to upstream backend origin cluster
+    let resp = req.send("origin_cluster")?;
+    Ok(resp)
 }
 ```
 
-A worker that assigns an A/B variant consistently at the edge:
+### Go (TinyGo / WebAssembly for Edge)
+```go
+package main
 
-```javascript
+import (
+	"syscall/js"
+)
+
+func fetchInterceptor(this js.Value, args []js.Value) interface{} {
+	request := args[0]
+	headers := request.Get("headers")
+	apiKey := headers.Call("get", "x-api-key").String()
+
+	// 1. Validate API Key at the Wasm boundary
+	if apiKey != "valid_wasm_edge_token" {
+		responseInit := js.Global().Get("Object").New()
+		responseInit.Set("status", 401)
+		
+		responseBody := `{"error":"Forbidden: Edge Wasm validation failed"}`
+		return js.Global().Get("Response").New(responseBody, responseInit)
+	}
+
+	// 2. Delegate to origin fetch
+	return js.Global().Call("fetch", request)
+}
+
+func main() {
+	c := make(chan struct{}, 0)
+	js.Global().Set("wasmEdgeHandler", js.FuncOf(fetchInterceptor))
+	<-c // Keep Wasm module alive
+}
+```
+
+### Python (Fastly Compute)
+```python
+from fastly.http import Request, Response
+
+def handle_request(event):
+    req = event.request
+    url_path = req.url_components.path
+
+    # 1. Edge Geo Routing
+    client_country = req.geo.country_code if req.geo else "US"
+
+    if url_path == "/terms":
+        if client_country in ["DE", "FR", "IT", "ES"]:
+            return Response.redirect("https://company.eu/terms-gdpr", 302)
+        return Response.redirect("https://company.com/terms-global", 302)
+
+    # 2. Origin Request Forwarding
+    return event.respond_with(req.send("backend_origin"))
+```
+
+---
+
+## Practical Hands-On Verification Workflows
+
+### 1. Execute an Edge Function Locally via Wrangler
+
+Launch the local V8 runtime sandbox using Cloudflare's open-source `workerd` engine:
+
+```bash
+# 1. Initialize test directory
+mkdir -p /tmp/edge-verification && cd /tmp/edge-verification
+
+# 2. Write minimal worker
+cat << 'EOF' > worker.js
 export default {
   async fetch(request) {
     const url = new URL(request.url);
-    const bucket = (Math.random() < 0.5) ? "A" : "B";
-    return new Response(JSON.stringify({ variant: bucket, path: url.pathname }), {
-      headers: { "content-type": "application/json" },
-    });
-  },
-};
-```
-
-## Hands-on exercises
-
-`npx wrangler dev` requires Node.js (already installed if you've done
-any modern JS tooling) — no Cloudflare account is needed for local
-development; `wrangler dev` runs your code against a fully local copy of
-the same open-source runtime (`workerd`) production traffic runs on.
-
-### 1. Run your first edge function locally
-
-```bash
-mkdir edge-lab && cd edge-lab
-cat > worker.js << 'EOF'
-export default {
-  async fetch(request) {
-    const country = request.cf?.country || "unknown";
-    return new Response(JSON.stringify({ message: "hello from the edge", country }), {
-      headers: { "content-type": "application/json" },
-    });
-  },
-};
-EOF
-cat > wrangler.toml << 'EOF'
-name = "edge-lab"
-main = "worker.js"
-compatibility_date = "2024-01-01"
-EOF
-npx wrangler dev --port 8791
-```
-
-In a second terminal:
-
-```bash
-curl -s http://127.0.0.1:8791/
-```
-
-Expected: a JSON response like `{"message":"hello from the edge",
-"country":"..."}` — your code, running inside `workerd`'s sandbox, not a
-traditional Node.js server process.
-
-### 2. Reject a request at the edge before it would reach origin
-
-Using the "rejects before calling origin" pattern from the Command
-reference, request without and with the header:
-
-```bash
-curl -s -i http://127.0.0.1:8791/           # no x-api-key header
-curl -s -i http://127.0.0.1:8791/ -H "x-api-key: demo-allowed-key"
-```
-
-Expected: the first request gets `401 Unauthorized` — and note that in a
-real deployment this reject happens at a PoP near the client, so a
-malicious or invalid request never even reaches your origin's network,
-let alone its application code. The second request would attempt to
-forward to `origin.example.com` (which doesn't exist in this exercise,
-so expect a fetch error — the point here is confirming the *decision
-logic* ran correctly at the edge, not standing up a real origin).
-
-### 3. Redirect at the edge with zero origin involvement
-
-```bash
-cat > worker.js << 'EOF'
-export default {
-  async fetch(request) {
-    const url = new URL(request.url);
-    if (url.pathname === "/old-path") {
-      return Response.redirect("https://example.com/new-path", 302);
+    if (url.pathname === "/edge-secure") {
+      const auth = request.headers.get("x-edge-token");
+      if (auth !== "pass123") {
+        return new Response(JSON.stringify({ error: "Blocked at Edge" }), {
+          status: 403,
+          headers: { "Content-Type": "application/json" }
+        });
+      }
+      return new Response(JSON.stringify({ status: "Authenticated at Edge PoP" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" }
+      });
     }
-    return new Response("no redirect for this path");
-  },
+    return new Response("Hello from Edge", { status: 200 });
+  }
 };
 EOF
-npx wrangler dev --port 8791
+
+# 3. Test execution via curl
+curl -s -i http://localhost:8787/edge-secure
 ```
 
+**Expected Wire Response (Rejected at Edge without Origin):**
+```http
+HTTP/1.1 403 Forbidden
+Content-Type: application/json
+Date: Mon, 10 Nov 2026 17:30:00 GMT
+
+{"error":"Blocked at Edge"}
+```
+
+Pass valid credentials to verify success:
 ```bash
-curl -s -i http://127.0.0.1:8791/old-path | head -5
+curl -s -i http://localhost:8787/edge-secure -H "x-edge-token: pass123"
 ```
 
-Expected: `HTTP/1.1 302 Found` with a `Location:
-https://example.com/new-path` header — the redirect decision and
-response were both generated entirely by the edge function, with no
-origin server involved at all.
+**Expected Wire Response:**
+```http
+HTTP/1.1 200 OK
+Content-Type: application/json
 
-### 4. Prove A/B assignment happens without any backend round trip
-
-Using the A/B pattern from the Command reference, run several requests
-in a row:
-
-```bash
-for i in 1 2 3 4 5 6; do curl -s http://127.0.0.1:8791/; echo; done
+{"status":"Authenticated at Edge PoP"}
 ```
 
-Expected: a mix of `{"variant":"A",...}` and `{"variant":"B",...}`
-responses — the experiment assignment decision was made entirely inside
-the edge function, per request, with no call to any backend service or
-experimentation platform.
+---
 
-### 5. Feel the state-isolation constraint directly
-
-```bash
-cat > worker.js << 'EOF'
-let counter = 0; // module-level "state" -- deliberately naive
-
-export default {
-  async fetch(request) {
-    counter += 1;
-    return new Response(JSON.stringify({ counter }), {
-      headers: { "content-type": "application/json" },
-    });
-  },
-};
-EOF
-npx wrangler dev --port 8791
-```
-
-```bash
-for i in 1 2 3; do curl -s http://127.0.0.1:8791/; echo; done
-```
-
-Expected locally: the counter *does* increment within this one dev
-session, because your laptop is running one single instance of the
-isolate for this exercise. In a real multi-PoP deployment, this same
-code is unreliable as a source of truth — a different request can land
-on a different, freshly-started isolate at a different PoP with its own
-`counter` starting back at zero, so relying on module-level state for
-anything that must be consistent (a real request count, a rate limit)
-is a mistake this exercise is designed to expose conceptually, even
-though a single local dev server can't reproduce the multi-PoP
-inconsistency itself. Fix conceptually: any state that must be
-consistent belongs in an edge-reachable external store (a globally
-replicated KV store, or your origin), not a module-level variable.
-
-### 6. Diagnose and fix: an edge function that silently breaks under real traffic
-
-A team ships an edge function that rate-limits requests per API key by
-counting hits in a module-level `Map`, exactly like exercise 5's
-counter. In their local testing (one dev server, one isolate) it works
-perfectly. In production, abusive clients are getting through the rate
-limit far more often than the configured threshold should allow.
+## Operational Validation Checkpoints (Scenario Quizzes)
 
 <details>
-<summary>Solution</summary>
+<summary><strong>Checkpoint 1: The Cold Start Difference</strong></summary>
 
-Root cause: the rate limiter's counter lives in module-level memory
-inside a single isolate, but production edge platforms run many
-independent isolates across many PoPs (and even multiple isolates on
-one PoP under load) — each with its *own* separate copy of that `Map`,
-starting from zero. A client's requests don't reliably land on the same
-isolate twice, so the "count of hits so far" the code checks against is
-never the *true* global count — it's whatever one, randomly-selected
-isolate happened to see. An abusive client effectively gets a fresh
-rate-limit budget on every isolate their requests happen to land on.
+**Scenario:** A development team builds a global authentication verification service. They consider two serverless deployment options:
+1. AWS Lambda running a Python 3.12 container runtime with a VPC connection.
+2. Cloudflare Workers or Fastly Compute running a WebAssembly / V8 Isolate.
 
-Fix: move the counter into a store the edge platform can read/write
-consistently across all isolates — a globally-consistent or
-strongly-consistent key-value/counter service designed for this exact
-problem (e.g. Cloudflare's Durable Objects, or a call out to a shared
-Redis/database) — so every isolate, everywhere, checks and increments
-the *same* counter instead of each keeping its own local guess. This is
-the edge-computing version of a lesson from track 06's pub-sub-architecture
-module (module 08 there): don't rely on in-process state across multiple
-independent worker processes — the same problem, one level further out,
-across PoPs instead of across processes on one machine.
+When user traffic arrives with sporadic bursts from Australia and Japan, the AWS Lambda deployment shows p99 latencies of 450ms, while the edge isolate shows p99 latencies of 8ms. What structural, architectural differences between container virtualization and WebAssembly isolates cause this 50x latency discrepancy?
 
+**Answer:**
+1. **Absence of OS / Container Virtualization**: Container-based FaaS (AWS Lambda) must instantiate a Linux cgroup namespace, mount filesystem layers, boot the Python runtime interpreter, load standard libraries, and establish VPC network interfaces (ENIs), requiring 250ms–2,000ms on cold starts.
+2. **Instant Memory Sandbox Initialization**: WebAssembly / V8 Isolates run inside an already warm, long-lived host process (`workerd` or Lucet/Viceroy). Instantiating a new Wasm isolate requires only allocating a fresh, isolated linear memory space and loading pre-compiled native machine bytecode, completing in **under 5 milliseconds**.
+3. **Physical Proximity**: Edge platforms run on Points of Presence (PoPs) physically located within the local telecommunications exchange (e.g. Sydney or Tokyo), avoiding the 150ms trans-oceanic network transit time to an origin cloud region in the US.
 </details>
-
-### 7. Clean up
-
-```bash
-# Ctrl+C the running `wrangler dev` process; no cloud resources were created.
-```
-
-## Independent challenge
-
-No code given. Design an edge-function strategy for a public API that's
-currently REST-only, entirely served from one origin region. You've been
-asked to: (1) reject requests from a small list of abusive IP ranges
-before they reach origin, (2) redirect EU-region traffic to a
-region-specific terms-of-service page for a specific deprecated
-endpoint, (3) run a 50/50 experiment on a new response format for one
-endpoint, and (4) maintain an accurate, global count of how many times
-each API key has been used this month for billing purposes. For each of
-the four requirements, decide whether it belongs at the edge or must
-stay at origin, and if it belongs at the edge, whether it needs external
-state or can be handled with pure per-request logic. Justify each
-decision using this module's constraints (statelessness, CPU budget, no
-native calls) rather than just asserting an answer.
 
 <details>
-<summary>Stuck? One hint</summary>
+<summary><strong>Checkpoint 2: The Edge Stateful Storage Trap</strong></summary>
 
-(1), (2), and (3) are all pure per-request decisions with no need for
-state that must be globally consistent — textbook edge-function
-territory, exactly like exercises 2-4. (4) is the interesting one: an
-accurate, global, billing-grade count is precisely the kind of state
-exercise 5/6 showed module-level edge state *cannot* reliably provide —
-it needs either a globally-consistent counter store the edge can call
-into, or (more simply) should just be tracked at origin/your database,
-accepting that the edge's job here is limited to letting the request
-through, not doing the counting itself.
+**Scenario:** A developer wants to build a shopping cart service at the edge. They create a global variable `const carts = new Map();` inside their Cloudflare Worker to store user cart items so checkout operations have sub-5ms latency. Explain why this design will fail completely in production.
 
+**Answer:**
+This design fails because edge architectures violate the assumption of a persistent, centralized memory heap:
+- **Global Distribution**: Edge platforms operate across 300+ PoPs worldwide. If a user in London adds an item to their cart, the request updates the memory heap on an isolate in London. If the user's next request routes to a different PoP (or a separate isolate on the same PoP), their cart will be completely empty.
+- **Isolate Ephemerality**: Edge isolates are recycled aggressively under load or idle conditions. Any in-memory state is permanently lost when the runtime garbage collects the isolate.
+- **The Correct Architecture**: Ephemeral logic lives at the edge, but state must be backed by a distributed database, a replicated edge store (such as Cloudflare KV, Durable Objects, or DynamoDB Global Tables), or written back to the origin database.
 </details>
-
-## Common mistakes & troubleshooting
-
-- **Treating an edge function as a smaller server.** It runs under real
-  constraints — no persistent local state by default, a tight CPU-time
-  budget, no arbitrary native code — not just "the same code, closer to
-  the user." Design for those constraints explicitly rather than
-  porting server logic over unchanged.
-- **Storing state that must be globally consistent in module-level
-  memory.** Exercises 5 and 6 showed this directly: each isolate, at
-  each PoP, has its own separate copy, so a rate limiter or counter
-  built this way silently under-enforces in production even though it
-  looks correct in a single local dev session.
-- **Reaching for the edge to do heavy computation.** The CPU-time budget
-  and sandboxed execution model exist for cheap, fast, per-request
-  logic — routing, auth checks, rewrites — not your full application's
-  business logic. That's still origin's job.
-- **Assuming a local `wrangler dev` session proves the global-latency
-  benefit.** A local dev server validates your *logic*, not the
-  multi-region distribution that's the actual latency win — that
-  benefit only appears with a real multi-PoP deployment, and this
-  module says so honestly rather than claiming a laptop benchmark
-  proves the vendor's latency chart.
-- **Putting genuinely origin-bound work (a real database transaction,
-  anything needing strong consistency across many operations) at the
-  edge.** The edge is a first stop for cheap decisions, not a
-  replacement architecture for your backend.
-
-## Checkpoint quiz
-
-Write down your answer to each question before expanding it — checking without attempting first is the single easiest way to fool yourself into thinking you've learned this.
-
-1. Where does an edge function run in a request's path, and how is that
-   different from a CDN cache?
-2. Why do edge platforms run code inside a WebAssembly-based sandbox
-   instead of a traditional container or VM per customer?
-3. Name three kinds of logic that are a good fit for the edge, and one
-   kind of work that is *not* a good fit, with a reason for each.
-4. Why is a module-level variable an unreliable place to keep a count
-   that must be accurate (like a rate limit or a billing counter) in a
-   real edge deployment, even if it works correctly in local testing?
-5. What's the actual claimed advantage of a Wasm-sandboxed cold start
-   over a traditional container-based serverless cold start?
 
 <details>
-<summary>Answers</summary>
+<summary><strong>Checkpoint 3: Edge vs Origin Workload Boundary</strong></summary>
 
-1. It runs at a point-of-presence physically close to the client,
-   before the request necessarily reaches your origin server. Unlike a
-   CDN cache, which can only serve an already-cached static response, an
-   edge function runs your actual code and can make a decision per
-   request — reject it, redirect it, rewrite it, or decide to forward it
-   to origin.
-2. Because a Wasm-based sandbox starts in microseconds and isolates
-   tenants safely on shared hardware without needing to boot a full OS
-   process or container per customer — the fast-start, safely-isolated
-   properties are the specific reason this technology fits the edge's
-   "many customers, many PoPs, must start instantly" requirement.
-3. Good fits: auth/allowlist checks (reject before origin), A/B/feature-
-   flag assignment (a pure per-request decision), and geo-based
-   routing/redirects (uses request-local information, no origin needed).
-   Not a good fit: heavy computation or anything needing a real,
-   multi-step database transaction — the CPU-time budget and sandboxed
-   execution model aren't built for that, and it belongs at origin.
-4. Because production edge platforms run many independent isolates
-   across many PoPs, each with its own separate copy of any module-level
-   variable — a client's requests don't reliably land on the same
-   isolate twice, so the "count so far" any single isolate sees is never
-   the true global count. Local testing only exercises one isolate, so
-   it hides this entirely; the bug only appears under real, distributed
-   traffic.
-5. A traditional container/VM-based serverless cold start commonly costs
-   hundreds of milliseconds (booting a container runtime); a Wasm
-   isolate's cold start is commonly single-digit milliseconds, because
-   there's no OS process or container to boot — closer to loading a
-   small, pre-verified bytecode module into an already-running host
-   process.
+**Scenario:** An engineering team debates moving their video transcoding and PDF generation microservices to edge functions to "make them faster for global users." As the lead architect, why must you veto this proposal, and what workloads strictly belong at origin?
 
+**Answer:**
+You must veto this proposal because video transcoding and PDF generation directly violate edge computing architectural constraints:
+1. **Strict CPU Time Limits**: Edge isolates enforce strict CPU runtime quotas (typically 10ms–50ms of active CPU time per invocation). Heavy operations like video encoding or PDF rendering exceed these budgets by several orders of magnitude and will be terminated with HTTP 500 / Worker CPU Exceeded errors.
+2. **Memory Footprint Quotas**: Edge sandboxes limit RAM to between 128MB and 256MB per isolate. Transcoding and document rendering require gigabytes of scratch memory.
+3. **Lack of Native OS Binaries**: Edge isolates do not provide standard Linux shell access, arbitrary filesystem I/O, or native dependencies (e.g. FFmpeg, Chromium, ImageMagick).
+- **Workload Rule**: The edge is reserved for **fast, I/O-bound request steering, auth interception, and metadata transformations**. Compute-heavy, memory-intensive, and long-running batch jobs strictly belong on origin compute infrastructure (Kubernetes, VMs, or batch queues).
 </details>
 
-## Further reading & sources
+---
 
-- [Cloudflare Workers: How Workers works](https://developers.cloudflare.com/workers/reference/how-workers-works/) - the official explanation of the V8-isolate/Wasm sandboxing model used throughout this module.
-- [Cloudflare: WebAssembly on Workers](https://developers.cloudflare.com/workers/runtime-apis/webassembly/) - using compiled Wasm modules directly in a Worker, beyond the JavaScript examples in this module.
-- [Wrangler CLI documentation](https://developers.cloudflare.com/workers/wrangler/) - the CLI and local dev server (`workerd`) used in every exercise in this module.
-- [Fastly: Compute — WebAssembly at the edge](https://www.fastly.com/documentation/guides/compute/) - a second major vendor's take on the same Wasm-at-the-edge model, useful for confirming this isn't one company's idiosyncratic design.
-- [Cloudflare: Durable Objects](https://developers.cloudflare.com/durable-objects/) - the mechanism referenced in exercise 6's fix for state that must be globally consistent across isolates.
+## Further Reading & Next Steps
 
-## Next
-
-[12-capstone-project](../12-capstone-project/README.md) — you've built
-the whole map: REST, gRPC, GraphQL, event-driven communication, and now
-edge computing as a fifth place logic can run. The capstone makes the
-core of it real in miniature: one small service exposed via an internal
-gRPC API and fronted by a GraphQL BFF for a web client.
-</content>
+* [Cloudflare Workers Documentation: Architecture & Isolates](https://developers.cloudflare.com/workers/reference/how-workers-works/) - How V8 isolates achieve instant startup.
+* [WebAssembly Official Specification](https://webassembly.github.io/spec/core/) - The binary bytecode instruction format for secure sandboxing.
+* [Fastly Compute Documentation](https://www.fastly.com/documentation/guides/compute/) - High-performance WebAssembly at the physical network edge.
+* Next up: [12-capstone-project](../12-capstone-project/README.md) to synthesize all concepts from Track 11 into an end-to-end, multi-paradigm production system.

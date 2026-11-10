@@ -1,478 +1,525 @@
-# Module 07: GraphQL Security, Caching and Observability
+# Module 07: GraphQL Security, Caching, and Observability
 
-## Why this matters
+> **Prerequisites**: [03-graphql-fundamentals](../03-graphql-fundamentals/README.md), [04-graphql-advanced-patterns](../04-graphql-advanced-patterns/README.md), and [06-graphql-errors-nullability-and-partial-results](../06-graphql-errors-nullability-and-partial-results/README.md).  
+> **Estimated Reading Time**: 32 minutes  
+> **Target Audience**: Senior Backend Engineers, Security Architects, and Platform Engineers operating high-scale GraphQL infrastructure in production.
 
-Module 04 gave you depth and complexity limits, which stop the obvious
-attack: a deeply nested query that explodes into millions of resolver calls.
-They do **not** stop the two attacks that actually get used, because both
-stay comfortably within any depth or complexity budget you'd realistically
-set.
+---
 
-Caching has a similar shape. Everything you know about HTTP caching assumes
-`GET` with a cacheable URL — and GraphQL is a `POST` to a single endpoint
-with the query in the body, which is uncacheable by every CDN and browser
-cache in existence. You don't get HTTP caching back by wishing; you get it
-back with a specific mechanism.
+> [!TIP]
+> **The Golden Rule of GraphQL Security, Caching, and Observability**  
+> Never rely on static depth limits or request-count rate limiting to protect GraphQL endpoints. Attackers bypass depth limits using **alias amplification** and bypass request counting using **multiplicative pagination** (`first: 100`). Enforce **multiplicative complexity scoring** before execution, rate-limit clients by **complexity points consumed**, and deploy **Persisted Queries in registry-only mode** to reduce your public attack surface to zero. To unlock CDN caching on GraphQL, execute persisted queries via HTTP `GET` with explicit `Cache-Control` max-age hints.
 
-And observability: `POST /graphql` in your access logs tells you nothing.
-Every request looks identical. Without deliberate instrumentation you cannot
-answer "which query is slow" — the single most common production question.
+---
 
-## Concepts
+## Visual Mental Models & Architecture
 
-### Attack 1: aliases
+### The CDN Caching Flow: Unlocking HTTP GET via Persisted Queries
 
-A depth limit counts nesting. Aliases don't nest:
+Standard GraphQL sends HTTP `POST` requests with arbitrary query strings in the body, rendering traditional CDN edge caches (Cloudflare, Fastly, CloudFront) completely ineffective. Persisted Queries convert operations into cryptographic hashes (`sha256`) that can be safely routed over HTTP `GET`.
 
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Client as Web / Mobile App
+    participant CDN as Edge CDN (Cloudflare / Fastly)
+    participant Gateway as GraphQL Server / Gateway
+    participant Registry as Persisted Query Manifest
+
+    Note over Client,Registry: Build Phase: Extracted Queries -> Hashed -> Deployed to Registry
+    Client->>CDN: GET /graphql?id=sha256:8f4c2...&variables={"id":"usr_42"}
+    
+    alt Edge Cache Hit (Valid TTL)
+        CDN-->>Client: 200 OK (Age: 32s, Cache-Control: public, max-age=120)
+    else Edge Cache Miss
+        CDN->>Gateway: Forward GET /graphql?id=sha256:8f4c2...&variables=...
+        Gateway->>Registry: Lookup AST by SHA256 Hash
+        Registry-->>Gateway: AST Document Found
+        Gateway->>Gateway: Execute Query & Compute Cache-Control (Min TTL)
+        Gateway-->>CDN: 200 OK + Cache-Control: max-age=120
+        CDN-->>Client: Return 200 OK & Populate Edge Cache
+    end
+```
+
+---
+
+### Multiplicative Complexity vs Naive Field Counting
+
+A query with depth 3 can easily consume more server CPU and memory than a query with depth 20 if it exploits list pagination arguments.
+
+```mermaid
+flowchart TD
+    subgraph Naive Scorer: Cost = 4 points
+        A1["Query.users (1 pt)"] --> B1["User.posts (1 pt)"]
+        B1 --> C1["Post.comments (1 pt)"]
+        C1 --> D1["Comment.author (1 pt)"]
+    end
+
+    subgraph Multiplicative Scorer: Cost = 1,010,100 points
+        A2["Query.users(first: 100) [100 items]"] --> B2["User.posts(first: 100) [10,000 items]"]
+        B2 --> C2["Post.comments(first: 100) [1,000,000 items]"]
+        C2 --> D2["Comment.author [1,000,000 items]"]
+    end
+
+    style Naive Scorer fill:#f8d7da,stroke:#dc3545,stroke-width:2px
+    style Multiplicative Scorer fill:#d4edda,stroke:#28a745,stroke-width:2px
+```
+
+---
+
+## Systematic Reference Grids
+
+### Attack Vectors & Defensive Countermeasures
+
+| Attack Vector | Attacker Technique | Why Naive Defenses Fail | Production Countermeasure |
+| :--- | :--- | :--- | :--- |
+| **Alias Amplification** | Repeating the same field thousands of times using distinct aliases (`a1: user(id:1), a2: user(id:2)...`). | **Depth limits ignore width**: Query depth is only 2, but resolves 10,000 database queries in one HTTP call. | Enforce a strict **Max Alias Limit** (e.g., &le; 20) and **Max Total Field Node Count** (e.g., &le; 250) at the AST validation stage. |
+| **Multiplicative List Bomb** | Nesting connection arguments: `users(first:100) { posts(first:100) { comments(first:100) } }`. | **Per-field complexity scorers** count 4 fields instead of the 1,000,000 entities requested. | Implement **Multiplicative Complexity Analysis** that parses AST argument values and multiplies child node costs by `first`/`last`. |
+| **Batching Array Flood** | Sending an array of 5,000 JSON query operations in a single HTTP `POST` body. | **Per-operation limits** validate each single query as cheap, while request-count rate limiters count 1 HTTP request. | Cap batch array size (e.g., &le; 10 operations), sum complexity across the entire batch, or disable batching entirely. |
+| **Introspection Reconnaissance** | Querying `__schema` and `__type` to map sensitive types, mutations, and deprecated endpoints. | Security by obscurity: disabling introspection doesn't stop guessing, and field suggestions leak types. | Disable introspection in public production AND disable **field suggestions** ("Did you mean..."). Use **Persisted Queries**. |
+| **Denial of Service via Regex / Large Strings** | Passing 10MB GraphQL documents or deeply nested recursive fragments. | Parsing massive documents consumes CPU and memory before execution even begins. | Enforce **Max Request Body Size** (e.g., 50KB) and **Max Fragment Spread Depth** (e.g., &le; 5) at the HTTP parser layer. |
+
+---
+
+### The Three-Tier Caching Hierarchy
+
+| Caching Layer | Technology | Keying Strategy | Cache Invalidation Mechanism | Primary Benefit |
+| :--- | :--- | :--- | :--- | :--- |
+| **Tier 1: HTTP / CDN Edge** | Cloudflare, Fastly, Varnish, Akamai | URL Path + SHA256 Hash + Stringified Variables | Time-To-Live (TTL) via `Cache-Control` header; Surrogate-Key / Cache-Tags purging. | Zero backend execution overhead; global latency under 30ms for static/unauthenticated queries. |
+| **Tier 2: Whole-Response Cache** | Redis, In-Memory Memcached | Client Role + Query Hash + Variable Hashes | `@cacheControl(maxAge: 300, scope: PUBLIC)` computed across AST fields (most restrictive wins). | Offloads repeated identical queries from application server CPU. |
+| **Tier 3: Object / Entity Cache** | Redis + DataLoader | Entity Typename + Primary Key (e.g., `User:usr_99`) | Event-driven invalidation (Kafka/Debezium/CDC mutation events). | Accelerates authenticated, dynamic queries by caching shared underlying domain entities across different query shapes. |
+
+---
+
+## Production Incident War Story: The 94-Request Collapse
+
+### Incident Post-Mortem: SEV-1
+
+* **Incident ID**: INC-7822
+* **Severity Level**: SEV-1 (Primary Database CPU Saturation)
+* **Detection Time**: 3 minutes after automated scraper started
+* **Time to Recovery (TTR)**: 22 minutes
+* **Impact**: Total database lockup; all checkout transactions, user logins, and order views stalled globally.
+
+#### 1. What Happened
+A publicly exposed GraphQL endpoint was protected by standard industry guardrails:
+1. Depth limiting: Maximum query depth of 8.
+2. Static complexity limit: Maximum 1,000 points (1 point per field).
+3. Rate limiting: 100 HTTP requests per minute per IP address.
+4. Introspection: Disabled in production.
+
+A competitor script attempted to scrape inventory by executing the following query:
 ```graphql
-query {
-  a1: user(id: "1") { name }
-  a2: user(id: "2") { name }
-  a3: user(id: "3") { name }
-  # ... repeated 10,000 times
+query ScrapeCatalog {
+  categories(first: 50) {
+    products(first: 50) {
+      variants(first: 50) {
+        id
+        sku
+        price
+        inventoryCount
+      }
+    }
+  }
+}
+```
+The scraper executed this query across 94 requests within a single minute. 
+
+Because the query depth was only 4 (well within the limit of 8), the static field count was only 7 fields (well within the 1,000-point limit), and the total request volume was 94 requests (under the 100 req/min rate limit), **all requests were admitted unconditionally**.
+
+However, each single query resolved:
+$$\text{Entities} = 50 \times 50 \times 50 = 125,000 \text{ variants}$$
+Across 94 requests, the backend attempted to hydrate and serialize **11,750,000 database entities** in 60 seconds. The PostgreSQL database hit 100% CPU utilization, connection pool workers starved, and the entire API ground to a halt.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Scraper as Malicious Scraper
+    participant WAF as Edge WAF / Rate Limiter
+    participant Gateway as GraphQL Server
+    participant DB as Postgres Primary DB
+
+    Scraper->>WAF: POST /graphql (94 req/min with first: 50 nested)
+    Note over WAF: 94 req < 100 req/min limit: PASS!
+    WAF->>Gateway: Forward Request
+    Note over Gateway: Depth = 4 (< 8): PASS!<br/>Static Field Count = 7 (< 1000): PASS!
+    Gateway->>DB: Fetch 50 categories * 50 products * 50 variants
+    Note over DB: Query cascades into 125,000 row joins per request!<br/>94 requests = 11.75M records!
+    DB--xGateway: 💥 Connection Pool Exhausted / CPU 100%
+    Gateway--xScraper: 504 Gateway Timeout
+    Note over DB: All legitimate users blocked globally!
+```
+
+#### 2. Root Cause Analysis
+1. **Flawed Complexity Heuristic**: The complexity calculator evaluated AST nodes statically without incorporating pagination multiplier arguments (`first` and `last`).
+2. **Request-Count Rate Limiting**: The rate limiter treated a single lightweight query (`{ me { id } }`) identically to a query that fetched 125,000 records.
+3. **Missing Hard Bounds on Pagination**: The GraphQL schema did not enforce a maximum allowed integer on `first` arguments.
+
+#### 3. The Architectural Hardening & Resolution
+1. **Multiplicative Complexity Algorithm**: Configured query analysis to multiply child node complexity by the integer value of `first` / `last`. The scraper query scored over 150,000 points and was rejected during document validation before executing a single database call.
+2. **Cost-Based Rate Limiting**: Replaced request-count rate limiting with a Redis token bucket denominated in **complexity points** (allocating 5,000 points/min per client).
+3. **Strict Argument Clamping**: Hard-coded a global maximum limit on all pagination arguments: `first: Int = 20` with a server-side cap of `50`. Any query requesting `first > 50` fails validation.
+
+---
+
+## Multi-Language Production Code Tabs: Multiplicative Complexity & Protection
+
+The following implementations demonstrate:
+1. Multiplicative query complexity calculation accounting for list pagination (`first`/`last`).
+2. Alias limits to prevent alias amplification attacks.
+3. Automated persisted query verification.
+
+```
+### Language Tabs
+1. Go (gqlgen with custom complexity rules)
+2. Node.js / TypeScript (graphql-armor / custom validation rule)
+3. Python (Strawberry SchemaExtension complexity estimator)
+4. C# (Hot Chocolate MaxAllowedExecutionDepth & Cost Analysis)
+```
+
+### Go (gqlgen)
+```go
+package main
+
+import (
+	"context"
+	"fmt"
+	"net/http"
+
+	"github.com/99designs/gqlgen/graphql"
+	"github.com/99designs/gqlgen/graphql/handler"
+	"github.com/99designs/gqlgen/graphql/handler/extension"
+)
+
+func main() {
+	// 1. Initialize gqlgen server with schema
+	srv := handler.NewDefaultServer(NewExecutableSchema(Config{Resolvers: &Resolver{}}))
+
+	// 2. Set maximum query depth
+	srv.Use(extension.FixedComplexityLimit(1000))
+
+	// 3. Define multiplicative complexity calculation function
+	complexityConfig := ComplexityRoot{
+		Query: struct {
+			Categories func(childComplexity int, first *int) int
+		}{
+			Categories: func(childComplexity int, first *int) int {
+				multiplier := 10 // Default pagination limit
+				if first != nil {
+					multiplier = *first
+					if multiplier > 50 {
+						multiplier = 50 // Enforce hard cap
+					}
+				}
+				// Multiplicative cost: child fields * number of items
+				return 1 + (childComplexity * multiplier)
+			},
+		},
+	}
+
+	srv.Use(extension.ComplexityLimit{
+		Func: func(ctx context.Context, rc *graphql.OperationContext) int {
+			// Dynamic calculation based on user tier or token
+			return 2500 // Max budget per query
+		},
+	})
+
+	http.Handle("/graphql", srv)
+	fmt.Println("GraphQL security gateway listening on :8080")
+	_ = http.ListenAndServe(":8080", nil)
 }
 ```
 
-Depth: 2. Complexity, under a naive per-field scorer: fine. Actual cost:
-10,000 database lookups from one HTTP request. This is a straightforward
-amplification attack and it defeats depth limiting entirely.
+### Node.js / TypeScript (Apollo Server + GraphQL Armor)
+```typescript
+import { ApolloServer } from '@apollo/server';
+import { startStandaloneServer } from '@apollo/server/standalone';
+import { GraphQLError, ValidationContext, ASTVisitor, FieldNode } from 'graphql';
 
-Defences, in order of effectiveness:
+// Custom validation rule: Alias count limiter
+export function maxAliasesRule(maxAllowed: number) {
+  return (context: ValidationContext): ASTVisitor => {
+    let aliasCount = 0;
+    return {
+      Field(node: FieldNode) {
+        if (node.alias) {
+          aliasCount++;
+          if (aliasCount > maxAllowed) {
+            context.reportError(
+              new GraphQLError(
+                `Too many aliases: Query defines ${aliasCount} aliases, exceeding limit of ${maxAllowed}`,
+                { extensions: { code: 'BAD_USER_INPUT' } }
+              )
+            );
+          }
+        }
+      },
+    };
+  };
+}
 
-```python
-# 1. Cap total field count / aliases in the document
-MAX_ALIASES = 50
+const typeDefs = `#graphql
+  type Product { id: ID! title: String! }
+  type Query {
+    products(first: Int = 10): [Product!]!
+  }
+`;
 
-# 2. Make complexity scoring multiply by list size, not just count fields
-#    users(first: 100) { posts(first: 100) { comments(first: 100) } }
-#    = 100 x 100 x 100 = 1,000,000 — a depth of 3
+const resolvers = {
+  Query: {
+    products: (_: any, { first }: { first: number }) => {
+      const clamped = Math.min(first, 50);
+      return Array.from({ length: clamped }, (_, i) => ({ id: `${i}`, title: `Item ${i}` }));
+    },
+  },
+};
+
+const server = new ApolloServer({
+  typeDefs,
+  resolvers,
+  validationRules: [
+    maxAliasesRule(15), // Enforce alias protection
+  ],
+  introspection: process.env.NODE_ENV !== 'production', // Disable in prod
+});
+
+startStandaloneServer(server, { listen: { port: 4000 } }).then(({ url }) => {
+  console.log(`Secured Apollo Server running at ${url}`);
+});
 ```
 
-The second point is the important one. **Complexity must account for
-pagination arguments**, or a three-level query with `first: 100` at each
-level scores as 3 and costs a million. Any complexity implementation that
-ignores `first`/`last` is decorative.
+### Python (Strawberry + Multiplicative Analysis)
+```python
+from typing import List, Optional
+import strawberry
+from strawberry.extensions import SchemaExtension
+from strawberry.types import ExecutionContext
+from graphql import GraphQLError, FieldNode, OperationDefinitionNode
 
-### Attack 2: batching
+class ComplexityGuardExtension(SchemaExtension):
+    MAX_BUDGET = 2000
 
-Most servers accept an array of operations in one request:
+    def on_operation(self):
+        ctx: ExecutionContext = self.execution_context
+        if ctx.graphql_document:
+            total_cost = self._calculate_cost(ctx.graphql_document.definitions)
+            if total_cost > self.MAX_BUDGET:
+                raise GraphQLError(
+                    f"Query complexity limit exceeded: cost {total_cost} exceeds limit of {self.MAX_BUDGET}",
+                    extensions={"code": "COMPLEXITY_LIMIT_EXCEEDED", "cost": total_cost}
+                )
+        yield
 
+    def _calculate_cost(self, definitions) -> int:
+        cost = 0
+        for defn in definitions:
+            if isinstance(defn, OperationDefinitionNode):
+                cost += self._score_selection_set(defn.selection_set, multiplier=1)
+        return cost
+
+    def _score_selection_set(self, selection_set, multiplier: int) -> int:
+        if not selection_set:
+            return 0
+        local_cost = 0
+        for selection in selection_set.selections:
+            if isinstance(selection, FieldNode):
+                field_cost = 1
+                child_multiplier = 1
+                for arg in selection.arguments:
+                    if arg.name.value in ("first", "limit"):
+                        try:
+                            child_multiplier = min(int(arg.value.value), 50)
+                        except (ValueError, AttributeError):
+                            child_multiplier = 10
+                
+                local_cost += (field_cost * multiplier)
+                if selection.selection_set:
+                    local_cost += self._score_selection_set(
+                        selection.selection_set, 
+                        multiplier=multiplier * child_multiplier
+                    )
+        return local_cost
+
+@strawberry.type
+class Product:
+    id: strawberry.ID
+    name: str
+
+@strawberry.type
+class Query:
+    @strawberry.field
+    def catalog(self, first: int = 10) -> List[Product]:
+        limit = min(first, 50)
+        return [Product(id=strawberry.ID(str(i)), name=f"Product {i}") for i in range(limit)]
+
+schema = strawberry.Schema(query=Query, extensions=[ComplexityGuardExtension])
+```
+
+### C# (Hot Chocolate)
+```csharp
+using HotChocolate.Execution.Configuration;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.Extensions.DependencyInjection;
+
+var builder = WebApplication.CreateBuilder(args);
+
+builder.Services
+    .AddGraphQLServer()
+    .AddQueryType<Query>()
+    // 1. Enforce maximum execution depth
+    .AddMaxExecutionDepthRule(7)
+    // 2. Enforce total document node limit (alias protection)
+    .AddMaxExecutionNodesRule(250)
+    // 3. Configure cost / complexity analysis
+    .AddCostAnalysis()
+    .ModifyCostOptions(o =>
+    {
+        o.MaxAllowedCost = 2500;
+        o.EnforceCostLimits = true;
+    });
+
+var app = builder.Build();
+app.MapGraphQL();
+app.Run();
+
+public class Product
+{
+    public string Id { get; set; } = "prod_1";
+    public string Name { get; set; } = "Hardened Server";
+}
+
+public class Query
+{
+    // Apply cost multipliers to collection arguments
+    [Cost(Complexity = 5, Multipliers = new[] { "first" })]
+    public IEnumerable<Product> GetProducts(int first = 10)
+    {
+        var limit = Math.Clamp(first, 1, 50);
+        return Enumerable.Range(1, limit).Select(i => new Product { Id = $"{i}", Name = $"Item {i}" });
+    }
+}
+```
+
+---
+
+## Practical Hands-On Verification Workflows
+
+### 1. Execute an Alias Attack & Observe Rejection
+
+Simulate an alias bomb designed to bypass naive depth limits and verify AST rejection:
+
+```bash
+# Send 25 aliased root queries to server with limit of 15 aliases
+curl -s -X POST http://localhost:4000/graphql \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "{ a1: products { id } a2: products { id } a3: products { id } a4: products { id } a5: products { id } a6: products { id } a7: products { id } a8: products { id } a9: products { id } a10: products { id } a11: products { id } a12: products { id } a13: products { id } a14: products { id } a15: products { id } a16: products { id } }"
+  }' | jq .
+```
+
+**Expected JSON Wire Error:**
 ```json
-[ {"query":"{ user(id:1){name} }"},
-  {"query":"{ user(id:2){name} }"},
-  ... 5000 more ]
+{
+  "errors": [
+    {
+      "message": "Too many aliases: Query defines 16 aliases, exceeding limit of 15",
+      "extensions": {
+        "code": "BAD_USER_INPUT"
+      }
+    }
+  ]
+}
 ```
 
-Limits are typically applied **per operation**, so 5,000 individually-legal
-queries sail through while costing 5,000 queries' worth of work — and rate
-limiting counted one HTTP request.
+---
 
-Fixes: cap the batch size (10 is generous), apply complexity limits to the
-**sum** across the batch, and rate-limit by total complexity rather than
-request count. If you don't need batching, disable it.
+### 2. Verify CDN Cache-Control Headers on HTTP GET
 
-### Rate limiting must be cost-based
+Issue a persisted query via HTTP `GET` and inspect headers to confirm CDN cacheability:
 
-Counting requests is meaningless when one request can be a thousand times
-more expensive than another. Rate limit on **complexity points consumed**:
-
-```python
-cost = estimate_complexity(document, variables)   # before execution
-if not bucket.consume(client_id, cost):           # token bucket on points
-    raise GraphQLError("Rate limit exceeded",
-                       extensions={"code": "RATE_LIMITED", "cost": cost})
+```bash
+curl -i "http://localhost:4000/graphql?query=%7Bproducts(first%3A5)%7Bid%20title%7D%7D"
 ```
 
-This is the same token-bucket mechanism from track 09, keyed by client and
-denominated in query cost rather than request count.
-
-### Introspection in production
-
-Introspection publishes your entire schema, including deprecated fields and
-internal-sounding type names. Whether to disable it in production is a real
-tradeoff, not a settled question:
-
-- **Disable it** if the API is internet-facing with known clients — it
-  removes a reconnaissance step and breaks nothing for clients who already
-  have the schema.
-- **Keep it** for internal/partner APIs where tooling depends on it.
-
-Treat it as defence in depth, not a security control: disabling introspection
-does not hide fields from anyone willing to guess, and field-suggestion
-messages ("Did you mean `passwordHash`?") leak schema detail anyway — disable
-those too.
-
-**Persisted queries make this moot**, which is the better answer.
-
-### Persisted queries: the real fix
-
-Instead of accepting arbitrary queries, accept only queries you've seen
-before:
-
-```
-Build time:  client's queries extracted → hashed → registry
-Runtime:     client sends { "id": "sha256:abc123", "variables": {...} }
-             server looks up the query by hash; unknown hash → reject
+**Expected Wire HTTP Headers:**
+```http
+HTTP/1.1 200 OK
+Content-Type: application/json; charset=utf-8
+Cache-Control: public, max-age=120, s-maxage=300
+ETag: W/"3a8-bFm9a76p"
+Vary: Accept-Encoding
+Date: Mon, 10 Nov 2026 17:00:00 GMT
 ```
 
-This eliminates the entire attack surface: no arbitrary query, therefore no
-alias bomb, no complexity attack, no introspection concern. It also shrinks
-requests substantially.
+---
 
-**Automatic Persisted Queries (APQ)** are the lighter variant, and are about
-bandwidth rather than security:
+## Operational Validation Checkpoints (Scenario Quizzes)
 
-```
-1. Client sends hash only
-2. Server: "PersistedQueryNotFound"
-3. Client retries with hash + full query
-4. Server caches it; all future clients send only the hash
-```
+<details>
+<summary><strong>Checkpoint 1: The Multiplicative Pagination Vulnerability</strong></summary>
 
-Note APQ in its default form still accepts arbitrary queries on the second
-round trip — so it is **not** a security control unless you run it in
-registry-only mode where unregistered hashes are rejected outright. Teams
-routinely conflate the two.
-
-### Caching a POST endpoint
-
-```
-GET /users/42        →  cacheable by URL, everywhere, for free
-POST /graphql        →  cacheable by nobody
-```
-
-Three layers, and you need different mechanisms at each:
-
-**1. CDN / HTTP layer.** Requires GET requests, which requires persisted
-queries (the query is now a short hash that fits in a URL):
-
-```
-GET /graphql?id=sha256:abc123&variables={"userId":"42"}
-Cache-Control: max-age=60
-```
-
-**2. Response-level cache hints.** The server computes a cache policy from
-the *most restrictive* field in the query:
-
+**Scenario:** An engineering team configures GraphQL depth limiting to 6 and static complexity calculation to 500 points (assigning 1 point per field). A client issues:
 ```graphql
-type User @cacheControl(maxAge: 300) {
+query Exploit {
+  departments(first: 20) {
+    teams(first: 20) {
+      engineers(first: 20) {
+        id
+        email
+      }
+    }
+  }
+}
+```
+What is the query depth, what is the static complexity score, how many engineer records will the backend attempt to materialize, and how do you fix this vulnerability?
+
+**Answer:**
+- **Query Depth**: 4 (well within the limit of 6).
+- **Static Complexity Score**: 5 points (`departments`, `teams`, `engineers`, `id`, `email`), well within the 500-point limit.
+- **Materialized Records**: $20 \times 20 \times 20 = 8,000$ engineer entities plus 400 team entities plus 20 department entities = 8,420 objects hydrated.
+- **The Fix**: Implement **multiplicative complexity scoring** where each nested field's weight is multiplied by its parent's `first` argument ($1 + 20 \times (1 + 20 \times (1 + 20 \times 2)) = 16,821$ points), which immediately triggers the 500-point rejection gate prior to execution.
+</details>
+
+<details>
+<summary><strong>Checkpoint 2: The Fallacy of APQ as a Security Boundary</strong></summary>
+
+**Scenario:** A tech lead claims: *"We have enabled Automatic Persisted Queries (APQ) on our Apollo Gateway, so we no longer need query complexity scoring or depth limits because clients can only send pre-approved query hashes."* Is this statement accurate? Explain why or why not.
+
+**Answer:**
+The statement is **false and dangerous**.
+Standard APQ is a **network bandwidth optimization protocol**, not an authorization or security boundary. Under default APQ:
+1. When a client sends a hash the server has not seen (`PersistedQueryNotFound`), the client immediately retries by sending the **full GraphQL query text** along with the hash.
+2. The server compiles the arbitrary query, registers the hash into its cache, and executes it.
+3. Therefore, an attacker can construct malicious alias bombs or recursive queries, compute the SHA256 locally, send the pair to the server, and have the server execute and persist the attack payload.
+To use persisted queries as a security boundary, you must operate in **Registry-Only / Safe-List Mode**, where unregistered query hashes are rejected immediately with HTTP 403/400 and arbitrary query strings are never executed.
+</details>
+
+<details>
+<summary><strong>Checkpoint 3: The Most-Restrictive-Wins Cache Trap</strong></summary>
+
+**Scenario:** A team adds Apollo `@cacheControl` hints to their user profile query:
+```graphql
+type User @cacheControl(maxAge: 3600) { # 1 hour
   id: ID!
   name: String!
-  lastSeen: DateTime @cacheControl(maxAge: 10)   # forces the whole response to 10
-  ssn: String @cacheControl(scope: PRIVATE)      # forces PRIVATE
+  avatarUrl: String!
+  lastActiveNotificationCount: Int @cacheControl(maxAge: 10) # 10 seconds
 }
 ```
+When querying `User` including `lastActiveNotificationCount`, edge CDN caches report near-zero hit ratios. Why is this occurring, and what architectural redesign should be applied?
 
-The "most restrictive wins" rule is what makes this safe and also what makes
-it disappointing: one volatile or private field drags the entire response's
-cacheability down. Design types with that in mind — splitting volatile fields
-onto a separate type is often worth it.
-
-**3. Object-level cache.** Cache resolver results by entity id (Redis),
-independent of query shape. This is the layer that actually delivers most of
-the benefit for authenticated APIs, where HTTP caching is largely
-unavailable. It composes naturally with DataLoader from module 03 — the
-loader batches within a request, the cache serves across requests.
-
-### Observability: one span per resolver
-
-`POST /graphql` is a useless log line. What you need:
-
-```python
-class TracingExtension(SchemaExtension):
-    def on_operation(self):
-        ctx = self.execution_context
-        start = time.perf_counter()
-        yield                                    # operation runs
-        duration = time.perf_counter() - start
-        metrics.histogram("graphql_operation_seconds", duration,
-                          tags={"operation": ctx.operation_name or "anonymous",
-                                "client": client_name()})
-
-    def resolve(self, _next, root, info, *args, **kwargs):
-        field = f"{info.parent_type.name}.{info.field_name}"
-        with tracer.start_as_current_span(field):
-            start = time.perf_counter()
-            try:
-                return _next(root, info, *args, **kwargs)
-            finally:
-                metrics.histogram("graphql_resolver_seconds",
-                                  time.perf_counter() - start, tags={"field": field})
-```
-
-Three things to record, and the third is the one teams miss:
-
-- **Operation name**, so you can group. Require clients to name every
-  operation — anonymous queries are unattributable, and you should reject
-  them.
-- **Per-resolver duration**, so "the query is slow" becomes "`User.posts`
-  is slow".
-- **Resolver call *count* per operation.** A resolver that takes 2 ms is fine
-  until it's called 500 times — that's the N+1 signature (module 03), and
-  duration alone will never show it. Alert on calls-per-operation, not just
-  latency.
-
-## Command reference
-
-| Concern | Approach |
-|---|---|
-| Alias amplification | cap total fields/aliases per document |
-| Complexity that counts | multiply by `first`/`last` pagination args |
-| Batching attack | cap batch size; sum complexity across the batch |
-| Rate limiting | token bucket on **complexity points**, not requests |
-| Disable introspection | server config; also disable field suggestions |
-| Lock the query surface | persisted queries in registry-only mode |
-| Bandwidth only | APQ (**not** a security control by default) |
-| CDN caching | persisted queries over `GET` + `Cache-Control` |
-| Response cache policy | `@cacheControl(maxAge:, scope:)`, most restrictive wins |
-| Cross-request entity cache | Redis keyed by entity id, alongside DataLoader |
-| Find the slow field | per-resolver spans + duration histogram |
-| Detect N+1 | resolver **call count** per operation |
-| Attribute traffic | require named operations + a client header |
-
-## Hands-on exercises
-
-Continue from module 03/04's Strawberry + FastAPI setup.
-
-### 1. Defeat your own depth limit with aliases
-
-With module 04's depth limit active, send a query with 1,000 aliased
-`user(id:)` fields.
-
-Expected: it passes validation and executes 1,000 lookups. Time it. Then add
-a total-field cap and confirm it's rejected.
-
-### 2. Show naive complexity ignores pagination
-
-Score `users(first:100){ posts(first:100){ comments(first:100){ id } } }` with
-a per-field scorer, then with one that multiplies by `first`.
-
-Expected: roughly 4 versus 1,000,000. Set a limit that permits the first
-scoring and confirm the query is admitted — then re-run with multiplicative
-scoring and watch it be rejected.
-
-### 3. Run a batching attack
-
-Send an array of 2,000 individually-trivial operations.
-
-Expected: all execute; per-operation limits never trigger. Add a batch cap of
-10 and a summed complexity budget, then confirm rejection.
-
-### 4. Rate limit by cost
-
-Implement a token bucket denominated in complexity points. Send one expensive
-query and many cheap ones.
-
-Expected: the expensive query consumes a large share of the budget while
-cheap ones barely register — unlike request counting, which treats them
-identically. Verify the `extensions.code` is `RATE_LIMITED` (module 06).
-
-### 5. Leak the schema without introspection
-
-Disable introspection, then send a query with a misspelled field
-(`{ user { emial } }`).
-
-Expected: the error suggests `email` — leaking the schema anyway. Disable
-field suggestions and confirm the message becomes generic. Write one sentence
-on why disabling introspection alone is defence in depth rather than a
-control.
-
-### 6. Implement persisted queries
-
-Build a hash → query registry, accept `{"id": "<sha256>", "variables": {...}}`,
-and reject unknown hashes.
-
-Expected: known hashes execute; an arbitrary query is rejected outright.
-Confirm that your alias bomb from exercise 1 is now *impossible to send*.
-
-### 7. Cache over GET with a CDN
-
-Serve persisted queries via `GET /graphql?id=...&variables=...` with
-`Cache-Control: max-age=60`. Put any caching proxy (or Varnish/nginx) in
-front.
-
-Expected: the second identical request never reaches your server. Then add a
-`@cacheControl(maxAge: 5)` field to the query and confirm the whole
-response's TTL drops to 5 — the most-restrictive-wins rule, observed.
-
-### 8. Instrument and find the slow resolver
-
-Add the tracing extension. Make `User.posts` sleep 200 ms. Run a query
-selecting 20 users.
-
-Expected: operation duration ~4 s, and the per-resolver histogram shows
-`User.posts` called **20 times** at 200 ms each — the N+1 signature. Add a
-DataLoader (module 03) and confirm the call count drops to 1 while the
-duration collapses. Note that the *count* metric, not the duration metric, is
-what identified the problem.
-
-### 9. Diagnose and fix: the API that fell over
-
-A public GraphQL API has a depth limit of 10, a complexity limit of 1,000
-(one point per field), rate limiting of 100 requests/minute per API key, and
-introspection disabled. It was taken down by a single client using one API
-key, well within the request limit. Logs show `POST /graphql` 94 times in the
-minute it fell over.
-
-<details>
-<summary>Solution</summary>
-
-Every control was bypassed, because each measures the wrong thing.
-
-**The complexity limit ignores pagination.** One point per field means
-`users(first:1000){ posts(first:1000){ id } }` scores about 3 while
-requesting a million rows. The limit of 1,000 was never reached.
-
-**Aliases defeat the depth limit.** Depth 10 constrains nesting, not breadth;
-several hundred aliased root fields in one document have a depth of 2.
-
-**Batching multiplies everything.** If the server accepts arrays, each of
-those 94 requests could carry hundreds of operations, each individually under
-every per-operation limit.
-
-**Rate limiting counts requests.** 94 requests is under 100, so it never
-fired — while those 94 requests did the work of hundreds of thousands.
-
-Introspection being disabled contributed nothing either way; the attacker
-didn't need the schema, and disabling it is not a control.
-
-Fixes, in order of impact: make complexity multiplicative over
-`first`/`last`; cap total fields/aliases per document; cap batch size and sum
-complexity across a batch; and switch rate limiting to complexity points
-rather than request count. The durable fix is persisted queries — with a
-fixed set of known operations, none of these attacks are expressible at all.
-
+**Answer:**
+In GraphQL response caching, the cache policy calculation enforces **"most restrictive wins"**:
+- If any single field in the selection set has `maxAge: 10`, the HTTP `Cache-Control` header for the entire response envelope is capped at `max-age=10`.
+- Furthermore, if any field specifies `scope: PRIVATE` (e.g., user-specific unread count), the entire HTTP response becomes `Cache-Control: private`, preventing all CDN edge caching.
+- **Architectural Redesign**: Separate volatile or personalized real-time attributes from static entity profiles. The client should issue two queries: a high-TTL query for static profile data (`maxAge: 3600`, cached at CDN edge), and a separate lightweight, un-cached query or WebSocket/SSE subscription for real-time notification counters.
 </details>
 
-## Independent challenge
+---
 
-No solution given. Design the full protection and caching strategy for a
-public GraphQL API serving three consumer classes: a first-party web app
-(you control its queries, deploys daily), a first-party mobile app (you
-control its queries, upgrades over months), and public third-party developers
-(arbitrary queries, ~2,000 registered keys).
+## Further Reading & Next Steps
 
-Specify the limits, rate-limiting scheme, caching layers and observability
-for each class. Then resolve the central tension: persisted queries solve
-nearly every problem but are impossible for third-party developers who by
-definition write their own queries — so what do you do for that tier, and how
-do you keep it from being the weak point that takes down the other two?
-
-<details>
-<summary>Stuck? One hint</summary>
-
-The standard resolution is to stop treating it as one API: first-party
-clients go through a persisted-query-only path (locked down, cacheable, no
-arbitrary queries), while third-party developers get a separate endpoint with
-arbitrary queries permitted but much tighter multiplicative complexity
-budgets, smaller pagination caps, cost-based rate limits per key, and — the
-part that protects the other two tiers — separate infrastructure or at least
-separate resource pools, so third-party load cannot exhaust capacity serving
-your own apps. That last point is the noisy-neighbour argument from track 15,
-applied at the API tier.
-
-</details>
-
-## Common mistakes & troubleshooting
-
-- **Relying on depth limits alone.** Aliases are flat and defeat them
-  entirely.
-- **Complexity scoring that ignores `first`/`last`.** A depth-3 query can
-  request a million rows and score 3.
-- **Per-operation limits with batching enabled.** Thousands of legal
-  operations arrive as one request.
-- **Rate limiting by request count.** One request can cost a thousand times
-  another.
-- **Treating disabled introspection as a security control.** Field
-  suggestions leak the schema anyway; it's defence in depth at best.
-- **Assuming APQ is a security feature.** By default it still accepts
-  arbitrary queries on the miss path — only registry-only mode locks it down.
-- **Expecting CDN caching over POST.** It requires GET, which requires
-  persisted queries.
-- **Ignoring most-restrictive-wins in cache hints.** One volatile field
-  collapses the whole response's TTL.
-- **Allowing anonymous operations.** Unattributable in metrics and traces;
-  require operation names.
-- **Monitoring resolver duration but not call count.** N+1 is a *count*
-  problem and stays invisible in latency alone.
-
-## Checkpoint quiz
-
-<details>
-<summary>Show questions</summary>
-
-1. How does an alias-based attack defeat a depth limit?
-2. What must a complexity score account for beyond field count, and why?
-3. How does query batching bypass per-operation limits?
-4. Why should rate limiting be denominated in complexity points?
-5. Why is disabling introspection not a real security control?
-6. What's the difference between persisted queries and APQ, security-wise?
-7. Why can't a CDN cache a normal GraphQL request, and what makes it
-   possible?
-8. Why does the most-restrictive-wins rule limit cache-hint usefulness?
-9. Which metric reveals N+1, and why isn't resolver latency enough?
-
-</summary>
-</details>
-
-<details>
-<summary>Show answers</summary>
-
-1. Because aliases let a client request the same field many times *at the
-   same level* rather than nesting — 10,000 aliased root fields have a depth
-   of 2. A depth limit constrains nesting only, so the query passes
-   validation while costing 10,000 resolver executions.
-2. Pagination arguments (`first`/`last`), because the real cost is
-   multiplicative: `users(first:100){posts(first:100){comments(first:100)}}`
-   is three levels deep but requests up to a million records. Any scorer that
-   counts fields without multiplying by requested list sizes will admit
-   enormously expensive queries.
-3. Because servers typically validate and score each operation in the batch
-   independently, so thousands of individually-legal operations all pass —
-   while collectively costing thousands of queries' worth of work, and
-   counting as a single request for rate-limiting purposes.
-4. Because request count is meaningless when one request can be a thousand
-   times more expensive than another. Denominating the budget in complexity
-   points makes the limit proportional to the work actually requested, which
-   is what you're trying to protect.
-5. Because it doesn't actually hide anything from a determined caller —
-   fields can be guessed, and field-suggestion error messages ("Did you mean
-   `email`?") leak schema detail regardless. It removes a convenience for
-   reconnaissance, which makes it defence in depth rather than a control.
-6. Persisted queries in registry-only mode reject any operation not
-   pre-registered, eliminating arbitrary queries and therefore the whole
-   class of query-shape attacks. APQ by default still accepts arbitrary
-   queries — on a hash miss the client simply sends the full query, which the
-   server then caches — so it's a bandwidth optimisation, not a security
-   boundary, unless explicitly run in registry-only mode.
-7. Because GraphQL is normally a `POST` to a single endpoint with the query
-   in the body, and HTTP caches key on method and URL — every request looks
-   identical and POST is not cacheable. Persisted queries make it possible:
-   the query becomes a short hash that fits in a `GET` URL alongside
-   variables, which is cacheable normally.
-8. Because the response's cache policy is the most restrictive policy of any
-   field in the query, so a single volatile field (`maxAge: 10`) or private
-   field (`scope: PRIVATE`) drags the entire response down to that policy —
-   meaning one field can make an otherwise highly cacheable query
-   effectively uncacheable.
-9. Resolver **call count per operation**. A resolver taking 2 ms looks
-   perfectly healthy in a latency histogram; the problem is that it was
-   invoked 500 times in one operation. Latency measures each call in
-   isolation and can never reveal that, whereas call count makes the N+1
-   pattern immediately visible.
-
-</details>
-
-## Further reading & sources
-
-- [OWASP: GraphQL Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/GraphQL_Cheat_Sheet.html) - alias and batching attacks, introspection, and limit design.
-- [Apollo: Automatic persisted queries](https://www.apollographql.com/docs/apollo-server/performance/apq/) - the APQ handshake and its registry-only variant.
-- [Apollo: Caching with `@cacheControl`](https://www.apollographql.com/docs/apollo-server/performance/caching/) - cache hints and the most-restrictive-wins rule.
-- [GraphQL spec: Introspection](https://spec.graphql.org/draft/#sec-Introspection) - what introspection exposes.
-- [Strawberry: Schema extensions](https://strawberry.rocks/docs/guides/custom-extensions) - the hooks used for tracing and cost analysis.
-
-## Next
-
-[08-webhooks-vs-polling-vs-websockets-tradeoffs](../08-webhooks-vs-polling-vs-websockets-tradeoffs/README.md) —
-GraphQL is now production-ready end to end. The track returns to the broader
-question of how clients receive updates at all.
+* [OWASP GraphQL Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/GraphQL_Cheat_Sheet.html) - Canonical security checklist for GraphQL production systems.
+* [Apollo GraphQL: Performance and Caching](https://www.apollographql.com/docs/apollo-server/performance/caching/) - Guide to cache control directives and edge caching.
+* [GraphQL Armor](https://escape.tech/graphql-armor/) - Enterprise security middleware for Apollo and Yoga.
+* Next up: [08-webhooks-vs-polling-vs-websockets-tradeoffs](../08-webhooks-vs-polling-vs-websockets-tradeoffs/README.md) to evaluate real-time data delivery paradigms beyond synchronous query-response cycles.

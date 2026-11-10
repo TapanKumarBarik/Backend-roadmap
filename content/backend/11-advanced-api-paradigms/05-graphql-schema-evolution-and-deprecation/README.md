@@ -1,466 +1,610 @@
 # Module 05: GraphQL Schema Evolution and Deprecation
 
-## Why this matters
+> **Prerequisites**: Strong familiarity with GraphQL schemas, queries, and SDL from [03-graphql-fundamentals](../03-graphql-fundamentals/README.md), and resolver execution patterns from [04-graphql-advanced-patterns](../04-graphql-advanced-patterns/README.md).  
+> **Estimated Reading Time**: 28 minutes  
+> **Target Audience**: Senior Backend Engineers, API Platform Engineers, and Technical Leads building long-lived public or multi-client APIs.
 
-REST has `/v1/` and `/v2/`. gRPC has `shop.v1` and `shop.v2` packages
-(track 16, module 00). GraphQL has **neither**, and this is deliberate: the
-spec has no versioning mechanism at all, and the community position is that
-you should never version a GraphQL API.
+---
 
-That sounds like a problem and is actually a constraint that forces a better
-discipline — but only if you understand what replaces versioning. What
-replaces it is: **additive-only change, plus deprecation, plus actually
-knowing which clients use which fields.** Skip the third part and the first
-two don't save you, because you can never prove it's safe to remove
-anything.
+> [!TIP]
+> **The Golden Rule of GraphQL Schema Evolution**  
+> Never version an entire GraphQL schema (`/graphql/v1` vs `/graphql/v2`). In GraphQL, the unit of compatibility is the **individual field**, because clients request only what they need. You may **strengthen output promises** (`String` &rarr; `String!`) and **relax input demands** (`String!` &rarr; `String`), but you must never do the inverse without an end-to-end deprecation lifecycle backed by **field-level client telemetry**. If you cannot measure who selects a field, you can never safely delete it.
 
-## Concepts
+---
 
-### Why GraphQL doesn't version
+## Visual Mental Models & Architecture
 
-In REST, `GET /users/42` returns a fixed payload, so changing that payload
-breaks every client at once — hence `/v2/`. In GraphQL, the client declares
-exactly what it wants:
+### The Field Lifecycle: Additive Evolution vs Silent Breakage
 
-```graphql
-query { user(id: "42") { name email } }
+In REST, changing a resource representation breaks every client because payloads are monolithic. In GraphQL, client queries declare an explicit selection set. Adding fields is completely invisible to existing callers, while removing or altering a field only impacts callers selecting that exact field.
+
+```mermaid
+stateDiagram-v2
+    [*] --> Phase1_Add: 1. Add Replacement Field
+    Phase1_Add --> Phase2_DualServe: 2. Dual-Serve Both Fields
+    Phase2_DualServe --> Phase3_Deprecate: 3. Add @deprecated Directive
+    Phase3_Deprecate --> Phase4_Telemetry: 4. Telemetry (Attribute x-client-name)
+    Phase4_Telemetry --> Phase5_Outreach: 5. Targeted Outreach to Consumers
+    Phase5_Outreach --> Phase6_ZeroTraffic: 6. Await Zero Traffic (Full Mobile Cycle)
+    Phase6_ZeroTraffic --> Phase7_Remove: 7. Delete Field in CI via Diff Gate
+    Phase7_Remove --> [*]
+
+    note right of Phase3_Deprecate
+      Deprecation hides field from introspection
+      and triggers tooling linters without breaking wire traffic.
+    end note
+    note right of Phase4_Telemetry
+      Without client attribution per field,
+      teams accumulate deprecated 'zombie fields' forever.
+    end note
 ```
 
-A client that never requested `phoneNumber` cannot be broken by adding it,
-and cannot be broken by removing it either. **The blast radius of a change is
-scoped to the clients that actually select the changed field** — which means
-change is safe *per field*, not per endpoint. Versioning the whole schema to
-protect one field would be enormously over-broad.
+---
 
-The consequence: your unit of compatibility is the field, and your job is to
-know who selects it.
+### The Schema Diffing & Breaking Change Boundary
 
-### What is and isn't a breaking change
+```mermaid
+flowchart TD
+    PR[Developer Pull Request] --> Export[Export Current SDL schema.graphql]
+    Export --> Inspector[CI Linter: GraphQL Inspector / Apollo Rover]
+    BaseSchema[(Base Production Schema in Git/Registry)] --> Inspector
 
-| Change | Safe? | Why |
-|---|---|---|
-| Add a field to a type | Yes | Nobody selects it yet |
-| Add an **optional** argument | Yes | Existing calls omit it |
-| Add a **required** argument | **No** | Every existing call becomes invalid |
-| Add a value to an enum | **Careful** | Clients switching on it may not handle it |
-| Add a type to a union | **Careful** | Same reason |
-| Remove a field | **No** | Any client selecting it breaks |
-| Rename a field | **No** | Remove + add |
-| `String` → `String!` (nullable → non-null) | Yes, for **output** | Client expecting maybe-null gets never-null |
-| `String!` → `String` (non-null → nullable) | **No**, for output | Client not handling null now receives it |
-| `String` → `String!` on an **input** | **No** | Callers omitting it now fail |
-| `String!` → `String` on an **input** | Yes | Relaxing a requirement |
+    Inspector --> Rules{Evaluate AST Rules}
+    Rules -->|Add Field / Relax Input / Strengthen Output| Pass[✅ Safe Additive Change Approved]
+    Rules -->|Remove Field / Add Required Arg / Weaken Output| FailCheck{Traffic-Aware Registry Check}
+    
+    FailCheck -->|Recent Traffic Detected > 0| Reject[❌ CI Gate Failed: Active Traffic on Field]
+    FailCheck -->|Zero Traffic for 90+ Days & Signed Off| Override[⚠️ Intentional Deletion: Approved Breaking Change]
+    
+    Pass --> Deploy[Deploy to Staging / Production Canary]
+    Override --> Deploy
+```
 
-The nullability rules invert between input and output positions, and that's
-the one people consistently get wrong. The general principle: **you may
-strengthen what you promise to return, and relax what you demand to receive.**
+---
 
-The enum case is the subtle one. Adding an enum value is technically
-non-breaking at the schema level — the query still validates — but a client
-with `switch (status) { case ACTIVE: ... case CLOSED: ... }` and no default
-now silently mishandles the new value. It's the same open-enum hazard as
-protobuf (track 16, module 00): the wire accepts it, the client logic
-doesn't.
+## Systematic Evolution Reference Grids
 
-### `@deprecated` is the versioning mechanism
+### Output vs Input Nullability Inversion Matrix
 
+The direction of compatibility flips 180 degrees depending on whether a type is in an **Input** position (arguments, input objects) or an **Output** position (object fields, query roots).
+
+| Change Direction | Output Position (`type User`) | Input Position (`input UserInput`) | Operational Blast Radius |
+| :--- | :--- | :--- | :--- |
+| **`Type` &rarr; `Type!`** (Nullable &rarr; Non-Null) | **SAFE** ✅ | **BREAKING** ❌ | For Output: client expecting `Type \| null` receives strictly `Type`. For Input: callers omitting the argument now fail schema validation immediately with HTTP 400. |
+| **`Type!` &rarr; `Type`** (Non-Null &rarr; Nullable) | **BREAKING** ❌ | **SAFE** ✅ | For Output: client type generators (`graphql-codegen`, Swift Apollo) assume non-null and crash with NullPointer/Undefined panics when `null` arrives. For Input: server relaxes requirements, allowing callers to omit values. |
+| **Add optional field / arg** | **SAFE** ✅ | **SAFE** ✅ | Output: unselected by existing clients. Input: existing clients omit it; default value or `None`/`nil` applies. |
+| **Add required field / arg** | **SAFE** ✅ (if default provided on server) | **BREAKING** ❌ | Callers omitting the mandatory argument receive immediate `Field "x" of required type "y!" was not provided` validation errors. |
+| **Remove field / arg** | **BREAKING** ❌ | **BREAKING** ❌ | Output: clients selecting field crash on validation. Input: clients passing arg fail validation (`Unknown argument`). |
+| **Add value to Enum** | **POTENTIALLY BREAKING** ⚠️ | **SAFE** ✅ | Output: clients switching over enum values without a `default`/`else` wildcard branch trigger runtime exceptions or fallback bugs. Input: servers accept new valid variant. |
+| **Add type to Union** | **POTENTIALLY BREAKING** ⚠️ | N/A (Unions cannot be inputs) | Existing client queries lacking `... on NewType` fragments silently receive `__typename: "NewType"` with unhandled UI states. |
+
+---
+
+## Production Incident War Story: The Nullability Panic
+
+### Incident Post-Mortem: SEV-1
+
+* **Incident ID**: INC-8491
+* **Severity Level**: SEV-1 (Critical Revenue Interruption)
+* **Detection Time**: 4 minutes after canary deployment
+* **Time to Recovery (TTR)**: 19 minutes (via instant roll-forward hotfix)
+* **Impact**: 4.1 million iOS and Android sessions crashed immediately upon app launch when attempting to render user profiles.
+
+#### 1. What Happened
+A backend team refactored the user billing subsystem. In the GraphQL schema, `User.billingTier` was originally defined as non-null:
 ```graphql
 type User {
   id: ID!
-  name: String!
-
-  fullName: String! @deprecated(reason: "Use `name`. Removal after 2026-12-01.")
-
-  email: String! @deprecated(
-    reason: "Use `contact.email`, which supports multiple addresses. Removal after 2027-01-15."
-  )
-
-  contact: ContactInfo!
-}
-
-enum OrderStatus {
-  PENDING
-  SHIPPED
-  DELIVERED
-  IN_TRANSIT @deprecated(reason: "Use SHIPPED.")
+  billingTier: BillingTier!
 }
 ```
+During migration to a flexible billing engine where free-tier legacy users lacked a billing record, a backend engineer observed that queries failed when `billingTier` was missing. The engineer modified the schema:
+```graphql
+type User {
+  id: ID!
+  billingTier: BillingTier # Changed from BillingTier! to BillingTier (nullable)
+}
+```
+The developer reasoned: *"Making something optional is always backward-compatible."* Local tests passed, and CI schema validation passed because GraphQL Inspector was not configured to treat weakening output nullability as a blocking break.
 
-A deprecated field still works — this is a *label*, not a behaviour change.
-It's excluded from introspection by default (so tooling and autocomplete stop
-suggesting it) and it makes the intent discoverable.
+Within 4 minutes of production rollout, mobile crash rates surged to 94% across active mobile clients.
 
-Write reasons that are actionable. `@deprecated(reason: "deprecated")` is
-worthless; a good reason states **what to use instead** and **when it will
-disappear**.
+#### 2. Root Cause Analysis
+The mobile client was compiled with Apollo iOS / Swift codegen. Because the schema had guaranteed `billingTier` was non-null (`BillingTier!`), the generated Swift model declared:
+```swift
+struct User {
+    let id: String
+    let billingTier: BillingTier // Non-optional Swift property
+}
+```
+When legacy free-tier users received `{"id": "usr_99", "billingTier": null}`, the JSON decoder encountered `null` where a concrete enum was required, throwing an uncaught `DecodingError.valueNotFound` which crashed the app on startup.
 
-Note the spec allows `@deprecated` on output fields, enum values, arguments
-and input fields — argument/input-field deprecation is newer, so check your
-server library supports it before relying on it.
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User as Mobile App User
+    participant App as iOS Client (Compiled Swift)
+    participant Gateway as GraphQL Gateway
+    participant DB as User Database
 
-### The field lifecycle
+    User->>App: Launch App
+    App->>Gateway: POST /graphql { me { id billingTier } }
+    Gateway->>DB: Fetch User (Legacy Free Account)
+    DB-->>Gateway: Row found (billing_tier = NULL)
+    Note over Gateway: Schema modified: BillingTier! -> BillingTier (Nullable)<br/>Gateway returns JSON with null value
+    Gateway-->>App: 200 OK: {"data": {"me": {"id": "usr_99", "billingTier": null}}}
+    Note over App: Swift Decodable expects non-optional BillingTier<br/>Fatal Error: DecodingError.valueNotFound
+    App--xUser: 💥 App Crash (SIGABRT on Main Thread)
+```
+
+#### 3. The Architectural Hardening & Resolution
+1. **Immediate Hotfix**: Restored `billingTier: BillingTier!` immediately by having resolvers map `null` database rows to a default enum variant `BillingTier.FREE` on the backend.
+2. **Evolution Rule Enforcement**: Added Apollo Rover schema checks into GitHub Actions CI. Weakening an output type's nullability (`T!` &rarr; `T`) is flagged as a catastrophic breaking change.
+3. **Telemetry & Client Deprecation**: To safely migrate, the team introduced a new field `subscriptionPlan: SubscriptionPlan` (nullable from day 1), marked `billingTier` as `@deprecated(reason: "Use subscriptionPlan. Defaulted to FREE for legacy users. Removal Q4 2027.")`, and tracked mobile app version adoption until older app versions dropped below 0.1% traffic.
+
+---
+
+## Multi-Language Production Code Tabs: Field Usage & Telemetry
+
+To safely evolve and deprecate GraphQL schemas, backend servers must record field usage tagged with **`ParentType.fieldName`** and the **`x-client-name`** request header.
 
 ```
-1. ADD the replacement            contact: ContactInfo!
-2. DUAL-WRITE / dual-serve        both email and contact.email resolve
-3. DEPRECATE the old field        email @deprecated(reason: "...")
-4. MEASURE usage                  per-field, per-client, over time
-5. NOTIFY remaining consumers     you know exactly who they are from step 4
-6. REMOVE once usage is zero      and has been zero for a full client cycle
+### Language Tabs
+1. Go (gqlgen middleware / field interceptor)
+2. Node.js / TypeScript (@apollo/server plugin)
+3. Python (Strawberry SchemaExtension)
+4. C# (Hot Chocolate DiagnosticEventListener)
 ```
 
-Step 4 is the one teams skip, and it's the one that makes the rest work.
-Without usage data you can never justify step 6, so deprecated fields
-accumulate forever and the schema becomes a museum.
+### Go (gqlgen)
+```go
+package main
 
-"A full client cycle" matters for mobile: a native app version can stay
-installed for a year or more. Zero usage for a week means nothing if your
-p99 client upgrade time is six months.
+import (
+	"context"
+	"fmt"
+	"net/http"
 
-### Measuring per-field usage
+	"github.com/99designs/gqlgen/graphql"
+	"github.com/99designs/gqlgen/graphql/handler"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
+)
 
-The server sees every field of every query, so this is a tracing-extension
-concern, not guesswork:
+var fieldUsageCounter = promauto.NewCounterVec(
+	prometheus.CounterOpts{
+		Name: "graphql_field_resolutions_total",
+		Help: "Total field resolution executions tracked by parent type, field, and client identifier",
+	},
+	[]string{"parent_type", "field_name", "client_name"},
+)
 
+type contextKey string
+const clientNameKey contextKey = "clientName"
+
+// ClientContextMiddleware extracts x-client-name into context
+func ClientContextMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		clientName := r.Header.Get("x-client-name")
+		if clientName == "" {
+			clientName = "unknown-client"
+		}
+		ctx := context.WithValue(r.Context(), clientNameKey, clientName)
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
+// FieldTelemetryInterceptor hooks into gqlgen field execution pipeline
+func NewFieldTelemetryInterceptor() graphql.AroundFields {
+	return func(ctx context.Context, next graphql.Resolver) (res interface{}, err error) {
+		fc := graphql.GetFieldContext(ctx)
+		if fc != nil && !fc.IsMethod {
+			// Skip scalar fields if overhead is high, or track all object boundary resolvers
+			clientName, _ := ctx.Value(clientNameKey).(string)
+			if clientName == "" {
+				clientName = "unknown-client"
+			}
+			parentType := fc.Object
+			fieldName := fc.Field.Name
+
+			fieldUsageCounter.WithLabelValues(parentType, fieldName, clientName).Inc()
+		}
+		return next(ctx)
+	}
+}
+
+func main() {
+	srv := handler.NewDefaultServer(NewExecutableSchema(Config{Resolvers: &Resolver{}}))
+	srv.AroundFields(NewFieldTelemetryInterceptor())
+
+	http.Handle("/graphql", ClientContextMiddleware(srv))
+	fmt.Println("GraphQL server running with field telemetry on :8080")
+	_ = http.ListenAndServe(":8080", nil)
+}
+```
+
+### Node.js / TypeScript (@apollo/server)
+```typescript
+import { ApolloServer } from '@apollo/server';
+import { ApolloServerPlugin } from '@apollo/server';
+import { startStandaloneServer } from '@apollo/server/standalone';
+import { Counter } from 'prom-client';
+
+const fieldUsageMetric = new Counter({
+  name: 'graphql_field_usage_total',
+  help: 'Tracks field execution count tagged by parent, field name, and client name',
+  labelNames: ['parentType', 'fieldName', 'clientName'] as const,
+});
+
+interface GraphQLContext {
+  clientName: string;
+}
+
+export function FieldUsageTelemetryPlugin(): ApolloServerPlugin<GraphQLContext> {
+  return {
+    async requestDidStart() {
+      return {
+        async executionDidStart() {
+          return {
+            willResolveField({ info, contextValue }) {
+              const parentType = info.parentType.name;
+              const fieldName = info.fieldName;
+              const clientName = contextValue.clientName || 'unknown_client';
+
+              // Ignore introspection meta-queries
+              if (!parentType.startsWith('__')) {
+                fieldUsageMetric.inc({ parentType, fieldName, clientName });
+              }
+            },
+          };
+        },
+      };
+    },
+  };
+}
+
+const typeDefs = `#graphql
+  type User {
+    id: ID!
+    name: String!
+    fullName: String! @deprecated(reason: "Use 'name'. Scheduled removal 2027-01-01.")
+    email: String!
+  }
+
+  type Query {
+    user(id: ID!): User
+  }
+`;
+
+const resolvers = {
+  Query: {
+    user: (_: any, { id }: { id: string }) => ({
+      id,
+      name: "Margaret Hamilton",
+      fullName: "Margaret Hamilton",
+      email: "margaret@nasa.gov"
+    }),
+  },
+};
+
+const server = new ApolloServer<GraphQLContext>({
+  typeDefs,
+  resolvers,
+  plugins: [FieldUsageTelemetryPlugin()],
+});
+
+async function run() {
+  const { url } = await startStandaloneServer(server, {
+    listen: { port: 4000 },
+    context: async ({ req }) => ({
+      clientName: (req.headers['x-client-name'] as string) || 'anonymous-consumer',
+    }),
+  });
+  console.log(`Server ready at ${url}`);
+}
+run();
+```
+
+### Python (Strawberry + FastAPI)
 ```python
-# Strawberry example — an extension that records which fields were resolved
+import time
+from typing import Optional
+from fastapi import FastAPI, Request
+from prometheus_client import Counter, make_asgi_app
 import strawberry
 from strawberry.extensions import SchemaExtension
+from strawberry.fastapi import GraphQLRouter
 
-class FieldUsage(SchemaExtension):
+field_usage_counter = Counter(
+    "graphql_field_resolution_count",
+    "Usage count of GraphQL fields by client",
+    ["parent_type", "field_name", "client_name"]
+)
+
+class FieldUsageTelemetry(SchemaExtension):
     def resolve(self, _next, root, info, *args, **kwargs):
         parent = info.parent_type.name
-        client = self.execution_context.context["request"].headers.get(
-            "x-client-name", "unknown")
-        metrics.increment("graphql_field_used",
-                          tags={"field": f"{parent}.{info.field_name}", "client": client})
+        field = info.field_name
+        
+        # Do not record internal introspection queries
+        if not parent.startswith("__"):
+            request: Request = self.execution_context.context["request"]
+            client_name = request.headers.get("x-client-name", "unknown_client")
+            field_usage_counter.labels(
+                parent_type=parent,
+                field_name=field,
+                client_name=client_name
+            ).inc()
+            
         return _next(root, info, *args, **kwargs)
 
-schema = strawberry.Schema(query=Query, extensions=[FieldUsage])
-```
-
-Two details that make this usable rather than merely present:
-
-- **Require a client identifier.** An `x-client-name` header (or an API key
-  mapped to a client) is what turns "12 requests still use `email`" into "the
-  iOS app still uses `email`" — the second is actionable, the first isn't.
-- **Tag by `ParentType.field`, not just `field`.** `id` appears on every
-  type; without the parent you can't tell which one is in use.
-
-### Schema checks in CI
-
-Deprecation policy is exactly the kind of rule humans forget under deadline
-pressure, so it belongs in a pipeline — the same argument as `buf breaking`
-for protobuf (track 16) and Schema Registry compatibility checks for Kafka
-(track 17).
-
-```bash
-# GraphQL Inspector: diff the PR's schema against main
-npx graphql-inspector diff main:schema.graphql schema.graphql
-
-# Apollo Rover: check against real traffic from the last N days
-rover graph check my-graph@current --schema ./schema.graphql
-```
-
-The distinction between those two is worth internalising:
-
-- **A schema diff** tells you a change is *theoretically* breaking.
-- **A traffic-aware check** tells you whether any client has *actually* used
-  the field recently — so removing a field nobody has queried in 90 days can
-  pass, while removing a heavily-used one fails.
-
-The second is far more useful, and it only exists because of the usage data
-from step 4.
-
-### Nullability as an evolution tool
-
-A subtle point that pays off later: making an output field non-null (`!`) is
-a promise you can never weaken, because relaxing it back is breaking.
-
-So when adding a new output field, **start it nullable** unless you're
-certain it can always be resolved. `String` → `String!` is a safe change you
-can make later once you're confident; `String!` → `String` is a breaking one
-you'll be stuck with. Module 06 covers why over-using `!` also makes
-partial-failure behaviour much worse.
-
-## Command reference
-
-| Concern | Syntax / command |
-|---|---|
-| Deprecate a field | `field: String @deprecated(reason: "Use X. Removal after DATE.")` |
-| Deprecate an enum value | `LEGACY @deprecated(reason: "Use NEW.")` |
-| Include deprecated in introspection | `__type(name:"User"){ fields(includeDeprecated:true){ name isDeprecated deprecationReason } }` |
-| Diff two schemas | `npx graphql-inspector diff old.graphql new.graphql` |
-| Traffic-aware check | `rover graph check <graph>@<variant> --schema ./schema.graphql` |
-| Print the SDL (Strawberry) | `strawberry export-schema app:schema > schema.graphql` |
-| Per-field usage | a `SchemaExtension` hooking `resolve` |
-| Safe output change | nullable → non-null (`String` → `String!`) |
-| Safe input change | non-null → nullable, or add an optional argument |
-
-## Hands-on exercises
-
-Continue from module 03/04's Strawberry + FastAPI setup.
-
-```bash
-pip install "strawberry-graphql[fastapi]" uvicorn
-```
-
-### 1. Prove additive change is invisible to existing clients
-
-Add a `phoneNumber: String` field to `User`. Re-run module 03's original
-query unchanged.
-
-Expected: identical response, byte for byte. This is why GraphQL doesn't need
-`/v2/` — write one sentence contrasting it with what adding a field to a REST
-payload does to a strict client.
-
-### 2. Deprecate a field and see it vanish from introspection
-
-```python
 @strawberry.type
 class User:
+    id: strawberry.ID
     name: str
     full_name: str = strawberry.field(
-        deprecation_reason="Use `name`. Removal after 2026-12-01.")
+        deprecation_reason="Use `name`. Target removal date: 2027-06-30."
+    )
+    email: str
+
+@strawberry.type
+class Query:
+    @strawberry.field
+    def user(self, id: strawberry.ID) -> User:
+        return User(id=id, name="Grace Hopper", full_name="Grace Hopper", email="grace@navy.mil")
+
+schema = strawberry.Schema(query=Query, extensions=[FieldUsageTelemetry])
+
+async def get_context(request: Request):
+    return {"request": request}
+
+graphql_app = GraphQLRouter(schema, context_getter=get_context)
+app = FastAPI()
+app.include_router(graphql_app, prefix="/graphql")
+app.mount("/metrics", make_asgi_app())
 ```
 
-Then introspect twice:
+### C# (Hot Chocolate)
+```csharp
+using HotChocolate.Execution.Instrumentation;
+using HotChocolate.Resolvers;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.Extensions.DependencyInjection;
+using System.Diagnostics.Metrics;
 
-```graphql
-{ __type(name: "User") { fields { name } } }
-{ __type(name: "User") { fields(includeDeprecated: true) { name isDeprecated deprecationReason } } }
+var builder = WebApplication.CreateBuilder(args);
+
+builder.Services.AddSingleton<FieldTelemetryObserver>();
+
+builder.Services
+    .AddGraphQLServer()
+    .AddQueryType<Query>()
+    .AddDiagnosticEventListener<FieldTelemetryDiagnosticListener>();
+
+var app = builder.Build();
+app.MapGraphQL();
+app.Run();
+
+public class User
+{
+    public string Id { get; set; } = "usr_101";
+    public string Name { get; set; } = "Katherine Johnson";
+    
+    [GraphQLDeprecated("Use 'Name'. Target decommission: 2027-06-30.")]
+    public string FullName => Name;
+}
+
+public class Query
+{
+    public User GetUser(string id) => new User { Id = id };
+}
+
+public class FieldTelemetryObserver
+{
+    private static readonly Meter Meter = new("GraphQL.SchemaEvolution", "1.0");
+    public Counter<long> FieldUsageCounter { get; } = 
+        Meter.CreateCounter<long>("graphql_field_usage_total");
+}
+
+public class FieldTelemetryDiagnosticListener : ExecutionDiagnosticEventListener
+{
+    private readonly FieldTelemetryObserver _observer;
+
+    public FieldTelemetryDiagnosticListener(FieldTelemetryObserver observer)
+    {
+        _observer = observer;
+    }
+
+    public override IDisposable ExecuteField(IMiddlewareContext context)
+    {
+        var parentType = context.ObjectType.Name;
+        var fieldName = context.Selection.Field.Name;
+
+        if (!parentType.StartsWith("__"))
+        {
+            var httpContext = context.GetGlobalStateOrDefault<Microsoft.AspNetCore.Http.HttpContext>("HttpContext");
+            var clientName = httpContext?.Request.Headers["x-client-name"].ToString();
+            if (string.IsNullOrWhiteSpace(clientName)) clientName = "unknown-client";
+
+            _observer.FieldUsageCounter.Add(1, 
+                new KeyValuePair<string, object?>("parent_type", parentType),
+                new KeyValuePair<string, object?>("field_name", fieldName),
+                new KeyValuePair<string, object?>("client_name", clientName));
+        }
+
+        return EmptyScope;
+    }
+}
 ```
 
-Expected: `fullName` is absent from the first and present in the second.
-Confirm that **querying it still works** — deprecation is a label, not an
-enforcement.
+---
 
-### 3. Break it four ways, deliberately
+## Practical Hands-On Verification Workflows
 
-Make each of these changes and run an existing client query against it:
+### 1. Verify Introspection Filtering of Deprecated Fields
 
-1. Remove a selected field
-2. Rename a selected field
-3. Add a **required** argument to a queried field
-4. Change an output field from `String!` to `String`
-
-Expected: 1-3 fail validation immediately with a clear error; 4 *validates
-fine* but can now return `null` where the client's type system said it never
-could. Note which failure mode is more dangerous and why.
-
-### 4. Confirm the input/output nullability inversion
-
-Change an **input** field from `String` to `String!` and re-run a call that
-omitted it. Then change an **output** field from `String` to `String!` and
-re-run a client that read it.
-
-Expected: the input change breaks the caller; the output change doesn't.
-Write the general rule in your own words.
-
-### 5. Add the enum trap
-
-Add a new value to an existing enum. Write a client that switches on the enum
-with no default branch and feed it the new value.
-
-Expected: the query validates and succeeds, but the client mishandles it
-silently. Then add a `default` branch and confirm the fix. This is a client
-discipline problem the schema cannot solve for you.
-
-### 6. Measure per-field usage
-
-Implement the `FieldUsage` extension. Run a mix of queries from two different
-`x-client-name` values.
-
-Expected: counts keyed by `ParentType.field` **and** client. Then remove the
-client tag and observe how much less actionable the data becomes — that's the
-difference between "12 requests" and "the iOS app".
-
-### 7. Wire up a schema diff in CI
-
-Export the SDL, commit it, make a breaking change, and run:
+Issue an introspection query using `curl` to prove that deprecated fields are omitted by default, but surfaced when `includeDeprecated: true` is requested.
 
 ```bash
-npx graphql-inspector diff schema-main.graphql schema.graphql
+# Query introspection without includeDeprecated
+curl -s -X POST http://localhost:8080/graphql \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "{ __type(name: \"User\") { fields { name isDeprecated } } }"
+  }' | jq .
 ```
 
-Expected: it exits non-zero and names the breaking change. Add it as a
-pre-commit hook or CI step and confirm a safe additive change passes.
+**Expected JSON Response:**
+```json
+{
+  "data": {
+    "__type": {
+      "fields": [
+        {
+          "name": "id",
+          "isDeprecated": false
+        },
+        {
+          "name": "name",
+          "isDeprecated": false
+        },
+        {
+          "name": "email",
+          "isDeprecated": false
+        }
+      ]
+    }
+  }
+}
+```
 
-### 8. Diagnose and fix: the field nobody could remove
+Now request deprecated fields explicitly:
+```bash
+curl -s -X POST http://localhost:8080/graphql \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "{ __type(name: \"User\") { fields(includeDeprecated: true) { name isDeprecated deprecationReason } } }"
+  }' | jq .
+```
 
-A team has 340 fields in their schema, 60 of them deprecated — some for three
-years. Nobody will remove any of them, because nobody can prove they're
-unused. Their deprecation reasons read `@deprecated(reason: "deprecated")`.
-They have no per-field metrics, and clients send no identifying header.
+**Expected JSON Response:**
+```json
+{
+  "data": {
+    "__type": {
+      "fields": [
+        {
+          "name": "id",
+          "isDeprecated": false,
+          "deprecationReason": null
+        },
+        {
+          "name": "name",
+          "isDeprecated": false,
+          "deprecationReason": null
+        },
+        {
+          "name": "fullName",
+          "isDeprecated": true,
+          "deprecationReason": "Use `name`. Target removal date: 2027-06-30."
+        },
+        {
+          "name": "email",
+          "isDeprecated": false,
+          "deprecationReason": null
+        }
+      ]
+    }
+  }
+}
+```
 
-Explain what specifically blocks removal, and design the smallest change that
-unblocks it within one quarter.
+---
 
-<details>
-<summary>Solution</summary>
+### 2. CI Automation: Detecting Breaking Changes via GraphQL Inspector
 
-**The blocker is missing evidence, not missing process.** Every step of the
-lifecycle is in place except measurement — and without usage data, removal is
-an unbounded risk, so the rational choice for any individual engineer is
-always "don't touch it." That's why the count only ever grows.
+Add automated schema diffing to your Git pre-commit or GitHub Actions pipeline.
 
-Compounding it: the deprecation reasons carry no information. A consumer
-reading `reason: "deprecated"` learns neither what to migrate to nor when the
-field disappears, so even a motivated client team can't act.
+```bash
+# 1. Export schema from branch
+npx graphql-inspector diff base-schema.graphql pr-schema.graphql
+```
 
-Smallest unblocking change, in order:
+**Simulated Breaking Diff Output:**
+```
+✖ Field 'User.billingTier' changed type from 'BillingTier!' to 'BillingTier' (Breaking change: output nullability weakened)
+✖ Argument 'currency' on field 'Query.products' changed type from 'String' to 'String!' (Breaking change: required argument added)
+✖ Field 'User.legacySSN' was removed (Breaking change: field removed)
 
-1. **Add field-usage tracing** with a `ParentType.field` tag — one extension,
-   deployed once, and the data starts accumulating immediately.
-2. **Require an `x-client-name` header** (or map API keys to clients) so
-   usage is attributable. Without this you learn a field is used but not by
-   whom, which doesn't let you contact anyone.
-3. **Rewrite the reasons** to name the replacement and a removal date. This
-   is a mechanical schema edit, not a migration.
-4. **Wait one full client-upgrade cycle** — for a mobile client that's
-   months, not weeks — then remove fields with zero usage, starting with the
-   oldest.
+Detected 3 breaking changes!
+Validation failed. Exit code 1.
+```
 
-Note what *doesn't* need to happen: no versioning, no breaking release, no
-big-bang migration. The fields with genuinely zero traffic can be deleted
-silently, and only the ones with real usage need a conversation — which is
-exactly the outcome the per-field blast radius was supposed to give them all
-along.
+---
 
-</details>
-
-## Independent challenge
-
-No solution given. You own a GraphQL API used by a web app (deploys daily), an
-iOS app (users upgrade over ~6 months), and three partner integrations you
-contact by email. You must make these changes:
-
-1. `User.email: String!` becomes a list — users can have several addresses
-2. `Order.status` gains a `PARTIALLY_REFUNDED` value
-3. `search(term: String!)` must become `search(term: String!, filters: SearchFilters)`, and you'd like `filters` to eventually be required
-4. `Product.legacyId: Int!` must go away entirely
-
-For each: is it breaking, what's the migration sequence, and how long does
-each phase last given the iOS upgrade curve? Then answer the strategic
-question — one of these cannot be completed within a year no matter what you
-do, so how do you sequence the work so that constraint doesn't block the
-other three?
-
-<details>
-<summary>Stuck? One hint</summary>
-
-Change 3 has a hidden trap: adding an optional argument is safe, but your
-stated goal of eventually making `filters` **required** is breaking, and
-there is no deprecation mechanism that forces callers to start supplying an
-argument. The usual resolution is to never make it required — instead give it
-a default that preserves current behaviour, and treat "all clients pass
-filters" as a measurement target rather than a schema constraint. Change 4 is
-the one gated entirely by the iOS curve, and the key insight is that it
-blocks nothing else: fields are independent, so you can complete 1, 2 and 3
-while `legacyId` sits deprecated and awaiting its removal window.
-
-</details>
-
-## Common mistakes & troubleshooting
-
-- **Versioning a GraphQL API** (`/graphql/v2`, or a `v2` field prefix). It
-  discards the per-field blast radius that makes GraphQL evolvable and gives
-  you two schemas to maintain.
-- **Deprecating without measuring.** Deprecated fields then accumulate
-  forever because removal can never be justified.
-- **Useless deprecation reasons.** State the replacement and the removal
-  date, or consumers can't act on it.
-- **Confusing input and output nullability rules.** You may strengthen
-  outputs (`String` → `String!`) and relax inputs (`String!` → `String`) —
-  the reverse of each is breaking.
-- **Marking new output fields non-null by default.** You can tighten later;
-  you can't loosen. Start nullable when in doubt.
-- **Adding a required argument.** Always breaking, and unlike a field there's
-  no deprecation path to force adoption.
-- **Assuming enum additions are free.** They validate, but clients switching
-  without a default branch mishandle them silently.
-- **Removing a field after a week of zero usage.** Meaningless if your
-  clients are mobile apps that upgrade over months.
-- **No CI schema check.** These rules are exactly what gets missed under
-  deadline pressure.
-
-## Checkpoint quiz
+## Operational Validation Checkpoints (Scenario Quizzes)
 
 <details>
-<summary>Show questions</summary>
+<summary><strong>Checkpoint 1: The Input vs Output Nullability Trap</strong></summary>
 
-1. Why does GraphQL have no versioning mechanism, and what replaces it?
-2. What is the unit of compatibility in GraphQL, and why does that follow
-   from how clients query?
-3. Give the nullability rule for output fields and for input fields, and
-   explain why they're opposites.
-4. Why is adding an enum value risky even though it doesn't break schema
-   validation?
-5. What are the six steps of the field lifecycle, and which one do teams
-   usually skip?
-6. What's the difference between a schema diff and a traffic-aware schema
-   check?
-7. Why should a new output field usually start nullable?
-8. Why can't a required argument be introduced through deprecation?
+**Scenario:** You need to refactor two GraphQL operations:
+1. On the output type `Order`, `trackingUrl: String!` is changed to `trackingUrl: String` because some warehouse providers do not supply live tracking URLs.
+2. On the mutation input `CreateOrderInput`, `notes: String!` is changed to `notes: String` because customer notes should be optional.
 
-</summary>
+Which of these changes is a breaking change to existing clients, and why?
+
+**Answer:**
+Change 1 is **strictly breaking**; Change 2 is **completely safe**.
+- In output types (`Order.trackingUrl`), clients (especially typed clients in TypeScript, Swift, Kotlin, and C#) generate models assuming the field is guaranteed non-null. If the backend begins returning `null`, those clients trigger decoding exceptions or null-pointer dereferences.
+- In input types (`CreateOrderInput.notes`), changing from non-null (`String!`) to nullable (`String`) **relaxes** the caller's obligations. Existing clients that pass notes continue working normally, while newer callers can now legally omit the field. The rule is: *strengthen output promises, relax input demands*.
 </details>
 
 <details>
-<summary>Show answers</summary>
+<summary><strong>Checkpoint 2: The Enum Exhaustiveness Bug</strong></summary>
 
-1. Because the client selects exactly which fields it wants, so a change only
-   affects clients that actually reference the changed field — versioning the
-   entire schema to protect one field would be far too coarse. What replaces
-   it is additive-only change, `@deprecated` to signal intent, and per-field
-   usage measurement to prove when removal is safe.
-2. The individual **field**, rather than the endpoint or the whole schema.
-   Because a query names each field explicitly, a client that never selects a
-   field is unaffected by anything that happens to it — so the blast radius
-   of a change is precisely the set of clients selecting it.
-3. For **output** fields you may go nullable → non-null (`String` →
-   `String!`) but not the reverse; for **input** fields you may go non-null →
-   nullable but not the reverse. They're opposites because you can safely
-   strengthen what you *promise to return* and safely relax what you *demand
-   to receive* — in both cases the existing client's assumptions remain
-   valid.
-4. Because the query still validates and succeeds, so nothing fails visibly —
-   but a client that switches on the enum without a default branch receives a
-   value its logic doesn't handle and misbehaves silently. It's a client-side
-   hazard the schema can't prevent.
-5. Add the replacement; dual-serve both; deprecate the old field; measure
-   per-field usage; notify the remaining consumers; remove once usage has
-   been zero for a full client-upgrade cycle. Teams usually skip
-   **measurement**, which makes the final removal step permanently
-   unjustifiable.
-6. A schema diff compares two schema documents and reports changes that are
-   *theoretically* breaking. A traffic-aware check additionally consults real
-   recent usage, so removing a field no client has queried in 90 days can
-   pass while removing a heavily-used one fails — a far more useful signal,
-   and one that depends on having per-field usage data.
-7. Because tightening it later (`String` → `String!`) is a safe, non-breaking
-   change, whereas loosening it (`String!` → `String`) is breaking — so
-   starting nullable preserves your options, while starting non-null commits
-   you permanently to always being able to resolve that field.
-8. Because deprecation only labels something as discouraged; it has no
-   mechanism to compel callers to start *supplying* something they currently
-   omit. Any existing query that doesn't pass the argument becomes invalid
-   the moment it's required, so the change is breaking regardless of how long
-   it's been signposted. The usual workaround is to keep it optional with a
-   behaviour-preserving default.
+**Scenario:** You add a new enum value `REFUND_PENDING` to an existing schema enum:
+```graphql
+enum PaymentState {
+  AUTHORIZED
+  CAPTURED
+  FAILED
+  REFUND_PENDING # Newly added enum value
+}
+```
+Schema validators report this change as non-breaking. However, when rolled out to production, several Android mobile clients begin crashing on checkout screens. Why did this happen, and how should mobile client code be structured to handle GraphQL enum evolution?
 
+**Answer:**
+Adding an enum value is valid SDL and passes GraphQL document validation. However, client-side typed languages (Kotlin, Swift, TypeScript with exhaustive switch checks, Rust, C#) frequently implement pattern matching or `switch` statements over enums:
+```kotlin
+when (payment.state) {
+    PaymentState.AUTHORIZED -> showPendingUI()
+    PaymentState.CAPTURED -> showSuccessUI()
+    PaymentState.FAILED -> showErrorUI()
+    // No else branch!
+}
+```
+When `REFUND_PENDING` arrives over the wire, the compiled code throws a `NoWhenBranchMatchedException` or crashes runtime deserialization. To protect against this open-enum evolution hazard:
+1. Client code must **always include an `@unknown default` or `else` branch** for server enums.
+2. Modern GraphQL client codegen libraries (like Apollo Client) configure an `UNKNOWN__` fallback enum value for unrecognized enum variants.
 </details>
 
-## Further reading & sources
+<details>
+<summary><strong>Checkpoint 3: Decommissioning Zombie Fields</strong></summary>
 
-- [GraphQL spec: Type system — deprecation](https://spec.graphql.org/draft/#sec-Deprecation) - where `@deprecated` is defined and what it may be applied to.
-- [GraphQL.org: Best practices — versioning](https://graphql.org/learn/best-practices/#versioning) - the official argument against versioning a GraphQL API.
-- [Apollo: Schema checks](https://www.apollographql.com/docs/graphos/delivery/schema-checks) - traffic-aware checking against real operation data.
-- [GraphQL Inspector](https://the-guild.dev/graphql/inspector) - open-source schema diffing and breaking-change detection for CI.
-- [Track 16, module 00](../../16-grpc-deep-dive/00-protobuf-schema-design-and-evolution/README.md) - the same evolution problem in protobuf, where versioning *is* the escape hatch.
+**Scenario:** Your company's GraphQL schema has 75 fields marked `@deprecated`, some dating back over 3 years. The tech leads want to delete them to clean up tech debt, but previous attempts caused outages for enterprise partners. What concrete, 4-step engineering protocol should you implement to safely delete deprecated fields without causing breaking outages?
 
-## Next
+**Answer:**
+1. **Instrument Field Telemetry with Client Identity:** Add resolver interceptors that record metrics with labels `(parent_type, field_name, client_id/app_name)` extracted from the `x-client-name` header or API token.
+2. **Actionable Deprecation Messages:** Audit all `@deprecated` directives to ensure they state the exact alternative and a hard sunset date (e.g., `@deprecated(reason: "Use 'customer.primaryEmail'. Removal Q3 2027.")`).
+3. **Traffic-Aware Monitoring Across Full Client Upgrade Cycle:** For public or mobile APIs, monitor metrics until field resolution counts hit absolute zero for a duration that exceeds the p99 mobile app update curve (typically 6 to 9 months for native mobile apps, or after contacting registered enterprise API key holders).
+4. **CI Schema Diffing & Registry Gate:** Integrate tools like Apollo Rover or GraphQL Inspector into CI to reject any PR that removes a field while telemetry reports active traffic within the last 30 days.
+</details>
 
-[06-graphql-errors-nullability-and-partial-results](../06-graphql-errors-nullability-and-partial-results/README.md) —
-nullability turned out to be an evolution decision. Module 06 shows it's also
-the single biggest factor in how your API behaves when something fails.
+---
+
+## Further Reading & Next Steps
+
+* [GraphQL Official Specification: Deprecation](https://spec.graphql.org/draft/#sec-Deprecation) - Official specification guidelines on `@deprecated`.
+* [Apollo GraphQL: Schema Checks & Safe Evolution](https://www.apollographql.com/docs/graphos/delivery/schema-checks) - How traffic-aware checks prevent breaking changes.
+* [The Guild: GraphQL Inspector](https://the-guild.dev/graphql/inspector) - Open-source CI tooling for diffing schemas and spotting breaking changes.
+* Next up: [06-graphql-errors-nullability-and-partial-results](../06-graphql-errors-nullability-and-partial-results/README.md) to master partial failures, error propagation, and the critical architecture of result unions.

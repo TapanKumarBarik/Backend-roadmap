@@ -1,595 +1,576 @@
 # Module 10: API Design Tradeoffs in Practice
 
-## Why this matters
+> **Prerequisites**: [00-beyond-rest-when-and-why](../00-beyond-rest-when-and-why/README.md), [01-grpc-fundamentals](../01-grpc-fundamentals/README.md), [03-graphql-fundamentals](../03-graphql-fundamentals/README.md), and [09-api-gateways-and-bff](../09-api-gateways-and-bff/README.md).  
+> **Estimated Reading Time**: 35 minutes  
+> **Target Audience**: Staff Software Engineers, Systems Architects, and Technical Leads operating unified, multi-paradigm enterprise architectures.
 
-Every prior module gave you a piece: when to leave REST (00), gRPC (01–02),
-GraphQL (03–04), how to keep consumers updated (05), and the edge components that
-sit in front — gateways and BFFs (06). Real systems don't use these one at a
-time. A mature product is almost always **multi-paradigm**: a public REST API for
-partners, internal gRPC between services, a GraphQL BFF for the apps, webhooks
-for outbound events. Module 00 sketched that end state; this module is about
-*living in it* — the practical decisions that only show up once several paradigms
-coexist in one system and have to evolve together over years.
+---
 
-Three of those decisions are where teams get burned. **Mixing** paradigms
-coherently (not letting the same domain logic fork three ways behind three
-protocols). **Versioning across paradigms**, because REST, gRPC, and GraphQL each
-evolve their contracts differently — a URL version, a Protobuf field number, an
-additive-only graph — and a change that's safe in one is a silent break in
-another (a theme the cumulative review will press on). And **documentation
-strategy**, because a system with three contract styles needs three kinds of docs
-that stay honest, or integrators drown. None of this is new *technology* — it's
-the judgment that ties the whole track together into a system you could actually
-run and grow.
+> [!TIP]
+> **The Golden Rule of Multi-Paradigm Architecture**  
+> Enforce the rule of **One Domain, Many Edges**. Never let business validation logic fork across communication protocols. Domain rules live in a single, protocol-agnostic domain layer; REST routes, gRPC handlers, and GraphQL resolvers are merely thin **ports and adapters** that translate wire formats and status codes. Furthermore, respect each paradigm's native evolution mechanism: version REST via explicit coarse paths (`/v1`), version Protobuf via **immutable field tag numbers**, and version GraphQL via an **additive schema backed by `@deprecated`**. Never apply one paradigm's versioning rules to another.
 
-This is the last standard module, so it's also where the track's design
-philosophy has to become a habit: every paradigm, update mechanism, and edge
-component is a cost that must earn its keep against a concrete pain (module 00),
-and every contract is a promise you have to evolve without breaking. Get this
-module right and you can walk into a real system, read its API surface, and reason
-about where each paradigm belongs and how to change it safely.
+---
 
-## Concepts
+## Visual Mental Models & Architecture
 
-### Mixing paradigms in one system without forking your domain
+### One Domain, Many Edges: The Hexagonal Edge Architecture
 
-The realistic topology from module 00 — public REST + internal gRPC + GraphQL
-BFF + webhooks — only works if the paradigms are **edges onto one domain**, not
-three reimplementations of it. The failure mode is letting "create an order" grow
-three subtly different implementations behind the REST controller, the gRPC
-handler, and the GraphQL mutation. The discipline:
+Business logic must never be copy-pasted or rewritten across protocol handlers. Instead, the core domain model exposes clean interfaces; each paradigm adapter translates wire contracts to domain invocations.
 
-- **Domain logic lives in one place; paradigms are adapters.** A single
-  `create_order(...)` service function is called by the REST route, the gRPC
-  method, *and* the GraphQL resolver. Each paradigm handles only its own
-  translation (parsing, shaping, status mapping); none owns business rules. This
-  is the hexagonal/ports-and-adapters instinct, and it's what keeps a
-  multi-paradigm system from drifting into three inconsistent products.
-- **Each edge does what it's best at.** Partners get **REST** (versioned,
-  cacheable, universal). Internal service-to-service calls are **gRPC** (typed,
-  fast). The apps get a **GraphQL BFF** (client picks fields, aggregates
-  services). Outbound events are **webhooks** (server-to-server push). The
-  assignment is module 00's consumer-first framework applied per edge — not a
-  house style imposed everywhere.
-- **The BFF is the seam between worlds.** It speaks the client's paradigm on the
-  outside (GraphQL) and calls the internal one (gRPC) inside — the translation
-  layer from module 06. That seam is where over-/under-fetch gets resolved and
-  where you avoid exposing internal service shapes to clients.
+```mermaid
+flowchart TD
+    subgraph Clients["Heterogeneous Consumers"]
+        Partners["🏢 B2B Partners"]
+        InternalPods["⚙️ Internal Microservices"]
+        WebMobile["📱 First-Party Web & Mobile"]
+    end
 
-The one-liner: **one domain, many edges.** Mixing paradigms is a feature of a
-mature system; forking your domain behind them is the bug.
+    subgraph Adapters["Protocol Translation Adapters (No Business Logic)"]
+        RestAdapter["🌐 REST Controller<br/>• Maps JSON to Domain DTO<br/>• Maps Domain Errors to HTTP 4xx/5xx"]
+        GrpcAdapter["⚡ gRPC Servicer<br/>• Unmarshals Protobuf<br/>• Maps Domain Errors to gRPC Status Codes"]
+        GqlAdapter["🔮 GraphQL Resolver<br/>• Maps Queries to Domain DTO<br/>• Maps Domain Errors to Result Unions"]
+    end
 
-```text
-  partners   ──► REST route     ─┐
-  own apps   ──► GraphQL resolver├─►  create_order()      ──► orders_repo
-  internal   ──► gRPC handler   ─┘    ONE domain function      (one DB)
-  outbound   ──► webhook emitter ┘    (qty<=0 rule lives here)
-      each edge only TRANSLATES (parse/shape/status-map); none owns business rules
+    subgraph DomainCore["Unified Domain Core (Single Source of Truth)"]
+        DomainService["💼 Order Domain Service<br/>• Enforces Qty > 0<br/>• Validates Inventory Reserves<br/>• Computes Tax & Price Totals"]
+        DB[(Primary Database)]
+    end
+
+    Partners -->|HTTPS REST JSON| RestAdapter
+    InternalPods -->|HTTP/2 gRPC Protobuf| GrpcAdapter
+    WebMobile -->|GraphQL POST /bff| GqlAdapter
+
+    RestAdapter -->|createOrder| DomainService
+    GrpcAdapter -->|createOrder| DomainService
+    GqlAdapter -->|createOrder| DomainService
+
+    DomainService --> DB
+
+    style DomainService fill:#d4edda,stroke:#28a745,stroke-width:3px
+    style Adapters fill:#fff3cd,stroke:#856404,stroke-width:2px
 ```
 
-### Versioning across paradigms: same goal, three mechanisms
+---
 
-Every contract will change; the skill is changing it **without silently breaking
-consumers**, and each paradigm evolves differently. The unifying principle is
-**additive, backward-compatible change** — but its shape differs:
+### Contract Evolution Across Paradigms
 
-- **REST** versions explicitly and coarsely: a URL prefix (`/v1/`, `/v2/`) or a
-  version header, plus additive changes within a version (add fields, never
-  remove/rename/repurpose; never change a field's meaning). Public REST APIs lean
-  on this because outside integrators need a stable, obvious contract and a long
-  deprecation window (track 02's versioning discipline).
-- **gRPC / Protobuf** versions at the **field-number** level: you add new fields
-  with new tags and *never reuse or renumber a tag* — renumbering silently
-  corrupts data on the wire (the exact silent-contract bug the cumulative reviews
-  hammer). Removing a field means `reserved`-ing its number so it's never reused.
-  Compatibility is per-message, fine-grained, and enforced by the tag discipline,
-  not by a URL.
-- **GraphQL** versions by **evolving one schema additively** — the community norm
-  is *no versioned endpoints at all*. You add types/fields freely; you **deprecate**
-  fields with `@deprecated(reason: ...)` rather than removing them, and you watch
-  which fields clients actually select before retiring anything. Removing or
-  changing a field's type is the breaking change to avoid.
+```mermaid
+flowchart LR
+    subgraph REST["REST Contract Evolution"]
+        R1["/v1/orders<br/>(Additive fields safe)"] -->|Breaking Change| R2["/v2/orders<br/>(Coarse URL path bump)"]
+    end
 
-The through-line: **additive is safe; removing/renaming/repurposing is a break in
-every paradigm** — they just detect and manage it differently (a URL bump, a
-reserved tag, a deprecation directive). A change that looks harmless in one (bump
-the version) is catastrophic in another (renumber a tag) if you don't respect each
-mechanism.
+    subgraph Protobuf["gRPC / Protobuf Evolution"]
+        P1["message Order {<br/>  int64 id = 1;<br/>  double total = 2;<br/>}"] -->|Evolve Additively| P2["message Order {<br/>  int64 id = 1;<br/>  double total = 2;<br/>  string currency = 3;<br/>  reserved 4 to 10;<br/>}"]
+    end
 
-### The public/internal contract boundary
+    subgraph GraphQL["GraphQL Schema Evolution"]
+        G1["type Order {<br/>  id: ID!<br/>  total: Float!<br/>}"] -->|Additive + Deprecate| G2["type Order {<br/>  id: ID!<br/>  total: Float!<br/>  legacyCents: Int @deprecated<br/>  currency: String!<br/>}"]
+    end
 
-A recurring practical tension: your **internal** contracts (gRPC between your
-services) can evolve fast because you own both ends and deploy them together; your
-**public** contracts (REST/GraphQL for partners and apps) must evolve slowly and
-compatibly because you don't control the consumers. This asymmetry drives real
-decisions:
-
-- **Never leak internal shapes to the outside.** Don't expose a gRPC-generated
-  message straight to a partner — you'd couple their integration to your internal
-  refactors. The BFF/gateway (module 06) is where you map internal shapes to
-  stable external ones, so an internal rename doesn't break a client.
-- **Different change velocities, different processes.** Internal gRPC can add a
-  field and redeploy caller + callee together this afternoon. A public REST field
-  change ships behind a version and a deprecation window measured in months.
-  Treat the boundary as a firewall between "fast, coordinated change" and "slow,
-  compatible change."
-- **The gateway owns the external-stability guarantees.** Routing at the edge
-  (module 06) means you can split, move, or rewrite an internal service without
-  the external URL changing — the stable external surface over a changing internal
-  topology.
-
-### Documentation strategy for a multi-paradigm system
-
-Three contract styles need three kinds of docs, and the win is that each paradigm
-has a **schema-first, generated** option so docs don't rot into fiction:
-
-- **REST → OpenAPI.** FastAPI generates it from your types; it drives Swagger UI,
-  client SDKs, and contract tests. The doc *is* the schema (track 02).
-- **gRPC → the `.proto` files** are the contract and the doc; tooling generates
-  reference docs and, crucially, **typed client stubs** in every language, so the
-  "documentation" is machine-checked and can't drift from the wire format.
-- **GraphQL → introspection + the SDL.** The schema is self-documenting;
-  GraphiQL/Playground and tools like SpectaQL render it, and field
-  **descriptions** live in the schema. Clients discover the graph directly.
-- **Above all three: a human-written map.** Generated reference docs tell you
-  *what* each endpoint is; they don't tell an integrator *which paradigm to use
-  for what*, the auth model, rate limits, versioning policy, and the deprecation
-  calendar. A short "how our API surface is organized" guide — the module-00
-  topology, written down — is the doc that prevents a partner from trying to speak
-  gRPC to your public edge.
-
-The principle: **prefer generated, schema-derived docs** (they stay honest) and
-add one **hand-written orientation doc** that explains the multi-paradigm *shape*
-no generator can infer. That's the same "the schema is the contract" instinct
-running through gRPC's `.proto`, REST's OpenAPI, and GraphQL's SDL.
-
-### Choosing and evolving the mix over time
-
-Systems aren't born multi-paradigm; they grow into it, and module 00's discipline
-governs the sequence. A healthy evolution, each step justified by a concrete pain:
-
-1. **Start REST, one service.** It serves everyone until a real limit bites.
-2. **Add gRPC** when internal service-to-service traffic gets hot enough that
-   JSON/HTTP overhead and untyped payloads are a measured tax (modules 01–02).
-3. **Add a GraphQL BFF** when a rich client (or a second client) is suffering
-   over-/under-fetch against the general API (modules 03–04, 06).
-4. **Add webhooks/streaming** when a consumer genuinely needs server-initiated
-   updates (module 05, track 06).
-5. **Add a gateway** when edge policy (auth, rate limit, routing) is duplicated
-   across enough services or a partner program needs central key management
-   (module 06).
-
-Each step is reversible reasoning: if the pain isn't concrete and present, you
-don't take it. The end state looks impressive, but it's the *accumulation* of
-justified decisions, never a big-bang "let's be a gRPC + GraphQL + gateway
-company." That accumulation-by-justification is the entire track's thesis.
-
-## Command reference
-
-| Decision | REST | gRPC | GraphQL |
-|---|---|---|---|
-| Primary consumer | Public / partners | Internal services | Own apps (BFF) |
-| Contract artifact | OpenAPI (generated) | `.proto` files | SDL / introspection |
-| Versioning unit | URL prefix `/v1` | Field number (tag) | One evolving schema |
-| Safe change | Add fields | Add new tag | Add type/field |
-| Breaking change | Remove/rename/repurpose | Reuse/renumber a tag | Remove/retype a field |
-| Retire a field | New version + deprecation | `reserved` the tag | `@deprecated(reason:)` |
-| Docs tooling | Swagger UI | proto docs + stubs | GraphiQL / SpectaQL |
-
-One domain function, three paradigm adapters (no forked business logic):
-
-```python
-# domain/orders.py — the ONE place business rules live
-def create_order(user_id: int, item_id: int, qty: int) -> Order:
-    if qty <= 0:
-        raise InvalidQuantity()          # one rule, enforced everywhere
-    return orders_repo.create(user_id, item_id, qty)
-
-# REST adapter (public) — translate HTTP <-> domain, map errors to status codes
-@app.post("/v1/orders", status_code=201)
-def rest_create_order(body: CreateOrderIn):
-    try:
-        return create_order(body.user_id, body.item_id, body.qty)
-    except InvalidQuantity:
-        raise HTTPException(422, "qty must be positive")
-
-# gRPC adapter (internal) — translate proto <-> domain, map errors to gRPC status
-class OrderService(orders_pb2_grpc.OrderServiceServicer):
-    def CreateOrder(self, request, context):
-        try:
-            o = create_order(request.user_id, request.item_id, request.qty)
-            return orders_pb2.Order(id=o.id, total=o.total)
-        except InvalidQuantity:
-            context.abort(grpc.StatusCode.INVALID_ARGUMENT, "qty must be positive")
-
-# GraphQL adapter (BFF) — translate query <-> domain
-@strawberry.mutation
-def create_order(self, user_id: int, item_id: int, qty: int) -> OrderType:
-    try:
-        o = create_order(user_id, item_id, qty)
-        return OrderType(id=o.id, total=o.total)
-    except InvalidQuantity:
-        raise GraphQLError("qty must be positive")
+    style REST fill:#e2e3e5,stroke:#6c757d,stroke-width:2px
+    style Protobuf fill:#d1ecf1,stroke:#0c5460,stroke-width:2px
+    style GraphQL fill:#f8d7da,stroke:#721c24,stroke-width:2px
 ```
 
-Backward-compatible evolution, per paradigm (the *safe* move in each):
+---
 
-```python
-# REST: add a field within /v1 (additive, non-breaking); breaking changes go to /v2
-class OrderOut(BaseModel):
-    id: int
-    total: float
-    currency: str = "USD"     # NEW optional field — old clients ignore it, safe
-```
+## Systematic Reference Grids
 
+### Cross-Paradigm Architectural Comparison Grid
+
+| Dimension | REST | gRPC (Protobuf) | GraphQL |
+| :--- | :--- | :--- | :--- |
+| **Primary Consumer** | External B2B partners, public integrations, third-party developers. | Internal service-to-service, high-throughput microservices. | First-party client apps (Web SPA, Mobile iOS/Android) via BFF. |
+| **Contract Artifact** | OpenAPI 3.1 Specification (`openapi.json` / YAML). | Protocol Buffer file (`.proto`). | Schema Definition Language (`schema.graphql` / SDL). |
+| **Versioning Unit** | Explicit URL Prefix (`/v1/`, `/v2/`) or Header. | **Field Tag Number** (Integer ID on wire). | **Single Evolving Schema** with Field Deprecation. |
+| **Safe Additive Change** | Add optional response field; add optional query parameter. | Add new field with **new unallocated tag number**. | Add new field; add optional argument; relax input nullability. |
+| **Catastrophic Breaking Change** | Renaming/removing a field without a new `/v2` path. | **Renumbering or reusing an existing tag number**. | Weakening output nullability (`T!` &rarr; `T`); removing a field. |
+| **Field Deprecation** | Deprecation HTTP header (`Sunset`, `Deprecation`). | `reserved` keyword for tag numbers and field names. | `@deprecated(reason: "Use alternative field.")`. |
+| **Transport Protocol** | HTTP/1.1 or HTTP/2 over TLS. | HTTP/2 (Multiplexed streams, binary framing). | HTTP/1.1 or HTTP/2 POST (or GET for Persisted Queries). |
+| **Wire Encoding** | Textual JSON. | Binary Protobuf (varint, length-delimited wire types). | Textual JSON. |
+| **Error Signaling** | HTTP Status Codes (`400`, `401`, `403`, `404`, `422`, `500`). | Canonical gRPC Status Codes (`INVALID_ARGUMENT`, `NOT_FOUND`). | Result Unions in `data`, or generic masked entries in `errors[]`. |
+| **Documentation Tooling** | Swagger UI, Redoc, Stoplight (OpenAPI generated). | `protoc-gen-doc`, generated client SDK stubs. | GraphiQL, Apollo Studio, SpectaQL (SDL generated). |
+
+---
+
+## Production Incident War Story: The Silent Protobuf Tag Swap
+
+### Incident Post-Mortem: SEV-1
+
+* **Incident ID**: INC-4419
+* **Severity Level**: SEV-1 (Severe Financial Data Corruption)
+* **Detection Time**: 48 hours after release
+* **Time to Recovery (TTR)**: 120 minutes (data rollback required 6 days)
+* **Impact**: \$4.8M in fraudulent credit advances issued due to silent wire-level field transposition.
+
+#### 1. What Happened
+A lending platform maintained an internal microservice `credit-evaluator` that evaluated user loan applications and returned credit score parameters to `loan-originator` over gRPC.
+
+The `.proto` definition originally stood as:
 ```protobuf
-// gRPC: add a NEW tag; never renumber 1/2; reserve a retired tag's number
-message Order {
-  int64 id = 1;
-  double total = 2;
-  string currency = 3;        // NEW field, NEW tag — old peers skip it, safe
-  reserved 4;                 // a removed field's tag is reserved, never reused
+message CreditEvaluationResponse {
+  string user_id = 1;
+  int64 credit_limit_cents = 2; // Tag 2: e.g. 500000 ($5,000.00)
+  int32 risk_tier = 3;          // Tag 3: Risk tier (1=low, 2=med, 3=high)
 }
 ```
 
-```graphql
-# GraphQL: add a field freely; deprecate rather than remove
-type Order {
-  id: ID!
-  total: Float!
-  currency: String!
-  legacyTotalCents: Int @deprecated(reason: "Use total (major units)")   # keep, don't delete
+During a refactoring to alphabetize fields, a junior engineer altered the schema without understanding binary protobuf wire serialization:
+```protobuf
+message CreditEvaluationResponse {
+  string user_id = 1;
+  int32 risk_tier = 2;          // Tag 2: Renumbered from Tag 3!
+  int64 credit_limit_cents = 3; // Tag 3: Renumbered from Tag 2!
+}
+```
+The developer rebuilt the `credit-evaluator` service and deployed it to production. However, `loan-originator` was NOT immediately redeployed and continued running with the old Protobuf stub definition.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Evaluator as credit-evaluator (NEW Protos: 2=Tier, 3=Limit)
+    participant Originator as loan-originator (OLD Protos: 2=Limit, 3=Tier)
+    participant WalletDB as Core Banking Ledger
+
+    Originator->>Evaluator: EvaluateCredit(user_id: "usr_99")
+    Note over Evaluator: User is HIGH RISK (Tier 3)<br/>Assigns minimal credit limit: $500 (50,000 cents)<br/>Encodes: Tag 2 = 3 (Risk), Tag 3 = 50000 (Limit)
+    Evaluator-->>Originator: Binary Protobuf Payload: 0x10 0x03 0x18 0xC8 0x86 0x03
+    Note over Originator: OLD Proto decodes Tag 2 as credit_limit_cents!<br/>credit_limit_cents = 3 cents!<br/>Decodes Tag 3 as risk_tier!<br/>risk_tier = 50,000 (Out of range -> interpreted as Tier 0 VIP!)
+    Originator->>WalletDB: Auto-approve Uncapped Emergency Overdraft!
+    WalletDB-->>Originator: $4.8M drawn across 2,400 accounts!
+```
+
+#### 2. Root Cause Analysis
+1. **Renumbering Wire Tags**: Protobuf does NOT transmit field names over the wire; it transmits only **field tag numbers and wire types**. Swapping tags 2 and 3 transposed `risk_tier` and `credit_limit_cents` silently on the wire without raising any compilation or deserialization errors.
+2. **Failure to Use `reserved`**: When retiring or altering field positions, tags must be permanently marked `reserved` to prevent reuse.
+3. **Absence of Breaking Change CI Gate**: The CI pipeline lacked `buf breaking` checks to reject any PR modifying tag numbers on existing Protobuf messages.
+
+#### 3. The Architectural Hardening & Resolution
+1. **Proto Tag Immutability**: Enforced the rule that once a tag number is assigned, it can **never be changed or reassigned**.
+2. **Buf Breaking Linting in CI**: Integrated `buf breaking --against '.git#branch=main'` into all Git repositories. Any PR that renumbers or reuses a tag fails CI immediately.
+3. **Use of `reserved` Directive**: Updated all legacy schemas to explicitly reserve decommissioned tags:
+```protobuf
+message CreditEvaluationResponse {
+  string user_id = 1;
+  reserved 2, 3;
+  reserved "credit_limit_cents", "risk_tier";
+  int64 approved_credit_limit_cents = 4;
+  RiskTier user_risk_tier = 5;
 }
 ```
 
-## Hands-on exercises
+---
 
-Assemble a small multi-paradigm system from the earlier modules' pieces: a
-domain service, a public REST edge, an internal gRPC service, and a GraphQL BFF.
-The point is the *system-level* decisions, not new syntax.
+## Multi-Language Production Code Tabs: One Domain, Many Edges
 
-### 1. Extract the shared domain
+The following examples demonstrate the **Ports and Adapters** pattern in production: a single, shared domain function (`CreateOrder`) exposed simultaneously via REST, gRPC, and GraphQL without duplicating business logic.
 
-Take "create an order" and put its business rules in one `create_order()` domain
-function. Have a REST route, a gRPC method, and a GraphQL mutation all call it,
-each only translating in/out. Expected: the `qty <= 0` rule exists in exactly one
-place; all three paradigms reject a bad qty identically without duplicating the
-check.
+```
+### Language Tabs
+1. Go (Shared Domain + Gin REST + gRPC Servicer + gqlgen)
+2. Node.js / TypeScript (Domain Service + Express + @grpc/grpc-js + Apollo)
+3. Python (Domain Function + FastAPI + grpcio + Strawberry)
+4. C# (Domain Service + Minimal APIs + Grpc.AspNetCore + Hot Chocolate)
+```
 
-### 2. Map errors per paradigm
+### Go
+```go
+package main
 
-For the single `InvalidQuantity` domain error, map it to the right thing in each
-edge: REST `422`, gRPC `INVALID_ARGUMENT`, GraphQL error. Expected: one domain
-error surfaces idiomatically in three protocols — same rule, three faithful
-translations (modules 01/02 status codes, track 02 HTTP codes).
+import (
+	"context"
+	"errors"
+	"fmt"
+	"net"
+	"net/http"
 
-### 3. Assign paradigms to four consumers
+	"github.com/gin-gonic/gin"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+)
 
-For one product, assign a paradigm to each: a partner reselling your product, an
-internal `pricing-service` called on every checkout, the web app's account
-screen, and a "shipment.delivered" notification to a partner. Justify each with
-module 00's framework. Expected: REST, gRPC, GraphQL BFF, webhook respectively.
+// ==========================================
+// 1. DOMAIN LAYER (Pure Business Logic)
+// ==========================================
+type Order struct {
+	ID     string
+	UserID string
+	Qty    int
+	Total  float64
+}
 
-### 4. Evolve a REST contract safely
+var ErrInvalidQuantity = errors.New("quantity must be strictly greater than zero")
 
-Add a `currency` field to your `/v1/orders` response. Show that an old client
-(expecting only `id`/`total`) still works. Then propose a change that would
-*force* a `/v2` and explain why it can't be additive. Expected: adding an optional
-field is non-breaking within `/v1`; renaming/removing/retyping `total` forces a
-new version + deprecation window.
+func CreateOrderDomain(userID string, qty int, unitPrice float64) (*Order, error) {
+	if qty <= 0 {
+		return nil, ErrInvalidQuantity
+	}
+	return &Order{
+		ID:     fmt.Sprintf("ord_%d", time.Now().UnixNano()),
+		UserID: userID,
+		Qty:    qty,
+		Total:  float64(qty) * unitPrice,
+	}, nil
+}
 
-### 5. Evolve a Protobuf contract safely
+// ==========================================
+// 2. REST ADAPTER (Public Edge)
+// ==========================================
+func RegisterRestAdapter(r *gin.Engine) {
+	r.POST("/v1/orders", func(c *gin.Context) {
+		var req struct {
+			UserID string  `json:"user_id" binding:"required"`
+			Qty    int     `json:"qty" binding:"required"`
+			Price  float64 `json:"price" binding:"required"`
+		}
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
 
-Add a `currency` field to your `Order` message with a new tag. Then show what
-breaks if you instead *renumber* `total` from tag 2 to tag 3. Expected: the new
-tag is backward-compatible (old peers skip it); renumbering silently misreads data
-because the wire tag no longer matches — the classic silent gRPC contract bug.
+		order, err := CreateOrderDomain(req.UserID, req.Qty, req.Price)
+		if err != nil {
+			if errors.Is(err, ErrInvalidQuantity) {
+				c.JSON(http.StatusUnprocessableEntity, gin.H{"error": err.Error()})
+				return
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Internal error"})
+			return
+		}
 
-### 6. Evolve a GraphQL schema safely
+		c.JSON(http.StatusCreated, gin.H{"id": order.ID, "total": order.Total})
+	})
+}
 
-Add `currency` to your `Order` type, and deprecate an old `legacyTotalCents`
-field with `@deprecated` instead of deleting it. Query it and confirm it still
-resolves but is flagged deprecated in introspection. Expected: additive + deprecate
-keeps every existing client working while steering new ones off the old field — no
-versioned endpoint needed.
+// ==========================================
+// 3. gRPC ADAPTER (Internal Service Mesh)
+// ==========================================
+type OrderGrpcServer struct {
+	UnimplementedOrderServiceServer
+}
 
-### 7. Write the orientation doc
+func (s *OrderGrpcServer) CreateOrder(ctx context.Context, req *CreateOrderRequest) (*OrderResponse, error) {
+	order, err := CreateOrderDomain(req.GetUserId(), int(req.GetQty()), req.GetPrice())
+	if err != nil {
+		if errors.Is(err, ErrInvalidQuantity) {
+			return nil, status.Error(codes.InvalidArgument, "Quantity must be greater than zero")
+		}
+		return nil, status.Error(codes.Internal, "Internal processing error")
+	}
+	return &OrderResponse{Id: order.ID, Total: order.Total}, nil
+}
+```
 
-Write the one-page "how our API surface is organized" guide: which paradigm each
-consumer uses, the auth model, rate limits, and the versioning/deprecation policy
-per paradigm. Expected: a human-readable map that a new integrator could read and
-immediately know to use REST (not gRPC) for the public API — the doc no generator
-produces.
+### Node.js / TypeScript
+```typescript
+// ==========================================
+// 1. DOMAIN LAYER (Pure Business Logic)
+// ==========================================
+export interface Order {
+  id: string;
+  userId: string;
+  quantity: number;
+  total: number;
+}
 
-### 8. Protect the public/internal boundary
+export class DomainValidationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'DomainValidationError';
+  }
+}
 
-You refactor an internal gRPC `Order` message (rename a field). Show that,
-because the GraphQL BFF maps internal → external shapes, no client breaks. Then
-show what *would* break if the BFF passed the gRPC message straight through.
-Expected: with mapping, the internal rename is invisible to clients; without it,
-the client contract breaks on an internal refactor — why you never leak internal
-shapes.
+export function executeCreateOrder(userId: string, quantity: number, unitPrice: number): Order {
+  if (quantity <= 0) {
+    throw new DomainValidationError('Order quantity must be strictly positive');
+  }
+  return {
+    id: `ord_${Date.now()}`,
+    userId,
+    quantity,
+    total: quantity * unitPrice,
+  };
+}
 
-### 9. Diagnose and fix
+// ==========================================
+// 2. REST ADAPTER (Express /v1)
+// ==========================================
+import express, { Request, Response } from 'express';
+export const restRouter = express.Router();
 
-A team describes their system and is in pain. Name every problem and prescribe
-fixes:
+restRouter.post('/v1/orders', (req: Request, res: Response) => {
+  try {
+    const { userId, quantity, price } = req.body;
+    const order = executeCreateOrder(userId, quantity, price);
+    return res.status(201).json({ id: order.id, total: order.total });
+  } catch (err) {
+    if (err instanceof DomainValidationError) {
+      return res.status(422).json({ error: err.message, code: 'INVALID_QUANTITY' });
+    }
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+});
 
-> "'Create order' has three implementations — one in the REST controller, one in
-> the gRPC handler, one in the GraphQL mutation — and they've drifted: REST
-> allows qty 0, gRPC doesn't. We version our public GraphQL API with `/v1/graphql`
-> and `/v2/graphql` endpoints and maintain both. When we renamed an internal field
-> we `reserved`-ed nothing and just changed the tag number, and a downstream
-> service started reading garbage. Our public REST docs are a hand-maintained wiki
-> that's months out of date. And we expose our internal gRPC `User` message
-> directly to the mobile app."
+// ==========================================
+// 3. GRAPHQL ADAPTER (Apollo BFF)
+// ==========================================
+export const graphqlResolvers = {
+  Mutation: {
+    createOrder: (_: any, { userId, qty, price }: { userId: string; qty: number; price: number }) => {
+      try {
+        const order = executeCreateOrder(userId, qty, price);
+        return { __typename: 'OrderSuccess', order };
+      } catch (err) {
+        if (err instanceof DomainValidationError) {
+          return { __typename: 'InvalidQuantityError', message: err.message };
+        }
+        throw err;
+      }
+    },
+  },
+};
+```
+
+### Python (FastAPI + gRPC + Strawberry)
+```python
+# ==========================================
+# 1. DOMAIN LAYER (Single Source of Truth)
+# ==========================================
+from dataclasses import dataclass
+import uuid
+from typing import Annotated, Union
+import grpc
+from fastapi import FastAPI, HTTPException, status
+import strawberry
+
+@dataclass
+class Order:
+    id: str
+    user_id: str
+    qty: int
+    total: float
+
+class InvalidQuantityError(Exception):
+    pass
+
+def create_order_domain(user_id: str, qty: int, unit_price: float) -> Order:
+    if qty <= 0:
+        raise InvalidQuantityError("Quantity must be greater than zero")
+    return Order(id=f"ord_{uuid.uuid4().hex[:8]}", user_id=user_id, qty=qty, total=qty * unit_price)
+
+# ==========================================
+# 2. REST ADAPTER (FastAPI)
+# ==========================================
+app = FastAPI()
+
+@app.post("/v1/orders", status_code=status.HTTP_201_CREATED)
+def rest_create_order(user_id: str, qty: int, price: float):
+    try:
+        order = create_order_domain(user_id, qty, price)
+        return {"id": order.id, "total": order.total}
+    except InvalidQuantityError as e:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e))
+
+# ==========================================
+# 3. GRAPHQL ADAPTER (Strawberry BFF)
+# ==========================================
+@strawberry.type
+class OrderType:
+    id: strawberry.ID
+    total: float
+
+@strawberry.type
+class InvalidQtyResult:
+    message: str
+
+OrderResult = Annotated[Union[OrderType, InvalidQtyResult], strawberry.union("OrderResult")]
+
+@strawberry.type
+class Mutation:
+    @strawberry.mutation
+    def create_order(self, user_id: str, qty: int, price: float) -> OrderResult:
+        try:
+            o = create_order_domain(user_id, qty, price)
+            return OrderType(id=strawberry.ID(o.id), total=o.total)
+        except InvalidQuantityError as e:
+            return InvalidQtyResult(message=str(e))
+```
+
+### C#
+```csharp
+using Grpc.Core;
+using HotChocolate.Types;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Http;
+
+// ==========================================
+// 1. DOMAIN LAYER (Single Source of Truth)
+// ==========================================
+public record Order(string Id, string UserId, int Qty, decimal Total);
+
+public class DomainValidationException : Exception
+{
+    public DomainValidationException(string message) : base(message) { }
+}
+
+public static class OrderDomainService
+{
+    public static Order CreateOrder(string userId, int qty, decimal price)
+    {
+        if (qty <= 0)
+            throw new DomainValidationException("Quantity must be strictly greater than zero");
+
+        return new Order($"ord_{Guid.NewGuid():N}"[..12], userId, qty, qty * price);
+    }
+}
+
+// ==========================================
+// 2. REST ADAPTER (Minimal API /v1)
+// ==========================================
+public static class RestEndpoints
+{
+    public static void MapOrderEndpoints(WebApplication app)
+    {
+        app.MapPost("/v1/orders", (CreateOrderDto dto) =>
+        {
+            try
+            {
+                var order = OrderDomainService.CreateOrder(dto.UserId, dto.Qty, dto.Price);
+                return Results.Created($"/v1/orders/{order.Id}", order);
+            }
+            catch (DomainValidationException ex)
+            {
+                return Results.UnprocessableEntity(new { error = ex.Message });
+            }
+        });
+    }
+}
+public record CreateOrderDto(string UserId, int Qty, decimal Price);
+```
+
+---
+
+## Practical Hands-On Verification Workflows
+
+### 1. Verify Error Translation Across Protocols
+
+Verify that the same validation failure (`qty <= 0`) surfaces idiomatically across both REST and GraphQL without altering domain code.
+
+```bash
+# Test REST Adapter
+curl -s -i -X POST http://localhost:8000/v1/orders \
+  -H "Content-Type: application/json" \
+  -d '{"user_id": "usr_10", "qty": 0, "price": 19.99}'
+```
+
+**Expected HTTP Response (REST):**
+```http
+HTTP/1.1 422 Unprocessable Entity
+Content-Type: application/json
+
+{"detail":"Quantity must be greater than zero"}
+```
+
+```bash
+# Test GraphQL BFF Adapter
+curl -s -X POST http://localhost:8000/graphql \
+  -H "Content-Type: application/json" \
+  -d '{"query": "mutation { createOrder(userId: \"usr_10\", qty: 0, price: 19.99) { __typename ... on InvalidQtyResult { message } ... on OrderType { id total } } }"}' | jq .
+```
+
+**Expected JSON Response (GraphQL Result Union):**
+```json
+{
+  "data": {
+    "createOrder": {
+      "__typename": "InvalidQtyResult",
+      "message": "Quantity must be greater than zero"
+    }
+  }
+}
+```
+
+---
+
+## Operational Validation Checkpoints (Scenario Quizzes)
 
 <details>
-<summary>Solution</summary>
+<summary><strong>Checkpoint 1: The Multi-Paradigm Versioning Trap</strong></summary>
 
-1. **Forked domain logic.** Three "create order" implementations that drifted
-   (REST allows qty 0, gRPC doesn't) is the core anti-pattern. **Extract one
-   `create_order()` domain function** and make all three paradigms thin adapters
-   that call it — business rules live in one place, translated per protocol.
-2. **Versioning GraphQL with endpoints.** `/v1/graphql` + `/v2/graphql` fights
-   GraphQL's model. **Evolve one schema additively** and use `@deprecated` to
-   retire fields; drop the versioned endpoints. (URL versioning is the REST
-   mechanism, not GraphQL's.)
-3. **Renumbering a Protobuf tag.** Changing a tag number silently corrupts the
-   wire format — exactly why a downstream service reads garbage. **Add new fields
-   with new tags, never renumber, and `reserved` any retired tag.** This is a
-   silent-contract bug, the most dangerous kind (cumulative-review theme).
-4. **Rotting hand-written REST docs.** A stale wiki lies. **Generate docs from
-   OpenAPI** (FastAPI does this from your types) so the doc *is* the schema and
-   can't drift.
-5. **Leaking an internal gRPC shape to a public client.** Exposing the internal
-   `User` message to mobile couples the client to internal refactors. **Map
-   internal → external shapes at the BFF/gateway** so internal changes don't break
-   clients (the public/internal boundary).
+**Scenario:** An engineering team manages three API interfaces:
+1. A public REST API for external third-party merchants.
+2. An internal gRPC microservice topology.
+3. A GraphQL BFF serving a mobile iOS application.
 
-Lesson: a multi-paradigm system stays healthy only with **one domain behind many
-adapters**, **paradigm-appropriate versioning** (URL vs tag vs additive schema),
-**generated docs**, and a **guarded public/internal boundary**. Every failure here
-is one of those four disciplines skipped.
+The team needs to deprecate an old field `billingZipCode` in favor of a new structured address object `billingAddress { postalCode country }`. How must this change be executed across each of the three paradigms to guarantee zero downtime and no breaking changes?
 
+**Answer:**
+- **In REST:** Add the new `billing_address` object additively to the existing `/v1/` endpoint. Retain `billing_zip_code` in `/v1/` while returning a `Deprecation` and `Sunset` HTTP header. Schedule the removal of `billing_zip_code` for `/v2/` with a minimum 6-month partner migration window.
+- **In gRPC (Protobuf):** Add the new `BillingAddress` message with a **new tag number** (e.g. `tag = 14`). Do NOT renumber or delete the old tag; mark the old string field as `[deprecated = true]`. When decommissioning the field, mark tag 12 as `reserved 12;` and `reserved "billing_zip_code";`.
+- **In GraphQL:** Add `billingAddress: Address!` to the schema. Mark the existing field as `@deprecated(reason: "Use billingAddress.postalCode. Scheduled removal Q4 2027.")`. Monitor client field usage via telemetry until mobile app versions querying `billingZipCode` reach 0% traffic before deleting the field.
 </details>
-
-## Independent challenge
-
-No code given. Take the **event-ticketing platform** you've now designed the API
-strategy (module 00), update mechanisms (module 05), and edge (module 06) for.
-Produce its **complete practical API design document**: (1) the paradigm assigned
-to every consumer edge and the one shared domain layer they all call; (2) the
-versioning and deprecation policy for *each* paradigm in use (REST URL versions,
-Protobuf tag discipline, GraphQL additive-with-`@deprecated`); (3) the
-documentation strategy (which generated docs plus the hand-written orientation
-guide); and (4) the growth sequence — which paradigm/edge you'd add first, second,
-third as the platform scales, each gated on a concrete pain. Explicitly mark one
-thing you're *not* building yet and the cost you avoid by waiting.
 
 <details>
-<summary>Hint</summary>
+<summary><strong>Checkpoint 2: The Leaky Internal Model Anti-Pattern</strong></summary>
 
-Anchor everything on **one domain, many edges** (this module) and the module-00
-consumer-first assignment: partners → public **REST** (`/v1`, additive, long
-deprecation window); internal service-to-service → **gRPC** (evolve by adding
-tags, `reserved` retired ones, never renumber); web + mobile → a **GraphQL BFF**
-(one additive schema, `@deprecated` to retire fields), calling the gRPC services
-and mapping internal shapes to external ones so refactors don't leak; outbound
-partner events → **webhooks** (module 05). Docs: **OpenAPI** for REST, **`.proto`**
-for gRPC, **SDL/introspection** for GraphQL, plus one hand-written map of the whole
-surface. The growth sequence is the module-00 discipline made concrete — REST
-first, then gRPC when internal traffic is a measured tax, then the BFF when a
-client suffers over-/under-fetch, then a gateway when edge policy duplicates. The
-deliberate "not yet" is almost certainly **GraphQL federation** (module 04): don't
-split the BFF into subgraphs until distinct teams own distinct parts — a single
-schema is simpler until that multi-team pain is real.
+**Scenario:** A development team builds a GraphQL BFF in front of an internal gRPC `UserMicroservice`. In the BFF, the resolver returns the auto-generated Protobuf message object directly to the GraphQL client. A backend developer refactors the internal gRPC schema by renaming a Protobuf field from `user_full_name` to `display_name`. What happens to the mobile application, and what architectural rule was violated?
 
+**Answer:**
+The mobile application **breaks immediately with field resolution errors**.
+- **The Violated Architectural Rule**: **Never leak internal service schemas directly to external or BFF clients**.
+- Internal gRPC contracts evolve at a rapid, internal release cadence. Public or BFF contracts evolve under slow, strict backward-compatibility constraints.
+- **The Fix**: The BFF must act as a **translation boundary**. The resolver must explicitly map fields from the internal gRPC message DTO to a dedicated, decoupled GraphQL type. An internal gRPC refactor will then be adapted inside the resolver without altering the external GraphQL contract.
 </details>
 
-## Common mistakes & troubleshooting
+<details>
+<summary><strong>Checkpoint 3: The Forked Business Logic Incident</strong></summary>
 
-- **Forking domain logic behind each paradigm.** Three implementations of "create
-  order" drift into three inconsistent products. Keep business rules in one domain
-  function; make REST/gRPC/GraphQL thin adapters that only translate.
-- **Applying one paradigm's versioning to another.** URL versions are REST's;
-  Protobuf versions by tag; GraphQL evolves one additive schema. Versioning
-  GraphQL with `/v2/graphql` or renumbering a Protobuf tag are both category
-  errors — one is redundant, one is a silent data-corruption bug.
-- **Renumbering or reusing a Protobuf tag.** The single most dangerous change in
-  the track — it silently corrupts the wire format with no error. Add new tags,
-  never renumber, `reserved` retired ones.
-- **Removing/renaming/retyping a public field.** Breaking in every paradigm.
-  Additive changes are safe; retire fields via a new REST version, a `reserved`
-  gRPC tag, or a GraphQL `@deprecated` directive with a window.
-- **Leaking internal shapes to public clients.** Exposing a gRPC-generated
-  message straight to a partner/app couples their contract to your internal
-  refactors. Map internal → external at the BFF/gateway.
-- **Hand-maintained docs that rot.** A stale wiki is worse than no docs.
-  Generate from OpenAPI/`.proto`/SDL so the doc is the schema; add only the
-  hand-written *orientation* guide a generator can't produce.
-- **Going multi-paradigm as an identity, not a response to pain.** "Let's be a
-  gRPC + GraphQL + gateway company" up front is the premature-abstraction trap.
-  The impressive end state is an accumulation of individually justified steps
-  (module 00).
+**Scenario:** An e-commerce platform allows customers to place orders via a web UI (GraphQL BFF) and allows enterprise partners to place orders via a REST API (`POST /v1/orders`). A business rule states: *"Orders exceeding \$10,000 require manual compliance approval."* The REST controller implements this check, but the GraphQL resolver forgot to implement it. What architectural pattern prevents this bug from recurring?
 
-## Checkpoint quiz
+**Answer:**
+The **Ports and Adapters (Hexagonal Architecture)** pattern.
+- Controllers, resolvers, and RPC handlers must be **pure transport adapters** containing **zero business rules**.
+- The compliance check must be implemented inside a single domain function: `OrderService.PlaceOrder(cmd)`.
+- Both the REST controller and the GraphQL mutation resolver simply validate request syntax, pass unmarshaled data to `OrderService.PlaceOrder`, and map the domain outcome to their respective protocol formats. Business rules can never fork because there is only one place where domain logic executes.
+</details>
 
-Write down your answer to each question before expanding it — checking without attempting first is the single easiest way to fool yourself into thinking you've learned this.
+---
 
-1. State the "one domain, many edges" principle and the specific failure it
-   prevents.
-2. How does each of REST, gRPC, and GraphQL version its contract, and what is the
-   *breaking* change in each?
-3. Why is renumbering a Protobuf field tag categorically more dangerous than
-   removing a field from a REST response?
-4. Why can internal (gRPC) contracts evolve faster than public (REST/GraphQL)
-   ones, and what component guards the boundary between them?
-5. Describe the documentation strategy for a multi-paradigm system, including the
-   one doc no generator can produce.
-6. Give the justified growth sequence from a single REST service to a full
-   multi-paradigm system, with the pain that triggers each step.
+## Cumulative Review
+
+Closed-book. Don't reopen modules 00–07 while attempting these — this is the track's second cumulative review (the first covered 00–03), and the point is to find out what stuck across the *whole* arc: choosing paradigms, gRPC, GraphQL, update mechanisms, the edge, and putting it all together.
+
+1. A new product has: partners reselling your inventory, a web + mobile app showing a data-rich "my account" screen, an internal `pricing-service` called ~10,000×/sec during checkout, and a requirement that buyers see inventory counts update live. Assign a paradigm *and* (where relevant) an update mechanism to each edge, and justify each against the module-00 framework.
+2. Three changes ship on the same day: a REST field is renamed in `/v1`, a Protobuf field is renumbered from tag 2 to tag 3, and a GraphQL field's type is changed from `Int` to `String`. Rank them by danger, say which are silent vs loud, and give the compatible way to achieve each intended change.
+3. Explain why **authorization** lives on the route in REST (track 02) but on the field/resolver in GraphQL (module 04), and how an **API gateway** (module 06) changes where authentication happens for both.
+4. A browser dashboard needs order status "within a minute"; a partner backend needs to know the instant an order ships; a trading UI needs live ticks. Name the update mechanism for each (module 05) and the one framework question that decides the partner-vs-browser difference.
+5. Contrast the N+1 problem (module 03) and a leaked gRPC stream (module 02): what each is, the interaction paradigm each occurs in, and the specific defense for each. Then name the one discipline both defenses share.
+6. A team runs six services, each re-validating JWTs and each with its own drifted rate limiter, and exposes a GraphQL endpoint to untrusted third parties. Diagnose against modules 00, 04, and 06, and prescribe the corrected edge.
+7. Trace a mobile app fetching an "order summary" through the full mature topology: name every hop (client → … → data), the paradigm/protocol on each hop, and what each layer is responsible for — and say which layer resolves the over-/under-fetch and which enforces the rate limit.
+8. Justify, as a growth sequence, why a two-person startup with one web client and a CRUD app should *not* start with gRPC + GraphQL + a gateway, and name the concrete pain that would later justify adding each of those three.
 
 <details>
 <summary>Answers</summary>
 
-1. **One domain, many edges:** business logic lives in one place (a shared domain
-   function) and each paradigm (REST/gRPC/GraphQL) is a thin adapter that only
-   translates in/out. It prevents **forking your domain** — three drifting
-   implementations of the same operation behind three protocols (e.g. REST
-   allowing a qty the gRPC handler rejects).
-2. **REST** versions by **URL prefix** (`/v1` → `/v2`) with additive changes
-   within a version; breaking = remove/rename/repurpose a field. **gRPC** versions
-   by **field number/tag** (add new tags, never renumber, `reserved` retired
-   ones); breaking = reuse/renumber a tag. **GraphQL** evolves **one additive
-   schema** (add freely, `@deprecated` to retire); breaking = remove/retype a
-   field. Additive is safe in all three.
-3. Because renumbering a tag is a **silent** wire-format corruption — the code
-   compiles, no error is raised, and peers misread data — whereas removing a REST
-   field produces a *visible* absence a client can detect and a version/deprecation
-   process manages. Silent breaks are the worst kind: nothing tells you until data
-   is wrong downstream.
-4. Internal gRPC contracts have **both ends owned and deployed together**, so you
-   can add a field and redeploy caller + callee the same afternoon; public
-   contracts have **consumers you don't control**, so they must change slowly and
-   compatibly behind versions and deprecation windows. The **BFF/gateway** guards
-   the boundary by mapping internal shapes to stable external ones so internal
-   refactors don't leak.
-5. **Generate** docs from each schema — **OpenAPI** for REST, **`.proto`** (+ typed
-   stubs) for gRPC, **SDL/introspection** for GraphQL — so docs can't drift from
-   the contract. Then add the one **hand-written orientation guide** explaining the
-   multi-paradigm *shape* (which consumer uses which paradigm, auth, rate limits,
-   versioning policy) that no generator can infer.
-6. **REST first** (one service serves everyone). Add **gRPC** when internal
-   service-to-service traffic is a *measured* JSON/HTTP tax (modules 01–02). Add a
-   **GraphQL BFF** when a rich or second client suffers over-/under-fetch (modules
-   03–04, 06). Add **webhooks/streaming** when a consumer needs server-initiated
-   updates (module 05). Add a **gateway** when edge policy duplicates across
-   services or a partner program needs central key management (module 06). Each
-   step gated on a concrete, present pain (module 00).
+1. Partners → **REST** (public/third-party: universal, cacheable, low integration cost — framework Q1). The account screen for web + mobile → a **GraphQL BFF** (own frontends, rich/variable relational data, collapses aggregation, serves two clients with different shapes — Q1 + Q3). `pricing-service` at 10,000×/sec → **gRPC** (internal, extreme throughput, low latency, typed stubs — Q1 internal + Q4 performance). Live inventory counts to buyers (browsers) → a **push** mechanism, **SSE** or a **GraphQL subscription** if they already talk to the BFF (server-initiated, browser can't be called inbound — module 05).
+2. Danger: **renumbering the Protobuf tag is worst** (silent wire corruption, no error), then the **GraphQL `Int`→`String` retype** (breaks clients but surfaces as errors — loud-ish), then the **REST rename** (visibly absent field, managed by versioning — loud). Compatible versions: Protobuf — add a *new* field with a *new* tag and `reserved` the old, never renumber; GraphQL — add a new correctly-typed field and `@deprecate` the old, don't retype in place; REST — add the new field and retire the old across a `/v2` + deprecation window, don't rename in `/v1`.
+3. REST has a **route per resource/operation**, so auth can guard the route (a router dependency, track 02). GraphQL has **one endpoint** and one query can traverse from a public field into a sensitive one, so authorization must live **per field/resolver** using the current user from context (module 04). An **API gateway** hoists *authentication* to the edge — it validates the credential once and forwards verified identity — so services/BFF trust it instead of each re-validating; authorization (who-can-do-what) still lives in the service/field logic.
+4. Browser dashboard, ~1 min tolerance → **polling** (cheap, REST-native, bounded freshness is fine). Partner backend, "instant" on ship → **webhook** (server-to-server push). Trading UI, live ticks → **SSE/WebSocket** (persistent push to a browser). The deciding framework question for partner-vs-browser: **can the consumer receive an inbound HTTP call?** — the partner server can (so a webhook works), the browser can't (so it polls or holds a socket open).
+5. **N+1** (module 03, **GraphQL**): a per-item field resolver fires one data-source query per parent (100 books → 100 author lookups); defense = a **per-request DataLoader** that batches the keyed loads into one query. **Leaked stream** (module 02, **gRPC server-streaming**): the server keeps producing after the client has disconnected; defense = check `context.is_active()` and bound/exit the loop. Shared discipline: **bound the work one request/connection can cause** — batch it or stop it — rather than trusting the naive path to scale.
+6. Against **module 06**: six copies of JWT validation and six drifted rate limiters are duplicated edge policy → introduce **one API gateway** that terminates auth once and enforces one rate-limit/quota policy, routing to services that trust forwarded identity. Against **module 00 / 04**: exposing a GraphQL endpoint to *untrusted third parties* is the wrong consumer for GraphQL — public/partner integrators should get **REST** (cacheable, low integration cost, smaller abuse surface); reserve GraphQL for your own apps as a **BFF**. Corrected edge: gateway (authN, rate limit, routing) → REST for partners, a GraphQL BFF for first-party apps → gRPC to internal services.
+7. **Client (mobile) → API gateway → BFF → services → data.** Client → gateway: over the public edge (HTTPS); the **gateway** terminates auth, enforces the **rate limit**, and routes. Gateway → **BFF** (GraphQL): the BFF aggregates and **resolves the over-/under-fetch**, shaping one screen response. BFF → **services** over **gRPC** (typed, fast, same datacenter); services own domain logic. Services → **data** (DB/cache). The **BFF** resolves over-/under-fetch; the **gateway** enforces the rate limit; the **services** own the domain.
+8. With one client and a CRUD app there's **no concrete pain** any of the three solves: gRPC's typing/throughput matters between *chatty internal services* they don't have; a GraphQL BFF's field-picking matters for *rich/multiple clients* they don't have; a gateway's centralized edge policy matters across *many services/partners* they don't have — each would add ops burden, a hop/SPOF, or a learning curve for a benefit that isn't yet needed (module 00). Later triggers: add **gRPC** when internal service-to-service traffic becomes a measured JSON/HTTP tax; add a **GraphQL BFF** when a rich or second client suffers over-/under-fetch; add a **gateway** when edge policy is duplicated across enough services or a partner program needs central key/quota management.
 
 </details>
 
-## Cumulative review
+---
 
-Closed-book. Don't reopen modules 00–07 while attempting these — this is the
-track's second cumulative review (the first covered 00–03), and the point is to
-find out what stuck across the *whole* arc: choosing paradigms, gRPC, GraphQL,
-update mechanisms, the edge, and putting it all together.
+## Further Reading & Next Steps
 
-1. A new product has: partners reselling your inventory, a web + mobile app
-   showing a data-rich "my account" screen, an internal `pricing-service` called
-   ~10,000×/sec during checkout, and a requirement that buyers see inventory
-   counts update live. Assign a paradigm *and* (where relevant) an update
-   mechanism to each edge, and justify each against the module-00 framework.
-2. Three changes ship on the same day: a REST field is renamed in `/v1`, a
-   Protobuf field is renumbered from tag 2 to tag 3, and a GraphQL field's type
-   is changed from `Int` to `String`. Rank them by danger, say which are silent
-   vs loud, and give the compatible way to achieve each intended change.
-3. Explain why **authorization** lives on the route in REST (track 02) but on the
-   field/resolver in GraphQL (module 04), and how an **API gateway** (module 06)
-   changes where authentication happens for both.
-4. A browser dashboard needs order status "within a minute"; a partner backend
-   needs to know the instant an order ships; a trading UI needs live ticks. Name
-   the update mechanism for each (module 05) and the one framework question that
-   decides the partner-vs-browser difference.
-5. Contrast the N+1 problem (module 03) and a leaked gRPC stream (module 02):
-   what each is, the interaction paradigm each occurs in, and the specific defense
-   for each. Then name the one discipline both defenses share.
-6. A team runs six services, each re-validating JWTs and each with its own
-   drifted rate limiter, and exposes a GraphQL endpoint to untrusted third
-   parties. Diagnose against modules 00, 04, and 06, and prescribe the corrected
-   edge.
-7. Trace a mobile app fetching an "order summary" through the full mature
-   topology: name every hop (client → … → data), the paradigm/protocol on each
-   hop, and what each layer is responsible for — and say which layer resolves the
-   over-/under-fetch and which enforces the rate limit.
-8. Justify, as a growth sequence, why a two-person startup with one web client
-   and a CRUD app should *not* start with gRPC + GraphQL + a gateway, and name the
-   concrete pain that would later justify adding each of those three.
-
-<details>
-<summary>Answers</summary>
-
-1. Partners → **REST** (public/third-party: universal, cacheable, low integration
-   cost — framework Q1). The account screen for web + mobile → a **GraphQL BFF**
-   (own frontends, rich/variable relational data, collapses aggregation, serves two
-   clients with different shapes — Q1 + Q3). `pricing-service` at 10,000×/sec →
-   **gRPC** (internal, extreme throughput, low latency, typed stubs — Q1 internal +
-   Q4 performance). Live inventory counts to buyers (browsers) → a **push**
-   mechanism, **SSE** or a **GraphQL subscription** if they already talk to the BFF
-   (server-initiated, browser can't be called inbound — module 05).
-2. Danger: **renumbering the Protobuf tag is worst** (silent wire corruption, no
-   error), then the **GraphQL `Int`→`String` retype** (breaks clients but surfaces
-   as errors — loud-ish), then the **REST rename** (visibly absent field, managed
-   by versioning — loud). Compatible versions: Protobuf — add a *new* field with a
-   *new* tag and `reserved` the old, never renumber; GraphQL — add a new
-   correctly-typed field and `@deprecate` the old, don't retype in place; REST —
-   add the new field and retire the old across a `/v2` + deprecation window, don't
-   rename in `/v1`.
-3. REST has a **route per resource/operation**, so auth can guard the route (a
-   router dependency, track 02). GraphQL has **one endpoint** and one query can
-   traverse from a public field into a sensitive one, so authorization must live
-   **per field/resolver** using the current user from context (module 04). An **API
-   gateway** hoists *authentication* to the edge — it validates the credential once
-   and forwards verified identity — so services/BFF trust it instead of each
-   re-validating; authorization (who-can-do-what) still lives in the service/field
-   logic.
-4. Browser dashboard, ~1 min tolerance → **polling** (cheap, REST-native, bounded
-   freshness is fine). Partner backend, "instant" on ship → **webhook**
-   (server-to-server push). Trading UI, live ticks → **SSE/WebSocket** (persistent
-   push to a browser). The deciding framework question for partner-vs-browser:
-   **can the consumer receive an inbound HTTP call?** — the partner server can (so
-   a webhook works), the browser can't (so it polls or holds a socket open).
-5. **N+1** (module 03, **GraphQL**): a per-item field resolver fires one
-   data-source query per parent (100 books → 100 author lookups); defense = a
-   **per-request DataLoader** that batches the keyed loads into one query. **Leaked
-   stream** (module 02, **gRPC server-streaming**): the server keeps producing
-   after the client has disconnected; defense = check `context.is_active()` and
-   bound/exit the loop. Shared discipline: **bound the work one request/connection
-   can cause** — batch it or stop it — rather than trusting the naive path to
-   scale.
-6. Against **module 06**: six copies of JWT validation and six drifted rate
-   limiters are duplicated edge policy → introduce **one API gateway** that
-   terminates auth once and enforces one rate-limit/quota policy, routing to
-   services that trust forwarded identity. Against **module 00 / 04**: exposing a
-   GraphQL endpoint to *untrusted third parties* is the wrong consumer for GraphQL
-   — public/partner integrators should get **REST** (cacheable, low integration
-   cost, smaller abuse surface); reserve GraphQL for your own apps as a **BFF**.
-   Corrected edge: gateway (authN, rate limit, routing) → REST for partners, a
-   GraphQL BFF for first-party apps → gRPC to internal services.
-7. **Client (mobile) → API gateway → BFF → services → data.** Client → gateway:
-   over the public edge (HTTPS); the **gateway** terminates auth, enforces the
-   **rate limit**, and routes. Gateway → **BFF** (GraphQL): the BFF aggregates and
-   **resolves the over-/under-fetch**, shaping one screen response. BFF → **services**
-   over **gRPC** (typed, fast, same datacenter); services own domain logic. Services
-   → **data** (DB/cache). The **BFF** resolves over-/under-fetch; the **gateway**
-   enforces the rate limit; the **services** own the domain.
-8. With one client and a CRUD app there's **no concrete pain** any of the three
-   solves: gRPC's typing/throughput matters between *chatty internal services* they
-   don't have; a GraphQL BFF's field-picking matters for *rich/multiple clients*
-   they don't have; a gateway's centralized edge policy matters across *many
-   services/partners* they don't have — each would add ops burden, a hop/SPOF, or a
-   learning curve for a benefit that isn't yet needed (module 00). Later triggers:
-   add **gRPC** when internal service-to-service traffic becomes a measured JSON/HTTP
-   tax; add a **GraphQL BFF** when a rich or second client suffers over-/under-fetch;
-   add a **gateway** when edge policy is duplicated across enough services or a
-   partner program needs central key/quota management.
-
-</details>
-
-## Further reading & sources
-
-- [Google — API design guide](https://cloud.google.com/apis/design) - a comprehensive reference for designing coherent, evolvable APIs across a system, including versioning and compatibility.
-- [Google AIP-180 — Backwards compatibility](https://google.aip.dev/180) - the concrete rules for what counts as a breaking vs additive change, applicable across paradigms.
-- [Protocol Buffers — Proto3: updating message types](https://protobuf.dev/programming-guides/proto3/#updating) - the authoritative rules on adding, reserving, and never renumbering field tags.
-- [GraphQL — Best practices: versioning & deprecation](https://graphql.org/learn/best-practices/#versioning) - why GraphQL evolves one additive schema with `@deprecated` instead of versioned endpoints.
-- [Apollo — Introduction to Apollo Federation](https://www.apollographql.com/docs/federation/) - the multi-team composition option to reach for only once distinct teams own distinct subgraphs.
-- [Martin Fowler — Ports and Adapters (Hexagonal Architecture)](https://martinfowler.com/bliki/HexagonalArchitecture.html) - the "one domain, many adapters" pattern behind keeping business logic out of each paradigm edge.
-
-## Next
-
-[11-edge-computing-and-webassembly](../11-edge-computing-and-webassembly/README.md)
-— one more edge to add to module 00's map: logic that runs neither in your
-origin server nor in the browser, but on infrastructure physically close to
-the request, in a WebAssembly sandbox instead of a traditional server process.
+* [Google API Design Guide](https://cloud.google.com/apis/design) - Canonical enterprise standard for multi-paradigm consistency.
+* [Google AIP-180: Backwards Compatibility](https://google.aip.dev/180) - Concrete behavioral definitions of breaking vs additive changes.
+* [Martin Fowler: Ports and Adapters Pattern](https://martinfowler.com/bliki/HexagonalArchitecture.html) - Structural decoupling of domain logic from transport protocols.
+* Next up: [11-edge-computing-and-webassembly](../11-edge-computing-and-webassembly/README.md) to explore execution environments at the physical network edge using WebAssembly isolates.
