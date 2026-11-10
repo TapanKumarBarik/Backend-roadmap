@@ -194,8 +194,8 @@ test('the admin gives videos their modules: search, filter, a flag for those wit
     await module.fill(second.module);
     await page.getByText(/^Opens /).waitFor();
     await page.getByText('Changed', { exact: true }).waitFor();
-    await page.getByLabel('Id (for example phase-4)').fill('phase-4');
-    await page.getByLabel('Title', { exact: true }).fill('Phase 4: Added in the browser');
+    await page.getByLabel('Id (for example phase-4)').fill('added-in-test'); // an id no real playlist has or will have
+    await page.getByLabel('Title', { exact: true }).fill('Added in the browser');
     await page.getByLabel(/^Address \(https/).fill('https://www.youtube.com/playlist?list=PLe2eTest123');
     await page.getByRole('button', { name: 'Add playlist' }).click();
     await page.getByRole('button', { name: 'Save to the repository' }).click();
@@ -203,13 +203,13 @@ test('the admin gives videos their modules: search, filter, a flag for those wit
     const saved = JSON.parse(repo.commits()[0].text);
     assert.equal(saved.videos[0].module, second.module);
     assert.equal(saved.videos.length, registry.videos.length);
-    assert.deepEqual(saved.playlists.map((p) => p.id), [...registry.playlists.map((p) => p.id), 'phase-4']);
+    assert.deepEqual(saved.playlists.map((p) => p.id), [...registry.playlists.map((p) => p.id), 'added-in-test']);
 
     // A playlist with no videos can be removed, after a question.
-    await page.getByRole('button', { name: 'Remove playlist phase-4' }).click();
-    await page.getByRole('dialog').getByText('Remove Phase 4: Added in the browser?').waitFor();
+    await page.getByRole('button', { name: 'Remove playlist added-in-test' }).click();
+    await page.getByRole('dialog').getByText('Remove Added in the browser?').waitFor();
     await page.getByRole('button', { name: 'Remove it' }).click();
-    assert.equal(await page.getByRole('button', { name: 'Remove playlist phase-4' }).count(), 0);
+    assert.equal(await page.getByRole('button', { name: 'Remove playlist added-in-test' }).count(), 0);
 
     // Someone else saved it first: GitHub refuses, the screen says so, and a reload brings their version back.
     await module.fill(first.module);
