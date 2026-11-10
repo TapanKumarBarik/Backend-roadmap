@@ -1,326 +1,380 @@
 # Capacity Planning and Toil Reduction
 
-## Why this matters
+> **Difficulty**: Intermediate | **Estimated Time**: 35m | **Hands-On**: Mandatory
 
-Everything so far has been *reactive* — detect, respond, learn. This module is the
-*proactive* half: staying ahead of failure so the pager stays quiet. Capacity
-planning uses the historical metrics you've been collecting since
-[track 12](../../12-observability-deep-dive/README.md) to forecast when you'll run
-out of headroom *before* an incident, and toil reduction attacks the manual work
-(defined back in [module 00](../00-sre-concepts-and-the-reliability-mindset/README.md))
-that eats the engineering time you'd rather spend making the system more reliable.
-Together they're how an SRE team keeps a growing system healthy instead of being
-consumed by it — the difference between running the system and the system running
-you.
+> [!TIP]
+> **The Golden Rule of SRE Toil Reduction:**
+> **Toil is the enemy of engineering scale.** If a task is manual, repetitive, automatable, tactical, lacks enduring value, and scales linearly with service traffic, it is **Toil**. Google SRE mandates that **at least 50% of an SRE's time must be dedicated to pure software engineering** (building automation, architectural safeguards, and tools). If operational toil exceeds 50%, the team is drowning and must programmatically automate or eliminate the tasks.
 
-## Concepts
+---
 
-### Capacity planning — forecasting headroom from historical metrics
+## 1. Visual Mental Models: Toil vs. Engineering Work
 
-**Capacity planning** is deciding, ahead of time, that you'll have enough
-resources (compute, memory, connections, storage, quota) to serve future demand at
-your SLO. The inputs are exactly the metrics track 12 taught you to collect and
-query: historical **demand** (request rate, active users, data volume over weeks
-and months) and historical **resource usage** (CPU, memory, storage growth) — read
-over long windows in PromQL. You look at the **trend**, project it forward
-(`predict_linear` in PromQL does exactly this for a resource heading toward a
-limit), add headroom for **spikes and known events** (a launch, a sale, seasonal
-peaks), and provision *before* the projected demand meets your ceiling. The Cluster
-Autoscaler and HPA you configured in
-[track 07 module 05](../../07-aks/05-scaling-aks-cluster-autoscaler-and-hpa/README.md)
-handle *short-term, automatic* scaling within provisioned limits; capacity planning
-is the *longer-horizon, human* decision about what those limits and quotas should
-be next quarter, and whether your architecture can even scale that far. Track 23
-(performance & load testing) later *validates* these forecasts under real load.
+In traditional IT operations, as a company grows from 10 microservices to 1,000 microservices, operational headcount must scale linearly to match the ticket load. SRE breaks this linear scaling trap by replacing repetitive manual tasks with software.
 
-### Organic vs. inorganic growth, and the danger of surprise
+```mermaid
+flowchart TD
+    subgraph SRETimeAllocation["The 50% SRE Operational Ceiling"]
+        TotalTime["Total Engineering Hours (100%)"]
+        ToilBudget["Operational Tasks & Toil<br/>(Capped at < 50%)"]
+        EngBudget["Software & Systems Engineering<br/>(Guaranteed >= 50%)"]
 
-Two kinds of demand growth need different planning. **Organic growth** is the
-gradual, trend-following increase from more users and more usage — visible in your
-historical metrics and *projectable* with something like `predict_linear`.
-**Inorganic growth** is the step change from a specific event: a product launch, a
-marketing campaign, onboarding a huge customer, a feature that suddenly 10×'s a
-workload. Organic growth you forecast from the trend; inorganic growth you can't
-see in the trend at all, so you plan for it by **knowing about it in advance** —
-which requires SRE to be in the room for launch planning, not surprised by it. The
-classic capacity failure is an inorganic event nobody told the SRE team about,
-hitting a system provisioned only for its organic trend. The `predict_linear`
-forecast protects you from the slow surprise; a launch calendar and SRE
-involvement protect you from the fast one.
+        TotalTime --> ToilBudget
+        TotalTime --> EngBudget
+    end
 
-### Toil, revisited and measured — the toil budget
+    subgraph ToilWork["Toil Activities (Manual & Repetitive)"]
+        T1["Manually restarting stalled pods"]
+        T2["Manually renewing SSL certificates"]
+        T3["Filing manual ticket to resize PVC disks"]
+    end
 
-[Module 00](../00-sre-concepts-and-the-reliability-mindset/README.md) defined
-**toil**: manual, repetitive, automatable, tactical, no-lasting-value work that
-scales with the service. This module makes it a *managed quantity*. The key insight
-is that toil is **dangerous because it scales linearly with the system** — twice
-the servers, twice the manual restarts — so an untended service eventually consumes
-all of an SRE's time in toil, leaving zero for the engineering that would reduce it,
-and the team spirals. The structural defense is the **toil budget / toil cap**: a
-ceiling (Google's well-known figure is **50%**) on how much of an SRE's time may go
-to toil, with the rest *protected* for engineering that pays the toil down. You
-**measure** toil the same way you measure reliability — track it (surveys, ticket
-categorization, time tracking), watch the percentage, and treat "toil is over 50%"
-as a problem to fix, exactly as you'd treat an exhausted error budget. The toil
-budget is the reliability-loop's answer to the module 00 question "how do we keep
-the system from consuming the team."
+    subgraph EngWork["Engineering Activities (Enduring Value)"]
+        E1["Building Kubernetes Operator for self-healing"]
+        E2["Deploying cert-manager ACME automation"]
+        E3["Implementing dynamic StorageClass auto-expansion"]
+    end
 
-### Identifying and automating away toil
-
-To reduce toil you first have to *see* it, which is why postmortem action items
-(module 06) and the on-call review (module 04) are such rich sources — the manual
-step you did during three incidents *is* the toil to automate. The prioritization
-is simple economics: automate the toil with the **highest frequency × time-per-
-occurrence × people-affected**, and where the automation cost is less than the toil
-it eliminates over a reasonable horizon. Concretely, toil reduction looks like the
-skills from earlier tracks pointed at operations: a manual multi-cluster config
-copy becomes a GitOps sync (track 10); a nightly manual pod restart becomes a
-liveness probe or an operator; a hand-run remediation becomes a script, then a
-scheduled job, then a self-healing controller. Not all toil is worth automating —
-a five-minute task done once a year isn't — so the discipline is *measuring* toil
-and attacking the biggest sources, not reflexively automating everything. The goal
-isn't zero toil (impossible); it's keeping toil *below the cap* so engineering
-capacity survives as the system grows.
-
-### Closing the loop — how capacity and toil feed back into the whole track
-
-These two disciplines are where the SRE loop from module 00 becomes
-self-sustaining. Capacity planning uses the **metrics** (track 12) to prevent the
-incidents that would otherwise trigger the response/postmortem machinery. Toil
-reduction turns **postmortem action items** (module 06) and **on-call review
-findings** (module 04) into automation that shrinks future operational load,
-protecting the engineering time that makes *everything else* — better SLOs, better
-alerts, better runbooks — possible. And both are governed the same way reliability
-is: by a **budget** (error budget for reliability, toil budget for operational
-load) that turns a fuzzy goal into a tracked number that forces a decision when
-breached. That symmetry — reliability and toil each capped, measured, and acted on
-— is the mature end state this whole track has been building toward, and it's
-exactly what the capstone asks you to demonstrate end to end.
-
-## Command reference
-
-Capacity planning is PromQL over long windows (track 12); toil reduction is the
-automation skills from tracks 07/10 pointed at operational work.
-
-| PromQL / concept | What it does | Notes |
-|---|---|---|
-| `predict_linear(metric[6h], 3600*24*4)` | Projects a metric forward using linear regression over the range | forecast time-to-limit |
-| `deriv(metric[1h])` | Per-second derivative — growth *rate* of a resource | trend slope |
-| `avg_over_time(metric[30d])` | Long-window baseline for demand/usage | capacity baseline |
-| `max_over_time(metric[30d])` | Historical peak — size for spikes, not averages | headroom for peaks |
-| HPA / Cluster Autoscaler | Short-term *automatic* scaling within limits | track 07 module 05 |
-| Toil cap (~50%) | Ceiling on SRE time spent on toil | this module |
-| Toil measurement | Surveys / ticket categorization / time tracking | quantify before cutting |
-
-`predict_linear` — the core capacity-forecasting function, flag by flag:
-
-```promql
-predict_linear(node_filesystem_avail_bytes{mountpoint="/data"}[6h], 3600 * 24 * 4) < 0
+    ToilBudget -.-> ToilWork
+    EngBudget -.-> EngWork
 ```
-- `node_filesystem_avail_bytes{...}` — the resource you're worried about running
-  out of (here, free disk on the data volume).
-- `[6h]` — the historical range the linear regression is fit over; longer smooths
-  noise but reacts slower to a recent change in slope.
-- `3600 * 24 * 4` — how many **seconds into the future** to project (here 4 days).
-  `predict_linear` returns the metric's *predicted value* at that future time.
-- `< 0` — the alertable condition: "will free space be projected to hit zero within
-  4 days?" This turns capacity into an *early-warning alert* (route it `warning`,
-  it's a slow-burn-style ticket, not a 3am page — module 03/04) so you provision
-  *before* the wall, not during an outage.
 
-## Hands-on exercises
+### The Taxonomy of Toil
 
-Continue on the **kind** cluster with `kube-prometheus-stack` from track 12. You'll
-forecast with real historical metrics and reason about toil from your own earlier
-modules' artifacts. Some exercises are analysis/writing — capacity and toil are
-judgment disciplines, not one-liners.
+Toil is not simply "work I dislike." A task must meet all or most of the six Google SRE criteria to be classified as toil:
 
-1. **(WSL2) Forecast a resource to its limit.** Pick a growing metric on your
-   cluster (node disk, a PVC's used bytes, memory of a pod under steady load). Use
-   `predict_linear` to project when it hits its limit at the current trend. Then
-   deliberately change the load and re-run — watch the projection move. This is
-   organic-growth forecasting on real data.
+```
+[ Manual ] --------> Carried out by human keystrokes rather than automated scripts.
+[ Repetitive ] ----> Performed multiple times with minimal intellectual variation.
+[ Automatable ] ---> A deterministic machine could execute it with the same or better accuracy.
+[ Tactical ] ------> Reactive and short-term (putting out fires) rather than strategic.
+[ No Enduring Value] Once finished, the service is in the exact same state as before.
+[ Linear Scaling ] -> Grows directly in proportion to user traffic or server fleet size.
+```
 
-2. **(WSL2) Turn the forecast into an early-warning alert.** Write a
-   `PrometheusRule` using the `predict_linear(...) < 0` (or `< limit`) pattern from
-   the command reference, routed `severity: warning` (a ticket, not a page — it's a
-   slow, plannable problem). Confirm it loads (`release` label) and reason about
-   what window and horizon are appropriate — too short a horizon warns too late,
-   too long over-reacts to noise.
+---
 
-3. **(WSL2) Baseline demand and size for the *peak*, not the average.** For the
-   demo app's request rate, compute `avg_over_time` and `max_over_time` over your
-   longest window. Write one sentence on why you provision for the peak (plus
-   headroom) rather than the average, and connect it to the HPA/Cluster Autoscaler
-   limits from track 07 module 05 (autoscaling handles *within* limits; you set the
-   limits from this analysis).
+## 2. Capacity Planning: Headroom, Saturation & Redundancy
 
-4. **(paper) Plan for an inorganic event.** A product launch is expected to 5× a
-   workload's traffic on a known date. Your `predict_linear` trend shows nothing
-   (it's not organic). Write the capacity plan: how you size for it, what headroom,
-   what you'd pre-scale, and — the real lesson — how the SRE team *finds out* about
-   such events in time. Contrast with the failure of learning about it from the
-   outage.
+Capacity planning is the practice of ensuring your infrastructure can absorb both **organic traffic growth** (steady monthly user acquisition) and **inorganic surge events** (Black Friday, marketing push, celebrity mentions) without violating SLOs.
 
-5. **(paper) Inventory and measure your toil.** From your own module 04 on-call
-   review log and module 06 postmortem action items, list every manual operational
-   task. For each, estimate frequency × time-per-occurrence × people-affected to get
-   a rough toil score. Rank them. You've just done the measurement that must precede
-   any automation.
+```mermaid
+flowchart LR
+    subgraph TrafficComposition["Capacity Headroom Sizing"]
+        Base["Baseline Traffic<br/>(Average Daily Load)"]
+        Peak["Peak Diurnal Surge<br/>(Mid-day Traffic Spikes)"]
+        Headroom["Required SRE Headroom<br/>(Buffer for Unplanned Spikes)"]
+        Failover["N+1 Redundancy<br/>(Buffer for Zone / Node Failure)"]
 
-6. **(paper) Pick what to automate — and what not to.** From your ranked list,
-   choose the top 2-3 to automate and name the *specific* earlier-track mechanism
-   that eliminates each (GitOps sync from track 10, a liveness probe/operator from
-   track 03/07, a scheduled job, a self-healing controller). Then pick one toil
-   item you would *deliberately not* automate and justify why (rare, cheap,
-   automation costs more than it saves). This is the economics of toil reduction.
+        Base --- Peak
+        Peak --- Headroom
+        Headroom --- Failover
+    end
+```
 
-7. **(paper) Set and defend a toil budget.** Propose a toil cap for your team,
-   describe how you'd *measure* actual toil against it, and write what happens when
-   toil exceeds the cap (the parallel to an exhausted error-budget policy from
-   module 02: protect engineering time, redirect effort to automation). Explain why
-   an uncapped toil load is guaranteed to grow until it consumes the team.
+### The Redundancy Formulas: $N+1$ and $N+2$
+- **$N$**: The minimum number of compute instances required to handle peak load under normal conditions.
+- **$N+1$**: Sized so that if any single server, node, or availability zone fails, the remaining capacity can absorb 100% of peak traffic with zero degradation.
+- **$N+2$**: Sized so that during an active cluster upgrade (1 node down for maintenance), a sudden second hardware failure will still not cause service degradation.
 
-8. **Diagnose and fix: the team drowning in toil while "too busy to automate."**
-   A recognizable death spiral. Scenario: an SRE team spends ~80% of its time on
-   manual toil (nightly restarts, hand-copied configs, re-running failed jobs), the
-   service keeps growing so the toil grows with it, and every proposal to automate
-   is deferred because "we're too busy firefighting to build automation." Pages per
-   shift are climbing (module 04) and postmortem action items never ship (module
-   06) because nobody has time. **Diagnose** the spiral: toil scales with the
-   system, so without a *protected* engineering fraction it only ever increases,
-   and "too busy to automate" guarantees it never decreases — the team is
-   trending toward 100% toil and burnout. **Fix** with the toil-budget mechanism:
-   *cap* toil (protect, say, the bottom 50% of time for engineering *no matter
-   what*), measure it, and treat exceeding the cap as a first-class problem —
-   pull people *off* firefighting onto the highest-value automation from exercise
-   6, accept slightly more short-term pain to buy the durable reduction. Lesson:
-   **toil that scales with the system and is never capped always wins; the toil
-   budget is the only thing that forces the team to spend engineering time paying
-   it down — exactly as the error budget forces the reliability conversation
-   (module 02).**
+$$\text{Required Pods} = \left\lceil \frac{\text{Peak Traffic QPS}}{\text{Max Safe QPS per Pod}} \right\rceil + 1 \quad (\text{For } N+1)$$
 
-## Independent challenge
+---
 
-Drawing on this module, the historical metrics and PromQL from
-[track 12](../../12-observability-deep-dive/02-promql-in-depth/README.md), the
-autoscaling from
-[track 07 module 05](../../07-aks/05-scaling-aks-cluster-autoscaler-and-hpa/README.md),
-the postmortem action items from [module 06](../06-blameless-postmortems/README.md),
-and the automation skills from
-[track 10](../../10-cicd-and-gitops/README.md), produce a *combined capacity-and-toil
-plan* for a service — no queries or thresholds given. On the capacity side:
-baseline the service's demand and resource usage from real historical metrics,
-forecast the first resource that will hit a limit under organic growth (with a
-`predict_linear`-based early-warning alert routed as a ticket), and state how you'd
-plan for one known inorganic event. On the toil side: inventory the service's toil
-from your own earlier artifacts, score and rank it, propose a toil budget with a
-measurement method, and pick the top automation to build (naming the earlier-track
-mechanism that implements it). The deliverable is the *plan plus the two budgets* —
-a capacity forecast and a toil cap — because the mature SRE end state is
-reliability and operational load *both* measured, budgeted, and acted on, which is
-exactly what the capstone integrates.
+## 3. Production War Story: The 30-Hour Weekend Toil Trap
+
+```
+INCIDENT SUMMARY: INC-8119
+SEVERITY: P1 - Operational Exhaustion & Catastrophic Data Loss
+IMPACT: Complete database storage pool deleted; 18 hours of emergency disaster recovery from cold backups.
+ROOT CAUSE: A team spent 30 hours per month manually expanding disk partitions; an exhausted engineer executed a typo on a live production block device.
+```
+
+### Incident Timeline
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant App as Kafka / Elasticsearch Nodes
+    participant Eng as SRE on Weekend Duty (Dave)
+    participant Disk as Production Storage Array
+
+    Note over App: Data volume grows organically by 50GB every weekend.<br/>Disks reach 88% capacity every Friday night.
+    Note over Eng: Dave has manual runbook: log into 32 nodes,<br/>unmount filesystem, resize block device, remount.
+    Eng->>Disk: Executes manual resize on node 1 through 28
+    Note over Eng: It is 03:45 AM on Saturday. Dave has been typing for 5 hours.<br/>Severe cognitive fatigue sets in.
+    Eng->>Disk: Runs: mkfs.ext4 /dev/nvme0n1 (Intended /dev/nvme1n1)
+    Note over Disk: Filesystem metadata overwritten instantly.<br/>Primary transaction log completely wiped.
+    Eng->>Eng: Panic. Declares SEV-1. Cold restore takes 18 hours.
+```
+
+### The Post-Mortem
+
+- **The Fallacy**: The organization considered manual disk resizing to be "cheap sysadmin work" not worth engineering time to automate.
+- **The Reality**: The repetitive manual toil drained 30 hours of engineering capacity every month and eventually led to catastrophic human error under sleep deprivation.
+- **The Remediation**:
+  1. Configured Kubernetes dynamic PVC expansion via StorageClass: `allowVolumeExpansion: true`.
+  2. Deployed an automated storage controller that monitors disk watermarks and expands volumes automatically when utilization exceeds 75%.
+  3. Eliminated 100% of manual disk expansion tickets forever.
+
+---
+
+## 4. Multi-Language Capacity Forecasting Tools
+
+Use these implementations to calculate saturation headroom and project future cluster requirements based on organic growth models.
+
+### Go (`capacity_planner.go`)
+
+```go
+package main
+
+import (
+	"fmt"
+	"math"
+)
+
+type CapacityProjection struct {
+	CurrentPeakQPS      float64
+	GrowthRateMonthly   float64
+	MonthsAhead         int
+	MaxQPSPerReplica    float64
+	ProjectedPeakQPS    float64
+	RequiredN1Replicas int
+}
+
+func CalculateCapacity(currentPeak float64, monthlyGrowthPct float64, months int, safeQPSPerPod float64) CapacityProjection {
+	// Compound growth formula: Peak * (1 + rate)^months
+	projected := currentPeak * math.Pow(1.0+(monthlyGrowthPct/100.0), float64(months))
+	
+	// N+1 calculation: ceil(Projected / SafeCapacity) + 1
+	n := math.Ceil(projected / safeQPSPerPod)
+	nPlus1 := int(n) + 1
+
+	return CapacityProjection{
+		CurrentPeakQPS:      currentPeak,
+		GrowthRateMonthly:   monthlyGrowthPct,
+		MonthsAhead:         months,
+		MaxQPSPerReplica:    safeQPSPerPod,
+		ProjectedPeakQPS:    projected,
+		RequiredN1Replicas: nPlus1,
+	}
+}
+
+func main() {
+	// 5,000 peak QPS growing at 8% per month; safe capacity is 400 QPS per pod; forecast 6 months out
+	plan := CalculateCapacity(5000, 8.0, 6, 400)
+
+	fmt.Printf("=== SRE CAPACITY FORECAST (6 MONTHS) ===\n")
+	fmt.Printf("Current Peak Load:      %.0f QPS\n", plan.CurrentPeakQPS)
+	fmt.Printf("Monthly Growth Rate:    %.1f%%\n", plan.GrowthRateMonthly)
+	fmt.Printf("Projected Peak Load:    %.0f QPS\n", plan.ProjectedPeakQPS)
+	fmt.Printf("Safe Capacity per Pod:  %.0f QPS\n", plan.MaxQPSPerReplica)
+	fmt.Printf("Target Replicas (N+1):  %d pods\n", plan.RequiredN1Replicas)
+}
+```
+
+### TypeScript / Node.js (`capacity_planner.ts`)
+
+```typescript
+export interface HeadroomAssessment {
+  currentUtilizationPct: number;
+  maxSafeUtilizationPct: number;
+  availableHeadroomPct: number;
+  isNPlus1Compliant: boolean;
+  recommendedAction: string;
+}
+
+export function evaluateHeadroom(
+  activeNodes: number,
+  averageNodeCpuPercent: number,
+  maxSafeLimit: number = 75
+): HeadroomAssessment {
+  // If 1 node fails, remaining nodes absorb its load: TotalLoad / (Nodes - 1)
+  const totalLoad = activeNodes * averageNodeCpuPercent;
+  const postFailureUtilization = activeNodes > 1 ? totalLoad / (activeNodes - 1) : 100;
+
+  const isCompliant = postFailureUtilization <= maxSafeLimit;
+  const headroom = maxSafeLimit - averageNodeCpuPercent;
+
+  let action = 'Capacity healthy';
+  if (!isCompliant) {
+    action = `VIOLATION: Loss of 1 node will spike utilization to ${postFailureUtilization.toFixed(1)}%! Add at least 1 node immediately.`;
+  } else if (headroom < 15) {
+    action = 'WARNING: Available headroom < 15%. Schedule node scaling.';
+  }
+
+  return {
+    currentUtilizationPct: averageNodeCpuPercent,
+    maxSafeUtilizationPct: maxSafeLimit,
+    availableHeadroomPct: Number(headroom.toFixed(1)),
+    isNPlus1Compliant: isCompliant,
+    recommendedAction: action,
+  };
+}
+
+// Example: 5 nodes at 65% average CPU
+console.log(evaluateHeadroom(5, 65, 75));
+```
+
+### Python (`capacity_planner.py`)
+
+```python
+import math
+
+def calculate_database_headroom(
+    current_storage_gb: float,
+    daily_growth_gb: float,
+    max_disk_gb: float,
+    warning_watermark_pct: float = 80.0
+) -> dict:
+    warning_threshold_gb = max_disk_gb * (warning_watermark_pct / 100.0)
+    remaining_safe_gb = warning_threshold_gb - current_storage_gb
+    days_until_warning = remaining_safe_gb / daily_growth_gb if daily_growth_gb > 0 else float("inf")
+
+    return {
+        "current_storage_gb": current_storage_gb,
+        "daily_growth_gb": daily_growth_gb,
+        "days_until_warning": max(0, math.floor(days_until_warning)),
+        "is_urgent": days_until_warning <= 7,
+    }
+
+if __name__ == "__main__":
+    report = calculate_database_headroom(
+        current_storage_gb=720,
+        daily_growth_gb=18,
+        max_disk_gb=1000,
+        warning_watermark_pct=80.0
+    )
+    print(f"Days until 80% watermark: {report['days_until_warning']} days")
+    if report["is_urgent"]:
+        print("ACTION REQUIRED: Trigger automated StorageClass disk expansion!")
+```
+
+---
+
+## 5. Declarative Kubernetes Automated Capacity Scaling
+
+Automate capacity management using Kubernetes Horizontal Pod Autoscaler (HPA) and declarative StorageClass configurations.
+
+### Declarative Storage Auto-Expansion (`storageclass.yaml`)
+
+```yaml
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: dynamic-nvme-sc
+provisioner: ebs.csi.aws.com
+volumeBindingMode: WaitForFirstConsumer
+allowVolumeExpansion: true # Enables programmatic disk resize with zero downtime!
+parameters:
+  type: gp3
+  iops: "3000"
+  throughput: "125"
+```
+
+### Traffic-Driven Horizontal Pod Autoscaler (`hpa.yaml`)
+
+```yaml
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: checkout-hpa
+  namespace: production
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: checkout-service
+  minReplicas: 4
+  maxReplicas: 30
+  metrics:
+    # Target 1: CPU Saturation Buffer
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 65
+    # Target 2: Request Rate per Replica (Traffic-driven)
+    - type: Pods
+      pods:
+        metric:
+          name: http_requests_per_second
+        target:
+          type: AverageValue
+          averageValue: 350
+```
+
+---
+
+## 6. Practical CLI Workflows
+
+Follow this CLI verification workflow to calculate cluster headroom and verify autoscaler behavior.
+
+### Step 1: Query Kubernetes Cluster CPU Headroom via PromQL
+
+Calculate the overall cluster CPU headroom buffer:
+
+```bash
+curl -s -G "http://localhost:9090/api/v1/query" \
+  --data-urlencode 'query=100 - (sum(rate(node_cpu_seconds_total{mode!="idle"}[5m])) / sum(machine_cpu_cores) * 100)'
+```
+
+**Expected Output:**
+```json
+{
+  "status": "success",
+  "data": {
+    "resultType": "vector",
+    "result": [
+      {
+        "metric": {},
+        "value": [1712498200.123, "38.41"]
+      }
+    ]
+  }
+}
+```
+
+The cluster has **38.41% idle compute headroom**, safely exceeding the 25% minimum SRE safety margin!
+
+---
+
+## 7. Operational Validation Checkpoints
+
+Confirm your capacity planning and toil-reduction mastery with these scenarios.
 
 <details>
-<summary>Stuck? One hint</summary>
+<summary><b>Checkpoint 1: An engineer writes a Bash script to restart failed pods and runs it via cron. Is this toil reduction?</b></summary>
 
-For capacity, the highest-value single artifact is a `predict_linear` alert on
-whichever resource is on the steepest slope toward a hard limit (disk and memory
-are the usual suspects) — fit it over a window long enough to smooth noise, project
-far enough ahead that a human can act (days, not minutes), and route it `warning`
-because it's a plannable ticket, never a page. For toil, don't automate by gut:
-score each item by frequency × time × people-affected (your module 04 review log
-and module 06 action items are the source data), then automate only where the
-build cost is less than the toil saved over a sensible horizon — and cap the total
-so engineering time is *protected*, treating "over the cap" exactly like an
-exhausted error budget in module 02.
-
-</details>
-
-## Common mistakes & troubleshooting
-
-- **Provisioning for the average.** Averages hide peaks; you fall over at the peak.
-  Size for `max_over_time` plus headroom, and let autoscaling handle the rest
-  *within* those limits.
-- **Forecasting only organic growth.** `predict_linear` can't see a launch that
-  isn't in the trend. Plan inorganic events explicitly, which means SRE must know
-  about them in advance.
-- **Capacity alerts as pages.** A projected disk-full in 4 days is a *ticket* to
-  plan around, not a 3am page. Route it `warning` (module 03/04).
-- **`predict_linear` horizon/window wrong.** Too short a projection warns too
-  late; too long a fit window reacts too slowly to a changed slope. Tune both to
-  give a human time to act.
-- **Automating toil you never measured.** Reflexively automating a rare, cheap task
-  can cost more than the toil it saves. Measure (frequency × time × people) and
-  attack the biggest sources.
-- **No toil cap.** Toil scales with the system, so uncapped it grows until it
-  consumes the team. Cap it, measure against the cap, protect engineering time.
-- **"Too busy to automate."** The death spiral — the busier you are with toil, the
-  more you need the automation you're refusing to build. The toil budget exists
-  precisely to force the time.
-
-## Checkpoint quiz
-
-Write down your answer to each question before expanding it — checking without attempting first is the single easiest way to fool yourself into thinking you've learned this.
-
-<details>
-<summary>Show questions</summary>
-
-1. What inputs does capacity planning use, and what PromQL function forecasts a
-   resource toward a limit?
-2. Distinguish organic from inorganic growth. How do you plan for each, and which
-   one `predict_linear` cannot help with?
-3. Why is a capacity-forecast alert a ticket rather than a page?
-4. Why is toil specifically dangerous *as a system grows*, and what's the
-   structural defense?
-5. How do you decide *which* toil to automate, and give an example of toil you'd
-   deliberately *not* automate.
-6. What is the toil budget, and how does it parallel the error budget from
-   module 02?
-7. Explain the "too busy to automate" death spiral and how the toil budget breaks
-   it.
-
+**Analysis:**
+- **Why it is an improvement:** It replaces manual keystrokes with a scheduled job.
+- **Why it is NOT true SRE toil elimination:** Writing a blind cron job that restarts pods masks the underlying defect (e.g., memory leak, unhandled panic). True SRE toil elimination resolves the systemic cause:
+  1. Fix the application memory leak in code.
+  2. Configure Kubernetes native `livenessProbe` with automated restart backoff.
+  3. Emit an alert on container restarts so the development team resolves the bug permanently.
 </details>
 
 <details>
-<summary>Show answers</summary>
+<summary><b>Checkpoint 2: Under what conditions does an SRE team enforce the "50% Toil Cap"?</b></summary>
 
-1. Historical **demand** (request rate, users, data volume) and **resource usage**
-   (CPU/memory/storage) read over long windows in PromQL (track 12). The
-   forecasting function is `predict_linear`, which projects a metric forward by
-   linear regression to estimate when it hits a limit.
-2. **Organic** = gradual trend-following growth from more usage — forecast it from
-   the trend with `predict_linear`. **Inorganic** = a step change from a specific
-   event (launch, campaign, big customer) — plan for it by knowing in advance,
-   since it isn't in the trend. `predict_linear` cannot help with inorganic growth.
-3. Because it's a slow, *plannable* problem days out, not an active user-facing
-   outage — you provision ahead of the wall during business hours. Route it
-   `warning` (module 03/04); paging on it is alert fatigue.
-4. Because toil scales linearly with the system — more servers, more manual work —
-   so an untended service eventually consumes all of an SRE's time in toil, leaving
-   none to reduce it. The defense is the **toil cap** (~50%), protecting an
-   engineering fraction that pays toil down.
-5. Measure it first (frequency × time-per-occurrence × people-affected) and
-   automate the biggest sources where automation cost < toil saved over a sensible
-   horizon. You'd *not* automate a rare, cheap task (e.g. a 5-minute action done
-   once a year) where the automation costs more than it saves.
-6. A ceiling (~50%) on how much SRE time may be toil, measured and enforced. It
-   parallels the error budget: both turn a fuzzy goal into a tracked number and
-   force a specific response when breached (error budget → freeze/invest; toil
-   budget → pull people onto automation, protect engineering time).
-7. The busier a team is with toil, the less time it has to build the automation
-   that would reduce it, and since toil grows with the system it only gets worse —
-   trending to 100% toil and burnout. The toil budget breaks it by *protecting*
-   engineering time no matter how busy things are, forcing the team to spend it
-   paying toil down.
-
+**Mechanism:**
+If sprint tracking reveals that an SRE team spends **>50% of their working hours** responding to routine tickets, manual deployments, and alerts:
+1. SRE leadership institutes an operational intervention.
+2. Routine ticket queues are routed directly back to the software engineering teams responsible for the underlying services.
+3. Feature work is paused to allow SREs to build the required automation, operators, and self-healing infrastructure to permanently drive toil back below 50%.
 </details>
+
+<details>
+<summary><b>Checkpoint 3: What is the difference between organic capacity growth and inorganic surge events?</b></summary>
+
+**Distinction:**
+- **Organic Growth:** Predictable, continuous user adoption over months. Managed via statistical trend forecasting, automated cluster autoscalers, and monthly capacity reviews.
+- **Inorganic Surge Events:** Abrupt, step-function traffic spikes (e.g., Super Bowl commercial, Black Friday sale, viral social media mention). Cannot rely on reactive autoscaling alone due to cloud VM boot delays (2-5 minutes). Requires proactive load testing, pre-warming server fleets, and pre-scaling databases to $N+1$ capacity 24 hours prior to the event.
+</details>
+
+---
 
 ## Next
 
-[08-capstone-project](../08-capstone-project/README.md) — you now have the full SRE
-discipline: mindset, SLIs/SLOs, error budgets, burn-rate alerting, on-call,
-incident response, blameless postmortems, and capacity/toil management. The
-capstone runs the *entire loop* once, end to end, on the real track 12 stack — a
-defined SLO, a burn-rate alert that fires under a simulated bad deploy, a runbook,
-a full incident response, and a blameless postmortem with real action items.
+Continue to **[08-capstone-project](../08-capstone-project/README.md)** to synthesize the entire SRE curriculum into a comprehensive production capstone: defining SLIs, engineering multi-burn-rate alerts, conducting an incident response drill, and executing a blameless post-mortem.

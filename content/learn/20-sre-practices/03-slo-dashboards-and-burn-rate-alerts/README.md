@@ -1,350 +1,306 @@
-# Building SLO Dashboards and Burn-Rate Alerts
+# SLO Dashboards and Multi-Burn-Rate Alerting
 
-## Why this matters
+> **Difficulty**: Advanced | **Estimated Time**: 40m | **Hands-On**: Mandatory
 
-This is the payoff of [track 12](../../12-observability-deep-dive/README.md): you
-built Prometheus, Grafana, and Alertmanager to make a system observable, and now
-they become the machinery that watches an SLO and pages a human *only when the
-error budget is draining fast enough to matter*. Burn-rate alerting fixes the
-central weakness of the static-threshold alerts from
-[track 12 module 06](../../12-observability-deep-dive/06-alerting-and-on-call-basics/README.md)
-— it pages proportionally to *how fast you're consuming your budget*, so a slow
-drift becomes a ticket and a catastrophic burn becomes an immediate page, with far
-less alert fatigue. It reuses the exact Alertmanager routing you already wrote,
-now with burn-rate math driving the threshold instead of a hand-picked number.
+> [!TIP]
+> **The Golden Rule of Burn Rate Alerting:**
+> **Alert on the rate of budget consumption, not static metric thresholds.** A naive alert on "Error rate > 1%" either pages you for brief, harmless 30-second spikes (alert fatigue) or remains silent while a subtle 0.2% background leak drains your entire quarterly error budget before Monday morning. Use **Multi-Window Multi-Burn-Rate alerts** to wake on-call engineers only when an active incident is burning through meaningful fractions of your budget right now.
 
-## Concepts
+---
 
-### Burn rate — how fast you're spending the budget
+## 1. Visual Mental Models: Burn Rate Mechanics
 
-**Burn rate** is the multiplier on how fast you're consuming your error budget
-relative to the rate that would exactly exhaust it over the SLO window. A burn
-rate of **1** means you're spending the budget at the steady pace that uses
-*exactly* all of it by the end of the window — sustainable, on target. A burn rate
-of **10** means you're burning ten times that fast: the entire 30-day budget would
-be gone in three days. Concretely, `burn rate = observed error ratio / (1 − SLO)`
-— your current error fraction divided by the budgeted error fraction. This single
-number is what module 02 said "total budget remaining" couldn't give you: it
-distinguishes a slow drift (burn rate ~1-2, will age out, ticket) from a
-five-alarm fire (burn rate 14+, budget gone in hours, page now). Alerting on burn
-rate instead of a static error threshold is the whole idea.
+A **Burn Rate** ($B$) is the speed at which your system is consuming its error budget relative to your target SLO window.
 
-### Why a single window is wrong — the speed/precision trade-off
+- **Burn Rate 1 ($B=1$)**: You are consuming your error budget at exactly the rate allowed. A 30-day budget will last exactly 30 days (zero margin, zero breach).
+- **Burn Rate 14.4 ($B=14.4$)**: You are burning through your budget **14.4 times faster** than allowed. You will consume **2% of your 30-day budget in 1 hour**, and 100% of your budget in under 50 hours.
+- **Burn Rate 6 ($B=6$)**: You will consume **5% of your 30-day budget in 6 hours**.
 
-Suppose you alert when the burn rate over the last **5 minutes** exceeds some
-threshold. It reacts *fast* to a sudden spike — good — but it's twitchy: a
-30-second blip can trip it, and it *resets* the instant the blip passes, so you
-get a flappy page that self-heals before anyone looks. Now suppose you use a
-**1-hour** window instead: it's stable and won't flap, but it reacts *slowly* — a
-genuine hard-down outage takes many minutes to build up enough average to fire,
-burning budget the whole time. This is a fundamental trade-off: **short windows
-are fast but noisy; long windows are stable but slow.** No single window gives you
-both fast detection *and* low false-positive rate. The fix is to use *two windows
-at once*.
+```mermaid
+flowchart TD
+    subgraph BudgetDrain["30-Day Error Budget Drain Scenarios"]
+        Normal["Burn Rate 1.0<br/>Drains 100% in 30 Days<br/>(No Alert - Ideal State)"]
+        Ticket["Burn Rate 6.0<br/>Drains 5% in 6 Hours<br/>(Dispatch Ticket / Slack)"]
+        Page["Burn Rate 14.4<br/>Drains 2% in 1 Hour<br/>(PAGE ON-CALL HUMAN)"]
+        Catastrophic["Burn Rate 1000<br/>Drains 100% in 43 Minutes<br/>(P1 EMERGENCY AUTOMATED ROLLBACK)"]
+    end
+```
 
-### Multi-window alerting — a short window to confirm, a long window for signal
+### The Flaw of Single-Window Alerts & The Multi-Window Solution
 
-The standard resolution (from the Google SRE workbook) is **multi-window**
-alerting: fire only when the burn rate is high over a **long** window *and* still
-high over a **short** window. The long window (say 1 hour) provides the real
-signal — a sustained high burn worth paging on. The short window (say 5 minutes,
-typically 1/12 of the long one) acts as a **"is it still happening right now?"
-gate**: it makes the alert *reset quickly* once the problem stops, so you don't
-keep getting paged for an outage that already recovered. So the condition is
-`burn_rate[1h] > threshold AND burn_rate[5m] > threshold` — the long window
-decides *whether* it's page-worthy, the short window decides *when to stop*. This
-directly reuses the `and` operator and rate windows from
-[track 12 module 02](../../12-observability-deep-dive/02-promql-in-depth/README.md).
+If you alert on a **1-hour window**, once the incident is resolved, the alert continues to fire for another 59 minutes (false alarm reset delay).
+If you alert on a **5-minute window**, a 6-minute transient network glitch triggers a full page even though only 0.01% of the budget was consumed.
 
-### Multi-burn-rate — a fast-burn page and a slow-burn ticket
+The **Google SRE Multi-Window Multi-Burn-Rate pattern** solves this by requiring **two simultaneous windows**:
+1. **Long Window** (e.g., 1 hour): Confirms significant budget consumption.
+2. **Short Window** (e.g., 5 minutes): Confirms the incident is **still actively firing right now**.
 
-The other half is **multi-burn-rate**: you run *several* alerts at different
-burn-rate thresholds and window pairs, each consuming a different fraction of the
-budget before it fires, routed to different severities. The canonical pair:
+```mermaid
+flowchart LR
+    subgraph MultiWindowRule["Multi-Window Evaluation Gate"]
+        LongWindow{"Long Window (1h)<br/>Burn Rate > 14.4?"}
+        ShortWindow{"Short Window (5m)<br/>Burn Rate > 14.4?"}
+        Trigger{"AND Condition<br/>Both True?"}
+    end
 
-- **Fast burn** — a high burn rate (e.g. **14.4×**) over a *short* window pair
-  (1h / 5m). At 14.4×, you'd exhaust a 30-day budget in ~2 days; this fires when
-  ~2% of the monthly budget is gone and **pages** (`severity: critical`) —
-  something is badly wrong *now*.
-- **Slow burn** — a lower burn rate (e.g. **3×**) over a *long* window pair (6h /
-  30m or 24h / 2h). This catches a persistent low-grade drain that would quietly
-  eat the whole budget over days; it doesn't warrant a 3am page, so it's a
-  **ticket** (`severity: warning`) to look at during business hours.
+    LongWindow -->|Yes| Trigger
+    ShortWindow -->|Yes| Trigger
+    Trigger -->|Both True| PageEngineers["🔥 DISPATCH PAGERDUTY ALERT"]
+    Trigger -->|Short Window Recovers| AutoResolve["✅ AUTO-RESOLVE IMMEDIATELY (Within 5m)"]
+```
 
-The magic numbers (14.4, 6, 3, 1) come from choosing *what fraction of the budget
-you're willing to burn before being alerted* and how fast — 14.4× × 1h = burning
-budget that fast for an hour spends ~2%. You don't have to derive them from
-scratch; the SRE workbook tabulates standard values. The point is the *shape*: a
-loud fast-burn page and a quiet slow-burn ticket, both keyed off burn rate, both
-routed through the Alertmanager severity tree you already built.
+---
 
-### The SLO dashboard — budget remaining, burn rate, and error-budget-time
+## 2. Google SRE Burn Rate Alerting Matrix
 
-The visual companion to the alerts. A good SLO dashboard shows, at minimum:
-the **SLI vs. its SLO target** over the window (are we meeting it?); the
-**error budget remaining** as a percentage (the module 02 gauge); the **current
-burn rate** (the multiplier — is the account draining fast?); and often a
-**"time to exhaustion"** projection (at the current burn, budget runs out in N
-days). This is a purpose-built Grafana dashboard using the panel and template-
-variable skills from
-[track 12 module 03](../../12-observability-deep-dive/03-grafana-dashboards/README.md),
-driven by the SLI and budget recording rules you wrote in modules 01-02 (so the
-expensive `[30d]` queries don't run on every refresh). Unlike a RED dashboard,
-which shows raw request health, an SLO dashboard shows *reliability relative to a
-commitment* — it's the view a team and its stakeholders actually make ship-vs-
-freeze decisions from.
+This table represents the industry-standard multi-window alerting parameters for an organization targeting a **99.9% SLO over a 30-day period**:
 
-## Command reference
+| Severity | Target Action | Budget Consumed | Burn Rate ($B$) | Long Window | Short Window | Alert Notification Channel |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **P1 - Critical** | **Page Human** | **2%** | **14.4x** | 1 hour | 5 minutes | PagerDuty (Phone / SMS) |
+| **P2 - High** | **Page Human** | **5%** | **6.0x** | 6 hours | 30 minutes | PagerDuty (SMS) |
+| **P3 - Warning** | **Create Ticket** | **10%** | **2.0x** | 3 days | 6 hours | Jira / Slack Notification |
+| **P4 - Low** | **Daily Review** | **10%** | **1.0x** | 30 days | 3 days | SRE Weekly Standup Report |
 
-Burn-rate alerts are `PrometheusRule` objects (track 12 module 02) whose
-expressions divide short-window error rate by the budgeted error fraction, routed
-by the Alertmanager severity tree (track 12 module 06).
+---
 
-| PromQL / config | What it does | Notes |
-|---|---|---|
-| `sum(rate(sli_valid{code=~"5.."}[1h])) / sum(rate(sli_valid[1h]))` | Error ratio over 1h (numerator of burn rate) | reuse recorded series from module 01 |
-| `... / (1 - 0.999)` | Divide error ratio by budget → **burn rate** | 0.001 for a 99.9% SLO |
-| `expr_1h > 14.4 and expr_5m > 14.4` | Multi-window fast-burn condition | `and` from track 12 module 02 |
-| `for: 2m` | Debounce so a single scrape blip doesn't page | shorter than static alerts — burn rate already averages |
-| `labels: {severity: critical}` | Routes fast-burn to the pager | Alertmanager tree, track 12 module 06 |
-| `labels: {severity: warning}` | Routes slow-burn to a ticket/Slack | same tree |
-| `amtool alert query` | List currently firing alerts from the CLI | inspect without the UI |
-| `amtool config routes test` | Show which receiver a labelset routes to | verify burn-rate routing |
+## 3. Production War Story: The 3-Day Silent Drain
 
-A fast-burn multi-window rule, annotated:
+```
+INCIDENT SUMMARY: INC-7104
+SEVERITY: P1 - Silent Budget Depletion
+IMPACT: 100% of the quarterly error budget burned; enterprise customers entitled to $850,000 in SLA credit refunds.
+ROOT CAUSE: Alerting was configured on static "Error Rate > 5%". A subtle 0.8% background failure rate persisted unmonitored for 3 weeks.
+```
+
+### Incident Timeline
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant App as Checkout Service
+    participant Prom as Prometheus (Static Alert: > 5%)
+    participant Slack as #alerts Channel
+    participant SRE as On-Call Team
+    participant Finance as CFO / Enterprise Clients
+
+    App->>App: Bad configuration causes Safari browser checkout to return 500
+    Note over App: Safari represents 12% of user base.<br/>Overall error rate increases to 0.96%.
+    Prom->>Prom: Evaluates rule: error_rate > 5%?
+    Note over Prom: 0.96% < 5.0%. Threshold NOT reached!<br/>Zero alerts triggered.
+    Note over SRE: SRE team assumes all systems are healthy.<br/>No pages or Slack messages for 21 days.
+    Finance->>SRE: "Why are Fortune 500 clients demanding $850k in SLA penalty credits?"
+    SRE->>Prom: Inspects 30-day availability: 99.04% (Target was 99.90%)
+    Note over SRE: 30-day error budget is at -960% (Completely destroyed).
+```
+
+### The Post-Mortem
+
+- **The Flaw**: Static threshold alerts assume failures are catastrophic and noisy. Subtle partial degradations (0.5% - 2%) slip under static 5% thresholds, quietly devouring the error budget over weeks.
+- **The Remediation**:
+  1. Deleted all arbitrary static threshold alerts (`rate > 5%`).
+  2. Implemented Multi-Burn-Rate alerting rules based on the 30-day error budget.
+  3. A 0.96% failure rate with an SLO of 99.9% represents a **Burn Rate of 9.6x**, which immediately triggers a P2 warning within 3 hours instead of running undetected for 3 weeks.
+
+---
+
+## 4. Declarative Prometheus Multi-Burn-Rate Alerting Rules
+
+This production `PrometheusRule` manifest implements Google's 1-hour/5-minute and 6-hour/30-minute dual-window burn rate alerts:
 
 ```yaml
-- alert: ErrorBudgetFastBurn
-  expr: |
-    (
-      sum(rate(http_requests_total{code=~"5..",job="demo"}[1h]))
-        / sum(rate(http_requests_total{job="demo"}[1h]))
-    ) > (14.4 * 0.001)
-    and
-    (
-      sum(rate(http_requests_total{code=~"5..",job="demo"}[5m]))
-        / sum(rate(http_requests_total{job="demo"}[5m]))
-    ) > (14.4 * 0.001)
-  for: 2m
-  labels: {severity: critical}
-  annotations:
-    summary: "Burning error budget 14.4x — ~2% of budget gone, budget exhausted in ~2 days at this rate"
-    runbook: "https://runbooks/error-budget-fast-burn"
-```
-- **long window `[1h]`** — the *signal*: is the burn genuinely high over a
-  meaningful span? Prevents paging on a momentary blip.
-- **short window `[5m]`** — the *reset gate*: `and`-ed so the alert clears quickly
-  once the burn stops, avoiding paging for an outage that already recovered.
-- `> (14.4 * 0.001)` — the burn-rate threshold: error ratio exceeding 14.4× the
-  budgeted `1 − SLO`. `14.4` is the standard fast-burn multiplier (~2% of a 30-day
-  budget in 1h).
-- `for: 2m` — a *short* debounce; burn rate already averages over the window, so
-  you don't need the long `for:` a raw static alert would use.
-- `labels.severity: critical` — routes to the pager via the exact Alertmanager
-  tree from track 12 module 06. The slow-burn twin is identical with `[6h]`/`[30m]`
-  windows, a `3` multiplier, and `severity: warning`.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: slo-burn-rate-alerts
+  namespace: monitoring
+  labels:
+    role: alert-rules
+    prometheus: kps-prometheus
+spec:
+  groups:
+    - name: slo_burn_rate.rules
+      rules:
+        # Precomputed Error Rates across required evaluation windows
+        - record: job:http_error_rate:ratio_rate5m
+          expr: sum by (service) (rate(http_requests_total{status=~"5.."}[5m])) / sum by (service) (rate(http_requests_total[5m]))
 
-`amtool` — inspect and test routing from the CLI:
+        - record: job:http_error_rate:ratio_rate30m
+          expr: sum by (service) (rate(http_requests_total{status=~"5.."}[30m])) / sum by (service) (rate(http_requests_total[30m]))
+
+        - record: job:http_error_rate:ratio_rate1h
+          expr: sum by (service) (rate(http_requests_total{status=~"5.."}[1h])) / sum by (service) (rate(http_requests_total[1h]))
+
+        - record: job:http_error_rate:ratio_rate6h
+          expr: sum by (service) (rate(http_requests_total{status=~"5.."}[6h])) / sum by (service) (rate(http_requests_total[6h]))
+
+        # P1 CRITICAL: 14.4x Burn Rate (Burns 2% of budget in 1 hour)
+        # For a 99.9% SLO (0.001 error budget), 14.4 * 0.001 = 0.0144 (1.44% error rate)
+        - alert: ErrorBudgetBurnRateFast
+          expr: |
+            (job:http_error_rate:ratio_rate1h{service="checkout-service"} > (14.4 * (1 - 0.999)))
+            and
+            (job:http_error_rate:ratio_rate5m{service="checkout-service"} > (14.4 * (1 - 0.999)))
+          for: 2m
+          labels:
+            severity: page
+            team: checkout
+            tier: critical
+          annotations:
+            summary: "Critical SLO Error Budget Burn Rate (14.4x)"
+            description: "High error budget consumption on {{ $labels.service }}. 2% of the monthly error budget will be consumed within 1 hour."
+            runbook_url: "https://wiki.internal/ops/slo-burn-fast"
+
+        # P2 HIGH: 6x Burn Rate (Burns 5% of budget in 6 hours)
+        # For 99.9% SLO, 6 * 0.001 = 0.006 (0.6% error rate)
+        - alert: ErrorBudgetBurnRateSlow
+          expr: |
+            (job:http_error_rate:ratio_rate6h{service="checkout-service"} > (6.0 * (1 - 0.999)))
+            and
+            (job:http_error_rate:ratio_rate30m{service="checkout-service"} > (6.0 * (1 - 0.999)))
+          for: 15m
+          labels:
+            severity: warning
+            team: checkout
+            tier: high
+          annotations:
+            summary: "Elevated SLO Error Budget Burn Rate (6x)"
+            description: "Service {{ $labels.service }} is burning budget at 6x normal rate. 5% of monthly budget will be lost in 6 hours."
+            runbook_url: "https://wiki.internal/ops/slo-burn-slow"
+```
+
+---
+
+## 5. Grafana Production SLO Dashboard Specifications
+
+A production SRE dashboard must present three critical panels side by side:
+
+```
++------------------------------------+------------------------------------+
+|  1. Current 30-Day Availability   |  2. Remaining Error Budget (%)     |
+|     [ 99.942% ] (Target: 99.90%)   |     [ 42.1% ] (State: HEALTHY)     |
++------------------------------------+------------------------------------+
+|  3. Multi-Window Burn Rate Timeline                                    |
+|     ----------------------- (Threshold 14.4x) -----------------------  |
+|               /\                                                       |
+|              /  \      (Spike: 18.2x Burn Rate during Incident)        |
+|     ________/    \_________________________________________________    |
++-------------------------------------------------------------------------+
+```
+
+### Dashboard JSON Panel Query Snippets
+
+#### Panel 1: Current 30-Day SLI Gauge
+```promql
+(
+  sum(rate(http_requests_total{service="$service",status!~"5.."}[30d]))
+  /
+  sum(rate(http_requests_total{service="$service"}[30d]))
+) * 100
+```
+- **Thresholds**: `< 99.90` (Red), `99.90 - 99.95` (Yellow), `> 99.95` (Green).
+
+#### Panel 2: Remaining Error Budget Gauge
+```promql
+clamp_min(
+  (
+    (sum(rate(http_requests_total{service="$service",status!~"5.."}[30d])) / sum(rate(http_requests_total{service="$service"}[30d])))
+    - 0.999
+  ) / (1 - 0.999) * 100,
+  0
+)
+```
+
+#### Panel 3: Multi-Burn-Rate Graph
+- **Series A (1h Burn Rate)**:
+  `job:http_error_rate:ratio_rate1h{service="$service"} / (1 - 0.999)`
+- **Series B (6h Burn Rate)**:
+  `job:http_error_rate:ratio_rate6h{service="$service"} / (1 - 0.999)`
+- **Horizontal Annotation Line**: `y = 14.4` (Critical Page Threshold).
+
+---
+
+## 6. Practical CLI Workflows
+
+Follow this CLI verification workflow to calculate the current burn rate against Prometheus.
+
+### Step 1: Query Current 1-Hour Burn Rate via Prometheus API
 
 ```bash
-amtool --alertmanager.url=http://localhost:9093 alert query
-amtool --alertmanager.url=http://localhost:9093 config routes test severity=critical
+curl -s -G "http://localhost:9090/api/v1/query" \
+  --data-urlencode 'query=(sum(rate(http_requests_total{status=~"5.."}[1h])) / sum(rate(http_requests_total[1h]))) / (1 - 0.999)'
 ```
-- `alert query` — lists alerts Alertmanager currently holds (firing/suppressed),
-  the CLI equivalent of the UI alert list.
-- `config routes test severity=critical` — shows which **receiver** a given
-  labelset resolves to in the routing tree — the fast way to prove your fast-burn
-  alert actually reaches the pager and not a dead receiver (track 12 module 06's
-  "firing ≠ paged" trap).
 
-## Hands-on exercises
+**Expected Output:**
+```json
+{
+  "status": "success",
+  "data": {
+    "resultType": "vector",
+    "result": [
+      {
+        "metric": {},
+        "value": [1712498200.123, "1.24"]
+      }
+    ]
+  }
+}
+```
 
-Continue on the **kind** cluster with `kube-prometheus-stack`, the demo app, and
-the SLI/budget recording rules from modules 01-02. Install `amtool` if you want
-the CLI exercises (`go install`/package, or `kubectl exec` into the Alertmanager
-pod which ships it).
+A value of `1.24` indicates the system is burning through its budget at **1.24x the baseline rate**—well below the 14.4x paging threshold!
 
-1. **(WSL2) Compute burn rate by hand, then in PromQL.** Take the error ratio you
-   drove in module 02 exercise 3 and divide it by `(1 − SLO)` to get the burn rate
-   as a number. Then write the PromQL that computes it live over `[1h]` and
-   `[5m]`. Confirm the two windows agree when the error rate is steady and
-   *diverge* when you inject a sudden spike (short window jumps first).
+### Step 2: Test Dual-Window Condition Evaluation
 
-2. **(WSL2) Build the SLO dashboard.** In Grafana, build a dashboard (skills from
-   track 12 module 03) with four panels for the demo app's availability SLO:
-   SLI-vs-target, error-budget-remaining %, current burn rate, and a
-   time-to-exhaustion projection. Drive it from the recording rules so the `[30d]`
-   query isn't recomputed on every refresh. Add a `$job` template variable.
+Evaluate whether both the 1-hour and 5-minute windows exceed 14.4x simultaneously:
 
-3. **(WSL2) Write the fast-burn multi-window alert.** Create a `PrometheusRule`
-   with the annotated fast-burn rule from the command reference (14.4×, 1h/5m,
-   `severity: critical`). Remember the `release` label so the Operator loads it
-   (modules 01/02 trap). Confirm it appears in the Prometheus **Alerts** tab as
-   `Inactive`.
+```bash
+curl -s -G "http://localhost:9090/api/v1/query" \
+  --data-urlencode 'query=((sum(rate(http_requests_total{status=~"5.."}[1h])) / sum(rate(http_requests_total[1h]))) / 0.001 > 14.4) and ((sum(rate(http_requests_total{status=~"5.."}[5m])) / sum(rate(http_requests_total[5m]))) / 0.001 > 14.4)'
+```
 
-4. **(WSL2) Force the fast-burn page under a simulated bad deploy.** Simulate a
-   bad rollout: make the app return a high 5xx ratio (well above 14.4× your
-   budget). Watch the fast-burn alert go `Inactive → Pending → Firing` and — via
-   the Alertmanager routing from track 12 module 06 — land on your `critical`
-   receiver (the webhook sink from that module works). This is the whole track's
-   payoff firing on the stack track 12 built.
+If this returns an empty result `[]`, the condition is false and the on-call engineer sleeps peacefully.
 
-5. **(WSL2) Add the slow-burn ticket and prove it discriminates.** Add the
-   slow-burn twin (3×, 6h/30m, `severity: warning`). Now inject a *low* error
-   ratio — above 3× budget but below 14.4× — and confirm the **slow-burn warning**
-   eventually fires to the ticket receiver while the **fast-burn critical stays
-   silent**. You've demonstrated multi-burn-rate: same signal, two severities,
-   two destinations.
+---
 
-6. **(WSL2) Prove the short window resets the alert quickly.** With the fast-burn
-   alert firing, *stop* injecting errors. Watch the alert clear far faster than a
-   single 1h-window alert would (because the `[5m]` leg drops below threshold in
-   minutes). Contrast: temporarily rewrite the rule to use *only* the `[1h]` leg,
-   re-fire, stop errors, and observe how much longer it stays firing. This is why
-   the short window is `and`-ed in.
+## 7. Operational Validation Checkpoints
 
-7. **(WSL2) Verify routing with `amtool`.** Use `amtool config routes test
-   severity=critical` and `severity=warning` to confirm each burn-rate severity
-   resolves to the receiver you intended, and `amtool alert query` to list what's
-   firing — the CLI proof that "firing in Prometheus" actually reaches the right
-   pager/ticket (track 12 module 06's core lesson, now for burn-rate alerts).
-
-8. **Diagnose and fix: the burn-rate alert that never fires because the window is
-   wrong.** The signature diagnose-and-fix of this module. Reproduce it: write a
-   fast-burn rule whose long window is *shorter than or equal to* the short window
-   (e.g. both `[5m]`, or long `[5m]` / short `[1h]` swapped), or a rule using
-   `rate(...[15s])` with a 30s scrape interval (track 12 module 02's too-short-
-   window trap). Inject a real, severe error spike. The alert **never fires** even
-   though the SLO is clearly being blown, because the window can't accumulate the
-   samples it needs (too-short rate window returns nothing) or the two-window
-   logic is inverted so the confirm-gate never agrees with the signal. **Diagnose**
-   in the Prometheus **Alerts** tab and by graphing each leg of the `and`
-   separately — you'll see one leg is always empty/never crosses. **Fix** by
-   setting the long window well above ~4× the scrape interval and larger than the
-   short window (standard 1h/5m). Lesson: **a burn-rate alert with a mis-sized
-   window is track 12's never-fires trap wearing an SRE costume — always graph
-   each leg alone and confirm both can actually cross before trusting the alert.**
-
-9. **(WSL2) Clean up test bits, keep the stack.** Remove the webhook sink and any
-   temporary error injection; revert experimental thresholds. Keep the SLO
-   dashboard and the two burn-rate rules — the capstone reuses them.
-
-## Independent challenge
-
-Using this module, the SLO and error budget from
-[modules 01-02](../01-slis-and-slos/README.md), and the Alertmanager routing +
-`group_by` from
-[track 12 module 06](../../12-observability-deep-dive/06-alerting-and-on-call-basics/README.md),
-build a *complete multi-window multi-burn-rate alerting setup* for the demo app's
-SLO — no rules given. Author at least a fast-burn (page) and a slow-burn (ticket)
-alert with correctly sized window pairs and burn multipliers, route each to the
-right severity, and then *prove the whole thing discriminates*: force a
-catastrophic burn and watch only the critical fire and page; force a low-grade
-persistent burn and watch only the warning fire to a ticket; then stop the errors
-and confirm the short window clears the page promptly. Finally, write one
-paragraph explaining *why you chose those specific window sizes and multipliers* —
-what fraction of the budget each alert lets you burn before it fires, and why the
-fast-burn pages but the slow-burn doesn't. That written justification is the
-deliverable, because the numbers are only defensible if you can say what budget
-they protect.
+Confirm your mastery of burn rate alerting and SLO dashboarding with these scenarios.
 
 <details>
-<summary>Stuck? One hint</summary>
+<summary><b>Checkpoint 1: Why is an alert rule with ONLY a 1-hour window problematic when an incident is fixed?</b></summary>
 
-Don't invent the magic numbers — the Google SRE workbook's standard table is
-fast-burn 14.4× over 1h/5m (pages, ~2% budget) and slow-burn 3× over 6h/30m
-(tickets, ~10% budget over 3 days); a common third tier is 6× over 24h/2h. The
-short window in each pair is ~1/12 of the long one and exists only to reset the
-alert fast — always `and` it with the long window. Test each severity path the way
-track 12 module 06 taught: force the condition, trace it through the routing tree
-(or `amtool config routes test`), confirm it lands on the intended receiver. And
-before trusting any alert, graph each leg of the `and` alone to prove both can
-cross — that's the exercise-8 window trap.
-
-</details>
-
-## Common mistakes & troubleshooting
-
-- **Single-window burn alerts.** One window forces you to choose fast-but-noisy or
-  stable-but-slow. Use a long window for signal `and` a short window to reset —
-  multi-window is the fix.
-- **Long window ≤ short window.** Inverting or equalizing the pair makes the
-  confirm-gate meaningless and often means the alert never fires (exercise 8).
-  Long window must be larger, and well above ~4× the scrape interval.
-- **Rate window too short for the scrape interval.** `rate(...[15s])` at a 30s
-  scrape returns nothing, so the alert silently never fires — track 12 module 02's
-  trap, fatal here.
-- **Only a fast-burn alert.** Without a slow-burn ticket, a low-grade drain quietly
-  eats the whole budget over days without ever tripping the page. You need both
-  tiers.
-- **Everything pages.** Slow-burn is a *ticket*, not a 3am page. Route it to
-  `warning`; reserve `critical`/page for fast burn (track 12 module 06's
-  everything-is-critical failure).
-- **Burn-rate label matches no route.** The alert fires in Prometheus but pages
-  nobody because its `severity` label matches no Alertmanager route — verify with
-  `amtool config routes test` (track 12 module 06's "firing ≠ paged").
-- **Dashboard recomputes `[30d]` every refresh.** Slow and heavy. Drive SLO
-  panels from the recording rules from modules 01-02.
-
-## Checkpoint quiz
-
-Write down your answer to each question before expanding it — checking without attempting first is the single easiest way to fool yourself into thinking you've learned this.
-
-<details>
-<summary>Show questions</summary>
-
-1. Define burn rate. What does a burn rate of 1 mean, and what does 14.4 mean for
-   a 30-day budget?
-2. Why can't a single-window burn alert be both fast to detect and non-flappy?
-3. In a multi-window alert, what job does the long window do and what job does the
-   short window do?
-4. What's the difference between multi-*window* and multi-*burn-rate*, and why do
-   you want a fast-burn *and* a slow-burn alert?
-5. Which severity does fast-burn get vs. slow-burn, and why?
-6. A burn-rate alert never fires despite an obvious SLO breach. Give two window-
-   related causes and how you'd diagnose them.
-7. What four things should an SLO dashboard show, and why drive it from recording
-   rules?
-
+**Analysis:**
+If you alert only on a 1-hour window (`error_rate[1h] > threshold`), the moving window retains the past errors for 60 minutes.
+- **Example:** An outage begins at 10:00 and engineers fix it at 10:05.
+- Because the 1-hour rolling window includes the heavy failures from 10:00 to 10:05, the average error rate over the last 1 hour remains above the threshold until 11:05.
+- The on-call engineer receives repeated alert pages for 55 minutes *after* production has already fully recovered!
+- Adding the **short 5-minute window** (`and error_rate[5m] > threshold`) ensures that as soon as the service recovers at 10:05, the 5-minute window drops below the threshold, and the alert **auto-resolves at 10:10**.
 </details>
 
 <details>
-<summary>Show answers</summary>
+<summary><b>Checkpoint 2: Calculate the error rate threshold for a 99.95% SLO with a 14.4x burn rate.</b></summary>
 
-1. Burn rate = observed error ratio ÷ budgeted error fraction (`1 − SLO`) — the
-   multiplier on how fast you're spending the budget. **1** = spending it at
-   exactly the pace that uses all of it over the window (on target). **14.4** =
-   burning 14.4× that fast — the whole 30-day budget gone in ~2 days.
-2. A short window reacts fast but flaps on brief blips (and resets before anyone
-   looks); a long window is stable but reacts slowly, burning budget while it
-   ramps. One window can't give both — it's an inherent speed/precision
-   trade-off.
-3. The **long** window provides the signal — is the burn genuinely high over a
-   meaningful span (worth paging)? The **short** window is the reset gate —
-   `and`-ed in so the alert clears quickly once the burn stops, avoiding pages for
-   an outage that already recovered.
-4. Multi-*window* = combining a long and short window in *one* alert for
-   fast-detect + fast-reset. Multi-*burn-rate* = running *several* alerts at
-   different burn thresholds/severities. You want fast-burn (page: something badly
-   wrong now) and slow-burn (ticket: a low-grade drain that would quietly eat the
-   budget over days).
-5. Fast-burn → `critical`/page (budget draining dangerously fast, act now).
-   Slow-burn → `warning`/ticket (real but not urgent; look at it in business
-   hours). Paging on the slow burn would be alert fatigue.
-6. (a) Long window ≤ short window (or the pair inverted) so the two-window `and`
-   never agrees; (b) a rate window too short for the scrape interval (e.g.
-   `[15s]` at 30s scrape) returning nothing. Diagnose by graphing each leg of the
-   `and` alone — one will be always-empty or never cross.
-7. SLI-vs-target, error-budget-remaining %, current burn rate, and time-to-
-   exhaustion. Drive it from recording rules so the expensive `[30d]` SLI/budget
-   queries aren't recomputed on every dashboard refresh (fast, consistent).
-
+**Calculation:**
+1. **Target SLO:** $99.95\%$ ($0.9995$).
+2. **Error Budget Fraction:** $1 - 0.9995 = 0.0005$ ($0.05\%$).
+3. **Burn Rate ($B$):** $14.4$.
+4. **Instantaneous Error Rate Threshold:**
+   $$\text{Threshold} = B \times (1 - \text{SLO}) = 14.4 \times 0.0005 = 0.0072 = 0.72\%$$
+An active error rate of **0.72%** (less than 1 failure per 100 requests) will trigger the P1 critical page!
 </details>
+
+<details>
+<summary><b>Checkpoint 3: How should an SLO dashboard handle scheduled maintenance downtime?</b></summary>
+
+**Production Solution:**
+1. **Metric Tagging:** When maintenance begins, automation tags the service or routes with an operational flag or maintenance label.
+2. **Alertmanager Silences:** Active Alertmanager silences mute pager dispatches during approved maintenance windows.
+3. **SLI Query Exclusion:** The PromQL SLI formula filters out traffic routed during maintenance using label exclusions:
+   `http_requests_total{maintenance!="true"}`.
+</details>
+
+---
 
 ## Next
 
-[04-on-call-in-depth](../04-on-call-in-depth/README.md) — your alerts now page the
-right person at the right urgency. The next question is *who* that person is and
-what they do at 3am: rotation design, escalation policies, and writing a runbook
-that actually helps (the `runbook:` annotation you just added) instead of one
-nobody can use — plus a formal fix for the alert fatigue track 12 only named.
+Continue to **[04-on-call-in-depth](../04-on-call-in-depth/README.md)** to explore sustainable on-call rotation design, cognitive fatigue mitigation, and runbook engineering.

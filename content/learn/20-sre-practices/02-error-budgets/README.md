@@ -1,401 +1,396 @@
-# Error Budgets
+# Error Budgets and Release Policies
 
-## Why this matters
+> **Difficulty**: Intermediate | **Estimated Time**: 35m | **Hands-On**: Mandatory
 
-The error budget is the single most important idea in this whole track: it's the
-number that turns the dev-velocity-vs-reliability tension from
-[module 00](../00-sre-concepts-and-the-reliability-mindset/README.md) from a
-political argument into arithmetic. It falls straight out of the SLO you set in
-[module 01](../01-slis-and-slos/README.md) — if your SLO is 99.9%, you have
-explicitly *budgeted* 0.1% failure, and that budget is a resource you get to
-spend on risk. This module teaches you to compute it, watch it drain, decide what
-happens when it's gone, and use it to make an actual "ship or freeze" call.
+> [!TIP]
+> **The Golden Rule of Error Budgets:**
+> **An unspent error budget at the end of a quarter is a waste of engineering opportunity.** If your system achieves 99.99% availability against a 99.90% SLO, you did not win—you left 90% of your innovation budget unspent, meaning you shipped features too cautiously and built unnecessary architectural safeguards. Spend your budget intentionally on rapid iteration, architectural experiments, and fault-injection testing.
 
-## Concepts
+---
 
-### The error budget is `1 − SLO`
+## 1. Visual Mental Models: The Innovation Currency
 
-If your SLO says 99.9% of requests should succeed over 30 days, you are saying the
-remaining **0.1% are *allowed* to fail** — that 0.1% is your **error budget**.
-It's the maximum unreliability you've decided is acceptable, expressed as a
-fraction, a request count, or an amount of downtime. The reframe is everything:
-those failures aren't a moral failing to drive to zero, they're a **budget you're
-*expected* to spend**. A month where you used none of your error budget doesn't
-mean you're winning — it may mean your SLO is too loose, or that you're being far
-more conservative with releases than you need to be and leaving velocity on the
-table. The budget exists to be spent, deliberately, on shipping and on
-maintenance risk.
+An **Error Budget** is the exact mathematical inverse of your Service Level Objective. It quantifies the acceptable level of system failure over a rolling evaluation window (typically 30 days or 90 days).
 
-### Computing the budget three ways
+$$\text{Error Budget} = 100\% - \text{SLO}$$
 
-The same budget can be expressed in whichever unit makes the decision clearest.
-Start from `error budget fraction = 1 − SLO`. Then:
+```mermaid
+flowchart TD
+    subgraph BudgetDynamics["Error Budget as Operational Fuel"]
+        TotalRequests["Total Valid Requests (10,000,000)"]
+        SLO["99.90% SLO Target<br/>(9,990,000 must succeed)"]
+        Budget["Error Budget: 0.10%<br/>(10,000 requests allowed to fail)"]
 
-- **As downtime** (for a time-based/availability SLO): `budget = (1 − SLO) ×
-  window`. For 99.9% over 30 days: `0.001 × 43,200 min ≈ 43.2 minutes` of allowed
-  downtime this window — the same figure from module 00's table, now understood
-  as a budget.
-- **As a request count** (for a request-ratio SLO): `budget = (1 − SLO) × total
-  valid requests`. At 99.9% and 10 million requests/month you may fail up to
-  `0.001 × 10,000,000 = 10,000` requests before you've breached.
-- **As budget *remaining*:** `remaining = budget − consumed so far`. This is the
-  live number you watch — "we have 12 of our 43 minutes left with 8 days to go."
+        TotalRequests --> SLO
+        TotalRequests --> Budget
+    end
 
-Which unit you use depends on the SLO type, but they're the same idea: a finite
-allowance of failure per window.
-
-### Spending the budget — every source of unreliability draws it down
-
-*Anything* that makes requests fail or the service unavailable spends the budget,
-and it doesn't care whether the cause was "good" or "bad": a risky feature deploy
-that 500s for ten minutes, a bad config push, an infra outage, a failed
-migration, *and* a planned maintenance window all draw from the same account.
-This is the crucial mental shift — the error budget doesn't distinguish
-"legitimate" downtime from "our fault" downtime, because from the user's side
-there's no difference. It means every release is a *withdrawal* against the
-budget, which is exactly why the budget can govern release decisions: if you're
-flush, you can afford risky withdrawals (ship fast, experiment); if you're nearly
-overdrawn, you can't. The burn-rate alerting in
-[module 03](../03-slo-dashboards-and-burn-rate-alerts/README.md) is literally
-"how fast is this account draining right now."
-
-### The error-budget policy — what happens when it's gone
-
-A budget with no consequence for overspending is just a number. An **error-budget
-policy** is the *agreed-in-advance* rule for what the team does as the budget
-depletes and when it's exhausted — written down and signed off by both engineering
-*and* product *before* an incident, so it's not negotiated in the heat of one. A
-typical policy has tiers: while budget remains, ship freely; when it drops below
-some threshold (say 25% left), slow down and require extra review; when it's
-**exhausted**, a **feature freeze** kicks in — no new feature launches, all
-engineering effort redirects to reliability work until you're back within SLO.
-The freeze isn't a punishment; it's the mechanism that makes the budget *mean*
-something. The power of writing it down beforehand is that it removes the argument:
-when the budget's gone, the freeze is policy, not a debate about whether this
-particular feature is important enough.
-
-### Using the budget to make a real ship-vs-slow-down decision
-
-Here's the whole point in action. A team wants to ship a risky feature. Instead of
-arguing about it, they look at the budget: *"We're at 60% of our error budget
-remaining with 10 days left in the window — we can afford to ship this and absorb
-a bad rollout."* Or: *"We're at 5% remaining with 12 days to go and burning fast —
-freeze; the next incident breaches SLO and possibly the SLA."* The budget converts
-"should we ship?" (opinion) into "do we have the budget to ship?" (arithmetic).
-It also cuts *both* ways, which is what makes it credible: a team consistently
-*under*-spending its budget is being too conservative and should ship faster or
-tighten the SLO — the error budget gives developers ammunition to *increase*
-velocity, not just a stick to slow them down. That symmetry is why both dev and
-product accept it.
-
-### Budget windows and how failure "ages out"
-
-Because the SLO window is a **rolling** window (module 01), so is the budget. A
-bad incident that spent 20 minutes of your 43-minute budget doesn't stay charged
-forever — as the incident passes out the back of the 30-day rolling window, that
-consumption *ages out* and the budget replenishes. This has real operational
-consequences: a big outage early in the window depresses your remaining budget
-for the next 30 days, then recovers; you can sometimes "wait out" a depleted
-budget as an old incident rolls off. It also means the budget is a *lagging*
-measure of the whole window, which is precisely why you don't alert on "budget
-below X" alone — a slow, steady burn and a sudden catastrophic burn deplete the
-same total but demand very different responses. Distinguishing them is the
-**burn rate**, and building alerts on it is the entire next module.
-
-## Command reference
-
-Budget math is arithmetic first; you compute it in PromQL once you've internalized
-it. The recorded SLI series from module 01 exercise 8 feed these.
-
-| Formula / PromQL | What it computes | Notes |
-|---|---|---|
-| `1 − SLO` | Error budget as a fraction | 99.9% → 0.001 |
-| `(1 − SLO) × window` | Allowed downtime this window | 0.001 × 43,200 min ≈ 43.2 min |
-| `(1 − SLO) × total_requests` | Allowed failed requests | 0.001 × 10M = 10,000 |
-| `1 − (good / valid)` | Current error *ratio* (budget spend rate) | complement of the SLI |
-| `(1 − SLO − (1 − SLI)) / (1 − SLO)` | Fraction of budget *remaining* | see below |
-
-Error-budget-remaining as a PromQL expression (build on module 01's recorded
-SLI):
-
-```promql
-1 - (
-  (1 - (sum(rate(sli_good[30d])) / sum(rate(sli_valid[30d]))))
-  /
-  (1 - 0.999)
-)
+    subgraph Actions["Spending the Currency"]
+        Budget --> SpendA["Deploy Risky Feature Refactor"]
+        Budget --> SpendB["Execute Chaos Engineering in Prod"]
+        Budget --> SpendC["Migrate Database Schemas Live"]
+    end
 ```
-- inner `sum(rate(sli_good[30d])) / sum(rate(sli_valid[30d]))` — the **SLI** over
-  the full window (module 01).
-- `1 - (SLI)` — the **error ratio actually observed** (fraction of requests that
-  failed).
-- `/ (1 - 0.999)` — divide observed errors by the **budgeted** error fraction
-  (`1 − SLO`). This gives *fraction of budget consumed*; `= 1.0` means exactly
-  spent, `> 1.0` means overspent (SLO breached).
-- outer `1 - (...)` — flips consumed into **remaining**; `1.0` = full budget,
-  `0.0` = exhausted, negative = over budget. This is the single number an SLO
-  dashboard shows as "budget remaining."
 
-## Hands-on exercises
+### The Rolling 30-Day Window vs. Calendar Month Cliff
 
-Continue on the **kind** cluster with `kube-prometheus-stack` and the demo app's
-SLI recording rules from [module 01](../01-slis-and-slos/README.md) exercise 8.
+A dangerous anti-pattern is tying error budgets to **calendar months** (e.g., January 1st to 31st). On February 1st, the error budget instantly resets to 100%, encouraging development teams to push hazardous changes all at once ("The First of the Month Release Rush").
 
-1. **(paper) Compute the budget three ways.** For an SLO of 99.9% over 30 days
-   with 20 million requests/month, compute the error budget as (a) a fraction,
-   (b) allowed downtime in minutes, (c) allowed failed requests. Then redo all
-   three for 99.99% and note how much smaller each becomes — this is module 00's
-   "every nine costs 10×" made concrete as a spendable budget.
+SRE enforces a **continuous rolling 30-day window**: every day, the oldest 24 hours of data drops off the calculation, ensuring release governance is smooth, fair, and continuous.
 
-2. **(WSL2) Compute *budget remaining* live.** Using the SLI recording rules,
-   write the budget-remaining PromQL from the command reference for the demo
-   app's availability SLO. It should read near 1.0 (full) when healthy. Inject
-   errors (as in module 01 exercise 1) and watch the number fall. You are now
-   watching an account drain in real time.
+```
+Calendar Month Anti-Pattern:
+[---------------- Jan 31 (Depleted) --------------]-> [ Feb 1 (Instant 100% Reset! Dangerous Deploy Rush) ]
 
-3. **(WSL2) Spend the budget on purpose and measure it.** Cause a controlled
-   "incident": drive 5xx traffic for a fixed number of minutes, then compute how
-   much of the budget that incident consumed (as a fraction and as minutes). Then
-   answer: at that spend rate, how many more such incidents until the budget is
-   exhausted this window? This is the core intuition burn-rate alerting
-   formalizes next module.
+SRE Rolling 30-Day Window:
+Day 1 -----------------------> Day 30  [ Window A: 30 Days ]
+       Day 2 -----------------------> Day 31  [ Window B: Smooth Slide ]
+```
 
-4. **(paper) Make a real ship-vs-slow-down call — flush budget.** Scenario: 65%
-   of the error budget remains, 8 days left in the window, and the team wants to
-   ship a risky migration. Write the decision *and the one-sentence justification
-   in budget terms*. Then flip it: 4% remaining, 15 days left, burning steadily —
-   write that decision. The deliverable is that both decisions are made in *budget
-   arithmetic*, not opinions.
+---
 
-5. **(paper) Write an error-budget policy.** Draft a three-tier policy for the
-   demo service: what the team does while budget is healthy, at a warning
-   threshold, and when exhausted (the feature-freeze tier). Include *who* signs
-   off (engineering + product) and *when* it's agreed (before incidents). Keep it
-   short enough to actually be followed — a page nobody reads is no policy.
+## 2. The Error Budget Policy Matrix
 
-6. **(paper) Argue the *under*-spend case.** A team has spent only 3% of its error
-   budget every month for six months and is proud of it. Write the SRE critique:
-   why is chronic under-spending a *problem*, what two things could it mean, and
-   what would you change (ship faster, or tighten the SLO)? This proves you
-   understand the budget cuts both ways.
+An Error Budget is toothless without an organizational policy signed by both **Product Management** and **Engineering Leadership** *before* production incidents occur.
 
-7. **Diagnose and fix: the budget that's already exhausted — and the conversation
-   that should follow.** Reproduce a service that has *already* breached: set (or
-   simulate via injected errors over a long window) an SLO of 99.9% while the
-   measured SLI is 99.5% — the budget-remaining expression from exercise 2 goes
-   **negative**. The technical "fix" is trivial and the *wrong* instinct is to
-   just loosen the SLO to 99% so the dashboard goes green again. **Diagnose** the
-   real situation: the budget is overspent, which under the policy from exercise 5
-   means a *feature freeze and reliability work*, not moving the goalposts.
-   Write the conversation that should actually happen: is the SLO wrong (was it
-   ever achievable — module 01's "measure first"?), or is the *service* genuinely
-   too unreliable and owed engineering investment? **Fix** by either
-   re-justifying the SLO with data *or* triggering the policy — never by silently
-   relaxing the target to hide the breach. Lesson: **an exhausted budget is a
-   signal to change behavior (freeze, invest) or to honestly re-derive the SLO
-   with data — never to quietly move the target so the red goes away.**
+```mermaid
+stateDiagram-v2
+    [*] --> Green: Budget Remaining > 50%
+    Green --> Yellow: Budget Drops to 20% - 50%
+    Yellow --> Orange: Budget Drops to 0% - 20%
+    Orange --> Red: Budget Exhausted (<= 0%)
+    Red --> Green: Budget Recovers (Rolling window clears past outages)
 
-8. **(WSL2) Turn budget-remaining into a recording rule.** So module 03 can alert
-   on it cheaply, record the budget-remaining and the short-window burn as named
-   series (e.g. `job:error_budget_remaining:ratio`). Confirm they load
-   (remember the `release` label). You now have the substrate module 03 builds
-   burn-rate alerts on.
+    state Green {
+      description: "Full Velocity - Ship features and experiments"
+    }
+    state Yellow {
+      description: "Heightened Caution - Require canary verification"
+    }
+    state Orange {
+      description: "Strict Gating - VP approval required for non-bugfix deploys"
+    }
+    state Red {
+      description: "FEATURE FREEZE - 100% of sprint capacity to reliability"
+    }
+```
 
-## Independent challenge
+| Budget State | Remaining Margin | Development Action | Release Gate |
+| :--- | :--- | :--- | :--- |
+| **Healthy (Green)** | $50\% - 100\%$ | Unrestricted deployment velocity; run Chaos Engineering drills. | Standard CI/CD automated test gates. |
+| **Caution (Yellow)** | $20\% - 50\%$ | Increase canary observation window from 10 minutes to 1 hour. | Review recent architectural changes for regression risk. |
+| **Critical (Orange)** | $1\% - 20\%$ | Freeze non-essential batch refactoring; prioritize reliability backlog. | Tech Lead explicit sign-off required for any production deployment. |
+| **Exhausted (Red)** | $\le 0\%$ | **Mandatory Feature Freeze**. All sprint capacity redirects to reliability engineering, automated rollback scripts, and test coverage. | **Blocked**. Only critical P0 security hotfixes and CVE patches may bypass. |
 
-Drawing on this module, the SLO you defined in
-[module 01](../01-slis-and-slos/README.md), and the CI/CD pipeline you built in
-[track 10](../../10-cicd-and-gitops/README.md), design a *complete error-budget
-regime* for one service and connect it to release decisions — no formulas or
-policy text given. Compute the service's budget in all three units for its SLO;
-write a tiered error-budget policy naming the exact thresholds at which behavior
-changes and who agreed to it; and then describe, concretely, *how the policy
-touches your actual pipeline* — e.g. what a CI check that reads budget-remaining
-and blocks a feature deploy when the budget is exhausted would look like
-conceptually (which metric it queries, what it does at each tier). The deliverable
-is the *linkage*: an error budget that lives only on a dashboard changes no
-behavior; one wired into the decision to ship is the real thing. State honestly
-where a human still has to make the call and where you'd automate it.
+---
+
+## 3. Production War Story: The Black Friday Freeze Defiance
+
+```
+INCIDENT SUMMARY: INC-5509
+SEVERITY: P1 - Executive Breach & Financial Catastrophe
+IMPACT: $4.2M in abandoned shopping carts; 4-hour complete checkout failure during peak Black Friday traffic.
+ROOT CAUSE: Product management overrode an exhausted error budget policy to push an unvetted recommendation feature.
+```
+
+### Incident Timeline
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant PM as Product Management
+    participant SRE as SRE Lead
+    participant CI as Deployment Pipeline
+    participant App as Checkout Service
+    participant User as 250,000 Black Friday Shoppers
+
+    Note over SRE: 30-Day Error Budget is at -12% (EXHAUSTED).<br/>Feature freeze policy is officially in effect.
+    PM->>SRE: "We must deploy the AI Upsell Widget for Black Friday!"
+    SRE-->>PM: "Denied by policy: Error budget is depleted."
+    PM->>CI: Uses executive override token to force deployment
+    CI->>App: Deploys AI Upsell v2.1 to production pods
+    User->>App: Surge traffic begins (15,000 checkouts/min)
+    Note over App: AI Upsell contains an unindexed SQL query.<br/>Postgres connection pool saturates in 90 seconds.<br/>Pods enter crash loops.
+    App-->>User: HTTP 504 Gateway Timeout
+    Note over PM: Manual rollback fails due to non-backward-compatible schema migration.<br/>Site remains down for 4 hours.
+```
+
+### The Post-Mortem
+
+- **The Breakdown**: The organization had an Error Budget Policy on paper, but leadership treated it as advisory rather than binding. When commercial pressure mounted, the policy was bypassed without architectural risk mitigation.
+- **The Remediation**:
+  1. The deployment pipeline was programmatically locked: deployment tokens are invalidated automatically when the Prometheus error budget gauge reaches $\le 0$.
+  2. Bypassing a freeze requires the cryptographic joint authorization of both the **Chief Technology Officer** and the **Chief Product Officer**.
+  3. Every deployment must support **atomic automated zero-downtime rollback**.
+
+---
+
+## 4. Multi-Language Error Budget Accounting Services
+
+These implementations provide an automated policy engine that queries current telemetry and programmatically gates CI/CD pipelines.
+
+### Go (`budget_gate.go`)
+
+```go
+package main
+
+import (
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"os"
+)
+
+type PrometheusResponse struct {
+	Status string `json:"status"`
+	Data   struct {
+		Result []struct {
+			Value []interface{} `json:"value"`
+		} `json:"result"`
+	} `json:"data"`
+}
+
+func checkErrorBudget(service string, sloTarget float64) (float64, error) {
+	// PromQL: Computes remaining budget percentage over 30d
+	query := fmt.Sprintf(
+		`(1 - (sum(rate(http_requests_total{service="%s",status=~"5.."}[30d])) / sum(rate(http_requests_total{service="%s"}[30d])))) / (1 - %f) * 100`,
+		service, service, sloTarget,
+	)
+
+	req, _ := http.NewRequest("GET", "http://prometheus:9090/api/v1/query", nil)
+	q := req.URL.Query()
+	q.Add("query", query)
+	req.URL.RawQuery = q.Encode()
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return 0, err
+	}
+	defer resp.Body.Close()
+
+	var result PrometheusResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return 0, err
+	}
+
+	if len(result.Data.Result) == 0 {
+		return 100.0, nil // No errors recorded
+	}
+
+	var budgetPct float64
+	fmt.Sscanf(result.Data.Result[0].Value[1].(string), "%f", &budgetPct)
+	return budgetPct, nil
+}
+
+func main() {
+	service := "checkout-service"
+	budgetRemaining, err := checkErrorBudget(service, 0.999)
+	if err != nil {
+		fmt.Printf("Error fetching metrics: %v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Printf("Service: %s | Remaining 30d Error Budget: %.2f%%\n", service, budgetRemaining)
+
+	if budgetRemaining <= 0.0 {
+		fmt.Println("DEPLOYMENT BLOCKED: Error budget exhausted! Feature freeze active.")
+		os.Exit(1) // Fails CI/CD pipeline step
+	} else if budgetRemaining < 20.0 {
+		fmt.Println("DEPLOYMENT WARNING: Error budget low (<20%). Enforcing extended canary.")
+	} else {
+		fmt.Println("DEPLOYMENT APPROVED: Error budget healthy.")
+	}
+}
+```
+
+### TypeScript / Node.js (`budget_gate.ts`)
+
+```typescript
+import axios from 'axios';
+
+interface PromVector {
+  status: string;
+  data: {
+    result: Array<{
+      value: [number, string];
+    }>;
+  };
+}
+
+export async function evaluateDeploymentGate(
+  serviceName: string,
+  slo: number = 0.999
+): Promise<{ allowed: boolean; remainingPct: number; reason: string }> {
+  const promql = `(1 - (sum(rate(http_requests_total{service="${serviceName}",status=~"5.."}[30d])) / sum(rate(http_requests_total{service="${serviceName}"}[30d])))) / (1 - ${slo}) * 100`;
+
+  try {
+    const res = await axios.get<PromVector>('http://prometheus:9090/api/v1/query', {
+      params: { query: promql },
+    });
+
+    const valStr = res.data.data.result[0]?.value[1] ?? '100';
+    const remainingPct = parseFloat(valStr);
+
+    if (remainingPct <= 0) {
+      return {
+        allowed: false,
+        remainingPct,
+        reason: `Feature Freeze: 30-day error budget is depleted (${remainingPct.toFixed(1)}%).`,
+      };
+    }
+
+    return {
+      allowed: true,
+      remainingPct,
+      reason: `Healthy: ${remainingPct.toFixed(1)}% of error budget remains.`,
+    };
+  } catch (error: any) {
+    throw new Error(`Prometheus query failed: ${error.message}`);
+  }
+}
+```
+
+### Python (`budget_gate.py`)
+
+```python
+import sys
+import requests
+
+def verify_release_gate(service: str, target_slo: float = 0.999) -> bool:
+    query = f"""
+    (1 - (sum(rate(http_requests_total{{service="{service}",status=~"5.."}}[30d])) 
+         / sum(rate(http_requests_total{{service="{service}"}}[30d])))) 
+    / (1 - {target_slo}) * 100
+    """
+    
+    try:
+        response = requests.get(
+            "http://prometheus:9090/api/v1/query",
+            params={"query": query.strip()},
+            timeout=5.0
+        )
+        data = response.json()
+        results = data.get("data", {}).get("result", [])
+        
+        remaining_budget = float(results[0]["value"][1]) if results else 100.0
+        print(f"[{service}] Remaining 30-Day Error Budget: {remaining_budget:.2f}%")
+        
+        if remaining_budget <= 0.0:
+            print("❌ GATE REJECTED: Error budget exhausted! Deployments suspended.", file=sys.stderr)
+            return False
+            
+        print("✅ GATE APPROVED: Sufficient error budget available.")
+        return True
+    except Exception as e:
+        print(f"Failed to query Prometheus: {e}", file=sys.stderr)
+        return False
+
+if __name__ == "__main__":
+    if not verify_release_gate("payment-gateway", target_slo=0.999):
+        sys.exit(1)
+```
+
+---
+
+## 5. Declarative Prometheus Error Budget Recording Rules
+
+To query error budget depletion efficiently without running heavy 30-day rate aggregations on every request, create Prometheus **Recording Rules**:
+
+```yaml
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: error-budget-recording-rules
+  namespace: monitoring
+  labels:
+    role: alert-rules
+    prometheus: kps-prometheus
+spec:
+  groups:
+    - name: error_budget.rules
+      interval: 5m
+      rules:
+        # Precompute 30-day Availability SLI
+        - record: job:http_availability:ratio_rate30d
+          expr: |
+            sum by (service) (rate(http_requests_total{status!~"5.."}[30d]))
+            /
+            sum by (service) (rate(http_requests_total[30d]))
+
+        # Precompute Remaining Error Budget Percentage (Assuming 99.9% SLO)
+        - record: job:error_budget_remaining:percent30d
+          expr: |
+            (job:http_availability:ratio_rate30d - 0.999) / (1 - 0.999) * 100
+```
+
+---
+
+## 6. Practical CLI Workflows
+
+Follow this CLI verification workflow to test the deployment gate against your cluster's Prometheus endpoint.
+
+### Step 1: Query the Precomputed Error Budget Recording Rule
+
+```bash
+curl -s -G "http://localhost:9090/api/v1/query" \
+  --data-urlencode 'query=job:error_budget_remaining:percent30d{service="checkout-service"}'
+```
+
+**Expected Output:**
+```json
+{
+  "status": "success",
+  "data": {
+    "resultType": "vector",
+    "result": [
+      {
+        "metric": { "service": "checkout-service" },
+        "value": [1712498200.123, "72.45"]
+      }
+    ]
+  }
+}
+```
+
+The service has **72.45% of its error budget intact**, granting full approval for experimental canary releases!
+
+---
+
+## 7. Operational Validation Checkpoints
+
+Test your understanding of error budget economics and organizational policy with these scenarios.
 
 <details>
-<summary>Stuck? One hint</summary>
+<summary><b>Checkpoint 1: If your service experienced zero outages and has 100% of its budget left at the end of the quarter, what went wrong?</b></summary>
 
-The budget-remaining PromQL from this module's command reference is the single
-number your policy keys off. Your CI gate (track 10) is conceptually just: query
-`job:error_budget_remaining:ratio` before a *feature* deploy; if it's above the
-warning tier, proceed; if between warning and zero, proceed only with extra
-sign-off; if at or below zero, fail the deploy with a message pointing at the
-freeze policy — *but* always allow reliability/rollback deploys through, since
-those *restore* budget. The subtlety to write about: you never want the gate to
-block the fix for the very outage that drained the budget, so the freeze is on
-*features*, not on all deploys.
-
-</details>
-
-## Common mistakes & troubleshooting
-
-- **Treating the budget as "errors to eliminate."** It's a budget to *spend*.
-  Zero spend usually means an SLO that's too loose or a team leaving velocity on
-  the table, not a triumph.
-- **Loosening the SLO to hide a breach.** When the budget's exhausted, relaxing
-  the target so the dashboard goes green is moving the goalposts. Either re-derive
-  the SLO honestly with data, or trigger the policy (freeze + invest).
-- **A policy negotiated during the incident.** If you decide what to do about an
-  exhausted budget *while* it's exhausted, the loudest voice wins. Agree the
-  policy — thresholds and consequences — in advance, with product's sign-off.
-- **Freezing *all* deploys.** The freeze is on new *features*, never on the
-  reliability fixes and rollbacks that restore the budget. Blocking the fix for
-  the outage that drained the budget is self-defeating.
-- **Alerting on total budget alone.** "Budget below 25%" doesn't distinguish a
-  slow drain from a catastrophic burn. That's what burn rate (module 03) is for.
-- **Ignoring the rolling window.** Budget replenishes as old incidents age out;
-  a currently-red budget from a two-week-old outage may recover on its own.
-  Charge decisions to the *current* window, not to a calendar month.
-- **Distinguishing "planned" from "unplanned" downtime in the budget.** The
-  budget doesn't care — users don't either. Planned maintenance spends the budget
-  exactly like an outage does.
-
-## Checkpoint quiz
-
-Write down your answer to each question before expanding it — checking without attempting first is the single easiest way to fool yourself into thinking you've learned this.
-
-<details>
-<summary>Show questions</summary>
-
-1. Give the error-budget formula and compute the allowed monthly downtime for a
-   99.95% SLO over 30 days.
-2. Why is spending *none* of your error budget potentially a problem, not a
-   success?
-3. Name three different things that all draw from the same error budget, and
-   explain why the budget doesn't distinguish them.
-4. What is an error-budget policy, when must it be agreed, and what's the typical
-   consequence when the budget is exhausted?
-5. Translate this into a decision using budget language: "team wants to ship a
-   risky feature; 60% budget remains, 9 days left." And the opposite: "5%
-   remains, 14 days left, burning fast."
-6. When the budget's exhausted, why is loosening the SLO the *wrong* fix, and what
-   are the two legitimate responses?
-7. Why do you *not* freeze all deploys during a feature freeze?
-8. Why isn't "total budget remaining below 25%" a sufficient alerting condition on
-   its own?
-
+**Analysis:**
+You over-engineered stability at the expense of velocity. The error budget is not a test grade where 100% is the goal; it is a finite resource allocated to accept calculated innovation risks. An untouched error budget means your team:
+- Shipped features too slowly due to excessive manual testing.
+- Over-provisioned cloud infrastructure beyond real user requirements.
+- Avoided necessary architectural refactoring or database migrations out of fear.
+SRE teams with 100% unspent budgets are encouraged to deploy faster, reduce manual testing gates, or run proactive chaos engineering drills in production.
 </details>
 
 <details>
-<summary>Show answers</summary>
+<summary><b>Checkpoint 2: What happens if an error budget is depleted, but a critical remote code execution (RCE) vulnerability is discovered in production?</b></summary>
 
-1. `error budget = 1 − SLO`. For 99.95%: `1 − 0.9995 = 0.0005`;
-   `0.0005 × 43,200 min ≈ 21.6 minutes` of allowed downtime over 30 days.
-2. Because the budget exists to be *spent* on shipping and maintenance risk.
-   Chronic zero spend means either the SLO is too loose (not constraining
-   anything) or the team is being needlessly conservative and leaving release
-   velocity unused.
-3. Any three of: a risky feature deploy, a bad config push, an infra outage, a
-   failed migration, planned maintenance. The budget doesn't distinguish them
-   because from the *user's* side there's no difference between "our fault" and
-   "planned" downtime — a failed request is a failed request.
-4. A pre-agreed, written rule for what the team does as the budget depletes and
-   when it's exhausted. It must be agreed *before* incidents, signed off by
-   engineering and product. Typical exhausted-budget consequence: a feature
-   freeze — all effort redirects to reliability until back within SLO.
-5. First: "We have budget to spend — ship it and absorb a bad rollout." Second:
-   "We're nearly overdrawn and burning; freeze — the next incident breaches SLO."
-   The decision is arithmetic on remaining budget, not opinion.
-6. Loosening the SLO just moves the goalposts to hide the breach without changing
-   reality — users are still hurt. The legitimate responses: (a) re-derive the
-   SLO honestly with data if it was never achievable (module 01's "measure
-   first"), or (b) trigger the policy — freeze features and invest in reliability.
-7. Because reliability fixes and rollbacks *restore* the budget; freezing them
-   would block the fix for the very outage that drained it. The freeze targets
-   new features only.
-8. Because it can't tell a slow steady drain (fine, will age out) from a sudden
-   catastrophic burn (page now). The same total depletion demands very different
-   responses — you need the *rate* of burn, which is module 03.
-
+**Policy Resolution:**
+The Error Budget Policy explicitly carves out exceptions for **Emergency Security Patches and CVE Remediations**.
+Security vulnerabilities introduce catastrophic existential risk far exceeding transient availability downtime. Security fixes are deployed immediately under an expedited emergency review process, regardless of whether the availability error budget is negative.
 </details>
-
-## Cumulative review
-
-Closed book. Cover the answers and write each out before checking. These mix
-everything so far — the reliability mindset (module 00), SLIs/SLOs (module 01),
-and error budgets (this module) — plus the track 12 metrics foundation they all
-sit on.
-
-1. A PM demands a 100% availability SLO. Give the two-part rebuttal (cost and
-   user perception) and say what you'd propose instead and how you'd pick the
-   number. (modules 00-01)
-2. Write, in PromQL against `http_requests_total`, an availability SLI, and say
-   why it's expressed as a ratio rather than a raw failure count. (module 01 +
-   track 12 module 02)
-3. Why is "average latency < 300ms" a bad SLI, and what's the correct latency SLI?
-   (module 01)
-4. Your SLA promises customers 99.9%. What internal SLO would you set and why must
-   it differ, and what happens on the day you breach each? (module 01)
-5. Compute the error budget (fraction and 30-day minutes) for a 99.9% SLO, then
-   say what "spending" it means and give two distinct things that spend it.
-   (module 02)
-6. A service has used 0% of its error budget for six months. Is that good? What
-   does it signal and what would you change? (modules 00, 02)
-7. The budget-remaining number just went negative. Walk through the *correct*
-   response and name the wrong instinct you must resist. (module 02)
-8. Classify each as a good SLI or not, and why: (a) request success ratio, (b)
-   node CPU %, (c) fraction of requests under 300ms, (d) Prometheus `up`.
-   (modules 00-01)
-9. Explain why the error budget makes the "ship vs. freeze" decision *symmetric*
-   — how it can both slow developers down and give them license to go faster.
-   (modules 00, 02)
-10. Why is "total budget below 25%" not enough to alert on, and what property of
-    the burn distinguishes a slow drain from a catastrophe? (module 02, forward
-    to 03)
 
 <details>
-<summary>Show answers</summary>
+<summary><b>Checkpoint 3: Why should error budgets use a continuous rolling window instead of calendar quarters?</b></summary>
 
-1. **Cost:** each nine is ~10× the effort for ~10× less downtime, and 100% is
-   unachievable. **Perception:** the user's own network drops more than the
-   marginal nine would save, so they can't tell. Propose a measured SLO set from
-   current performance and user tolerance, tightened over time — not 100%, not
-   nothing.
-2. `sum(rate(http_requests_total{code!~"5.."}[30d])) /
-   sum(rate(http_requests_total[30d]))`. A ratio is scale-independent — 99% means
-   the same at any traffic volume — while a raw 5xx count needs a different
-   threshold at every load level.
-3. An average hides the tail where users actually suffer (a few 10s requests
-   vanish into the mean). Correct SLI: the *fraction of requests faster than the
-   threshold*, e.g. "95% under 300ms," from histogram buckets.
-4. Set the SLO stricter — e.g. 99.95% — with margin. It must differ so your own
-   alarm fires *before* the contract breaks. Breach the SLO: internal warning,
-   error-budget policy kicks in. Breach the SLA: contractual penalty/credits owed
-   to the customer.
-5. `1 − 0.999 = 0.001`; `0.001 × 43,200 ≈ 43.2 min`. Spending it = consuming that
-   allowance through any unreliability. Two spenders: a risky feature deploy that
-   errors; an infra outage (or planned maintenance).
-6. Not necessarily good — it signals the SLO is too loose or the team is
-   over-conservative. Change: ship faster (spend the budget on velocity) or
-   tighten the SLO so it actually constrains.
-7. Correct response: recognize the budget is overspent → trigger the policy
-   (feature freeze + reliability investment) *or* honestly re-derive the SLO with
-   data if it was never achievable. Wrong instinct to resist: quietly loosening
-   the SLO to make the dashboard green (moving the goalposts).
-8. (a) Good — user-felt success symptom. (b) Not — a cause/resource metric,
-   green or red independent of user pain. (c) Good — the correct latency SLI. (d)
-   Not — `up` only means the process is scrapable/alive, not that requests
-   succeed.
-9. It's the same number read two ways: below the freeze threshold it *forbids*
-   risky feature work; well above it, it *licenses* faster shipping and more
-   experimentation. Because it can increase velocity as well as restrain it,
-   developers accept it as fair rather than as a pure brake.
-10. Total budget can't distinguish a slow drain that will age out from a sudden
-    catastrophic burn needing an immediate page. The distinguishing property is
-    the **burn rate** — how fast the budget is draining right now relative to the
-    steady-state rate (module 03).
-
+**Mechanism:**
+Calendar-based windows create harmful behavioral incentives:
+1. **The End-of-Quarter Freeze:** If an outage occurs on day 10 of a 90-day quarter, product teams are frozen for 80 days.
+2. **The New-Quarter Stampede:** On the first day of the new quarter, developers push weeks of untested accumulated code simultaneously, triggering immediate cascading failures.
+A **rolling 30-day window** provides continuous, stable governance: yesterday's outage gradually ages out over 30 days, steadily restoring the budget as reliability improves.
 </details>
+
+---
 
 ## Next
 
-[03-slo-dashboards-and-burn-rate-alerts](../03-slo-dashboards-and-burn-rate-alerts/README.md)
-— you can compute and spend a budget; now watch it *live* and get paged only when
-it's draining fast enough to matter. This is the payoff of track 12: multi-window,
-multi-burn-rate alerting on the exact Prometheus/Grafana/Alertmanager stack you
-built there, with burn-rate math driving the threshold instead of a static one.
+Continue to **[03-slo-dashboards-and-burn-rate-alerts](../03-slo-dashboards-and-burn-rate-alerts/README.md)** to build the pinnacle of SRE alerting: Multi-Window Multi-Burn-Rate alerts that catch outages before they consume your budget.
