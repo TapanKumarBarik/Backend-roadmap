@@ -249,7 +249,7 @@ building a till for an empty shop.
 | Answers, reference solutions and rubrics out of the public repository, or the repository made private | gap 9 |
 | One community surface (questions on lessons, plus articles) and the feed, books and suggestions retired or hidden | gap 6; less to maintain, less that looks empty |
 | Unwritten GenAI modules out of the tree until written | gap 5 |
-| A "reviewed by a person on <date>" field per lesson, shown on the page | gap 5 |
+| A "reviewed by a person on" date field per lesson, shown on the page | gap 5 |
 | The home page and top navigation led by the promise; the five areas under "Library" | gap 4 |
 
 Nothing here needs a different stack. Cloudflare Pages, D1 and the existing API cover all of it.
@@ -305,7 +305,7 @@ findings are ordered by how much they stand between a visitor and the daily loop
 ### The home page (returning reader)
 
 Today it is the path picker again, or a dashboard of progress numbers. It should be the "today" screen described
-above: the drill, today's new lesson, what is due for review, and one button, "Continue: <lesson>". Everything else
+above: the drill, today's new lesson, what is due for review, and one button, "Continue" with the name of the lesson. Everything else
 moves below the fold.
 
 ### The lesson page
