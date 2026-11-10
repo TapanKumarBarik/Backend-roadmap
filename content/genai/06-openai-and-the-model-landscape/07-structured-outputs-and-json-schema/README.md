@@ -22,14 +22,14 @@ flowchart TD
         p1["Prompt: 'Respond only in JSON'"] --> llm1["Unconstrained Next-Token Decoding"]
         llm1 --> out1["Output: Often includes markdown '```json', hallucinated keys, or syntax errors"]
         note1["Reliability: ~85% (Fails unpredictably in production)"]
-        Tier1 -.-> note1
+        p1 -.-> note1
     end
 
     subgraph Tier2 ["Tier 2: JSON Mode (Syntactic Validity Only)"]
         p2["response_format: { type: 'json_object' }"] --> llm2["Syntactic JSON Enforcer"]
         llm2 --> out2["Output: Valid JSON, but ANY shape or schema!"]
         note2["Reliability: Valid syntax, zero schema guarantees"]
-        Tier2 -.-> note2
+        p2 -.-> note2
     end
 
     subgraph Tier3 ["Tier 3: Structured Outputs (Constrained Grammar Decoding)"]
@@ -37,7 +37,7 @@ flowchart TD
         dfa --> llm3["Logit Mask: Non-compliant tokens masked to -∞"]
         llm3 --> out3["Output: 100% Guaranteed Schema Adherence"]
         note3["Reliability: Deterministic grammar enforcement"]
-        Tier3 -.-> note3
+        dfa -.-> note3
     end
 ```
 

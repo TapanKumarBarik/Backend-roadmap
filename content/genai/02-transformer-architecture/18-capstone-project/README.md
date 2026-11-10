@@ -71,14 +71,14 @@ sequenceDiagram
     participant Cluster as 1,024x GPU Cluster
     participant Layer1 as Layer 1 Input
     participant Layer60 as Layer 60 Output
-    participant Opt as Distributed Optimizer
+    participant Optim as Distributed Optimizer
 
     Team->>Cluster: Launch Pretraining (Ablated FFN RMSNorm to save 8% latency)
     Note over Cluster: Step 0 to 5,000: Model appears to train normally.<br/>Activations slowly drift outward.
     Cluster->>Layer60: Step 45,000 (Context expands to 16k tokens)
     Note over Layer60: Unnormalized FFN variance reaches 420.0!<br/>Logits scale beyond FP8 dynamic range.
-    Layer60->>Opt: Gradients overflow: Loss = NaN
-    Opt-->>Cluster: Weight tensors filled with NaNs across all 1,024 GPUs
+    Layer60->>Optim: Gradients overflow: Loss = NaN
+    Optim-->>Cluster: Weight tensors filled with NaNs across all 1,024 GPUs
     Cluster-->>Team: ALERT: Run Terminated with Unrecoverable Checkpoint Corruption
 ```
 

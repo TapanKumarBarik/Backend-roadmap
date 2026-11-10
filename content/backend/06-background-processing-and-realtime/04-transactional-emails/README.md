@@ -69,8 +69,8 @@ flowchart TD
     classDef stor fill:#fff3e0,stroke:#f57c00,stroke-width:2px;
 
     class REQ,API,CLIENT ing;
-    W,DEDUP,SKIP,FETCH,RENDER,MIME,DISPATCH work;
-    DB,BROKER,LEDGER stor;
+    class W,DEDUP,SKIP,FETCH,RENDER,MIME,DISPATCH work;
+    class DB,BROKER,LEDGER stor;
 ```
 
 ---

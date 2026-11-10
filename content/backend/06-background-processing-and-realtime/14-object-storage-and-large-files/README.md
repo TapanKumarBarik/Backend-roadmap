@@ -79,8 +79,8 @@ flowchart TD
     classDef as fill:#e8f5e9,stroke:#388e3c,stroke-width:2px;
 
     class SRC,P1,P2,P3,P4 cl;
-    S3_1,S3_2,S3_3,S3_4 up;
-    COMPLETE,OBJ as;
+    class S3_1,S3_2,S3_3,S3_4 up;
+    class COMPLETE,OBJ as;
 ```
 
 ---

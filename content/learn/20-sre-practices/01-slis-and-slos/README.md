@@ -49,7 +49,7 @@ $$\text{SLI} = \frac{\sum \text{Good Events}}{\sum \text{Total Valid Events}} \t
 ### The Four Golden Signals (Google SRE)
 
 ```mermaid
-grid
+flowchart TB
     Latency["1. Latency<br/>Time to service a request.<br/>Separate fast successes from slow failures."]
     Traffic["2. Traffic<br/>Demand on the system.<br/>Requests/sec, concurrent streams, network bandwidth."]
     Errors["3. Errors<br/>Rate of failing requests.<br/>Explicit (5xx) vs. Implicit (200 with wrong body)."]

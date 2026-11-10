@@ -84,15 +84,15 @@ sequenceDiagram
     autonumber
     actor UserA as User A (Login)
     actor UserB as User B (Health Check)
-    participant Loop as Async Event Loop (Single Thread)
+    participant EvLoop as Async Event Loop (Single Thread)
     participant ALB as AWS Load Balancer
 
-    UserA->>Loop: POST /login (bcrypt.compareSync)
-    Note over Loop: Synchronous CPU execution locks main thread for 350ms!<br/>Event loop completely FROZEN!
-    ALB->>Loop: GET /healthz (Timeout: 2s)
-    Note over Loop: Cannot process /healthz callback while computing hash!
+    UserA->>EvLoop: POST /login (bcrypt.compareSync)
+    Note over EvLoop: Synchronous CPU execution locks main thread for 350ms!<br/>Event loop completely FROZEN!
+    ALB->>EvLoop: GET /healthz (Timeout: 2s)
+    Note over EvLoop: Cannot process /healthz callback while computing hash!
     ALB-->>ALB: Health Check FAILED (Timeout)!
-    ALB->>Loop: Terminate and restart container! (Crash Loop)
+    ALB->>EvLoop: Terminate and restart container! (Crash Loop)
 ```
 
 ### The Root Cause

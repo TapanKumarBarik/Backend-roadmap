@@ -61,18 +61,10 @@ stateDiagram-v2
     Orange --> Red: Budget Exhausted (<= 0%)
     Red --> Green: Budget Recovers (Rolling window clears past outages)
 
-    state Green {
-      description: "Full Velocity - Ship features and experiments"
-    }
-    state Yellow {
-      description: "Heightened Caution - Require canary verification"
-    }
-    state Orange {
-      description: "Strict Gating - VP approval required for non-bugfix deploys"
-    }
-    state Red {
-      description: "FEATURE FREEZE - 100% of sprint capacity to reliability"
-    }
+    Green : Full Velocity - Ship features and experiments
+    Yellow : Heightened Caution - Require canary verification
+    Orange : Strict Gating - VP approval required for non-bugfix deploys
+    Red : FEATURE FREEZE - 100% of sprint capacity to reliability
 ```
 
 | Budget State | Remaining Margin | Development Action | Release Gate |

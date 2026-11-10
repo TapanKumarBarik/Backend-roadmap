@@ -49,7 +49,7 @@ flowchart TD
         p1["Prompt Input"] --> cot["Hidden Reasoning Chain (Dynamic Depth)"]
         cot --> ans1["Final Verified Output"]
         noteSeq["Latency: Linear with thinking depth<br/>Cost: Single request, high output token count"]
-        SequentialCompute -.-> noteSeq
+        p1 -.-> noteSeq
     end
 
     subgraph ParallelCompute ["2. Parallel Best-of-N / Self-Consistency"]
@@ -61,7 +61,7 @@ flowchart TD
         ver["Outcome Verifier / Process Reward Model (PRM) / Majority Vote"]
         s1 & s2 & s3 --> ver --> ans2["Highest Ranked Consensus Answer"]
         notePar["Latency: Concurrent sample time + verifier<br/>Cost: N × token consumption"]
-        ParallelCompute -.-> notePar
+        ver -.-> notePar
     end
 ```
 

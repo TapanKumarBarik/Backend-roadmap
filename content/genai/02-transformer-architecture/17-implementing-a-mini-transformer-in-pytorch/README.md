@@ -23,14 +23,14 @@ sequenceDiagram
     participant Data as Data Loader (Inputs & Shifted Targets)
     participant Model as Mini-Transformer Backbone
     participant Loss as CrossEntropy Loss
-    participant Opt as AdamW Optimizer
+    participant Optim as AdamW Optimizer
     end
 
     Data->>Model: Forward Batch: X = [t_0, t_1, t_2], Targets Y = [t_1, t_2, t_3]
     Note over Model: Causal Mask enforces triangular visibility.<br/>All 3 positions evaluated in a single parallel GEMM!
     Model->>Loss: Output Logits [B, 3, Vocab] vs Targets [B, 3]
-    Loss->>Opt: Backward Pass -> Compute Gradients
-    Opt->>Model: Optimizer Step -> Update Weights
+    Loss->>Optim: Backward Pass -> Compute Gradients
+    Optim->>Model: Optimizer Step -> Update Weights
 ```
 
 ```mermaid

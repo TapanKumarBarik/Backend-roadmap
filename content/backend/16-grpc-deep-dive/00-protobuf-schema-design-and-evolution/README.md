@@ -37,7 +37,7 @@ flowchart LR
     subgraph WireValue["Wire Payload"]
         Val["Value (Varint, Fixed, or Length-Delimited)"]
     end
-    BinaryTag -->|Combined: (field_num << 3) | wire_type| WireValue
+    BinaryTag -->|"Combined: (field_num << 3) #124; wire_type"| WireValue
 ```
 
 ### The Tag Bitmask Formula

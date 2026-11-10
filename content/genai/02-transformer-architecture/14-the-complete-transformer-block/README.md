@@ -98,7 +98,7 @@ sequenceDiagram
     Block->>MHA: Forward(Norm(X))
     Note over MHA: Head transpose omitted!<br/>x.view(1, 32, 4096) interleaves Head 0 Token 1 with Head 1 Token 0.<br/>Tensor shape is [1, 32, 4096] but memory strides are corrupt!
     MHA-->>Block: Corrupted Attention Context
-    Block->>>Block: Residual Addition & FFN
+    Block->>Block: Residual Addition & FFN
     Note over Block: FFN processes scrambled channel permutations.
     Block-->>Engine: Logits emit nonsense tokens
     Engine-->>App: "def calculate_tax(tax, tax, return return tax)"

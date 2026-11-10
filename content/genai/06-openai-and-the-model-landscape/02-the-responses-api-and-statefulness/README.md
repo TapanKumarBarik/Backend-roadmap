@@ -29,7 +29,7 @@ flowchart TD
         c2 -->|POST /v1/responses<br/>previous_response_id: resp_123<br/>input: 'Where is it?'| r2["Server loads past context from graph"]
         r2 -->|Returns resp_456| c2
         noteTTL["WARNING: If resp_123 is > 30 days old,<br/>request fails with 404 response_not_found!"]
-        Model2 -.-> noteTTL
+        r2 -.-> noteTTL
     end
 
     subgraph Model3 ["3. Managed Conversation Objects (Persistent Server Store)"]
