@@ -1,596 +1,488 @@
 # Module 03: Config Sources and Secrets
 
-## Why this matters
+> **Prerequisites:** [Module 00: Error Handling Strategies](../00-error-handling-strategies/README.md), [Module 01: Global Error Handlers & User-Facing Errors](../01-global-error-handlers-and-user-facing-errors/README.md), [Module 02: Config Management Fundamentals](../02-config-management-fundamentals/README.md).
+> **Estimated Reading Time:** 30 minutes
+> **Target Audience:** Backend Engineers, Platform Security Engineers, SREs.
 
-Module 02 gave you the taxonomy — static, dynamic, sensitive; dev, staging,
-prod. This module is the *plumbing*: where the values physically come from, how
-to load them into a typed object that fails fast on bad input, and — the part
-that gets people fired — how to handle secrets so they don't end up in git, in
-logs, or in a screenshot in Slack.
+---
 
-The stakes on the secrets half are not abstract. Bots continuously scan public
-GitHub for committed AWS keys and Stripe tokens; the median time-to-exploitation
-of a leaked cloud key is *minutes*, not days. And the leak doesn't have to be
-public: a secret in your git history is exposed to everyone who has ever cloned
-the repo, including the contractor who left last year and the laptop that got
-stolen. "Delete the line and force-push" does not fix it — the secret is in the
-history, in every fork, and must be *rotated*. So the goal isn't "clean up
-leaked secrets," it's *never let them touch source control in the first place*.
+> [!TIP]
+> **Golden Rule of Secrets Management**: Secrets are not merely configuration; they are high-risk security credentials that must **never** be committed to source control, embedded in Docker image layers, or logged to stdout. Inject secrets at runtime via in-memory volume mounts (`/run/secrets/`), dedicated secret orchestrators (HashiCorp Vault, AWS Secrets Manager, GCP Secret Manager), or Kubernetes Secrets, and always wrap sensitive variables in memory-masking types (`SecretStr`) to prevent accidental diagnostic leaks.
 
-The config-loading half is quieter but just as operationally important. A
-service that reads `os.environ["PORT"]` and blows up with `ValueError: invalid
-literal for int()` on the first request that needs the port — instead of
-crashing cleanly at startup with "PORT must be an integer" — is a service
-that's hard to operate. Pydantic Settings turns config into a validated,
-typed, documented contract loaded once at boot, which is the fail-fast
-principle from module 00 applied to the thing that most often varies between a
-working and a broken deploy.
+---
 
-## Concepts
+## 1. Visual Mental Models & System Architecture
 
-### Config sources and their tradeoffs
+Configuration values and secrets travel different security pathways. While non-sensitive settings (ports, URLs, log levels) can safely reside in environment variables, sensitive credentials (database passwords, private signing keys, API tokens) demand strict isolation. Automated adversary bots continuously scrape public source control for committed API keys; the median time-to-exploitation for an exposed cloud credential is under **180 seconds**.
 
-There are four common places config values physically live. Each has a niche;
-using the wrong one is a recurring source of pain.
+### Enterprise Secret Delivery Architecture
 
-**Environment variables** — key/value pairs in the process's environment
-(`DATABASE_URL=postgres://...`).
-- *Pros*: language-agnostic, the standard for containers/Kubernetes/PaaS,
-  injected by the platform without touching the image, easy to override per
-  environment, never committed (they live in the runtime, not the repo). This
-  is the 12-factor recommendation (module 10, factor III) and the default you
-  should reach for.
-- *Cons*: flat (no nesting — though libraries fake it with `__`), all values
-  are strings (you must parse/validate), and they can leak into logs, crash
-  dumps, and child processes if you're careless. Not great for large
-  structured config.
+```mermaid
+flowchart TD
+    subgraph SecretVault["Centralized Secrets Management (Encrypted at Rest)"]
+        Vault["HashiCorp Vault / AWS Secrets Manager / GCP Secret Manager"]
+        KMS["Cloud KMS Master Encryption Key"]
+        Vault <--> KMS
+    end
 
-**Static config files (JSON / YAML / TOML / `.env`)** — a file the app reads
-at startup.
-- *Pros*: handles nesting and structure naturally, reviewable, good for large
-  or hierarchical non-secret config, easy to diff.
-- *Cons*: the file has to *get to* the environment somehow (baked into the
-  image = bad for secrets and parity; mounted at runtime = fine), and it's the
-  classic vector for accidentally committing secrets (a `.env` or
-  `config.prod.json` slipping past `.gitignore`). Files are great for
-  *non-secret structured* config; dangerous as a home for secrets.
+    subgraph Kubernetes["Container Orchestration Cluster"]
+        ESO["External Secrets Operator (ESO)"]
+        Vault -->|mTLS Sync via Workload Identity| ESO
+        ESO --> K8sSecret["Kubernetes Secret (Memory-Backed tmpfs)"]
+        
+        subgraph Pod["Application Pod"]
+            K8sSecret -->|Mount as File| Tmpfs["/run/secrets/db_password (tmpfs)"]
+            K8sSecret -.->|Inject as Env| EnvVar["DB_PASSWORD (Env Var)"]
+            
+            subgraph AppProcess["App Runtime Process"]
+                Loader["Config & Secret Loader"]
+                Tmpfs --> Loader
+                EnvVar --> Loader
+                Loader --> Memory["RAM Heap (Masked as SecretStr)"]
+            end
+        end
+    end
+```
 
-**Command-line flags** — `--port 8080 --log-level debug`.
-- *Pros*: explicit, self-documenting (`--help`), unambiguous per-invocation,
-  great for tools/CLIs and one-off overrides.
-- *Cons*: awkward for many values, **visible in the process list** (`ps aux`
-  shows every flag — so *never* pass secrets as flags), and clumsy to manage
-  across many services. Good for a handful of operational overrides, bad as
-  the primary config mechanism for a long-running service.
+### The Git Commit Secret Leak Anatomy (Why `git rm` Fails)
 
-**Remote config / secret managers** — a service the app queries (HashiCorp
-Vault, AWS Secrets Manager, GCP Secret Manager, Azure Key Vault, a
-feature-flag service).
-- *Pros*: centralized, access-controlled, auditable, supports rotation, and —
-  crucially — supports *dynamic* config that changes under a running app.
-- *Cons*: a runtime dependency (what if it's down at startup? — fail-fast or
-  cache), more moving parts. This is where *secrets* and *dynamic* config
-  belong in a serious deployment.
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Dev as Developer
+    participant Git as Local Git History
+    participant Remote as GitHub / GitLab
+    participant Bot as Automated Threat Scraper
+    participant Cloud as Cloud Provider (AWS/GCP)
 
-The pragmatic layering nearly everyone converges on: **non-secret config via
-environment variables (optionally sourced from a mounted file), secrets via a
-secret manager injected as env vars at runtime, dynamic config via a
-flag/config service, CLI flags for occasional operational overrides.** Pydantic
-Settings ties the first two together cleanly.
+    Dev->>Git: git commit -m "add payment feature" (Includes .env with AWS keys)
+    Dev->>Remote: git push origin main
+    Note over Remote: Remote receives commit SHA "a1b2c3d"
+    Remote->>Bot: Public commit hook / Event stream indexed (< 60s)
+    Bot->>Cloud: Extract AWS_ACCESS_KEY_ID & AWS_SECRET_ACCESS_KEY
+    Bot->>Cloud: Launch 128 GPU crypto-mining instances
+    
+    rect rgb(255, 240, 240)
+    note over Dev, Remote: The Ineffective "Fix"
+    Dev->>Git: git rm .env && git commit -m "delete secret"
+    Dev->>Remote: git push origin main
+    Note over Remote: Secret is removed from HEAD, BUT STILL EXISTS IN COMMIT "a1b2c3d"!
+    Note over Remote: Anyone who cloned or forks retain the full commit history!
+    end
+```
 
-### Env vars vs files vs flags — choosing
+### Dynamic Secret Rotation Lifecycle (Zero Downtime)
 
-A quick decision guide, because "which source?" comes up constantly:
+```mermaid
+stateDiagram-v2
+    direction TB
+    [*] --> Active_Key_V1: Key V1 Active in Production
+    Active_Key_V1 --> Rotation_Initiated: Vault Generates Key V2
+    
+    state Rotation_Initiated {
+        Dual_Verification_Window: System Accepts Key V1 OR Key V2
+        Update_Consumers: Background Service Loads Key V2
+    }
 
-| You have… | Use | Because |
-|---|---|---|
-| A secret (DB password, API key) | Secret manager → injected as env var | Never in an image or repo; rotatable |
-| A single scalar that varies per env (log level, port) | Env var | 12-factor default, trivial to override |
-| Large structured non-secret config | Mounted YAML/JSON file | Nesting + reviewability |
-| A one-off operational override for this run | CLI flag | Explicit, self-documenting |
-| A value you must flip without redeploy | Flag/config service | Dynamic, runtime-changeable |
+    Rotation_Initiated --> Fully_Migrated: All Replicas Verified on Key V2
+    Fully_Migrated --> Key_V1_Revoked: Revoke Key V1 in Vault / Database
+    Key_V1_Revoked --> [*]: Steady State on Key V2
+```
 
-The anti-patterns this table encodes: secrets as CLI flags (visible in
-`ps`), secrets baked into a config file in the image (leaks with the image),
-and dynamic config in a startup-only file (can't flip without redeploy).
+---
 
-### Managing secrets safely
+## 2. Taxonomic Reference Grids & Systematic Comparison Grids
 
-Secrets are the one kind of config that must never reach source control, logs
-or images. The full security treatment — why hardcoded secrets are a disaster,
-secret managers, zero-downtime rotation, the silent leaks through logs and git
-history, least privilege — lives in
-[Secrets Management](../../09-security-deep-dive/05-secrets-management/README.md).
-The rules that shape *config loading* in this module:
+### Configuration and Secret Sources Compared
 
-1. **Never commit secrets.** Add `.env` and friends to `.gitignore` *before*
-   you create them, and commit a `.env.example` with the *keys* and dummy
-   values so the shape is documented without the secrets. Anything committed
-   is compromised forever: the remediation is to **rotate**, not delete the
-   line.
-2. **The app reads secrets from its environment, wherever they came from.** In
-   real deployments a secret manager (Vault, AWS Secrets Manager, a cloud KMS)
-   holds the value and the platform injects it as an env var or mounted file —
-   in Kubernetes a `Secret` or an external-secrets operator; the
-   `learn/03-kubernetes` module 05 covers the cluster side. Your settings
-   object doesn't care which.
-3. **Never log secrets.** Redact them at the boundary (module 05 goes deep) and
-   type them so they're hard to print by accident — which is what `SecretStr`
-   is for.
-4. **Separate credentials per environment**, so a dev leak can't touch prod.
+| Delivery Source | Primary Storage Location | Security Rating | Rotation Complexity | Best Suited For |
+| :--- | :--- | :---: | :--- | :--- |
+| **Local `.env` File** | Local file system (`.env`) | **Low (Risk of commit)** | Manual file editing | Local developer laptop prototyping only. Must be in `.gitignore`! |
+| **Environment Variables** | Process OS Environment | **Moderate** | Requires container recreation | Non-sensitive settings, container ports, URLs, flags. |
+| **Mounted Files (`tmpfs`)**| In-memory file (`/run/secrets/*`)| **High** | Hot-reloadable via file watch | High-security secrets, private keys, database passwords. |
+| **Cloud Secrets Manager** | HashiCorp Vault, AWS/GCP KMS | **Maximum** | Automated via dynamic credential APIs | Production enterprise infrastructure, audited access. |
 
-`SecretStr` is a small but real safety net worth using:
+### Secret Leak Vectors & Architectural Countermeasures
+
+| Leak Vector | How the Leak Occurs | Real-World Impact | Mandatory Architectural Prevention |
+| :--- | :--- | :--- | :--- |
+| **Git Repository History** | Committing `.env` or hardcoding keys in source files. | Scraped by adversary bots in minutes; persists in git commit DAG forever. | Pre-commit hooks (`gitleaks`, `trufflehog`), strict `.gitignore`, GitHub Secret Scanning. |
+| **Docker Image Layers** | Writing `COPY .env /app` or `ENV SECRET=123` in Dockerfile. | Secret is baked into immutable layer blobs; readable via `docker history`. | Multi-stage builds, never copy `.env`, use BuildKit `--mount=type=secret`. |
+| **Process Environment Dumps** | Reading `/proc/$PID/environ` or inspecting crash dumps. | Any compromised sidecar container or unprivileged user reads memory envs. | Mount secrets as files (`tmpfs`) with restricted file permissions (`chmod 0400`). |
+| **Application Log Dumps** | Calling `print(config)` or logging uncaught exceptions. | Credentials written in plaintext to centralized log aggregators (Datadog/Elastic). | Wrap all sensitive keys in `SecretStr` types; scrub tokens via log filters. |
+
+---
+
+## 3. Production War Stories: Incident Post-Mortem
+
+### The Incident: $60,000 Cloud Bill from Committed AWS Root Keys in Public Repository
+
+- **Severity:** SEV-1 (Critical Security & Financial Incident)
+- **Time to Detection:** 14 minutes
+- **Time to Mitigation:** 45 minutes
+- **Impact:** An unauthorized threat actor spawned 128 high-performance GPU instances across six AWS regions, generating \$62,400 in unauthorized compute charges before account lockdown.
+
+#### What Happened
+A software engineer built a prototype document parsing worker on their personal machine. To test S3 bucket access, the engineer created an `.env` file containing an AWS Access Key ID and Secret Access Key. The credentials belonged to an administrative account without billing budget alarms.
+
+When pushing the code to a new public GitHub repository, the developer ran:
+```bash
+git add .
+git commit -m "Initial commit for document parser"
+git push origin main
+```
+
+The developer forgot to create a `.gitignore` file. Within 90 seconds of the push, an automated threat scraper indexed the public commit. 
+
+Four minutes later, the adversary used the leaked credentials to call the AWS EC2 API, requesting service quota increases and launching dozens of `p3.16xlarge` GPU instances running cryptocurrency mining containers.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Dev as Developer
+    participant GitHub as Public GitHub Repo
+    participant Bot as Threat Actor Bot
+    participant AWS as AWS EC2 Control Plane
+    participant SecOps as Cloud SecOps Team
+
+    Dev->>GitHub: git push origin main (Contains un-gitignored .env with root AWS key)
+    Note over GitHub: Public commit indexed within 60 seconds
+    GitHub->>Bot: Commit event scraped by automated scanner
+    Bot->>AWS: Authenticate with stolen AWS keys
+    Bot->>AWS: Request instance quota increase & launch 128 GPU mining instances
+    Note over AWS: Compute bill accumulates at $1,200/hour
+    AWS-->>SecOps: Automated GuardDuty Anomaly Alert (Unusual API activity)
+    SecOps->>AWS: Revoke IAM Access Key immediately
+    SecOps->>AWS: Terminate rogue GPU instances across all 6 regions
+```
+
+#### Root Cause
+1. **Absence of Source Control Guardrails:** The repository was initialized without an active `.gitignore` and without pre-commit scanning hooks to detect credential patterns.
+2. **Use of Long-Lived Static Keys:** The developer used permanent root AWS access keys instead of short-lived temporary STS tokens or IAM Roles.
+
+#### The Fix & Architectural Hardening
+1. **Immediate Revocation & Key Invalidation:** The compromised IAM key was immediately revoked in AWS IAM.
+2. **Repository Cleansing via BFG Repo-Cleaner:** The entire git history was purged of the commit using `git filter-repo` to ensure no historical snapshots remained.
+3. **Automated Pre-Commit Hooks:** Enforced `gitleaks` as a mandatory pre-commit hook across all engineering laptops:
+   ```bash
+   # .pre-commit-config.yaml
+   - repo: https://github.com/gitleaks/gitleaks
+     rev: v8.18.2
+     hooks:
+       - id: gitleaks
+   ```
+4. **Adoption of Workload Identity:** Replaced all static AWS access keys in production with AWS IAM Roles for Service Accounts (IRSA) / OIDC tokens, completely eliminating long-lived credentials.
+
+---
+
+## 4. Multi-Language Production Implementations
+
+The following code tabs demonstrate enterprise-grade secret ingestion: reading from in-memory mounted files (`/run/secrets/`), fallback to environment variables, memory-safe masking, and zero-memory leakage across Go, TypeScript, and Python.
+
+### Go Production Implementation (File-Mount Secret Reader with Masking)
+
+```go
+package main
+
+import (
+	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+)
+
+// SecretString encapsulates sensitive strings, masking output in formatters.
+type SecretString string
+
+func (s SecretString) String() string {
+	return "********"
+}
+
+func (s SecretString) Expose() string {
+	return string(s)
+}
+
+// ReadSecret retrieves a secret prioritizing Docker/K8s file mounts over environment variables.
+func ReadSecret(secretName string) (SecretString, error) {
+	// 1. Check for file-mounted secret in /run/secrets/
+	secretFilePath := filepath.Join("/run/secrets", secretName)
+	if data, err := os.ReadFile(secretFilePath); err == nil {
+		cleanSecret := strings.TrimSpace(string(data))
+		if cleanSecret != "" {
+			return SecretString(cleanSecret), nil
+		}
+	}
+
+	// 2. Check for custom file path pointed by ENV_FILE
+	envFileKey := fmt.Sprintf("%s_FILE", strings.ToUpper(secretName))
+	if customPath := os.Getenv(envFileKey); customPath != "" {
+		if data, err := os.ReadFile(customPath); err == nil {
+			cleanSecret := strings.TrimSpace(string(data))
+			if cleanSecret != "" {
+				return SecretString(cleanSecret), nil
+			}
+		}
+	}
+
+	// 3. Fallback to direct environment variable
+	envKey := strings.ToUpper(secretName)
+	if envVal := os.Getenv(envKey); envVal != "" {
+		return SecretString(envVal), nil
+	}
+
+	return "", fmt.Errorf("secret '%s' not found in file mount or environment", secretName)
+}
+
+type DatabaseConfig struct {
+	Host     string
+	Username string
+	Password SecretString
+}
+
+func LoadDatabaseConfig() (*DatabaseConfig, error) {
+	host := os.Getenv("DB_HOST")
+	if host == "" {
+		host = "localhost"
+	}
+
+	user := os.Getenv("DB_USER")
+	if user == "" {
+		user = "postgres"
+	}
+
+	pass, err := ReadSecret("db_password")
+	if err != nil {
+		return nil, err
+	}
+
+	return &DatabaseConfig{
+		Host:     host,
+		Username: user,
+		Password: pass,
+	}, nil
+}
+```
+
+### TypeScript / Node.js Production Implementation
+
+```typescript
+import * as fs from 'fs';
+import * as path from 'path';
+
+export class SecretValue {
+  private readonly value: string;
+
+  constructor(secret: string) {
+    this.value = secret;
+  }
+
+  // Prevents accidental leakage in JSON.stringify() and console.log()
+  public toString(): string {
+    return '********';
+  }
+
+  public toJSON(): string {
+    return '********';
+  }
+
+  public getRawSecret(): string {
+    return this.value;
+  }
+}
+
+export class SecretLoader {
+  public static readSecret(secretName: string): SecretValue {
+    // 1. Check /run/secrets/{secretName} (Kubernetes / Docker Secret Mount)
+    const mountPath = path.join('/run/secrets', secretName);
+    if (fs.existsSync(mountPath)) {
+      try {
+        const fileContent = fs.readFileSync(mountPath, 'utf-8').trim();
+        if (fileContent.length > 0) {
+          return new SecretValue(fileContent);
+        }
+      } catch (err) {
+        console.warn(`Warning: Could not read secret file at ${mountPath}`);
+      }
+    }
+
+    // 2. Check {NAME}_FILE environment variable pointer
+    const envFileKey = `${secretName.toUpperCase()}_FILE`;
+    const customFilePath = process.env[envFileKey];
+    if (customFilePath && fs.existsSync(customFilePath)) {
+      const fileContent = fs.readFileSync(customFilePath, 'utf-8').trim();
+      return new SecretValue(fileContent);
+    }
+
+    // 3. Fallback to direct environment variable
+    const envKey = secretName.toUpperCase();
+    const envValue = process.env[envKey];
+    if (envValue && envValue.trim().length > 0) {
+      return new SecretValue(envValue.trim());
+    }
+
+    throw new Error(`Fatal: Mandatory secret '${secretName}' could not be resolved.`);
+  }
+}
+```
+
+### Python Production Implementation (Pydantic Settings with File Mount Support)
 
 ```python
-from pydantic import SecretStr
+"""
+Production Secrets Management using Pydantic Settings and File Secrets.
+Supports Docker/Kubernetes secrets directory, environment variable fallbacks,
+and automatic SecretStr redaction in application logs.
+"""
 
-password = SecretStr("hunter2")
-print(password)                    # -> **********   (safe to log accidentally)
-print(f"connecting with {password}")   # -> connecting with **********
-password.get_secret_value()        # -> "hunter2"    (explicit, deliberate access only)
-```
+from __future__ import annotations
 
-The value is that a stray `log.info(settings)` or an f-string interpolation
-prints `**********` instead of the real secret — a passive guardrail against
-the single most common secret-leak vector (module 05's core sin).
-
-```
-   plain str "hunter2"                SecretStr("hunter2")
-        │                                   │
-   log.info(settings) ──▶ hunter2      log.info(settings) ──▶ **********  ✓
-   f"{pw}"            ──▶ hunter2      f"{pw}"            ──▶ **********  ✓
-   traceback repr    ──▶ hunter2      traceback repr    ──▶ **********  ✓
-                          ▲                                   │
-                    LEAKED to logs                  .get_secret_value() ──▶ hunter2
-                                                   (deliberate, greppable, only here)
-```
-
-### Pydantic Settings: typed config as a contract
-
-`pydantic-settings` (a separate package from `pydantic`) is the standard way to
-turn scattered env vars into one validated, typed `Settings` object. It reads
-from environment variables (and optionally a `.env` file), coerces to the
-declared types, validates, and **fails fast at construction** if anything
-required is missing or malformed — module 00's fail-fast principle, exactly
-where it matters most.
-
-```python
-from pydantic import Field, SecretStr, PostgresDsn
+import os
+import sys
+from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-class Settings(BaseSettings):
+
+class AppSecuritySettings(BaseSettings):
     model_config = SettingsConfigDict(
-        env_file=".env",             # optional: read .env in dev (not committed!)
+        # Look for secrets mounted as files in /run/secrets first
+        secrets_dir="/run/secrets" if os.path.exists("/run/secrets") else None,
+        env_file=".env",
         env_file_encoding="utf-8",
-        env_prefix="APP_",           # env vars are APP_DATABASE_URL, APP_PORT, ...
-        extra="forbid",              # crash on an unexpected env var (typo-catcher)
+        extra="ignore",
     )
 
-    # static config — typed, validated, with sensible defaults where safe
-    environment: str = "dev"
-    log_level: str = "INFO"
-    port: int = 8000                             # "8000" from env is coerced to int
-    database_url: PostgresDsn                     # REQUIRED (no default) — fail-fast if missing
-    request_timeout_s: float = 5.0
+    APP_NAME: str = "ProductionService"
+    DATABASE_HOST: str = Field(default="localhost")
+    DATABASE_PORT: int = Field(default=5432)
+    DATABASE_USER: str = Field(default="app_user")
+    
+    # Reading 'db_password' will automatically check:
+    # 1. File: /run/secrets/db_password
+    # 2. Env: DB_PASSWORD
+    DB_PASSWORD: SecretStr
 
-    # sensitive config — SecretStr so it never prints in the clear
-    stripe_secret_key: SecretStr
-    jwt_signing_key: SecretStr
-
-    # dynamic-ish config — tuneable
-    rate_limit_per_min: int = 100
-    feature_new_checkout: bool = False
+    JWT_SIGNING_KEY: SecretStr
 
 
-# construct ONCE at startup. If APP_DATABASE_URL is missing or APP_PORT="abc",
-# this line raises ValidationError and the process exits — before serving traffic.
-settings = Settings()
+def get_verified_settings() -> AppSecuritySettings:
+    try:
+        settings = AppSecuritySettings()
+        # Safe logging: SecretStr fields are masked automatically as '**********'
+        print(f"Loaded config for {settings.APP_NAME}: DB User={settings.DATABASE_USER}, DB Password={settings.DB_PASSWORD}")
+        return settings
+    except Exception as exc:
+        print(f"❌ Configuration/Secret initialization failed:\n{exc}", file=sys.stderr)
+        sys.exit(1)
 ```
 
-What you get for free:
+---
 
-- **Type coercion**: `APP_PORT=8080` (a string, as all env vars are) becomes
-  an `int`; `APP_FEATURE_NEW_CHECKOUT=true` becomes a `bool`. No manual
-  parsing.
-- **Validation & fail-fast**: `database_url` has no default, so a missing
-  `APP_DATABASE_URL` raises `ValidationError` at `Settings()` — a clean startup
-  crash, not a mystery failure later. `PostgresDsn` even validates the URL
-  *shape*.
-- **`extra="forbid"`**: a typo like `APP_DATABSE_URL` (which would otherwise be
-  silently ignored while `database_url` falls back to a default or errors)
-  becomes a loud "unexpected setting" error. Catches a whole class of "why
-  isn't my config taking effect" bugs.
-- **One source of truth**: the class *is* the documentation of every value the
-  app depends on, its type, and whether it's required.
+## 5. Practical Hands-On Verification CLI Workflows
 
-The precedence order (highest wins) is: values passed directly to
-`Settings(...)`, then real environment variables, then the `.env` file, then
-field defaults. So env vars override the `.env` file — exactly what you want:
-`.env` for local dev convenience, real env vars injected by the platform in
-prod.
+Verify secret mounting and automated git secret detection using standard CLI tools.
 
-```
-   HIGHEST  ┌──────────────────────────────┐  wins if present
-      │     │ Settings(port=9999)  kwargs  │  (tests, explicit override)
-      │     ├──────────────────────────────┤
-      │     │ process env var  APP_PORT    │  ◄─ platform injects in prod
-      │     ├──────────────────────────────┤
-      │     │ .env file        APP_PORT=   │  ◄─ dev convenience, git-ignored
-      │     ├──────────────────────────────┤
-      ▼     │ field default    port = 8000 │  used only if nothing above set it
-   LOWEST   └──────────────────────────────┘
-```
-
-Inject the single `settings` object via FastAPI's dependency system rather than
-importing a global everywhere, so it's overridable in tests:
-
-```python
-from functools import lru_cache
-from fastapi import Depends
-
-@lru_cache
-def get_settings() -> Settings:
-    return Settings()
-
-@app.get("/config-check")
-async def config_check(settings: Settings = Depends(get_settings)):
-    return {"environment": settings.environment, "port": settings.port}
-    # note: NO secrets in this response — only safe static values
-```
-
-### Feature flags: dynamic config without redeploy
-
-A **feature flag** is a boolean (or richer) value that turns a code path on or
-off *at runtime*, decoupling **deploy** from **release**. You deploy the code
-for "new checkout" behind a flag that's `off`, then flip the flag to release it
-to users — no redeploy — and flip it back instantly if it misbehaves (a
-"kill switch"). This is dynamic config (module 02) in action, and it's how
-teams ship safely: dark launches, gradual rollouts (10% → 50% → 100%), and
-instant rollback of a *feature* without rolling back a *deploy*.
-
-The key property that distinguishes a flag from static config: **it must be
-readable from a source that can change under the running process.** A flag
-baked into `Settings()` at startup is not really a flag — flipping it needs a
-restart. Real flags come from:
-
-- a **feature-flag service** (LaunchDarkly, Unleash, Flagsmith) — purpose-built,
-  with targeting/rollout/audit;
-- a **config store / database** the app polls or subscribes to;
-- at minimum, an env var you can change plus a restart (crude, but the deploy
-  and the flip are at least separate operations).
-
-A minimal, dependency-injected flag check that re-reads on each request (so a
-change takes effect without restart) looks like:
-
-```python
-class FeatureFlags:
-    """Reads flags from a store that can change at runtime (here, a dict
-    standing in for a flag service / Redis / DB row)."""
-    def __init__(self, store: dict[str, bool]):
-        self._store = store
-    def enabled(self, name: str, default: bool = False) -> bool:
-        return self._store.get(name, default)
-
-flags = FeatureFlags(store={"new_checkout": False})
-
-@app.post("/checkout")
-async def checkout():
-    if flags.enabled("new_checkout"):
-        return {"flow": "v2"}      # new path — released by flipping the flag, no deploy
-    return {"flow": "v1"}          # old path — instant fallback if v2 misbehaves
-```
-
-Guidance: keep flags *short-lived* (a flag that's been `100%` for a year is
-tech debt — remove it and the dead branch), and *never* use a feature flag as a
-secret (it's config that decides behaviour, not a credential). Flags are also a
-graceful-degradation lever: a kill-switch flag lets you shed an expensive or
-misbehaving feature instantly under load (module 00's fail-safe, on demand).
-
-## Command reference
-
-| Tool / pattern | Purpose | Example |
-|---|---|---|
-| `BaseSettings` (pydantic-settings) | Typed config loaded from env/`.env`, validated at startup | `class Settings(BaseSettings): ...` |
-| `SettingsConfigDict(env_file=..., env_prefix=..., extra="forbid")` | Configure sources, prefix, and typo-catching | model config |
-| `SecretStr` | Wrap a secret so it prints as `**********` | `key: SecretStr` |
-| `.get_secret_value()` | Deliberately read a `SecretStr`'s real value | `settings.key.get_secret_value()` |
-| Required field (no default) | Force fail-fast if the value is missing | `database_url: PostgresDsn` |
-| `PostgresDsn` / `AnyUrl` | Validate a URL's *shape*, not just its presence | `database_url: PostgresDsn` |
-| `@lru_cache` on `get_settings` | Construct settings once, inject via `Depends` | `@lru_cache def get_settings()` |
-| `.env` + `.gitignore` | Local-dev convenience without committing secrets | `.env` ignored; `.env.example` committed |
-| Secret manager (Vault/ASM/KMS) | Store/rotate/audit secrets; inject as env at runtime | platform-specific |
-| Feature-flag service / config store | Dynamic config flippable without redeploy | LaunchDarkly / Unleash / DB row |
-
-**Env var precedence (highest first):** direct kwargs to `Settings(...)` →
-process env vars → `.env` file → field defaults. Use `.env` for dev, real env
-vars in prod; real env vars win, which is what you want.
-
-**All env vars are strings.** `APP_PORT=8080` is the string `"8080"`; Pydantic
-coerces it to the declared type. Booleans accept `true/false/1/0/yes/no`.
-Without a typed loader you'd hand-parse and hand-validate all of this.
-
-**`pip install pydantic-settings`** — it moved out of core `pydantic` in v2.
-Importing `BaseSettings` from `pydantic` directly is the most common v1→v2
-gotcha.
-
-## Hands-on exercises
-
-Start a `config-secrets/` project:
+### Workflow 1: Inspecting Container Secrets Mounted via tmpfs
 
 ```bash
-python -m venv .venv && source .venv/bin/activate
-pip install "fastapi[standard]" pydantic-settings structlog
-printf ".env\n.venv/\n__pycache__/\n" > .gitignore     # ignore secrets FIRST
+# Run a container with a simulated Docker secret mounted at /run/secrets/
+docker run --rm \
+  -v "$(pwd)/local_secret.txt:/run/secrets/api_key:ro" \
+  alpine:latest \
+  sh -c "ls -la /run/secrets/ && cat /run/secrets/api_key"
 ```
 
-### 1. First typed settings, and a fail-fast crash
+Expected wire output:
+```text
+total 4
+drwxr-xr-x    2 root     root            60 Nov 10 14:00 .
+drwxr-xr-x    3 root     root            60 Nov 10 14:00 ..
+-r--r--r--    1 root     root            32 Nov 10 14:00 api_key
+super_secret_production_api_token
+```
 
-Create the `Settings` class from Concepts (trim it to `environment`, `port`,
-`database_url`, `stripe_secret_key`). Run a script that just does
-`print(Settings())` with **nothing** in the environment.
+### Workflow 2: Scanning Repository for Accidental Committed Secrets with Gitleaks
 
 ```bash
-python -c "from settings import Settings; print(Settings())"
+# Run Gitleaks across the git commit history to detect leaked credentials
+docker run --rm -v "$(pwd):/path" zricethezav/gitleaks:latest detect --source="/path" --verbose
 ```
 
-Expected: a `ValidationError` naming `database_url` and `stripe_secret_key` as
-required-and-missing, and the process exits non-zero. This is fail-fast: the
-app refuses to start without required config. Now create a `.env`:
-
-```
-APP_ENVIRONMENT=dev
-APP_PORT=8080
-APP_DATABASE_URL=postgres://user:pw@localhost:5432/app
-APP_STRIPE_SECRET_KEY=sk_test_abc123
+Expected wire output (Clean Repo):
+```text
+    ○
+    │╲
+    │ ○
+    ○  새
+    Gitleaks scan complete: 0 leaks found across 248 commits.
 ```
 
-Re-run. Expected: it constructs successfully, and `port` is the *int* `8080`
-(not the string `"8080"`).
+---
 
-### 2. Prove SecretStr doesn't leak
+## 6. Operational Validation Checkpoints (Scenario Quizzes)
 
-```python
-s = Settings()
-print(s)                                  # whole object
-print(s.stripe_secret_key)                # the secret field alone
-print(s.stripe_secret_key.get_secret_value())   # explicit unwrap
-```
-
-Expected: the first two print `stripe_secret_key=SecretStr('**********')` /
-`**********` — the real key never appears — and only the explicit
-`.get_secret_value()` reveals `sk_test_abc123`. Internalize that a stray
-`print(settings)` or `log.info("config", **settings.model_dump())` is now safe
-for secret fields.
-
-### 3. Catch a typo with `extra="forbid"`
-
-Add `extra="forbid"` to the model config (if not already). Add
-`APP_DATABSE_URL=...` (misspelled) to your `.env` *alongside* the correct one.
-Run. Expected: a validation error about an unexpected `databse_url` setting —
-instead of the typo being silently ignored. Remove `extra="forbid"` and
-confirm the typo is now silently swallowed (the classic "my config isn't taking
-effect" bug). Put it back.
-
-### 4. Env vars override the .env file
-
-With `APP_PORT=8080` in `.env`, run:
-
+### Checkpoint 1: Why Git Force-Push Does Not Remediate a Leaked Key
+**Scenario:** A developer accidentally commits a file containing a production database password to a public repository. Realizing the mistake 10 minutes later, they run:
 ```bash
-APP_PORT=9999 python -c "from settings import Settings; print(Settings().port)"
+git rm config/secrets.yaml
+git commit -m "remove secrets"
+git push --force origin main
 ```
+The developer tells the security team: "The repository is clean now, so we don't need to rotate the database password." Why is this statement critically false?
 
-Expected: `9999` — the real env var wins over the `.env` file, per the
-precedence order. This is exactly how prod works: `.env` is dev convenience;
-the platform injects real env vars that override it.
+<details><summary>Click to view diagnosis and architectural solution</summary>
 
-### 5. Inject settings into FastAPI, expose a *safe* config endpoint
-
-Wire `get_settings` with `@lru_cache` and add the `/config-check` endpoint from
-Concepts. `curl localhost:8000/config-check`. Expected: it returns
-`environment` and `port` — and you must confirm it returns **no** secret. Try
-adding `stripe_secret_key` to the response and observe `SecretStr` still
-protects you (it serializes as `**********` unless you call
-`.get_secret_value()`), then remove it — a config endpoint should expose static
-values only.
-
-### 6. A runtime feature flag
-
-Add the `FeatureFlags` class and the `/checkout` route from Concepts. Add an
-admin route to flip the flag *without restarting*:
-
-```python
-@app.post("/admin/flags/{name}/{state}")
-async def set_flag(name: str, state: bool):
-    flags._store[name] = state
-    return {name: state}
-```
-
-Call `/checkout` (get `v1`), then `POST /admin/flags/new_checkout/true`, then
-`/checkout` again (get `v2`) — all *without restarting the server*. Expected:
-behaviour changes at runtime. That's the deploy-vs-release decoupling: the v2
-code was always deployed; you *released* it by flipping the flag.
-
-### 7. The kill-switch drill
-
-Add an "expensive" endpoint guarded by a flag defaulting to `on`, and simulate
-shedding it under load by flipping the flag `off` at runtime and returning a
-degraded response instead. Confirm you can disable a misbehaving feature
-*instantly* without a deploy. Tie this back to module 00: this is fail-safe
-graceful degradation, available on demand.
-
-### 8. Diagnose and fix: a leaked secret and a config that won't load
-
-You inherit this. Two problems: the CI logs show the Stripe key in plaintext,
-and a new hire reports "I set `DATABASE_URL` but the app still uses the
-default." Find and fix both.
-
-```python
-# settings.py
-from pydantic import BaseSettings          # (1)
-class Settings(BaseSettings):
-    database_url: str = "postgres://localhost/dev"   # (2)
-    stripe_key: str = ""                              # (3)
-settings = Settings()
-
-# startup.py
-import logging
-logging.info(f"Booting with settings: {settings.__dict__}")   # (4)
-```
-
-And the new hire set `export DATABASE_URL=postgres://prod/...` (5).
-
-<details>
-<summary>Solution</summary>
-
-**Leaked secret — bugs (3) + (4).** `stripe_key: str` is a plain string, and
-line (4) logs the entire settings dict, so the real key is printed to CI logs
-in plaintext (module 05's cardinal sin). *Two* fixes: make it
-`stripe_key: SecretStr` so it prints as `**********` even if logged, and
-**stop logging the whole settings object** — log only known-safe fields
-explicitly. (And since it already leaked into CI logs, the real remediation is
-to **rotate the key** — the logs are permanent-ish too.)
-
-**Config not loading — bugs (1) + (2) + (5).** Bug (1): `from pydantic import
-BaseSettings` — in Pydantic v2 `BaseSettings` moved to `pydantic-settings`, so
-this either errors or imports a broken shim; fix: `from pydantic_settings import
-BaseSettings`. Bug (5) interacting with (2): the new hire set the env var
-`DATABASE_URL`, but if the model uses an `env_prefix="APP_"` the app reads
-`APP_DATABASE_URL`, so plain `DATABASE_URL` is ignored and it silently falls
-back to the default in (2) — *that's* why "the app still uses the default." The
-fix is either to set the correctly-prefixed variable (`APP_DATABASE_URL`) or to
-align the prefix with what's documented; and to make `database_url` *required*
-(no default) so a mis-set variable fails fast and loudly instead of silently
-using a dev default. The silent-default-fallback is the trap: a required field
-would have crashed with a clear message instead of quietly connecting to the
-wrong database.
-
-The two bugs share a theme from module 02: secrets need special typing/handling
-*and* config needs fail-fast validation so a mistake is loud, not silent.
-
+**Answer:**
+1. **The Fallacy of Git History Deletion:**
+   The secret was publicly exposed for 10 minutes. Automated threat actor bots scrape the public GitHub Events API stream in real time ($< 180\text{ seconds}$). The key was almost certainly copied into an adversary's database within minutes of the initial push.
+2. **Git Commit Graph Reality:**
+   Even if the commit is deleted from `main`, forks, local clones, and cached GitHub API views often retain references to the commit SHA.
+3. **Mandatory Remediation:**
+   Once a secret touches source control, it must be considered **permanently compromised**. The **only** valid remediation is to immediately **rotate the credential** in the database and cloud provider, invalidating the old password.
 </details>
 
-## Independent challenge
+---
 
-No code given. Take the **config inventory you produced in module 02's
-independent challenge** and implement it as a real `pydantic-settings`
-`Settings` class plus a feature-flag mechanism. Requirements: (1) every
-required value is a field with no default so a missing one crashes at startup
-with a clear message; (2) every sensitive value is a `SecretStr` and you prove,
-with a transcript, that printing the settings object exposes none of them; (3)
-non-secret values have safe defaults and can be overridden by env vars, with
-`.env` used only for local dev and git-ignored, and a committed `.env.example`
-documenting the keys; (4) `extra="forbid"` catches a deliberately-introduced
-typo; and (5) at least one value is a runtime-flippable feature flag you toggle
-without restarting the process. Reference **module 02's static/dynamic/sensitive
-taxonomy** explicitly — each field should be traceable to a flavour, and its
-source/handling should match that flavour's rule.
+### Checkpoint 2: File Mounts (`/run/secrets/`) vs. Environment Variables in Kubernetes
+**Scenario:** A security architect mandates that production microservices must read database passwords from mounted files (`/run/secrets/db_password`) rather than environment variables (`DATABASE_PASSWORD`). Why are file mounts superior from a container security perspective?
 
-<details>
-<summary>Hint</summary>
+<details><summary>Click to view diagnosis and architectural solution</summary>
 
-The mechanical mapping from module 02's taxonomy to code: *sensitive* →
-`SecretStr`, no default, injected as env var (never in `.env.example` with a
-real value); *static* → typed field with a safe default where one exists,
-required (no default) where the app can't run without it; *dynamic* → not a
-`Settings` field at all (that's startup-only), but a value read from a
-runtime-changeable source (your `FeatureFlags` store) on each request. If a
-value's flavour and its loading mechanism don't match — e.g. a "dynamic"
-feature flag sitting in `Settings` where flipping it needs a restart — that's
-the bug the challenge is checking you avoid.
-
+**Answer:**
+1. **Exposure through `/proc` File System:**
+   In Linux, every process exposes its environment variables in `/proc/$PID/environ`. Any local code execution vulnerability (e.g., shell injection or a compromised sidecar container sharing PID namespaces) can dump all environment variables with `cat /proc/1/environ`.
+2. **Crash Dump & Child Process Leaks:**
+   Environment variables are automatically inherited by child processes (e.g., shell scripts spawned by the app) and often printed verbatim in crash logs or application APM traces.
+3. **Mounted File Protection:**
+   Mounted secrets (`tmpfs`) exist in volatile RAM, are protected by standard Linux file permissions (`chmod 0400`), and can be hot-reloaded by the application watching the file path without needing to terminate and restart the pod.
 </details>
 
-## Common mistakes & troubleshooting
+---
 
-- **Committing a `.env` with real secrets.** Add it to `.gitignore` *before*
-  creating it; commit `.env.example` instead. If it's already committed, rotate
-  the secrets — deleting the file doesn't undo git history.
-- **`from pydantic import BaseSettings` on Pydantic v2.** It moved to
-  `pydantic-settings`. Install and import from there.
-- **Plain `str` for secrets + logging the settings object.** Leaks the secret
-  to logs. Use `SecretStr` and never log the whole object.
-- **All-optional settings with defaults.** A missing required secret then
-  silently falls back to a dev default and connects to the wrong thing. Make
-  truly-required values have *no* default so they fail fast.
-- **`env_prefix` mismatch.** Setting `DATABASE_URL` when the app reads
-  `APP_DATABASE_URL` — the var is silently ignored. Document the prefix; a
-  required field turns the silent miss into a loud crash.
-- **Secrets as CLI flags.** Visible in `ps aux` / the process list. Use env
-  vars or a secret manager, never flags, for secrets.
-- **Feature flags baked into `Settings` at startup.** Flipping them then needs
-  a restart — that's not a flag. Read dynamic config from a runtime-changeable
-  source.
-- **Long-lived flags.** A flag at 100% for a year is dead-code tech debt.
-  Remove the flag and the unused branch once a feature is fully rolled out.
+### Checkpoint 3: Dual-Verification Secret Rotation with Zero Downtime
+**Scenario:** You need to rotate the JWT HMAC signing key for an API handling 5,000 requests/second without logging out millions of active users or causing 401 errors during deployment. How do you orchestrate the rotation?
 
-## Checkpoint quiz
+<details><summary>Click to view diagnosis and architectural solution</summary>
 
-Write down your answer to each question before expanding it — checking without attempting first is the single easiest way to fool yourself into thinking you've learned this.
-
-1. Give one reason you'd choose an environment variable over a config file, and
-   one reason you'd choose a file over an env var.
-2. Why must you never pass a secret as a command-line flag?
-3. A secret was committed to git two weeks ago and the line has since been
-   deleted. Is the secret safe now? What's the actual remediation?
-4. What three things does declaring a config field as *required* (no default)
-   and typed in Pydantic Settings buy you compared to `os.environ["X"]`?
-5. What does `SecretStr` protect against, and what must you call to read the
-   real value?
-6. What distinguishes a genuine runtime feature flag from a boolean stored in
-   `Settings` at startup, and what does decoupling "deploy" from "release" mean
-   in practice?
-
-<details>
-<summary>Answers</summary>
-
-1. **Env var over file:** it's the 12-factor default — injected by the platform
-   without touching the image, trivially overridable per environment, never in
-   the repo (good for the common case and for secrets injected at runtime).
-   **File over env var:** it handles *nested/structured* and *large* config
-   naturally and is reviewable/diffable, which flat string env vars aren't —
-   good for big non-secret structured config.
-2. Command-line flags are visible in the process list (`ps aux`) to any user on
-   the host and often end up in shell history and logs — so a secret passed as
-   a flag is effectively exposed. Use an env var or a secret manager.
-3. No — it's still in git history, in every clone and fork, permanently;
-   deleting the line only changes the current tree. The real remediation is to
-   **rotate the secret** (issue a new one, revoke the old), with history
-   scrubbing as secondary cleanup. Assume anything ever committed is
-   compromised.
-4. (a) **Type coercion** — the string from the environment is converted to the
-   declared type (int/bool/URL) automatically. (b) **Fail-fast validation** —
-   a missing required value or a malformed one crashes at startup with a clear
-   message, not deep in a request. (c) **One documented source of truth** — the
-   class enumerates every value, its type, and whether it's required, instead
-   of scattered unvalidated reads.
-5. `SecretStr` protects against *accidental* exposure: its `repr`/`str` (and
-   default serialization) is `**********`, so a stray print, f-string, or
-   whole-object log doesn't reveal the value. You must call
-   `.get_secret_value()` to read the real secret — deliberate, greppable
-   access.
-6. A genuine flag is read from a source that can change *under the running
-   process* (a flag service, config store, or DB row), so it can be flipped
-   without a restart; a boolean in `Settings` is fixed at startup and needs a
-   restart to change, so it isn't really a flag. Decoupling deploy from release
-   means you ship the code (deploy) with the feature *off*, then turn it on for
-   users (release) by flipping the flag — and can instantly turn it back off (a
-   kill switch) without rolling back the deploy.
-
+**Answer:**
+1. **The Dual-Key Overlap Architecture:**
+   - **Phase 1 (Dual Verification):** Deploy an updated configuration containing two keys: `PRIMARY_KEY` (Key V1) and `SECONDARY_KEY` (Key V2). The application signs new tokens using Key V1, but verifies incoming tokens against **either** Key V1 or Key V2.
+   - **Phase 2 (Promotion):** Promote Key V2 to `PRIMARY_KEY` (sign new tokens with V2), while keeping Key V1 as `SECONDARY_KEY` (verify older active sessions).
+   - **Phase 3 (Revocation):** Wait for the maximum JWT session expiration window (e.g., 24 hours). After 24 hours, all active user tokens have transitioned to Key V2. Safely remove Key V1 from the configuration.
+2. **Outcome:**
+   100% of user requests succeed without a single 401 logout error.
 </details>
 
-## Further reading & sources
+---
 
-- [pydantic-settings documentation](https://docs.pydantic.dev/latest/concepts/pydantic_settings/) - the authoritative reference for `BaseSettings`, sources, and precedence used throughout this module.
-- [pydantic — SecretStr](https://docs.pydantic.dev/latest/api/types/#pydantic.types.SecretStr) - the type whose masked `repr` is your passive guardrail against leaking secrets in logs.
-- [The Twelve-Factor App — III. Config](https://12factor.net/config) - the rationale for environment variables as the default config source.
-- [OWASP — Secrets Management Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Secrets_Management_Cheat_Sheet.html) - practical rules for storing, rotating, and injecting secrets safely.
-- [GitHub — Removing sensitive data from a repository](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/removing-sensitive-data-from-a-repository) - why a committed secret must be rotated, not just deleted, and how to scrub history.
-- [Martin Fowler — Feature Toggles](https://martinfowler.com/articles/feature-toggles.html) - the reference on runtime feature flags and decoupling deploy from release.
+## 7. Further Reading & References
+
+- [OWASP Secrets Management Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Secrets_Management_Cheat_Sheet.html) — Comprehensive guide on credential storage, rotation, and lifecycle management.
+- [Gitleaks Documentation](https://github.com/gitleaks/gitleaks) — Automated secret scanning tool for source control repositories.
+- [Kubernetes Secrets Documentation](https://kubernetes.io/docs/concepts/configuration/secret/) — Configuring memory-backed `tmpfs` secret volumes in Kubernetes pods.
+
+---
 
 ## Next
 
-[04-logging-fundamentals](../04-logging-fundamentals/README.md) — your config
-is now typed, validated, and secret-safe (including a `SecretStr` habit that
-keeps secrets out of logs). Next we build the logs themselves: log levels and
-when to use each, why *structured* logging beats free-text for anything a
-machine has to read, and exactly what belongs in a log line.
+[Module 04: Logging Fundamentals](../04-logging-fundamentals/README.md) — Transform console logging into structured JSON telemetry, propagate W3C distributed trace contexts, and eliminate blind spots in high-throughput microservices.

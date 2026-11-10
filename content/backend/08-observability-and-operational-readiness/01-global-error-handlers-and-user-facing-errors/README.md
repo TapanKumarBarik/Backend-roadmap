@@ -1,599 +1,634 @@
 # Module 01: Global Error Handlers and User-Facing Errors
 
-## Why this matters
+> **Prerequisites:** [Module 00: Error Handling Strategies](../00-error-handling-strategies/README.md), [Module 02: API Layer & Request Handling](../../02-api-layer-and-request-handling/README.md).
+> **Estimated Reading Time:** 30 minutes
+> **Target Audience:** Backend Engineers, Security Engineers, API Platform Architects.
 
-Module 00 gave you a strategy and a custom exception hierarchy. This module
-answers the question that strategy immediately raises in a web service: *where
-does the buck stop?* When a request handler raises a `NotFoundError`, or when
-some line 12 layers deep raises a `KeyError` nobody anticipated, *something* at
-the edge of your application has to turn that Python exception into an HTTP
-response. If you don't build that something deliberately, the framework builds
-a bad one for you — or worse, in the wrong configuration, hands the client a
-full stack trace including your file paths, your SQL, and sometimes your
-secrets.
+---
 
-There are two failures this module prevents, and they pull in opposite
-directions. The first is **leaking internals**: a `500` response that includes
-`Traceback (most recent call last)... File "/app/services/payments.py"...
-psycopg.errors.UndefinedColumn` tells an attacker your stack, your directory
-layout, your database schema, and hands your users something scary and useless.
-The second is the opposite over-correction: **swallowing everything into a
-uniform `{"error": "something went wrong"}`** so that a client (which might be
-*your own frontend*, or a partner's integration) can't tell a "you sent a bad
-field" from "our database is on fire" from "that thing doesn't exist" — three
-situations that demand completely different reactions from the caller.
+> [!TIP]
+> **Golden Rule of User-Facing Error Responses**: Enforce a single centralized global error handler at the outermost application boundary that formats all client responses according to the **RFC 7807 Problem Details** specification (`application/problem+json`). Every error response must include an opaque correlation identifier (`req_...`) logged alongside the full internal diagnostic stack trace server-side, while strictly stripping database queries, internal file paths, framework versions, and stack traces from the client-facing payload.
 
-The resolution is a single **centralized error handler** with a **consistent
-error response shape** across the whole API, that draws the line from module 00
-in exactly one place: *expected domain errors* become specific, actionable,
-safe messages with the right status code; *unexpected exceptions* become a
-generic `500` — with the real cause logged in full server-side, and nothing
-sensitive sent to the client. One place. Every error. No leaks. This is the
-piece that makes an API feel *trustworthy* to the people integrating with it.
+---
 
-## Concepts
+## 1. Visual Mental Models & System Architecture
 
-### Why centralized, not per-route
+When an error escapes a route handler or service method, something at the application perimeter must translate that internal exception into an HTTP response. Without a disciplined central boundary, web frameworks default to dangerous behaviors: leaking full stack traces containing file paths, SQL statements, and secrets, or over-correcting into a vague `{"error": "something went wrong"}` that forces API consumers to guess what failed.
 
-You could wrap every route handler in try/except. Please don't. Per-route error
-handling means the *shape* of your error responses drifts — this route returns
-`{"error": "..."}`, that one `{"message": "..."}`, another a bare string — and
-the day you need to add a request ID to every error response (you will, module
-05), you're editing 200 handlers. Worse, it's the pattern most likely to leak,
-because the one route someone forgot to wrap is the one that leaks the stack
-trace.
+A **Centralized Global Error Handler** establishes an authoritative boundary between internal diagnostics and external contracts.
 
-A **centralized handler** registered once on the app catches everything that
-propagates out of *any* route, applies one consistent policy, and is the single
-place you change error behaviour. It's the direct application of module 04
-(common middleware patterns, track 02): the error boundary belongs at the edge,
-outermost, wrapping everything. FastAPI gives you a purpose-built mechanism for
-this so you don't even need raw middleware.
+### Centralized Error Boundary Architecture
 
-### FastAPI's exception handler mechanism
+```mermaid
+flowchart TD
+    Client["Client Request"] --> Gateway["API Gateway / Ingress"]
+    Gateway --> OuterMiddleware["Global Error Boundary Middleware<br/>(RFC 7807 Formatter & Recovery)"]
+    
+    subgraph AppPipeline["Application Execution Context"]
+        OuterMiddleware --> Correlation["Request ID / Trace Context Injector"]
+        Correlation --> Auth["Authentication & Rate Limiter"]
+        Auth --> Controller["Route Controller Handler"]
+        Controller --> Domain["Domain Business Logic"]
+        Domain --> DB["Database / Upstream RPC"]
+    end
 
-FastAPI lets you register handlers keyed by *exception type*. When a request
-raises, FastAPI walks up looking for the most specific registered handler for
-that exception's type (or a base class of it) and calls it to produce the
-response.
+    DB -->|Exception Escapes!| Domain
+    Domain -->|Bubble Up| Controller
+    Controller -->|Bubble Up| OuterMiddleware
+
+    subgraph ErrorFilter["Centralized Boundary Resolution"]
+        OuterMiddleware --> TypeCheck{"Is DomainError<br/>(Expected Operational Failure)?"}
+        
+        TypeCheck -->|Yes: Operational| FormatDomain["Format Specific RFC 7807 Response<br/>(HTTP 400 / 404 / 409 / 422)<br/>Status, Type URI, Actionable Detail"]
+        
+        TypeCheck -->|No: Programmer Bug| LogServer["Log Full Stack Trace Server-Side<br/>(Tagged with Correlation ID)"]
+        LogServer --> FormatGeneric["Format Generic RFC 7807 Response<br/>(HTTP 500 Internal Server Error)<br/>Opaque Correlation ID only; Zero Leaks"]
+    end
+
+    FormatDomain --> Output["HTTP application/problem+json Response"]
+    FormatGeneric --> Output
+    Output --> Client
+```
+
+### Information Sanitization Filter Sequence
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Client as API Caller
+    participant Handler as Global Error Handler
+    participant Logger as Structured Log Aggregator
+    participant App as Application Service Layer
+
+    Client->>App: POST /api/v1/payments (Card Token)
+    App->>App: Database Driver throws: psycopg.errors.UniqueViolation on table "billing_records"
+    App-->>Handler: Uncaught Internal Driver Exception
+    
+    rect rgb(255, 240, 240)
+    note over Handler: Internal Security Sanitization
+    Handler->>Handler: Generate Correlation ID: "req_88f2b10a"
+    Handler->>Logger: ERROR: UniqueViolation table="billing_records" query="INSERT INTO..." traceId="req_88f2b10a" traceback="..."
+    Handler->>Handler: Scrub all SQL, table names, file paths, and memory addresses
+    end
+
+    rect rgb(240, 255, 240)
+    note over Handler, Client: Client-Facing RFC 7807 Problem Details
+    Handler-->>Client: HTTP 500 Internal Server Error<br/>Content-Type: application/problem+json<br/>{"type": "https://api.example.com/errors/internal-error", "title": "Internal Server Error", "status": 500, "instance": "urn:uuid:req_88f2b10a"}
+    end
+```
+
+### The RFC 7807 Problem Details Data Structure
+
+RFC 7807 standardizes error responses using five primary machine-readable attributes, supplemented by domain-specific extension fields:
+
+```mermaid
+classDiagram
+    class ProblemDetails {
+        +URI type
+        +string title
+        +int status
+        +string detail
+        +URI instance
+        +Map~string, any~ invalid_params
+        +string error_code
+    }
+    note for ProblemDetails "Content-Type: application/problem+json\nStandardized by IETF RFC 7807"
+```
+
+---
+
+## 2. Taxonomic Reference Grids & Systematic Comparison Grids
+
+### RFC 7807 Attribute Reference
+
+| Attribute | JSON Type | Mandatory? | Purpose & Best Practice | Example |
+| :--- | :--- | :--- | :--- | :--- |
+| `type` | String (URI) | Recommended | A URI reference that identifies the problem type. When dereferenced, should provide human-readable documentation. | `"https://api.example.com/errors/insufficient-funds"` |
+| `title` | String | Mandatory | A short, human-readable summary of the problem type. Must **not** change from occurrence to occurrence. | `"Insufficient Account Balance"` |
+| `status` | Integer | Mandatory | The HTTP status code generated by the origin server for this occurrence. | `400`, `404`, `409`, `500` |
+| `detail` | String | Recommended | A human-readable explanation specific to this occurrence of the problem. Safe for end users. | `"Your balance of $12.50 is insufficient for the requested $50.00 withdrawal."` |
+| `instance` | String (URI) | Mandatory | An opaque URI reference that identifies the specific occurrence of the problem. Maps directly to server-side logs. | `"urn:request:req_89bc712f"` |
+| `invalid_params` | Array / Object | Optional | Extension member listing validation failures per field. | `[{"name": "email", "reason": "Malformed syntax"}]` |
+| `code` | String | Optional | Domain-specific machine-readable error code for client SDK conditional logic. | `"ACCOUNT_LOCKED"`, `"RATE_LIMIT_EXCEEDED"` |
+
+### Common Domain Errors to HTTP Status Code Mapping
+
+| Domain Failure | Standard HTTP Status | RFC 7807 `title` | Client Safe `detail` |
+| :--- | :--- | :--- | :--- |
+| **Payload Schema Failure** | `422 Unprocessable Entity` | `"Validation Failed"` | `"The request payload contained 2 validation errors."` |
+| **Missing Auth Credentials**| `401 Unauthorized` | `"Authentication Required"` | `"Bearer token is missing or expired."` |
+| **Insufficient Permissions** | `403 Forbidden` | `"Forbidden Access"` | `"You do not possess permission 'billing.invoices.delete'."` |
+| **Missing Resource** | `404 Not Found` | `"Resource Not Found"` | `"Invoice 'INV-1099' does not exist."` |
+| **Concurrent Edit Conflict**| `409 Conflict` | `"Resource State Conflict"` | `"Invoice was modified by another user. Reload and retry."` |
+| **Rate Limit Exhaustion** | `429 Too Many Requests` | `"Rate Limit Exceeded"` | `"Quota exceeded. Retry after 15 seconds."` |
+| **Unhandled Bug / Crash** | `500 Internal Server Error` | `"Internal Server Error"` | `"An internal error occurred. Quote reference ID to support."` |
+| **Downstream Outage** | `503 Service Unavailable` | `"Service Unavailable"` | `"Upstream payment provider is currently unreachable."` |
+
+### Information Disclosure Hazard Matrix
+
+| Diagnostic Data Point | Safe for Client Response? | Safe for Server Logs? | Security & Operational Risk |
+| :--- | :---: | :---: | :--- |
+| **Traceback / Stack Frames** | **NEVER** | **YES** | Exposes source file paths, internal framework versions, and directory layouts to attackers. |
+| **Raw SQL Queries** | **NEVER** | **YES (with param scrubbing)**| Leaks internal schema, table names, and column relationships for SQL injection attacks. |
+| **Internal IP / Hostnames** | **NEVER** | **YES** | Exposes private VPC network topology and internal cluster hostnames. |
+| **Database Connection String**| **NEVER** | **NEVER (Scrub credentials)** | Catastrophic credential breach leading to full database takeover. |
+| **Request Correlation ID** | **YES** | **YES** | Essential for allowing users to quote a reference ID without leaking internal diagnostics. |
+| **Field Validation Errors** | **YES** | **YES** | Necessary for client-side form rendering and automated API integrations. |
+
+---
+
+## 3. Production War Stories: Incident Post-Mortem
+
+### The Incident: Database Schema Leak and Targeted Injection Escalation via Unhandled 500 Traceback
+
+- **Severity:** SEV-1 (Critical Security Breach)
+- **Time to Detection:** 1 hour 40 minutes
+- **Time to Mitigation:** 25 minutes
+- **Impact:** An attacker utilized internal SQL query structures and column definitions leaked in an unhandled HTTP 500 response to execute an unauthorized data extraction exploit, accessing 45,000 customer email records.
+
+#### What Happened
+A logistics microservice deployed a new search endpoint. Due to a missing type check on a sorting query parameter, passing an unexpected value triggered a database driver exception. 
+
+Because the microservice lacked a centralized global error handler, the web framework's default debug error handler intercepted the exception. When an attacker sent a probe request with `?sort=INVALID`, the API responded with an HTTP 500 containing a 45-line Python traceback:
+
+```text
+HTTP/1.1 500 Internal Server Error
+Content-Type: text/plain
+
+Traceback (most recent call last):
+  File "/app/routes/shipments.py", line 84, in list_shipments
+    cursor.execute(f"SELECT shipment_id, tracking_code, customer_internal_id FROM tbl_logistics_v2 WHERE tenant_id = '{tenant_id}' ORDER BY {sort_column}")
+psycopg2.errors.UndefinedColumn: column "INVALID" does not exist
+```
+
+The response leaked:
+1. The exact server directory path: `/app/routes/shipments.py`.
+2. The internal production database table name: `tbl_logistics_v2`.
+3. Three sensitive column names: `shipment_id`, `tracking_code`, `customer_internal_id`.
+4. The exact SQL query construction showing an unparameterized f-string injection point!
+
+Armed with the exact table and column names, the attacker crafted a secondary request exploiting the format string, bypassing tenant isolation and dumping sensitive shipment logs.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Attacker as Malicious Client
+    participant Framework as Web App (No Global Handler)
+    participant DB as Postgres Database
+
+    Attacker->>Framework: GET /api/v1/shipments?sort=INVALID
+    Framework->>DB: Execute raw query with unvalidated parameter
+    DB-->>Framework: psycopg2.errors.UndefinedColumn
+    Note over Framework: Default framework handler catches unhandled error
+    Framework-->>Attacker: Leaks full traceback + raw SQL + table "tbl_logistics_v2"
+    Note over Attacker: Attacker analyzes leaked query & table structure
+    Attacker->>Framework: GET /api/v1/shipments?sort=customer_internal_id;--
+    Framework->>DB: Executes injected query
+    DB-->>Framework: Dumps 45,000 customer records
+    Framework-->>Attacker: Unauthorized data exfiltration
+```
+
+#### Root Cause
+1. **Absence of a Global Error Boundary:** The application had no top-level exception handler to catch unhandled errors and enforce sanitization before emitting HTTP responses.
+2. **Framework Debug Mode in Production:** The application ran with framework debug/development exception rendering active, which intentionally prints tracebacks for developer convenience.
+
+#### The Fix & Architectural Hardening
+1. **Registered Central RFC 7807 Handler:** Implemented an outermost catch-all exception handler that catches `Exception` and returns a strictly sanitized `application/problem+json` payload:
+   ```json
+   {
+     "type": "https://api.example.com/errors/internal-server-error",
+     "title": "Internal Server Error",
+     "status": 500,
+     "detail": "An internal error occurred. Please contact support with the reference ID.",
+     "instance": "urn:request:req_8f12a9c"
+   }
+   ```
+2. **Hardened Logging Pipeline:** All stack traces and raw error messages were routed exclusively to server-side stdout with structured JSON logging, completely isolated from HTTP response streams.
+3. **Automated Security Fuzzing:** Integrated OWASP ZAP and automated CI security tests that fuzz query parameters and assert that HTTP response bodies **never** contain the words `"Traceback"`, `"File /"`, or SQL driver package names.
+
+---
+
+## 4. Multi-Language Production Implementations
+
+The following code tabs illustrate production implementations of a centralized RFC 7807 global error boundary across Go, TypeScript, and Python.
+
+### Go Production Implementation (Gin / HTTP Middleware)
+
+```go
+package main
+
+import (
+	"errors"
+	"fmt"
+	"log/slog"
+	"net/http"
+
+	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
+)
+
+// RFC7807Problem defines the standardized Problem Details structure.
+type RFC7807Problem struct {
+	Type     string                 `json:"type"`
+	Title    string                 `json:"title"`
+	Status   int                    `json:"status"`
+	Detail   string                 `json:"detail,omitempty"`
+	Instance string                 `json:"instance"`
+	Code     string                 `json:"code,omitempty"`
+	Errors   map[string]interface{} `json:"invalid_params,omitempty"`
+}
+
+// DomainError represents an operational business error safe for client visibility.
+type DomainError struct {
+	Status  int
+	Title   string
+	Detail  string
+	Code    string
+	Params  map[string]interface{}
+	RootErr error
+}
+
+func (e *DomainError) Error() string {
+	return fmt.Sprintf("[%s] %s: %s", e.Code, e.Title, e.Detail)
+}
+
+// GlobalErrorBoundary returns a Gin middleware enforcing RFC 7807 response formatting.
+func GlobalErrorBoundary() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		// Ensure Request ID exists
+		requestID := c.GetHeader("X-Request-ID")
+		if requestID == "" {
+			requestID = "req_" + uuid.NewString()[:8]
+			c.Header("X-Request-ID", requestID)
+		}
+
+		c.Next()
+
+		// Evaluate errors that bubbled up during route execution
+		if len(c.Errors) > 0 {
+			err := c.Errors.Last().Err
+			var domainErr *DomainError
+
+			if errors.As(err, &domainErr) {
+				// Expected operational error
+				c.Header("Content-Type", "application/problem+json")
+				c.JSON(domainErr.Status, RFC7807Problem{
+					Type:     fmt.Sprintf("https://api.example.com/errors/%s", domainErr.Code),
+					Title:    domainErr.Title,
+					Status:   domainErr.Status,
+					Detail:   domainErr.Detail,
+					Instance: fmt.Sprintf("urn:request:%s", requestID),
+					Code:     domainErr.Code,
+					Errors:   domainErr.Params,
+				})
+				return
+			}
+
+			// Unexpected programmer error / panic
+			slog.Error("Unhandled system exception",
+				"request_id", requestID,
+				"path", c.Request.URL.Path,
+				"error", err.Error(),
+			)
+
+			c.Header("Content-Type", "application/problem+json")
+			c.JSON(http.StatusInternalServerError, RFC7807Problem{
+				Type:     "https://api.example.com/errors/internal-server-error",
+				Title:    "Internal Server Error",
+				Status:   http.StatusInternalServerError,
+				Detail:   "An internal error occurred. Please provide the instance reference to support.",
+				Instance: fmt.Sprintf("urn:request:%s", requestID),
+				Code:     "INTERNAL_ERROR",
+			})
+		}
+	}
+}
+```
+
+### TypeScript / Node.js Production Implementation (Express Error Boundary)
+
+```typescript
+import { Request, Response, NextFunction } from 'express';
+import { v4 as uuidv4 } from 'uuid';
+
+export interface RFC7807Response {
+  type: string;
+  title: string;
+  status: number;
+  detail?: string;
+  instance: string;
+  code?: string;
+  invalid_params?: Record<string, string>;
+}
+
+export class AppDomainError extends Error {
+  constructor(
+    public readonly status: number,
+    public readonly code: string,
+    public readonly title: string,
+    message: string,
+    public readonly invalidParams?: Record<string, string>,
+    public readonly cause?: Error
+  ) {
+    super(message);
+    Object.setPrototypeOf(this, new.target.prototype);
+  }
+}
+
+// Global Error Handler Middleware
+export function globalErrorHandler(
+  err: Error,
+  req: Request,
+  res: Response,
+  next: NextFunction
+): void {
+  const requestId = (req.headers['x-request-id'] as string) || `req_${uuidv4().substring(0, 8)}`;
+  res.setHeader('Content-Type', 'application/problem+json');
+  res.setHeader('X-Request-ID', requestId);
+
+  if (err instanceof AppDomainError) {
+    // Expected operational error: return structured RFC 7807
+    const problem: RFC7807Response = {
+      type: `https://api.example.com/errors/${err.code.toLowerCase().replace(/_/g, '-')}`,
+      title: err.title,
+      status: err.status,
+      detail: err.message,
+      instance: `urn:request:${requestId}`,
+      code: err.code,
+      invalid_params: err.invalidParams,
+    };
+    res.status(err.status).json(problem);
+    return;
+  }
+
+  // Unexpected programmer error: log server-side with stack trace
+  console.error(`[CRITICAL] Unhandled Error [Request: ${requestId}]:`, {
+    path: req.path,
+    method: req.method,
+    message: err.message,
+    stack: err.stack,
+  });
+
+  // Client receives strictly sanitized generic response
+  const genericProblem: RFC7807Response = {
+    type: 'https://api.example.com/errors/internal-server-error',
+    title: 'Internal Server Error',
+    status: 500,
+    detail: 'An unexpected internal error occurred. Quote reference ID to support.',
+    instance: `urn:request:${requestId}`,
+    code: 'INTERNAL_SERVER_ERROR',
+  };
+  res.status(500).json(genericProblem);
+}
+```
+
+### Python Production Implementation (FastAPI RFC 7807 Exception Handlers)
 
 ```python
-from fastapi import FastAPI, Request
+"""
+Production-Grade FastAPI RFC 7807 Global Error Boundary.
+Translates domain exceptions, schema validation errors, and unexpected bugs
+into compliant application/problem+json payloads.
+"""
+
+from __future__ import annotations
+
+import logging
+import uuid
+from typing import Any, Dict, Optional
+from fastapi import FastAPI, Request, status
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
+logger = logging.getLogger(__name__)
 app = FastAPI()
 
-class AppError(Exception):
-    """Base for expected, domain-level errors (from module 00)."""
-    status_code = 500
-    code = "internal_error"
-    def __init__(self, message: str):
-        self.message = message
-        super().__init__(message)
 
-class NotFoundError(AppError):
-    status_code = 404
-    code = "not_found"
-
-class ConflictError(AppError):
-    status_code = 409
-    code = "conflict"
-
-class PermissionDeniedError(AppError):
-    status_code = 403
-    code = "permission_denied"
+class DomainException(Exception):
+    def __init__(
+        self,
+        status_code: int,
+        code: str,
+        title: str,
+        detail: str,
+        invalid_params: Optional[Dict[str, Any]] = None,
+    ):
+        super().__init__(detail)
+        self.status_code = status_code
+        self.code = code
+        self.title = title
+        self.detail = detail
+        self.invalid_params = invalid_params or {}
 
 
-@app.exception_handler(AppError)
-async def handle_app_error(request: Request, exc: AppError):
-    # ONE handler for the whole domain hierarchy — each subclass carries
-    # its own status_code and code, so this stays generic.
+@app.exception_handler(DomainException)
+async def domain_exception_handler(request: Request, exc: DomainException) -> JSONResponse:
+    request_id = request.headers.get("x-request-id", f"req_{uuid.uuid4().hex[:8]}")
+    payload = {
+        "type": f"https://api.example.com/errors/{exc.code.lower().replace('_', '-')}",
+        "title": exc.title,
+        "status": exc.status_code,
+        "detail": exc.detail,
+        "instance": f"urn:request:{request_id}",
+        "code": exc.code,
+    }
+    if exc.invalid_params:
+        payload["invalid_params"] = exc.invalid_params
+
     return JSONResponse(
         status_code=exc.status_code,
-        content={
-            "error": {
-                "code": exc.code,
-                "message": exc.message,           # safe: we authored these strings
-                "request_id": getattr(request.state, "request_id", None),
-            }
-        },
+        content=payload,
+        media_type="application/problem+json",
+        headers={"X-Request-ID": request_id},
     )
-```
 
-Because `NotFoundError` and friends subclass `AppError`, this **one** handler
-covers the whole family — each subclass just declares its `status_code` and
-`code`. Registering `@app.exception_handler(AppError)` catches every subclass;
-you don't write one handler per type unless a specific type needs bespoke logic.
 
-### The catch-all for the unexpected
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
+    request_id = request.headers.get("x-request-id", f"req_{uuid.uuid4().hex[:8]}")
+    formatted_errors = {
+        ".".join(str(loc) for loc in err["loc"]): err["msg"]
+        for err in exc.errors()
+    }
 
-The handler above deliberately covers only `AppError` — errors *you* raised on
-purpose, whose messages you *authored* and know are safe. Everything else — a
-`KeyError`, a driver error, an `AttributeError` from a bug — is *unexpected*,
-and its message is **not** safe to show (it may contain SQL, paths, or data).
-Those get a separate, deliberately paranoid catch-all:
+    payload = {
+        "type": "https://api.example.com/errors/validation-error",
+        "title": "Invalid Request Content",
+        "status": status.HTTP_422_UNPROCESSABLE_ENTITY,
+        "detail": f"Request body contained {len(formatted_errors)} validation errors.",
+        "instance": f"urn:request:{request_id}",
+        "code": "VALIDATION_FAILED",
+        "invalid_params": formatted_errors,
+    }
+    return JSONResponse(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        content=payload,
+        media_type="application/problem+json",
+        headers={"X-Request-ID": request_id},
+    )
 
-```python
-import structlog
-log = structlog.get_logger()
 
 @app.exception_handler(Exception)
-async def handle_unexpected(request: Request, exc: Exception):
-    # This is the safety net for BUGS. Log everything; reveal nothing.
-    log.exception(
-        "unhandled exception",
-        path=request.url.path,
-        method=request.method,
-        request_id=getattr(request.state, "request_id", None),
+async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    request_id = request.headers.get("x-request-id", f"req_{uuid.uuid4().hex[:8]}")
+
+    # Server-side structured diagnostic logging
+    logger.exception(
+        "Unhandled programmer bug on %s %s [Request: %s]",
+        request.method,
+        request.url.path,
+        request_id,
     )
+
+    # Strictly sanitized client response
+    payload = {
+        "type": "https://api.example.com/errors/internal-server-error",
+        "title": "Internal Server Error",
+        "status": status.HTTP_500_INTERNAL_SERVER_ERROR,
+        "detail": "An unexpected error occurred. Please provide reference code to support.",
+        "instance": f"urn:request:{request_id}",
+        "code": "INTERNAL_ERROR",
+    }
     return JSONResponse(
-        status_code=500,
-        content={
-            "error": {
-                "code": "internal_error",
-                "message": "An unexpected error occurred. Please try again later.",
-                "request_id": getattr(request.state, "request_id", None),
-            }
-        },
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        content=payload,
+        media_type="application/problem+json",
+        headers={"X-Request-ID": request_id},
     )
 ```
 
-The asymmetry is the whole point and worth stating plainly:
+---
 
-- **Expected (`AppError`)**: status from the exception, real message shown
-  (you wrote it), typically logged at `warning` or not at all (it's normal
-  operation — a `404` isn't a server problem).
-- **Unexpected (`Exception`)**: always `500`, generic message, **full
-  traceback logged** server-side, `request_id` returned so a user can quote it
-  in a support ticket and you can find the exact log line.
+## 5. Practical Hands-On Verification CLI Workflows
 
-That `request_id` in *both* the log and the response is the thread that ties a
-user's "I got an error, here's the ID" to the exact traceback in your logs —
-the payoff of request-context (track 02, module 05) meeting error handling.
+Verify that global error handlers emit compliant RFC 7807 responses and verify that internal traces remain masked.
 
-```
-  raise in ANY route
-        │
-        ▼  FastAPI routes by exception type (most-specific-wins)
-  ┌─────────────────────────┬────────────────────────────┐
-  │ subclass of AppError?   │ anything else (KeyError,    │
-  │ (you raised on purpose) │  driver error, a bug)       │
-  └───────────┬─────────────┴──────────────┬─────────────┘
-              ▼                             ▼
-   handle_app_error              handle_unexpected (catch-all)
-   status = exc.status_code      status = 500
-   message = exc.message  ✓      message = generic string ✓
-   (authored, safe)              log.exception(full traceback)
-              │                             │
-              └──────────────┬──────────────┘
-                             ▼
-              ONE envelope: {error:{code, message, request_id, details?}}
-              client always sees the same shape — internals never leak
+### Workflow 1: Inspecting RFC 7807 Response Headers and Payload
+
+```bash
+# Verify Content-Type and Problem Details wire format on an error endpoint
+curl -i -s -X POST "http://localhost:8000/api/v1/orders" \
+  -H "Content-Type: application/json" \
+  -d '{"amount": -100}'
 ```
 
-### A consistent error response shape
+Expected wire output:
+```text
+HTTP/1.1 422 Unprocessable Entity
+Date: Tue, 10 Nov 2026 14:00:00 GMT
+Content-Type: application/problem+json
+Content-Length: 284
+X-Request-ID: req_9a8f21bc
 
-Pick one envelope and use it for *every* error the API emits — your handlers,
-validation errors, `404`s, `500`s, all of it. A widely-used, sane shape:
-
-```json
 {
-  "error": {
-    "code": "not_found",
-    "message": "Order 'A-4417' was not found.",
-    "request_id": "3f9a2c1e-...",
-    "details": [
-      {"field": "quantity", "issue": "must be greater than 0"}
-    ]
+  "type": "https://api.example.com/errors/validation-error",
+  "title": "Invalid Request Content",
+  "status": 422,
+  "detail": "Request body contained 1 validation errors.",
+  "instance": "urn:request:req_9a8f21bc",
+  "code": "VALIDATION_FAILED",
+  "invalid_params": {
+    "body.amount": "Input should be greater than 0"
   }
 }
 ```
 
-- **`code`** — a stable, machine-readable string (`not_found`, `conflict`,
-  `validation_error`). Clients branch on *this*, never on the human message
-  (which you'll want to reword or translate freely). This is the field that
-  makes the API programmable.
-- **`message`** — human-readable, safe, and *actionable* where possible.
-- **`request_id`** — for support/correlation.
-- **`details`** — optional, structured, for field-level validation errors so a
-  frontend can highlight the exact input that's wrong.
-
-Consistency is a *contract*. If every error looks the same, a client writes
-error-handling code *once*. If it varies per endpoint, every integrator writes
-special cases and files bugs against you. Nail the shape early — changing it
-later is a breaking API change.
-
-### Friendly, actionable messages — and the security line
-
-A good user-facing error tells the caller *what to do next*, without revealing
-anything about your internals. Contrast:
-
-| Bad (leaky or useless) | Good (safe and actionable) |
-|---|---|
-| `KeyError: 'user_id'` | `The field 'user_id' is required.` |
-| `psycopg.errors.UniqueViolation: duplicate key value violates constraint "users_email_key"` | `An account with that email already exists.` |
-| `Traceback ... /app/svc/pay.py line 88 ...` | `Payment could not be processed. Please try again.` |
-| `something went wrong` | `The requested order was not found. Check the order ID and try again.` |
-
-The security rule is absolute: **never let an unexpected exception's message,
-type, or traceback reach the client.** The catch-all's generic message exists
-precisely so that a bug you *didn't* anticipate can't leak. The only messages
-that reach clients verbatim are ones *you* wrote for `AppError` subclasses —
-because those you've vetted. This also quietly closes an information-disclosure
-vulnerability class the security track (09) treats in depth: error messages
-that reveal whether a username exists, what columns a table has, or which
-internal service failed.
-
-Two subtleties:
-- **Don't over-share even in expected errors.** "No account with email
-  ada@x.com" confirms to an attacker that address *isn't* registered (or, on
-  login, that it *is*). Sometimes the *right* friendly message is deliberately
-  vague ("invalid email or password") for security reasons — friendliness and
-  security occasionally trade off, and security wins on auth paths.
-- **`4xx` vs `5xx` is a real signal, not decoration.** `4xx` = the *client*
-  did something wrong (bad input, not found, not allowed) — retrying unchanged
-  won't help. `5xx` = *we* failed — retrying might help. Getting this right
-  drives client retry logic and your own alerting (a spike in `5xx` pages you;
-  a spike in `404s` usually doesn't).
-
-### Don't forget FastAPI's built-in errors
-
-Two error sources come from FastAPI/Starlette itself, and you want them in
-*your* envelope too, or your "consistent shape" has holes:
-
-- **`RequestValidationError`** — raised automatically when a request body/query
-  fails Pydantic validation. By default FastAPI returns a `422` with its own
-  shape (`{"detail": [...]}`). Override it to match your envelope and map the
-  Pydantic errors into your `details` array.
-- **`StarletteHTTPException`** — what `raise HTTPException(404)` and unmatched
-  routes produce. Override it so a plain `404` (no route matched) looks like
-  every other error you emit.
-
-```python
-from fastapi.exceptions import RequestValidationError
-from starlette.exceptions import HTTPException as StarletteHTTPException
-
-@app.exception_handler(RequestValidationError)
-async def handle_validation(request: Request, exc: RequestValidationError):
-    details = [
-        {"field": ".".join(str(p) for p in e["loc"][1:]), "issue": e["msg"]}
-        for e in exc.errors()
-    ]
-    return JSONResponse(
-        status_code=422,
-        content={"error": {
-            "code": "validation_error",
-            "message": "One or more fields are invalid.",
-            "request_id": getattr(request.state, "request_id", None),
-            "details": details,
-        }},
-    )
-```
-
-Now *every* error your API can emit — domain, validation, not-found, and
-unexpected — comes out in the same envelope. That's the goal: no matter how a
-request fails, the client sees one predictable shape.
-
-## Command reference
-
-| Mechanism | Purpose | Signature |
-|---|---|---|
-| `@app.exception_handler(ExcType)` | Register a handler for an exception type (and subclasses) | `async def h(request, exc): -> Response` |
-| `@app.exception_handler(AppError)` | One handler for your whole domain hierarchy | catches all `AppError` subclasses |
-| `@app.exception_handler(Exception)` | Catch-all safety net for bugs → generic `500` | must not leak `exc` details |
-| `@app.exception_handler(RequestValidationError)` | Reshape Pydantic validation errors into your envelope | `422` |
-| `@app.exception_handler(StarletteHTTPException)` | Reshape framework `404`/`HTTPException` into your envelope | any status |
-| `raise HTTPException(status, detail)` | Framework way to signal an HTTP error from a handler | prefer custom `AppError` for domain logic |
-| `JSONResponse(status_code, content)` | Build the actual error response | returned from handlers |
-
-**Handler resolution is most-specific-wins.** If both `AppError` and
-`Exception` handlers are registered, a `NotFoundError` (an `AppError`) goes to
-the `AppError` handler; a `KeyError` (only an `Exception`) goes to the
-catch-all. That specificity is exactly how the expected/unexpected split works
-— register both, let FastAPI route by type.
-
-**Prefer custom `AppError`s over `HTTPException` in business logic.** Raising
-`HTTPException(404)` from deep in a service layer couples your domain code to
-HTTP. Raise a `NotFoundError` (pure domain) and let the *handler* map it to
-`404`. Your service layer shouldn't know it's behind HTTP — that's what makes
-it testable and reusable behind, say, a gRPC interface later (track 11).
-
-**Register handlers before the app takes traffic** — at module import /
-app-construction time, not inside a request. They're part of the app's static
-configuration.
-
-## Hands-on exercises
-
-Continue from your `error-handling` project, or start `global-errors/`:
+### Workflow 2: Verifying Stack Trace Stripping on Server Panic
 
 ```bash
-python -m venv .venv && source .venv/bin/activate
-pip install "fastapi[standard]" structlog
+# Verify that an internal server error contains zero internal file paths or stack traces
+curl -i -s "http://localhost:8000/api/v1/debug/panic"
 ```
 
-Build up a single `main.py` across these exercises. Run with
-`fastapi dev main.py` and hit it with `curl -i` so you see status codes and
-bodies.
+Expected wire output:
+```text
+HTTP/1.1 500 Internal Server Error
+Content-Type: application/problem+json
+X-Request-ID: req_c0012fab
 
-### 1. Register the domain handler
-
-Add the `AppError` hierarchy and the `handle_app_error` handler from Concepts,
-plus a route that raises one:
-
-```python
-@app.get("/orders/{order_id}")
-async def get_order(order_id: str):
-    if order_id != "A-1":
-        raise NotFoundError(f"Order {order_id!r} was not found.")
-    return {"id": order_id, "status": "shipped"}
+{
+  "type": "https://api.example.com/errors/internal-server-error",
+  "title": "Internal Server Error",
+  "status": 500,
+  "detail": "An unexpected error occurred. Please provide reference code to support.",
+  "instance": "urn:request:req_c0012fab",
+  "code": "INTERNAL_ERROR"
+}
 ```
 
-`curl -i localhost:8000/orders/A-9`. Expected: `404` with
-`{"error": {"code": "not_found", "message": "Order 'A-9' was not found.", ...}}`.
-`curl -i localhost:8000/orders/A-1` returns the order. Note you never wrote a
-try/except in the route — the handler caught the raise.
+---
 
-### 2. Prove the catch-all hides bug details
+## 6. Operational Validation Checkpoints (Scenario Quizzes)
 
-Add the `handle_unexpected` catch-all, then a deliberately buggy route:
+### Checkpoint 1: Why RFC 7807 is Essential in Microservice Ecosystems
+**Scenario:** A company operates 40 microservices authored in Go, Python, and Node.js. The frontend team complains that error handling is a nightmare because Service A returns `{"error": "msg"}`, Service B returns `{"message": "err", "status": 400}`, and Service C returns a raw string `"Not found"`. How does enforcing RFC 7807 across all services solve this at the platform level?
 
-```python
-@app.get("/buggy")
-async def buggy():
-    data = {"a": 1}
-    return {"value": data["b"]}         # KeyError — a bug we did NOT anticipate
-```
+<details><summary>Click to view diagnosis and architectural solution</summary>
 
-`curl -i localhost:8000/buggy`. Expected: `500` with the *generic* message
-`"An unexpected error occurred..."` and a `request_id` — and in your **server
-console**, the full `KeyError` traceback via `log.exception`. Confirm the
-`KeyError` and your file paths appear *only* in the server log, never in the
-HTTP response.
-
-### 3. See the danger you're preventing
-
-Temporarily comment out the `handle_unexpected` handler and set
-`fastapi dev` (debug mode). Hit `/buggy` again. Expected: depending on config,
-you get either a bare `500` with a traceback in the body or a debug error page
-— either way, internals you'd never want a client to see. Re-enable the
-handler. This contrast is the entire point of the module.
-
-### 4. Reshape validation errors
-
-Add a `POST` route with a Pydantic body and the `handle_validation` handler:
-
-```python
-from pydantic import BaseModel, Field
-
-class OrderIn(BaseModel):
-    quantity: int = Field(gt=0)
-    sku: str
-
-@app.post("/orders")
-async def create_order(order: OrderIn):
-    return {"created": order.model_dump()}
-```
-
-Send bad input: `curl -i -X POST localhost:8000/orders -H "content-type:
-application/json" -d '{"quantity": 0}'`. Expected: `422` in *your* envelope
-with a `details` array flagging `quantity` (must be > 0) and `sku` (required) —
-not FastAPI's default `{"detail": [...]}` shape.
-
-### 5. Make an unmatched route match your shape
-
-Add the `StarletteHTTPException` handler. `curl -i localhost:8000/nope`.
-Expected: the framework's `404` for an unmatched path now comes back in your
-`{"error": {...}}` envelope with `code: "not_found"`, consistent with every
-other error.
-
-### 6. Add request IDs and correlate
-
-Add a small middleware that stamps a `request_id` on `request.state` (recap
-from track 02, module 05):
-
-```python
-import uuid
-@app.middleware("http")
-async def request_id_mw(request: Request, call_next):
-    request.state.request_id = request.headers.get("X-Request-ID", str(uuid.uuid4()))
-    response = await call_next(request)
-    response.headers["X-Request-ID"] = request.state.request_id
-    return response
-```
-
-Hit `/buggy` again. Expected: the *same* `request_id` appears in the response
-body, the `X-Request-ID` response header, *and* the server log line for the
-traceback. Practise the real workflow: copy the ID from the response, grep your
-console for it, land on the exact traceback. This is what makes production
-errors debuggable.
-
-### 7. Actionable vs leaky messages
-
-Add a route that simulates a duplicate-email conflict:
-
-```python
-@app.post("/signup")
-async def signup(email: str):
-    if email == "taken@x.com":
-        raise ConflictError("An account with that email already exists.")
-    return {"created": email}
-```
-
-Confirm the response is a clean `409` with the friendly message — *not* a
-database `UniqueViolation`. Discuss with yourself: is "An account with that
-email already exists" itself an information leak? (On a public signup form,
-arguably yes — it confirms which emails are registered. Note the tension; the
-security track resolves it.)
-
-### 8. Diagnose and fix: the handler that swallows the real cause
-
-You're given this handler. Ops reports that "`500`s are impossible to debug —
-the logs just say `internal error` with no traceback, and occasionally a `404`
-comes back as a `500`." Find both bugs.
-
-```python
-@app.exception_handler(Exception)
-async def handler(request: Request, exc: Exception):
-    log.error("internal error")                       # bug A
-    return JSONResponse(status_code=500,
-                        content={"error": "internal error"})
-
-@app.get("/thing/{id}")
-async def thing(id: str):
-    try:
-        return lookup(id)                             # raises NotFoundError when missing
-    except Exception:
-        raise Exception("lookup failed")              # bug B
-```
-
-<details>
-<summary>Solution</summary>
-
-**Bug A — no traceback logged.** `log.error("internal error")` records a bare
-message with no exception info, so every `500` is undebuggable exactly as
-reported. Fix: `log.exception("unhandled exception", request_id=...,
-path=request.url.path)` inside the handler, which attaches the active
-exception's full traceback and type. (Also add the `request_id` so responses
-and logs correlate.)
-
-**Bug B — the route re-wraps a specific domain error as a generic
-`Exception`, defeating the whole design.** `lookup(id)` raises a
-`NotFoundError` (an `AppError`) that *should* be routed to the `AppError`
-handler and become a clean `404`. But the route catches it and re-raises a bare
-`Exception("lookup failed")` — which (a) matches only the catch-all, so it
-comes back as a `500` instead of a `404` (the "404 comes back as 500" symptom),
-(b) discards the original `NotFoundError` and its message, and (c) if it *had*
-used `from exc`, at least the cause would survive — it doesn't. Fix: **delete
-the try/except entirely.** Let `NotFoundError` propagate to the `AppError`
-handler. The route shouldn't catch what it can't improve on (module 00's "don't
-catch early" rule) — the whole reason you built a centralized handler is so
-routes *don't* do this.
-
-```python
-@app.get("/thing/{id}")
-async def thing(id: str):
-    return lookup(id)          # let NotFoundError propagate to the AppError handler
-```
-
-The lesson: a centralized handler only works if routes *trust* it and stop
-hand-wrapping errors. The two bugs are two halves of the same mistake — the
-handler threw away diagnostics, and the route threw away the error's type.
-
+**Answer:**
+1. **Unified Client Ingestion:**
+   RFC 7807 (`application/problem+json`) provides a single, predictable schema across all services: `type`, `title`, `status`, `detail`, `instance`.
+2. **Frontend Interceptor Standardization:**
+   The frontend API client (e.g., Axios or Fetch interceptor) can implement a **single universal error handler**:
+   - Reads `instance` to render `"Incident ID: req_xxx"` in error toasts.
+   - Reads `status` to direct authorization redirects (401 $\to$ login).
+   - Reads `invalid_params` to automatically map field errors directly into form validation inputs without writing custom parser logic per endpoint.
 </details>
 
-## Independent challenge
+---
 
-No code given. Take the `create_order`/`get_order` API from the exercises and
-give it a *complete, consistent* error surface, reusing the `AppError`
-hierarchy you designed in **module 00's independent challenge**. Requirements:
-(1) every possible error — domain, validation, unmatched-route, and an
-unexpected bug — comes back in one identical envelope with a `code`,
-`message`, `request_id`, and (for validation) `details`; (2) no unexpected
-exception ever leaks its message, type, or traceback to the client, verified by
-deliberately planting a bug and confirming only the generic `500` is returned;
-(3) `4xx` vs `5xx` is correct for each case; and (4) a user-supplied
-`X-Request-ID` is honoured and echoed, appearing in both the response and the
-server-side traceback for correlation. Prove all four with `curl` transcripts.
+### Checkpoint 2: The Security Risk of Exposing Database Primary Keys in Error Messages
+**Scenario:** A developer modifies an error response to return:
+```json
+{
+  "error": "Record with primary key 104928 on shard_db_03 does not exist."
+}
+```
+What security risk does this create, and how should it be rewritten?
 
-<details>
-<summary>Hint</summary>
+<details><summary>Click to view diagnosis and architectural solution</summary>
 
-You need exactly four registered handlers: `AppError` (your domain hierarchy,
-each subclass carrying `status_code`+`code`), `RequestValidationError` (→ your
-envelope with `details`), `StarletteHTTPException` (unmatched routes/framework
-`HTTPException`), and `Exception` (the paranoid catch-all — generic message,
-full server-side log, nothing leaked). The correlation requirement is just the
-request-ID middleware from track 02 module 05 feeding `request.state.request_id`
-into every handler's output *and* every log line. If you find yourself writing
-a try/except inside a route, you've taken a wrong turn — the whole design is
-that routes raise and the handlers translate.
-
+**Answer:**
+1. **The Vulnerabilities (Insecure Direct Object Reference & Topology Leakage):**
+   - **Enumeration Attack:** Exposing sequential auto-increment primary keys (`104928`) allows competitors or attackers to enumerate the total size of your database and customer acquisition velocity.
+   - **Infrastructure Leak:** Exposing internal partition names (`shard_db_03`) informs attackers of your underlying database sharding topology.
+2. **The Hardened Rewrite:**
+   Use public opaque identifiers (e.g., UUIDv7 or `usr_89f1...`) and sanitize infrastructure references:
+   ```json
+   {
+     "type": "https://api.example.com/errors/resource-not-found",
+     "title": "User Not Found",
+     "status": 404,
+     "detail": "The requested user profile does not exist.",
+     "instance": "urn:request:req_88f12a"
+   }
+   ```
 </details>
 
-## Common mistakes & troubleshooting
+---
 
-- **Only registering `AppError`, forgetting the `Exception` catch-all.** An
-  unanticipated `KeyError` then falls through to FastAPI's default, which in
-  the wrong config leaks a traceback. Always register both.
-- **Letting the catch-all show `str(exc)`.** That *is* leaking internals — the
-  message may contain SQL, paths, or data. The catch-all's message must be a
-  fixed, generic string you control.
-- **Inconsistent envelope across endpoints.** If one route returns
-  `{"error": ...}` and another `{"detail": ...}`, clients need special cases.
-  Override the framework's validation/HTTP handlers so *everything* matches.
-- **`log.error` instead of `log.exception` in the catch-all.** Recurring theme:
-  you lose the traceback, and `500`s become undebuggable.
-- **Raising `HTTPException` from deep service code.** Couples business logic to
-  HTTP. Raise domain `AppError`s; map to HTTP only in the handler.
-- **Wrong status class.** Returning `500` for a not-found (client's fault) or
-  `200` for a failure. `4xx` = client error (don't retry unchanged); `5xx` =
-  server error (retry may help) — this drives client and alert behaviour.
-- **Routes catching errors the central handler should own.** Re-wrapping a
-  typed error into a generic one downgrades a clean `404` to a `500` and loses
-  the cause. Trust the handler; delete the try/except.
+### Checkpoint 3: Decoupling Framework Errors from Internal Exceptions
+**Scenario:** In a FastAPI or Express application, an unhandled database unique constraint violation is thrown. Instead of reaching the global error handler, the framework crashes or returns an empty HTTP 500 response. Why did the exception escape the handler, and how is the middleware registration order audited?
 
-## Checkpoint quiz
+<details><summary>Click to view diagnosis and architectural solution</summary>
 
-Write down your answer to each question before expanding it — checking without attempting first is the single easiest way to fool yourself into thinking you've learned this.
-
-1. Why register a *centralized* exception handler rather than try/except in
-   each route? Give two concrete downsides of the per-route approach.
-2. Describe the asymmetry between how you treat an expected `AppError` and an
-   unexpected `Exception` in the handlers — status code, message, and logging.
-3. Why must the catch-all handler's message be a fixed string you control,
-   rather than `str(exc)`?
-4. What is the `code` field in the error envelope for, and why should clients
-   branch on it rather than on the human-readable `message`?
-5. Why is it better for deep service code to raise a custom `NotFoundError`
-   than to `raise HTTPException(404)`?
-6. How does a `request_id` in both the error response and the server log make a
-   production `500` debuggable, and which earlier module provides it?
-
-<details>
-<summary>Answers</summary>
-
-1. Centralizing gives one consistent policy and one place to change error
-   behaviour. Two downsides of per-route: (a) the error *shape* drifts across
-   endpoints so clients need special cases, and (b) the one route someone
-   forgets to wrap is the one that leaks a stack trace — coverage becomes a
-   matter of discipline instead of structure. (Also: adding a field like
-   `request_id` to every error means editing every route.)
-2. **Expected `AppError`:** status comes from the exception (e.g. `404`,
-   `409`), the real message is shown because *you authored it*, and it's logged
-   lightly or not at all (normal operation). **Unexpected `Exception`:** always
-   `500`, a fixed generic message, and the *full traceback logged server-side*
-   — reveal nothing, record everything.
-3. Because an unexpected exception's message may contain SQL, file paths,
-   internal data, or the exception type — all information disclosure. You
-   haven't vetted it, so it can't be trusted to reach a client; only messages
-   you wrote for `AppError` subclasses are safe verbatim.
-4. `code` is a stable machine-readable identifier (`not_found`, `conflict`) that
-   clients can safely branch on; the `message` is human-facing and you'll want
-   to reword/translate it freely, so coupling client logic to it would break
-   every time you improve wording. `code` is the programmable contract.
-5. Raising a domain `NotFoundError` keeps the service layer ignorant of HTTP,
-   so it's testable and reusable behind a non-HTTP interface (gRPC, a CLI, a
-   queue consumer); the *handler* maps the domain error to `404`. Raising
-   `HTTPException` couples business logic to the web layer.
-6. The same `request_id` appears in the client's response and in the log line
-   carrying the traceback, so a user can quote the ID and you grep straight to
-   the exact failure. It comes from the request-context / request-ID middleware
-   built in track 02 (02-api-layer, module 05).
-
+**Answer:**
+1. **Middleware Ordering Failure:**
+   In Express, error-handling middleware (`(err, req, res, next)`) **must be registered last**, after all routes and normal middleware. If a route throws an error and no subsequent error middleware is registered, Express falls back to its default HTML error page.
+2. **FastAPI Catch-All Requirement:**
+   In FastAPI, registering `@app.exception_handler(DomainException)` catches only custom domain exceptions. If an internal database driver raises `psycopg.errors.UniqueViolation`, it inherits from `Exception`, not `DomainException`. You must register an explicit catch-all handler for `@app.exception_handler(Exception)` to capture all unhandled programmer errors and guarantee RFC 7807 formatting.
 </details>
 
-## Further reading & sources
+---
 
-- [FastAPI — Handling Errors](https://fastapi.tiangolo.com/tutorial/handling-errors/) - the official guide to `@app.exception_handler`, `HTTPException`, and overriding validation errors.
-- [Starlette — Exceptions and handlers](https://www.starlette.io/exceptions/) - the underlying framework mechanism FastAPI builds its exception handling on.
-- [RFC 9457 — Problem Details for HTTP APIs](https://www.rfc-editor.org/rfc/rfc9457.html) - the IETF standard error envelope, a reference point when designing your own consistent shape.
-- [MDN — HTTP response status codes](https://developer.mozilla.org/en-US/docs/Web/HTTP/Status) - the authority on `4xx` (client) vs `5xx` (server) semantics that drive retry and alerting behaviour.
-- [OWASP — Improper Error Handling](https://owasp.org/www-community/Improper_Error_Handling) - why leaking stack traces and internal details in error responses is a real security weakness.
+## 7. Further Reading & References
+
+- [IETF RFC 7807: Problem Details for HTTP APIs](https://datatracker.ietf.org/doc/html/rfc7807) — Official specification for standardized HTTP error representation.
+- [OWASP API Security Top 10: API3 Broken Object Property Level Authorization](https://owasp.org/www-project-api-security/) — Guidelines on preventing sensitive diagnostic data leakage.
+- [FastAPI: Handling Errors](https://fastapi.tiangolo.com/tutorial/handling-errors/) — Official documentation on custom exception handlers and request validation overrides.
+
+---
 
 ## Next
 
-[02-config-management-fundamentals](../02-config-management-fundamentals/README.md)
-— your errors are now handled and safe. Next: the settings that drive your app
-across dev, staging, and prod. Getting config wrong is itself a top cause of
-production incidents (and of the leaked-secret errors this module worked to
-prevent), so we'll treat configuration as a first-class operational concern.
+[Module 02: Config Management Fundamentals](../02-config-management-fundamentals/README.md) — Separate environment configuration from application code, applying 12-factor principles to guarantee repeatable, immutable deployments across dev, staging, and production environments.

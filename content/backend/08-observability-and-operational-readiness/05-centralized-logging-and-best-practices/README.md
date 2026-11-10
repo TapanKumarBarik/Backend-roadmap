@@ -1,768 +1,448 @@
 # Module 05: Centralized Logging and Best Practices
 
-## Why this matters
+> **Prerequisites:** [Module 00: Error Handling Strategies](../00-error-handling-strategies/README.md), [Module 04: Logging Fundamentals](../04-logging-fundamentals/README.md).
+> **Estimated Reading Time:** 30 minutes
+> **Target Audience:** Backend Engineers, DevOps Engineers, SREs.
 
-Module 04 got your app *producing* clean, structured, correctly-leveled logs on
-stdout. This module is about what happens the moment that stream leaves the
-process — and it's where logging stops being an app concern and becomes an
-*operations* concern. The reason is brutally simple: in a modern deployment you
-cannot read logs where they're written. Your app runs as three, or thirty,
-replicas across a cluster; each is an **ephemeral container** that can be killed
-and rescheduled at any moment, taking its local filesystem with it. The one
-process that logged the error you're chasing was reaped twenty minutes ago.
-There is no box to SSH into. "Just tail the log file" is a single-server habit
-that dies the instant you scale past one replica or deploy to Kubernetes (the
-`learn/03-kubernetes` world).
+---
 
-The fix is **centralized logging**: every process ships its stdout stream to a
-single aggregation system where all logs from all services and all replicas land
-in one searchable place. That's the difference between "grep across thirty pods
-by hand, hoping the right one is still alive" and "type one query and see every
-line from every service for the last week." But centralization only pays off if
-the logs arriving are *disciplined* — consistently structured, correlated by a
-shared id, sensible in volume, and free of secrets. A firehose of unstructured,
-uncorrelated, secret-leaking logs is just as useless centralized as it was
-local, only now it's expensive and a compliance liability too.
+> [!TIP]
+> **Golden Rule of Centralized Logging**: In distributed systems, treat application processes as strictly ephemeral log emitters that stream structured JSON to `stdout`. Decouple log aggregation and shipping to specialized node-level daemonsets (FluentBit, Vector), tag every log record with a persistent W3C distributed `trace_id` propagated across HTTP headers and message queues, and enforce tiered retention policies (hot 7-day SSD, warm 30-day object storage, cold 1-year archive) to control storage costs.
 
-So this module has two halves. First, the **pipeline**: how a stdout stream
-becomes a queryable index (the ELK/Loki-style architecture), and why the app's
-only job is to emit to stdout. Second, the **best practices at scale** that make
-centralized logs actually usable — correlation IDs that follow a request across
-services (the direct setup for tracing in module 07), sampling and level
-discipline to control volume and cost, consistent event schemas to keep queries
-stable, and the full sensitive-data and retention rules that module 04 promised
-were coming. Get this right and every alert (module 08) and every incident
-investigation has a solid foundation to stand on.
+---
 
-## Concepts
+## 1. Visual Mental Models & System Architecture
 
-### Why centralize: the aggregation problem
+In modern cloud environments, applications run as dozens or hundreds of ephemeral containers across a dynamic cluster. Containers are destroyed on deploy, rescheduled on node failure, and scaled down when traffic drops. When an ephemeral pod is terminated, its local filesystem vanishes. 
 
-A single-server app has one log stream and one place to read it. Everything
-about operating logs — tailing, grepping, rotating — assumes that world. Modern
-deployments break every assumption in it:
+The traditional practice of SSHing into a server to run `tail -f /var/log/app.log` is dead. Production operations require **Centralized Logging**, where all stdout streams from all pods converge into a single, high-speed, queryable log lake.
 
-- **Many replicas.** A request that failed hit *one* of N identical processes.
-  Which one? Without central logs you're grepping N places to find the single
-  line that matters.
-- **Ephemeral instances.** Containers are cattle, not pets: killed on deploy,
-  rescheduled on node failure, scaled down when traffic drops. When a container
-  dies, its local logs die with it. The error from the pod that OOM-killed
-  itself is *gone* if it only ever wrote to that pod's filesystem.
-- **Multiple services.** One user action fans out across an API service, a
-  worker, an auth service. The story of that action is scattered across several
-  processes' logs, interleaved with thousands of unrelated requests.
-- **Humans can't be everywhere.** You cannot watch thirty terminals. You need
-  one pane of glass.
+### The Centralized Log Shipping Pipeline
 
-**Centralized logging** solves all four: every process ships its logs to a
-central store, and you query *that* — filtered by service, replica, time range,
-level, or any field — from one UI. The failed request is one query
-(`request_id=abc`) instead of a manual sweep. A dead container's logs survive
-because they were shipped *before* it died. The cross-service story reassembles
-because every service ships to the same place with a shared correlation id. This
-is not a nice-to-have at scale; it's the only way logging works at all past one
-box.
+```mermaid
+flowchart TD
+    subgraph K8sNode["Kubernetes Node 1"]
+        PodA["Pod A (API Gateway)<br/>stdout: JSON Lines"]
+        PodB["Pod B (Billing Service)<br/>stdout: JSON Lines"]
+        
+        DockerPipe["Container Runtime Engine<br/>(/var/log/pods/*.log)"]
+        
+        Shipper["DaemonSet Log Collector<br/>(FluentBit / Vector)"]
+        
+        PodA --> DockerPipe
+        PodB --> DockerPipe
+        DockerPipe -->|Tail & Parse JSON| Shipper
+    end
 
-### The log pipeline: from stdout to a searchable index
+    subgraph AggregationBuffer["Buffering & Ingestion Tier"]
+        Kafka["Kafka / Redis Stream Ingestion Buffer"]
+        Shipper -->|Batch HTTP / TCP| Kafka
+    end
 
-Centralized logging is a **pipeline** with a few well-defined stages. Learn the
-stages, and every stack (ELK, Loki, Datadog, CloudWatch, Splunk) is the same
-shape with different parts:
+    subgraph CentralStorage["Centralized Storage & Indexing Engine"]
+        Loki["Grafana Loki (Label-Indexed Storage)"]
+        ES["Elasticsearch / OpenSearch (Full Inverted Index)"]
+        S3[("Cold Object Storage (S3 / GCS Compressed Blobs)")]
+        
+        Kafka --> Loki
+        Kafka --> ES
+        Loki <--> S3
+    end
 
-1. **Emit.** Your app writes structured JSON to **stdout/stderr** — nothing
-   more. (Module 04's `PrintLoggerFactory` + `JSONRenderer`.) The app does *not*
-   ship, rotate, or store; that's the platform's job (factor XI, module 10).
-2. **Collect.** A **log agent** running on each node/host captures the stdout
-   streams of the containers there. Examples: **Promtail** (for Loki),
-   **Filebeat/Fluent Bit/Fluentd** (for ELK), or the platform's built-in
-   collector (Docker's logging driver, Kubernetes' node logging). The agent
-   tails the container runtime's captured stream — it does *not* require your app
-   to know anything about it.
-3. **Transport & process.** The agent forwards lines, often through a buffer or
-   pipeline that can parse, enrich (add `pod`, `namespace`, `node` labels),
-   filter, and batch. In ELK this is often **Logstash**; in Loki, Promtail does
-   light labelling; heavier stacks use a queue (Kafka) as a shock absorber.
-4. **Store & index.** A datastore ingests and indexes the logs so they're
-   queryable. **Elasticsearch** (the "E" in ELK) indexes *every field* for rich
-   full-text and field search. **Loki** takes a deliberately cheaper approach: it
-   indexes only a small set of **labels** (service, level, pod) and stores the
-   log body compressed, so it's far cheaper but you filter by label then grep
-   within.
-5. **Query & visualize.** A UI queries the store: **Kibana** (for
-   Elasticsearch) or **Grafana** (for Loki). This is where you type
-   `service=api level=error request_id=abc` and read the results.
-
-```
-[your app] --stdout JSON--> [log agent] --> [transport/parse] --> [store+index] --> [query UI]
- emit only    (Promtail/       (Logstash/       (Elasticsearch/     (Kibana/
-              Fluent Bit)      Loki ingester)     Loki)              Grafana)
+    subgraph ObservabilityUI["Unified Querying & Dashboards"]
+        Grafana["Grafana Logs Explorer / Kibana UI"]
+        Loki --> Grafana
+        ES --> Grafana
+    end
 ```
 
-The two archetypes worth knowing by name:
+### Distributed Correlation via W3C Trace Context
 
-- **ELK / EFK** (Elasticsearch + Logstash/Fluentd + Kibana): index-everything,
-  powerful arbitrary queries and aggregations, heavier and more expensive to run
-  and store.
-- **Loki + Promtail + Grafana** ("Prometheus, but for logs"): index-labels-only,
-  much cheaper at scale, pairs naturally with Prometheus metrics (module 06) in
-  the same Grafana. The trade is less rich full-text querying.
+A single user transaction often traverses multiple independent microservices and asynchronous message queues. Without a shared correlation identifier, diagnosing multi-service failures is nearly impossible:
 
-The key insight for *you the app author*: your responsibility ends at
-**"structured JSON on stdout."** Which stack sits downstream is an ops decision
-and can change without touching your code — *provided* your logs are structured
-and consistent. That's the whole reason module 04 hammered structure so hard.
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Client as Web Client
+    participant GW as API Gateway
+    participant Order as Order Microservice
+    participant Queue as Kafka Event Queue
+    participant Payment as Payment Microservice
+    participant CentralLogs as Centralized Log Lake
 
-### Correlation IDs: following one request across services
+    Client->>GW: POST /checkout
+    GW->>GW: Generate W3C Trace ID: "00-4bf92f3577b34da6a3ce929d0e0e4736-..."
+    GW->>CentralLogs: {"trace_id": "4bf92f35...", "service": "gateway", "msg": "ingress_received"}
+    
+    GW->>Order: HTTP POST /orders (Header: traceparent: 00-4bf92f35...)
+    Order->>CentralLogs: {"trace_id": "4bf92f35...", "service": "order-svc", "msg": "validating_cart"}
+    
+    Order->>Queue: Publish OrderCreatedEvent (Header: traceparent: 00-4bf92f35...)
+    Queue->>Payment: Consume OrderCreatedEvent
+    Payment->>CentralLogs: {"trace_id": "4bf92f35...", "service": "payment-svc", "msg": "charging_card"}
+    
+    note over CentralLogs: Querying 'trace_id = 4bf92f35...' reconstructs the COMPLETE end-to-end timeline across all 4 services!
+```
 
-Centralized logs from many services all land together — which means one
-request's lines are now interleaved with thousands of others from a dozen
-services. The thing that lets you pull *one request's story* back out of that
-haystack is a **correlation id** (also called a request id or, once you add
-tracing in module 07, a trace id): a single unique id, generated once at the
-edge, attached to every log line, and **propagated to every downstream service**
-the request touches.
+### Tiered Log Lifecycle & Cost Management
 
-The mechanics:
+```mermaid
+stateDiagram-v2
+    direction LR
+    state "Ingestion & Hot Tier" as Hot
+    state "Warm Storage Tier" as Warm
+    state "Cold Archive Tier" as Cold
+    state "Data Destruction" as Purged
 
-1. **Generate or accept at the edge.** The first service to see a request either
-   reads an incoming `X-Request-ID` header (if a gateway/upstream set one) or
-   generates a fresh UUID. Bind it to the log context (module 04's
-   `bind_contextvars`) so every line in this service carries it.
-2. **Propagate downstream.** When this service calls another service (HTTP,
-   queue message, RPC), it **passes the id along** — as an `X-Request-ID` header
-   on the outbound call, or a field in the queue message. The downstream service
-   reads it and binds it too, instead of generating a new one.
-3. **Result:** every log line, in every service, for that one request, shares
-   one id. In your central UI, `request_id=3f9a...` reconstructs the entire
-   cross-service journey in timestamp order — *this* is the payoff of
-   centralization plus discipline together.
+    Hot: 0 to 7 Days<br/>High-speed NVMe / RAM<br/>Full real-time query speed
+    Warm: 7 to 30 Days<br/>Compressed Object Store<br/>Slower query latency
+    Cold: 30 to 365 Days<br/>Glacier / GCS Coldline<br/>Auditing & compliance
+    Purged: > 365 Days<br/>Automated deletion policy
+
+    Hot --> Warm: Auto Lifecycle Rule
+    Warm --> Cold: Glacier Transition
+    Cold --> Purged: TTL Expiry
+```
+
+---
+
+## 2. Taxonomic Reference Grids & Systematic Comparison Grids
+
+### Centralized Logging Engines Compared
+
+| Dimension | Grafana Loki | Elasticsearch / OpenSearch | CloudWatch Logs / Datadog |
+| :--- | :--- | :--- | :--- |
+| **Indexing Philosophy** | **Labels only**; log lines are stored un-indexed in compressed chunk streams. | **Full inverted index**; every word and JSON field is indexed in Lucene. | Managed proprietary indexing; serverless ingestion. |
+| **Storage Cost** | **Ultra-low** (stores compressed chunks directly in S3/GCS). | **High** (indexes consume $1.5\times$ raw data size on SSDs). | **High** (charges per GB ingested + per GB scanned). |
+| **Query Speed** | Extremely fast on label filters; slower on brute-force regex grep over huge datasets. | Instant sub-second search across billions of words. | Fast, but subject to concurrency rate limits. |
+| **Operational Overhead**| Low to Moderate (Stateless microservices backed by S3). | High (requires cluster sharding, JVM heap tuning, and disk rebalancing). | Zero infrastructure operations (Fully Managed). |
+| **Best Suited For** | Cloud-native Kubernetes clusters running Prometheus & Grafana. | Complex security audit log search and enterprise text search. | Fast time-to-market teams wanting zero cluster ops. |
+
+### W3C Trace Context Specification (`traceparent` header)
+
+The W3C Trace Context standard defines the `traceparent` HTTP header format:
+`00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01`
+
+| Field Component | Character Width | Format | Purpose |
+| :--- | :---: | :--- | :--- |
+| **Version** | 2 hex chars | `00` | Current W3C specification version. |
+| **Trace ID** | 32 hex chars | `4bf92f3577b34da6a3ce929d0e0e4736` | Globally unique 16-byte identifier for the entire distributed request. |
+| **Parent Span ID** | 16 hex chars | `00f067aa0ba902b7` | Unique 8-byte identifier for the immediate upstream caller. |
+| **Trace Flags** | 2 hex chars | `01` | Bitmask controlling options (e.g., `01` = recorded/sampled). |
+
+---
+
+## 3. Production War Stories: Incident Post-Mortem
+
+### The Incident: Multi-Service Outage Investigation Stalled for 4 Hours Due to Missing Correlation IDs
+
+- **Severity:** SEV-1 (Critical Checkout Outage)
+- **Time to Detection:** 4 hours 15 minutes
+- **Time to Mitigation:** 20 minutes
+- **Impact:** An intermittent payment failure dropped 18% of e-commerce checkout attempts during a flash sale. Investigation stalled because engineers could not correlate API Gateway logs with downstream Payment logs.
+
+#### What Happened
+A multi-service platform comprised an API Gateway, an Order Service, an Inventory Service, and a Payment Service. A user reported: *"My cart failed with an error saying 'Payment Declined', but my bank account was charged."*
+
+The SRE team opened Kibana to investigate. The API Gateway logged:
+`[ERROR] Order 8812 failed: payment service returned 500`
+
+The engineer then searched the Payment Service logs for `"Order 8812"`. Zero records appeared. 
+
+The Payment Service logged transactions strictly by internal `"charge_id"`, which was generated downstream. Each service had its own independent logging convention with separate random IDs. Over 40,000 requests per minute were flowing through the system; searching by timestamp yielded hundreds of concurrent payment events. The on-call team spent over four hours manually guessing timestamps across log files to piece together what happened.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant GW as API Gateway
+    participant Order as Order Service
+    participant Pay as Payment Service
+    participant Kibana as Centralized Logs (No Correlation ID)
+    participant SRE as On-Call Engineer
+
+    GW->>Order: Forward Request (Generates GW_ID: "gw_101")
+    Order->>Pay: Forward Payment (Generates ORD_ID: "ord_505")
+    Pay->>Pay: Charges Bank successfully, then throws NPE formatting response
+    Pay->>Kibana: Log: "[ERROR] NullPointer in formatter. Charge: ch_999"
+    GW->>Kibana: Log: "[ERROR] Checkout failed for User 42. GW_ID: gw_101"
+
+    SRE->>Kibana: Query "gw_101"
+    Kibana-->>SRE: Shows Gateway log only!
+    SRE->>Kibana: Query "User 42" in Payment logs
+    Kibana-->>SRE: 0 hits (Payment service does not log User ID!)
+    Note over SRE: 4 hours lost trying to find which payment belonged to gw_101!
+```
+
+#### Root Cause
+1. **Absence of a Global Trace Identifier:** Services failed to propagate a consistent distributed correlation ID across HTTP boundaries.
+2. **Disconnected Logging Paradigms:** Different engineering teams logged domain entities using inconsistent naming schemes (`gw_id` vs `ord_id` vs `charge_id`), preventing automated join queries.
+
+#### The Fix & Architectural Hardening
+1. **Mandated W3C `traceparent` Propagation:** Added HTTP interceptors to all microservices and HTTP client libraries. The edge API Gateway generates a W3C `trace_id` if absent, and all downstream services forward the header.
+2. **Automatic Trace Injection in Logger:** Configured log formatters to automatically append `trace_id` to every JSON log output.
+3. **Outcome:** During the next incident, querying `trace_id = "4bf9..."` in Grafana returned the unified, chronological log trail across all four services in under **90 seconds**, cutting Mean Time to Identify (MTTI) by 98%.
+
+---
+
+## 4. Multi-Language Production Implementations
+
+The following code tabs implement W3C Trace Context propagation and structured log enrichment across Go, TypeScript, and Python.
+
+### Go Production Implementation (W3C Trace Context Propagation)
+
+```go
+package main
+
+import (
+	"context"
+	"crypto/rand"
+	"encoding/hex"
+	"fmt"
+	"log/slog"
+	"net/http"
+	"os"
+	"strings"
+)
+
+type ctxKey string
+const TraceIDKey ctxKey = "trace_id"
+
+// GenerateW3CTraceID generates a compliant 16-byte hex trace ID.
+func GenerateW3CTraceID() string {
+	b := make([]byte, 16)
+	_, _ = rand.Read(b)
+	return hex.EncodeToString(b)
+}
+
+// TraceContextMiddleware extracts or injects W3C traceparent headers.
+func TraceContextMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		traceHeader := r.Header.Get("traceparent")
+		var traceID string
+
+		// Format: 00-{trace_id}-{parent_id}-{flags}
+		parts := strings.Split(traceHeader, "-")
+		if len(parts) == 4 && len(parts[1]) == 32 {
+			traceID = parts[1]
+		} else {
+			traceID = GenerateW3CTraceID()
+			traceHeader = fmt.Sprintf("00-%s-0000000000000000-01", traceID)
+		}
+
+		ctx := context.WithValue(r.Context(), TraceIDKey, traceID)
+		w.Header().Set("traceparent", traceHeader)
+		w.Header().Set("X-Trace-ID", traceID)
+
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
+// OutgoingHTTPClient creates an HTTP client that forwards the traceparent header.
+func ForwardRequest(ctx context.Context, targetURL string) (*http.Response, error) {
+	req, err := http.NewRequestWithContext(ctx, "GET", targetURL, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	if traceID, ok := ctx.Value(TraceIDKey).(string); ok {
+		req.Header.Set("traceparent", fmt.Sprintf("00-%s-0000000000000000-01", traceID))
+	}
+
+	return http.DefaultClient.Do(req)
+}
+```
+
+### TypeScript / Node.js Production Implementation (Express & Axios Interceptors)
+
+```typescript
+import { Request, Response, NextFunction } from 'express';
+import axios from 'axios';
+import { AsyncLocalStorage } from 'async_hooks';
+import crypto from 'crypto';
+
+interface TraceContext {
+  traceId: string;
+}
+
+export const traceStorage = new AsyncLocalStorage<TraceContext>();
+
+// Middleware to parse and propagate W3C traceparent
+export function w3cTraceMiddleware(req: Request, res: Response, next: NextFunction): void {
+  const header = req.headers['traceparent'] as string | undefined;
+  let traceId = '';
+
+  if (header && header.startsWith('00-')) {
+    const parts = header.split('-');
+    if (parts.length === 4 && parts[1].length === 32) {
+      traceId = parts[1];
+    }
+  }
+
+  if (!traceId) {
+    traceId = crypto.randomBytes(16).toString('hex');
+  }
+
+  const outboundHeader = `00-${traceId}-0000000000000000-01`;
+  res.setHeader('traceparent', outboundHeader);
+  res.setHeader('X-Trace-ID', traceId);
+
+  traceStorage.run({ traceId }, () => {
+    next();
+  });
+}
+
+// Axios Interceptor automatically attaching traceparent to all outgoing calls
+export const apiClient = axios.create();
+
+apiClient.interceptors.request.use((config) => {
+  const context = traceStorage.getStore();
+  if (context?.traceId) {
+    config.headers['traceparent'] = `00-${context.traceId}-0000000000000000-01`;
+  }
+  return config;
+});
+```
+
+### Python Production Implementation (FastAPI & HTTPX W3C Forwarding)
 
 ```python
-# outbound: propagate the current request id to the next service
-import httpx, structlog
+"""
+Enterprise W3C Trace Context Middleware and Downstream HTTPX Client.
+Guarantees uniform distributed trace correlation across services.
+"""
 
-async def call_billing(payload: dict):
-    rid = structlog.contextvars.get_contextvars().get("request_id")
-    async with httpx.AsyncClient() as client:
-        # pass the id downstream so billing's logs share it
-        return await client.post("http://billing/charge", json=payload,
-                                 headers={"X-Request-ID": rid})
-```
+from __future__ import annotations
 
-```
-   client ──▶ [ API ]  rid=3f9a  ──X-Request-ID:3f9a──▶ [ billing ]  rid=3f9a
-                 │                                            │
-                 ▼ ships stdout                               ▼ ships stdout
-        ┌───────────────────── central store ──────────────────────┐
-        │  api      3f9a  request_start                             │
-        │  api      3f9a  db_query                                  │  query
-        │  billing  3f9a  charge_attempt      ◄── request_id=3f9a ──┤  once
-        │  billing  3f9a  charge_ok                                 │
-        └──────────────────────────────────────────────────────────┘
-        one id, generated at the edge, propagated → the whole story reassembles
-```
+import contextvars
+import os
+import secrets
+from typing import Callable
+from fastapi import FastAPI, Request, Response
+import httpx
 
-The failure mode to avoid: each service generating its *own* id. Then the API
-logs say `req-1`, billing says `req-2`, and you've lost the thread between them —
-you can see each service's half of the story but not that they're the same
-request. Generate once at the edge; propagate everywhere. (This exact
-propagation, formalized with a standard header format and a *span* per hop, is
-what distributed tracing in module 07 automates — a correlation id is tracing's
-manual ancestor.)
-
-### Controlling volume: levels, sampling, and cost at scale
-
-Centralized logging has a property local logging didn't: **volume costs money
-and can hurt you.** Every line is ingested, indexed, transported, and stored —
-and at scale (tens of thousands of requests per second) naive logging produces
-terabytes per day, which is expensive to store, slow to query, and can even take
-down your logging pipeline (a logging outage during an incident is a special
-kind of miserable). Controlling volume is a first-class operational skill:
-
-- **Level thresholds are your primary volume knob** (module 04). Prod runs at
-  `INFO` or `WARNING`; `DEBUG` is off by default. The ability to *temporarily*
-  raise a service to `DEBUG` via config (module 02) to chase a live issue, then
-  drop it back, is exactly why levels exist. Never ship `DEBUG` on by default in
-  prod.
-- **Sampling** keeps a representative *fraction* of high-volume, low-value logs
-  instead of all of them. If a hot endpoint logs a successful `request_end` at
-  `INFO` 50,000 times a second, you don't need all 50,000 — keep 1% and you
-  still see the pattern at 1/100th the cost. The rule: **sample the boring,
-  keep every error.** Never sample `ERROR`/`WARNING` — those are rare and each
-  one matters. Sample only high-frequency success/info lines.
-- **Log the event, not the loop.** A line *inside* a loop over 10,000 items is
-  10,000 lines; log once with a count (`log.info("processed_batch",
-  count=10000)`) instead. Per-item logging is the most common accidental
-  firehose.
-- **Cardinality discipline** (crucial for Loki/metrics-style systems): keep the
-  set of *label* values bounded. A label like `user_id` with millions of values
-  explodes the index; `user_id` belongs as a *log field* (searchable in the
-  body) not as an indexed *label*. High-cardinality data goes in the line;
-  low-cardinality dimensions (service, level, env, endpoint-*template*) are
-  labels.
-
-```
-   50,000 info/sec + 5 errors/sec ──▶ sampler ──▶ shipped to store
-   ┌────────────────────────────┐              ┌────────────────────────┐
-   │ INFO  request_end  ××××××× │  keep ~1% ──▶│ INFO  request_end  ×    │  cost ÷100
-   │ INFO  request_end  ××××××× │              │ (pattern still visible) │
-   ├────────────────────────────┤   keep       ├────────────────────────┤
-   │ ERROR payment_failed  ●●●● │  100% ──────▶│ ERROR payment_failed ●●●●│  never dropped
-   └────────────────────────────┘              └────────────────────────┘
-        sample the boring          ───           keep every error
-```
-
-The mindset: every line has a cost, so each one should earn its place. This is
-the same discipline that makes alerting sane (module 08) — noise is expensive
-whether it's logs or pages.
-
-### Sensitive data and retention: the full rules
-
-Module 04 introduced the "never log secrets" rule; centralization is where it
-becomes a serious, enforced discipline, because now your logs are a **single
-high-value store** aggregating sensitive fragments from every service, retained
-for weeks, accessible to many people. A leaked secret or PII record in central
-logs is a genuine breach with regulatory weight (GDPR, PCI-DSS, HIPAA depending
-on your data).
-
-The rules, in full:
-
-- **Never log secrets.** Passwords, API keys, tokens, session cookies, full
-  `Authorization` headers, private keys. `SecretStr` (module 03) is your passive
-  guard; a redaction processor is your active one (below).
-- **Minimize PII.** Log the *identifier* (`user_id`), not the person (full name,
-  email, home address) unless you have a concrete, lawful need and a retention
-  plan. Never log full payment card numbers (a PCI violation), government ids,
-  or health data. When in doubt, log the id and look the rest up in a properly
-  access-controlled system when you actually need it.
-- **Redact defensively, at the pipeline edge.** Don't rely only on every
-  developer remembering — add a **structlog processor** that scrubs known
-  sensitive keys (`password`, `token`, `authorization`, `card_number`) from
-  every event before it's rendered, so an accidental
-  `log.info("req", **body)` can't leak. Defense in depth: `SecretStr` in the
-  config layer *and* a redaction processor in the logging layer.
-- **Retention has a lifecycle.** Central logs are not kept forever — that's both
-  costly and a liability (data you don't have can't leak). Set a **retention
-  policy**: hot storage for recent logs (days–weeks) for fast querying, then
-  either delete or roll to cheap cold storage, with a hard maximum driven by
-  cost and legal/compliance requirements. Elasticsearch does this with **ILM**
-  (Index Lifecycle Management: hot → warm → cold → delete); Loki with per-tenant
-  retention. As the app author you don't configure retention, but you must know
-  it exists and that "keep everything forever" is the wrong default.
-
-```python
-# a redaction processor: scrub sensitive keys before rendering
-_SENSITIVE = {"password", "token", "authorization", "api_key", "card_number", "secret"}
-
-def redact_sensitive(logger, method_name, event_dict):
-    for key in list(event_dict):
-        if key.lower() in _SENSITIVE:
-            event_dict[key] = "***REDACTED***"
-    return event_dict
-
-# add it EARLY in the processor chain (module 04's configure), before the renderer
-```
-
-### Structured logging best practices at scale
-
-With logs centralized and correlated, a few disciplines separate a log store you
-can actually query from one that's technically-structured-but-still-useless:
-
-- **Stable, low-cardinality event names.** The event name (module 04's first
-  positional arg) is your primary grouping key. Use a small, stable vocabulary
-  of `snake_case` names (`order_placed`, `payment_failed`, `cache_miss`). Never
-  interpolate values into the event name (`f"order {id} placed"`) — that makes
-  every event unique and destroys the ability to count/group by event.
-- **Consistent field names across services.** If one service logs `user_id` and
-  another logs `userId` and a third logs `uid`, you can't query across them.
-  Agree on a **shared field vocabulary** (`user_id`, `request_id`, `duration_ms`,
-  `status`) so cross-service queries work. This is a team convention worth
-  writing down.
-- **Always include the context triplet:** `service`, `environment`, and
-  `request_id` on every line (bound once, via context/processors), so any line
-  can be traced to *which app, which env, which request*.
-- **Log outcomes with metrics-shaped fields.** `duration_ms`, `status`,
-  `rows_affected`, `retry_count` as typed fields — so you can aggregate them in
-  the log UI (average latency by endpoint) and they line up with the metrics
-  you'll emit in module 06.
-- **One event per significant thing, at the right grain.** Not per loop
-  iteration, not per trivial function call — per meaningful business/operational
-  event. Right grain plus stable names plus consistent fields is what makes the
-  central store a queryable dataset rather than a text dump.
-
-## Command reference
-
-| Tool / pattern | Layer | Purpose |
-|---|---|---|
-| stdout JSON (`JSONRenderer`) | app | The only thing your app should do — emit structured events |
-| Promtail / Fluent Bit / Filebeat | agent | Collect container stdout on each node and ship it |
-| Logstash / Fluentd | transport | Parse, enrich, filter, and buffer log streams |
-| Elasticsearch | store | Index every field; rich queries and aggregations (ELK) |
-| Loki | store | Index labels only; cheap, pairs with Prometheus (module 06) |
-| Kibana / Grafana | UI | Query and visualize the central store |
-| `X-Request-ID` header | app | Carry/propagate the correlation id across services |
-| structlog redaction processor | app | Scrub sensitive keys before rendering |
-| ILM / retention policy | store | Age logs out (hot → warm → cold → delete) |
-
-**Propagating a correlation id (FastAPI middleware, accept-or-generate):**
-
-```python
-import uuid, structlog
-from fastapi import FastAPI, Request
-
+trace_id_ctx: contextvars.ContextVar[str] = contextvars.ContextVar("trace_id", default="")
 app = FastAPI()
-log = structlog.get_logger()
+
 
 @app.middleware("http")
-async def correlation(request: Request, call_next):
-    # accept an upstream id if present (from a gateway/other service), else make one
-    rid = request.headers.get("X-Request-ID") or str(uuid.uuid4())
-    structlog.contextvars.clear_contextvars()
-    structlog.contextvars.bind_contextvars(
-        request_id=rid, service="api", environment="prod",
-    )
-    response = await call_next(request)
-    response.headers["X-Request-ID"] = rid   # echo it back for the client/next hop
-    return response
+async def w3c_trace_context_middleware(request: Request, call_next: Callable) -> Response:
+    traceparent = request.headers.get("traceparent")
+    trace_id = ""
+
+    if traceparent and traceparent.startswith("00-"):
+        parts = traceparent.split("-")
+        if len(parts) == 4 and len(parts[1]) == 32:
+            trace_id = parts[1]
+
+    if not trace_id:
+        trace_id = secrets.token_hex(16)
+        traceparent = f"00-{trace_id}-0000000000000000-01"
+
+    token = trace_id_ctx.set(trace_id)
+    try:
+        response = await call_next(request)
+        response.headers["traceparent"] = traceparent
+        response.headers["X-Trace-ID"] = trace_id
+        return response
+    finally:
+        trace_id_ctx.reset(token)
+
+
+async def call_downstream_service(url: str) -> httpx.Response:
+    """Invokes downstream microservice, propagating the traceparent header."""
+    trace_id = trace_id_ctx.get()
+    headers = {}
+    if trace_id:
+        headers["traceparent"] = f"00-{trace_id}-0000000000000000-01"
+
+    async with httpx.AsyncClient() as client:
+        return await client.get(url, headers=headers)
 ```
 
-**Sampling the boring, keeping every error (a structlog processor):**
+---
 
-```python
-import random
-import structlog
+## 5. Practical Hands-On Verification CLI Workflows
 
-def sample_info(logger, method_name, event_dict):
-    # keep 100% of warning/error/critical; keep ~1% of debug/info
-    level = event_dict.get("level", "info")
-    if level in ("warning", "error", "critical"):
-        return event_dict
-    if random.random() < 0.01:          # 1% sample of the boring lines
-        event_dict["sampled"] = True
-        return event_dict
-    raise structlog.DropEvent          # drop this line entirely
-```
+Verify W3C trace propagation and test log shipping using native command line tools.
 
-**A minimal Loki + Promtail + Grafana stack (docker-compose, for the exercises):**
-
-```yaml
-services:
-  loki:
-    image: grafana/loki:2.9.0
-    ports: ["3100:3100"]
-  promtail:
-    image: grafana/promtail:2.9.0
-    volumes:
-      - /var/lib/docker/containers:/var/lib/docker/containers:ro
-      - ./promtail.yaml:/etc/promtail/config.yaml
-    command: -config.file=/etc/promtail/config.yaml
-  grafana:
-    image: grafana/grafana:10.2.0
-    ports: ["3000:3000"]
-    environment:
-      - GF_AUTH_ANONYMOUS_ENABLED=true
-      - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
-```
-
-**Emit to stdout, never to files.** Your app opens no log file, configures no
-rotation. `PrintLoggerFactory` (module 04) writes to stdout; the platform
-captures and ships it. Writing files inside a container fights the pipeline and
-doesn't survive the container.
-
-## Hands-on exercises
-
-Reuse your `logging-fundamentals` project (module 04). You'll extend its
-structlog config and, for the pipeline exercises, run the compose stack above.
-
-### 1. Add a redaction processor and prove it scrubs secrets
-
-Add the `redact_sensitive` processor early in your `configure_logging` chain
-(before the renderer). Then deliberately try to leak a secret:
-
-```python
-log.info("login_attempt", username="ada", password="hunter2", token="abc123")
-```
-
-Expected: the rendered line shows `password="***REDACTED***"` and
-`token="***REDACTED***"` while `username="ada"` survives. You've built the
-active guard that catches the careless log call `SecretStr` alone wouldn't.
-
-### 2. Propagate a correlation id across two services
-
-Run two tiny FastAPI apps: `api` on :8000 and `billing` on :8001. In `api`, add
-the correlation middleware and a route that calls `billing` with `httpx`,
-passing `X-Request-ID`. In `billing`, add the *same* middleware (accept-or-
-generate) and log a line.
-
-Hit `api`. Expected: both services' logs for that request carry the **same**
-`request_id`. Now remove the header propagation from `api`'s outbound call and
-retry: `billing` generates its own id, and the thread between the two services'
-logs is broken. That broken state is what you're preventing.
-
-### 3. See the format is stack-agnostic
-
-With `JSONRenderer` active, pipe your app's stdout into `jq`:
+### Workflow 1: Inspecting Inbound and Outbound W3C Trace Headers
 
 ```bash
-python app.py 2>&1 | jq 'select(.level=="error")'
+# Send request with a custom W3C traceparent and verify header echo
+curl -i -s "http://localhost:8000/api/v1/orders" \
+  -H "traceparent: 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
 ```
 
-Expected: `jq` filters your JSON logs by field with zero parsing — the same
-thing Elasticsearch/Loki do at scale. This proves the payoff of structure:
-*any* JSON-aware tool can query your logs. Try
-`jq 'select(.request_id=="...")'` to reconstruct one request.
-
-### 4. Ship logs to Loki and query in Grafana
-
-Bring up the compose stack. Run your app in a container so Promtail captures its
-stdout. Open Grafana (:3000), add Loki (`http://loki:3100`) as a data source,
-and run a query like `{container="app"} | json | level="error"`.
-
-Expected: your app's structured logs appear in Grafana, filterable by the JSON
-fields. You've now run the whole pipeline end to end: stdout → Promtail → Loki →
-Grafana. Note you never configured your *app* to talk to Loki — it only wrote to
-stdout.
-
-### 5. Sample the boring, keep every error
-
-Add the `sample_info` processor. Emit 1,000 `INFO` lines in a loop and 5 `ERROR`
-lines:
-
-```python
-for i in range(1000):
-    log.info("request_end", i=i, status=200)
-for i in range(5):
-    log.error("payment_failed", order_id=i)
+Expected wire output:
+```text
+HTTP/1.1 200 OK
+Date: Tue, 10 Nov 2026 14:00:00 GMT
+traceparent: 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01
+X-Trace-ID: 4bf92f3577b34da6a3ce929d0e0e4736
+Content-Type: application/json
 ```
 
-Expected: roughly 10 of the 1,000 info lines survive (1%), but **all 5** errors
-appear. Change the loop to log at `ERROR` and watch all 1,000 survive — proving
-you must never sample errors. This is volume control without losing what matters.
+---
 
-### 6. Kill the container and prove central logs survive
+## 6. Operational Validation Checkpoints (Scenario Quizzes)
 
-With the Loki stack running, generate some logs from your containerized app,
-then `docker kill` the app container. Query Grafana for the logs from *before*
-the kill.
+### Checkpoint 1: Why Loki Indexes Only Labels, Not Full Log Lines
+**Scenario:** An engineering team evaluates Grafana Loki against Elasticsearch for centralized logging across 200 Kubernetes microservices. The team is worried because Loki does not build a full-text inverted index on the log body. Why is this architectural choice actually Loki's greatest operational advantage?
 
-Expected: the logs are still there in Loki even though the container (and its
-local filesystem) is gone. This is the core value proposition made concrete —
-shipped-before-death logs survive the ephemeral container. Contrast:
-`docker logs <dead-container>` after `docker rm` returns nothing.
+<details><summary>Click to view diagnosis and architectural solution</summary>
 
-### 7. Log the batch, not the loop
-
-You're processing a 10,000-item import and someone logs inside the loop:
-
-```python
-for item in items:            # 10,000 items
-    process(item)
-    log.info("item_processed", item_id=item.id)   # 10,000 log lines!
-```
-
-Rewrite it to emit meaningful volume: one line at start, one at end with a
-count, and only log *inside* the loop on failure.
-
-<details>
-<summary>One good rewrite</summary>
-
-```python
-log.info("import_started", total=len(items))
-failed = 0
-for item in items:
-    try:
-        process(item)
-    except Exception:
-        failed += 1
-        log.exception("item_failed", item_id=item.id)   # only failures, individually
-log.info("import_finished", total=len(items), failed=failed)
-```
-
-Two lines for the happy path plus one per *failure* — you keep the signal
-(which items failed) and drop 9,998 useless success lines. That's the difference
-between a $50/day and a $5,000/day log bill at scale, and a query that returns in
-a second versus a minute.
-
+**Answer:**
+1. **The Elasticsearch SSD Cost Problem:**
+   Elasticsearch parses every word in every log line into Lucene inverted index trees. On high-volume logging (e.g., 500 GB/day), index overhead requires massive physical RAM allocations and expensive enterprise NVMe SSD disks.
+2. **Loki's Efficiency Model:**
+   Loki indexes only **metadata labels** (e.g., `app="billing"`, `env="prod"`). The actual log lines are compressed into gzip/zstd chunks and stored directly in cheap cloud object storage (S3/GCS).
+3. **The Trade-Off:**
+   Loki reduces log infrastructure costs by **80% to 90%**. While full-text queries perform a streaming grep over compressed chunks, combining label filters with `trace_id` makes queries fast enough for real-time debugging.
 </details>
 
-### 8. Diagnose and fix: useless central logs
+---
 
-Three services ship to a shared Loki, and ops is miserable: "we can't follow a
-request across services, half our queries time out from the volume, `user_id`
-queries are impossibly slow, and legal found emails in the logs." Here's a
-representative service's setup. Fix every root cause.
+### Checkpoint 2: The Danger of High-Cardinality Labels in Grafana Loki
+**Scenario:** A developer configures the log shipper to extract `user_id` from every JSON log line and add it as a Loki index label: `stream = {app="order-svc", user_id="u_9941"}`. Within three days, the Loki ingester pods crash with Out-Of-Memory errors. What happened?
 
-```python
-# service A
-@app.middleware("http")
-async def mw(request, call_next):
-    structlog.contextvars.bind_contextvars(reqId=str(uuid.uuid4()))  # (1)
-    return await call_next(request)
+<details><summary>Click to view diagnosis and architectural solution</summary>
 
-@app.post("/checkout")
-async def checkout(order: Order):
-    log.info(f"checkout for {order.user_email}")          # (2)
-    for line in order.lines:                               # 200 lines/order
-        log.info("line", sku=line.sku, price=line.price)  # (3)
-    resp = await httpx.post("http://ship/create", json=order.dict())  # (4)
-    log.debug("shipping_response", body=resp.text)        # (5)
-    return {"ok": True}
-```
-
-<details>
-<summary>Solution</summary>
-
-**(1) — inconsistent field name + not propagated + never cleared.** The id field
-is `reqId` here but likely `request_id` elsewhere, so cross-service queries can't
-join on one name — agree on `request_id` everywhere. It's generated fresh (never
-accepts an upstream id) and never passed to the `ship` service (see 4), so the
-request can't be followed across services. And it's never `clear_contextvars()`'d,
-so ids leak between requests on a reused worker. Fix: accept-or-generate a
-`request_id`, clear at the start, and propagate it downstream.
-
-**(2) — PII + unstructured + unstable event name.** Logs the user's **email**
-(PII in central storage — the legal complaint) inside an interpolated string
-(unqueryable, and every message is unique so you can't group/count checkouts).
-Fix: `log.info("checkout_started", user_id=order.user_id)` — an id not the
-email, a stable event name, a field not a sentence. Add a redaction processor so
-`user_email` is scrubbed even if someone slips.
-
-**(3) — per-item firehose.** 200 lines per order at `INFO` is the volume that's
-timing out queries and running up the bill. Fix: log once —
-`log.info("checkout_lines", count=len(order.lines))` — and only log individual
-lines on failure.
-
-**(4) — no propagation.** The outbound call to `ship` doesn't pass
-`X-Request-ID`, so `ship`'s logs are disconnected from this request. Fix: pass
-`headers={"X-Request-ID": rid}`.
-
-**(5) — full response body at DEBUG (but is DEBUG on in prod?) + potential
-secrets.** Logging a whole response body bloats logs and may contain sensitive
-data; and if `DEBUG` is enabled in prod this fires on every checkout. Fix: log
-the `status_code` and maybe a shipment id, never the whole body; keep `DEBUG`
-off in prod.
-
-Root causes, all one theme: **centralized logs are only as good as the
-discipline of what's shipped.** Consistent field names + propagated correlation
-id (follow a request), bounded volume (don't time out), ids-not-PII + redaction
-(don't leak), and outcomes-not-bodies. Fix these five and all four ops
-complaints dissolve together.
-
+**Answer:**
+1. **High Cardinality Explosion:**
+   In Loki, each unique combination of label key-values creates an independent **log stream**. If an application has 1,000,000 active users, adding `user_id` as a label creates 1,000,000 distinct streams.
+2. **Memory Exhaustion:**
+   Loki maintains in-memory chunk buffers for every active stream before flushing them to S3. 1,000,000 concurrent streams overwhelm the ingester's RAM, causing OOM crashes.
+3. **The Solution:**
+   Keep Loki labels strictly low-cardinality: `app`, `env`, `namespace`, `cluster`. Keep high-cardinality fields (`user_id`, `order_id`, `trace_id`) **inside the JSON log body**, querying them via LogQL line filters: `{app="order-svc"} | json | user_id = "u_9941"`.
 </details>
 
-## Independent challenge
+---
 
-No code given. Take the fully-logged service you built in **module 04's
-independent challenge** and make it *centralization-ready and multi-service*.
-Stand up a second service it calls (a "billing" or "notifications" stub). Then:
-(1) implement accept-or-generate correlation-id middleware in *both* services and
-propagate the id on the outbound call, so one `request_id` spans both services'
-logs; (2) add a redaction processor so a deliberate `log.info("dump",
-**request_body)` cannot leak a secret or PII; (3) apply volume discipline — pick
-one high-frequency success log and sample it, and find one accidental per-loop
-log and collapse it; and (4) run both services in containers behind the Loki +
-Promtail + Grafana stack and prove, in Grafana, that a single `request_id` query
-returns the *complete* cross-service story of one request in time order — while a
-secret you tried to log shows up redacted. Reach back to **module 02**: the log
-level and environment for both services must come from config, and flipping one
-service to `DEBUG` via config (without redeploying the other) must work.
+### Checkpoint 3: GDPR Compliance and the Right to Be Forgotten in Centralized Logs
+**Scenario:** Under GDPR Article 17 ("Right to be Forgotten"), a former customer requests the complete erasure of their personal data. The legal compliance team discovers that the customer's plaintext email address is stored across 30,000 log lines in an immutable cloud logging bucket with a 90-day retention lock. How do you resolve this architectural conflict?
 
-<details>
-<summary>Hint</summary>
+<details><summary>Click to view diagnosis and architectural solution</summary>
 
-The cross-service correlation hinges on two things being true at once: both
-services run the *same* accept-or-generate middleware (module 04's
-`bind_contextvars` for the local half), and the caller copies the current id
-onto the outbound request's `X-Request-ID` header (this module's propagation
-half). Read the id back out of the context with
-`structlog.contextvars.get_contextvars().get("request_id")` right before the
-`httpx` call. For the Grafana proof, a LogQL query like
-`{job=~"api|billing"} | json | request_id="<the id>"` across both jobs, sorted by
-time, *is* the reconstructed story — screenshot it. For the "flip one to DEBUG"
-requirement, the level is `make_filtering_bound_logger(settings.log_level)` from
-module 04, and `settings.log_level` is per-service config (module 02), so the two
-services' verbosity is independent.
-
+**Answer:**
+1. **The Conflict with Write-Once Storage:**
+   Modern compliant log lakes (e.g., S3 Object Lock) are intentionally immutable (WORM) to prevent tampering by attackers or rogue administrators. Selectively deleting individual log lines from compressed gzip chunks without breaking SHA verification hashes is virtually impossible.
+2. **Architectural Prevention (Pseudonymization):**
+   - Never log raw customer emails, names, or phone numbers.
+   - Replace PII in logs with an internal **pseudonymous customer token** (e.g., `usr_9a8f21bc`).
+   - Maintain the mapping between `usr_9a8f21bc` and the real email in an ACID relational database.
+   - When a GDPR erasure request arrives, delete the single row in the relational database. The logs remain intact for operational auditing, but the customer's data is permanently anonymized.
 </details>
 
-## Common mistakes & troubleshooting
+---
 
-- **Writing/rotating log files in the app or container.** Fights the pipeline
-  and dies with the container. Emit JSON to stdout; let the agent ship it.
-- **No correlation id, or a per-service one.** Without a single id generated at
-  the edge and *propagated*, you can't follow a request across services. Accept-
-  or-generate at the edge; pass it on every outbound call.
-- **Inconsistent field names across services** (`user_id` vs `userId` vs `uid`).
-  Cross-service queries break. Agree on a shared field vocabulary.
-- **Per-loop / per-item logging.** The most common accidental firehose — 10,000
-  lines where one with a count would do. Log the batch and the failures.
-- **Never sampling, or sampling errors.** No sampling means ruinous volume;
-  sampling errors means missing the rare thing that matters. Sample the boring
-  `INFO`, keep every `WARNING`/`ERROR`.
-- **High-cardinality labels** (`user_id` as a Loki label / index dimension).
-  Explodes the index. High-cardinality data belongs in the log *body* as a
-  field; labels stay low-cardinality (service, level, env).
-- **Logging PII or secrets into central storage.** A retained, aggregated,
-  widely-accessible breach. Log ids not people; add a redaction processor as
-  defense in depth alongside `SecretStr`.
-- **Assuming logs are kept forever (or forgetting they aren't).** Retention is a
-  policy (hot → warm → cold → delete). Know it exists; don't design as if last
-  year's logs are one query away, and don't hoard sensitive data indefinitely.
+## 7. Further Reading & References
 
-## Checkpoint quiz
+- [W3C Trace Context Specification](https://www.w3.org/TR/trace-context/) — The authoritative standard for distributed trace headers.
+- [Grafana Loki Architecture & Best Practices](https://grafana.com/docs/loki/latest/fundamentals/architecture/) — Official documentation on label indexing and chunk storage.
+- [FluentBit Documentation](https://docs.fluentbit.io/) — High-performance log and metric shipper for Kubernetes.
 
-Write down your answer to each question before expanding it — checking without attempting first is the single easiest way to fool yourself into thinking you've learned this.
-
-1. Give two concrete reasons why "just tail the log file" stops working the
-   moment you deploy more than one replica or move to containers.
-2. Name the five stages of a log pipeline (emit → … → query), and state the one
-   stage your *application* is responsible for.
-3. What is a correlation id, and what are the two things you must do with it
-   (one at the edge, one on every outbound call) for it to actually let you
-   follow a request across services?
-4. You have a hot endpoint logging a successful `request_end` 50,000×/second and
-   the occasional `payment_failed`. How do you cut log volume without losing
-   what matters — and what must you *never* sample?
-5. Give two distinct defenses that together keep secrets out of central logs,
-   naming the module-03 tool for one of them.
-6. Why is retention a required policy for central logs rather than "keep
-   everything," in both cost and risk terms?
-
-<details>
-<summary>Answers</summary>
-
-1. (a) **Many replicas:** a failed request hit one of N identical processes, so
-   the line you need is on one box among many — you'd have to grep them all. (b)
-   **Ephemeral containers:** a container's local logs die with it, so the logs
-   from a crashed/OOM-killed/redeployed instance are simply gone unless they were
-   *shipped* elsewhere first. (Also: multiple services scatter one request's
-   story across processes.)
-2. **Emit → Collect → Transport/process → Store/index → Query/visualize.** The
-   app is responsible only for **emit** — writing structured JSON to
-   stdout/stderr. Everything downstream (agent, transport, store, UI) is the
-   platform's job, which is why the app must never write its own files.
-3. A correlation/request id is a single unique id identifying one request across
-   every service and log line it produces. You must (1) **accept-or-generate it
-   at the edge** and bind it to the log context so every local line carries it,
-   and (2) **propagate it on every outbound call** (e.g. `X-Request-ID` header /
-   message field) so downstream services bind the *same* id instead of making
-   their own.
-4. **Sample** the high-frequency boring line — keep, say, 1% of successful
-   `request_end` lines (you still see the pattern) — and log the batch not the
-   loop. You must **never sample `WARNING`/`ERROR`/`CRITICAL`**: they're rare and
-   each one may be the thing you needed, so keep 100% of them.
-5. (a) **`SecretStr` (module 03)** — a passive guard that renders as `**********`
-   even if accidentally logged. (b) A **redaction processor** in the structlog
-   chain that scrubs known sensitive keys (`password`, `token`, `authorization`,
-   …) from every event before rendering — active defense in depth so a careless
-   `log.info(**body)` can't leak.
-6. **Cost:** central logs are ingested, indexed, and stored; keeping everything
-   forever is prohibitively expensive and slows queries. **Risk:** retained
-   sensitive data is a standing breach/compliance liability — data you no longer
-   have can't leak. So logs age through a lifecycle (hot → warm → cold → delete)
-   with a hard maximum driven by cost and legal requirements.
-
-</details>
-
-## Cumulative review
-
-Closed-book. This covers modules 00-05. Write each answer before expanding — and
-if one exposes a gap, go redo that module's exercises rather than just reading
-the answer.
-
-1. (00) A background job calls a flaky third-party API inside a bare
-   `try/except: pass`. Name what's wrong with the *swallowing* and what should
-   happen instead across three axes: what the job does, what gets logged and at
-   what level (module 04), and how you'd later *see* it happened once logs are
-   centralized (module 05).
-2. (01) An endpoint returns a raw stack trace with a `500` when a downstream call
-   fails. State the two separate problems (leaking internals; and what a good
-   response should contain instead), and how a `request_id` ties the safe client
-   response back to the full server-side log.
-3. (02+03) You need a `DATABASE_URL` and a `STRIPE_KEY` in your app. For each,
-   say where it should come from, what type it should be in your `Settings`, and
-   what must be true so neither ever appears in a log line or an error response.
-4. (04) Explain why `log.info(f"user {uid} logged in")` is worse than
-   `log.info("user_login", user_id=uid)` on *three* distinct axes that only
-   fully bite once logs are centralized across many services.
-5. (05) A request fails somewhere across three services and you have exactly one
-   piece of information: a `request_id` from the client's error response. Walk
-   through, concretely, how you find the root cause — and name every earlier-
-   module discipline that had to already be in place for that to work.
-6. (00+04+05) Distinguish, with an example each, when a situation should be
-   logged at `WARNING` vs `ERROR`, why getting this wrong makes centralized logs
-   *and* future alerts (module 08) worse, and how sampling must treat the two
-   differently.
-
-<details>
-<summary>Answers</summary>
-
-1. **Swallowing (00):** `except: pass` makes a real failure invisible — the job
-   reports success it didn't achieve, and you can't diagnose or alert. Instead:
-   the job should let transient failures **retry** (or fail loudly), not silently
-   continue. **Logging (04):** log the failure at `ERROR` with `log.exception`
-   (traceback) and structured fields (`job_id`, `error_type`) — a handled-and-
-   retried transient could be `WARNING`, an exhausted-retries failure is `ERROR`.
-   **Centralized (05):** because it's structured JSON on stdout shipped to the
-   central store, you later query `event=job_failed` across all workers and see
-   every occurrence, correlated by `request_id`/`job_id` — impossible if it was
-   swallowed or `print`ed.
-2. Problem one: **leaking internals (01)** — a stack trace exposes framework,
-   file paths, and logic to the client, a security/UX failure. Problem two: it's
-   the wrong *shape* — a good `5xx` response is a generic, safe message plus a
-   `request_id`. The `request_id` is the bridge: the client (or their bug report)
-   carries the id, and you query the central logs for that id to get the *full*
-   traceback and context server-side — safe outside, complete inside.
-3. **`DATABASE_URL`:** from an environment variable/secret store (12-factor, not
-   hardcoded), typed as a URL/`SecretStr`-wrapped value in `Settings`, injected
-   at startup. **`STRIPE_KEY`:** from a secret store/env, typed as **`SecretStr`**
-   specifically. For neither to leak: use `SecretStr` (renders `**********`), add
-   a redaction processor (05), never interpolate them into messages, and never
-   echo config into error responses (01).
-4. (a) **Unqueryable:** the f-string buries `uid` in prose, so you can't filter
-   `user_id=…` across the central store. (b) **Unaggregatable / high-cardinality
-   event:** every message string is unique, so you can't count "how many logins"
-   or group by event — and as a Loki label the unique messages would explode the
-   index. (c) **Inconsistent across services:** free-text phrasing varies per
-   service, so there's no shared field to join on; `user_login` + `user_id` gives
-   a stable event name and a consistent field every service can share.
-5. Query the central store (05) for `request_id=<id>` across all services, sorted
-   by time — this returns every line of that one request from every service in
-   order, so you read the story to the failing line and its `log.exception`
-   traceback. For that to work, these had to already be true: the id was
-   **generated at the edge and propagated** on every outbound call (05); every
-   service emits **structured JSON to stdout** that the pipeline shipped (04/05);
-   the failure was **logged at `ERROR` with a traceback**, not swallowed (00/04);
-   the client got the id back in a **safe error response** (01); and no secret/PII
-   in those lines forced redaction (03/05).
-6. **`WARNING`:** a handled, still-working situation — a retry that eventually
-   succeeded, a cache miss served from the DB (graceful degradation, module 00).
-   **`ERROR`:** an operation actually failed and a user/task was affected — an
-   exhausted retry, an unhandled exception. Getting it wrong (logging normal
-   things at `ERROR`) floods the central store with false errors, making real
-   ones un-findable, and — since alerts (08) fire on `ERROR` — directly causes
-   alert fatigue. Sampling must **keep 100% of `WARNING`/`ERROR`** (rare,
-   important) and **sample only high-volume `INFO`** — so mislabeling a routine
-   event as `ERROR` also defeats your volume control by making it un-sampleable.
-
-</details>
-
-## Further reading & sources
-
-- [Grafana Loki documentation](https://grafana.com/docs/loki/latest/) - the label-indexed, cost-efficient log store used in this module's exercises, and its LogQL query language.
-- [Promtail documentation](https://grafana.com/docs/loki/latest/send-data/promtail/) - the agent that collects container stdout and ships it to Loki, the "collect" stage of the pipeline.
-- [Elastic — The ELK Stack](https://www.elastic.co/elastic-stack) - the index-everything alternative (Elasticsearch + Logstash/Beats + Kibana) referenced as the other archetype.
-- [The Twelve-Factor App — XI. Logs](https://12factor.net/logs) - why the app emits an event stream and the environment owns collection, routing, and retention.
-- [OWASP — Logging Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Logging_Cheat_Sheet.html) - the sensitive-data rules that matter most once logs are aggregated into one high-value store.
-- [Elasticsearch — Index Lifecycle Management (ILM)](https://www.elastic.co/guide/en/elasticsearch/reference/current/index-lifecycle-management.html) - how retention is implemented as a hot → warm → cold → delete lifecycle.
+---
 
 ## Next
 
-[06-monitoring-and-metrics](../06-monitoring-and-metrics/README.md) — logs tell
-you *what happened* in detail, one event at a time, but they're expensive to
-aggregate for questions like "what's our error *rate* right now?" or "is p99
-latency climbing?". The next module adds the second pillar of observability:
-**metrics** — cheap, always-on numeric time series (counters, gauges,
-histograms) that answer "how much / how many / how fast" at a glance, and how to
-instrument a FastAPI app with `prometheus-client`.
+[Module 06: Monitoring and Metrics](../06-monitoring-and-metrics/README.md) — Transition from event-level logs to aggregate time series, master the four Prometheus metric types, and apply the RED method to monitor service health.

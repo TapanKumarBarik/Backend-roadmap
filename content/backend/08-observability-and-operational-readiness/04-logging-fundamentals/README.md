@@ -1,642 +1,487 @@
 # Module 04: Logging Fundamentals
 
-## Why this matters
+> **Prerequisites:** [Module 00: Error Handling Strategies](../00-error-handling-strategies/README.md), [Module 01: Global Error Handlers & User-Facing Errors](../01-global-error-handlers-and-user-facing-errors/README.md).
+> **Estimated Reading Time:** 30 minutes
+> **Target Audience:** Backend Engineers, SREs, Systems Architects.
 
-At 3am, when a service is misbehaving and you can't attach a debugger to
-production, logs are the story of what happened. They are the single most-used
-diagnostic tool in operations — not metrics, not traces, *logs* — because a
-log line can carry the exact input, the exact decision, and the exact error
-that a metric can only count. The catch is that logs are only as useful as they
-are *disciplined*. A codebase full of `print("here")`, `print(user)`, and
-`logger.info("done")` produces a firehose of noise that's useless the moment
-you actually need it — you can't filter it, you can't search it, you can't
-correlate it, and half the important events aren't logged at all.
+---
 
-This module is about the craft of a *good* log: choosing the right **level**
-so you can turn the volume up or down without changing code; choosing
-**structured** (key/value) output so a machine can filter and aggregate
-millions of lines; and knowing **what belongs in a line** so it's actually
-useful when you need it and not a liability (the secret-leaking kind from
-module 03) when you don't. This is the application-level counterpart to the
-`learn/03-kubernetes` observability module: that one covered reading logs
-*across a cluster*; this one is about the app *producing* logs worth reading.
-Module 05 then covers what happens to those logs once they leave the process —
-aggregation, retention, correlation IDs, and the sensitive-data rules in full.
+> [!TIP]
+> **Golden Rule of Production Logging**: Never use unformatted string interpolation or `print()` statements in production code. Emit all application events strictly as **structured, machine-parseable JSON lines to `stdout`**, tagged with standardized severity levels (`DEBUG`, `INFO`, `WARN`, `ERROR`), ISO-8601 UTC timestamps, and context-propagated correlation identifiers (`trace_id`). Let external container runtimes and log collectors handle shipping and storage—never write log files to local container filesystems.
 
-Get this module right and every later one gets easier: good structured logs
-feed your metrics (module 06), carry the trace IDs that tie the three pillars
-together (module 07), and are the raw material every alert (module 08) is built
-on. Get it wrong and you're operating blind with a haystack.
+---
 
-## Concepts
+## 1. Visual Mental Models & System Architecture
 
-### Log levels and when to use each
+At 3:00 AM during an active production outage, when you cannot attach an interactive debugger to production containers, logs are the authoritative narrative of what transpired. However, logs are only as effective as their structure. A codebase riddled with unstructured `print("here")`, `log.info("user created: " + user.toString())`, and un-indexed error dumps produces a firehose of noise that is impossible to search, filter, or correlate across distributed replicas.
 
-A log **level** is a severity tag on each line. Its purpose is *control*: you
-emit lines at many levels, and configure a *threshold* per environment so the
-process only outputs lines at or above it. Set the threshold to `DEBUG` in dev
-to see everything; set it to `INFO` (or `WARNING`) in prod to cut the noise —
-*without changing any code*. That's the whole point: levels let one codebase be
-chatty in dev and quiet in prod via config (module 02's log-level setting).
+### The Evolution: Unstructured Text vs. Structured JSON Telemetry
 
-The standard ladder, low to high severity, with the real question each answers:
+```mermaid
+flowchart TD
+    subgraph Legacy["Legacy: Unstructured Text Logging"]
+        direction TB
+        App1["App Code: print(f'Processing {order_id} for {user_id}')"]
+        Out1["[2026-11-10 14:02:11] INFO: Processing ord_99 for usr_42"]
+        Collector1["Log Shipper (Regex Parsing)"]
+        Index1["Brute-Force Text Search (Slow, High CPU, Fragile)"]
+        
+        App1 --> Out1 --> Collector1 --> Index1
+    end
 
-- **DEBUG** — *"what is the code doing, step by step?"* Fine-grained detail for
-  diagnosing during development: variable values, branch decisions, "entering
-  function X with args Y." Off in prod normally (too voluminous), but
-  invaluable when you temporarily raise the threshold to debug a live issue.
-- **INFO** — *"what significant, expected thing just happened?"* Normal
-  milestones: "server started on port 8000," "order 123 created," "user 45
-  logged in," "processed 200 records." The narrative of normal operation. The
-  default prod threshold usually starts here.
-- **WARNING** — *"something unexpected happened, but we handled it / it's not
-  broken yet."* A retry succeeded on the second attempt; a deprecated endpoint
-  was called; the cache was unreachable so we fell back to the DB; disk is at
-  80%. Warnings are *"look at this soon,"* not *"page someone now."* This is
-  also where graceful degradation (module 00) logs — a degraded-but-working
-  request.
-- **ERROR** — *"an operation failed and a user or task was affected."* A
-  request errored, a job failed, an exception we caught but couldn't recover
-  from. Something didn't work. Errors should be rare and *actionable* — each
-  one ideally corresponds to a real problem worth investigating. This is where
-  `logger.exception` (with the traceback) lives.
-- **CRITICAL / FATAL** — *"the app itself is going down or is unusable."* Can't
-  connect to the database at startup, out of memory, a required dependency is
-  gone. Often the last line before the process exits. Rare; each one is a
-  fire.
-
-The discipline that makes levels useful:
-
-- **Don't cry wolf.** If routine, handled situations log at `ERROR`, then
-  `ERROR` becomes noise and real errors get missed — the direct cause of alert
-  fatigue (module 08). A handled fallback is a `WARNING`, not an `ERROR`.
-- **Don't hide real problems.** If a genuine failure logs at `INFO` (or not at
-  all — module 00's swallowing), it's invisible. Match the level to the actual
-  severity.
-- **The level *is* the filter.** `ERROR` should mean "someone might need to act";
-  keep it clean enough that alerting on "any `ERROR`" is almost sane.
-
-A useful heuristic: *if you'd want to be woken up for it → `ERROR`/`CRITICAL`;
-if you'd want to see it in tomorrow's review → `WARNING`; if it's the normal
-story → `INFO`; if it's only useful while actively debugging → `DEBUG`.*
-
-```
-  CRITICAL ▲  app going down          "page me / it's a fire"
-  ERROR    │  operation failed        "someone might need to act"
-  WARNING  │  handled, degraded       "look at this soon"
-  ─────────┼──◄─ prod threshold usually HERE (INFO): emit ≥ this
-  INFO     │  normal milestone        "the story of normal ops"
-  DEBUG    ▼  step-by-step detail     "only while actively debugging"
-     raise threshold to DEBUG in dev → see everything, no code change
+    subgraph Modern["Modern: Structured JSON Logging (12-Factor Standard)"]
+        direction TB
+        App2["App Code: logger.info('order_processed', order_id=oid, user_id=uid)"]
+        Out2["{'timestamp':'2026-11-10T14:02:11Z','level':'INFO','event':'order_processed','order_id':'ord_99','user_id':'usr_42','trace_id':'00-4bf9...'}"]
+        Collector2["Log Collector (Native JSON Ingestion)"]
+        Index2["Instant Columnar Filtering in Loki / Elastic / Datadog"]
+        
+        App2 --> Out2 --> Collector2 --> Index2
+    end
 ```
 
-### Structured vs unstructured logging
+### The Log Level Severity Pyramid and Dynamic Filtering
 
-This is the single most consequential choice in the module.
+Log levels provide operational control over volume. You instrument your codebase thoroughly across all levels, and configure an environmental threshold so the runtime process only outputs lines at or above that threshold without code changes:
 
-**Unstructured logging** is free-text: a human sentence with values jammed in.
+```mermaid
+stateDiagram-v2
+    direction TB
+    
+    state "FATAL / CRITICAL" as L5
+    state "ERROR" as L4
+    state "WARN" as L3
+    state "INFO" as L2
+    state "DEBUG" as L1
 
-```
-2026-07-27 03:14:07 INFO User ada (id 8123) placed order A-4417 for $59.90 from 10.0.0.5 in 142ms
-```
+    L5: System panic, unrecoverable crash, data loss risk
+    L4: Programmer bugs, 500s, failed downstream operations
+    L3: Recoverable domain anomalies, transient retries, degraded performance
+    L2: Normal operational milestones (service boot, order placed, job finished)
+    L1: Deep diagnostic traces (variable dumps, internal step timings)
 
-Readable by a human, one line at a time. But a *disaster* for machines, which
-is what actually reads production logs at scale. To answer "show me all orders
-over $50 by user 8123 that took longer than 100ms," a machine has to *parse
-that sentence with a regex* — and the regex breaks the moment someone rewords
-the message, adds a field, or logs an order id with a space in it. You cannot
-reliably filter, aggregate, or graph free text.
-
-**Structured logging** emits each line as machine-readable key/value data —
-almost always JSON in production:
-
-```json
-{"timestamp": "2026-07-27T03:14:07Z", "level": "info", "event": "order_placed",
- "user_id": 8123, "user_name": "ada", "order_id": "A-4417", "amount": 59.90,
- "client_ip": "10.0.0.5", "duration_ms": 142, "request_id": "3f9a-..."}
-```
-
-Now the same question is a trivial query in any log system:
-`level=info event=order_placed user_id=8123 amount>50 duration_ms>100`. No
-regex, no fragility. Every field is typed, filterable, and aggregatable. This
-is *why structured wins*: production logs are read by machines (log
-aggregators, dashboards, alerts — modules 05-08), and machines need fields, not
-prose.
-
-```
-  UNSTRUCTURED: one opaque string ── machine must regex it, breaks on rewording
-  "User ada (id 8123) placed order A-4417 for $59.90 ... in 142ms"
-
-  STRUCTURED: named fields ── query any field directly, forever stable
-  ┌───────────┬───────┬──────────────┬─────────┬────────┬──────────┬────────────┐
-  │ timestamp │ level │ event        │ user_id │ amount │ duration │ request_id │
-  ├───────────┼───────┼──────────────┼─────────┼────────┼──────────┼────────────┤
-  │ 03:14:07Z │ info  │ order_placed │ 8123    │ 59.90  │ 142      │ 3f9a-...   │
-  └───────────┴───────┴──────────────┴─────────┴────────┴──────────┴────────────┘
-     └ processors/context add these ┘   └──── per-event fields you pass ────┘
+    L1 --> L2: Dev Threshold
+    L2 --> L3: Production Default
+    L3 --> L4: Critical Focus
+    L4 --> L5: Pager Alerting
 ```
 
-Concrete advantages of structured logs:
+### Contextual Log Enrichment Architecture
 
-- **Filterable and searchable** by any field, exactly, at scale.
-- **Aggregatable** — count errors by `error_type`, average `duration_ms` by
-  `endpoint`, without parsing.
-- **Correlatable** — attach a `request_id`/`trace_id` (module 05/07) as a field
-  and follow one request across every line and every service.
-- **Stable** — reword the human `event` name all you like; the *fields* stay
-  queryable. Adding a field never breaks existing queries.
-- **Context-rich** — you can bind context (the current user, request id) *once*
-  and have it appear on every subsequent line automatically (structlog's
-  killer feature, below).
+Every log line emitted within an asynchronous request pipeline must inherit context without requiring engineers to manually pass IDs through 20 function arguments:
 
-The one cost: raw JSON is less pleasant to eyeball than a sentence. The
-solution is *not* to go back to free text — it's to render **human-friendly
-console output in dev** (colored, aligned) and **JSON in prod**, from the *same*
-structured log calls. structlog does exactly this, so you get both without
-choosing.
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Client as Inbound Request
+    participant Middleware as Request Context Middleware
+    participant ContextStore as Context Store (contextvars / AsyncLocalStorage)
+    participant Service as Business Service
+    participant Stdout as stdout Stream (JSON)
 
-### structlog: structured logging in Python
+    Client->>Middleware: GET /orders/123 (X-Request-ID: req_42)
+    Middleware->>ContextStore: Initialize Context: {trace_id: "req_42", user_id: "u_99"}
+    Middleware->>Service: Execute ProcessOrder()
+    Service->>ContextStore: Read Contextual Attributes
+    Service->>Stdout: logger.info("payment_authorized", amount=50.00)
+    Note over Stdout: Log automatically enriched with trace_id & user_id!
+    Stdout-->>Client: Response returned
+```
 
-`structlog` is the de-facto structured logging library for Python. The mental
-model: you log an **event name** plus **key/value fields**, and a pipeline of
-**processors** transforms each event into the final output (adding a timestamp,
-the level, rendering to JSON or pretty console).
+---
+
+## 2. Taxonomic Reference Grids & Systematic Comparison Grids
+
+### Log Level Operational Reference
+
+| Log Level | Operational Meaning | When to Emit | Recommended Dev Setting | Recommended Prod Setting | Pager Duty Impact |
+| :--- | :--- | :--- | :---: | :---: | :--- |
+| **DEBUG** | Fine-grained internal mechanics for diagnostic analysis. | Variable payloads, branch evaluations, sub-millisecond step timings. | **Active** | **Disabled** (Turn on temporarily during triage) | Never page. |
+| **INFO** | Significant, normal business milestones. | Service boot complete, user logged in, order placed, transaction committed. | **Active** | **Active** | Never page; used for business metrics & audit. |
+| **WARN** | Unexpected condition that the system recovered from gracefully. | Transient network retry succeeded, deprecated API endpoint used, cache miss fallback. | **Active** | **Active** | Alert if aggregate rate spikes $> 300\%$. |
+| **ERROR** | Operation failed; user received a 500 or background job failed. | Uncaught exception, database deadlock, third-party API timeout after retries. | **Active** | **Active** | Track in error budgets; page if error rate $> 1\%$. |
+| **FATAL / CRITICAL**| Catastrophic failure causing immediate process shutdown. | Database credentials invalid at boot, out of memory, corrupted disk volume. | **Active** | **Active** | **Immediate PagerDuty wake-up call.** |
+
+### Unstructured Text Logs vs. Structured JSON Logs
+
+| Architectural Dimension | Unstructured Plain Text (`print`) | Structured JSON Lines (`stdout`) |
+| :--- | :--- | :--- |
+| **Format** | `2026-11-10 User 42 failed login: bad password` | `{"timestamp":"2026-11-10T14:00:00Z","level":"WARN","event":"auth_failed","user_id":42}` |
+| **Machine Parsability** | Requires complex, brittle Regex parsing in collectors. | Instantly parsed natively by Vector, FluentBit, Logstash, and Loki. |
+| **Query Flexibility** | Full-text substring search only (`grep`). | Rich Boolean queries: `level = "WARN" AND user_id = 42 AND latency_ms > 200`. |
+| **Cardinality Handling**| High risk of unbounded index bloat. | Key-value indexing allows separate indexing of labels vs. unstructured message strings. |
+| **Context Propagation** | Hardcoded into string; easy to forget fields. | Context variables automatically injected into every emitted JSON object. |
+
+### Mandatory Production Log Envelope Fields
+
+| Key Name | JSON Type | Standard Example | Operational Purpose |
+| :--- | :--- | :--- | :--- |
+| `timestamp` | String (ISO-8601 UTC) | `"2026-11-10T14:32:01.124Z"` | Precise chronological ordering across distributed systems. |
+| `level` | String | `"INFO"`, `"ERROR"`, `"WARN"` | Filtering and routing threshold in log collectors. |
+| `event` / `message` | String | `"order_checkout_completed"` | Stable, machine-queryable identifier of the log event. |
+| `service` | String | `"billing-api"` | Disambiguates microservices within a centralized log lake. |
+| `version` | String | `"v2.4.1"` / Git SHA | Correlates error spikes directly with specific releases. |
+| `trace_id` | String | `"4bf92f3577b34da6a3ce929d0e0e4736"` | W3C distributed trace context correlating all logs for one request. |
+| `duration_ms` | Float | `14.28` | Performance profiling and latency percentiles. |
+
+---
+
+## 3. Production War Stories: Incident Post-Mortem
+
+### The Incident: $14,000 Datadog Log Ingestion Spike from Uncapped DEBUG Logging in Production
+
+- **Severity:** SEV-2 (Operational Budget Exhaustion & Pipeline Degradation)
+- **Time to Detection:** 36 hours
+- **Time to Mitigation:** 15 minutes
+- **Impact:** 4.2 billion unnecessary debug log lines shipped to a cloud logging SaaS provider, resulting in a \$14,200 on-demand ingestion overage bill and throttling production log search indexing.
+
+#### What Happened
+To diagnose an intermittent WebSocket disconnection issue that only occurred under live traffic, an engineer temporarily deployed a configuration override setting `LOG_LEVEL=DEBUG` on a high-throughput gateway service handling 14,000 requests per second.
+
+The gateway's logging middleware contained a diagnostic statement:
+```python
+# The Expensive Line in Gateway Middleware
+logger.debug("packet_received", raw_payload=body.decode("utf-8"), headers=dict(request.headers))
+```
+
+In development, this line was harmless. In production at 14,000 QPS, it emitted **840,000 JSON lines every minute**. Over 36 hours of weekend traffic, the service generated **4.2 billion lines** totaling 3.8 Terabytes of log telemetry.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant App as Production API Gateway (14k QPS)
+    participant Fluent as FluentBit Sidecar Shipper
+    participant DD as Datadog / Cloud Log SaaS
+    participant FinOps as FinOps Budget Monitor
+
+    Note over App: Engineer deploys LOG_LEVEL=DEBUG to diagnose bug
+    loop 14,000 Requests Every Second
+        App->>Fluent: Emits raw JSON packet dump on every request
+    end
+    Fluent->>DD: Streams 1.8 GB of log text per minute
+    Note over DD: Ingestion pipeline throttles indexers
+    Note over DD: On-demand log ingestion bill surges $400/hour
+    FinOps-->>App: Monday Morning Alert: Log spend exceeded monthly budget by $14,000!
+```
+
+#### Root Cause
+1. **Unbounded Verbose Logging in Production:** Enabling `DEBUG` log levels in high-throughput production paths without sampling or volume limits.
+2. **Missing Ingestion Quotas:** The cloud logging account lacked hard daily volume caps or automated rate-limiting drops.
+3. **Payload Dumping:** Logging full uncompressed request and response payloads, massively amplifying bytes per event.
+
+#### The Fix & Architectural Hardening
+1. **Dynamic Log Sampling:** Implemented adaptive sampling for debug logs: even when `DEBUG` is active, only 0.1% of debug events are serialized and emitted.
+2. **Ingress Payload Size Limits:** Added a linter and wrapper ensuring no log field exceeds 1 KB in length, truncating large bodies automatically.
+3. **Automated Budget Guardrails:** Configured cloud logging provider ingestion rules to automatically drop debug-level lines if total daily ingestion exceeds 100 GB.
+
+---
+
+## 4. Multi-Language Production Implementations
+
+The following code tabs illustrate production structured logging: JSON formatting, context propagation (`trace_id`), level management, and sensitive credential masking across Go, TypeScript, and Python.
+
+### Go Production Implementation (`log/slog` Standard Library)
+
+```go
+package main
+
+import (
+	"context"
+	"log/slog"
+	"net/http"
+	"os"
+	"time"
+
+	"github.com/google/uuid"
+)
+
+type contextKey string
+
+const TraceIDKey contextKey = "trace_id"
+
+// ContextHandler wraps slog.JSONHandler to automatically extract trace_id from context.
+type ContextHandler struct {
+	slog.Handler
+}
+
+func (h *ContextHandler) Handle(ctx context.Context, r slog.Record) error {
+	if traceID, ok := ctx.Value(TraceIDKey).(string); ok {
+		r.AddAttrs(slog.String("trace_id", traceID))
+	}
+	return h.Handler.Handle(ctx, r)
+}
+
+func InitializeLogger(env string) *slog.Logger {
+	var level slog.Level
+	if env == "production" {
+		level = slog.LevelInfo
+	} else {
+		level = slog.LevelDebug
+	}
+
+	opts := &slog.HandlerOptions{
+		Level: level,
+		// Redact sensitive keys from log output
+		ReplaceAttr: func(groups []string, a slog.Attr) slog.Attr {
+			if a.Key == "password" || a.Key == "token" || a.Key == "secret" {
+				return slog.String(a.Key, "********")
+			}
+			return a
+		},
+	}
+
+	jsonHandler := slog.NewJSONHandler(os.Stdout, opts)
+	logger := slog.New(&ContextHandler{Handler: jsonHandler}).With(
+		slog.String("service", "order-service"),
+		slog.String("version", "v1.2.0"),
+	)
+	slog.SetDefault(logger)
+	return logger
+}
+
+func LoggingMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+		traceID := r.Header.Get("X-Request-ID")
+		if traceID == "" {
+			traceID = "req_" + uuid.NewString()[:8]
+		}
+
+		ctx := context.WithValue(r.Context(), TraceIDKey, traceID)
+		r = r.WithContext(ctx)
+
+		next.ServeHTTP(w, r)
+
+		slog.InfoContext(ctx, "http_request_completed",
+			slog.String("method", r.Method),
+			slog.String("path", r.URL.Path),
+			slog.Float64("duration_ms", float64(time.Since(start).Microseconds())/1000.0),
+		)
+	})
+}
+```
+
+### TypeScript / Node.js Production Implementation (Pino Structured Logger)
+
+```typescript
+import pino from 'pino';
+import { AsyncLocalStorage } from 'async_hooks';
+import { Request, Response, NextFunction } from 'express';
+
+// AsyncLocalStorage propagates context across asynchronous callback chains
+export const requestContext = new AsyncLocalStorage<{ traceId: string; userId?: string }>();
+
+export const logger = pino({
+  level: process.env.LOG_LEVEL || 'info',
+  formatters: {
+    level: (label) => ({ level: label.toUpperCase() }),
+  },
+  redact: {
+    paths: ['password', 'token', 'authorization', 'creditCard'],
+    censor: '********',
+  },
+  mixin() {
+    const store = requestContext.getStore();
+    return {
+      trace_id: store?.traceId,
+      user_id: store?.userId,
+      service: 'payment-gateway',
+    };
+  },
+  timestamp: pino.stdTimeFunctions.isoTime,
+});
+
+export function pinoLoggingMiddleware(req: Request, res: Response, next: NextFunction): void {
+  const start = process.hrtime.bigint();
+  const traceId = (req.headers['x-request-id'] as string) || `req_${Date.now()}`;
+
+  requestContext.run({ traceId }, () => {
+    res.on('finish', () => {
+      const durationMs = Number(process.hrtime.bigint() - start) / 1_000_000;
+      logger.info(
+        {
+          method: req.method,
+          path: req.path,
+          status: res.statusCode,
+          duration_ms: parseFloat(durationMs.toFixed(2)),
+        },
+        'http_request_finished'
+      );
+    });
+    next();
+  });
+}
+```
+
+### Python Production Implementation (Structured Contextvars Logger)
 
 ```python
-import structlog
+"""
+Production Structured JSON Logging using Standard Library & Contextvars.
+Provides automatic trace_id injection, sensitive key scrubbing,
+and 12-factor JSON stdout formatting.
+"""
 
-log = structlog.get_logger()
+from __future__ import annotations
 
-log.info("order_placed", order_id="A-4417", user_id=8123, amount=59.90)
-#         ^event name    ^--- arbitrary structured key/value fields ---^
-```
+import contextvars
+import json
+import logging
+import sys
+import time
+from typing import Any, Dict
 
-- The **first positional arg is the event name** — a short, stable, snake_case
-  identifier (`order_placed`, `payment_failed`), *not* a sentence with values
-  interpolated. Keep the variable data in fields, not in the message.
-- **Every keyword becomes a queryable field.** Add whatever context helps:
-  ids, durations, counts.
-- **`log.exception("payment_failed", order_id=...)`** inside an `except` block
-  attaches the traceback as structured data (module 00's habit, now structured).
+# Context variable holds per-request trace_id across async coroutines
+current_trace_id: contextvars.ContextVar[str] = contextvars.ContextVar("trace_id", default="none")
 
-The feature that makes structlog transformative for web apps is
-**context binding**: bind fields once (e.g. per request) and every subsequent
-log call automatically includes them.
 
-```python
-# at the start of a request (in middleware), bind the request id + user once:
-structlog.contextvars.bind_contextvars(request_id="3f9a-...", user_id=8123)
+class JSONLogFormatter(logging.Formatter):
+    SENSITIVE_KEYS = {"password", "token", "secret", "authorization", "cookie"}
 
-# ...anywhere deeper in the request, with no plumbing:
-log.info("cache_miss", key="user:8123")
-log.info("db_query", table="orders", duration_ms=12)
-# BOTH lines automatically carry request_id and user_id — you never passed them
-```
+    def format(self, record: logging.LogRecord) -> str:
+        log_entry: Dict[str, Any] = {
+            "timestamp": self.formatTime(record, "%Y-%m-%dT%H:%M:%SZ"),
+            "level": record.levelname,
+            "message": record.getMessage(),
+            "logger": record.name,
+            "trace_id": current_trace_id.get(),
+            "service": "billing-service",
+        }
 
-This is how you get a `request_id` (from track 02's request-context middleware)
-onto *every* log line in a request without threading it through every function
-signature — the foundation of the correlation story in module 05.
+        # Include custom structured attributes passed via extra={}
+        if hasattr(record, "extra_fields") and isinstance(record.extra_fields, dict):
+            for k, v in record.extra_fields.items():
+                if k.lower() in self.SENSITIVE_KEYS:
+                    log_entry[k] = "********"
+                else:
+                    log_entry[k] = v
 
-```
-  request in ──▶ middleware: bind_contextvars(request_id, user_id)
-                     │
-                     ▼   (no ids passed to any of these calls)
-     route handler ─── log.info("greeting")        ─┐
-        service fn ─── log.info("cache_miss")        ├─ EACH line auto-carries
-          db layer ─── log.info("db_query")         ─┘  request_id + user_id
-                     │
-                 clear_contextvars()  ◄── end of request, wipe the context
-```
+        if record.exc_info:
+            log_entry["exception"] = self.formatException(record.exc_info)
 
-A production-ready configuration that renders pretty console output in dev and
-JSON in prod, driven by config (module 02):
+        return json.dumps(log_entry)
 
-```python
-import logging, sys, structlog
 
-def configure_logging(env: str, level: str = "INFO"):
-    shared = [
-        structlog.contextvars.merge_contextvars,     # pull in bound request context
-        structlog.processors.add_log_level,           # add "level" field
-        structlog.processors.TimeStamper(fmt="iso"),  # add ISO timestamp
-        structlog.processors.StackInfoRenderer(),
-        structlog.processors.format_exc_info,         # render exceptions/tracebacks
-    ]
-    if env == "prod":
-        renderer = structlog.processors.JSONRenderer()          # machine-readable
-    else:
-        renderer = structlog.dev.ConsoleRenderer()              # colored, human dev output
-    structlog.configure(
-        processors=shared + [renderer],
-        wrapper_class=structlog.make_filtering_bound_logger(logging.getLevelName(level)),
-        logger_factory=structlog.PrintLoggerFactory(),
-        cache_logger_on_first_use=True,
+def setup_production_logging(log_level: str = "INFO") -> logging.Logger:
+    handler = logging.StreamHandler(sys.stdout)
+    handler.setFormatter(JSONLogFormatter())
+
+    root_logger = logging.getLogger()
+    root_logger.setLevel(log_level.upper())
+    # Remove existing default handlers to prevent duplicate lines
+    root_logger.handlers = [handler]
+    return logging.getLogger("app")
+
+
+# Usage demonstration
+logger = setup_production_logging()
+
+def process_order(order_id: str, amount: float) -> None:
+    current_trace_id.set("req_88f921ab")
+    logger.info(
+        "order_payment_processed",
+        extra={"extra_fields": {"order_id": order_id, "amount": amount, "password": "supersecret"}},
     )
 ```
 
-Same `log.info("order_placed", ...)` calls throughout your code; the *output
-format* is a config decision, exactly like module 02 preached.
+---
 
-### What belongs in a log line (and what must never)
+## 5. Practical Hands-On Verification CLI Workflows
 
-A good log line answers *what happened, to what, when, in what context, and (if
-it failed) why* — as fields. A useful checklist for every line:
+Verify structured JSON log emission and use `jq` to query and filter log attributes.
 
-**Always present (usually via processors/context, not per-call):**
-- **timestamp** (ISO 8601, UTC) — when.
-- **level** — severity.
-- **event name** — a stable identifier of *what* happened.
-- **request_id / trace_id** — the correlation key tying this line to a request
-  and (module 07) a distributed trace. Bound once per request.
-- **service / environment** — which app and which environment emitted it
-  (essential once logs from many services land in one place — module 05).
-
-**Add per-event, whatever makes it actionable:**
-- the **identifiers** involved — `user_id`, `order_id`, `job_id` (IDs, not full
-  objects).
-- **outcome/metrics** — `status`, `duration_ms`, `rows_affected`.
-- on failure, the **error type** and the **traceback** (via `log.exception`).
-
-**Must NEVER appear in a log line** (module 05 covers this in full; the rule
-starts here):
-- **secrets** — passwords, API keys, tokens, session cookies, full auth
-  headers. (`SecretStr` from module 03 is your passive guard.)
-- **PII beyond what you truly need** — full credit-card numbers (a *class of
-  compliance violation*), government IDs, and often full email/name depending
-  on your data-protection obligations. Log a `user_id`, not the user's password
-  reset token; log that a card was charged, not its number.
-- **entire request/response bodies** — they may contain any of the above, and
-  they bloat logs. Log the fields you need, not the whole payload.
-
-The mindset: a log line is *written once and read at 3am by someone who wasn't
-there*. Give them the IDs and context to reconstruct what happened — and
-nothing that turns your log store into a breach waiting to happen.
-
-### Logs are an append-only event stream, not files you manage
-
-A framing that pays off in module 05 and module 10 (factor XI): a modern app
-should treat logs as an **unbuffered event stream written to stdout/stderr**,
-and *not* concern itself with log files, rotation, or shipping. The app's only
-job is to *emit* well-structured events to standard out; the *environment*
-(the container runtime, the platform, a log agent) captures that stream and
-routes it to aggregation and storage. This is why the structlog config above
-uses `PrintLoggerFactory` (write to stdout) rather than opening a file — writing
-your own log files inside a container is an anti-pattern that fights the
-platform. The app produces the stream; the platform owns its fate. Module 05
-picks up exactly where that stream goes.
-
-## Command reference
-
-| Call / pattern | Purpose | Example |
-|---|---|---|
-| `structlog.get_logger()` | Get a bound logger | `log = structlog.get_logger()` |
-| `log.debug/info/warning/error/critical("event", **fields)` | Log at a level with structured fields | `log.info("order_placed", order_id="A-1")` |
-| `log.exception("event", **fields)` | Log at ERROR *with* the active traceback (in `except`) | `log.exception("charge_failed", order_id=oid)` |
-| `structlog.contextvars.bind_contextvars(**fields)` | Bind fields onto all later logs in this context | `bind_contextvars(request_id=rid)` |
-| `structlog.contextvars.clear_contextvars()` | Clear bound context (end of request) | `clear_contextvars()` |
-| `structlog.configure(processors=..., wrapper_class=...)` | Set up the processor pipeline once at startup | see Concepts |
-| `JSONRenderer()` | Render events as JSON (prod) | processor |
-| `dev.ConsoleRenderer()` | Render pretty colored output (dev) | processor |
-| `make_filtering_bound_logger(level)` | Drop events below a threshold level | wrapper_class |
-
-**Event name first, values as fields — never interpolate.** Write
-`log.info("user_login", user_id=8123)`, *not*
-`log.info(f"user {user_id} logged in")`. The f-string version re-creates
-unstructured logging (unqueryable, and it defeats aggregation because every
-message string is unique).
-
-**Configure once, at startup.** Call `structlog.configure(...)` during app
-construction (driven by your `Settings.log_level` / `environment` from modules
-02-03), not per log call. The *format* (JSON vs console) and *threshold* are
-config decisions.
-
-**Use `log.exception` only inside an `except` block** — it relies on the active
-exception. Outside one, use `log.error("event", exc_info=err)` with the
-exception object.
-
-## Hands-on exercises
-
-Start a `logging-fundamentals/` project:
+### Workflow 1: Inspecting JSON Output and Querying with `jq`
 
 ```bash
-python -m venv .venv && source .venv/bin/activate
-pip install "fastapi[standard]" structlog
+# Execute standalone Python script emitting structured JSON lines and filter with jq
+python -c "
+import json, sys, time
+
+events = [
+    {'timestamp': '2026-11-10T14:00:00Z', 'level': 'INFO', 'event': 'service_boot', 'port': 8080},
+    {'timestamp': '2026-11-10T14:00:01Z', 'level': 'WARN', 'event': 'cache_miss', 'key': 'user_42'},
+    {'timestamp': '2026-11-10T14:00:02Z', 'level': 'ERROR', 'event': 'db_timeout', 'duration_ms': 5020.4}
+]
+
+for e in events:
+    sys.stdout.write(json.dumps(e) + '\n')
+" | jq -r 'select(.level == "ERROR") | "[\(.timestamp)] FATAL ERROR: \(.event) took \(.duration_ms)ms"'
 ```
 
-### 1. Levels and thresholds
-
-Configure structlog (console renderer) with a threshold and emit one line at
-each level:
-
-```python
-import logging, structlog
-structlog.configure(
-    wrapper_class=structlog.make_filtering_bound_logger(logging.INFO),  # threshold
-)
-log = structlog.get_logger()
-for lvl in ("debug", "info", "warning", "error", "critical"):
-    getattr(log, lvl)(f"{lvl}_event", detail="x")
+Expected wire output:
+```text
+[2026-11-10T14:00:02Z] FATAL ERROR: db_timeout took 5020.4ms
 ```
 
-Expected: with the threshold at `INFO`, the `debug` line does *not* appear; the
-other four do. Change the threshold to `DEBUG` and re-run — now all five show.
-You just changed log volume without touching a single log call. That's the
-point of levels.
+---
 
-### 2. Unstructured vs structured, side by side
+## 6. Operational Validation Checkpoints (Scenario Quizzes)
 
-Log the same event both ways:
+### Checkpoint 1: Why Logging Full Request Bodies Breaks Compliance (GDPR / PCI-DSS)
+**Scenario:** To make API debugging simple, a backend developer adds middleware that logs every incoming JSON request body at `INFO` level. A user registers with their credit card number and password. What severe compliance violation has occurred?
 
-```python
-# unstructured
-log.info(f"user ada (id 8123) placed order A-4417 for $59.90 in 142ms")
-# structured
-log.info("order_placed", user="ada", user_id=8123, order_id="A-4417",
-         amount=59.90, duration_ms=142)
-```
+<details><summary>Click to view diagnosis and architectural solution</summary>
 
-Now imagine querying for "orders over $50." Write down how you'd extract the
-amount from each. Expected realization: from the structured line it's the
-`amount` field; from the unstructured one you need a fragile regex that breaks
-if the wording changes. Switch the renderer to `JSONRenderer()` and re-run — the
-structured line becomes clean JSON; the unstructured one is JSON with a useless
-single `event` string containing everything.
-
-### 3. JSON in prod, console in dev — same calls
-
-Wrap the Concepts `configure_logging(env, level)` into your project and run
-your script once with `env="dev"` and once with `env="prod"`. Expected:
-identical `log.info(...)` calls produce colored aligned console output in dev
-and one-line JSON in prod — proving format is a config decision, not a code
-one.
-
-### 4. Context binding across function calls
-
-```python
-import structlog
-log = structlog.get_logger()
-
-def charge(order_id):
-    log.info("charging")          # no ids passed in — will they appear?
-
-def handle_request(request_id, user_id, order_id):
-    structlog.contextvars.bind_contextvars(request_id=request_id, user_id=user_id)
-    log.info("request_start", order_id=order_id)
-    charge(order_id)
-    structlog.contextvars.clear_contextvars()
-
-handle_request("req-1", 8123, "A-4417")
-```
-
-Expected: the `charging` line — which passed *no* ids — still carries
-`request_id=req-1` and `user_id=8123`, because they were bound once. This is
-how a `request_id` reaches every line without plumbing.
-
-### 5. Wire it into FastAPI with per-request context
-
-Add middleware that binds a request id for the duration of each request:
-
-```python
-import uuid, structlog
-from fastapi import FastAPI, Request
-app = FastAPI()
-log = structlog.get_logger()
-
-@app.middleware("http")
-async def logging_context(request: Request, call_next):
-    rid = request.headers.get("X-Request-ID", str(uuid.uuid4()))
-    structlog.contextvars.clear_contextvars()
-    structlog.contextvars.bind_contextvars(request_id=rid, path=request.url.path)
-    log.info("request_start", method=request.method)
-    response = await call_next(request)
-    log.info("request_end", status=response.status_code)
-    response.headers["X-Request-ID"] = rid
-    return response
-
-@app.get("/hello")
-async def hello():
-    log.info("greeting")        # carries request_id + path automatically
-    return {"hi": True}
-```
-
-Hit `/hello`. Expected: `request_start`, `greeting`, and `request_end` all
-share the same `request_id` — three lines you can group into one request's
-story.
-
-### 6. Log an error with a traceback, at the right level
-
-```python
-@app.get("/boom")
-async def boom():
-    try:
-        1 / 0
-    except ZeroDivisionError:
-        log.exception("computation_failed", operation="divide")
-        raise
-```
-
-Hit `/boom`. Expected: an `error`-level line `computation_failed` *with the
-full traceback rendered as structured data* — and it carries the request
-context from exercise 5. Change `log.exception` to `log.info` and note how
-wrong that feels: a real failure logged at `info` is invisible to anyone
-filtering for problems.
-
-### 7. Choose the level for six situations
-
-For each, decide the correct level and justify in one line: (a) server finished
-starting; (b) a retry to the payment API succeeded on attempt 2; (c) the cache
-was down so you served from the DB (slower but correct); (d) a user submitted
-an invalid form (`422`); (e) the database is unreachable at startup; (f) a
-background job threw an unhandled exception and died.
-
-<details>
-<summary>Answers</summary>
-
-(a) **INFO** — normal expected milestone. (b) **WARNING** (or INFO) — it
-*worked*, but the fact a retry was needed is worth noticing; not an error since
-the outcome was success. (c) **WARNING** — graceful degradation: handled,
-working, but you want to know the cache is flaky. (d) **INFO** (or DEBUG) — a
-`422` is *normal* client behaviour, not a server problem; logging every
-validation failure at `ERROR` is crying wolf. (e) **CRITICAL** — the app can't
-function; likely the last line before exit. (f) **ERROR** — an operation
-failed and work was lost; log with the traceback (`log.exception`). The theme:
-match the level to *who needs to care and how urgently*, and never inflate
-normal events to `ERROR`.
-
+**Answer:**
+1. **Severe Compliance Violations:**
+   - **PCI-DSS Violation:** Storing plaintext Primary Account Numbers (PAN) or CVV codes in application logs violates PCI-DSS Requirement 3. It can result in massive financial fines and loss of payment processing rights.
+   - **GDPR Violation:** Storing un-redacted Personally Identifiable Information (PII) like plaintext passwords, national IDs, or health data violates data minimization principles and the "Right to be Forgotten" (since removing data from immutable log indexes is technically challenging).
+2. **Architectural Hardening:**
+   - Never log full request bodies in production.
+   - Implement **automated field redaction** in logging formatters that masks sensitive keys (`password`, `token`, `cardNumber`).
+   - Log only metadata: endpoint path, query parameters (sanitized), duration, and HTTP status code.
 </details>
 
-### 8. Diagnose and fix: logs nobody can use
+---
 
-You're handed this. Ops complains: "we can't filter these logs, we can't find a
-single request's lines, and last week we found a password in them." Fix every
-problem.
+### Checkpoint 2: Dynamically Altering Log Levels Without Restarting Containers
+**Scenario:** A microservice is experiencing an intermittent race condition that only appears in production. The current log level is `INFO`, which does not provide enough diagnostic detail. How can engineers toggle the log level to `DEBUG` for 10 minutes without redeploying code or terminating the running pods?
 
-```python
-@app.post("/login")
-async def login(username: str, password: str):
-    print(f"login attempt: {username} / {password}")          # (1)
-    user = authenticate(username, password)
-    if not user:
-        log.error(f"login failed for {username}")             # (2)
-        return {"ok": False}
-    log.info(f"user {username} logged in from {request_ip}")  # (3)
-    return {"ok": True}
-```
+<details><summary>Click to view diagnosis and architectural solution</summary>
 
-<details>
-<summary>Solution</summary>
-
-**(1) — `print` of a secret.** Two crimes: `print` bypasses the logging system
-entirely (no level, no structure, no routing — it just splats to stdout
-unfiltered), and it logs the **password in plaintext** (module 03/05's cardinal
-sin). Fix: delete the line, or if you need to record the attempt, log a
-*structured event with the username only* and *never* the password:
-`log.info("login_attempt", username=username)`.
-
-**(2) — wrong level + unstructured + not actionable.** A failed login is
-*normal* (users mistype passwords constantly), so `ERROR` is crying wolf — it
-should be `INFO` or `WARNING`. And it's an f-string, so it's unqueryable. Fix:
-`log.info("login_failed", username=username)` — a queryable field, an
-appropriate level. (Bonus: don't reveal *why* it failed to the client — module
-01's security note.)
-
-**(3) — unstructured, and no correlation.** The values are jammed into a
-sentence (`user {username}...`), so you can't filter by user or IP, and there's
-no `request_id` to group this line with the rest of the request. Fix:
-`log.info("login_succeeded", username=username, client_ip=request_ip)` with a
-`request_id` bound in middleware (exercise 5) so every line of the request
-shares an id.
-
-Root causes, tying the module together: **use the logging system, not `print`;
-event-name + fields, never interpolated sentences; the level must match the
-real severity; bind a `request_id` so lines correlate; and never, ever log a
-secret.** Fix all three and the ops complaints — "can't filter, can't
-correlate, found a password" — all disappear at once, because they were three
-symptoms of the same lack of logging discipline.
-
+**Answer:**
+1. **Administrative Runtime Control Endpoint:**
+   Expose an internal, authenticated management endpoint (e.g., `PUT /admin/log-level` with body `{"level": "DEBUG"}`).
+2. **Implementation:**
+   The controller dynamically updates the active logger handler threshold:
+   ```python
+   # FastAPI handler
+   logging.getLogger().setLevel(logging.DEBUG)
+   ```
+3. **Automated Reset:**
+   Schedule a timer that automatically reverts the log level back to `INFO` after 10 or 15 minutes, preventing accidental permanent disk and SaaS cost explosions if an engineer forgets to reset it.
 </details>
 
-## Independent challenge
+---
 
-No code given. Take the `api-layer` service (track 02) or your module-01 error
-app and give it a complete logging setup: (1) a single startup configuration
-(driven by your **module 03 `Settings`** — log level and env from config) that
-renders pretty console output in dev and JSON in prod; (2) a per-request bound
-`request_id` (reuse track 02's request-context middleware) that appears on
-*every* log line of the request, including inside route handlers and service
-functions you never pass it to; (3) correct, deliberate levels — normal
-milestones at `INFO`, handled fallbacks at `WARNING`, real failures at `ERROR`
-with tracebacks; and (4) a proof that no secret or full request body is ever
-logged, using `SecretStr` from module 03 as the guard. Then run one request end
-to end and show that you can grep a single `request_id` and reconstruct the
-entire request's story from the log alone.
+### Checkpoint 3: The Danger of Logging Inside Tight Computation Loops
+**Scenario:** An ETL pipeline processes 2,000,000 database records in a batch loop. A developer adds `logger.info("Processed row %d", row_id)` inside the loop. The batch job's execution time increases from 4 minutes to 3 hours. Why did logging cause a 45x slowdown?
 
-<details>
-<summary>Hint</summary>
+<details><summary>Click to view diagnosis and architectural solution</summary>
 
-The "appears on every line without plumbing" requirement is
-`structlog.contextvars.bind_contextvars` in your request middleware —
-`clear_contextvars()` at the start, bind the id, and every `log.*` call
-anywhere downstream in that request inherits it. The "no secret ever logged"
-proof is easiest if your config object uses `SecretStr` (module 03): even a
-careless `log.info("settings", **settings.model_dump())` then prints
-`**********`. For the level discipline, walk your existing routes and ask of
-each log call the exercise-7 question: *who needs to care, and how urgently?* —
-and downgrade anything that's crying wolf.
-
+**Answer:**
+1. **I/O Blocking and System Call Overhead:**
+   Writing to `stdout` involves making a synchronous `write()` syscall to the operating system file descriptor. Doing this 2 million times incurs massive context switching and blocks CPU execution waiting for terminal/pipe buffers to flush.
+2. **JSON Serialization Cost:**
+   Formatting 2 million JSON strings, calculating timestamps, and evaluating stack frames consumes significant CPU cycles.
+3. **The Solution (Batch Sampling):**
+   Log progress in coarse increments rather than per-item:
+   ```python
+   if idx % 50000 == 0:
+       logger.info("Batch progress", extra={"processed": idx, "total": total})
+   ```
 </details>
 
-## Common mistakes & troubleshooting
+---
 
-- **`print()` instead of a logger.** No level, no structure, no routing, can't
-  be filtered or turned off. Use the logging system for everything.
-- **f-string messages (`log.info(f"user {id} did X")`).** Recreates
-  unstructured logging — unqueryable, and defeats aggregation because every
-  message is unique. Use an event name + fields.
-- **Wrong levels — crying wolf.** Logging normal/handled situations at `ERROR`
-  makes `ERROR` meaningless and buries real problems (and fuels alert fatigue,
-  module 08). Match level to real severity.
-- **`log.error("failed")` without the traceback.** Use `log.exception(...)`
-  inside `except` blocks so the traceback is captured (module 00's recurring
-  lesson).
-- **Logging secrets, tokens, or full bodies.** A breach in your log store.
-  Never; use `SecretStr`, log IDs not payloads (module 05 in full).
-- **No correlation id.** Without a bound `request_id`, you can't reconstruct a
-  single request's story from interleaved logs. Bind one per request.
-- **Writing log files inside the app/container.** Fights the platform. Emit to
-  stdout as a stream; let the environment capture and route it (module 05/10).
-- **Configuring logging per call or not at all.** Configure once at startup,
-  format and threshold driven by config.
+## 7. Further Reading & References
 
-## Checkpoint quiz
+- [The Twelve-Factor App: Factor XI - Logs](https://12factor.net/logs) — Treat logs as event streams piped to stdout.
+- [Go `log/slog` Package Documentation](https://pkg.go.dev/log/slog) — Standard library structured logging in Go.
+- [Pino: High-Speed Node.js Structured Logger](https://getpino.io/) — Official documentation on asynchronous JSON logging and redaction.
 
-Write down your answer to each question before expanding it — checking without attempting first is the single easiest way to fool yourself into thinking you've learned this.
-
-1. What is a log level *for* — what does having levels let you do that a single
-   undifferentiated log stream doesn't? Give the prod-vs-dev example.
-2. A retry to an external API succeeds on the second attempt. What level, and
-   why is `ERROR` the wrong choice?
-3. Why does structured (key/value) logging beat unstructured free text for
-   production logs? Give a concrete query that's trivial with one and fragile
-   with the other.
-4. What does `structlog.contextvars.bind_contextvars` let you do, and why is it
-   the key to getting a `request_id` on every log line?
-5. List four things that must *never* appear in a log line, and name the
-   module-03 tool that passively guards against one of them.
-6. Why should an app emit logs to stdout as a stream rather than writing and
-   rotating its own log files?
-
-<details>
-<summary>Answers</summary>
-
-1. Levels are a *severity-based volume control*: you emit at many levels and
-   set a per-environment *threshold*, so the same code is chatty (`DEBUG`) in
-   dev and quiet (`INFO`/`WARNING`) in prod — changed via config, no code edit.
-   A single undifferentiated stream forces you to choose "everything or
-   nothing" and gives you no way to filter by importance.
-2. **WARNING** (arguably INFO) — the operation ultimately *succeeded*, so it's
-   not an error; but the fact a retry was necessary is worth noticing. `ERROR`
-   is wrong because it implies a failure that affected a user/task and might
-   warrant action — using it here is crying wolf, which desensitizes you to
-   real errors.
-3. Machines read production logs at scale, and machines need fields, not prose:
-   structured logs are filterable/aggregatable/correlatable by exact field,
-   and stay queryable even when you reword the message. Example: "orders over
-   $50 by user 8123" is `event=order_placed user_id=8123 amount>50` on
-   structured logs, but requires a fragile regex over free text that breaks the
-   moment the wording changes.
-4. It *binds* fields (like `request_id`, `user_id`) into the logging context
-   once, so every subsequent `log.*` call in that context automatically
-   includes them without being passed the values. That's what lets a
-   `request_id` set in middleware appear on every line emitted anywhere deeper
-   in the request, without threading it through function signatures.
-5. Never: secrets (passwords, API keys, tokens, session cookies/auth headers);
-   PII beyond need (full card numbers, government IDs); entire request/response
-   bodies; (and generally anything whose exposure is a compliance or security
-   problem). Module 03's `SecretStr` passively guards secrets — it renders as
-   `**********` even if accidentally logged.
-6. Because in modern (containerized/12-factor) deployments the *environment*
-   owns log capture, routing, aggregation, and retention — the app's only job
-   is to produce a well-structured event stream on stdout. Writing/rotating
-   files inside the app fights the platform, doesn't survive ephemeral
-   containers, and duplicates what the runtime already does (module 05/10).
-
-</details>
-
-## Further reading & sources
-
-- [structlog documentation](https://www.structlog.org/en/stable/) - the official docs for the structured-logging library, processors, and context binding used throughout this module.
-- [structlog — Context Variables](https://www.structlog.org/en/stable/contextvars.html) - how `bind_contextvars` puts a `request_id` on every line without threading it through calls.
-- [Python logging — Logging Levels](https://docs.python.org/3/library/logging.html#logging-levels) - the standard severity ladder that DEBUG/INFO/WARNING/ERROR/CRITICAL map onto.
-- [The Twelve-Factor App — XI. Logs](https://12factor.net/logs) - why an app should treat logs as an event stream on stdout rather than managing files.
-- [OWASP — Logging Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Logging_Cheat_Sheet.html) - what to log, what to never log, and how to avoid turning your log store into a breach.
+---
 
 ## Next
 
-[05-centralized-logging-and-best-practices](../05-centralized-logging-and-best-practices/README.md)
-— you now produce clean, structured, correctly-leveled, secret-free logs on
-stdout. Next: what happens to that stream once it leaves the process —
-centralized aggregation (why you can't SSH into every box), rotation and
-retention, correlation IDs tying back to request context, and the full rules
-for keeping sensitive data out. It also carries this track's second cumulative
-review.
+[Module 05: Centralized Logging and Best Practices](../05-centralized-logging-and-best-practices/README.md) — Aggregate stdout streams across ephemeral container clusters, correlate distributed requests with W3C Trace IDs, and establish data retention and compliance policies.

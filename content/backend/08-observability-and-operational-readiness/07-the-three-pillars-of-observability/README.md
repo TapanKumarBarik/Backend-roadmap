@@ -1,576 +1,510 @@
 # Module 07: The Three Pillars of Observability
 
-## Why this matters
+> **Prerequisites:** [Module 04: Logging Fundamentals](../04-logging-fundamentals/README.md), [Module 05: Centralized Logging & Best Practices](../05-centralized-logging-and-best-practices/README.md), [Module 06: Monitoring and Metrics](../06-monitoring-and-metrics/README.md).
+> **Estimated Reading Time:** 30 minutes
+> **Target Audience:** Backend Engineers, SREs, Systems Architects.
 
-You now have two of the three pillars: **logs** (module 04-05 — the detailed
-story of individual events) and **metrics** (module 06 — cheap aggregate numbers
-over time). Each answers a question the other can't. But there's a third question
-neither answers well, and it's the one that dominates debugging in a
-microservice or even a moderately layered app: *"a request was slow — **where**
-did the time go?"* A metric tells you p99 latency is 3 seconds; a log tells you a
-specific request failed. Neither shows you that the request spent 50ms in your
-API, 2.9 seconds waiting on the billing service, and 30ms in the database —
-which is the single fact that tells you where to look. That's what the third
-pillar, **tracing**, gives you: the end-to-end, hop-by-hop timing of one request
-as it flows across services.
+---
 
-This module is the *synthesis* module for the whole first half of the track. It
-introduces **distributed tracing** and the concepts behind it (traces, spans,
-context propagation), then — more importantly — shows how the three pillars
-**complement** each other rather than compete. The mistake people make is
-treating logs, metrics, and traces as three separate tools you pick between; the
-insight is that they're three *views of the same events*, most powerful when
-*correlated by a shared id* so you can pivot fluidly between them: a metric
-dashboard shows you *when and that* something is wrong, a trace shows you *where*
-in the request flow, and logs show you *why* at that exact point.
+> [!TIP]
+> **Golden Rule of the Three Pillars**: Treat **Metrics**, **Traces**, and **Logs** not as isolated siloed tools, but as three correlated perspectives of the exact same distributed execution. Use **Metrics** to detect *when* and *that* an anomaly is occurring, **Traces** to isolate *where* in the distributed dependency graph the latency or failure occurred, and **Logs** to diagnose *why* the failure happened at that exact line of code. Anchor all three signals to a shared W3C `trace_id` using **OpenTelemetry (OTel)**.
 
-The unifying technology is **OpenTelemetry (OTel)** — the vendor-neutral standard
-that produces all three signals with one instrumentation layer and one
-correlation id (the `trace_id`), which is why "observability" today largely means
-"OpenTelemetry plus a backend to store it." You've already built the manual
-ancestor of tracing in module 05 (propagating a `request_id` across services); this
-module shows how tracing formalizes and automates exactly that. Getting the
-three-pillar mental model right is what turns "we have logs and dashboards" into
-"we can actually debug production," and it's the foundation the alerting module
-(08) builds on.
+---
 
-## Concepts
+## 1. Visual Mental Models & System Architecture
 
-### Observability vs monitoring: known vs unknown unknowns
+Modern distributed architectures break traditional debugging assumptions. A metric dashboard informs you that p99 latency has surged to 3 seconds; a log tells you that a specific transaction aborted. Neither tool explains *where* the request spent those 3 seconds. 
 
-First, a distinction that frames the whole module. **Monitoring** is watching for
-the failure modes you *anticipated*: you knew error rate mattered, so you built a
-dashboard and an alert for it. It answers *known questions* — "is the thing I
-predicted might break, breaking?" **Observability** is the property of being able
-to answer questions you *didn't* anticipate — to ask *new* questions of your
-running system, after the fact, without shipping new code. It's about **unknown
-unknowns**: a novel failure you never predicted, where you need to slice and
-explore the data to understand what's happening.
+Did the request wait 2.9 seconds in an overloaded database connection pool, stall in an un-batched downstream RPC loop, or queue behind garbage collection? Answering this requires **Distributed Tracing**, the third pillar that unifies your telemetry into an actionable diagnostic workflow.
 
-Monitoring is a subset of observability. A system is *observable* when its
-outputs — logs, metrics, traces — are rich and correlated enough that you can
-start from a symptom ("checkout is slow for some users since 2pm") and
-*interrogate your way* to the cause, even though nobody built a "checkout slow
-for some users" dashboard in advance. The three pillars exist to make a system
-observable: each contributes a kind of evidence, and their correlation is what
-lets you follow a novel problem across all three.
+### The Observability Triad Correlation Flywheel
 
-### The three pillars, and the question each owns
+```mermaid
+flowchart TD
+    subgraph Step1["1. METRICS (Detection: 'Is something wrong?')"]
+        Alert["Prometheus Alert Fires:<br/>Checkout p99 Latency > 2000ms!"]
+        Graph["Grafana Dashboard shows spike"]
+        Alert --> Graph
+    end
 
-Each pillar answers a distinct question. Learn which owns which, because the
-skill is knowing *which to reach for* and *how to move between them*.
+    subgraph Step2["2. TRACES (Localization: 'WHERE is it slow?')"]
+        Exemplar["Click Exemplar Dot on Metric Graph"]
+        Waterfall["Jaeger / Tempo Distributed Waterfall:<br/>Gateway (2100ms)<br/>↳ OrderService (2050ms)<br/>  ↳ InventoryService (1980ms)<br/>    ↳ Postgres Query (1920ms! FOUND BOTTLE NECK)"]
+        Exemplar --> Waterfall
+    end
 
-- **Logs — "what exactly happened?"** Discrete, timestamped, high-detail events.
-  The record of individual occurrences with full context: the exact input, the
-  exact error, the exact decision. High cardinality, expensive at volume, the
-  place you land to read the actual failure. (Modules 04-05.)
-- **Metrics — "how much / how many / how fast, over time?"** Aggregated numeric
-  time series. Cheap, always-on, the basis of dashboards and alerts. They tell
-  you *that* something is wrong and *when*, at a glance, across all traffic.
-  (Module 06.)
-- **Traces — "where did the time go, across the whole request?"** The end-to-end
-  path of *one* request through every service and operation it touched, with
-  timing for each step. They tell you *where* in a distributed flow the latency
-  or error occurred — which service, which call, which DB query.
+    subgraph Step3["3. LOGS (Root Cause: 'WHY did it fail?')"]
+        LogFilter["Filter Centralized Logs by trace_id = '4bf9...'"]
+        RootCause["Log Output:<br/>[WARN] Connection pool exhausted! Max conns (20) reached.<br/>[ERROR] Query timeout on 'SELECT pg_advisory_lock'"]
+        LogFilter --> RootCause
+    end
 
-The canonical debugging loop uses all three in order:
-
-1. A **metric** alert fires: "p99 latency > 2s" or "error rate > 1%." You know
-   *that* something's wrong and *when*. (This is the smoke alarm — module 08.)
-2. You open a **trace** of a slow/failed request from that window: it shows the
-   request spent 2.8s in the `billing` service's `charge` call. You know *where*.
-3. You read the **logs** for that service, filtered to that request's id, at that
-   moment: they show a connection-pool timeout to the payment provider. You know
-   *why*.
-
-Metrics → traces → logs: *that/when* → *where* → *why*. No single pillar gets you
-there; the *correlation between them* does.
-
-```
-   ONE request  ─────────── joined by one correlation id (trace_id) ───────────┐
-        │                                                                       │
-   ┌────▼─────┐  that/when   ┌──────────┐  where      ┌──────────┐  why         │
-   │ METRICS  │ ───pivot───▶ │  TRACES  │ ──pivot──▶  │   LOGS   │              │
-   │ p99 > 2s │              │ 2.8s in  │             │ pool     │              │
-   │ @ 14:03  │              │ billing  │             │ timeout  │              │
-   └──────────┘              └──────────┘             └──────────┘              │
-   how much/fast             the request flow          the exact failure        │
-        └───────────────── same trace_id on all three ────────────────────────┘
+    Graph -->|Pivot via trace_id| Exemplar
+    Waterfall -->|Pivot via trace_id| LogFilter
 ```
 
-### What each pillar is good and bad at
+### Anatomy of a Distributed Trace (Spans & Context Trees)
 
-The pillars aren't redundant, and reaching for the wrong one is slow and
-expensive. Each has a strength, a blind spot, and a different cost shape:
+A **Trace** represents the complete lifecycle of a request as it flows across a distributed system. A trace is a directed acyclic graph (DAG) of **Spans**, where each span represents a contiguous timed block of work:
 
-| | Metrics | Logs | Traces |
-|---|---|---|---|
-| **Best at** | "Is it happening? How much? What's the trend?" — aggregate health, rates, thresholds, alerting | "What exactly happened in this one event?" — detail, context, error messages | "Where did this one slow request spend its time, across services?" |
-| **Weak at** | *Why* — a number can't tell you the error message | Aggregation and trend — counting millions of lines is slow and pricey | Aggregate health — one trace is one request, not a fleet-wide rate |
-| **Cost shape** | Cheapest per unit; cost driven by *cardinality* (module 06) | Heavier; cost driven by *volume* ingested and retained (module 05) | Heaviest per request; usually *sampled* — you keep a fraction (below) |
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Client as Web Client
+    participant GW as API Gateway (Root Span)
+    participant Order as Order Service (Child Span A)
+    participant DB as Postgres DB (Child Span B)
+    participant Pay as Payment Service (Child Span C)
 
-Two mismatches to recognise on sight: answering "how many requests per
-second?" by counting log lines (that's a metric), and answering "which user hit
-this error?" with a metric label (that's a cardinality explosion — it belongs
-in logs or traces).
-
-### Traces and spans: the anatomy of a request's journey
-
-A **trace** represents the entire journey of one request through your system. It's
-made of **spans**, and understanding this structure is the core of the module.
-
-- A **span** is a single named, timed operation: "handle GET /checkout," "query
-  orders table," "POST to billing," "charge card." Each span records a **start
-  time and duration**, a name, a status (ok/error), and **attributes**
-  (key/value metadata — `http.method`, `db.statement`, `user_id`).
-- Spans form a **tree**. The first span (the incoming request at the edge) is the
-  **root span**; operations it triggers are **child spans**; their sub-operations
-  are children of those. A **parent span's duration encloses its children's** —
-  so the tree visually shows *nesting* and *sequence*.
-- Every span in one request shares a single **`trace_id`**; each span also has its
-  own **`span_id`** and a **`parent_span_id`** linking it to its parent. That's
-  what stitches the tree together and, across services, keeps it one trace.
-
-Visualized, a trace is a **waterfall** — horizontal bars, time on the x-axis,
-nesting shown by indentation:
-
-```
-trace_id=abc  [ GET /checkout ...................................... 2900ms ]
-                 [ validate 5ms ]
-                 [ load cart (db) 30ms ]
-                 [ POST billing/charge ....................... 2800ms ]   <- the culprit
-                     [ billing: charge card ............... 2790ms ]
-                 [ send confirmation (queue) 12ms ]
+    Client->>GW: POST /api/v1/orders
+    Note over GW: Root Span: TraceID=00-4bf9... SpanID=101 Duration=240ms
+    
+    GW->>Order: RPC PlaceOrder()
+    Note over Order: Child Span A: ParentSpanID=101 SpanID=102 Duration=190ms
+    
+    Order->>DB: SQL INSERT INTO orders
+    Note over DB: Child Span B: ParentSpanID=102 SpanID=103 Duration=25ms
+    DB-->>Order: OK
+    
+    Order->>Pay: RPC AuthorizeCard()
+    Note over Pay: Child Span C: ParentSpanID=102 SpanID=104 Duration=140ms
+    Pay-->>Order: Approved
+    
+    Order-->>GW: Order Processed
+    GW-->>Client: HTTP 201 Created
 ```
 
-One glance at that waterfall and you know exactly where the 2.9 seconds went:
-the billing charge. *That* is what a trace buys you and neither logs nor metrics
-can: the **relative timing and structure** of one request's work. Without it,
-you'd be guessing which of five services or fifteen calls was slow.
+### The OpenTelemetry (OTel) Unified Pipeline
 
-### Context propagation: how a trace crosses service boundaries
+OpenTelemetry provides a single vendor-agnostic standard (API, SDK, and Collector) that outputs all three signals via the OpenTelemetry Protocol (**OTLP**):
 
-The hard part of *distributed* tracing is keeping it *one* trace when the request
-crosses a process/network boundary. This is **context propagation**, and it's the
-exact same mechanism as module 05's `request_id` propagation — now standardized.
+```mermaid
+flowchart TD
+    subgraph Services["Application Services (Instrumented via OTel SDK)"]
+        GoApp["Go Microservice (OTel Go SDK)"]
+        NodeApp["Node.js Microservice (OTel Node SDK)"]
+        PyApp["Python Microservice (OTel Python SDK)"]
+    end
 
-When service A calls service B, A injects the current **trace context** into the
-outgoing request's headers; B extracts it and continues the *same* trace as a
-child span, instead of starting a new one. The standard header is **W3C Trace
-Context** — the `traceparent` header, which encodes `trace_id`, the parent
-`span_id`, and flags:
+    subgraph OTelCollector["OpenTelemetry Collector Daemon / Gateway"]
+        Receivers["Receivers (OTLP gRPC / HTTP :4317/:4318)"]
+        Processors["Processors (Batching, Memory Limiter, Tail Sampling)"]
+        Exporters["Exporters (OTLP, Prometheus, Jaeger, Loki)"]
+        
+        Receivers --> Processors --> Exporters
+    end
 
-```
-traceparent: 00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01
-             ^ver ^-------- trace_id ---------- ^--- span_id --- ^flags
-```
+    GoApp -->|OTLP / gRPC| Receivers
+    NodeApp -->|OTLP / gRPC| Receivers
+    PyApp -->|OTLP / gRPC| Receivers
 
-- **Inject** on the way out (in service A's HTTP client): serialize the current
-  span's context into `traceparent`.
-- **Extract** on the way in (in service B's server): read `traceparent`, and make
-  B's root span a *child* of A's span in the *same* trace.
-
-```
-   service A                          service B
-   ┌──────────────────┐               ┌──────────────────┐
-   │ span: GET /checkout              │ span: charge     │
-   │  trace_id = abc  │  traceparent  │  trace_id = abc  │  ← SAME trace_id
-   │  span_id  = 111  │ ──00-abc-111─▶│  parent  = 111   │  ← child of A's span
-   └──────────────────┘   (inject)    └──────────────────┘   (extract)
-   without propagation: B starts trace_id=xyz → two disconnected traces
+    subgraph BackendStorage["Specialized Storage Engines"]
+        PromTSDB[("Prometheus (Metrics)")]
+        Tempo[("Grafana Tempo / Jaeger (Traces)")]
+        Loki[("Grafana Loki / Elasticsearch (Logs)")]
+        
+        Exporters --> PromTSDB
+        Exporters --> Tempo
+        Exporters --> Loki
+    end
 ```
 
-The payoff: a single `trace_id` now spans every service the request touched, so
-the waterfall reassembles across process boundaries into one tree. This is
-*exactly* module 05's "generate at the edge, propagate on every outbound call,"
-except the id and format are standardized and a full span tree is built rather
-than just a flat id — which is why manual `request_id` propagation is fairly
-called "tracing's ancestor." (For async/queue work, you propagate the context in
-the *message* rather than an HTTP header — same idea.)
+---
 
-### OpenTelemetry: one standard for all three pillars
+## 2. Taxonomic Reference Grids & Systematic Comparison Grids
 
-**OpenTelemetry (OTel)** is the vendor-neutral, industry-standard framework
-(a CNCF project, the merger of OpenTracing and OpenCensus) for generating and
-shipping telemetry. Its importance is that it produces **all three signals** —
-traces, metrics, and logs — through **one instrumentation layer** and one set of
-concepts, so you're not wiring three separate systems that don't know about each
-other. The pieces:
+### The Three Pillars Systematic Comparison
 
-- **API + SDK.** You instrument your code against the OTel *API*; the *SDK*
-  implements it. Auto-instrumentation libraries (e.g. for FastAPI, httpx,
-  SQLAlchemy) create spans for you around framework operations, so you get a
-  useful trace tree with almost no manual span code.
-- **The Collector.** A separate process that *receives* telemetry from your apps
-  (over the **OTLP** protocol), processes/batches it, and *exports* it to
-  backends. Your app talks only to the Collector; the Collector decides where
-  data goes — so switching backends (Jaeger → Tempo → a vendor) is a Collector
-  config change, not a code change. (Same "app stays vendor-neutral" principle as
-  logs to stdout in module 05.)
-- **Backends.** Traces land in a tracing backend — **Jaeger**, **Grafana Tempo**,
-  Zipkin, or a vendor (Datadog, Honeycomb). Metrics can go to Prometheus (module
-  06); logs to Loki/Elasticsearch (module 05) — all visualizable together in
-  Grafana.
+| Signal Dimension | Metrics | Distributed Traces | Structured Logs |
+| :--- | :--- | :--- | :--- |
+| **Operational Role** | **Detection**: Warns that an anomaly is occurring. | **Localization**: Identifies which service or query is the bottleneck. | **Diagnosis**: Pinpoints the exact code line, variables, and error message. |
+| **Primary Data Structure** | Numerical Time Series (`timestamp`, `float64`, `labels`). | Directed Acyclic Graph of Spans (`trace_id`, `span_id`, `duration`). | Discrete JSON Events (`timestamp`, `message`, `level`, `attributes`). |
+| **Data Volume & Cost** | **Constant**: Cost is independent of traffic volume. | **Scales with Traffic**: Requires sampling (1%–5%) to control cost. | **High**: Volume scales directly with user events and logging frequency. |
+| **Cardinality Tolerance**| **Strictly Low**: Unbounded labels crash TSDBs. | **Very High**: Span attributes support high-cardinality IDs (`user_id`). | **Very High**: Full JSON bodies and user metadata supported. |
+| **Industry Standard** | Prometheus / PromQL / OpenMetrics | W3C Trace Context / OpenTelemetry / Jaeger | OpenTelemetry / Grafana Loki / Elastic |
 
-The reason OTel is *the* answer to this module's question — how the pillars
-complement each other — is that it **correlates them by shared identifiers**.
-Because the same `trace_id` (and `span_id`) is attached to the trace *and*
-injected into every log line (module 05's context, now carrying `trace_id`) *and*
-available as an exemplar on metrics, you can pivot losslessly: click a spike on a
-metric graph → jump to a slow trace in that window → click a span → see exactly
-the log lines emitted during that span. Three pillars, one id, one investigation.
+### OpenTelemetry Core Concepts Reference
+
+| Concept | Architectural Definition | Practical Example |
+| :--- | :--- | :--- |
+| **TracerProvider** | State factory object maintaining tracer configuration and span exporters. | Initialized once at process boot: `otel.SetTracerProvider(tp)`. |
+| **Tracer** | The operational interface used to start and end spans within a package. | `tracer := otel.Tracer("order-service")`. |
+| **Span** | A single timed unit of work containing timestamps, name, status, and attributes. | Represents `db.query`, `http.handler`, or `cache.get`. |
+| **Span Attributes** | Structured key-value metadata attached to a span. | `http.status_code = 200`, `db.statement = "SELECT * FROM users"`. |
+| **Span Events** | Informational timestamped annotations inside a span (in-span logs). | `span.AddEvent("cache_miss_fallback_initiated")`. |
+| **Baggage** | Contextual key-value pairs propagated across network boundaries (not indexed). | Propagating `account_tier = "enterprise"` across 5 downstream RPCs. |
+
+### Trace Sampling Strategies
+
+| Sampling Strategy | When Decision is Made | Pros | Cons & Failure Modes | Ideal Use Case |
+| :--- | :--- | :--- | :--- | :--- |
+| **Head Sampling** | At request ingress (in the root span). | Zero memory buffer required; simple percentage decision (`5%`). | **Blind to Errors**: If an error occurs on a non-sampled request, the trace is permanently lost! | High-volume APIs with uniform traffic distributions. |
+| **Tail-Based Sampling** | At the OTel Collector after all spans complete. | **100% Error Capture**: Retains all 5xx traces and all slow traces ($>1\text{s}$) while dropping 99% of fast 200 OKs. | Requires OTel Collector to buffer traces in memory until requests finish. | Enterprise microservice production clusters. |
+
+---
+
+## 3. Production War Stories: Incident Post-Mortem
+
+### The Incident: The 3-Second Mystery Latency in Microservice Mesh
+
+- **Severity:** SEV-1 (Severe Latency Degradation)
+- **Time to Detection:** 15 minutes
+- **Time to Mitigation:** 25 minutes
+- **Impact:** E-commerce checkout p99 latency jumped from 120ms to 3,250ms during prime shopping hours. Customer checkout abandonment surged 35%.
+
+#### What Happened
+A product team launched an e-commerce feature allowing customers to buy product bundles. Following the release, p99 checkout response times spiked to 3.2 seconds. 
+
+Engineers opened Grafana. The Gateway showed 3.2s latency, but CPU, memory, and database connection pool utilization across all downstream microservices (Cart, Inventory, Pricing, Database) were hovering under 25%. Centralized logs revealed no errors. The on-call team was baffled: all downstream services appeared completely idle and healthy, yet requests took over 3 seconds to complete.
+
+```mermaid
+gantt
+    title Distributed Waterfall Trace: GET /bundle/checkout (Total: 3,200ms)
+    dateFormat  X
+    axisFormat %s ms
+
+    section Gateway
+    HTTP Ingress Handler           :active, 0, 3200
+    section CartService
+    ValidateCart()                 :active, 20, 150
+    section PricingService
+    CalculateBundleDiscounts()     :crit, active, 150, 3150
+    GetItemPrice(Item 1)           :150, 180
+    GetItemPrice(Item 2)           :180, 210
+    GetItemPrice(Item 3)           :210, 240
+    GetItemPrice(Item 100)         :3120, 3150
+```
+
+#### Root Cause
+With OpenTelemetry distributed tracing enabled, an engineer clicked an exemplar trace dot on the p99 latency metric. 
+
+The Jaeger waterfall trace immediately exposed the smoking gun:
+The `PricingService` contained a child span called `CalculateBundleDiscounts` that took **3,000ms**. Inside that span were **100 individual sequential child RPC spans** called `GetItemPrice()`, each taking 30ms:
+$$100 \text{ sequential round-trips} \times 30\text{ms} = 3{,}000\text{ms}$$
+
+A junior developer had written an un-batched `for` loop that called the item pricing microservice one item at a time over network HTTP, rather than passing the bundle of 100 IDs in a single batch query! Because each individual RPC took only 30ms, no individual service or database ever reported high load.
+
+#### The Fix & Architectural Hardening
+1. **Batched Downstream RPC:** Replaced the sequential `for` loop with a single batch RPC: `BatchGetItemPrices(item_ids)`.
+2. **Post-Fix Performance:** The entire pricing operation collapsed from 100 sequential network round-trips into a single 35ms network call. Overall p99 checkout latency dropped from **3,250ms to 65ms** (a 98% reduction).
+3. **Trace-Based Linting:** Configured an automated CI check with OpenTelemetry integration tests that alerts if an HTTP route issues more than 5 downstream RPC spans of the same type in a single request (detecting N+1 network queries).
+
+---
+
+## 4. Multi-Language Production Implementations
+
+The following code tabs demonstrate how to initialize OpenTelemetry, create custom child spans, inject span attributes, and export telemetry via OTLP across Go, TypeScript, and Python.
+
+### Go Production Implementation (OpenTelemetry Go SDK)
+
+```go
+package main
+
+import (
+	"context"
+	"fmt"
+	"log"
+	"net/http"
+	"time"
+
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
+	"go.opentelemetry.io/otel/propagation"
+	"go.opentelemetry.io/otel/sdk/resource"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	semconv "go.opentelemetry.io/otel/semconv/v1.24.0"
+	"go.opentelemetry.io/otel/trace"
+)
+
+var tracer trace.Tracer
+
+func InitTracer(ctx context.Context, serviceName string) (*sdktrace.TracerProvider, error) {
+	exporter, err := otlptracegrpc.New(ctx,
+		otlptracegrpc.WithInsecure(),
+		otlptracegrpc.WithEndpoint("localhost:4317"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create OTLP trace exporter: %w", err)
+	}
+
+	res, err := resource.New(ctx,
+		resource.WithAttributes(
+			semconv.ServiceNameKey.String(serviceName),
+			attribute.String("environment", "production"),
+		),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	tp := sdktrace.NewTracerProvider(
+		sdktrace.WithBatcher(exporter),
+		sdktrace.WithResource(res),
+		sdktrace.WithSampler(sdktrace.AlwaysSample()),
+	)
+
+	otel.SetTracerProvider(tp)
+	otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(
+		propagation.TraceContext{},
+		propagation.Baggage{},
+	))
+
+	tracer = otel.Tracer(serviceName)
+	return tp, nil
+}
+
+// OrderProcessingService demonstrating nested custom spans
+func ProcessOrder(ctx context.Context, orderID string, amount float64) error {
+	ctx, span := tracer.Start(ctx, "ProcessOrder",
+		trace.WithAttributes(
+			attribute.String("order.id", orderID),
+			attribute.Float64("order.amount", amount),
+		),
+	)
+	defer span.End()
+
+	// Child Span: Charge Card
+	if err := authorizePayment(ctx, orderID, amount); err != nil {
+		span.RecordError(err)
+		span.SetAttributes(attribute.String("error.type", "payment_failed"))
+		return err
+	}
+
+	span.AddEvent("order_processed_successfully")
+	return nil
+}
+
+func authorizePayment(ctx context.Context, orderID string, amount float64) error {
+	ctx, span := tracer.Start(ctx, "authorizePayment")
+	defer span.End()
+
+	time.Sleep(20 * time.Millisecond) // Simulate network RPC
+	span.SetAttributes(attribute.String("payment.gateway", "stripe"))
+	return nil
+}
+```
+
+### TypeScript / Node.js Production Implementation (OpenTelemetry SDK)
+
+```typescript
+import { trace, context, SpanStatusCode } from '@opentelemetry/api';
+import { NodeTracerProvider } from '@opentelemetry/sdk-trace-node';
+import { BatchSpanProcessor } from '@opentelemetry/sdk-trace-base';
+import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-grpc';
+import { Resource } from '@opentelemetry/resources';
+import { SemanticResourceAttributes } from '@opentelemetry/semantic-conventions';
+
+// Initialize OpenTelemetry Tracer Provider
+const provider = new NodeTracerProvider({
+  resource: new Resource({
+    [SemanticResourceAttributes.SERVICE_NAME]: 'order-service-ts',
+    [SemanticResourceAttributes.DEPLOYMENT_ENVIRONMENT]: 'production',
+  }),
+});
+
+const exporter = new OTLPTraceExporter({ url: 'http://localhost:4317' });
+provider.addSpanProcessor(new BatchSpanProcessor(exporter));
+provider.register();
+
+const tracer = trace.getTracer('order-service-ts');
+
+export async function executeOrderWorkflow(orderId: string, customerId: string): Promise<void> {
+  // Start Root/Parent Span
+  return tracer.startActiveSpan('executeOrderWorkflow', async (parentSpan) => {
+    try {
+      parentSpan.setAttribute('order.id', orderId);
+      parentSpan.setAttribute('customer.id', customerId);
+
+      // Child Span: Inventory Check
+      await tracer.startActiveSpan('checkInventory', async (childSpan) => {
+        childSpan.setAttribute('inventory.warehouse', 'us-east-1');
+        await new Promise((resolve) => setTimeout(resolve, 15));
+        childSpan.end();
+      });
+
+      parentSpan.setStatus({ code: SpanStatusCode.OK });
+    } catch (err: any) {
+      parentSpan.recordError(err);
+      parentSpan.setStatus({ code: SpanStatusCode.ERROR, message: err.message });
+      throw err;
+    } finally {
+      parentSpan.end();
+    }
+  });
+}
+```
+
+### Python Production Implementation (FastAPI with OpenTelemetry)
 
 ```python
-# minimal OTel tracing on FastAPI (auto-instrumentation does the heavy lifting)
+"""
+Enterprise OpenTelemetry Python Implementation.
+Demonstrates custom span creation, span events, OTLP exporter setup,
+and error status recording.
+"""
+
+from __future__ import annotations
+
+import time
 from opentelemetry import trace
-from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
-from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
+from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+from opentelemetry.sdk.resources import Resource
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import BatchSpanProcessor
+from opentelemetry.trace import Status, StatusCode
 
-FastAPIInstrumentor.instrument_app(app)   # a span per request, extracts traceparent
-HTTPXClientInstrumentor().instrument()     # child spans for outbound calls, injects traceparent
+# Initialize OTel Tracer Provider
+resource = Resource.create({"service.name": "checkout-service-py", "environment": "production"})
+provider = TracerProvider(resource=resource)
+processor = BatchSpanProcessor(OTLPSpanExporter(endpoint="localhost:4317", insecure=True))
+provider.add_span_processor(processor)
+trace.set_tracer_provider(provider)
 
-tracer = trace.get_tracer(__name__)
+tracer = trace.get_tracer("checkout-service-py")
 
-@app.post("/checkout")
-async def checkout(order: Order):
-    with tracer.start_as_current_span("validate_order") as span:  # a manual child span
-        span.set_attribute("order.tier", order.tier)              # attributes, NOT the whole order
-        validate(order)
-    await charge(order)     # httpx span is auto-created AND traceparent auto-propagated
-    return {"ok": True}
+
+def process_checkout(cart_id: str, total_price: float) -> str:
+    # Start parent span
+    with tracer.start_as_current_span("process_checkout") as span:
+        span.set_attribute("cart.id", cart_id)
+        span.set_attribute("cart.total_price", total_price)
+
+        try:
+            # Child span: Reserve Stock
+            with tracer.start_as_current_span("reserve_stock") as stock_span:
+                stock_span.set_attribute("items.count", 3)
+                time.sleep(0.02)  # Simulate database write
+                stock_span.add_event("stock_reserved")
+
+            # Child span: Authorize Payment
+            with tracer.start_as_current_span("authorize_payment") as pay_span:
+                pay_span.set_attribute("payment.method", "credit_card")
+                time.sleep(0.04)
+
+            span.set_status(Status(StatusCode.OK))
+            return "SUCCESS"
+        except Exception as exc:
+            span.record_exception(exc)
+            span.set_status(Status(StatusCode.ERROR, str(exc)))
+            raise
 ```
 
-### Sampling traces: you can't keep them all
+---
 
-Like logs (module 05), traces have a volume/cost problem — a trace per request at
-scale is enormous — so tracing systems **sample**: keep a representative subset.
-Two strategies worth knowing by name:
+## 5. Practical Hands-On Verification CLI Workflows
 
-- **Head-based sampling.** Decide at the *start* of the trace (at the root, the
-  "head") whether to keep it, e.g. keep 1% of all traces at random. Simple and
-  cheap, and the decision propagates down the `traceparent` flags so the whole
-  trace is consistently kept or dropped. The downside: it's random, so it may
-  drop the very error trace you needed.
-- **Tail-based sampling.** Decide at the *end*, once the whole trace is complete,
-  in the Collector — so you can keep *all* traces that erred or were slow and
-  sample only the boring fast-and-successful ones. This is the tracing analogue
-  of module 05's "sample the boring, keep every error," and it's usually what you
-  want, at the cost of the Collector buffering complete traces before deciding.
+Launch an all-in-one local Jaeger observability container and inspect exported traces via web UI and API.
 
-The same discipline recurs across all three pillars: at scale you cannot keep
-every signal, so you keep *all of the interesting* (errors, slow) and *a sample
-of the boring* — whether it's log lines, or traces.
-
-## Command reference
-
-| Concept / API | Pillar | Purpose |
-|---|---|---|
-| Trace | tracing | The whole journey of one request (a tree of spans, one `trace_id`) |
-| Span | tracing | One named, timed operation; has `span_id`, `parent_span_id`, attributes |
-| Root span | tracing | The first/outermost span of a trace (the edge request) |
-| `traceparent` (W3C) | tracing | Header that propagates trace context across services |
-| Context propagation | tracing | Inject on outbound, extract on inbound → one trace across hops |
-| OpenTelemetry API/SDK | all three | Vendor-neutral instrumentation for traces+metrics+logs |
-| OTLP | transport | The protocol apps use to send telemetry to the Collector |
-| OTel Collector | transport | Receives, processes, and exports telemetry to backends |
-| Jaeger / Tempo | tracing backend | Store and visualize traces (waterfalls) |
-| Head vs tail sampling | tracing | Decide-at-start (cheap, random) vs decide-at-end (keep errors) |
-
-**Correlating logs with the active trace (the pillar glue):**
-
-```python
-import structlog
-from opentelemetry import trace
-
-def add_trace_context(logger, method_name, event_dict):
-    span = trace.get_current_span()
-    ctx = span.get_span_context()
-    if ctx and ctx.is_valid:
-        event_dict["trace_id"] = format(ctx.trace_id, "032x")
-        event_dict["span_id"] = format(ctx.span_id, "016x")
-    return event_dict
-# add this processor to your structlog chain (module 04) so EVERY log line
-# carries the trace_id — now a log and a trace are joinable by one id
-```
-
-**A local three-pillar stack (docker-compose sketch):** an **OTel Collector**
-(receives OTLP from your app), **Tempo** or **Jaeger** for traces, **Prometheus**
-for metrics (module 06), **Loki** for logs (module 05), and **Grafana** as the
-single UI over all three. The app is instrumented once with OTel and points at
-the Collector; everything downstream is infra config.
-
-**Attributes, not payloads, on spans.** Set bounded, useful attributes
-(`http.status_code`, `db.system`, `order.tier`) — never dump whole request
-bodies, secrets, or PII onto a span. Same sensitive-data rules as logs (module
-05); traces are stored and viewable too.
-
-## Hands-on exercises
-
-Create a `tracing/` project (or extend your metrics one):
+### Workflow 1: Running Local Jaeger Tracing UI with OTLP Ingestion
 
 ```bash
-pip install "fastapi[standard]" opentelemetry-distro opentelemetry-exporter-otlp \
-    opentelemetry-instrumentation-fastapi opentelemetry-instrumentation-httpx structlog
+# Start an isolated Jaeger container supporting OTLP gRPC (4317), HTTP (4318), and UI (16686)
+docker run -d --name jaeger-test \
+  -p 16686:16686 \
+  -p 4317:4317 \
+  -p 4318:4318 \
+  jaegertracing/all-in-one:latest
 ```
 
-For the backend, run Jaeger all-in-one: `docker run -p 16686:16686 -p 4317:4317
-jaegertracing/all-in-one` (UI on :16686, OTLP on :4317).
+### Workflow 2: Verifying Ingestion of Spans via Jaeger REST API
 
-### 1. Your first trace: one auto-instrumented service
-
-Instrument a single FastAPI app with `FastAPIInstrumentor.instrument_app(app)`,
-export to Jaeger's OTLP endpoint, and hit a route. Open Jaeger (:16686) and find
-the trace.
-
-Expected: a trace with a single root span for your request, showing its
-duration. You've produced the first pillar's third member with almost no code —
-auto-instrumentation created the span.
-
-### 2. See a span tree from nested work
-
-Add manual child spans around two operations in a route
-(`tracer.start_as_current_span("step_a")`, then `"step_b"`), each with a small
-`asyncio.sleep`. View the trace.
-
-Expected: a waterfall with the root span enclosing two child bars in sequence,
-each with its own duration. You can *see* which step took longer — the structure
-tracing exists to show.
-
-### 3. Distributed trace across two services
-
-Run two instrumented services (`api` → `billing`), with
-`HTTPXClientInstrumentor().instrument()` on the caller so the outbound call
-propagates `traceparent`. Hit `api`; it calls `billing`.
-
-Expected: **one** trace in Jaeger spanning *both* services — `api`'s span with
-`billing`'s span nested inside it, sharing one `trace_id`. Now disable the httpx
-instrumentation (or strip the header) and retry: you get **two** disconnected
-traces. That broken state is what context propagation prevents — and it's
-module 05's `request_id` propagation, now automatic and structured.
-
-### 4. Read a waterfall to find the slow hop
-
-Make `billing` sleep 2 seconds and `api` do a fast DB-ish operation. Look at the
-trace waterfall.
-
-Expected: the waterfall makes it obvious the time is in `billing`, not `api` —
-one glance replaces guesswork. Write down: how would you have found this from
-*metrics alone*? (You'd know the request was slow, but not *which* hop — that's
-the gap traces fill.)
-
-### 5. Correlate a log line with its trace
-
-Add the `add_trace_context` processor to your structlog config. Emit a
-`log.info(...)` inside a span. Check the log output and the span.
-
-Expected: the log line now carries a `trace_id` (and `span_id`) matching the
-active span. You've built the pillar glue: given a trace, you can find its logs;
-given a log, you can find its trace — by one shared id. This is the correlation
-that makes three pillars *one* investigation.
-
-### 6. The full metrics → trace → logs loop
-
-Combine module 06's metrics with this module's tracing on one service. Generate
-mixed traffic including some slow/erroring requests. Then, playing incident
-responder: (a) spot the latency spike on your Prometheus/Grafana metric; (b) find
-a slow trace from that window in Jaeger and identify the slow span; (c) filter
-your logs to that `trace_id` and read what happened.
-
-Expected: you complete the *that/when → where → why* loop end to end on real
-data. This exercise *is* the module — internalize the pivot between pillars.
-
-### 7. Head vs tail sampling, conceptually
-
-Configure head-based sampling to keep 10% of traces (`TraceIdRatioBased(0.1)`).
-Generate 100 requests, 5 of which error. Count how many traces (and how many
-*error* traces) land in Jaeger.
-
-Expected: ~10 traces total, and — because head sampling is *random* — you likely
-*lose most of the error traces*. Write down why tail-based sampling (decide at
-the end, keep all errors) would fix this, and what it costs (the Collector must
-buffer complete traces). This mirrors module 05's "never sample errors."
-
-### 8. Diagnose and fix: three tools, no answers
-
-An on-call engineer says: "We have great dashboards, we have tons of logs, we
-even added tracing — but when checkout got slow for *some* users yesterday it
-still took us three hours to find that one downstream service was the problem.
-Why didn't the tooling help?" Here's their setup. Diagnose what's broken about
-how the pillars are (not) connected.
-
-```
-- Metrics: RED metrics per service, but each service on its own dashboard.
-- Logs:    structured JSON to Loki, but no trace_id/request_id field.
-- Traces:  each service creates its own root span (no traceparent propagation).
-- No shared correlation id across any of the three.
+```bash
+# Query the Jaeger API for traces emitted by service "checkout-service-py"
+curl -s "http://localhost:16686/api/traces?service=checkout-service-py&limit=1" | jq '.data[0].spans[] | {operationName, duration, spanID}'
 ```
 
-<details>
-<summary>Solution</summary>
+Expected wire output:
+```json
+{
+  "operationName": "process_checkout",
+  "duration": 60234,
+  "spanID": "a1b2c3d4e5f60718"
+}
+{
+  "operationName": "reserve_stock",
+  "duration": 20112,
+  "spanID": "b2c3d4e5f6071829"
+}
+{
+  "operationName": "authorize_payment",
+  "duration": 40050,
+  "spanID": "c3d4e5f607182930"
+}
+```
 
-They have three pillars but **no correlation**, so they can't pivot between them
-— which is the entire value. Each problem:
+---
 
-**Traces don't propagate context** — each service starts its own root span, so
-there's no *distributed* trace; you can't see the request flow *across* services,
-which is exactly the "which downstream service" question they couldn't answer.
-Fix: instrument the HTTP clients so `traceparent` is injected/extracted (exercise
-3) — then one waterfall shows the slow hop in seconds.
+## 6. Operational Validation Checkpoints (Scenario Quizzes)
 
-**Logs carry no `trace_id`/`request_id`** — so even when they suspect a service,
-they can't jump from a trace (or a metric spike) to *that request's* logs; they're
-grepping blind. Fix: add the `trace_id` processor (exercise 5) so every log joins
-to a trace.
+### Checkpoint 1: Metrics with Exemplars (The Metric-to-Trace Pivot)
+**Scenario:** In Grafana, an on-call engineer views a Prometheus latency graph showing that p99 latency spiked to 4.2 seconds at 10:15 AM. Rather than searching through millions of traces in Jaeger by guessing timestamps, the engineer clicks directly on an individual data point dot on the Grafana graph, and the exact slow trace immediately opens. What telemetry feature enables this?
 
-**Metrics are siloed per service with no link out** — a spike on one dashboard
-can't be pivoted to an example trace or the logs. Fix: shared labels + exemplars/
-`trace_id` so the metric points at real traces.
+<details><summary>Click to view diagnosis and architectural solution</summary>
 
-**No shared id across any pillar** is the root cause: the three pillars only
-become *observability* when a single id (the `trace_id`, propagated everywhere and
-stamped on logs and metrics) lets you move *that/when → where → why*. With it,
-"checkout slow for some users" is: metric spike → open a slow trace → see the
-downstream span → read that span's logs — minutes, not hours. The tools weren't
-the problem; the *correlation between them* was missing. OpenTelemetry exists
-precisely to give you that one id across all three.
-
+**Answer:**
+1. **The Feature: OpenMetrics / Prometheus Exemplars:**
+   An **Exemplar** is a reference to data outside the metric set (specifically a W3C `trace_id`) that is attached to a specific metric observation.
+2. **How It Works:**
+   When the histogram measures a request that took 4.2 seconds, the OpenTelemetry metrics SDK attaches the active span's `trace_id` to that bucket observation:
+   ```text
+   http_request_duration_seconds_bucket{le="5.0"} 1 # {trace_id="4bf92f3577b34da6..."} 4.215
+   ```
+3. **The User Experience:**
+   Grafana renders exemplars as interactive clickable dots overlaid on time-series charts, allowing engineers to transition from a macro metric alert to the exact micro trace waterfall in **one click**.
 </details>
 
-## Independent challenge
+---
 
-No code given. Take the two-service setup from **module 05's independent
-challenge** (where you propagated a `request_id` by hand) and *upgrade it to full
-OpenTelemetry* — then prove the three pillars work as one. Concretely: (1)
-auto-instrument both services and their HTTP client with OTel so a single
-distributed trace spans both, viewable as a waterfall in Jaeger/Tempo; (2) keep
-module 06's RED metrics on both services; (3) add the `trace_id` processor to
-your structlog config (module 04/05) so every log line carries the trace's id;
-and (4) run one deliberately-slow, deliberately-erroring request and demonstrate
-the complete investigation loop *on your own data* — start from the metric that
-shows it's slow, open the trace to find *which* service/span, and land in the
-logs filtered by `trace_id` to read *why*. Write down, in one paragraph, how this
-compares to the hand-rolled `request_id` propagation from module 05 — what OTel
-automated, and what stayed the same.
+### Checkpoint 2: Tail-Based Sampling vs. Head Sampling
+**Scenario:** A high-throughput fintech platform processes 50,000 transactions per second. The infrastructure team calculates that recording 100% of distributed traces would generate 15 Terabytes of trace data per day, which would exceed their storage budget. If they enable 1% head sampling, they miss 99% of the traces for rare 500 errors. How does **Tail-Based Sampling** solve this dilemma?
 
-<details>
-<summary>Hint</summary>
+<details><summary>Click to view diagnosis and architectural solution</summary>
 
-The `request_id` you propagated by hand in module 05 *is* the `trace_id`
-conceptually — OTel just standardizes the header (`traceparent`), builds a span
-*tree* instead of a flat id, and does the inject/extract for you via the httpx +
-FastAPI instrumentors (so you delete your manual header-copying code). The glue
-that makes the loop work is one line of config in three places: the HTTP client
-instrumentor (traces cross the hop), the `add_trace_context` structlog processor
-(logs carry `trace_id`), and shared metric labels (the spike points somewhere).
-For the "on your own data" proof, don't fabricate — actually make `billing` sleep
-and sometimes 500, drive traffic, and screenshot the three views for the *same*
-`trace_id`. The paragraph should conclude that the *model* (correlate everything
-by one id generated at the edge and propagated on every hop) is identical to
-module 05; OTel automates the plumbing and adds the span tree.
-
+**Answer:**
+1. **The Flaw of Head Sampling:**
+   Head sampling makes the sampling decision at request start before knowing whether the request will succeed, fail, or be slow. A 1% head sample will drop 99% of the rare error traces that engineers most desperately need to debug.
+2. **The Tail-Based Sampling Architecture:**
+   - Deploy an **OpenTelemetry Collector** cluster configured with the `tail_sampling` processor.
+   - The Collector buffers all incoming spans for a request in memory until the root span completes.
+   - **Sampling Rules:**
+     - If any span in the trace has `status.code == ERROR` $\implies$ **Keep 100%**.
+     - If the trace duration exceeds 1,000ms $\implies$ **Keep 100%**.
+     - For normal, fast HTTP 200 requests $\implies$ **Keep 0.1%**.
+3. **Outcome:**
+   Reduces total trace storage volume by 95% while guaranteeing **100% capture of every outage and latency spike**.
 </details>
 
-## Common mistakes & troubleshooting
+---
 
-- **Treating the pillars as alternatives.** They answer different questions
-  (what/why vs how-much vs where) and are strongest *correlated*. Don't pick one;
-  connect all three by a shared id.
-- **No context propagation.** Without injecting/extracting `traceparent`, each
-  service starts its own trace and you lose the distributed view — the exact
-  thing tracing is for. Instrument your HTTP clients (and propagate in queue
-  messages for async work).
-- **No `trace_id` on log lines.** Then you can't pivot from a trace (or metric)
-  to the relevant logs. Add a processor that stamps the active `trace_id` on
-  every log line.
-- **Dumping payloads/PII/secrets into span attributes.** Spans are stored and
-  viewable like logs — same sensitive-data rules (module 05). Use bounded,
-  meaningful attributes, not whole bodies.
-- **Head-sampling and losing your error traces.** Random head sampling drops the
-  interesting traces too. Prefer tail-based sampling (keep all errors/slow,
-  sample the boring) for the same reason you never sample error logs.
-- **Confusing monitoring with observability.** Monitoring watches predicted
-  failures (known unknowns); observability is being able to ask *new* questions
-  of a novel problem. Dashboards alone aren't observability without correlated,
-  explorable signals.
-- **Reinventing the wheel per vendor.** Instrument with OpenTelemetry against the
-  Collector, not a vendor SDK, so backends are a config change — the same
-  vendor-neutrality principle as emitting logs to stdout.
+### Checkpoint 3: The Danger of Storing Sensitive Data in Span Baggage
+**Scenario:** A developer wants all downstream microservices to know the user's credit card number and email address without querying the database repeatedly. The developer adds these fields to OpenTelemetry **Baggage**:
+```typescript
+propagation.setBaggage(context, baggage.setEntry("credit_card", "4111222233334444"));
+```
+What critical security failure does this create?
 
-## Checkpoint quiz
+<details><summary>Click to view diagnosis and architectural solution</summary>
 
-Write down your answer to each question before expanding it — checking without attempting first is the single easiest way to fool yourself into thinking you've learned this.
-
-1. Name the three pillars and the distinct question each one owns. Give the
-   `that/when → where → why` debugging loop and which pillar plays each role.
-2. What is a span, what is a trace, and how do `trace_id`, `span_id`, and
-   `parent_span_id` combine to build the request tree?
-3. What is context propagation, which header standardizes it, and how is it the
-   same idea as module 05's `request_id` propagation?
-4. What does OpenTelemetry unify, and why is "one shared id across all three
-   pillars" the thing that turns three separate tools into observability?
-5. Distinguish monitoring from observability using "known unknowns" vs "unknown
-   unknowns," with an example of a question only observability can answer.
-6. Why must traces be sampled at scale, and why is tail-based sampling usually
-   preferable to head-based — tying it to a rule you already learned about logs?
-
-<details>
-<summary>Answers</summary>
-
-1. **Logs** — "what exactly happened?" (detailed individual events). **Metrics**
-   — "how much/how many/how fast, over time?" (cheap aggregates, dashboards/
-   alerts). **Traces** — "where did the time/error occur across the request
-   flow?" (one request's span tree). The loop: a **metric** alert tells you
-   *that/when* something's wrong; a **trace** shows *where* (which service/span);
-   the **logs** for that span/`trace_id` show *why*.
-2. A **span** is one named, timed operation (start + duration + status +
-   attributes). A **trace** is the whole journey of one request — a tree of
-   spans. All spans in a request share one **`trace_id`**; each has its own
-   **`span_id`**; and **`parent_span_id`** links a span to its parent, which is
-   what assembles the spans into the nested tree/waterfall.
-3. Context propagation is passing the current trace context across a service
-   boundary — the caller **injects** it into the outbound request (the W3C
-   **`traceparent`** header), the callee **extracts** it and continues the *same*
-   trace as a child span. It's exactly module 05's "generate an id at the edge,
-   propagate it on every outbound call so downstream shares it," now standardized
-   in format and building a full span tree instead of a flat id.
-4. OpenTelemetry unifies the generation and shipping of **all three signals
-   (traces, metrics, logs)** behind one instrumentation layer, one protocol
-   (OTLP), and one Collector — and, crucially, one correlation id (the
-   `trace_id`) stamped on the trace, on every log line, and available on metrics.
-   That shared id is what lets you *pivot* losslessly between pillars; without it
-   you have three disconnected datasets and can't move from a symptom to a cause.
-5. **Monitoring** watches for failures you anticipated (known unknowns) — you
-   built the dashboard/alert because you predicted that metric mattered.
-   **Observability** is being able to answer questions you *didn't* anticipate
-   (unknown unknowns) by exploring rich, correlated signals after the fact. Only
-   observability answers something like "checkout is slow for *some* users since
-   2pm — which ones, and where?" when nobody built that specific view in advance.
-6. A trace per request is enormous at scale, so you keep a subset. **Head-based**
-   decides at the start (random, cheap) but may drop the error/slow trace you
-   needed; **tail-based** decides at the end in the Collector, so it can keep
-   *all* error/slow traces and sample only the boring fast-successful ones — the
-   same rule as logs (module 05): keep everything interesting, sample the boring,
-   never sample errors. Tail sampling costs the Collector buffering complete
-   traces before deciding.
-
+**Answer:**
+1. **Plaintext Network Header Transmission:**
+   OpenTelemetry Baggage is transmitted across every outbound HTTP request as an unencrypted, plaintext HTTP header: `baggage: credit_card=4111222233334444`.
+2. **Accidental Exposure to Third Parties:**
+   If the service calls an external third-party API (e.g., Stripe, AWS, Twilio, or an external partner webhook) using an HTTP client that forwards baggage, the user's raw credit card number is transmitted to external vendors in plaintext headers.
+3. **Compliance Violation:**
+   This constitutes an immediate violation of PCI-DSS and GDPR. Baggage must **never** contain sensitive data, credentials, or PII. Use Baggage strictly for non-sensitive operational metadata (e.g., `routing_zone=us-east`, `experiment_id=exp_42`).
 </details>
 
-## Further reading & sources
+---
 
-- [OpenTelemetry documentation](https://opentelemetry.io/docs/) - the vendor-neutral standard for producing traces, metrics, and logs from one instrumentation layer.
-- [OpenTelemetry — Traces](https://opentelemetry.io/docs/concepts/signals/traces/) - the concepts of spans, trace trees, and the anatomy this module builds on.
-- [W3C Trace Context](https://www.w3.org/TR/trace-context/) - the `traceparent` header specification that standardizes context propagation across services.
-- [Jaeger documentation](https://www.jaegertracing.io/docs/latest/) - the tracing backend used in the exercises to store and visualize waterfalls.
-- [Grafana Tempo documentation](https://grafana.com/docs/tempo/latest/) - the Grafana-native trace backend that pairs with Loki and Prometheus under one UI.
-- [Google SRE Book — Monitoring Distributed Systems](https://sre.google/sre-book/monitoring-distributed-systems/) - context for monitoring vs observability and why correlated signals matter.
-- [Track 12: Observability deep dive](../../../learn/12-observability-deep-dive/00-observability-concepts-and-three-pillars/README.md) - the same three pillars mapped onto the open-source stack: Prometheus, Grafana, Loki and OpenTelemetry.
+## 7. Further Reading & References
+
+- [OpenTelemetry Official Documentation](https://opentelemetry.io/docs/) — Architecture, specifications, and language SDK references.
+- [Grafana Tempo: Distributed Tracing](https://grafana.com/docs/tempo/latest/) — High-scale, cost-effective distributed tracing backed by cloud object storage.
+- [Google Dapper Paper](https://research.google/pubs/pub36356/) — The foundational 2010 research paper that introduced distributed tracing at internet scale.
+
+---
 
 ## Next
 
-[08-alerting-without-fatigue](../08-alerting-without-fatigue/README.md) — you can
-now observe a system through all three pillars and investigate a problem *once
-you're looking*. The next module is about the other half: being *told* when to
-look, without being drowned in noise. It covers alerting philosophy, SLO-based
-alerting built on the metrics from module 06, and how to design actionable
-alerts that avoid the fatigue that gets real incidents ignored. It also carries
-this track's next cumulative review, spanning modules 00-08.
+[Module 08: Alerting Without Fatigue](../08-alerting-without-fatigue/README.md) — Convert metrics into actionable, high-signal alerts, implement Google SRE multi-window multi-burn-rate alerts, and eradicate pager fatigue.
