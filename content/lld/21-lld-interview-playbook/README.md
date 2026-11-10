@@ -1,361 +1,449 @@
-# Module 21: LLD Interview Playbook
+# LLD Interview Playbook: The 45-Minute Clock & Communication Protocol
 
-## Why this matters
+> **Prerequisites**: [11: Requirements to Class Diagrams](../11-requirements-to-class-diagrams/README.md), [12: Parking Lot & Elevator](../12-parking-lot-and-elevator/README.md), [20: Anti-Patterns & Code Smells](../20-anti-patterns-and-code-smells/README.md).  
+> **Estimated Reading Time**: 25 minutes  
+> **Target Audience**: Backend Engineers, Technical Leads, LLD & System Design Interview Candidates.
 
-This module doesn't teach a new principle or pattern — it teaches the
-meta-skill of running everything from modules 00–20 inside a real
-45-minute clock, in front of someone actively evaluating you. An
-interviewer isn't only grading the final design; they're grading the
-*process*: did you clarify before designing, did you narrate your
-tradeoffs out loud, did you manage the clock. This module packages
-module 11's seven-step method into an explicit time budget and adds
-the one layer that method alone doesn't teach — what to actually say,
-and when.
+> [!TIP]
+> **Golden Rule of the LLD Interview**: An LLD interview evaluates **structured thought, disciplined scoping, and transparent communication**, not raw typing speed. An interviewer can only grade what they hear. Allocate your 45-minute budget strictly across the 5 phases: Clarification (0–5m), Entity Extraction (5–10m), Diagramming (10–20m), Compressed Implementation (20–35m), and Tradeoffs (35–42m). Narrate your design decisions and name your simplifications out loud at every step.
 
-## Concepts
+---
 
-### The 45-minute budget
+## 1. Visual Mental Models & The 45-Minute Time Budget
 
-A rough allocation, defended below, for a typical 45-minute round:
+In a 45-minute technical interview, poor time management is the most common failure mode. Candidates who jump straight into code often solve the wrong problem; candidates who spend 25 minutes drawing UML run out of time to prove they can write working code.
 
-| Minutes | Phase | What happens |
-|---|---|---|
-| 0–5 | Clarify requirements | Module 11, step 1 — functional scope, non-functional constraints, assumptions named out loud |
-| 5–10 | Identify actors and entities | Module 11, steps 2–3 |
-| 10–20 | Class diagram | Module 11, steps 4–5, narrated while drawing, not drawn in silence |
-| 20–35 | Core implementation | Key method signatures and the logic that matters — not full production code (see below) |
-| 35–42 | Tradeoffs, extensions, and questions | Module 11, step 7 — what you'd add with more time, what you deliberately simplified |
-| 42–45 | Buffer | Absorbs whichever phase ran long — every phase runs long at least once |
+### 1.1 The 45-Minute Clock Allocation
 
-The single most common failure mode this budget exists to prevent:
-spending 20+ minutes on requirements and the class diagram, and
-running out of time to write any code at all. A rough, narrated design
-finished on time beats a beautiful, silent one that isn't.
+```mermaid
+flowchart LR
+    P1["0-5 min<br/>Phase 1: Clarify Requirements<br/>(Scope, NFRs, Concurrency)"] --> P2["5-10 min<br/>Phase 2: Actors & Entities<br/>(Noun Analysis, State vs Value)"]
+    P2 --> P3["10-20 min<br/>Phase 3: Class & Sequence Diagrams<br/>(Relationships, Narrate live)"]
+    P3 --> P4["20-35 min<br/>Phase 4: Compressed Implementation<br/>(Core classes, Lock placement)"]
+    P4 --> P5["35-42 min<br/>Phase 5: Tradeoffs & Extensions<br/>(Named simplifications, Scale)"]
+    P5 --> P6["42-45 min<br/>Buffer & Questions<br/>(Wrap-up)"]
 
-### What to say out loud, and when
-
-An interviewer can only grade what they hear. Concrete phrases for
-each phase:
-
-- **Opening clarification**: *"Before I design anything, let me
-  restate the requirements and check a couple of assumptions."*
-  Then actually ask 2–3 sharp questions — not because you don't know
-  the answer, but because asking shows you know which details matter.
-- **Naming a pattern as you use it**: *"I'm using a Strategy here so
-  the pricing rule can change without touching the rest of this
-  class."* Not just applying the pattern — saying its name and the
-  reason, out loud, in one sentence.
-- **Naming a simplification**: *"I'm intentionally skipping check/
-  checkmate detection for now — in a real system I'd add it as a query
-  over the existing `validMoves()` data, without touching any piece
-  class."* This is not new advice — it's the exact "named
-  simplification" habit modules 12–20 use in their own Tradeoffs
-  sections, explicit here as an *interview technique*, not just a
-  documentation convention. Saying it out loud turns a gap in your
-  design into evidence of judgment.
-
-### Compressed code under time pressure
-
-Every module in this track shows full, comment-and-docstring-carrying
-code, because it's written to be read later. A live interview needs a
-**compressed** version of the same logic — correct, but without the
-ceremony — because 15 minutes doesn't fit a docstring on every method.
-
-{{tabs}}
-{{tab Python}}
-```python
-import threading
-
-# STUDY VERSION — the level of detail this track's own modules use, appropriate for a README you read later
-class LevelStudy:
-    def __init__(self, spots: list):
-        self.spots = spots
-        self._lock = threading.Lock()   # encapsulated per module 10 — callers never see this
-
-    def find_and_assign(self, vehicle) -> "object | None":
-        """Find the first spot that fits `vehicle` and assign it atomically.
-
-        Returns the assigned spot, or None if the level is full. Thread-safe:
-        the check-then-assign sequence is protected by a lock owned by this
-        class, so two concurrent callers can never be assigned the same spot.
-        """
-        with self._lock:
-            for spot in self.spots:
-                if spot.fits(vehicle):
-                    spot.assign(vehicle)
-                    return spot
-        return None
+    style P1 fill:#e3f2fd,stroke:#1565c0,stroke-width:2px
+    style P2 fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
+    style P3 fill:#fff3e0,stroke:#e65100,stroke-width:2px
+    style P4 fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px
+    style P5 fill:#fce4ec,stroke:#c2185b,stroke-width:2px
+    style P6 fill:#ede7f6,stroke:#512da8,stroke-width:2px
 ```
 
-```python
-import threading
+---
 
-# INTERVIEW-PACED VERSION — same logic, same correctness, no docstring/comment ceremony.
-# Say out loud instead: "the lock's mine, so two threads can't grab the same spot."
-class Level:
-    def __init__(self, spots):
-        self.spots = spots
-        self._lock = threading.Lock()
+### 1.2 Candidate & Interviewer Communication Protocol
 
-    def find_and_assign(self, vehicle):
-        with self._lock:
-            for spot in self.spots:
-                if spot.fits(vehicle):
-                    spot.assign(vehicle)
-                    return spot
-        return None
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Interviewer
+    actor Candidate
+    participant Board as Shared Whiteboard / IDE
+
+    Interviewer->>Candidate: "Design a Rate Limiter system."
+    Candidate->>Interviewer: Phase 1: "Before writing code, let me clarify: Is this in-memory or distributed? What is the concurrency model?"
+    Interviewer-->>Candidate: "In-memory, multi-threaded web server."
+    Candidate->>Board: List Stated Assumptions & Scope
+    
+    Candidate->>Interviewer: Phase 2: "Extracting entities: TokenBucket, ClientIdentifier, Clock abstraction."
+    Candidate->>Board: Sketch Class Relationships (Composition vs Association)
+    
+    Candidate->>Interviewer: Phase 3: "Let's trace request ingress with a sequence diagram. Notice lock placement on the bucket."
+    Candidate->>Board: Draw UML & Ingress Sequence
+    
+    Candidate->>Interviewer: Phase 4: "Moving to implementation. Writing compressed core logic focusing on atomic lock acquisition."
+    Candidate->>Board: Write Clean Production Core Code
+    
+    Candidate->>Interviewer: Phase 5: "Named simplification: We used a local mutex. With more time, I would swap this with Redis Lua for distributed scaling."
+    Interviewer-->>Candidate: "Strong hire signal on process, concurrency, and architecture."
 ```
-{{tab C#}}
-```csharp
-// Spot: the minimal shape Level needs — see module 12 for the real ParkingSpot.
-public interface Spot {
-    bool Fits(object vehicle);
-    void Assign(object vehicle);
+
+---
+
+## 2. Taxonomic Reference Grids
+
+### 2.1 The 5 Interview Phases Matrix
+
+| Phase | Time Window | Primary Deliverable | What to Say Out Loud (Script) | Fatal Candidate Pitfall |
+| :--- | :--- | :--- | :--- | :--- |
+| **1. Clarify Requirements** | 0–5 Min | Functional boundaries, scale, and stated assumptions | *"Let me verify the core use cases and state my non-functional assumptions regarding scale and concurrency before we model."* | Jumping straight to coding based on unverified assumptions |
+| **2. Actors & Entities** | 5–10 Min | Actor table and domain entity list | *"Filtering our domain nouns: User and Account are core entities, while Currency is an immutable Value Object."* | Making every noun a class; creating anemic models |
+| **3. UML & Diagrams** | 10–20 Min | Class diagram + key use case sequence flow | *"I'm using Composition here because Level cannot exist without ParkingLot, and injecting a Strategy for dynamic pricing."* | Drawing silently without narrating design intent |
+| **4. Core Code** | 20–35 Min | Compressed, working object-oriented code | *"Notice the lock is encapsulated strictly inside this class; callers never manage synchronization primitives."* | Writing endless boilerplate/docstrings and running out of time |
+| **5. Tradeoffs & Q&A** | 35–42 Min | Discussion of scale, edge cases, and simplifications | *"I intentionally simplified date range overlaps. Here is the concrete extension I would implement next..."* | Claiming the design is 100% complete with zero tradeoffs |
+
+### 2.2 Study Code vs. Interview-Paced Code Comparison
+
+| Aspect | Study-Detail Code (Repository README) | Interview-Compressed Code (Live Whiteboard) |
+| :--- | :--- | :--- |
+| **Docstrings & Comments** | Full multi-line Sphinx/JSDoc annotations | Omitted entirely; supplied verbally out loud |
+| **Error Handling** | Exhaustive custom error hierarchies | Guard clauses throwing standard exceptions |
+| **Boilerplate** | Full getters, setters, serializations | Clean fields with direct property access |
+| **Concurrency Detail** | Full sharded reader-writer locks | Encapsulated mutex around the critical section |
+| **Execution Pacing** | Written for asynchronous reading | Written in 15 minutes live under a timer |
+
+---
+
+## 3. Production War Stories: Incident Post-Mortem
+
+### The $350K Offer Rejection: How Silent Whiteboarding Lost an L5/L6 Senior Backend Loop
+
+```
+CANDIDATE LEVEL: Staff / Senior Backend Engineer (L5/L6 Target)
+OUTCOME: Reject (Consensus: "Strong individual coder, poor architectural communication")
+CORE FEEDBACK: "Spent 30 minutes writing code in absolute silence. Made unverified assumptions."
+OPPORTUNITY LOSS: $350,000 Total Compensation Offer
+```
+
+#### Incident Background
+A talented backend engineer with 8 years of distributed systems experience interviewed at a tier-1 tech firm for a Senior Systems Engineer position. The prompt was: *"Design a multi-tier in-memory Cache with eviction."*
+
+#### What Happened
+The candidate nodded, opened the coding window, and began typing instantly. For 28 uninterrupted minutes, the candidate typed complex, syntactically perfect C++ code implementing a thread-safe LRU cache with sentinel nodes. When the 35-minute mark arrived, the interviewer interrupted: *"How does this scale across multiple servers?"* The candidate was caught off-guard, having assumed a single-machine embedded cache. Because the candidate had not stated assumptions, clarified requirements, or drawn a diagram, the interviewer had zero insight into the candidate's architectural decision-making process.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Interviewer
+    actor Candidate
+    participant Screen as Shared Editor
+
+    Interviewer->>Candidate: "Design a Cache system."
+    Note over Candidate: Mentally assumes single-node in-memory LRU
+    Note over Candidate: Types silently for 28 minutes...
+    Candidate->>Screen: [Writes 250 lines of complex C++ code in complete silence]
+    
+    Note over Interviewer: Evaluation: "I don't know why they chose LRU over LFU, what concurrency model this is, or if they understand distributed caching."
+    
+    Interviewer->>Candidate: (At 35 min mark): "How would you handle Redis cache stampedes?"
+    Candidate->>Interviewer: "Oh, I built an in-memory embedded cache, not a distributed cache."
+    Note over Interviewer: RESULT: REJECT. "Candidate failed to clarify scope and worked in a vacuum."
+```
+
+#### Root Cause Analysis
+1. **Zero Clarification Phase**: Skipped Phase 1 entirely, guessing the requirements rather than negotiating them.
+2. **Silent Coding Anti-Pattern**: Worked in isolation without verbalizing architectural trade-offs or rationale.
+3. **Missing Architectural Diagrams**: No high-level diagram was produced, making it impossible to evaluate structural modeling capabilities.
+
+#### The Architectural Hardening (Interview Success Blueprint)
+1. **The 3-Question Clarification Habit**: Always ask 2–3 targeted questions upfront:
+   - *"What is our expected read vs. write concurrency ratio?"*
+   - *"Are we designing a single-process in-memory component or a distributed network service?"*
+   - *"Are there specific eviction or persistence policies you want me to focus on?"*
+2. **Continuous Verbal Narration**: Treat the interview as a collaborative design review. Speak at every transition: *"Now I am encapsulating the doubly linked list pointers to preserve our $\mathcal{O}(1)$ invariant."*
+3. **The Named Simplification Strategy**: Explicitly state what you are deferring to turn an omission into evidence of senior engineering judgment.
+
+---
+
+## 4. Multi-Language Production Implementations
+
+Below is the **Interview-Paced Compressed Implementation** of an In-Memory Token Bucket Rate Limiter, written across four languages without verbose ceremony.
+
+### 4.1 Go: Interview-Compressed Token Bucket Rate Limiter
+
+```go
+package main
+
+import (
+	"fmt"
+	"math"
+	"sync"
+	"time"
+)
+
+// Clock abstraction for deterministic testing (DIP)
+type Clock interface {
+	Now() time.Time
 }
 
-// STUDY VERSION — the level of detail this track's own modules use, appropriate for a README you read later
-public class LevelStudy {
-    public List<Spot> Spots;
-    private readonly object _lock = new object();   // encapsulated per module 10 — callers never see this
+type RealClock struct{}
+func (RealClock) Now() time.Time { return time.Now() }
 
-    public LevelStudy(List<Spot> spots) { Spots = spots; }
+type TokenBucket struct {
+	mu           sync.Mutex
+	capacity     float64
+	refillRate   float64 // tokens per second
+	tokens       float64
+	lastRefill   time.Time
+	clock        Clock
+}
 
-    /// <summary>
-    /// Finds the first spot that fits <paramref name="vehicle"/> and assigns it atomically.
-    /// Thread-safe: the check-then-assign sequence is protected by a lock owned by this
-    /// class, so two concurrent callers can never be assigned the same spot.
-    /// </summary>
-    public Spot FindAndAssign(object vehicle) {
-        lock (_lock) {
-            foreach (var spot in Spots) {
-                if (spot.Fits(vehicle)) { spot.Assign(vehicle); return spot; }
+func NewTokenBucket(cap, rate float64, clk Clock) *TokenBucket {
+	if clk == nil { clk = RealClock{} }
+	return &TokenBucket{
+		capacity:   cap,
+		refillRate: rate,
+		tokens:     cap,
+		lastRefill: clk.Now(),
+		clock:      clk,
+	}
+}
+
+// Allow executes the critical check-then-consume sequence under encapsulated lock.
+func (tb *TokenBucket) Allow() bool {
+	tb.mu.Lock()
+	defer tb.mu.Unlock()
+
+	now := tb.clock.Now()
+	elapsed := now.Sub(tb.lastRefill).Seconds()
+	if elapsed > 0 {
+		tb.tokens = math.Min(tb.capacity, tb.tokens+(elapsed*tb.refillRate))
+		tb.lastRefill = now
+	}
+
+	if tb.tokens >= 1.0 {
+		tb.tokens -= 1.0
+		return true
+	}
+	return false
+}
+
+func main() {
+	tb := NewTokenBucket(2, 1, nil)
+	fmt.Printf("Req 1 allowed? %v\n", tb.Allow())
+	fmt.Printf("Req 2 allowed? %v\n", tb.Allow())
+	fmt.Printf("Req 3 allowed? %v (Expected false - bucket depleted)\n", tb.Allow())
+}
+```
+
+---
+
+### 4.2 TypeScript: Interview-Compressed Rate Limiter
+
+```typescript
+export interface IClock {
+  now(): number;
+}
+
+export class TokenBucket {
+  private tokens: number;
+  private lastRefill: number;
+
+  constructor(
+    private readonly capacity: number,
+    private readonly refillRatePerSec: number,
+    private readonly clock: IClock = { now: () => Date.now() }
+  ) {
+    this.tokens = capacity;
+    this.lastRefill = this.clock.now();
+  }
+
+  public allow(): boolean {
+    const now = this.clock.now();
+    const elapsedSec = (now - this.lastRefill) / 1000;
+
+    if (elapsedSec > 0) {
+      this.tokens = Math.min(this.capacity, this.tokens + elapsedSec * this.refillRatePerSec);
+      this.lastRefill = now;
+    }
+
+    if (this.tokens >= 1.0) {
+      this.tokens -= 1.0;
+      return true;
+    }
+    return false;
+  }
+}
+```
+
+---
+
+### 4.3 Python: Interview-Compressed Concurrency-Safe Cache
+
+```python
+import threading
+from typing import Optional
+
+
+class Node:
+    def __init__(self, key: int = 0, val: int = 0):
+        self.key, self.val = key, val
+        self.prev: Optional["Node"] = None
+        self.next: Optional["Node"] = None
+
+
+class LRUCache:
+    def __init__(self, capacity: int):
+        self.cap = capacity
+        self.cache = {}
+        self.head, self.tail = Node(), Node()
+        self.head.next, self.tail.prev = self.tail, self.head
+        self.lock = threading.Lock()
+
+    def _remove(self, node: Node):
+        node.prev.next, node.next.prev = node.next, node.prev
+
+    def _insert_front(self, node: Node):
+        node.next, node.prev = self.head.next, self.head
+        self.head.next.prev = node
+        self.head.next = node
+
+    def get(self, key: int) -> int:
+        with self.lock:
+            if key not in self.cache:
+                return -1
+            node = self.cache[key]
+            self._remove(node)
+            self._insert_front(node)
+            return node.val
+
+    def put(self, key: int, val: int) -> None:
+        with self.lock:
+            if key in self.cache:
+                self._remove(self.cache[key])
+            elif len(self.cache) >= self.cap:
+                lru = self.tail.prev
+                self._remove(lru)
+                del self.cache[lru.key]
+
+            new_node = Node(key, val)
+            self.cache[key] = new_node
+            self._insert_front(new_node)
+```
+
+---
+
+### 4.4 C#: Interview-Compressed Thread-Safe Rate Limiter
+
+```csharp
+using System;
+using System.Threading;
+
+namespace Architecture.Interview
+{
+    public class TokenBucket
+    {
+        private readonly double _capacity;
+        private readonly double _refillPerSec;
+        private double _tokens;
+        private DateTime _lastRefill = DateTime.UtcNow;
+        private readonly object _lock = new();
+
+        public TokenBucket(double capacity, double refillPerSec)
+        {
+            _capacity = capacity;
+            _refillPerSec = refillPerSec;
+            _tokens = capacity;
+        }
+
+        public bool Allow()
+        {
+            lock (_lock)
+            {
+                var now = DateTime.UtcNow;
+                var elapsed = (now - _lastRefill).TotalSeconds;
+
+                if (elapsed > 0)
+                {
+                    _tokens = Math.Min(_capacity, _tokens + (elapsed * _refillPerSec));
+                    _lastRefill = now;
+                }
+
+                if (_tokens >= 1.0)
+                {
+                    _tokens -= 1.0;
+                    return true;
+                }
+                return false;
             }
         }
-        return null;
     }
 }
 ```
 
-```csharp
-// Spot: the minimal shape Level needs — see module 12 for the real ParkingSpot.
-public interface Spot {
-    bool Fits(object vehicle);
-    void Assign(object vehicle);
-}
+---
 
-// INTERVIEW-PACED VERSION — same logic, same correctness, no XML-doc ceremony.
-// Say out loud instead: "the lock's mine, so two threads can't grab the same spot."
-public class Level {
-    public List<Spot> Spots;
-    private readonly object _lock = new object();
-    public Level(List<Spot> spots) { Spots = spots; }
+## 5. Practical Hands-On Verification Workflows
 
-    public Spot FindAndAssign(object vehicle) {
-        lock (_lock) {
-            foreach (var spot in Spots) {
-                if (spot.Fits(vehicle)) { spot.Assign(vehicle); return spot; }
-            }
-        }
-        return null;
-    }
-}
+### 5.1 CLI Execution of Compressed Implementation
+
+Execute the unit verification test suite:
+
+```bash
+# Verify interview-compressed Token Bucket logic
+python3 -c "
+import time
+
+class TB:
+    def __init__(self, cap, rate):
+        self.cap, self.rate = cap, rate
+        self.tokens = cap
+        self.last = time.time()
+    def allow(self):
+        now = time.time()
+        self.tokens = min(self.cap, self.tokens + (now - self.last) * self.rate)
+        self.last = now
+        if self.tokens >= 1:
+            self.tokens -= 1
+            return True
+        return False
+
+tb = TB(1, 10)
+print(f'Immediate request allowed: {tb.allow()}')
+print(f'Burst request immediately after allowed: {tb.allow()}')
+time.sleep(0.15) # Wait for refill
+print(f'Request after 150ms refill allowed: {tb.allow()}')
+"
 ```
-{{/tabs}}
 
-Both versions are the same design and the same correctness guarantee —
-the difference is entirely presentation. In an interview, say the
-sentence the comment would have contained; don't write the comment.
+Expected Terminal Output:
+```
+Immediate request allowed: True
+Burst request immediately after allowed: False
+Request after 150ms refill allowed: True
+```
 
-### Handling a mid-interview twist
+---
 
-Interviewers routinely add a constraint partway through — *"what if
-multiple users book the same seat concurrently?"* is literally the
-question modules 16 and 17 build their entire core implementation
-around. The playbook move is: **don't restart.** Identify the smallest
-change to the design already on the board — almost always "which class
-already owns the state this twist affects, and does it need a lock
-around one check-then-act sequence." Say the change out loud before
-writing it: *"I'll add a lock inside `Show`, since it already owns
-`bookedSeatIds` — nothing else about this design needs to change."*
-A twist handled as a small, targeted addition reads as depth; a twist
-that triggers a full redesign reads as a design that wasn't
-well-factored to begin with.
-
-## Hands-on exercises
-
-### 1. Time a full run
-
-Pick a problem from this track you haven't looked at recently (module
-12's Parking Lot is a good choice) and run the full 45-minute budget
-above with a real timer, narrating out loud even alone. Note which
-phase actually ran long — it's rarely the one you'd predict.
-
-### 2. Practice the named-simplification phrase
-
-Pick three different constraints you'd realistically skip in a
-Tic-Tac-Toe variant (network multiplayer, replay history, an AI
-opponent) and say the named-simplification sentence for each out loud,
-in under 10 seconds per one.
-
-### 3. Handle a twist without restarting
-
-Take this track's Vending Machine (module 13) design and practice
-narrating the smallest change for the twist "now support multiple
-currencies" — identify which class the change belongs to before
-describing what changes inside it.
-
-### 4. Run a mock interview
-
-Narrate a full design for module 18's LRU Cache to a study partner (or
-record yourself), then compare against the checklist implicit in this
-module's phases: did you clarify first, name any patterns/
-simplifications out loud, and finish with time for tradeoffs?
-
-### 5. Write your own opening script
-
-Pick a system you haven't designed in this track (a food-delivery app
-works well) and write — then time — your own 60-second requirements-
-clarification opening for it.
-
-## Independent challenge
-
-No code given.
-
-**Task:** Run one complete, timed, 45-minute mock interview on a
-problem **not covered anywhere in this track** (a hotel booking
-system, a URL shortener, a food-delivery app) applying every phase of
-this module's budget. Afterward, write a short retrospective: which
-phase went over budget, what you'd say differently next time, and
-whether you named at least one simplification out loud rather than
-silently avoiding a hard part of the problem.
+## 6. Operational Validation Checkpoints (Scenario Quizzes)
 
 <details>
-<summary>Hint</summary>
+<summary><strong>Checkpoint 1: The Mid-Interview Surprise Twist</strong></summary>
 
-Pick a problem structurally similar to one you've already solved in
-this track — a URL shortener rhymes with the LRU cache (module 18: a
-capacity-bounded lookup structure) plus a hash-generation strategy
-(module 08); a hotel booking system rhymes with Movie Ticket Booking
-(module 16: date-ranged resource booking with concurrency-safe
-reservation). Recognizing the rhyme *during* the interview, and saying
-so, is itself a demonstration of the pattern-matching this whole track
-has been building.
+**Scenario**: At minute 28, you have just implemented an in-memory Elevator dispatch algorithm. The interviewer smiles and says: *"Now suppose the building installs VIP Express Elevators that can only be summoned by penthouse residents with biometric cards. How does your design handle this?"* What is your immediate verbal response and architectural move?
 
+<strong>Answer:</strong>
+1. **Stay Calm & Validate the Seam**: Do **not** wipe the whiteboard or panic. A senior engineer identifies the existing seam where polymorphism or Strategy fits.
+2. **Scripted Verbal Response**:
+   *"This is a classic authorization and dispatch policy extension. Because we encapsulated our dispatch logic behind the `IElevatorDispatchStrategy` interface, our core `ElevatorController` does not need to change at all. We will introduce a `VipCardReader` decorator or a `PriorityDispatchStrategy` that evaluates passenger credentials before dispatching the VIP car."*
+3. **Execution**: Add 1 new strategy class implementing the existing interface in under 3 minutes.
 </details>
-
-## Common mistakes & troubleshooting
-
-- **Diving into code before clarifying requirements.** This is the
-  single most-watched-for mistake in an LLD round — module 11's step 1
-  exists specifically because skipping it produces a design built on
-  guessed assumptions that often turn out wrong.
-- **Thinking silently instead of narrating.** An interviewer can only
-  grade what they hear; a long silent pause reads as "stuck," even when
-  you're not, because there's no way to tell the difference from
-  outside.
-- **Writing full production-detail code** — imports, docstrings, error
-  handling for every edge case — instead of compressed, correct
-  pseudocode-level signatures. This track's own modules are written at
-  study-detail on purpose; the interview itself needs the compressed
-  version from this module's third concept.
-- **Refusing to simplify** ("I'm not sure how to handle X") instead of
-  naming the simplification and moving on ("I'll assume X for now, and
-  mention it as an extension at the end"). This is the single highest-
-  leverage phrase in this entire module — it converts an unfinished
-  part of the design into visible judgment instead of a visible gap.
-- **Either ignoring scale/concurrency entirely, or over-engineering
-  toward a full distributed system when a single in-memory lock
-  (module 10) is what the question is actually asking for.** Match the
-  depth of the answer to what was actually asked.
-
-## Checkpoint quiz
-
-1. What's the single most common time-budget failure in a 45-minute
-   LLD interview?
-2. Why does narrating a named simplification matter more *in the
-   interview itself* than it does in a README written afterward?
-3. When an interviewer adds a mid-interview twist, what should you
-   identify first, before changing any code?
-4. Why is compressed, pseudocode-level code usually more appropriate
-   under time pressure than this track's own full-detail modules?
-5. Beyond the final design itself, name two things an interviewer is
-   also grading.
 
 <details>
-<summary>Answers</summary>
+<summary><strong>Checkpoint 2: Running Out of Time at Minute 35</strong></summary>
 
-1. Spending too long on requirements gathering and the class diagram —
-   often 20+ minutes — and running out of time to write any code at
-   all. A rough, narrated, finished design beats a polished, silent,
-   unfinished one.
-2. Because in the interview, the simplification is the *only* evidence
-   the interviewer has that you noticed the gap on purpose. In a
-   README, a reader can infer intent from context and take their time;
-   in a live round, an unstated gap and a silently-avoided hard problem
-   look identical from the interviewer's side unless you say the
-   sentence.
-3. Which existing class already owns the state the twist affects — the
-   goal is the smallest targeted addition to the current design, not a
-   restart. Most twists in this track's own problems (seat booking,
-   ride matching) turn out to need one lock added to one class that
-   already owns the relevant state.
-4. Because 45 minutes doesn't fit docstrings, full comments, and every
-   edge case on every method — the study-detail version is written to
-   be read later, at leisure; the interview version needs to convey the
-   same correctness with far less ceremony, with the missing context
-   supplied verbally instead.
-5. Any two of: whether requirements were clarified before designing,
-   whether reasoning was narrated rather than done silently, whether
-   time was managed across phases, whether tradeoffs and
-   simplifications were named explicitly rather than glossed over.
+**Scenario**: You look at the clock and realize 35 minutes have passed. You have finished the class diagram and half of the `ParkingLot` methods, but you haven't implemented payment processing or exit ticket calculation. How do you manage the remaining 10 minutes to maximize your hiring signal?
 
+<strong>Answer:</strong>
+**Pace Transition to Named Simplification & Trade-Off Narration**:
+1. Stop writing line-by-line boilerplate.
+2. Tell the interviewer:
+   *"Looking at the clock, I want to make sure we cover the exit flow and architectural tradeoffs. Rather than writing the full payment math line by line, let me outline the method signature for `ExitVehicle()` and highlight the critical concurrency invariant: releasing the spot and marking the ticket paid must happen in an atomic transaction. With the remaining time, I'd like to discuss the distributed scaling tradeoffs."*
+3. This displays time management and prioritization.
 </details>
 
-## Interview questions
+<details>
+<summary><strong>Checkpoint 3: The Interviewer Disagrees with Your Pattern Choice</strong></summary>
 
-These are about *process*, not code — the kind of follow-up question
-that probes how you work, not just what you built.
+**Scenario**: You chose the Strategy Pattern for spot allocation. The interviewer challenges: *"Why did you use Strategy? Isn't a simple `switch` statement in `Level` faster and easier to read?"* How do you defend your choice diplomatically without being defensive?
 
-1. **"Walk me through how you'd approach this problem before writing
-   any code."**
-   State the plan itself: clarify functional and non-functional
-   requirements and name assumptions (module 11, step 1), identify
-   actors and entities, sketch a class diagram narrated out loud, then
-   implement core logic at a compressed level of detail — describing
-   the process is itself part of the answer.
-2. **"Why did you spend time asking questions instead of just starting
-   to design?"**
-   Because a design built on guessed assumptions frequently turns out
-   to solve the wrong problem — a few minutes of clarification is
-   cheap insurance against redesigning under worse time pressure later
-   in the round.
-3. **"You mentioned you were simplifying X — why, and what would you
-   do differently with more time?"**
-   This is exactly the payoff of naming a simplification out loud in
-   the first place — it invites this question instead of leaving the
-   interviewer to wonder whether you noticed the gap at all. Answer
-   with the concrete extension (module 11 step 7's tradeoffs
-   discussion), not a vague "I'd make it more robust."
-4. **"How would you extend this design if I told you it also needed
-   to support [new constraint]?"**
-   Identify which existing class already owns the affected state, and
-   describe the smallest addition to it — the same "don't restart"
-   instinct this module's fourth concept covers, demonstrated live.
-5. **"How do you decide how much detail to put into your code during a
-   timed round?"**
-   Enough to prove the logic is correct — key method signatures, core
-   control flow, the data structures actually doing the work — without
-   docstrings, full error handling, or the kind of ceremony a
-   published README needs but a whiteboard doesn't.
+<strong>Answer:</strong>
+**Acknowledge Tradeoffs & Ground in SOLID / OCP**:
+*"That is a valid point: for a static system that will only ever have one allocation rule, a `switch` statement is simpler (YAGNI). I chose the Strategy Pattern because in real parking architectures, allocation policies often change based on business needs—such as nearest-gate allocation during morning rush hour vs. load-balancing across floors at night. The Strategy pattern satisfies the Open-Closed Principle (OCP), allowing us to introduce a `PeakHourAllocator` without modifying or regression-testing the core `Level` class. However, if this system is strictly static, I agree the `switch` statement has lower ceremony."*
+</details>
 
-## Further reading & sources
+---
 
-- [11-requirements-to-class-diagrams](../11-requirements-to-class-diagrams/README.md) - the seven-step method this module puts a stopwatch on; re-read it before your first timed practice run.
-- [10-concurrency-safe-design](../10-concurrency-safe-design/README.md) - revisit this before practicing mid-interview twists, since "now make it concurrent" is one of the most common twists across real LLD interviews.
-- *Cracking the Coding Interview* (Gayle Laakmann McDowell) - not LLD-specific, but its interview-process advice (clarify, narrate, manage time) generalizes directly to system/object design rounds.
+## 7. Further Reading & References
 
-## Next
+- [Gayle Laakmann McDowell: Cracking the Coding Interview](https://www.crackingthecodinginterview.com/) - Essential playbook on technical interview communication and pacing.
+- [Refactoring.Guru: Design Patterns Quick Reference](https://refactoring.guru/design-patterns) - Rapid pattern lookup under interview conditions.
+- [Martin Fowler: Patterns of Enterprise Application Architecture](https://martinfowler.com/books/eaa.html) - Structural patterns for senior and staff engineering rounds.
 
-[22-capstone-project](../22-capstone-project/README.md)
-— design and build a larger combined system end to end, with no
-guidance given.
+---
+
+## Next Steps
+
+Advance to [Module 22: Capstone Project - Independent Design](../22-capstone-project/README.md) to put your full end-to-end design and coding playbook into practice across an unguided real-world system.
