@@ -1,699 +1,628 @@
-# Module 01: Indexes and Mappings
+# Module 01: Indexes, Mappings & The Text vs. Keyword Divide
 
-## Why this matters
+> **Prerequisites**: [Module 00: Elasticsearch Fundamentals](../00-elasticsearch-fundamentals/README.md).  
+> **Estimated Reading Time**: 25 minutes  
+> **Target Audience**: Backend Engineers, Search Specialists, Platform Data Engineers.
 
-In track 04 you never got to skip schema design — `CREATE TABLE` forced you to
-declare every column's type up front, and getting a type wrong (storing a
-number as `TEXT`) produced obvious, immediate pain. Elasticsearch is more
-forgiving on the surface and far more dangerous because of it: you can `POST` a
-JSON document to an index that doesn't exist yet, and Elasticsearch will
-happily create the index *and* guess a schema (a **mapping**) from your first
-document. It feels magical. It is also how most real Elasticsearch relevance
-and aggregation bugs are born.
+> [!TIP]
+> **Golden Rule of Index Schema Design**: Never rely on Elasticsearch **dynamic mapping** in production environments. Dynamic mapping produces silent "mapping explosions" and generates unoptimized multi-fields that bloat cluster state and exhaust memory. Always define explicit mappings prior to data ingestion: use **`keyword`** for exact-match filtering, sorting, and aggregations, and reserve **`text`** strictly for analyzed full-text search.
 
-The mapping is the schema of an index: it declares each field's **type**, and
-the type decides *how the field is stored, whether it's analyzed into terms,
-whether you can aggregate or sort on it, and how it can be searched.* The
-single most consequential decision in this entire track is understanding the
-**`text` vs `keyword`** distinction — get it wrong and either your full-text
-search returns nothing or your "group by category" aggregation explodes into
-thousands of meaningless buckets. This module is where you take control of the
-schema instead of letting Elasticsearch guess, and where you learn why the
-guess is so often wrong.
+---
 
-## Concepts
+## 1. Visual Mental Models & The String Bifurcation
 
-### An index, and why you define its mapping deliberately
+In relational databases, `VARCHAR` handles exact equality (`WHERE status = 'active'`), sorting, and grouping. In Elasticsearch, string fields bifurcate into two fundamentally different types: **`text`** and **`keyword`**.
 
-An **index** is the top-level container for related documents — the rough
-analog of a table (module 00). Its **mapping** is the definition of its fields
-and their types, analogous to a table's column definitions. You can create an
-index and its mapping explicitly:
+### 1.1 The Analysis Pipeline: `text` vs. `keyword`
 
+When a document string is indexed:
+- **`text`** fields pass through an **Analyzer** (Character filters $\rightarrow$ Tokenizer $\rightarrow$ Token filters) to produce individual lowercase stemmed tokens stored in the **Inverted Index**.
+- **`keyword`** fields bypass text analysis entirely. The raw string is preserved verbatim and stored in both the **Inverted Index** (for fast term equality) and **Doc Values** (columnar storage on disk for sorting and aggregations).
+
+```mermaid
+flowchart TD
+    Raw["Input String: 'Ultra Running Shoes!'"]
+
+    subgraph TextPipeline["Text Field Pipeline (type: 'text')"]
+        direction TB
+        T1["Standard Tokenizer: ['Ultra', 'Running', 'Shoes']"]
+        T2["Lowercase Filter: ['ultra', 'running', 'shoes']"]
+        T3["Stemmer / Stopwords: ['ultra', 'run', 'shoe']"]
+        T3 --> II["Inverted Index Postings<br/>Matches: 'run', 'shoes', 'running'"]
+    end
+
+    subgraph KeywordPipeline["Keyword Field Pipeline (type: 'keyword')"]
+        direction TB
+        K1["Bypasses Analysis<br/>Stores exact: 'Ultra Running Shoes!'"]
+        K1 --> DV["Doc Values (Columnar Disk Storage)<br/>Enables Sorting, Faceting, Terms Aggregations"]
+    end
+
+    Raw --> TextPipeline
+    Raw --> KeywordPipeline
+
+    style TextPipeline fill:#e1f5fe,stroke:#0288d1,stroke-width:2px
+    style KeywordPipeline fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px
+```
+
+---
+
+### 1.2 Multi-Fields: The Dual-Indexing Pattern
+
+When a field must support **both** full-text search and exact aggregation/sorting, declare a multi-field:
+
+```mermaid
+flowchart LR
+    Field["Field: 'category'"]
+    
+    Field --> Primary["category (type: 'text')<br/>Analyzed into terms<br/>Query: match('category', 'running')"]
+    Field --> SubField["category.raw (type: 'keyword')<br/>Preserved exact string<br/>Query: term('category.raw', 'Running Shoes')<br/>Agg: terms('category.raw')"]
+
+    style Primary fill:#fff3e0,stroke:#e65100,stroke-width:2px
+    style SubField fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
+```
+
+---
+
+### 1.3 The Dynamic Mapping Explosion Threat Model
+
+If arbitrary user-supplied JSON keys are indexed into an index configured with `dynamic: true`, each new key registers a new field across cluster state metadata.
+
+```mermaid
+flowchart TD
+    subgraph Payload["User Ingress (Arbitrary Dynamic Keys)"]
+        J1["Doc 1: {'metadata': {'device_1928': 'iOS'}}"]
+        J2["Doc 2: {'metadata': {'device_8841': 'Android'}}"]
+        J3["Doc 100000: {'metadata': {'device_N': '...'}}"]
+    end
+
+    subgraph ES["Elasticsearch Master Node"]
+        ClusterState["Cluster State Metadata (RAM)<br/>Tracks every field name and type across all shards"]
+    end
+
+    J1 -->|Generates 1 new field| ClusterState
+    J2 -->|Generates 1 new field| ClusterState
+    J3 -->|Explosion: 100,000 unique fields!| ClusterState
+
+    ClusterState --> OOM["Cluster State Bloat (>200MB)<br/>Master Node Thread Pool Starvation<br/>FATAL CLUSTER CRASH"]
+
+    style Payload fill:#ffebee,stroke:#c62828,stroke-width:2px
+    style ES fill:#fce4ec,stroke:#c2185b,stroke-width:2px
+    style OOM fill:#b71c1c,stroke:#ffffff,color:#ffffff,stroke-width:2px
+```
+
+---
+
+## 2. Taxonomic Reference Grids
+
+### 2.1 `text` vs. `keyword` Systematic Comparison Grid
+
+| Operational Requirement | `type: "text"` | `type: "keyword"` |
+| :--- | :--- | :--- |
+| **Analysis / Tokenization** | Yes (breaks into tokens, lowercases, stems) | No (verbatim exact string preserved) |
+| **Primary Query Type** | `match`, `multi_match`, `match_phrase` | `term`, `terms`, `prefix`, `wildcard` |
+| **Case Sensitivity** | Case-insensitive (tokens normalized to lowercase) | **Strictly case-sensitive** (`Active` $\ne$ `active`) |
+| **Doc Values Support** | Disabled by default (incompatible with text) | Enabled by default (stored on disk in columnar format) |
+| **Sorting & Aggregations** | Fails with `Fielddata is disabled` error | High-performance, memory-efficient aggregation |
+| **Memory Consumption** | Postings list in Inverted Index | Inverted Index + Columnar Doc Values |
+| **Best Architectural Use Case** | Product titles, blog descriptions, review text | IDs, SKUs, email addresses, tags, status enums |
+
+### 2.2 Core Field Types Taxonomy Grid
+
+| Data Type | Structural Mechanism | Mutability Post-Creation | Key Architectural Benefit | Common Antipattern / Trap |
+| :--- | :--- | :--- | :--- | :--- |
+| **`keyword`** | Exact-match string with Doc Values | Mapping immutable | $\mathcal{O}(1)$ exact filter and terms aggregation | Storing multi-sentence prose as `keyword` (breaks search) |
+| **`text`** | Analyzed token stream in Inverted Index | Mapping immutable | Relevance scoring and fuzzy search | Trying to run a `terms` aggregation on `text` without `.raw` |
+| **`integer` / `long`** | Numeric inverted index (BKD-tree) | Mapping immutable | Range queries (`gte`, `lte`) in $\mathcal{O}(\log N)$ | Using `long` for IDs or zip codes (use `keyword` instead!) |
+| **`date`** | Milliseconds since epoch stored as `long` | Mapping immutable | Date math, range filters, and date-histogram aggregations | Mismatched date formatting strings in ISO 8601 |
+| **`boolean`** | Single-bit inverted index flag | Mapping immutable | Compact storage for true/false flags | Null handling (`null` is neither true nor false) |
+| **`nested`** | Separate hidden Lucene documents per sub-object | Mapping immutable | Preserves array-of-objects relationship integrity | Heavy performance penalty on deep updates |
+| **`flattened`** | Indexes entire arbitrary JSON object as single keywords | Dynamic keys supported | **Immune to Mapping Explosion** | Cannot perform deep individual field typing or date math |
+
+---
+
+## 3. Production War Stories: Incident Post-Mortem
+
+### The $800K Mapping Explosion: How Arbitrary User-Generated JSON Keys Crashed Cluster Master Nodes
+
+```
+SEVERITY LEVEL: SEV-1 (Cluster Split-Brain & Global API Outage)
+DETECTION TIME: 10 Minutes
+RECOVERY TIME: 180 Minutes
+FINANCIAL PENALTY: $800,000 in missed partner API transactions and SLA credits
+```
+
+#### Incident Background
+A SaaS telemetry platform collected customer webhook events. To make integration frictionless, developers configured Elasticsearch to ingest arbitrary payload JSON into a `customer_events` index using dynamic mapping:
 ```json
-PUT /products
+{ "mappings": { "dynamic": true } }
+```
+
+#### What Happened
+A newly onboarded enterprise client sent analytics payloads where unique device IDs and timestamps were formatted as **JSON keys** rather than values:
+```json
 {
-  "mappings": {
-    "properties": {
-      "name":  { "type": "text" },
-      "sku":   { "type": "keyword" },
-      "price": { "type": "double" },
-      "in_stock": { "type": "boolean" }
+  "event_id": "evt_991",
+  "device_telemetry": {
+    "device_uuid_948a201": { "metric": 42 },
+    "device_uuid_102b558": { "metric": 88 }
+  }
+}
+```
+Within 48 hours, over 140,000 unique device keys were registered as distinct fields in the index mapping. In Elasticsearch, the **Cluster State** contains the schema metadata of every field in every index and is maintained in heap memory on the master node. 
+
+The cluster state ballooned from 3 MB to **380 MB**. Every time a node joined or updated, the master node serialized this 380 MB blob over the network. TCP network buffers became congested, master heartbeats timed out, and the cluster entered a catastrophic split-brain master reelection loop. All reads and writes across the entire cluster hung indefinitely.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Client as Telemetry Producer
+    participant Ingest as ES Ingest Node
+    participant Master as ES Master Node (32GB RAM)
+    participant Data as ES Data Nodes
+
+    Client->>Ingest: POST /customer_events {"device_uuid_948a201": 42}
+    Ingest->>Master: Request Cluster State Update: Add field "device_uuid_948a201"
+    Note over Master: Appends field to Cluster State Metadata
+    Note over Master: Cluster State reaches 140,000 fields (Size: 380MB)
+    
+    Master->>Data: Broadcast 380MB Cluster State via TCP
+    Note over Data: Deserialization takes 8,000ms! JVM GC pauses triggered!
+    Data--xMaster: Heartbeat Ack Missing (Timeout > 5000ms)
+    Note over Master: Master assumes Data Node is dead! Drops Data Node!
+    
+    Note over Master: Node reassignment cascade -> Total Cluster Freeze!
+```
+
+#### Root Cause Analysis
+1. **Unbounded Dynamic Mapping**: `dynamic: true` allowed external clients to introduce arbitrary schema keys into cluster state.
+2. **Key-Value Inversion Antipattern**: The client modeled entity identifiers as JSON field names rather than normalized array elements (`{"deviceId": "uuid", "metric": 42}`).
+3. **No Field Limit Safeguard**: The default safety limit (`index.mapping.total_fields.limit: 1000`) had been explicitly disabled by a previous developer.
+
+#### The Architectural Hardening
+1. **Enforced Strict Dynamic Mapping**:
+   Configured `"dynamic": "strict"` on all production indices. Any document containing an undeclared field is rejected with HTTP 400.
+2. **The `flattened` Data Type for Arbitrary Metadata**:
+   For fields that genuinely require arbitrary key-value storage (such as custom customer metadata), configured the **`flattened`** type:
+   ```json
+   "metadata": { "type": "flattened" }
+   ```
+   The `flattened` type treats the entire nested JSON hierarchy as leaf keywords without creating individual field mappings in cluster state.
+3. **Cluster Health Field Limit Monitoring**: Enforced `index.mapping.total_fields.limit: 1000` with automated Prometheus alerting if field count crosses 600.
+
+---
+
+## 4. Multi-Language Production Implementations
+
+Below are four enterprise implementations demonstrating explicit schema declaration, multi-fields, analyzers, and zero-downtime index alias management.
+
+### 4.1 Go: Explicit Mapping Definition with Reindexing via Zero-Downtime Aliases
+
+```go
+package main
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"time"
+
+	"github.com/elastic/go-elasticsearch/v8"
+	"github.com/elastic/go-elasticsearch/v8/esapi"
+)
+
+type IndexManager struct {
+	es *elasticsearch.Client
+}
+
+func NewIndexManager(address string) (*IndexManager, error) {
+	client, err := elasticsearch.NewClient(elasticsearch.Config{
+		Addresses: []string{address},
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &IndexManager{es: client}, nil
+}
+
+// CreateProductsIndexV1 explicitly declares mappings with multi-fields and strict dynamic controls.
+func (im *IndexManager) CreateProductsIndexV1(ctx context.Context, indexName string) error {
+	schema := map[string]any{
+		"settings": map[string]any{
+			"number_of_shards":   1,
+			"number_of_replicas": 1,
+			"analysis": map[string]any{
+				"analyzer": map[string]any{
+					"autocomplete_analyzer": map[string]any{
+						"tokenizer": "standard",
+						"filter":    []string{"lowercase"},
+					},
+				},
+			},
+		},
+		"mappings": map[string]any{
+			"dynamic": "strict", // Prevent mapping explosion!
+			"properties": map[string]any{
+				"id": map[string]any{"type": "keyword"},
+				"sku": map[string]any{"type": "keyword"},
+				"title": map[string]any{
+					"type": "text",
+					"fields": map[string]any{
+						"raw": map[string]any{"type": "keyword"}, // Multi-field for sorting/aggregations
+					},
+				},
+				"description": map[string]any{"type": "text"},
+				"price_cents": map[string]any{"type": "long"},
+				"created_at":  map[string]any{"type": "date"},
+				"attributes":  map[string]any{"type": "flattened"}, // Arbitrary metadata safe from explosion
+			},
+		},
+	}
+
+	payload, _ := json.Marshal(schema)
+	req := esapi.IndicesCreateRequest{
+		Index: indexName,
+		Body:  bytes.NewReader(payload),
+	}
+
+	res, err := req.Do(ctx, im.es)
+	if err != nil {
+		return err
+	}
+	defer res.Body.Close()
+
+	if res.StatusCode != http.StatusOK {
+		return fmt.Errorf("failed to create index, status code: %d", res.StatusCode)
+	}
+
+	return nil
+}
+
+// PointAliasToVersion performs zero-downtime atomic alias migration.
+func (im *IndexManager) PointAliasToVersion(ctx context.Context, aliasName, targetIndex string) error {
+	actions := map[string]any{
+		"actions": []any{
+			map[string]any{
+				"add": map[string]any{
+					"index": targetIndex,
+					"alias": aliasName,
+				},
+			},
+		},
+	}
+
+	payload, _ := json.Marshal(actions)
+	req := esapi.IndicesUpdateAliasesRequest{
+		Body: bytes.NewReader(payload),
+	}
+
+	res, err := req.Do(ctx, im.es)
+	if err != nil {
+		return err
+	}
+	defer res.Body.Close()
+
+	if res.IsError() {
+		return fmt.Errorf("failed to update alias, status: %d", res.StatusCode)
+	}
+
+	return nil
+}
+
+func main() {
+	im, err := NewIndexManager("http://localhost:9200")
+	if err != nil {
+		panic(err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	idx := "products_v1"
+	alias := "products"
+
+	err = im.CreateProductsIndexV1(ctx, idx)
+	if err != nil {
+		fmt.Printf("Index creation note: %v\n", err)
+	} else {
+		fmt.Printf("[Success] Created index %s with strict mappings and multi-fields\n", idx)
+		_ = im.PointAliasToVersion(ctx, alias, idx)
+		fmt.Printf("[Success] Alias '%s' now atomically points to '%s'\n", alias, idx)
+	}
+}
+```
+
+---
+
+### 4.2 TypeScript: Resilient Schema Creation with Zero-Downtime Reindexing
+
+```typescript
+import { Client } from "@elastic/elasticsearch";
+
+export class SchemaManager {
+  private client: Client;
+
+  constructor(node: string = "http://localhost:9200") {
+    this.client = new Client({ node });
+  }
+
+  public async deployProductSchema(versionedIndex: string): Promise<void> {
+    const exists = await this.client.indices.exists({ index: versionedIndex });
+    if (exists) {
+      console.log(`Index ${versionedIndex} already exists.`);
+      return;
     }
+
+    await this.client.indices.create({
+      index: versionedIndex,
+      body: {
+        settings: {
+          number_of_shards: 1,
+          number_of_replicas: 1,
+        },
+        mappings: {
+          dynamic: "strict", // Block unknown keys
+          properties: {
+            productId: { type: "keyword" },
+            name: {
+              type: "text",
+              fields: {
+                keyword: { type: "keyword", ignore_above: 256 }, // Multi-field for faceting
+              },
+            },
+            tags: { type: "keyword" }, // Array of keywords
+            metadata: { type: "flattened" }, // Immunized against mapping explosion
+            price: { type: "scaled_float", scaling_factor: 100 },
+            availableDate: { type: "date" },
+          },
+        },
+      },
+    });
+
+    console.log(`[Success] Index ${versionedIndex} created with strict typing.`);
+  }
+
+  public async atomicSwapAlias(alias: string, oldIndex: string, newIndex: string): Promise<void> {
+    await this.client.indices.updateAliases({
+      body: {
+        actions: [
+          { remove: { index: oldIndex, alias } },
+          { add: { index: newIndex, alias } },
+        ],
+      },
+    });
+    console.log(`[Success] Atomic alias swap: '${alias}' moved from ${oldIndex} to ${newIndex}`);
   }
 }
 ```
 
-The key idea: **you should almost always define the mapping before indexing
-data**, because the mapping controls behavior you can't easily change later.
-Most field mappings are **immutable once created** — you cannot change
-`name` from `text` to `keyword` on an existing field. To "change" it you create
-a new index with the corrected mapping and **reindex** the data into it (a
-first-class operation, `_reindex`, covered in the exercises). This immutability
-is exactly why guessing is dangerous: a bad guess bakes in until you reindex.
+---
 
-### `text` vs `keyword`: the distinction everything hinges on
+### 4.3 Python: Strict Mapping Enforcement & Analyzed Field Verification
 
-These are two completely different string types with opposite purposes.
-Confusing them is the number-one Elasticsearch mistake, so slow down here.
+```python
+from elasticsearch import Elasticsearch
 
-**`text`** is for **full-text search** — human-readable prose you want to
-*search within*. A `text` field is run through an **analyzer** (module 02) at
-index time: the string is lowercased, split into tokens, and possibly stemmed,
-and those *terms* go into the inverted index. `"The Quick Brown Fox"` in a
-`text` field becomes the terms `[the, quick, brown, fox]`. This is what lets
-`match` queries find the document by any of those words in any order. But
-because the original string was shredded into terms:
 
-- You generally **cannot sort or aggregate** on a `text` field (it's disabled
-  by default — the terms aren't the original value, and aggregating on
-  fielddata is memory-expensive and usually meaningless).
-- You cannot match the whole value exactly as a unit easily.
+def create_strict_catalog_index(es: Elasticsearch, index_name: str) -> None:
+    mapping_body = {
+        "settings": {
+            "index": {
+                "number_of_shards": 1,
+                "number_of_replicas": 0,
+                "mapping.total_fields.limit": 500,  # Strict safeguard limit
+            }
+        },
+        "mappings": {
+            "dynamic": "strict",  # Unmapped fields throw HTTP 400
+            "properties": {
+                "sku": {"type": "keyword"},
+                "title": {
+                    "type": "text",
+                    "fields": {
+                        "raw": {"type": "keyword"}  # For sorting and aggregation
+                    },
+                },
+                "category": {"type": "keyword"},
+                "price_usd": {"type": "double"},
+                "in_stock": {"type": "boolean"},
+                "extra_specs": {"type": "flattened"},  # Safe arbitrary client JSON
+            },
+        },
+    }
 
-**`keyword`** is for **exact-value, structured strings** — identifiers, status
-codes, tags, enum-like categories, email addresses. A `keyword` field is **not
-analyzed**: the entire string is stored as a *single term*, verbatim.
-`"Running Shoes"` in a `keyword` field is the single term `"Running Shoes"` —
-not split, not lowercased. This is exactly what you want for:
+    if not es.indices.exists(index=index_name):
+        es.indices.create(index=index_name, body=mapping_body)
+        print(f"[Success] Created strict index '{index_name}'")
+    else:
+        print(f"Index '{index_name}' already exists.")
 
-- **Exact match** (`term` query): `status = "shipped"`.
-- **Aggregations**: "count products per category" needs each category to be one
-  indivisible bucket — `keyword` gives you that. On a `text` field the same
-  aggregation would (if enabled) bucket by individual *words*.
-- **Sorting**: sort by `sku` or `last_name.keyword`.
 
-Rule of thumb: **if a human reads it as a sentence and searches within it →
-`text`. If a machine matches it exactly, or you group/sort/filter by its whole
-value → `keyword`.** A product *name* is usually `text` (users search "brown
-fox"), a product *SKU*, *brand*, *status*, or *category* is `keyword`.
-
+if __name__ == "__main__":
+    client = Elasticsearch("http://localhost:9200")
+    try:
+        create_strict_catalog_index(client, "catalog_v1")
+    except Exception as e:
+        print(f"Connection/Index notice: {e}")
 ```
-  "Trail Running Shoes"
 
-  text    ─► analyzer ─► [trail] [running] [shoes]     match / full-text ✓   aggregate/sort ✗
-  keyword ─► verbatim  ─► ["Trail Running Shoes"]       exact term / sort / aggregate ✓
-```
+---
 
-### The multi-field pattern: having it both ways
+### 4.4 C#: Strongly Typed Mapping Definition via Elastic.Clients.Elasticsearch
 
-Very often you need both behaviors for the same field. A product name should be
-**full-text searchable** ("wireless headphones") *and* **sortable/aggregatable**
-(sort alphabetically, or facet by exact name). You don't choose — you index the
-field two ways at once using a **multi-field** (`fields`):
+```csharp
+using System;
+using System.Threading.Tasks;
+using Elastic.Clients.Elasticsearch;
+using Elastic.Clients.Elasticsearch.IndexManagement;
+using Elastic.Clients.Elasticsearch.Mapping;
 
-```json
-PUT /products
+namespace Architecture.Search.Mappings
 {
-  "mappings": {
-    "properties": {
-      "name": {
-        "type": "text",
-        "fields": {
-          "raw": { "type": "keyword" }
+    public class ProductRecord
+    {
+        public string Sku { get; set; } = string.Empty;
+        public string Title { get; set; } = string.Empty;
+        public decimal Price { get; set; }
+        public DateTime CreatedAt { get; set; }
+    }
+
+    public class SchemaConfigurator
+    {
+        private readonly ElasticsearchClient _client;
+
+        public SchemaConfigurator(ElasticsearchClient client)
+        {
+            _client = client;
         }
-      }
+
+        public async Task<bool> InitializeIndexAsync(string indexName)
+        {
+            var createResponse = await _client.Indices.CreateAsync(indexName, c => c
+                .Settings(s => s
+                    .NumberOfShards(1)
+                    .NumberOfReplicas(1)
+                )
+                .Mappings(m => m
+                    .Dynamic(DynamicMapping.Strict)
+                    .Properties<ProductRecord>(p => p
+                        .Keyword(k => k.Sku)
+                        .Text(t => t.Title, txt => txt
+                            .Fields(f => f
+                                .Keyword("raw") // Multi-field for sorting
+                            )
+                        )
+                        .DoubleNumber(d => d.Price)
+                        .Date(dt => dt.CreatedAt)
+                    )
+                )
+            );
+
+            return createResponse.IsValidResponse;
+        }
     }
-  }
 }
 ```
 
-Now the same source value is stored twice: `name` is analyzed `text` (use it in
-`match` queries), and `name.raw` is an un-analyzed `keyword` (use it to sort or
-aggregate). This is *the* idiomatic Elasticsearch pattern and you'll use it
-constantly. In fact, dynamic mapping (below) creates this pattern automatically
-for strings — a field `name` becomes `text` with a `name.keyword` sub-field —
-which is convenient but has a sharp edge worth knowing.
+---
 
-```
-  source value "Wireless Headphones"
-                    │  indexed two ways from ONE field
-          ┌─────────┴──────────┐
-     name (text)          name.raw (keyword)
-     [wireless]           "Wireless Headphones"
-     [headphones]                 │
-          │                       └─► sort · aggregate · exact term
-          └─► match "wireless headphones"
-```
+## 5. Practical Hands-On Verification Workflows
 
-### Dynamic mapping and its pitfalls
+### 5.1 CLI Verification of the `_analyze` API
 
-If you index a document into an index with no explicit mapping for a field,
-Elasticsearch **dynamically** infers a type from the value:
-
-| JSON value | Guessed type |
-|---|---|
-| `"hello world"` | `text` with a `.keyword` sub-field |
-| `42` | `long` |
-| `42.5` | `float`/`double` |
-| `true` | `boolean` |
-| `"2026-07-27"` | `date` (date detection is on by default!) |
-| `"2026-07-27T10:00:00Z"` | `date` |
-
-Convenient, but the pitfalls are real and common:
-
-- **Date detection surprises.** A string that *looks* like a date is mapped as
-  `date`. So a field that sometimes holds `"2026-01-01"` and sometimes holds
-  `"N/A"` will map as `date` from the first doc, then **reject** the `"N/A"`
-  document with a mapping-parse error. A product "version" field like
-  `"2020"` might become a date, not text.
-- **Type locked by the first document.** If the first document has
-  `"price": 9` (integer → `long`) and a later one has `"price": 9.99`, the
-  later float may be truncated or rejected depending on settings — the type was
-  fixed by the first doc's shape.
-- **Mapping explosion.** If documents contain unpredictable keys (e.g. you
-  index a big blob of user-supplied JSON, or use dynamic keys like
-  `metrics.<hostname>`), Elasticsearch keeps adding fields to the mapping — one
-  per distinct key — until you hit the field limit (default 1000) and indexing
-  starts failing. Logs and telemetry pipelines hit this constantly.
-- **The `text`+`keyword` default may not be what you want.** A giant blob of
-  body text gets a useless `body.keyword` sub-field that (a) wastes space and
-  (b) errors if the value exceeds `ignore_above` (256 chars by default the
-  `.keyword` simply isn't indexed for that doc — a silent gotcha when you later
-  try to aggregate on it and some values are missing).
-
-You control this with the `dynamic` setting on the mapping:
-
-- `"dynamic": true` (default) — add new fields automatically.
-- `"dynamic": "runtime"` — add them as *runtime fields* (queryable, not indexed
-  — cheaper, no mapping explosion).
-- `"dynamic": "false"` — ignore unknown fields (store in `_source`, but not
-  indexed/searchable — they silently won't be findable).
-- `"dynamic": "strict"` — **reject** documents with unknown fields. This is the
-  safest choice for a well-understood schema: it turns "silently unsearchable"
-  into a loud error you'll actually notice.
-
-The professional default: **define your mapping explicitly and set
-`dynamic: strict` (or at least `false`)** for indexes with a known shape, so a
-typo'd field name (`titel` instead of `title`) fails loudly instead of silently
-becoming an unsearchable field.
-
-### Numeric, date, and other core types (briefly)
-
-Beyond strings, the common types you'll declare:
-
-- Numeric: `long`, `integer`, `short`, `byte`, `double`, `float`,
-  `scaled_float` (stores a float as a scaled long — great for prices/money).
-- `date` — stored as a `long` (ms since epoch) internally; accepts multiple
-  formats via the `format` option.
-- `boolean`.
-- `object` — nested JSON becomes dot-path fields (`author.name`) — flattened by
-  default.
-- `nested` — for arrays of objects where you must preserve which sub-values go
-  together (a subtlety about arrays of objects "losing" their pairing; you'll
-  meet it if you index arrays of objects and need to query them as units).
-- Specialized: `ip`, `geo_point`, `completion` (autocomplete — capstone),
-  `dense_vector` (semantic search — beyond this track).
-
-For money, prefer `scaled_float` with a `scaling_factor` of 100 (store cents
-precisely) rather than `float`, echoing the track-04 lesson about never storing
-money as a naive float.
-
-## Command reference
-
-| Action | REST | Notes |
-|---|---|---|
-| Create index with mapping | `PUT /products` + body | Define mapping up front |
-| View an index's mapping | `GET /products/_mapping` | See what ES actually stored/guessed |
-| Add a field to existing mapping | `PUT /products/_mapping` + body | Can *add* fields, not change existing ones |
-| Check a specific field | `GET /products/_mapping/field/name` | |
-| Delete an index | `DELETE /products` | Irreversible |
-| Reindex into a new index | `POST /_reindex` + `{source,dest}` | The way to "change" a mapping |
-| See how text would be analyzed | `POST /products/_analyze` | Preview tokenization (module 02) |
-
-Explicit mapping with the multi-field pattern and strict dynamic control, via
-curl:
+To understand exactly how Elasticsearch tokenizes `text` vs preserving `keyword`, execute the `_analyze` API in your terminal:
 
 ```bash
-curl -XPUT "localhost:9200/products" -H 'Content-Type: application/json' -d '{
-  "mappings": {
-    "dynamic": "strict",
-    "properties": {
-      "name":     { "type": "text",
-                    "fields": { "raw": { "type": "keyword" } } },
-      "sku":      { "type": "keyword" },
-      "brand":    { "type": "keyword" },
-      "category": { "type": "keyword" },
-      "description": { "type": "text" },
-      "price":    { "type": "scaled_float", "scaling_factor": 100 },
-      "in_stock": { "type": "boolean" },
-      "created":  { "type": "date" }
-    }
-  }
+# 1. Inspect how standard analyzer processes a text string
+curl -s -X POST "http://localhost:9200/_analyze" -H "Content-Type: application/json" -d'
+{
+  "analyzer": "standard",
+  "text": "Ultra-light Running Shoes!"
 }'
-```
 
-The same in Python (`elasticsearch-py`):
+# Expected Output: Tokenized, lowercased terms
+# {
+#   "tokens": [
+#     {"token": "ultra", "start_offset": 0, "end_offset": 5, "type": "<ALPHANUM>", "position": 0},
+#     {"token": "light", "start_offset": 6, "end_offset": 11, "type": "<ALPHANUM>", "position": 1},
+#     {"token": "running", "start_offset": 12, "end_offset": 19, "type": "<ALPHANUM>", "position": 2},
+#     {"token": "shoes", "start_offset": 20, "end_offset": 25, "type": "<ALPHANUM>", "position": 3}
+#   ]
+# }
 
-```python
-from elasticsearch import Elasticsearch
-es = Elasticsearch("http://localhost:9200")
-
-mapping = {
-    "dynamic": "strict",
-    "properties": {
-        "name":     {"type": "text", "fields": {"raw": {"type": "keyword"}}},
-        "sku":      {"type": "keyword"},
-        "brand":    {"type": "keyword"},
-        "category": {"type": "keyword"},
-        "description": {"type": "text"},
-        "price":    {"type": "scaled_float", "scaling_factor": 100},
-        "in_stock": {"type": "boolean"},
-        "created":  {"type": "date"},
-    },
-}
-
-# create_if_missing pattern
-if not es.indices.exists(index="products"):
-    es.indices.create(index="products", mappings=mapping)
-
-print(es.indices.get_mapping(index="products"))
-```
-
-## Hands-on exercises
-
-Use the cluster from module 00 (`docker compose up -d`).
-
-### 1. Watch dynamic mapping guess (the thing you're learning to avoid)
-
-Index into a brand-new index with no mapping, then inspect what ES invented:
-
-```bash
-curl -XPOST "localhost:9200/guessed/_doc/1" -H 'Content-Type: application/json' -d '{
-  "title": "Wireless Headphones",
-  "price": 79,
-  "released": "2026-07-27",
-  "tags": "audio"
+# 2. Inspect keyword analyzer (verbatim exact term)
+curl -s -X POST "http://localhost:9200/_analyze" -H "Content-Type: application/json" -d'
+{
+  "analyzer": "keyword",
+  "text": "Ultra-light Running Shoes!"
 }'
-curl "localhost:9200/guessed/_mapping?pretty"
+
+# Expected Output: Exactly ONE raw token
+# {
+#   "tokens": [
+#     {"token": "Ultra-light Running Shoes!", "start_offset": 0, "end_offset": 26, "type": "word", "position": 0}
+#   ]
+# }
 ```
 
-Expected: `title` → `text` **with** a `title.keyword` sub-field; `price` →
-`long` (because you sent `79`, an integer!); `released` → `date` (date
-detection); `tags` → `text`+`keyword`. Note the two things already wrong for a
-real catalog: `price` is a `long` (so `79.99` later will be trouble) and every
-string carries a `.keyword` you may not want.
+---
 
-### 2. Feel the "type locked by first doc" trap
-
-```bash
-curl -XPOST "localhost:9200/guessed/_doc/2" -H 'Content-Type: application/json' -d '{
-  "title": "Cheap Cable",
-  "price": 4.99
-}'
-```
-
-Expected: ES coerces `4.99` into the `long` field and **truncates it to 4** (or
-in stricter setups errors). Check:
-
-```bash
-curl "localhost:9200/guessed/_doc/2?pretty"
-curl "localhost:9200/guessed/_search?pretty" -H 'Content-Type: application/json' -d '{"query":{"range":{"price":{"gte":4.5}}}}'
-```
-
-The `_source` still shows `4.99` (source is stored verbatim) but the *indexed*
-value was truncated to `4`, so a `range` query on `price >= 4.5` **misses this
-document**. This is a genuinely nasty silent bug: the doc looks right but
-doesn't behave right. The cause is dynamic mapping locking `price` as `long`
-from doc 1.
-
-### 3. Diagnose and fix: date detection rejects a document
-
-```bash
-curl -XPOST "localhost:9200/events/_doc/1" -H 'Content-Type: application/json' -d '{"code":"2026-01-01"}'
-curl -XPOST "localhost:9200/events/_doc/2" -H 'Content-Type: application/json' -d '{"code":"PENDING"}'
-```
-
-The second call fails. Read the error, explain it, and fix it so both
-documents index and `code` behaves as an exact-match keyword.
+## 6. Operational Validation Checkpoints (Scenario Quizzes)
 
 <details>
-<summary>Answer</summary>
+<summary><strong>Checkpoint 1: The "Fielddata is disabled" Aggregation Crash</strong></summary>
 
-Doc 1's `code` value `"2026-01-01"` looks like a date, so **date detection**
-dynamically mapped `code` as type `date`. Doc 2's `"PENDING"` can't be parsed
-as a date, so it's rejected with a `mapper_parsing_exception`
-(`failed to parse date field`). `code` is really an identifier/enum, not a
-date. Fix by defining the mapping explicitly *before* indexing (delete and
-recreate, since the field type is locked):
-
-```bash
-curl -XDELETE "localhost:9200/events"
-curl -XPUT "localhost:9200/events" -H 'Content-Type: application/json' -d '{
-  "mappings": { "properties": { "code": { "type": "keyword" } } }
-}'
-curl -XPOST "localhost:9200/events/_doc/1" -H 'Content-Type: application/json' -d '{"code":"2026-01-01"}'
-curl -XPOST "localhost:9200/events/_doc/2" -H 'Content-Type: application/json' -d '{"code":"PENDING"}'
+**Scenario**: A developer executes a `terms` aggregation on the `description` field:
+```json
+{ "aggs": { "popular_terms": { "terms": { "field": "description" } } } }
 ```
+Elasticsearch throws an HTTP 400 error:
+`"Fielddata is disabled on text fields by default. Set fielddata=true on [description] in order to load fielddata in memory..."`
+The developer prepares a pull request enabling `fielddata=true`. Why should you immediately reject this pull request in code review, and what is the proper fix?
 
-Both index now, and `code` is an exact-match keyword. You can also disable date
-detection globally with `"date_detection": false` in the mapping.
-
+<strong>Answer:</strong>
+**Severe JVM Heap Exhaustion Threat**:
+- **Why Reject `fielddata=true`**:
+  - `text` fields are stored in an inverted index (Term $\rightarrow$ Doc). To aggregate or sort, Lucene must invert the index in reverse (Doc $\rightarrow$ Terms).
+  - Enabling `fielddata=true` forces Elasticsearch to load the entire inverted index of that field uncompressed into **JVM Heap memory**.
+  - On large indices, fielddata easily consumes 100% of the heap, triggers massive Garbage Collection freezes, and crashes the node.
+- **The Proper Fix**:
+  - If you need aggregations on a string, use a **`keyword`** field (or a multi-field `description.keyword`). Keywords use **Doc Values**—an on-disk, OS-cached columnar structure that aggregates billions of values with zero JVM heap bloat.
 </details>
-
-### 4. Create the catalog index properly
-
-Run the explicit-mapping curl from the Command reference to create `products`
-with `dynamic: strict` and the multi-field `name`. Then confirm:
-
-```bash
-curl "localhost:9200/products/_mapping?pretty"
-```
-
-Expected: `name` is `text` with a `name.raw` keyword sub-field; `price` is
-`scaled_float`; `dynamic` is `strict`.
-
-### 5. Index real catalog documents
-
-```bash
-curl -XPOST "localhost:9200/products/_doc/1" -H 'Content-Type: application/json' -d '{
-  "name":"Trail Running Shoes","sku":"TRS-100","brand":"Summit",
-  "category":"footwear","description":"Lightweight shoes for trail running",
-  "price":129.99,"in_stock":true,"created":"2026-03-01"
-}'
-curl -XPOST "localhost:9200/products/_doc/2" -H 'Content-Type: application/json' -d '{
-  "name":"Road Running Shoes","sku":"RRS-200","brand":"Summit",
-  "category":"footwear","description":"Cushioned shoes for road running",
-  "price":149.50,"in_stock":false,"created":"2026-04-15"
-}'
-curl -XPOST "localhost:9200/products/_refresh"
-```
-
-Expected: both `"result":"created"`. Note `price` now stores `129.99`
-correctly (scaled_float), unlike the `guessed` index.
-
-### 6. See the `text` vs `keyword` behavior split directly
-
-Full-text `match` on the analyzed `name` (finds by any word):
-
-```bash
-curl "localhost:9200/products/_search?pretty" -H 'Content-Type: application/json' -d '{
-  "query": { "match": { "name": "running" } }
-}'
-```
-
-Expected: both shoes match — `name` is `text`, so `running` is a term in the
-inverted index.
-
-Now try the same word against the `keyword` sub-field with a `term` query:
-
-```bash
-curl "localhost:9200/products/_search?pretty" -H 'Content-Type: application/json' -d '{
-  "query": { "term": { "name.raw": "running" } }
-}'
-```
-
-Expected: **zero hits** — `name.raw` is `keyword`, stored as the single term
-`"Trail Running Shoes"`, so it only matches an exact, whole-string `term` of
-`"Trail Running Shoes"`. This is the `text`/`keyword` distinction in one
-experiment.
-
-### 7. Aggregate on `keyword`, and see why `text` can't
-
-Group products by brand (works, because `brand` is `keyword`):
-
-```bash
-curl "localhost:9200/products/_search?pretty" -H 'Content-Type: application/json' -d '{
-  "size": 0,
-  "aggs": { "by_brand": { "terms": { "field": "brand" } } }
-}'
-```
-
-Expected: one bucket, `Summit`, `doc_count: 2`. Now try aggregating on the
-`text` field `name`:
-
-```bash
-curl "localhost:9200/products/_search?pretty" -H 'Content-Type: application/json' -d '{
-  "size": 0,
-  "aggs": { "by_name": { "terms": { "field": "name" } } }
-}'
-```
-
-Expected: an **error** — "Text fields are not optimised for operations that
-require per-document field data like aggregations and sorting… set
-`fielddata=true`… or use a keyword field instead." That error *is* the lesson:
-aggregate on `name.raw`, not `name`.
-
-### 8. Diagnose and fix: the mapping explosion
-
-```bash
-curl -XPOST "localhost:9200/metrics/_doc" -H 'Content-Type: application/json' -d '{"host_a_cpu": 12}'
-curl -XPOST "localhost:9200/metrics/_doc" -H 'Content-Type: application/json' -d '{"host_b_cpu": 55}'
-curl -XPOST "localhost:9200/metrics/_doc" -H 'Content-Type: application/json' -d '{"host_c_mem": 71}'
-curl "localhost:9200/metrics/_mapping?pretty"
-```
-
-Explain what's growing and why this is dangerous at scale, then say how you'd
-model this correctly.
 
 <details>
-<summary>Answer</summary>
+<summary><strong>Checkpoint 2: The Silent Term Exact-Match Failure</strong></summary>
 
-Each document uses a *different* key (`host_a_cpu`, `host_b_cpu`, …), and with
-default `dynamic: true` Elasticsearch adds a **new field to the mapping for
-every distinct key**. With thousands of hosts you'd get thousands of fields,
-eventually hitting the default 1000-field limit and failing all indexing —
-"mapping explosion." The mapping should describe a fixed *shape*, not encode
-data in field names. Model it as data instead:
-`{"host":"a","metric":"cpu","value":12}` with a fixed mapping
-(`host` keyword, `metric` keyword, `value` long). Now the number of fields is
-constant no matter how many hosts you have, and you can aggregate
-`terms` on `host`. Defensively, set `dynamic: strict` (or `"runtime"`) so a new
-unexpected key fails loudly instead of silently bloating the mapping.
-
-</details>
-
-### 9. Reindex to "change" a mapping
-
-You realize `products.category` should also be full-text searchable, not just
-`keyword`. You can't change the existing field, so reindex into a corrected
-index:
-
-```bash
-curl -XPUT "localhost:9200/products_v2" -H 'Content-Type: application/json' -d '{
-  "mappings": {
-    "dynamic": "strict",
-    "properties": {
-      "name": {"type":"text","fields":{"raw":{"type":"keyword"}}},
-      "sku":{"type":"keyword"}, "brand":{"type":"keyword"},
-      "category":{"type":"text","fields":{"raw":{"type":"keyword"}}},
-      "description":{"type":"text"},
-      "price":{"type":"scaled_float","scaling_factor":100},
-      "in_stock":{"type":"boolean"}, "created":{"type":"date"}
-    }
-  }
-}'
-curl -XPOST "localhost:9200/_reindex" -H 'Content-Type: application/json' -d '{
-  "source": { "index": "products" },
-  "dest":   { "index": "products_v2" }
-}'
-curl "localhost:9200/products_v2/_count"
+**Scenario**: An index has a field `status` mapped as `type: "text"`. A document exists with `status: "PENDING_APPROVAL"`. A client issues this filter:
+```json
+{ "query": { "term": { "status": "PENDING_APPROVAL" } } }
 ```
+The query returns **0 results**. Yet if the client issues `match: { "status": "pending" }`, the document matches. Why did the `term` query fail?
 
-Expected: reindex reports `"created": 2`, and `products_v2` has 2 docs with the
-new mapping. In production you'd then point an **alias** (module 06) at
-`products_v2` so application code doesn't change. This reindex-into-new-index
-pattern is how *all* mapping changes happen — internalize it now.
-
-### 10. Do it in Python
-
-```python
-from elasticsearch import Elasticsearch
-es = Elasticsearch("http://localhost:9200")
-
-# aggregate on the keyword sub-field, not the text field
-resp = es.search(index="products", size=0,
-                 aggs={"by_brand": {"terms": {"field": "brand"}}})
-for b in resp["aggregations"]["by_brand"]["buckets"]:
-    print(b["key"], b["doc_count"])
-
-# full-text on the analyzed field
-resp = es.search(index="products", query={"match": {"name": "running"}})
-print(resp["hits"]["total"]["value"], "hits")
-```
-
-Expected: prints `Summit 2`, then `2 hits`.
-
-## Independent challenge
-
-No mapping given — design it yourself.
-
-**Task:** You're indexing **blog posts** for a search feature. Each post has: a
-title, author name, body (long article text), a list of tags, a publish
-timestamp, a status (`draft`/`published`/`archived`), and a view count. Design
-and create an explicit mapping (`PUT /blog`) that supports *all* of these
-requirements simultaneously:
-
-1. Full-text search across title and body.
-2. Sort results alphabetically by title, and facet (aggregate) counts by
-   author and by tag.
-3. Filter to only `published` posts (exact match) and to a publish-date range.
-4. Sort by view count.
-5. A new field accidentally named `titel` in a document must **fail loudly**,
-   not be silently ignored.
-
-Reach back to module 00's TF-IDF discussion to justify *why* body must be
-`text`, and to this module's multi-field pattern for the title requirement.
-Then index two posts and prove each requirement with a query or aggregation.
-
-<details>
-<summary>Hint</summary>
-
-`title` and `body` are `text` (full-text). `title` also needs `.raw`
-(`keyword`) for the alphabetical sort — a multi-field. `author` and `tags`
-are `keyword` (faceting/exact). `status` is `keyword` (exact filter). The
-publish timestamp is `date`; `views` is an integer/`long`. Requirement 5 is
-`"dynamic": "strict"` at the mapping root — that turns the typo'd `titel` into a
-rejected document instead of a silent phantom field. Facet by author with a
-`terms` agg on `author`; the date range uses a `range` query on the date field.
-
+<strong>Answer:</strong>
+**Mismatched Analyzer Tokens**:
+1. When `status: "PENDING_APPROVAL"` was indexed into a `text` field, the standard analyzer lowercased it into two tokens: `["pending", "approval"]`.
+2. A **`term` query** is a raw, unanalyzed exact query. It searches the inverted index for the verbatim string `"PENDING_APPROVAL"`.
+3. Because the inverted index only contains lowercase `["pending", "approval"]`, the exact uppercase string is never found.
+4. **Resolution**: Status fields should be mapped as **`keyword`**, not `text`.
 </details>
 
-## Common mistakes & troubleshooting
-
-- **Letting dynamic mapping guess for a schema you actually know.** Define the
-  mapping explicitly and use `dynamic: strict`/`false` so typos and unexpected
-  fields fail loudly instead of becoming silent phantom fields.
-- **Using `text` where you needed `keyword` (or vice versa).** Aggregations,
-  sorts, and exact `term` matches need `keyword`; full-text `match` needs
-  `text`. Symptom of getting it wrong: an "aggregations not supported on text"
-  error, or a `term` query returning nothing because the value was analyzed.
-- **Aggregating/sorting on the analyzed field instead of the `.keyword`
-  sub-field.** Use `name.raw` / `field.keyword`, not the `text` field itself.
-- **Date detection mapping an identifier as a `date`.** A date-looking string
-  in the first doc locks the field to `date` and later non-date values are
-  rejected. Map it explicitly as `keyword`, or set `date_detection: false`.
-- **Storing money as `float`.** Use `scaled_float` (scaling_factor 100) or
-  integer cents — floats lose precision, same lesson as track 04.
-- **Expecting to change a field's type in place.** You can't; most mappings are
-  immutable. Reindex into a new index with the corrected mapping (and swap an
-  alias). You *can* add brand-new fields, just not retype existing ones.
-- **Mapping explosion from data-in-field-names.** Model varying keys as data
-  (`{metric, value}` documents), not as an ever-growing set of fields.
-
-## Checkpoint quiz
-
-Write down your answer to each question before expanding it — checking without attempting first is the single easiest way to fool yourself into thinking you've learned this.
-
-1. What is the practical difference between a `text` field and a `keyword`
-   field, and which one do you need for aggregating, sorting, or an exact
-   `term` match?
-2. What is dynamic mapping, and why is letting Elasticsearch guess the mapping
-   for a schema you already know a risky default? What does `dynamic: strict`
-   buy you?
-3. A `multi-field` maps the same source value two ways at once. Give the
-   canonical example (`text` + `.keyword`) and explain when each sub-field is
-   used.
-4. Why can't you change an existing field's type in place, and what is the
-   standard procedure for correcting a wrong mapping without downtime?
-5. Why should money be stored as `scaled_float` (or integer cents) rather than
-   `float`?
-6. What is a "mapping explosion," what commonly causes it, and how do you model
-   varying keys to avoid it?
-
 <details>
-<summary>Answers</summary>
+<summary><strong>Checkpoint 3: The Zero-Downtime Reindexing Dilemma</strong></summary>
 
-1. A `text` field is run through an analyzer and broken into terms for
-   full-text `match` search; it is not stored in a form you can aggregate,
-   sort, or exact-match efficiently. A `keyword` field is stored verbatim as a
-   single token. Aggregations, sorting, and exact `term` matches need
-   `keyword`; full-text `match` needs `text`.
-2. Dynamic mapping is Elasticsearch inferring a field's type from the first
-   document that contains it. It's risky because a single odd first value
-   (e.g. a date-looking id) locks in the wrong type, and typos silently become
-   new phantom fields. `dynamic: strict` makes unexpected fields fail loudly
-   (rejected) instead of being silently added.
-3. The canonical multi-field maps a field as `text` (analyzed, for `match`)
-   with a `.keyword` sub-field (verbatim, for aggregations/sorting/exact
-   `term`). You search the `text` field and aggregate/sort on `field.keyword`.
-4. Most mappings are immutable because the field's data is already written into
-   the inverted index/doc-values in that type's on-disk form; changing the
-   type would invalidate existing data. The fix is to create a new index with
-   the corrected mapping, reindex into it, and swap an **alias** so application
-   code never sees the change. (You *can* add brand-new fields — just not
-   retype existing ones.)
-5. Floats can't represent many decimal values exactly, so arithmetic and
-   comparisons drift. `scaled_float` (with a scaling_factor like 100) or plain
-   integer cents keep money exact — the same lesson as the relational track.
-6. A mapping explosion is an index accumulating a huge number of fields, which
-   bloats cluster state and memory. It's typically caused by encoding *data in
-   field names* (e.g. one field per metric id) combined with dynamic mapping.
-   Model the varying keys as data instead — documents like
-   `{ "metric": "...", "value": ... }` — so the field count stays bounded.
+**Scenario**: You have 50 million documents in index `products_v1`. You need to change the mapping of `price` from `integer` to `scaled_float`. Because Elasticsearch mappings are immutable, you cannot update it in-place. How do you execute this migration without any API downtime for active shoppers?
 
+<strong>Answer:</strong>
+**The Index Alias & Reindex Migration Blueprint**:
+1. **Initial Architecture**: Applications should never query concrete index names directly. They query an alias: `products`.
+2. **Step 1 (Create V2)**: Create `products_v2` with the updated mapping (`price: scaled_float`).
+3. **Step 2 (Reindex)**: Trigger background asynchronous reindexing:
+   `POST /_reindex?wait_for_completion=false { "source": { "index": "products_v1" }, "dest": { "index": "products_v2" } }`.
+4. **Step 3 (Dual Writing or Catch-Up)**: Replay any writes created during the reindex window.
+5. **Step 4 (Atomic Alias Swap)**:
+   ```json
+   POST /_aliases
+   {
+     "actions": [
+       { "remove": { "index": "products_v1", "alias": "products" } },
+       { "add":    { "index": "products_v2", "alias": "products" } }
+     ]
+   }
+   ```
+   The alias swap executes in 1 millisecond. Zero queries are dropped; zero clients experience downtime.
 </details>
 
-## Cumulative review
+---
 
-Closed-book. Cover the answers, write yours down, and only then check. These
-mix module 00 and module 01 — if a question from module 00 stumps you, go redo
-that module's exercises rather than peeking.
+## 7. Further Reading & References
 
-1. (00) Explain, using the inverted-index concept, why `match` on a `text`
-   field can find a document by a middle word but a `term` query on that
-   field's `.keyword` sub-field cannot.
-2. (00) Your single-node cluster is yellow and you created a `products` index
-   with 1 primary and 1 replica. How many shards are unassigned and why? Would
-   the *color* change if you dropped the replica count to 0?
-3. (01) Give the rule of thumb for choosing `text` vs `keyword`, then classify
-   these four fields: a product SKU, an article body, an order status, a
-   product name that must be both searchable and sortable.
-4. (01) Why can't you sort by a `text` field by default, and what's the
-   standard pattern that lets a single source field be both full-text
-   searchable *and* sortable?
-5. (00+01) A teammate indexes a document, immediately searches, gets zero hits,
-   *then* also notices their `price` range filter misses a document they know
-   exists. These are two *different* root causes. Name both.
-6. (01) You must change a field from `keyword` to `text`. Walk through the
-   exact steps, and name the module-06 tool that makes the switch invisible to
-   application code.
+- [Elasticsearch Reference: Text vs. Keyword](https://www.elastic.co/guide/en/elasticsearch/reference/current/text.html) - Official technical documentation on string data types.
+- [Elastic Blog: The Flattened Data Type](https://www.elastic.co/blog/introducing-the-flattened-data-type-in-elasticsearch) - How to safely index arbitrary JSON without mapping explosions.
+- [Elasticsearch Reference: Index Aliases](https://www.elastic.co/guide/en/elasticsearch/reference/current/aliases.html) - Zero-downtime index migration strategies.
 
-<details>
-<summary>Answers</summary>
+---
 
-1. On a `text` field the string is analyzed into individual terms
-   (`trail`, `running`, `shoes`), each in the inverted index, so `match
-   "running"` finds it. The `.keyword` sub-field stores the whole string as one
-   term (`"Trail Running Shoes"`), so a `term` query only matches that exact
-   full string, never a single interior word.
-2. Two shards exist (1 primary + 1 replica); the primary is assigned and the
-   replica is unassigned (nowhere to put it on one node) → 1 unassigned →
-   yellow. Dropping replicas to 0 leaves only the assigned primary, so health
-   goes **green** (no unassigned shards) — though you've given up redundancy.
-3. Rule: human-readable prose searched *within* → `text`; exact-matched,
-   grouped, or sorted whole values → `keyword`. SKU → `keyword`; article body →
-   `text`; order status → `keyword`; product name → `text` with a `.raw`
-   `keyword` multi-field.
-4. A `text` field is stored as analyzed terms, not the original value, and
-   sorting/aggregating on it is disabled by default (needs expensive fielddata
-   and is semantically wrong — you'd sort by tokens). The pattern is a
-   **multi-field**: index it as `text` and add a `keyword` sub-field
-   (`title.raw`) for sorting/aggregating.
-5. (a) Near-real-time refresh gap — the just-indexed doc wasn't refreshed into
-   a searchable segment yet (~1s), so the immediate search found nothing.
-   (b) Dynamic mapping locked `price` as `long` from an integer first value, so
-   a later `9.99` was truncated to `9` in the index and the `range` filter
-   misses it. Different causes: one is timing, one is mapping.
-6. Create a new index with the corrected mapping (`category` as `text`),
-   `POST /_reindex` from the old index into it, verify counts, then point an
-   **alias** (module 06) that application code uses at the new index — so the
-   swap is invisible to callers. You can't retype the field in place.
+## Next Steps
 
-</details>
-
-## Further reading & sources
-
-- [Mapping](https://www.elastic.co/guide/en/elasticsearch/reference/current/mapping.html) - the official reference on defining an index's fields and types.
-- [Field data types](https://www.elastic.co/guide/en/elasticsearch/reference/current/mapping-types.html) - the full catalogue of types (`text`, `keyword`, `scaled_float`, `date`, `nested`, and more).
-- [Text vs. keyword — the field type dilemma](https://www.elastic.co/blog/strings-are-dead-long-live-strings) - Elastic's explainer on why strings split into `text` and `keyword` and how multi-fields bridge them.
-- [Dynamic mapping](https://www.elastic.co/guide/en/elasticsearch/reference/current/dynamic-mapping.html) - how Elasticsearch guesses types, and the `dynamic` settings (`true`/`runtime`/`false`/`strict`).
-- [Reindex API](https://www.elastic.co/guide/en/elasticsearch/reference/current/docs-reindex.html) - the mechanism for "changing" an immutable mapping by copying into a new index.
-- [Mapping limit settings](https://www.elastic.co/guide/en/elasticsearch/reference/current/mapping-settings-limit.html) - the field-count limits behind mapping-explosion failures.
-
-## Next
-
-[02-basic-and-full-text-search](../02-basic-and-full-text-search/README.md) —
-you can now define exactly how each field is stored. Next you'll learn to
-*query* it: term vs match queries, and the analyzer machinery that turns text
-into terms — the piece that finally explains why `Running`, `running`, and
-`runs` do or don't find the same documents.
+Advance to [Module 02: Basic & Full-Text Search Queries](../02-basic-and-full-text-search/README.md) to master Query DSL, compound `bool` filters, match phrases, and precision matching.

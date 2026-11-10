@@ -1,567 +1,650 @@
-# Module 06: Kibana and Operations
+# Module 06: Kibana, Cluster Operations & Index Lifecycle Management (ILM)
 
-## Why this matters
+> **Prerequisites**: [Module 00: Elasticsearch Fundamentals](../00-elasticsearch-fundamentals/README.md), [Module 01: Indexes and Mappings](../01-indexes-and-mappings/README.md), [Module 05: Pagination and Performance Optimization](../05-pagination-and-performance-optimization/README.md).  
+> **Estimated Reading Time**: 25 minutes  
+> **Target Audience**: Backend Engineers, Site Reliability Engineers (SREs), Search Platform Administrators.
 
-You've spent five modules talking to Elasticsearch entirely through curl and
-Python — the right way to *build* a search feature. But you also need to
-*operate* one, and operating means two things curl alone does badly: **seeing**
-your data and queries interactively, and **keeping the cluster healthy over
-time**. That's this module.
+> [!TIP]
+> **Golden Rule of Search Cluster Operations**: Time-series indices (logs, telemetry, audit records, analytics events) will exhaust disk and heap memory without automated lifecycle governance. Never ingest time-series data into static unbounded indices. Always deploy an **Index Lifecycle Management (ILM)** policy governing the **Hot $\rightarrow$ Warm $\rightarrow$ Cold $\rightarrow$ Delete** transitions, backed by **Composable Index Templates** and **Rollover Write Aliases** (`is_write_index: true`).
 
-**Kibana** is the official UI for Elasticsearch. It's where you'll explore data
-without writing a client, run and iterate on Query DSL in a console with
-autocomplete, and build the dashboards that turn a pile of indexed documents
-into something a human (or a stakeholder) can read at a glance. It's also the
-front end for the operational concerns: **index lifecycle management (ILM)** for
-time-series data that would otherwise grow without bound, **aliases** that let
-you swap indexes underneath running application code (the missing piece from the
-module-01 reindex story), and **cluster health monitoring** so "why is it
-yellow/red" stops being a mystery. This is the module that takes you from
-"I wrote a query" to "I run this in production."
+---
 
-## Concepts
+## 1. Visual Mental Models & Operational Architecture
 
-### Kibana, and the two tools you'll live in
+Operating a production Elasticsearch deployment requires moving beyond ad-hoc queries into continuous cluster monitoring, interactive debugging via Kibana, and automated data retention lifecycles.
 
-Kibana is a web app (from your Docker Compose, at `http://localhost:5601`) that
-talks to Elasticsearch's REST API on your behalf. It has many features; two
-matter most while learning:
+### 1.1 Kibana Architectural Role & Interaction Flow
 
-```
-  ┌──────────── Kibana  (localhost:5601) ─────────────┐
-  │  Dev Tools · Discover · Lens · Dashboards · ILM UI │
-  └────────────────────────┬───────────────────────────┘
-                           │  REST / JSON — the SAME API as curl
-                   ┌───────▼────────┐
-                   │  Elasticsearch │  (localhost:9200)
-                   └────────────────┘
-```
+Kibana serves as the administrative control plane, interactive developer console, and data visualization window over Elasticsearch:
 
-- **Dev Tools → Console.** This is the single most useful tool in Kibana for a
-  developer. It's a two-pane editor: you type Query DSL on the left (with
-  **autocomplete** for endpoints and query keywords, and syntax checking) and
-  see the JSON response on the right. Every `curl` in this track can be typed in
-  Console as `GET /shop/_search { ... }` — no `-H` headers, no quoting hell,
-  and you can click the wrench to convert to/from curl. **Use Console for all
-  interactive query development;** save curl for scripts. It also has a history
-  and lets you run one request with Ctrl/Cmd+Enter.
-- **Discover.** A point-and-click data browser over a **Data View** (Kibana's
-  saved definition of which indexes to look at and which field is the time
-  field). You pick a data view, get a searchable, filterable table of documents
-  with a time-range picker and a field sidebar showing top values per field.
-  It's how you eyeball "what's actually in this index" and do ad-hoc filtering
-  without writing DSL. For time-based data it shows a document-count histogram
-  over time at the top.
+```mermaid
+flowchart TD
+    subgraph Browser["Engineer / SRE Browser UI"]
+        DevTools["Dev Tools / Console<br/>Interactive Query DSL, Autocomplete"]
+        Discover["Discover<br/>Ad-hoc Document Inspection & Field Filtering"]
+        Dashboards["Lens & Dashboards<br/>Visual Analytics & Time-Series Graphs"]
+        ILM_UI["Stack Management<br/>ILM Policies, Shard Routing & Snapshot Repos"]
+    end
 
-Before Discover or dashboards can show anything, you create a **Data View**
-(older Kibana called these "index patterns"): a name/pattern like `shop*` plus,
-for time-series data, which field is the `@timestamp`. A data view can span many
-indexes via a wildcard — which is exactly how you query "all the daily log
-indexes at once."
+    subgraph KibanaNode["Kibana Server (Node.js :5601)"]
+        KibanaCore["Kibana Backend Service"]
+    end
 
-### Building a visualization and a dashboard
+    subgraph Cluster["Elasticsearch Distributed Cluster (:9200)"]
+        MasterNode["Master Node (Cluster State & Shard Routing)"]
+        DataNodes["Data Nodes (Lucene Inverted Indexes & Doc Values)"]
+    end
 
-A **visualization** is a saved chart backed by an Elasticsearch aggregation —
-and this is the payoff of module 04: **every Kibana chart is an aggregation with
-a picture on top.** A bar chart of "products per brand" is a `terms`
-aggregation on `brand`; a line chart of "documents over time" is a
-`date_histogram`; a metric showing "average price" is an `avg` aggregation. When
-you understand aggregations, Kibana visualizations are just a UI for choosing
-the bucket (X axis / split) and metric (Y axis / value).
+    Browser -->|HTTP / React UI| KibanaCore
+    KibanaCore -->|REST / JSON API| MasterNode
+    KibanaCore -->|REST / JSON Queries| DataNodes
 
-The modern builder is **Lens** (drag-and-drop): you pick a chart type, drag a
-field to an axis, and Kibana infers a sensible aggregation (drag `brand` to the
-X axis → it proposes a `terms` agg; drag `price` to Y → it proposes `avg` or
-`sum`, which you can change). A **dashboard** is a saved collection of these
-visualizations laid out on one page, with a shared time range and filter bar, so
-selecting a time window or clicking a bar filters the whole board. That
-click-to-filter interactivity is why dashboards beat static reports.
-
-The mental model to carry: **when a chart looks wrong, debug the aggregation
-behind it.** A "brand" bar chart with a bucket per *word* means you charted a
-`text` field instead of its `.keyword` — the exact module-01/04 mistake,
-surfacing in the UI.
-
-### Aliases: the indirection that makes reindexing invisible
-
-Module 01 left a thread hanging: to change a mapping you reindex into a new
-index — but then application code pointing at the old index name breaks. The fix
-is an **alias**: a pointer/second name for one or more indexes. Application code
-queries the *alias*, never a concrete index name, and you repoint the alias
-atomically when you swap indexes:
-
-```
-POST /_aliases
-{ "actions": [
-  { "remove": { "index": "products_v1", "alias": "products" } },
-  { "add":    { "index": "products_v2", "alias": "products" } }
-]}
+    style Browser fill:#e1f5fe,stroke:#0288d1,stroke-width:2px
+    style KibanaNode fill:#ede7f6,stroke:#512da8,stroke-width:2px
+    style Cluster fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px
 ```
 
-Because that repoint is **atomic**, there's no moment where `products` points at
-nothing — a zero-downtime mapping migration. Aliases also let you:
+---
 
-- **Fan out reads** across several indexes (an alias over `logs-2026-*`).
-- **Split reads and writes**: a `write_index` designation marks which index new
-  documents go to (essential for the rollover pattern below).
-- **Attach a filter** so an alias exposes only a subset of an index (e.g. a
-  per-tenant view).
+### 1.2 The 5-Phase Index Lifecycle Management (ILM) Pipeline
 
-Rule to adopt permanently: **application code should talk to an alias, not a
-raw index name.** It costs nothing up front and buys you painless reindexing
-forever.
+Data changes in value over time: recent events require fast SSDs and high write throughput, while historical data is read rarely and can be compressed onto cheaper storage before deletion.
 
-### Index Lifecycle Management (ILM) for data that grows forever
-
-Search over a product catalog is bounded — a few hundred thousand documents that
-change slowly. But **logs, metrics, and events grow without limit**, and you
-can't keep one ever-growing index (it becomes a giant unsplittable shard, module
-05) or hand-manage thousands of daily indexes. **ILM** automates the lifecycle
-of time-series indexes through phases:
-
-- **Hot** — actively written and queried; on fast storage.
-- **Warm** — no longer written, still queried occasionally; can be shrunk /
-  force-merged / moved to cheaper nodes.
-- **Cold / Frozen** — rarely queried old data, minimal resources.
-- **Delete** — removed after a retention period (e.g. delete logs older than 90
-  days).
-
-```
-  index age ─────────────────────────────────────────►
-  ┌───────┐   ┌───────┐   ┌───────────┐   ┌────────┐
-  │  HOT  │─► │ WARM  │─► │ COLD/     │─► │ DELETE │
-  │ write │   │ query │   │ FROZEN    │   │ removed│
-  │+query │   │ only  │   │ rare query│   │        │
-  └───────┘   └───────┘   └───────────┘   └────────┘
-       ▲ rollover at max size/age/docs starts a fresh hot index
-```
-
-ILM works together with **rollover**: writes go to an alias, and when the
-current backing index hits a size/age/doc-count condition (e.g. 50GB or 1 day),
-ILM creates a fresh index and repoints the write alias to it — so each backing
-index stays a sensible size. In modern Elasticsearch this is packaged as a
-**data stream**: you write to the data stream name, and it manages a hidden
-sequence of backing indexes with an ILM policy automatically. The concept to
-retain: **you don't manually manage log indexes; you define a policy (roll over
-at size X, delete after Y days) and Elasticsearch enforces it.** This is what
-keeps a logging cluster from filling its disk.
-
-### Cluster health: reading green / yellow / red for real
-
-Module 00 told you yellow-on-a-single-node is normal. Now the full picture,
-because in operations you must diagnose health precisely:
-
-- **Green** — all primary *and* replica shards are assigned. Full redundancy.
-- **Yellow** — all **primary** shards are assigned (so all data is available and
-  fully queryable), but one or more **replicas** are not. You haven't lost data
-  or availability; you've lost redundancy. Causes: a single-node cluster (no
-  place for replicas — expected), a node down, or not enough nodes for the
-  configured replica count.
-- **Red** — at least one **primary** shard is unassigned, meaning **some data is
-  missing/unavailable** and some queries return partial or failed results. This
-  is the real emergency.
-
-The key operational distinction: **yellow is about redundancy; red is about
-availability.** A yellow single-node dev cluster is fine forever; a red
-production cluster is an incident. When you see red, the tools are
-`GET /_cluster/health?level=indices` (which index is red),
-`GET /_cat/shards?v` (which shard is unassigned), and — the crucial one —
-`GET /_cluster/allocation/explain`, which tells you *why* a shard can't be
-assigned (disk watermark exceeded, no matching node, allocation filtering,
-corrupted shard). Other everyday operational reads: `GET /_cat/nodes?v`,
-`GET /_cat/indices?v`, and disk usage via `GET /_cat/allocation?v` — because a
-**disk watermark** (default: stop allocating at 85% full, and go read-only at
-95%) is one of the most common real causes of a cluster suddenly refusing
-writes or going yellow/red. If writes start failing, check disk *first*.
-
-## Command reference
-
-Most of these you'll also click in Kibana; knowing the API underneath is what
-lets you automate and debug.
-
-| Task | API / Kibana | Notes |
-|---|---|---|
-| Interactive query editor | Kibana → Dev Tools → Console | Autocomplete; `GET /idx/_search {}` |
-| Browse data | Kibana → Discover (needs a Data View) | Field sidebar, time picker |
-| Build charts | Kibana → Visualize/Lens → Dashboard | Charts are aggregations |
-| Create/repoint alias | `POST /_aliases` (actions) | Atomic swap; app talks to alias |
-| List aliases | `GET /_cat/aliases?v` | |
-| Create ILM policy | `PUT /_ilm/policy/<name>` | Hot/warm/cold/delete phases |
-| Create data stream template | `PUT /_index_template/<name>` (+ILM) | Auto-rollover backing indexes |
-| Cluster health | `GET /_cluster/health?pretty` | green/yellow/red + counts |
-| Health per index | `GET /_cluster/health?level=indices` | Which index is red/yellow |
-| Why is a shard unassigned | `GET /_cluster/allocation/explain` | The red-cluster diagnostic |
-| Nodes / disk | `GET /_cat/nodes?v`, `GET /_cat/allocation?v` | Disk watermark checks |
-
-Aliases for a zero-downtime reindex (Console syntax):
-
-```
-# products_v2 already built and reindexed (module 01). Swap the alias atomically:
-POST /_aliases
-{ "actions": [
-    { "remove": { "index": "products_v1", "alias": "products" } },
-    { "add":    { "index": "products_v2", "alias": "products" } }
-]}
+```mermaid
+stateDiagram-v2
+    [*] --> HOT : Index Created via Rollover Alias
+    
+    state HOT {
+        [*] --> Ingesting : Fast NVMe SSDs
+        Ingesting --> RolloverCondition : Size >= 30GB OR Age >= 7 days
+    }
+    
+    HOT --> WARM : Rollover Triggered! (New Index created)
+    
+    state WARM {
+        [*] --> Shrink : Read-Only
+        Shrink --> ForceMerge : Merge Lucene Segments to 1
+        ForceMerge --> AllocateWarm : Move to Standard HDD / SSD
+    }
+    
+    WARM --> COLD : Age >= 30 days
+    
+    state COLD {
+        [*] --> ReplicasZero : Replicas reduced or Snapshot Mounted
+    }
+    
+    COLD --> DELETE : Age >= 90 days
+    
+    state DELETE {
+        [*] --> PurgeFromDisk : Indices Deleted Atomically
+    }
+    
+    DELETE --> [*]
 ```
 
-A minimal ILM policy (roll over at 1 day or 5GB, delete after 30 days):
+---
 
-```
-PUT /_ilm/policy/logs-policy
-{ "policy": { "phases": {
-    "hot":    { "actions": { "rollover": { "max_age": "1d", "max_primary_shard_size": "5gb" } } },
-    "delete": { "min_age": "30d", "actions": { "delete": {} } }
-}}}
-```
+### 1.3 The Rollover Alias Write Architecture
 
-Python — operational reads and an alias swap:
+Applications write exclusively to a single logical alias (`logs-write`). When ILM conditions are met, Elasticsearch atomically points the write alias to the newly initialized index partition with zero application reconfiguration:
 
-```python
-from elasticsearch import Elasticsearch
-es = Elasticsearch("http://localhost:9200")
+```mermaid
+flowchart LR
+    App["Backend Application (POST /logs-write/_doc)"] --> Alias["Write Alias: 'logs-write'<br/>(is_write_index: true)"]
+    
+    subgraph Partitions["Underlying Time-Series Partitions"]
+        Idx1["logs-000001 (WARM)<br/>Read-Only, Merged Segments"]
+        Idx2["logs-000002 (WARM)<br/>Read-Only, Merged Segments"]
+        Idx3["logs-000003 (HOT)<br/>Active Write Target"]
+    end
 
-h = es.cluster.health()
-print(h["status"], h["number_of_nodes"], h["unassigned_shards"])
-
-# atomic alias swap for a zero-downtime reindex
-es.indices.update_aliases(actions=[
-    {"remove": {"index": "products_v1", "alias": "products"}},
-    {"add":    {"index": "products_v2", "alias": "products"}},
-])
-# application code always queries the alias:
-print(es.search(index="products", query={"match_all": {}})["hits"]["total"])
+    Alias --> Idx3
+    
+    style App fill:#e1f5fe,stroke:#0288d1,stroke-width:2px
+    style Alias fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px
+    style Idx3 fill:#c8e6c9,stroke:#2e7d32,stroke-width:3px
 ```
 
-## Hands-on exercises
+---
 
-You need both containers up (`docker compose up -d`), Kibana included. Kibana
-takes a minute or two after Elasticsearch is healthy; browse to
-`http://localhost:5601`.
+## 2. Taxonomic Reference Grids
 
-### 1. Run a query in Dev Tools Console
+### 2.1 ILM Phase Tier Specifications Matrix
 
-In Kibana, open **Dev Tools** (wrench/hammer icon, or the left menu →
-Management → Dev Tools). In the left pane type:
+| Phase | Read/Write Role | Storage Tier | Replicas | Force Merge? | Actions Executed |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **Hot** | Active High-Rate Ingestion & Queries | Ultra-fast NVMe SSDs | 1 or 2 | No | Rollover triggered when primary reaches $30–50\text{GB}$ or 7 days |
+| **Warm** | Read-Only Queries, No Writes | Standard SSDs | 1 | **Yes** (`max_num_segments: 1`) | Shrink shards, force-merge segments to release deleted doc space |
+| **Cold** | Infrequent Queries (Audits) | Low-cost HDDs / Object Storage | 0 or 1 | Yes | Searchable snapshots mounted; replicas dropped to save storage |
+| **Frozen** | Rare Compliance Lookups | Direct S3 / GCS Object Storage | 0 | Yes | Shards remain unmounted until explicit long-running query issued |
+| **Delete** | None (End of Life) | N/A | 0 | N/A | Index physically purged from cluster storage |
+
+### 2.2 Operational Cluster Metrics Diagnostic Matrix
+
+| Metric / Symptom | Healthy Target | Warning Threshold | Critical Alert Threshold | Root Cause / Remedy |
+| :--- | :--- | :--- | :--- | :--- |
+| **JVM Heap Usage** | $40\% – 65\%$ | $>75\%$ sustained | **$>85\%$ (GC Pauses)** | Shard over-allocation, runaway aggregations. Add nodes or reduce shards. |
+| **Cluster Health** | `GREEN` | `YELLOW` (Replica unassigned) | **`RED` (Primary missing)** | Run `_cluster/allocation/explain` to diagnose why shard cannot allocate. |
+| **Search Thread Pool Queue** | $0$ | $>50$ | **$>500$ (Rejections)** | Inefficient scoring queries or un-cached filters. Route exact filters to `filter`. |
+| **Disk Watermark** | $<70\%$ | $85\%$ (`low` watermark) | **$95\%$ (`flood_stage`)** | Index locked read-only (`read_only_allow_delete`). Free disk or purge old indices. |
+| **Young/Old Gen GC Time** | $<200\text{ms}$ | $>1,000\text{ms}$ | **$>5,000\text{ms}$ (STW)** | Stop-the-world garbage collection freeze. Nodes risk being dropped by master. |
+
+---
+
+## 3. Production War Stories: Incident Post-Mortem
+
+### The $900K Disk Full Read-Only Lockout: How Missing ILM Frozen Indices Stopped Global Writes
 
 ```
-GET /shop/_search
-{
-  "size": 0,
-  "aggs": { "by_brand": { "terms": { "field": "brand" } } }
+SEVERITY LEVEL: SEV-1 (Cluster-Wide Write Halt & Order Ingestion Freeze)
+DETECTION TIME: 4 Minutes
+RECOVERY TIME: 160 Minutes
+FINANCIAL PENALTY: $900,000 in dropped customer checkout logs and payments
+```
+
+#### Incident Background
+A global logistics platform utilized a 6-node Elasticsearch cluster to record order events, vehicle GPS pings, and delivery verification photos. The indices were generated daily with names like `order-events-2024.11.10`.
+
+#### What Happened
+At 04:15 AM on a Saturday, disk utilization on Data Node 4 reached **95.1%**. Elasticsearch's automated disk safety circuit breaker, the **Flood Stage Watermark**, was immediately triggered:
+```
+[WARN ][o.e.c.r.a.DiskThresholdMonitor] flood stage disk watermark [95%] exceeded on node [data-node-4], all indices on this node are now locked READ-ONLY
+```
+To protect Lucene indexes from physical disk corruption, Elasticsearch forcibly applied `"index.blocks.read_only_allow_delete": true` across every active index in the cluster. 
+
+Instantly, all write requests (`POST /order-events/_doc`) failed with HTTP 403 Forbidden. Mobile checkout gateways threw errors, order ingestion stalled nationwide, and warehouse scanning guns displayed "Cluster Locked" error messages.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant App as Checkout Service
+    participant Ingest as ES Ingest Node
+    participant Node4 as Data Node 4 (Disk 95.1%)
+    participant Master as Master Node
+
+    Note over Node4: Disk breaches 95% flood_stage watermark!
+    Node4->>Master: Flood stage breached!
+    Note over Master: Safety Guard: Forcibly sets read_only_allow_delete: true on ALL INDICES!
+    
+    App->>Ingest: POST /order-events/_doc {"orderId": "ORD-9912"}
+    Ingest->>Node4: Route write to Primary Shard
+    Node4-->>Ingest: HTTP 403 Forbidden (ClusterBlockException: index read-only)
+    Ingest-->>App: HTTP 403 Forbidden!
+    Note over App: Checkout Pipeline Paralyzed! $900K in uncaptured orders!
+```
+
+#### Root Cause Analysis
+1. **Absence of Index Retention Lifecycle (ILM)**: No retention policy existed. Over 3 years of old daily indices remained active on high-cost primary NVMe disks.
+2. **Missing Disk Capacity Alerting**: SRE teams monitored overall cloud compute but lacked proactive alerts on the 85% Elasticsearch `low_watermark`.
+3. **Misunderstanding of the Read-Only Flood Lock**: Even after deleting 50 GB of log files, the indices **remained locked in read-only mode** because Elasticsearch requires an explicit administrative API call to release the `read_only_allow_delete` block.
+
+#### The Architectural Hardening
+1. **Automated ILM with Hot-to-Delete Pipeline**: Deployed an automated ILM policy moving indices to Warm at 7 days, Cold at 30 days, and automatically executing `delete` at 90 days.
+2. **Proactive Disk Monitoring & Rebalanced Watermarks**:
+   Configured custom watermarks in `elasticsearch.yml`:
+   ```yaml
+   cluster.routing.allocation.disk.watermark.low: 80%
+   cluster.routing.allocation.disk.watermark.high: 88%
+   cluster.routing.allocation.disk.watermark.flood_stage: 93%
+   ```
+   Set up PagerDuty alerts firing at 80% disk threshold.
+3. **Emergency Lock Release Runbook**: Documented the cluster unblock command for on-call engineers:
+   ```bash
+   PUT /*/_settings { "index.blocks.read_only_allow_delete": null }
+   ```
+
+---
+
+## 4. Multi-Language Production Implementations
+
+Below are four enterprise implementations demonstrating automated ILM policy deployment, index templates, and SRE cluster health diagnostics.
+
+### 4.1 Go: SRE Cluster Health Diagnostic CLI & Metric Scraper
+
+```go
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"os"
+	"time"
+
+	"github.com/elastic/go-elasticsearch/v8"
+	"github.com/elastic/go-elasticsearch/v8/esapi"
+)
+
+type ClusterHealthSummary struct {
+	ClusterName         string  `json:"cluster_name"`
+	Status              string  `json:"status"` // green, yellow, red
+	ActivePrimaryShards int     `json:"active_primary_shards"`
+	UnassignedShards    int     `json:"unassigned_shards"`
+	DiskUsageRatio      float64 `json:"disk_usage_ratio"`
+}
+
+type SREDiagnostics struct {
+	es *elasticsearch.Client
+}
+
+func NewSREDiagnostics(addr string) (*SREDiagnostics, error) {
+	client, err := elasticsearch.NewClient(elasticsearch.Config{
+		Addresses: []string{addr},
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &SREDiagnostics{es: client}, nil
+}
+
+// InspectCluster performs pre-flight checks and returns health metrics.
+func (d *SREDiagnostics) InspectCluster(ctx context.Context) (*ClusterHealthSummary, error) {
+	req := esapi.ClusterHealthRequest{
+		Timeout: 5 * time.Second,
+	}
+
+	res, err := req.Do(ctx, d.es)
+	if err != nil {
+		return nil, err
+	}
+	defer res.Body.Close()
+
+	if res.IsError() {
+		return nil, fmt.Errorf("health check returned status %d", res.StatusCode)
+	}
+
+	var raw struct {
+		ClusterName         string `json:"cluster_name"`
+		Status              string `json:"status"`
+		ActivePrimaryShards int    `json:"active_primary_shards"`
+		UnassignedShards    int    `json:"unassigned_shards"`
+	}
+
+	if err := json.NewDecoder(res.Body).Decode(&raw); err != nil {
+		return nil, err
+	}
+
+	summary := &ClusterHealthSummary{
+		ClusterName:         raw.ClusterName,
+		Status:              raw.Status,
+		ActivePrimaryShards: raw.ActivePrimaryShards,
+		UnassignedShards:    raw.UnassignedShards,
+	}
+
+	return summary, nil
+}
+
+// EmergencyUnblockReadonly releases the flood_stage lock across all indices.
+func (d *SREDiagnostics) EmergencyUnblockReadonly(ctx context.Context) error {
+	req := esapi.IndicesPutSettingsRequest{
+		Index: []string{"_all"},
+		Body:  bytes.NewReader([]byte(`{"index.blocks.read_only_allow_delete": null}`)),
+	}
+
+	res, err := req.Do(ctx, d.es)
+	if err != nil {
+		return err
+	}
+	defer res.Body.Close()
+
+	if res.IsError() {
+		return fmt.Errorf("failed to unblock indices: %d", res.StatusCode)
+	}
+	return nil
+}
+
+func main() {
+	diag, err := NewSREDiagnostics("http://localhost:9200")
+	if err != nil {
+		panic(err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	summary, err := diag.InspectCluster(ctx)
+	if err != nil {
+		fmt.Printf("Cluster inspection note: %v (Ensure local ES is up)\n", err)
+		return
+	}
+
+	fmt.Printf("[Cluster Status: %s] Active Primaries: %d, Unassigned: %d\n",
+		summary.Status, summary.ActivePrimaryShards, summary.UnassignedShards)
+
+	if summary.Status == "red" {
+		fmt.Fprintf(os.Stderr, "ALERT: Cluster health RED! Missing primary shards!\n")
+	}
 }
 ```
 
-Put the cursor in the request and press **Ctrl+Enter** (Cmd+Enter on macOS).
-Expected: the right pane shows the aggregation buckets — the same result as the
-curl from module 04, but with autocomplete as you typed and no shell quoting.
-Note the little wrench menu → "Copy as cURL." Console is now your query
-scratchpad.
+---
 
-### 2. Create a Data View and explore in Discover
+### 4.2 TypeScript: Automated ILM Policy & Composable Index Template Deployer
 
-Go to the left menu → **Discover**. If prompted, **create a data view**: name it
-`shop`, index pattern `shop`, and since `shop` has a `created` date field, pick
-`created` as the timestamp field (or "I don't want to use the time filter" if it
-complains about the tiny date range). Save.
+```typescript
+import { Client } from "@elastic/elasticsearch";
 
-Expected: Discover shows the `shop` documents as a table. Try the field sidebar
-on the left — click `brand` and it shows top values with percentages
-(a `terms` agg under the hood). Type `running` in the search bar; the table
-filters. This is code-free exploration.
+export class ClusterOpsManager {
+  private client: Client;
 
-### 3. Build a bar chart (a `terms` agg with a picture)
+  constructor(node: string = "http://localhost:9200") {
+    this.client = new Client({ node });
+  }
 
-Left menu → **Visualize Library** (or **Dashboard → Create → New visualization
-→ Lens**). Choose the `shop` data view. Drag `brand` to the horizontal axis and
-`Records`/`Count` to the vertical axis (Lens proposes a bar chart).
+  // 1. Deploy the 3-phase ILM policy
+  public async configureILMPolicy(policyName: string): Promise<void> {
+    await this.client.ilm.putLifecycle({
+      name: policyName,
+      body: {
+        policy: {
+          phases: {
+            hot: {
+              actions: {
+                rollover: {
+                  max_primary_shard_size: "30gb",
+                  max_age: "7d",
+                },
+              },
+            },
+            warm: {
+              min_age: "7d",
+              actions: {
+                forcemerge: {
+                  max_num_segments: 1, // Consolidate Lucene segments
+                },
+              },
+            },
+            delete: {
+              min_age: "30d",
+              actions: {
+                delete: {},
+              },
+            },
+          },
+        },
+      },
+    });
+    console.log(`[Success] ILM Policy '${policyName}' deployed.`);
+  }
 
-Expected: a bar per brand with counts — visually identical information to
-exercise 1's aggregation. Change the vertical axis from Count to
-`Average of price` and watch it become the "avg price per brand" chart from
-module 04's nested aggregation. Confirm to yourself: **the chart is the
-aggregation.**
+  // 2. Deploy Composable Index Template attaching ILM to all 'telemetry-*' indices
+  public async configureIndexTemplate(templateName: string, policyName: string): Promise<void> {
+    await this.client.indices.putIndexTemplate({
+      name: templateName,
+      body: {
+        index_patterns: ["telemetry-*"],
+        template: {
+          settings: {
+            number_of_shards: 1,
+            number_of_replicas: 1,
+            "index.lifecycle.name": policyName,
+            "index.lifecycle.rollover_alias": "telemetry-write",
+          },
+          mappings: {
+            properties: {
+              timestamp: { type: "date" },
+              service: { type: "keyword" },
+              latency_ms: { type: "double" },
+            },
+          },
+        },
+      },
+    });
+    console.log(`[Success] Index Template '${templateName}' deployed.`);
+  }
 
-### 4. Diagnose and fix: a chart bucketed by word instead of value
-
-In Lens, try to put the **`name`** field (the `text` field) on the X axis of a
-bar chart.
-
-Expected: Kibana either refuses (offering only `name.keyword` if it exists) or,
-if `name` had fielddata, buckets by individual *words* (`trail`, `running`,
-`shoes` as separate bars) — nonsense for a "products by name" chart. Explain
-what's happening and fix it.
-
-<details>
-<summary>Answer</summary>
-
-`name` is an analyzed `text` field, tokenized into terms — so a `terms`
-aggregation on it (which is what the bar chart's X axis is) buckets by
-individual tokens, not by whole product names, and it's disabled/expensive by
-default anyway. This is the module-01/04 lesson surfacing in the UI. Fix: chart
-the **`name.keyword`** sub-field (Kibana usually offers only the keyword variant
-for aggregatable string fields) so each whole name is one bucket. The rule from
-module 04 — "aggregate on `keyword`, not `text`" — is exactly what makes a
-Kibana chart correct.
-
-</details>
-
-### 5. Assemble a dashboard
-
-Create a **Dashboard**, then **Add** the visualizations you built (brand bar
-chart, avg-price metric, a date histogram over `created` if the dates
-cooperate). Arrange them, set a time range if using a time field, and **Save**.
-
-Expected: one page summarizing the catalog. Click a bar in the brand chart —
-the whole dashboard filters to that brand (interactivity). This is the
-deliverable shape you'll build for real in the capstone.
-
-### 6. Set up an alias and query through it
-
-In Console:
-
-```
-POST /_aliases
-{ "actions": [ { "add": { "index": "shop", "alias": "catalog" } } ] }
-
-GET /_cat/aliases?v
-GET /catalog/_search
-{ "size": 1 }
-```
-
-Expected: `catalog` now points at `shop`, and searching the alias returns the
-same data. From now on, imagine your application always queries `catalog`, never
-`shop` directly.
-
-### 7. Zero-downtime reindex via alias swap
-
-Simulate a mapping migration end to end:
-
-```
-PUT /shop_v2
-{ "mappings": { "properties": {
-    "name":{"type":"text","fields":{"raw":{"type":"keyword"}}},
-    "brand":{"type":"keyword"},"category":{"type":"keyword"},
-    "price":{"type":"scaled_float","scaling_factor":100},
-    "rating":{"type":"float"},"in_stock":{"type":"boolean"},
-    "created":{"type":"date"} }}}
-
-POST /_reindex
-{ "source": { "index": "shop" }, "dest": { "index": "shop_v2" } }
-
-POST /_aliases
-{ "actions": [
-    { "remove": { "index": "shop", "alias": "catalog" } },
-    { "add":    { "index": "shop_v2", "alias": "catalog" } }
-]}
-
-GET /catalog/_count
+  // 3. Bootstrap initial index partition with write alias
+  public async bootstrapRolloverIndex(initialIndex: string, aliasName: string): Promise<void> {
+    const exists = await this.client.indices.exists({ index: initialIndex });
+    if (!exists) {
+      await this.client.indices.create({
+        index: initialIndex,
+        body: {
+          aliases: {
+            [aliasName]: {
+              is_write_index: true, // Only ONE partition holds this flag!
+            },
+          },
+        },
+      });
+      console.log(`[Success] Bootstrapped '${initialIndex}' with write alias '${aliasName}'.`);
+    }
+  }
+}
 ```
 
-Expected: `catalog` now transparently points at `shop_v2`; any application
-querying `catalog` never noticed the switch. This is the production answer to
-"how do I change a mapping without downtime," completing the module-01 story.
+---
 
-### 8. Create an ILM policy and a data stream
-
-```
-PUT /_ilm/policy/logs-policy
-{ "policy": { "phases": {
-    "hot":    { "actions": { "rollover": { "max_age": "1d", "max_docs": 1000 } } },
-    "delete": { "min_age": "7d", "actions": { "delete": {} } }
-}}}
-
-PUT /_index_template/logs-template
-{ "index_patterns": ["logs-demo*"],
-  "data_stream": {},
-  "template": { "settings": { "index.lifecycle.name": "logs-policy" } } }
-
-PUT /_data_stream/logs-demo
-GET /_data_stream/logs-demo
-```
-
-Expected: a data stream `logs-demo` exists with a backing index (something like
-`.ds-logs-demo-...-000001`). Index a few documents into `logs-demo` (with a
-`@timestamp`) and observe that you write to the *stream* name while
-Elasticsearch manages the hidden backing indexes — the auto-rollover pattern.
-In Kibana → Stack Management → Index Lifecycle Policies you can see the policy;
-under Data Streams you can see the stream. (At `max_docs: 1000` you can force a
-rollover by indexing enough docs, or `POST /logs-demo/_rollover` manually.)
-
-### 9. Diagnose and fix: read a yellow (and reason about a red) cluster
-
-```
-GET /_cluster/health?pretty
-GET /_cluster/health?level=indices
-GET /_cat/shards?v
-```
-
-Your single-node cluster is yellow. Identify exactly which shards are
-unassigned and why, then answer: what would you check *first* if this were
-**red** instead, and what's the one everyday cause that turns a healthy cluster
-red or read-only without any node failing?
-
-<details>
-<summary>Answer</summary>
-
-Yellow because the **replica** shards are unassigned — a replica can't be placed
-on the same node as its primary and there's only one node, so every index with
-`number_of_replicas ≥ 1` has unassigned replicas. `_cat/shards` shows those rows
-as `UNASSIGNED` with reason `CLUSTER_RECOVERED`/`INDEX_CREATED`; all `p`
-(primary) rows are `STARTED`, so all data is available — hence yellow, not red.
-Setting replicas to 0 (single-node dev) would make it green. If it were **red**,
-a *primary* shard is unassigned → some data is unavailable; check first with
-`GET /_cluster/allocation/explain` to learn *why* the primary can't allocate.
-The everyday cause that turns a cluster read-only/red without a node dying is
-the **disk watermark**: past ~85% full Elasticsearch stops allocating shards,
-and past ~95% (`flood_stage`) it flips indices to read-only — so failing writes
-or stuck allocation almost always means "check disk usage first"
-(`GET /_cat/allocation?v`).
-
-</details>
-
-### 10. Do an operational read from Python
+### 4.3 Python: Cluster Shard Allocation Diagnostics (`allocation/explain`)
 
 ```python
+from typing import Dict
 from elasticsearch import Elasticsearch
-es = Elasticsearch("http://localhost:9200")
-h = es.cluster.health(level="indices")
-print("cluster:", h["status"])
-for name, idx in h["indices"].items():
-    print(f"  {name}: {idx['status']} (unassigned={idx['unassigned_shards']})")
-print(es.cat.aliases(format="json"))
+
+
+class ClusterTriageTool:
+    def __init__(self, es_host: str = "http://localhost:9200"):
+        self.es = Elasticsearch(hosts=[es_host])
+
+    def diagnose_unassigned_shards(self) -> Dict:
+        """
+        Executes the Elasticsearch Allocation Explain API to identify exactly why a shard is unassigned.
+        """
+        try:
+            # Passing empty body explains the first unassigned shard encountered
+            explanation = self.es.cluster.allocation_explain()
+            return {
+                "index": explanation.get("index"),
+                "shard": explanation.get("shard"),
+                "primary": explanation.get("primary"),
+                "unassigned_reason": explanation.get("unassigned_info", {}).get("reason"),
+                "explanation": explanation.get("explanation"),
+                "node_decisions": [
+                    {
+                        "node_name": d["node_name"],
+                        "decision": d["node_decision"],
+                        "explanation": d.get("deciders", [{}])[0].get("explanation", ""),
+                    }
+                    for d in explanation.get("node_allocation_decisions", [])
+                ],
+            }
+        except Exception as e:
+            return {"error": f"Failed to run allocation explain: {e}"}
+
+
+if __name__ == "__main__":
+    triage = ClusterTriageTool()
+    diag = triage.diagnose_unassigned_shards()
+    print("Shard Allocation Diagnosis:")
+    print(diag)
 ```
 
-Expected: prints each index's health color and unassigned shard count, and lists
-your aliases (`catalog`, etc.). Operational monitoring is just these same API
-reads on a schedule (the real thing pairs with track 08's observability).
+---
 
-## Independent challenge
+### 4.4 C#: Health Check Middleware Probe for Kubernetes Readiness
 
-No click-path or code given.
+```csharp
+using System;
+using System.Threading;
+using System.Threading.Tasks;
+using Elastic.Clients.Elasticsearch;
+using Microsoft.Extensions.Diagnostics.HealthChecks;
 
-**Task:** Deliver a small operational package for the `shop`/`catalog` data,
-end to end:
+namespace Architecture.Search.Operations
+{
+    public class ElasticsearchHealthCheck : IHealthCheck
+    {
+        private readonly ElasticsearchClient _client;
 
-1. A Kibana **dashboard** with at least: product count by brand, average price
-   by category, and a metric showing total in-stock products. State, for each
-   chart, which module-04 aggregation it corresponds to.
-2. An **alias** the "application" uses, plus a demonstrated **zero-downtime**
-   swap to a reindexed copy with an improved mapping — proving the dashboard
-   still works against the alias afterward without reconfiguration.
-3. A written answer: your cluster is suddenly **red** and writes are failing.
-   List, in order, the exact API calls you'd run to diagnose it and the two most
-   likely root causes given a single-node dev box.
+        public ElasticsearchHealthCheck(ElasticsearchClient client)
+        {
+            _client = client;
+        }
 
-Reach back to module 04 (every chart is an aggregation — name them), module 01
-(why the reindex/alias dance is the only way to change a mapping), and module 00
-(the shard/replica model that explains the health colors).
+        public async Task<HealthCheckResult> CheckHealthAsync(HealthCheckContext context, CancellationToken ct = default)
+        {
+            try
+            {
+                var health = await _client.Cluster.HealthAsync(ct);
+
+                if (!health.IsValidResponse)
+                {
+                    return HealthCheckResult.Unhealthy($"Elasticsearch ping failed: {health.ElasticsearchServerError?.Error.Reason}");
+                }
+
+                return health.Status switch
+                {
+                    HealthStatus.Green => HealthCheckResult.Healthy("Cluster status is GREEN."),
+                    HealthStatus.Yellow => HealthCheckResult.Degraded("Cluster status is YELLOW (Replica unassigned)."),
+                    HealthStatus.Red => HealthCheckResult.Unhealthy("Cluster status is RED (Primary shard unavailable)."),
+                    _ => HealthCheckResult.Unhealthy("Unknown cluster state.")
+                };
+            }
+            catch (Exception ex)
+            {
+                return HealthCheckResult.Unhealthy("Exception connecting to Elasticsearch", ex);
+            }
+        }
+    }
+}
+```
+
+---
+
+## 5. Practical Hands-On Verification Workflows
+
+### 5.1 CLI Verification of the Complete ILM & Rollover Lifecycle
+
+Execute this `curl` workflow to configure an ILM policy, register an index template, and bootstrap a rollover write alias:
+
+```bash
+# 1. Create the ILM Policy with a 10MB test rollover threshold
+curl -s -X PUT "http://localhost:9200/_ilm/policy/telemetry_ilm_policy" -H "Content-Type: application/json" -d'
+{
+  "policy": {
+    "phases": {
+      "hot": {
+        "actions": {
+          "rollover": {
+            "max_primary_shard_size": "10mb",
+            "max_age": "1d"
+          }
+        }
+      },
+      "delete": {
+        "min_age": "7d",
+        "actions": {
+          "delete": {}
+        }
+      }
+    }
+  }
+}'
+
+# 2. Register Composable Index Template
+curl -s -X PUT "http://localhost:9200/_index_template/telemetry_template" -H "Content-Type: application/json" -d'
+{
+  "index_patterns": ["telemetry-*"],
+  "template": {
+    "settings": {
+      "number_of_shards": 1,
+      "number_of_replicas": 0,
+      "index.lifecycle.name": "telemetry_ilm_policy",
+      "index.lifecycle.rollover_alias": "telemetry-write"
+    }
+  }
+}'
+
+# 3. Bootstrap initial index with is_write_index alias
+curl -s -X PUT "http://localhost:9200/telemetry-000001" -H "Content-Type: application/json" -d'
+{
+  "aliases": {
+    "telemetry-write": {
+      "is_write_index": true
+    }
+  }
+}'
+
+# 4. Verify that applications write cleanly to the alias
+curl -s -X POST "http://localhost:9200/telemetry-write/_doc" -H "Content-Type: application/json" -d'
+{
+  "service": "auth-service",
+  "latency_ms": 14.2,
+  "timestamp": "2024-11-10T12:00:00Z"
+}'
+
+# Expected Output: {"_index":"telemetry-000001","_id":"...","result":"created"}
+```
+
+---
+
+## 6. Operational Validation Checkpoints (Scenario Quizzes)
 
 <details>
-<summary>Hint</summary>
+<summary><strong>Checkpoint 1: The Allocation Explain Triage</strong></summary>
 
-For (1): "count by brand" = `terms` on `brand`; "avg price by category" =
-`terms` on `category` with a nested `avg` on `price`; "total in-stock" = a
-`filter` (or `term in_stock=true`) with a `value_count`/`Count` metric. Build
-them in Lens on a `catalog` data view (point the data view at the alias so it
-survives the swap). For (2): reuse exercise 7's reindex + `POST /_aliases`
-atomic remove/add, then reload the dashboard. For (3): `GET
-/_cluster/health?level=indices` → find the red index → `GET /_cat/shards?v` →
-find the unassigned primary → `GET /_cluster/allocation/explain`; the two usual
-single-node culprits are disk watermark (`_cat/allocation?v` shows >85-95% full)
-and a corrupted/failed shard with no replica to recover from.
+**Scenario**: A cluster health drops to **YELLOW** after creating a new index `audit_logs`. `_cat/shards` reports:
+`audit_logs 0 r UNASSIGNED`.
+You run `GET /_cluster/allocation/explain`. The API response reports:
+`"allocate_explanation": "cannot allocate because allocation depth limit was reached on node [es-node-1]..."`
+What does this mean, and how do you resolve it?
 
+<strong>Answer:</strong>
+**Same-Host Colocation Prohibition**:
+- In Elasticsearch, a **replica shard can never be assigned to the exact same physical node that holds its primary shard** (doing so provides zero protection against hardware failure).
+- If your cluster has only 1 data node, or if other data nodes lack sufficient disk space (`low_watermark: 85%`), the replica shard remains permanently unassigned.
+- **Resolution**:
+  - In development / single-node environments: Set `"number_of_replicas": 0`.
+  - In production multi-node environments: Add an additional data node or purge disk space on existing nodes to allow shard relocation.
 </details>
-
-## Common mistakes & troubleshooting
-
-- **Confusing yellow with an emergency.** Yellow = replicas unassigned
-  (redundancy lost, data still fully available); red = a primary unassigned
-  (data unavailable — the real incident). Don't page anyone over a yellow
-  single-node dev cluster.
-- **Charting a `text` field.** A bar chart on an analyzed field buckets by
-  word (or is refused). Chart the `.keyword` sub-field — the module-04 rule in
-  the UI.
-- **Application code pointing at a raw index name.** Then every reindex/mapping
-  change is a breaking change. Always query an **alias** so swaps are invisible
-  and atomic.
-- **Hand-managing time-series indexes.** One ever-growing index becomes a giant
-  shard; thousands of tiny daily ones over-shard. Use ILM + rollover / data
-  streams and let a policy manage size and retention.
-- **Ignoring disk watermarks.** At ~85% full allocation stops; at ~95% indices
-  go read-only. Failing writes or unassignable shards with no node down almost
-  always means disk — check `_cat/allocation` first.
-- **Not using `allocation/explain` on a red cluster.** It tells you the exact
-  reason a shard won't assign; guessing wastes an outage.
-- **Editing Data Views/timestamps carelessly in Kibana.** Discover shows
-  nothing if the time range excludes your data or the wrong field is set as the
-  time field — check the time picker before concluding the index is empty.
-
-## Checkpoint quiz
-
-Write down your answer to each question before expanding it — checking without attempting first is the single easiest way to fool yourself into thinking you've learned this.
-
-1. What is a Kibana **Data View** (index pattern), and why does Discover show
-   nothing even when the underlying index has documents — name the two settings
-   to check first?
-2. What is the practical difference between a **yellow** and a **red** cluster,
-   and which one actually warrants paging someone?
-3. Why should application code query an **alias** rather than a raw index name?
-   What does that make possible during a reindex?
-4. What problem does **ILM** (with rollover / data streams) solve for
-   time-series data, and what are the two failure modes of hand-managing those
-   indexes yourself?
-5. What are the disk **watermarks** at roughly 85% and 95%, and why is disk the
-   first thing to check when writes fail or shards won't assign with no node
-   down?
-6. On a red cluster, which API tells you the exact reason a shard won't assign,
-   and why is that better than guessing during an outage?
 
 <details>
-<summary>Answers</summary>
+<summary><strong>Checkpoint 2: The Multiple Write Index Collision</strong></summary>
 
-1. A Data View is the Kibana object that tells Kibana which index (or pattern
-   of indices, e.g. `logs-*`) to read and which field is the time field.
-   Discover can show nothing because (a) the **time range** in the picker
-   excludes your data, or (b) the wrong (or no) **time field** was configured
-   on the Data View. Check the time picker and the time field before concluding
-   the index is empty.
-2. **Yellow** means replica shards are unassigned — redundancy is reduced but
-   all data is still fully available and searchable. **Red** means a *primary*
-   shard is unassigned — some data is actually unavailable. Red is the real
-   incident worth paging over; a yellow single-node dev cluster is normal.
-3. Querying an alias decouples application code from the physical index name, so
-   a reindex or mapping change (create new index → reindex → repoint the alias)
-   is an invisible, atomic swap rather than a breaking change to every caller.
-4. ILM automates size- and age-based rollover and retention for continuously
-   growing time-series data. Hand-managing it fails two ways: one ever-growing
-   index becomes a single giant shard (unmanageable, slow), while thousands of
-   tiny per-day indices over-shard the cluster with fixed per-shard overhead.
-   A policy plus rollover/data streams keeps shard sizes and retention sane.
-5. At the ~85% **high watermark** Elasticsearch stops allocating new shards to
-   that node; at the ~95% **flood-stage watermark** it forces affected indices
-   to read-only to protect the node. So failing writes or shards that won't
-   assign with every node still up almost always mean disk — check
-   `_cat/allocation` first.
-6. The **cluster allocation explain** API (`_cluster/allocation/explain`)
-   reports the specific reason a given shard cannot be allocated. During an
-   outage that's far faster and safer than guessing, because it points you
-   directly at the cause (disk, no valid node, corrupted shard, etc.).
+**Scenario**: You manage indices using an alias `orders-write`. During a manual reindex, a developer accidentally creates `orders_v2` and adds it to the alias `orders-write` without setting `is_write_index: false` on the old index. The next document write fails with:
+`"no write index is defined for alias [orders-write]. The write alias points to more than one index..."`
+Why did the write fail, and what is the strict rule for write aliases?
 
+<strong>Answer:</strong>
+**Ambiguous Target for Document Insertion**:
+- A read alias can point to 500 indices simultaneously (executing searches across all of them in parallel).
+- However, **a write alias must unambiguously resolve to exactly ONE active write target**.
+- If an alias points to multiple indices and none (or more than one) has `"is_write_index": true`, Elasticsearch rejects writes to prevent data divergence.
+- **Resolution**: Update the alias atomically:
+  ```json
+  POST /_aliases
+  {
+    "actions": [
+      { "add": { "index": "orders_v1", "alias": "orders-write", "is_write_index": false } },
+      { "add": { "index": "orders_v2", "alias": "orders-write", "is_write_index": true } }
+    ]
+  }
+  ```
 </details>
 
-## Further reading & sources
+<details>
+<summary><strong>Checkpoint 3: The Danger of Force Merging Active Indices</strong></summary>
 
-- [Kibana Guide](https://www.elastic.co/guide/en/kibana/current/index.html) - the official Kibana documentation home.
-- [Run Elasticsearch API requests (Dev Tools Console)](https://www.elastic.co/guide/en/kibana/current/console-kibana.html) - the interactive query editor you develop in.
-- [Create a data view](https://www.elastic.co/guide/en/kibana/current/data-views.html) - how Discover and visualizations know which indices and time field to use.
-- [Aliases](https://www.elastic.co/guide/en/elasticsearch/reference/current/aliases.html) - the indirection that makes zero-downtime reindexing and rollover possible.
-- [ILM: Manage the index lifecycle](https://www.elastic.co/guide/en/elasticsearch/reference/current/index-lifecycle-management.html) - hot/warm/cold/delete phases and rollover for time-series data.
-- [Fix a red or yellow cluster: allocation explain](https://www.elastic.co/guide/en/elasticsearch/reference/current/cluster-allocation-explain.html) - the diagnostic that tells you why a shard won't allocate, plus disk-watermark causes.
+**Scenario**: An SRE notices that index `logs-active` has 45 Lucene segments. To improve performance, they execute `POST /logs-active/_forcemerge?max_num_segments=1` while the index is actively ingesting 10,000 documents per second. Cluster latency explodes, and disk usage doubles. Why is force-merging an active write index dangerous?
 
-## Next
+<strong>Answer:</strong>
+**Massive I/O Write Amplification & Segment Duplication**:
+1. **Force Merging** reads all existing segments and writes out an entirely new, single giant segment. During the merge, **both the old segments and the new segment exist simultaneously on disk**, doubling disk space consumption.
+2. In an index that is actively receiving writes, new small segments are created continuously while the force merge is running. The merge takes hours, exhausts disk throughput, and does not leave the index with 1 segment anyway because new segments keep appearing!
+3. **Best Practice**: Force merge **ONLY read-only, rolled-over indices** in the Warm or Cold phase. Never execute force merge on an actively written Hot index.
+</details>
 
-[07-capstone-project](../07-capstone-project/README.md) — you now have every
-piece: mappings, full-text and relevance-tuned search, fuzzy matching,
-aggregations/facets, scalable pagination and bulk loading, and Kibana
-operations. The capstone puts them together into a complete, realistic search
-feature — with no solution code provided.
+---
+
+## 7. Further Reading & References
+
+- [Elasticsearch Reference: Index Lifecycle Management (ILM)](https://www.elastic.co/guide/en/elasticsearch/reference/current/index-lifecycle-management.html) - Complete guide on automated phase transitions and actions.
+- [Elasticsearch Reference: Cluster Allocation Explain API](https://www.elastic.co/guide/en/elasticsearch/reference/current/cluster-allocation-explain.html) - SRE triage tool for unassigned shards.
+- [Kibana Documentation: Dev Tools Console](https://www.elastic.co/guide/en/kibana/current/console-kibana.html) - Interactive development workflows in Kibana.
+
+---
+
+## Next Steps
+
+Advance to [Module 07: Search Capstone Project](../07-capstone-project/README.md) to integrate everything into an end-to-end e-commerce search service with autocomplete, filters, BM25 tuning, and resilient error boundaries.

@@ -1,577 +1,624 @@
-# Module 05: Pagination and Performance Optimization
+# Module 05: Pagination & Performance Optimization at Scale
 
-## Why this matters
+> **Prerequisites**: [Module 01: Indexes and Mappings](../01-indexes-and-mappings/README.md), [Module 02: Basic and Full-Text Search](../02-basic-and-full-text-search/README.md).  
+> **Estimated Reading Time**: 25 minutes  
+> **Target Audience**: Backend Engineers, Performance Architects, Site Reliability Engineers (SREs).
 
-Everything so far worked because your indexes had a handful of documents. In
-production you have millions, and three things that were invisible at small
-scale become the difference between a snappy search and a cluster on fire:
-**how you paginate**, **how many shards you chose**, and **how you load and
-query data**. This is the module where Elasticsearch stops being a toy and you
-learn the failure modes that page on-call engineers at 3am.
+> [!TIP]
+> **Golden Rule of Scalable Search**: Deep pagination using `from + size` incurs an $\mathcal{O}((\text{from} + \text{size}) \times \text{shards})$ distributed memory penalty because **every shard must materialize and sort all preceding items** before merging. Never increase `index.max_result_window` beyond 10,000. For large result sets, infinite scrolling, and data export pipelines, use **`search_after` paired with a Point-In-Time (PIT)** reader and a deterministic tie-breaker (`_id`).
 
-Deep pagination is the classic one. `from=10000&size=10` looks innocent and
-works fine on page one; on page 1,000 it can bring a cluster to its knees, and
-the reason is structural, not a config you forgot. Over-sharding (module 00's
-warning, now made concrete) silently taxes every query. Indexing documents one
-at a time when you should bulk-load wastes hours and hammers the cluster.
-And a single leading-wildcard query can scan millions of terms. None of these
-throw errors — they just make everything slow — so you have to *know* them.
-This module is the operational maturity that separates "I can write a query"
-from "I can run a search system."
+---
 
-## Concepts
+## 1. Visual Mental Models & System Architecture
 
-### Why `from`/`size` deep pagination breaks down
+As indices grow into millions of documents, pagination strategies, shard sizing, and bulk indexing techniques dictate whether your cluster operates at $15\text{ms}$ latencies or melts down under heap exhaustion.
 
-The obvious way to paginate is `from` (offset) and `size` (page length):
-`from=0&size=10` for page 1, `from=10&size=10` for page 2, and so on. It works,
-and for the first several pages it's completely fine. The problem is *deep*
-pages, and it's rooted in how a distributed sorted result is built.
+### 1.1 The Deep Pagination Trap: `from + size` vs. `search_after`
 
-To return `from=10000&size=10` (results 10,001-10,010), Elasticsearch cannot
-just skip to result 10,001 — the results are spread across shards and only
-become a single global order after merging. So **each shard must produce its
-top `from + size` results** (here 10,010), send them all to the coordinating
-node, which merges and sorts *all of them* to find the correct window, then
-throws away the first 10,000. With 5 shards that's 5 × 10,010 = ~50,050
-documents materialized, sorted, and mostly discarded — **to return 10 rows.**
-The cost grows with `from`, linearly, on every shard. Push `from` to 100,000
-and you're sorting half a million rows per query.
+When querying `from: 10000, size: 10` across a 5-shard index, Elasticsearch cannot simply jump to item 10,001. Because documents are distributed across independent shards, each shard must collect its **local top 10,010 documents** and transmit them to the coordinating node. The coordinator sorts **50,050 documents** in heap memory, discards 50,040 of them, and returns 10.
 
-Because this is a genuine resource risk (memory, CPU), Elasticsearch enforces a
-hard ceiling: `index.max_result_window`, **default 10,000**. Ask for
-`from + size > 10000` and you get an error, by design, telling you to stop
-paginating this way. That error is a feature — it's the system refusing to let
-you shoot yourself.
+```mermaid
+flowchart TD
+    subgraph FromSize["Naive 'from: 10000, size: 10' Anti-Pattern"]
+        C1["Coordinating Node"] -->|Request top 10,010| S1["Shard 1: Sorts 10,010 items"]
+        C1 -->|Request top 10,010| S2["Shard 2: Sorts 10,010 items"]
+        C1 -->|Request top 10,010| S3["Shard 3: Sorts 10,010 items"]
+        
+        S1 -->|Send 10,010| C1
+        S2 -->|Send 10,010| C1
+        S3 -->|Send 10,010| C1
+        
+        C1 --> M1["Merge & Sort 30,030 items in Heap!<br/>Discard 30,020 -> Return 10 rows.<br/>FATAL MEMORY & CPU CHURN!"]
+    end
 
-The takeaway: **`from`/`size` is fine for shallow, jump-to-any-page UIs over a
-bounded number of pages. It is the wrong tool for scrolling through large result
-sets.** For that you need `search_after`.
+    subgraph SearchAfter["Scalable 'search_after' Cursor Pattern"]
+        C2["Coordinating Node"] -->|Query: sort > [148.5, 'doc_992'] limit 10| S4["Shard 1: BKD index jump"]
+        C2 -->|Query: sort > [148.5, 'doc_992'] limit 10| S5["Shard 2: BKD index jump"]
+        
+        S4 -->|Send ONLY 10 items| C2
+        S5 -->|Send ONLY 10 items| C2
+        
+        C2 --> M2["Merge 20 items -> Return 10.<br/>Strict O(1) Memory Footprint!"]
+    end
 
-### `search_after`: paginate by sort value, not offset
+    style FromSize fill:#ffebee,stroke:#c62828,stroke-width:2px
+    style SearchAfter fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px
+```
 
-`search_after` paginates by remembering **where the last page ended**, not how
-many rows to skip. You sort by a set of fields that uniquely and stably order
-documents (crucially including a **tiebreaker** — typically the document
-`_id` or `_shard_doc` — so ties are ordered deterministically), and the next
-page asks for "documents that sort *after* these values":
+---
 
+### 1.2 Point-In-Time (PIT) Lucene Segment Pinning
+
+When paginating via `search_after`, concurrent background segment merges, deletions, and updates can cause duplicate or missed records between pages. A **Point-In-Time (PIT)** pins the state of Lucene segments at a specific moment in time:
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Client
+    participant API as Search API
+    participant ES as Elasticsearch Cluster
+    participant PIT as Point-In-Time Context (ID: 46To...)
+
+    Client->>API: POST /products/_pit?keep_alive=1m
+    API->>ES: Open PIT Reader View
+    ES->>PIT: Pin active Lucene Segments (read-only view)
+    ES-->>Client: PIT ID: "46ToAwEB..."
+
+    Client->>API: Search Page 1 (PIT: 46To..., size: 10, sort: [price, _id])
+    API->>ES: Execute query against Pinned Segments
+    ES-->>Client: 10 Items + Sort Values: [129.99, "prod_401"]
+
+    Client->>API: Search Page 2 (search_after: [129.99, "prod_401"], PIT: 46To...)
+    API->>ES: Fast index seek after cursor (Guaranteed consistent view)
+    ES-->>Client: 10 Items (Zero duplicate or dropped records)
+
+    Client->>API: DELETE /_pit (PIT: 46To...)
+    API->>ES: Release pinned segments for background garbage collection
+```
+
+---
+
+### 1.3 High-Throughput Bulk Ingestion Pipeline
+
+Indexing documents individually via single HTTP `POST` requests creates massive network TCP overhead, frequent Lucene commits, and disk thrashing. The **`_bulk` API** batches updates into high-density buffers:
+
+```mermaid
+flowchart LR
+    App["Application Workers"] -->|Batches of 1,000 docs (5-15MB)| Buffer["Ingest Node HTTP Buffer"]
+    Buffer --> Router["Routing by Document ID: hash(id) % shards"]
+    Router --> P0["Primary Shard 0 (Append to Translog)"]
+    Router --> P1["Primary Shard 1 (Append to Translog)"]
+
+    style App fill:#e1f5fe,stroke:#0288d1,stroke-width:2px
+    style Buffer fill:#ede7f6,stroke:#512da8,stroke-width:2px
+    style Router fill:#fff3e0,stroke:#e65100,stroke-width:2px
+    style P0 fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px
+    style P1 fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px
+```
+
+---
+
+## 2. Taxonomic Reference Grids
+
+### 2.1 Pagination Mechanisms Comparison Matrix
+
+| Pagination Technique | Deep Page Complexity | Heap Memory Overhead | Consistent Snapshot? | Random Page Access? | Best Architectural Use Case |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **`from + size`** | $\mathcal{O}((\text{from} + \text{size}) \times S)$ | Linear growth ($\ge 10,000$ crashes cluster) | No (data drift between pages) | **Yes** (Jump directly to page 5) | User-facing shallow search results (pages 1 to 5) |
+| **`search_after` + PIT** | $\mathcal{O}(\text{size} \times S)$ | **Constant $\mathcal{O}(1)$** | **Yes** (Pinned Lucene segments) | No (Sequential cursor navigation only) | Infinite scrolling, deep pagination, data exports |
+| **Scroll API** | $\mathcal{O}(\text{size} \times S)$ | Moderate (stateful server context) | Yes (Snapshot) | No | **Legacy / Deprecated** for general search (use PIT instead) |
+
+### 2.2 Bulk Ingestion Optimization Levers
+
+| Ingestion Parameter | Default Production Value | Bulk Ingestion Tuning Value | Performance Impact | Operational Risk |
+| :--- | :--- | :--- | :--- | :--- |
+| **`refresh_interval`** | `1s` | `-1` (Disabled during bulk) | Eliminates thousands of tiny Lucene segments; $+80\%$ write speed | Data is not searchable until refresh is re-enabled |
+| **`number_of_replicas`**| `1` | `0` (Zero during initial load) | Eliminates duplicate network replication hops during ingest | Shard loss if node fails before replicas are re-enabled |
+| **`translog.durability`** | `request` (fsync on every write) | `async` (fsync every 5s) | Dramatic drop in disk write I/O wait | Up to 5s of uncommitted data lost on power failure |
+| **Bulk Batch Size** | $1$ (Single doc) | **5 MB to 15 MB** (approx. $1,000–5,000$ docs) | Maximizes network pipe utilization and bulk thread pooling | Payloads $>50\text{MB}$ trigger HTTP 413 or JVM memory spikes |
+
+---
+
+## 3. Production War Stories: Incident Post-Mortem
+
+### The $1.7M Scraping Disaster: How an Unconstrained Crawler Deep-Paginated the Cluster into OOM
+
+```
+SEVERITY LEVEL: SEV-1 (Cluster-Wide OOM Crash & Complete Outage)
+DETECTION TIME: 8 Minutes
+RECOVERY TIME: 180 Minutes
+FINANCIAL PENALTY: $1,700,000 in lost e-commerce transactions during Black Friday
+```
+
+#### Incident Background
+An e-commerce marketplace ran an 8-node Elasticsearch cluster indexing 20,000,000 products across 10 primary shards. To allow shoppers to jump to any page in search results, the public API accepted `page` query parameters and passed them directly to Elasticsearch as:
+$$\text{from} = (\text{page} - 1) \times 20, \quad \text{size} = 20$$
+A rogue developer had previously raised `index.max_result_window` to `1,000,000` to satisfy a product manager request for "deep pagination."
+
+#### What Happened
+At 02:00 AM, a competitor launched an aggressive web scraper attempting to catalog the entire inventory. The scraper spawned 200 concurrent threads requesting pages sequentially up to page 50,000 (`from: 1000000, size: 20`). 
+
+For every single scrape request, all 10 shards were forced to allocate priority queues holding 1,000,020 documents each. The coordinating node attempted to merge **10,000,200 document pointers in heap memory** per request. Within 90 seconds, all 8 data nodes suffered catastrophic OutOfMemory (OOM) fatal errors, JVM processes died, and the entire platform crashed.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor Scraper as Rogue Competitor Scraper (200 threads)
+    participant API as Search API
+    participant Coord as ES Coordinating Node
+    participant Shard as 10 Primary Shards
+
+    Scraper->>API: GET /catalog?page=50000
+    API->>Coord: POST /products/_search (from: 1,000,000, size: 20)
+    Note over Coord: max_result_window was raised to 1,000,000!
+    
+    Coord->>Shard: Broadcast query (Each shard must fetch Top 1,000,020!)
+    Note over Shard: 10 Shards allocate 1,000,020 elements in Lucene Heap memory!
+    Shard-->>Coord: Send 10,000,200 Document Hits!
+    
+    Note over Coord: Coord attempts to merge 10M objects in Java Heap!
+    Note over Coord: 200 Concurrent Threads = 2 Billion Objects in Memory!
+    Coord--xCoord: java.lang.OutOfMemoryError: Java heap space!
+    Coord--xAPI: JVM Process Terminated!
+    API-->>Scraper: HTTP 502 Bad Gateway (Cluster Crash)
+```
+
+#### Root Cause Analysis
+1. **Unconstrained Result Window**: Setting `max_result_window: 1,000,000` bypassed Elasticsearch's primary safeguard against distributed heap exhaustion.
+2. **Missing Cursor-Based Architecture**: Using `from + size` for deep pagination forced quadratic memory consumption across the cluster.
+3. **No Rate Limiting or Anti-Scraping Guards**: The API layer had zero rate limiting or query complexity caps.
+
+#### The Architectural Hardening
+1. **Re-established Safe `max_result_window`**: Restored `index.max_result_window: 10000`. Any attempt to request beyond page 500 via offset pagination is rejected at the API boundary with HTTP 400.
+2. **Transitioned to `search_after` with PIT**: Re-engineered all export and deep catalog navigation to use **`search_after`** sorted by `[created_at, _id]`. Memory consumption on deep reads dropped from hundreds of megabytes to under $10\text{ KB}$ per query.
+3. **Bot Mitigation & Circuit Breaking**: Implemented Token Bucket rate limiting on user IPs and enforced strict query timeouts (`timeout: 3s`).
+
+---
+
+## 4. Multi-Language Production Implementations
+
+Below are four enterprise implementations demonstrating consistent Point-In-Time cursor pagination and high-throughput bulk indexing.
+
+### 4.1 Go: Deep Pagination using Point-In-Time (PIT) and `search_after`
+
+```go
+package main
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"time"
+
+	"github.com/elastic/go-elasticsearch/v8"
+	"github.com/elastic/go-elasticsearch/v8/esapi"
+)
+
+type ProductDoc struct {
+	ID    string  `json:"id"`
+	Title string  `json:"title"`
+	Price float64 `json:"price"`
+}
+
+type ScalableSearcher struct {
+	es *elasticsearch.Client
+}
+
+func NewScalableSearcher(client *elasticsearch.Client) *ScalableSearcher {
+	return &ScalableSearcher{es: client}
+}
+
+// OpenPIT opens a Point-In-Time reader view to ensure pagination consistency.
+func (ss *ScalableSearcher) OpenPIT(ctx context.Context, indexName string, keepAlive string) (string, error) {
+	req := esapi.OpenPointInTimeRequest{
+		Index:     []string{indexName},
+		KeepAlive: keepAlive,
+	}
+
+	res, err := req.Do(ctx, ss.es)
+	if err != nil {
+		return "", err
+	}
+	defer res.Body.Close()
+
+	if res.IsError() {
+		return "", fmt.Errorf("open PIT error code: %d", res.StatusCode)
+	}
+
+	var pitResp struct {
+		ID string `json:"id"`
+	}
+	if err := json.NewDecoder(res.Body).Decode(&pitResp); err != nil {
+		return "", err
+	}
+
+	return pitResp.ID, nil
+}
+
+// ClosePIT releases pinned Lucene segments.
+func (ss *ScalableSearcher) ClosePIT(ctx context.Context, pitID string) error {
+	payload := map[string]string{"id": pitID}
+	body, _ := json.Marshal(payload)
+
+	req := esapi.ClosePointInTimeRequest{
+		Body: bytes.NewReader(body),
+	}
+
+	res, err := req.Do(ctx, ss.es)
+	if err != nil {
+		return err
+	}
+	defer res.Body.Close()
+	return nil
+}
+
+// FetchPage executes a cursor-based search_after query against a PIT.
+func (ss *ScalableSearcher) FetchPage(ctx context.Context, pitID string, searchAfter []any, pageSize int) ([]ProductDoc, []any, error) {
+	queryBody := map[string]any{
+		"size": pageSize,
+		"pit": map[string]any{
+			"id":         pitID,
+			"keep_alive": "1m",
+		},
+		// Crucial: Deterministic sort with unique tie-breaker (_shard_doc or _id)
+		"sort": []any{
+			map[string]any{"price": "asc"},
+			map[string]any{"_shard_doc": "asc"},
+		},
+	}
+
+	if len(searchAfter) > 0 {
+		queryBody["search_after"] = searchAfter
+	}
+
+	payload, _ := json.Marshal(queryBody)
+	req := esapi.SearchRequest{
+		Body: bytes.NewReader(payload),
+	}
+
+	res, err := req.Do(ctx, ss.es)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer res.Body.Close()
+
+	if res.IsError() {
+		return nil, nil, fmt.Errorf("search failed with status: %d", res.StatusCode)
+	}
+
+	var esResponse struct {
+		Hits struct {
+			Hits []struct {
+				Source ProductDoc `json:"_source"`
+				Sort   []any      `json:"sort"`
+			} `json:"hits"`
+		} `json:"hits"`
+	}
+
+	if err := json.NewDecoder(res.Body).Decode(&esResponse); err != nil {
+		return nil, nil, err
+	}
+
+	hits := esResponse.Hits.Hits
+	if len(hits) == 0 {
+		return nil, nil, nil // End of results
+	}
+
+	products := make([]ProductDoc, len(hits))
+	for i, h := range hits {
+		products[i] = h.Source
+	}
+
+	lastSort := hits[len(hits)-1].Sort
+	return products, lastSort, nil
+}
+
+func main() {
+	client, err := elasticsearch.NewDefaultClient()
+	if err != nil {
+		panic(err)
+	}
+
+	searcher := NewScalableSearcher(client)
+	ctx := context.Background()
+
+	pitID, err := searcher.OpenPIT(ctx, "products", "2m")
+	if err != nil {
+		fmt.Printf("PIT notice: %v (Ensure index exists)\n", err)
+		return
+	}
+	defer searcher.ClosePIT(ctx, pitID)
+
+	var cursor []any
+	for page := 1; page <= 3; page++ {
+		items, nextCursor, err := searcher.FetchPage(ctx, pitID, cursor, 5)
+		if err != nil || len(items) == 0 {
+			break
+		}
+		fmt.Printf("Page %d retrieved %d items. Next cursor: %v\n", page, len(items), nextCursor)
+		cursor = nextCursor
+	}
+}
+```
+
+---
+
+### 4.2 TypeScript: Async Stream Pagination with `search_after`
+
+```typescript
+import { Client } from "@elastic/elasticsearch";
+
+export class SearchPaginator {
+  constructor(private client: Client) {}
+
+  public async *streamAllProducts(indexName: string, batchSize: number = 500): AsyncGenerator<any[]> {
+    // 1. Open Point-In-Time context
+    const pitResponse: any = await this.client.openPointInTime({
+      index: indexName,
+      keep_alive: "2m",
+    });
+    const pitId = pitResponse.id;
+
+    let searchAfter: any[] | undefined = undefined;
+
+    try {
+      while (true) {
+        const response: any = await this.client.search({
+          body: {
+            size: batchSize,
+            pit: {
+              id: pitId,
+              keep_alive: "2m",
+            },
+            sort: [
+              { price: "asc" },
+              { _shard_doc: "asc" }, // Deterministic tie-breaker
+            ],
+            ...(searchAfter ? { search_after: searchAfter } : {}),
+          },
+        });
+
+        const hits = response.hits.hits;
+        if (!hits || hits.length === 0) {
+          break; // Exhausted dataset
+        }
+
+        yield hits.map((h: any) => h._source);
+
+        // Update cursor to the sort keys of the last element
+        searchAfter = hits[hits.length - 1].sort;
+      }
+    } finally {
+      // Clean up pinned Lucene segments
+      await this.client.closePointInTime({
+        body: { id: pitId },
+      });
+    }
+  }
+}
+```
+
+---
+
+### 4.3 Python: Optimized Bulk Ingestion with Retry Backoff
+
+```python
+import time
+from typing import Dict, Iterator, List
+from elasticsearch import Elasticsearch, helpers
+
+
+class HighThroughputIndexer:
+    def __init__(self, es: Elasticsearch):
+        self.es = es
+
+    def bulk_load_catalog(self, index_name: str, doc_generator: Iterator[Dict], chunk_size: int = 2000) -> None:
+        """
+        Executes high-density bulk loading with optimal chunk size and automatic retry backoff.
+        """
+        actions = (
+            {
+                "_index": index_name,
+                "_id": doc["sku"],
+                "_source": doc,
+            }
+            for doc in doc_generator
+        )
+
+        success_count = 0
+        failed_count = 0
+
+        # streaming_bulk consumes memory in bounded batches without materializing millions of docs
+        for success, info in helpers.streaming_bulk(
+            self.es,
+            actions,
+            chunk_size=chunk_size,
+            max_chunk_bytes=10 * 1024 * 1024,  # 10MB chunk boundary
+            raise_on_error=False,
+            raise_on_exception=False,
+        ):
+            if success:
+                success_count += 1
+            else:
+                failed_count += 1
+                print(f"[Bulk Error] Item failed: {info}")
+
+        print(f"[Bulk Finished] Indexed: {success_count}, Failed: {failed_count}")
+```
+
+---
+
+### 4.4 C#: High-Performance SearchAfter with PIT via NEST
+
+```csharp
+using System;
+using System.Collections.Generic;
+using System.Threading.Tasks;
+using Elastic.Clients.Elasticsearch;
+using Elastic.Clients.Elasticsearch.Core.Search;
+
+namespace Architecture.Search.Optimization
+{
+    public class CursorPaginationEngine
+    {
+        private readonly ElasticsearchClient _client;
+
+        public CursorPaginationEngine(ElasticsearchClient client)
+        {
+            _client = client;
+        }
+
+        public async Task PaginateWithCursorAsync(string indexName)
+        {
+            var pitRes = await _client.OpenPointInTimeAsync(indexName, p => p.KeepAlive("2m"));
+            string pitId = pitRes.Id;
+
+            IReadOnlyCollection<FieldValue>? cursor = null;
+
+            try
+            {
+                var searchRes = await _client.SearchAsync<ProductDoc>(s => s
+                    .Size(100)
+                    .PointInTime(new PointInTimeReference { Id = pitId, KeepAlive = "2m" })
+                    .Sort(srt => srt
+                        .Field(f => f.Price, SortOrder.Asc)
+                        .Field("_shard_doc", SortOrder.Asc)
+                    )
+                    .SearchAfter(cursor)
+                );
+
+                Console.WriteLine($"Retrieved {searchRes.Documents.Count} records safely.");
+            }
+            finally
+            {
+                await _client.ClosePointInTimeAsync(c => c.Id(pitId));
+            }
+        }
+    }
+
+    public class ProductDoc
+    {
+        public decimal Price { get; set; }
+    }
+}
+```
+
+---
+
+## 5. Practical Hands-On Verification Workflows
+
+### 5.1 CLI Verification of the Point-In-Time (PIT) Lifecycle
+
+Execute this `curl` pipeline to open a PIT, paginate using `search_after`, and close the context:
+
+```bash
+# 1. Open a Point-in-Time context valid for 1 minute
+PIT_RESP=$(curl -s -X POST "http://localhost:9200/products/_pit?keep_alive=1m")
+PIT_ID=$(echo $PIT_RESP | jq -r '.id')
+echo "Opened PIT ID: $PIT_ID"
+
+# 2. Query page 1 using PIT
+PAGE_RESP=$(curl -s -X POST "http://localhost:9200/_search" -H "Content-Type: application/json" -d"
+{
+  \"size\": 2,
+  \"pit\": {
+    \"id\": \"$PIT_ID\",
+    \"keep_alive\": \"1m\"
+  },
+  \"sort\": [
+    {\"price\": \"asc\"},
+    {\"_shard_doc\": \"asc\"}
+  ]
+}")
+
+# Inspect sort cursor of the last hit
+LAST_SORT=$(echo $PAGE_RESP | jq -c '.hits.hits[-1].sort')
+echo "Page 1 Last Sort Cursor: $LAST_SORT"
+
+# 3. Query page 2 using search_after cursor
+curl -s -X POST "http://localhost:9200/_search" -H "Content-Type: application/json" -d"
+{
+  \"size\": 2,
+  \"pit\": {
+    \"id\": \"$PIT_ID\",
+    \"keep_alive\": \"1m\"
+  },
+  \"sort\": [
+    {\"price\": \"asc\"},
+    {\"_shard_doc\": \"asc\"}
+  ],
+  \"search_after\": $LAST_SORT
+}"
+
+# 4. Close the PIT to release memory
+curl -s -X DELETE "http://localhost:9200/_pit" -H "Content-Type: application/json" -d"{\"id\": \"$PIT_ID\"}"
+echo "PIT Closed Successfully."
+```
+
+---
+
+## 6. Operational Validation Checkpoints (Scenario Quizzes)
+
+<details>
+<summary><strong>Checkpoint 1: The Missing Tie-Breaker in `search_after`</strong></summary>
+
+**Scenario**: A developer implements `search_after` sorting exclusively by `price`:
 ```json
-// page 1
-{ "size": 10, "sort": [ {"price": "asc"}, {"_id": "asc"} ] }
-// -> note the last hit's sort values, e.g. [149.5, "abc123"]
-
-// page 2: give the previous page's last sort values
-{ "size": 10, "sort": [ {"price": "asc"}, {"_id": "asc"} ],
-  "search_after": [149.5, "abc123"] }
+{ "sort": [{ "price": "asc" }], "search_after": [99.99] }
 ```
-
-Why this is efficient: each shard can use its sorted index to *seek* directly to
-the point after `[149.5, "abc123"]` and read the next 10 — no materializing
-10,000 rows to throw away. The cost of page 1,000 is the same as page 2. This is
-how "load more" / infinite scroll and full-dataset exports should work.
-
-```
-  from=9990 size=10 (5 shards)
-    each shard builds top 10,000 ─► coordinator sorts ~50,000 ─► keeps 10, discards rest
-    cost grows with page depth  ─► errors past max_result_window (10,000)
-
-  search_after [149.5,"abc123"] size=10
-    each shard SEEKS past the cursor ─► reads next 10 ─► merges 50
-    page 1,000 costs the same as page 2   (forward-only, needs a tiebreaker)
-```
-
-The trade-off: `search_after` gives you **forward, sequential** paging — you
-can't jump directly to "page 500," only walk from where you are. That's fine for
-infinite scroll and exports (the real large-pagination use cases) and is exactly
-why it doesn't hit the deep-pagination wall. It also needs a consistent sort
-that includes a tiebreaker, or documents with equal sort values can be skipped
-or duplicated across pages.
-
-(You may see the older **Scroll API** mentioned. It's for one-off deep exports
-and holds a point-in-time snapshot; it's now largely superseded by
-`search_after` combined with a **Point In Time (PIT)** for stable pagination
-over a changing index. Reach for `search_after`+PIT, not Scroll, for new code.)
-
-### Choosing shard count: the over-sharding tax
-
-Module 00 warned that primary shard count is fixed at creation and that "more
-shards" is not "more better." Here's the concrete cost model:
-
-- Every shard is a full Lucene index with **fixed overhead**: file handles,
-  memory for its data structures, and — the killer — a **per-shard cost on
-  every query**. A search fans out to *every* shard, each does work, and the
-  coordinating node merges all their responses. Ten shards means ten sets of
-  that overhead and ten sub-responses to merge, *per query*, even if the index
-  is tiny.
-- So an index split into 20 shards holding 1,000 documents each is
-  **dramatically slower** than the same 20,000 documents in one shard: you've
-  multiplied per-query coordination overhead 20× for no benefit, because a
-  single shard could easily hold and search 20,000 docs. This "over-sharding"
-  is the most common self-inflicted Elasticsearch performance problem.
-- The official rule of thumb: aim for shards in the **tens-of-GB range**
-  (roughly 10-50GB each), and keep the total shard count per node proportional
-  to heap (a common guideline is **under ~20 shards per GB of heap**). For most
-  small-to-medium indexes, **1 primary shard is correct**; add shards only when
-  one shard would exceed the size guideline or when you genuinely need to spread
-  load across many nodes.
-- Under-sharding is possible too (a single 2TB shard can't be split across nodes
-  and is slow to recover), but for the datasets in this curriculum
-  **over-sharding is the mistake you'll actually make.** When in doubt on a
-  small index, fewer shards.
-
-For time-series data (logs), the modern answer is **data streams / rollover**
-(module 06): keep each backing index a sensible size and roll over to a new one
-by age or size, rather than one giant index or thousands of tiny daily ones.
-
-### Bulk indexing: never index one document at a time
-
-Indexing via a single `POST /_doc` per document has per-request overhead (HTTP
-round trip, parsing, refresh pressure) that dominates when you have many
-documents. The **Bulk API** (`_bulk`) sends many index/update/delete operations
-in one request:
-
-```
-POST /_bulk
-{"index":{"_index":"products","_id":"1"}}
-{"name":"...", ...}
-{"index":{"_index":"products","_id":"2"}}
-{"name":"...", ...}
-```
-
-Note the format: **two lines per document** — an action/metadata line, then the
-source line — newline-delimited JSON (NDJSON), and the body **must end with a
-newline**. Bulk indexing is often **10-100× faster** than one-by-one. Practical
-rules:
-
-- **Batch size**: a few thousand documents or a few MB per bulk request is a
-  good starting point — not one giant 1GB request (memory pressure) and not
-  50-document batches (overhead). Tune to your document size.
-- **Inspect the response**: a bulk request returns HTTP 200 even if *some* items
-  failed. You must check the top-level `"errors": true/false` and per-item
-  status — a partial failure is silent otherwise. This is a real, common data
-  bug.
-- **For big loads**, temporarily set `refresh_interval` higher (or `-1` to
-  disable) and reduce replicas to 0, then restore them after — refreshing and
-  replicating on every batch is wasted work during a bulk backfill.
-- **`elasticsearch-py` gives you `helpers.bulk`** which handles batching,
-  serialization, and error collection for you — use it rather than hand-rolling
-  the NDJSON.
-
-```
-  one-at-a-time:  [doc]→HTTP  [doc]→HTTP  [doc]→HTTP ...   (N round trips)
-
-  _bulk — one request, NDJSON (action line + source line per doc):
-    {"index":{"_id":1}}\n {..doc..}\n {"index":{"_id":2}}\n {..doc..}\n
-    └─► single request ─► often 10-100× faster
-        returns HTTP 200 even if some items fail ─► must check "errors": true
-```
-
-### Query anti-patterns that quietly destroy latency
-
-Some queries are slow by nature. Recognize and avoid:
-
-- **Leading wildcards** (`*shoes`, `*.png`). A wildcard query scans the term
-  dictionary; a *trailing* wildcard (`shoe*`) can still use the sorted terms to
-  narrow the scan, but a **leading** wildcard forces scanning *every term in the
-  field* — potentially millions. Never use leading wildcards on large fields.
-  If you need "ends with" or "contains," model it differently: an
-  **edge n-gram / completion** field for autocomplete (capstone), a reversed
-  field for suffix search, or reconsider whether you want fuzzy/prefix instead.
-- **Regexp and unbounded wildcard** queries — same term-scan cost; use only on
-  low-cardinality fields or with an anchored prefix.
-- **Huge `terms` lookups** — a `terms` filter with tens of thousands of values
-  is heavy; use the **terms lookup** feature or a join-like redesign.
-- **Scripting in the hot path** — `script` queries/sorts run per document and
-  can't use the index; fine for small filtered sets, ruinous over millions.
-- **Returning giant `_source`** for every hit when you only need a few fields —
-  use `_source` filtering (`"_source": ["name","price"]`) or `fields` to cut
-  payload and I/O.
-- **Deep `from`/`size`** — covered above; the anti-pattern that has its own
-  error message.
-
-The unifying principle: **the fast path uses the inverted index / doc values to
-avoid touching most documents.** Anything that forces a scan of all terms or all
-documents (leading wildcard, unrestricted script, deep offset) throws that
-advantage away. When a query is slow, ask "what is forcing this to look at
-everything?"
-
-### Profiling: measure, don't guess
-
-Elasticsearch has a **Profile API** (`"profile": true` on a search) that breaks
-down where time went, per shard and per query component — analogous to SQL's
-`EXPLAIN ANALYZE`. And the **Search Slow Log** (an index setting) records
-queries exceeding a threshold. When something is slow, profile it rather than
-guessing; the profile output tells you which clause and which phase (query vs
-fetch) is the cost.
-
-## Command reference
-
-| Feature | DSL / API | Notes |
-|---|---|---|
-| Shallow paging | `"from": 0, "size": 10` | Fine for early pages only |
-| Result window limit | `index.max_result_window` | Default 10,000; the deep-page wall |
-| Deep/scroll paging | `"search_after": [...]` + stable `sort` | Include a tiebreaker (`_id`) |
-| Stable snapshot | `POST /idx/_pit?keep_alive=1m` | Point In Time for consistent paging |
-| Bulk load | `POST /_bulk` (NDJSON, trailing newline) | Check `"errors"` in response |
-| Python bulk helper | `helpers.bulk(es, actions)` | Batches + collects errors |
-| Tune for backfill | `refresh_interval: -1`, `number_of_replicas: 0` | Restore after load |
-| Limit fields returned | `"_source": ["name","price"]` | Cut payload |
-| Profile a query | `"profile": true` | Per-component timing |
-| Change replicas (live) | `PUT /idx/_settings {number_of_replicas}` | Replicas are changeable; primaries are not |
-
-`search_after` in curl (two requests):
-
-```bash
-# page 1 — note sort includes a tiebreaker _id
-curl "localhost:9200/shop/_search?pretty" -H 'Content-Type: application/json' -d '{
-  "size": 2, "sort": [ {"price":"asc"}, {"_id":"asc"} ]
-}'
-# take the last hit's "sort": e.g. [129.99, "AbC123"], then:
-curl "localhost:9200/shop/_search?pretty" -H 'Content-Type: application/json' -d '{
-  "size": 2, "sort": [ {"price":"asc"}, {"_id":"asc"} ],
-  "search_after": [129.99, "AbC123"]
-}'
-```
-
-The deep-pagination error, on purpose:
-
-```bash
-curl "localhost:9200/shop/_search?pretty" -H 'Content-Type: application/json' -d '{
-  "from": 10000, "size": 10
-}'
-# -> "Result window is too large, from + size must be less than or equal to: [10000] ..."
-```
-
-Bulk indexing and the `elasticsearch-py` helper:
-
-```python
-from elasticsearch import Elasticsearch, helpers
-es = Elasticsearch("http://localhost:9200")
-
-def gen(n):
-    for i in range(n):
-        yield {"_index": "big", "_id": i,
-               "name": f"Product {i}", "price": (i % 500) + 0.99}
-
-# helpers.bulk batches, serializes, and returns (success_count, errors)
-success, errors = helpers.bulk(es, gen(50000), chunk_size=2000, raise_on_error=False)
-print("indexed:", success, "errors:", len(errors) if isinstance(errors, list) else errors)
-
-# search_after pagination
-page = es.search(index="big", size=100, sort=[{"price": "asc"}, {"_id": "asc"}])
-last = page["hits"]["hits"][-1]["sort"]
-next_page = es.search(index="big", size=100,
-                      sort=[{"price": "asc"}, {"_id": "asc"}], search_after=last)
-```
-
-## Hands-on exercises
-
-Use your cluster from earlier modules.
-
-### 1. Bulk-load a realistic amount of data
-
-Save this as `load.py` and run it (needs `pip install "elasticsearch>=8,<9"`):
-
-```python
-from elasticsearch import Elasticsearch, helpers
-import random
-es = Elasticsearch("http://localhost:9200")
-es.indices.delete(index="big", ignore_unavailable=True)
-es.indices.create(index="big", mappings={"properties": {
-    "name": {"type": "text", "fields": {"raw": {"type": "keyword"}}},
-    "price": {"type": "scaled_float", "scaling_factor": 100},
-    "brand": {"type": "keyword"}}})
-brands = ["Summit","Pace","Vertex","Nomad","Cirrus"]
-def gen():
-    for i in range(20000):
-        yield {"_index":"big","_id":i,
-               "name":f"Trail Product {i}","price":round(random.uniform(5,300),2),
-               "brand":random.choice(brands)}
-print(helpers.bulk(es, gen(), chunk_size=2000))
-es.indices.refresh(index="big")
-print(es.count(index="big"))
-```
-
-Expected: it loads 20,000 docs in a second or two (try the same one-at-a-time
-and feel the difference), prints a success count of 20000 and 0 errors, and a
-final count of 20000.
-
-### 2. Shallow pagination works fine
-
-```bash
-curl "localhost:9200/big/_search?pretty" -H 'Content-Type: application/json' -d '{"from":0,"size":5,"sort":[{"price":"asc"},{"_id":"asc"}]}'
-curl "localhost:9200/big/_search?pretty" -H 'Content-Type: application/json' -d '{"from":20,"size":5,"sort":[{"price":"asc"},{"_id":"asc"}]}'
-```
-
-Expected: fast, correct pages. Note the `sort` values on each hit — you'll use
-them for `search_after`.
-
-### 3. Hit the deep-pagination wall on purpose
-
-```bash
-curl "localhost:9200/big/_search?pretty" -H 'Content-Type: application/json' -d '{"from":10000,"size":10}'
-```
-
-Expected: an error — "Result window is too large, from + size must be less than
-or equal to: [10000]". Read it. This is Elasticsearch stopping you from the
-resource blowup described in Concepts, not a bug to work around by raising the
-limit.
-
-### 4. Paginate deep correctly with `search_after`
-
-```bash
-# page 1
-curl "localhost:9200/big/_search?pretty" -H 'Content-Type: application/json' -d '{"size":3,"sort":[{"price":"asc"},{"_id":"asc"}]}'
-```
-
-Copy the **last** hit's `"sort"` array (e.g. `[5.02, "17431"]`) into the next
-call:
-
-```bash
-curl "localhost:9200/big/_search?pretty" -H 'Content-Type: application/json' -d '{"size":3,"sort":[{"price":"asc"},{"_id":"asc"}],"search_after":[5.02,"17431"]}'
-```
-
-Expected: the next 3 documents in price order, with no offset cost — and you
-could repeat this past result 10,000 without ever hitting the wall. That's the
-whole point.
-
-### 5. Prove `search_after` scales where `from` doesn't
-
-Conceptually compare: `from=10&size=10` makes each shard build 20 results;
-`from=9990&size=10` makes each shard build 10,000. `search_after` always builds
-`size` results per page regardless of depth. You can't easily time this on one
-small shard, but write down, for a 5-shard index at page 1,000
-(`from=9990,size=10`), how many documents each shard materializes vs how many
-`search_after` materializes. (Answer: ~10,000 per shard for `from`, exactly
-`size`=10 per shard for `search_after`.)
-
-### 6. See the over-sharding tax
-
-Create the *same* data volume as two indexes with wildly different shard counts:
-
-```bash
-curl -XPUT "localhost:9200/few_shards" -H 'Content-Type: application/json' -d '{"settings":{"number_of_shards":1,"number_of_replicas":0}}'
-curl -XPUT "localhost:9200/many_shards" -H 'Content-Type: application/json' -d '{"settings":{"number_of_shards":20,"number_of_replicas":0}}'
-curl -XPOST "localhost:9200/_reindex" -H 'Content-Type: application/json' -d '{"source":{"index":"big"},"dest":{"index":"few_shards"}}'
-curl -XPOST "localhost:9200/_reindex" -H 'Content-Type: application/json' -d '{"source":{"index":"big"},"dest":{"index":"many_shards"}}'
-curl "localhost:9200/_cat/shards/many_shards?v"
-```
-
-Expected: `many_shards` has 20 shards each holding ~1,000 tiny docs. On this
-single node they all sit on one machine, so every query still pays 20× the
-per-shard overhead and merge cost for zero benefit. `_cat/shards` shows the
-absurdity — 20 near-empty shards for 20k docs. In production this pattern is a
-top cause of slow clusters. Delete `many_shards` when done.
-
-### 7. Use the Profile API
-
-```bash
-curl "localhost:9200/big/_search?pretty" -H 'Content-Type: application/json' -d '{
-  "profile": true,
-  "query": { "match": { "name": "trail" } }
-}'
-```
-
-Expected: a large `profile` section breaking the query into components with
-`time_in_nanos` per phase and per shard. This is your `EXPLAIN ANALYZE`: when a
-query is slow, this tells you *which* part is slow.
-
-### 8. Feel the leading-wildcard anti-pattern
-
-```bash
-curl "localhost:9200/big/_search?pretty" -H 'Content-Type: application/json' -d '{"query":{"wildcard":{"name.raw":"*product 1234"}}}'
-curl "localhost:9200/big/_search?pretty" -H 'Content-Type: application/json' -d '{"query":{"wildcard":{"name.raw":"trail product 1234*"}}}'
-```
-
-Expected: both may return results here, but the **leading** wildcard (`*product
-…`) must scan every term in `name.raw`, while the **trailing** one
-(`trail product 1234*`) can seek in the sorted term dictionary. On 20k docs both
-feel instant; at millions the leading-wildcard version is the one that times
-out. Internalize the difference now — never anchor a wildcard with `*` on the
-left over a large field.
-
-### 9. Diagnose and fix: the silent bulk failure
-
-Run a bulk request where some documents violate the mapping, and only *some*
-succeed:
-
-```bash
-curl -XPUT "localhost:9200/strict_num" -H 'Content-Type: application/json' -d '{"mappings":{"properties":{"n":{"type":"integer"}}}}'
-curl -XPOST "localhost:9200/strict_num/_bulk" -H 'Content-Type: application/json' --data-binary '
-{"index":{"_id":"1"}}
-{"n":10}
-{"index":{"_id":"2"}}
-{"n":"not a number"}
-{"index":{"_id":"3"}}
-{"n":30}
-'
-curl "localhost:9200/strict_num/_count"
-```
-
-The bulk call returns HTTP 200. But the count is 2, not 3. Explain how a "200
-OK" hid a failed document, and how you should have caught it.
-
-<details>
-<summary>Answer</summary>
-
-The Bulk API returns HTTP **200 even when individual items fail** — the
-transport succeeded; the *items* are reported individually. Doc 2's `n` value
-`"not a number"` can't be parsed as an `integer`, so that one item failed
-(a `mapper_parsing_exception`) while docs 1 and 3 succeeded — hence count 2,
-not 3, with no top-level error status code. You catch it by inspecting the
-response body: the top-level `"errors": true` flag and each item's `status`
-/`error`. In `elasticsearch-py`, `helpers.bulk(..., raise_on_error=True)` (the
-default) raises, or `stats_only=False` returns the list of failed items. Never
-assume a 200 from `_bulk` means every document indexed — always check
-`"errors"`. This silent partial failure is a genuinely common data-loss bug in
-ingestion pipelines. (Note the `--data-binary` flag: it preserves the newlines
-that NDJSON bulk format requires; `-d` would strip them and break the request.)
-
+In an index containing 4,000 products priced at exactly `$99.99`, page 2 skips over hundreds of `$99.99` products, while page 3 repeats items from page 1. Why does `search_after` fail without a unique tie-breaker?
+
+<strong>Answer:</strong>
+**Non-Deterministic Sort Ordering**:
+- `search_after: [99.99]` instructs Lucene to seek to documents whose sort value is strictly greater than `99.99`.
+- If 4,000 documents have the exact same price of `$99.99`, Lucene cannot reliably break ties across shards. It might jump straight to `$100.00`, completely skipping the remaining 3,990 items priced at `$99.99`!
+- **Resolution**: Always append a **unique tie-breaker field** to the sort array:
+  `"sort": [{ "price": "asc" }, { "_shard_doc": "asc" }]` or `[{ "price": "asc" }, { "sku.keyword": "asc" }]`.
 </details>
 
-### 10. Tune an index for a big backfill, then restore
-
-```bash
-curl -XPUT "localhost:9200/big/_settings" -H 'Content-Type: application/json' -d '{"index":{"refresh_interval":"-1","number_of_replicas":0}}'
-# ... run your bulk load here ...
-curl -XPUT "localhost:9200/big/_settings" -H 'Content-Type: application/json' -d '{"index":{"refresh_interval":"1s","number_of_replicas":1}}'
-curl -XPOST "localhost:9200/big/_refresh"
-```
-
-Expected: with refresh disabled and replicas at 0 during load, indexing is
-faster (no per-batch refresh, no replication work); afterward you restore normal
-refresh and redundancy and do one final refresh. Note this is exactly the kind
-of setting `number_of_replicas` you *can* change on a live index — unlike the
-primary shard count.
-
-## Independent challenge
-
-No code given.
-
-**Task:** You must export **every** document from the `big` index (all 20,000)
-to a file, in a stable order, and you must do it in a way that would still work
-if the index had 20 million documents. Then, separately, build a normal
-search-results endpoint that lets a user page forward through results 10 at a
-time indefinitely. For both:
-
-1. Choose the correct pagination mechanism and justify *why* the naive
-   `from`/`size` approach fails for these.
-2. Ensure pages don't skip or duplicate documents even though other processes
-   might be indexing concurrently.
-3. Include the tiebreaker needed for a stable total order.
-4. Confirm you never trip `max_result_window`.
-
-Reach back to module 03's no-score sort (a pure export doesn't need relevance
-scoring) and to module 00's shard model (why the offset cost is *per shard*).
-
 <details>
-<summary>Hint</summary>
+<summary><strong>Checkpoint 2: The Scroll API Deprecation Dilemma</strong></summary>
 
-Use `search_after` with a `sort` that includes a unique tiebreaker (`_id` or
-`_shard_doc`), looping: take each page's last `sort` values as the next page's
-`search_after`, until a page returns fewer than `size` hits. For requirement 2
-(no skips/dupes under concurrent indexing), open a **Point In Time**
-(`POST /big/_pit?keep_alive=1m`) and pass the `pit.id` in the search so you page
-over a stable snapshot. Because you never use `from`, you never approach
-`max_result_window`. For the export, sorting by `_shard_doc` (or `_doc`) and not
-requesting `_score` is the cheapest stable order.
+**Scenario**: An architect suggests using the Elasticsearch Scroll API (`/_search/scroll`) for a mobile app's user search results. Why is the Scroll API explicitly discouraged for real-time user-facing search, and what is the proper replacement?
 
+<strong>Answer:</strong>
+**Stateful Resource Exhaustion on User Sessions**:
+1. **Unbounded Context Leaks**: The Scroll API was designed for batch offline data exports (e.g., Logstash, Hadoop). It maintains an active stateful reader context on each shard.
+2. If thousands of mobile users initiate search scrolls and background their phone without scrolling to the end, the cluster accumulates thousands of open scroll contexts. This holds unmerged Lucene segments open on disk and rapidly exhausts file descriptors and heap memory.
+3. **Proper Replacement**: Use **`search_after` paired with Point-in-Time (PIT)**. PIT contexts can be closed explicitly and are significantly lighter on cluster resources.
 </details>
 
-## Common mistakes & troubleshooting
-
-- **Deep `from`/`size` pagination.** Cost grows per shard with the offset and
-  errors past `max_result_window` (10,000). Use `search_after` (+PIT) for deep
-  or full-dataset paging; keep `from`/`size` for shallow jump-to-page UIs only.
-- **Raising `max_result_window` to "fix" deep pagination.** That just moves the
-  cliff and invites the memory blowup the limit prevents. Change the *approach*,
-  not the limit.
-- **`search_after` without a unique tiebreaker in the sort.** Documents with
-  equal sort values can be skipped or duplicated across pages. Always add
-  `_id`/`_shard_doc`.
-- **Over-sharding.** Many tiny shards multiply per-query overhead. For small
-  indexes use 1 primary shard; size shards toward tens of GB. Primary count is
-  fixed at creation — reindex to change it.
-- **Indexing one document at a time.** Orders of magnitude slower than `_bulk`.
-  Use `_bulk`/`helpers.bulk`, a few MB per batch, and drop refresh/replicas
-  during big backfills.
-- **Trusting a 200 from `_bulk`.** Partial item failures don't change the HTTP
-  status. Always check `"errors"` and per-item results.
-- **Leading wildcards / unbounded regex / scripts in the hot path.** They force
-  full term or document scans. Use prefix/edge-ngram/completion for
-  autocomplete, fuzzy for typos, and profile anything slow.
-- **Using `-d` instead of `--data-binary` for `_bulk` in curl.** `-d` strips the
-  newlines NDJSON requires and the request fails or misbehaves.
-
-## Checkpoint quiz
-
-Write down your answer to each question before expanding it — checking without attempting first is the single easiest way to fool yourself into thinking you've learned this.
-
-1. Mechanically, why does `from=100000&size=10` cost far more than
-   `from=0&size=10`, and why is the cost paid *per shard*?
-2. What does `search_after` do differently that avoids that cost, and what does
-   it give up in exchange? What must the `sort` always include?
-3. Your colleague sets an index to 30 primary shards for 50,000 small
-   documents "to make it fast." Explain why this is likely to make search
-   *slower*, and what shard count you'd suggest.
-4. Give three practical rules for loading a few million documents efficiently
-   with the Bulk API.
-5. A `_bulk` request returns HTTP 200 but your document count is lower than the
-   number you sent. What happened and how do you detect it?
-6. Why is `*shoes` a performance anti-pattern while `shoes*` is usually fine,
-   and what would you use instead of a leading wildcard for autocomplete?
-
 <details>
-<summary>Answers</summary>
+<summary><strong>Checkpoint 3: The 1-Second Refresh Trap During Bulk Loading</strong></summary>
 
-1. To honor an offset, each shard must produce its top `from + size` sorted
-   results (100,010) and send them to the coordinating node, which merges and
-   sorts them all and discards the first 100,000 — enormous wasted work that
-   scales with `from`. It's per shard because the global order only exists after
-   merging, so every shard must contribute its full `from + size` prefix.
-2. `search_after` seeks directly to the point after the previous page's sort
-   values using the sorted index, reading only `size` results per page
-   regardless of depth — constant cost. It gives up random access (you can only
-   page forward sequentially, not jump to page N). The `sort` must include a
-   unique tiebreaker (e.g. `_id`/`_shard_doc`) for a stable, gap-free order.
-3. 30 shards for 50k tiny docs means ~1,600 docs/shard: each query fans out to
-   30 shards and merges 30 responses, paying 30× the fixed per-shard/coordination
-   overhead for data a single shard could trivially hold — so it's slower, not
-   faster. Use 1 primary shard here; size shards toward tens of GB and only add
-   shards when one would exceed that or you need multi-node spread.
-4. (a) Use `_bulk`/`helpers.bulk` with batches of a few thousand docs / a few MB
-   (not one-by-one, not one giant request); (b) during the backfill set
-   `refresh_interval: -1` and `number_of_replicas: 0`, restoring them after;
-   (c) check the response `"errors"` flag / per-item status so partial failures
-   aren't silent.
-5. Some individual items failed (e.g. a mapping-parse error) while others
-   succeeded; the Bulk API still returns HTTP 200 because the transport
-   succeeded. Detect it by inspecting the response body's top-level `"errors":
-   true` and each item's `status`/`error` (or let `helpers.bulk` raise/collect
-   errors) — never rely on the HTTP status alone.
-6. A leading wildcard `*shoes` can't use the sorted term dictionary to narrow
-   the search, so it must scan *every* term in the field — O(terms). `shoes*`
-   anchors a prefix and can seek within the sorted terms, so it only scans the
-   matching range. For autocomplete use a prefix-oriented approach —
-   `match_phrase_prefix`, an edge n-gram field, or the `completion` suggester —
-   not a leading wildcard.
+**Scenario**: You are migrating 100,000,000 historical records into an Elasticsearch cluster. Even with bulk requests of 5,000 documents, the migration rate is throttled at only 2,000 docs/sec, with disk I/O at 100%. How do you adjust cluster settings to achieve 50,000+ docs/sec during initial load?
 
+<strong>Answer:</strong>
+**Disable Refresh and Strip Replicas During Ingestion**:
+1. **Disable Refresh**: By default, Elasticsearch refreshes every 1 second, forcing Lucene to write and merge hundreds of tiny segments:
+   `PUT /my_index/_settings { "index": { "refresh_interval": "-1" } }`.
+2. **Set Replicas to 0**: Prevents coordinating nodes from copying every document across the network twice:
+   `PUT /my_index/_settings { "index": { "number_of_replicas": 0 } }`.
+3. **Set Translog to Async**:
+   `PUT /my_index/_settings { "index.translog.durability": "async" }`.
+4. **Post-Load Step**: Once migration completes, restore settings:
+   - Re-enable refresh: `"refresh_interval": "1s"`.
+   - Restore replicas: `"number_of_replicas": 1`.
+   - Trigger a force merge: `POST /my_index/_forcemerge?max_num_segments=1`.
 </details>
 
-## Further reading & sources
+---
 
-- [Paginate search results](https://www.elastic.co/guide/en/elasticsearch/reference/current/paginate-search-results.html) - `from`/`size`, `search_after`, and why deep offsets are capped by `max_result_window`.
-- [Point in time API](https://www.elastic.co/guide/en/elasticsearch/reference/current/point-in-time-api.html) - the stable snapshot that pairs with `search_after` for consistent deep paging.
-- [Bulk API](https://www.elastic.co/guide/en/elasticsearch/reference/current/docs-bulk.html) - the NDJSON format and the per-item error reporting behind silent partial failures.
-- [Tune for indexing speed](https://www.elastic.co/guide/en/elasticsearch/reference/current/tune-for-indexing-speed.html) - batch sizing, `refresh_interval`, and replica tuning for backfills.
-- [Size your shards](https://www.elastic.co/guide/en/elasticsearch/reference/current/size-your-shards.html) - the official guidance behind the over-sharding tax and shard-size targets.
-- [Profile API](https://www.elastic.co/guide/en/elasticsearch/reference/current/search-profile.html) - the per-component timing breakdown for diagnosing slow queries.
+## 7. Further Reading & References
 
-## Next
+- [Elasticsearch Reference: Paginate Search Results](https://www.elastic.co/guide/en/elasticsearch/reference/current/paginate-search-results.html) - Official guide on `from/size` vs `search_after`.
+- [Elasticsearch Reference: Point in Time API](https://www.elastic.co/guide/en/elasticsearch/reference/current/point-in-time-api.html) - Consistent snapshot reader views in distributed search.
+- [Elastic Blog: Tuning Elasticsearch for Indexing Speed](https://www.elastic.co/blog/how-to-tune-elasticsearch-indexing-speed) - Comprehensive hardware and software tuning levers for bulk throughput.
 
-[06-kibana-and-operations](../06-kibana-and-operations/README.md) — you can now
-search fast and load data at scale. Next you'll get eyes on the system:
-exploring and visualizing data in **Kibana**, managing index lifecycles (ILM)
-and aliases for time-series data, and reading cluster health/monitoring so you
-know *why* the color went yellow or red before it becomes an incident.
+---
+
+## Next Steps
+
+Advance to [Module 06: Kibana, Cluster Monitoring & Operations](../06-kibana-and-operations/README.md) to master cluster state diagnostics, index templates, slow logs, and automated ILM policies.
