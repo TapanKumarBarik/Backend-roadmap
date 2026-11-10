@@ -316,9 +316,10 @@ moves below the fold.
 - **A 3-minute video sits on a 20-minute, 4,200-word lesson.** A reader who came from the video wants the short
   version first. Add "Key takeaways" (three to five lines) and the PDF note directly under the video, then the full
   text.
-- **No clear end.** At the foot there is previous and next. Replace with one bar: "Mark as done", then "Check
-  yourself" (two or three questions from the bank, answered in place), then "Next lesson". Finishing a lesson should
-  feel like finishing something and should feed the streak.
+- **The end of a lesson skipped the quiz.** (Corrected 2026-11-10: I first wrote that a lesson had no clear end. It has a
+  "Reached the end?" bar with Mark complete and Next.) The real gap was that "Mark complete & continue" moved on without
+  the lesson's quiz, which sat further down. **Done:** the bar now offers "Check yourself" beside Mark complete when the
+  lesson has a quiz. Still open: only 24 quizzes cover 17 of 84 tracks, so most lessons have nothing to offer there.
 - **Inline checkpoints.** A long lesson has no question until its end. One question after each major section keeps a
   reader active; the reference site you showed does this with its checkpoints.
 - **The outline lists 25 or more entries** including every code listing. Show the top-level sections; open sub-entries
@@ -387,6 +388,21 @@ moves below the fold.
 
 Each of these should be measured against the same numbers as the rest of this document (return on day 1, 7 and 30,
 drills answered, design answers submitted), not judged by eye.
+
+## Status of the plan
+
+Updated as work is done. The first column follows the numbering in "The daily loop" and the UI order above.
+
+| Item | State |
+|---|---|
+| Release calendar ("New" mark, "Next video ..." on the Videos page) | **Done**, 2026-11-10 |
+| "Check yourself" in a lesson's finish bar | **Done**, 2026-11-10 |
+| Daily drill | In progress in another session ("Daily Incident": migration 0007, `content/practice/incidents.json`, a dialog and a button in the top bar) |
+| One navigation, the "today" screen, the first-visit home page, onboarding | Not started here: another session is editing `App.jsx`, `Landing.jsx`, `TopBar.jsx`, `MainColumn.jsx`, `landing.css` and `global.css` at the same time, and these items live in those files. Start when that work is committed |
+| Email (sign-up, welcome, streak reminder, weekly digest) | Not started. Needs a decision and an account for a sender (Resend or Cloudflare Email) and consent wording; I will not set up an external service without that |
+| Events table and return-rate view | Not started. A new migration (0008, after the drill's 0007), applied by hand |
+| Quiz one question at a time, Practice recommendations | Not started |
+| Rubrics and AI feedback for design challenges; the paid tier | Not started; see "What to charge for" |
 
 ## A 90-day order of work
 
