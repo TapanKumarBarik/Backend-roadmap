@@ -22,6 +22,9 @@ Start with [ARCHITECTURE.md](ARCHITECTURE.md): what the repository is made of, h
 | [ADMIN_CONTENT.md](ADMIN_CONTENT.md) | What an admin can edit in the browser (paths, videos, SEO) and how it is saved |
 | [STUDIO.md](STUDIO.md) | The community writing studio |
 | [ROADMAP.md](ROADMAP.md) | What is planned |
+| [EMAIL_PLAN.md](EMAIL_PLAN.md) | How to reach a reader: what Cloudflare and Resend cost, what you do, what is built, the consent rules |
+| [TRUST_PLAN.md](TRUST_PLAN.md) | Making the content something a reader can rely on: the wrong lesson, the facts to check, an author page, a reviewed mark |
+| [REPO_PRIVATE_CHECKLIST.md](REPO_PRIVATE_CHECKLIST.md) | Review before making the repository private, and the steps in order |
 | [PRODUCT_ANALYSIS.md](PRODUCT_ANALYSIS.md) | 2026-11-10 review: the gaps, what comparable products charge for, and a plan for daily return and a paid tier |
 
 ## Addresses, SEO and quality

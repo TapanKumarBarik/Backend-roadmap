@@ -389,6 +389,17 @@ moves below the fold.
 Each of these should be measured against the same numbers as the rest of this document (return on day 1, 7 and 30,
 drills answered, design answers submitted), not judged by eye.
 
+## Decisions made (2026-11-10)
+
+| Question | Decision |
+|---|---|
+| Charging | **Everything stays free for now. Payment is added last**, after the daily loop, the trust work and the graded practice exist. This reverses nothing yet: the "free, no paid tiers" rule stands until then. No provider is chosen and nothing is built for payment |
+| Email: can Cloudflare send it for free? | **No.** Cloudflare's Email Sending needs the Workers Paid plan ($5 a month, 3,000 emails included). The free route is **Resend's free plan** (3,000 a month, 100 a day). Plan, with what you do and what I build: [EMAIL_PLAN.md](EMAIL_PLAN.md). Dormant code can be built before the account exists |
+| Repository | **To be made private soon.** Reviewed: no secrets found, nothing in the code needs it to be public, but forks and the old licence mean it cannot be un-published. Steps: [REPO_PRIVATE_CHECKLIST.md](REPO_PRIVATE_CHECKLIST.md) |
+| Trust (wrong lesson, unchecked facts, author page) | **A plan only; the owner edits the lessons.** [TRUST_PLAN.md](TRUST_PLAN.md) lists every place the GenAI claim is made, the eight facts to check and where, the author-page facts needed, and the code I build (a "reviewed" mark, the about page, a corrections log) |
+| Work in the files another session is editing | Wait for that session to commit, then take the home page, navigation, "today" screen, onboarding and the Network Lab link |
+| Who decides | The owner has asked me to take full control of the rest. I act on the plan, tell what I did, and still do not push, post, apply migrations, change production configuration or change `privacy.html` or `terms.html` without an explicit word |
+
 ## Status of the plan
 
 Updated as work is done. The first column follows the numbering in "The daily loop" and the UI order above.
@@ -399,12 +410,15 @@ Updated as work is done. The first column follows the numbering in "The daily lo
 | "Check yourself" in a lesson's finish bar | **Done**, 2026-11-10 |
 | Daily drill | In progress in another session ("Daily Incident": migration 0007, `content/practice/incidents.json`, a dialog and a button in the top bar) |
 | One navigation, the "today" screen, the first-visit home page, onboarding | Not started here: another session is editing `App.jsx`, `Landing.jsx`, `TopBar.jsx`, `MainColumn.jsx`, `landing.css` and `global.css` at the same time, and these items live in those files. Start when that work is committed |
-| Email (sign-up, welcome, streak reminder, weekly digest) | Not started. Needs a decision and an account for a sender (Resend or Cloudflare Email) and consent wording; I will not set up an external service without that |
+| Email (sign-up, welcome, streak reminder, weekly digest) | Planned in [EMAIL_PLAN.md](EMAIL_PLAN.md): Resend free plan. The code can be built dormant now; the owner creates the account and the domain records, applies migration 0008 and approves the privacy wording |
 | Events table and return-rate view | Not started. A new migration (0008, after the drill's 0007), applied by hand |
 | Quiz one question at a time | **Done**, 2026-11-10 |
 | Practice recommendations ("Recommended for you": weak topics, then what is new, then what is due for another go; the reason on each card) | **Done**, 2026-11-10. Not from lessons read: that data is in the app shell, not passed to Practice. Also fixed: best scores no longer go stale after a try |
 | Network Lab: subnet calculator, drills and a daily puzzle at `/tools/subnet/` (an idea from the owner; it gives the daily hook and search traffic for "subnet calculator" and "CIDR" with no server cost) | **Built**, 2026-11-10; further tools (TCP handshake ordering, ports, DNS records) and a link from the navigation are not done, the navigation being in the files another session is editing |
-| Rubrics and AI feedback for design challenges; the paid tier | Not started; see "What to charge for" |
+| Rubrics and AI feedback for design challenges | Not started; free first |
+| The paid tier and payment | **Last.** Decided 2026-11-10: free for now, payment at the end |
+| Trust work: the GenAI lesson, the unchecked facts, an author page, a "reviewed" mark, a corrections log | Planned in [TRUST_PLAN.md](TRUST_PLAN.md); the owner edits content, I build the code |
+| Repository private | Reviewed in [REPO_PRIVATE_CHECKLIST.md](REPO_PRIVATE_CHECKLIST.md); the owner flips it |
 
 ## A 90-day order of work
 
