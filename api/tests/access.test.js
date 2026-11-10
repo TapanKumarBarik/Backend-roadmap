@@ -25,6 +25,8 @@ const PUBLIC = [
   'GET /api/practice/interview/:slug',
   'GET /api/practice/challenges/:kind/:slug',
   'POST /api/practice/quizzes/:slug/attempts',
+  'GET /api/practice/daily-incident',
+  'POST /api/practice/daily-incident/attempt', // signed out, the answer is shown and nothing is saved, as with a quiz
   'GET /api/practice/submissions/:kind/:slug/shared',
   'GET /api/announcements',
   'GET /api/popular',
